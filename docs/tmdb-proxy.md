@@ -21,21 +21,26 @@ at the end.
   | --- | --- | --- |
   | Charts | `movie/popular`, `movie/now_playing`, `tv/popular`, `tv/airing_today`, `discover/movie`, `discover/tv` | 10 min |
   | Search | `search/movie`, `search/tv`, `search/multi`, `search/person` | 30 min |
-  | Records | `movie/{id}`, `tv/{id}`, their `credits`, `external_ids`, `tv/{id}/aggregate_credits`, `tv/{id}/season/{n}`, `person/{id}`, `person/{id}/combined_credits`, `person/{id}/external_ids`, `find/{imdb or tvdb id}` | 2 h |
+  | Records | `movie/{id}`, `tv/{id}`, their `credits`, `external_ids` and `alternative_titles`, `tv/{id}/aggregate_credits`, `tv/{id}/season/{n}`, `person/{id}`, `person/{id}/combined_credits`, `person/{id}/external_ids`, `find/{imdb or tvdb id}` | 2 h |
 
-  `append_to_response` accepts `credits` and `external_ids` (plus `aggregate_credits` on a
-  show, `combined_credits` on a person); `include_adult` accepts only `false`.
+  That covers the home shelves, the calendar and detail pages, the actor page's 其他作品 (person
+  record and person search) and 文件来源 matching (title search and alternative titles).
+  `append_to_response` accepts `credits` and `external_ids` on a title (plus `aggregate_credits`
+  on a show) and `combined_credits`, `translations` and `external_ids` on a person;
+  `include_adult` accepts only `false`.
 - **Upstream**: `https://api.themoviedb.org/3` plus the canonical path and query, with the
   server's own bearer. No redirects, 5 s to connect and 12 s in all, at most 4 MiB of body, and
   at most 8 reads in flight; a request that waits 8 s for one gets `503 tmdb_busy`.
 - **Cache**: successful JSON answers only, in memory, least recently used out first, at most
   2,048 entries and 24 MiB (counted as UTF-16), 1 MiB per entry. Answers carry
   `X-Yfuse-Tmdb-Cache: hit` or `miss`. A restart empties it.
-- **Limits**: 600 requests a minute per IP before authentication, and 240 a minute per account
+- **Limits**: 900 requests a minute per IP before authentication, and 480 a minute per account
   across all its devices after it, answered with `429 tmdb_rate_limited` and `Retry-After`. The
   app cannot keep these answers in its own HTTP cache (Caddy and the account handler mark every
   `/api/*` response `no-store`), so the budget is sized for uncached traffic: a cold start with
-  the calendar is about 80 reads.
+  the calendar is about 80 reads, and a 文件来源 scan (three title matches at a time) several a
+  second. Past the limit an app that still has a token goes direct for the `Retry-After`; a scan
+  without one leaves its remaining files for the next pass.
 - **TMDB's answers**: `400`, `404` and `422` are passed on and not cached. A `429` is passed on
   with its `Retry-After` (1–120 s, 10 s when absent), and until it passes every cache miss is
   answered `429` without asking TMDB; cache hits are still served. `401` and `403` (TMDB refusing

@@ -23,10 +23,14 @@ class TmdbProxyTest {
 
     @Test
     fun every_read_the_app_makes_is_allowlisted() {
-        // Mirrors TmdbRepository's requests: home shelves, calendar discovery, details, seasons.
+        // Mirrors the app's requests: home shelves, calendar discovery, details and seasons
+        // (TmdbRepository), 其他作品 (TmdbPeopleService) and 文件来源 matching (searchTitles and
+        // alternativeTitles), with the parameters each sends.
         val reads =
             listOf(
                 "movie/popular" to mapOf("language" to "zh-CN"),
+                "tv/popular" to mapOf("language" to "zh-CN"),
+                "movie/now_playing" to mapOf("language" to "zh-CN"),
                 "tv/airing_today" to mapOf("language" to "zh-CN"),
                 "discover/movie" to
                     mapOf(
@@ -61,9 +65,25 @@ class TmdbProxyTest {
                 "movie/603" to mapOf("language" to "zh-CN", "append_to_response" to "credits"),
                 "tv/1399" to mapOf("language" to "zh-CN"),
                 "tv/1399/season/8" to mapOf("language" to "zh-CN"),
-                "person/6384" to mapOf("language" to "zh-CN", "append_to_response" to "combined_credits,external_ids"),
+                "person/6384" to mapOf("language" to "zh-CN", "append_to_response" to "combined_credits,translations"),
                 "person/6384/combined_credits" to mapOf("language" to "zh-CN"),
-                "search/person" to mapOf("query" to "基努·里维斯", "language" to "zh-CN"),
+                "search/person" to mapOf("query" to "基努·里维斯", "language" to "zh-CN", "include_adult" to "false"),
+                "search/movie" to
+                    mapOf(
+                        "query" to "The Wandering Earth",
+                        "language" to "zh-CN",
+                        "include_adult" to "false",
+                        "primary_release_year" to "2019",
+                    ),
+                "search/tv" to
+                    mapOf(
+                        "query" to "Sousou no Frieren",
+                        "language" to "zh-CN",
+                        "include_adult" to "false",
+                        "first_air_date_year" to "2023",
+                    ),
+                "movie/535167/alternative_titles" to emptyMap(),
+                "tv/209867/alternative_titles" to emptyMap(),
                 "find/tt0133093" to mapOf("external_source" to "imdb_id"),
                 "tv/1399/external_ids" to emptyMap(),
             )

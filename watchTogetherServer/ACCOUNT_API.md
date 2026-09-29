@@ -260,8 +260,8 @@ authenticated user inside the account service where applicable:
 | Sync `PUT` and `DELETE` combined, per IP and per user | 30 requests/minute |
 | Password change, per IP and per user | 5 requests/15 minutes |
 | Failed login, per normalized username across IPs | 10 failures/5 minutes |
-| TMDB proxy `GET /api/v1/tmdb/...`, per IP | 600 requests/minute |
-| TMDB proxy, per user across devices | 240 requests/minute (`429 tmdb_rate_limited`) |
+| TMDB proxy `GET /api/v1/tmdb/...`, per IP | 900 requests/minute |
+| TMDB proxy, per user across devices | 480 requests/minute (`429 tmdb_rate_limited`) |
 
 The TMDB proxy's allowlist, cache and error mapping are described in `docs/tmdb-proxy.md`.
 

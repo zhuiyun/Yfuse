@@ -29,10 +29,11 @@ internal enum class TmdbFreshness(
 }
 
 /**
- * The only reads the proxy forwards: what `TmdbRepository` asks for, plus the person, credits,
- * search, find and external-id lookups the actor page (其他作品) uses. Anything else is refused
- * rather than trimmed, so the account's session cannot be spent on arbitrary TMDB calls and an
- * unexpected parameter never changes what a cached answer means.
+ * The only reads the proxy forwards: the home shelves, calendar and detail reads `TmdbRepository`
+ * makes, the person record and person search behind the actor page's 其他作品, the title search and
+ * alternative titles 文件来源 matching uses, and the credits, find and external-id lookups beside
+ * them. Anything else is refused rather than trimmed, so the account's session cannot be spent on
+ * arbitrary TMDB calls and an unexpected parameter never changes what a cached answer means.
  */
 internal fun tmdbProxyRequest(
     path: List<String>,
@@ -221,6 +222,16 @@ private val TMDB_ENDPOINTS: List<TmdbEndpoint> =
         ),
         TmdbEndpoint("tv/{id}/external_ids", listOf(literal("tv"), ID, literal("external_ids")), TmdbFreshness.Detail),
         TmdbEndpoint(
+            "movie/{id}/alternative_titles",
+            listOf(literal("movie"), ID, literal("alternative_titles")),
+            TmdbFreshness.Detail,
+        ),
+        TmdbEndpoint(
+            "tv/{id}/alternative_titles",
+            listOf(literal("tv"), ID, literal("alternative_titles")),
+            TmdbFreshness.Detail,
+        ),
+        TmdbEndpoint(
             "tv/{id}/season/{n}",
             listOf(literal("tv"), ID, literal("season"), SEASON),
             TmdbFreshness.Detail,
@@ -230,7 +241,10 @@ private val TMDB_ENDPOINTS: List<TmdbEndpoint> =
             "person/{id}",
             listOf(literal("person"), ID),
             TmdbFreshness.Detail,
-            mapOf("language" to LANGUAGE, "append_to_response" to appendable("combined_credits", "external_ids")),
+            mapOf(
+                "language" to LANGUAGE,
+                "append_to_response" to appendable("combined_credits", "translations", "external_ids"),
+            ),
         ),
         TmdbEndpoint(
             "person/{id}/combined_credits",

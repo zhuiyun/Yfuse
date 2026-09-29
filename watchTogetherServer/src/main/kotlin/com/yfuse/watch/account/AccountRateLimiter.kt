@@ -21,11 +21,12 @@ data class AccountRateLimitPolicy(
     val inviteIssueAttemptsPerWindow: Int = 10,
     val inviteIssueWindowMs: Long = 60_000L,
     /**
-     * TMDB reads bypass the app's HTTP cache (every /api response is no-store), so a cold start
-     * plus the calendar is about eighty of them. Per IP this leaves room for a household's devices;
-     * the proxy applies its own, lower, per-account budget after authentication.
+     * TMDB reads bypass the app's HTTP cache (every /api response is no-store): a cold start plus
+     * the calendar is about eighty of them, and a 文件来源 scan several a second. Per IP this leaves
+     * room for a household's devices; the proxy applies its own, lower, per-account budget after
+     * authentication.
      */
-    val tmdbProxyAttemptsPerWindow: Int = 600,
+    val tmdbProxyAttemptsPerWindow: Int = 900,
     val tmdbProxyWindowMs: Long = 60_000L,
     /** Counts IP/bucket pairs, so one IP using multiple buckets occupies multiple entries. */
     val maxTrackedEntries: Int = 10_000,

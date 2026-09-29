@@ -166,10 +166,12 @@ internal class TmdbProxy(
 
     companion object {
         /**
-         * Per account, across all of its devices. A cold start with the calendar is about eighty
-         * reads, none of them cached by the app, so this is two such bursts a minute.
+         * Per account, across all of its devices; none of these reads is cached by the app. A cold
+         * start with the calendar is about eighty, and a 文件来源 scan matches three titles at a time,
+         * several reads a second. Past this an app that still has a token goes direct for the
+         * Retry-After, and a scan without one leaves its remaining files for the next pass.
          */
-        val TMDB_ACCOUNT_RATE_POLICY = AccountRateLimitPolicy(tmdbProxyAttemptsPerWindow = 240)
+        val TMDB_ACCOUNT_RATE_POLICY = AccountRateLimitPolicy(tmdbProxyAttemptsPerWindow = 480)
 
         /** TMDB's missing title, bad parameter and invalid page answers are real answers too. */
         private val RELAYED_CLIENT_ERRORS = setOf(400, 404, 422)

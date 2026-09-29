@@ -38,7 +38,7 @@ class TmdbProxyRoutesTest {
 
     private fun proxy(
         token: String? = SERVER_TOKEN,
-        accountAttempts: Int = 240,
+        accountAttempts: Int = TmdbProxy.TMDB_ACCOUNT_RATE_POLICY.tmdbProxyAttemptsPerWindow,
     ) = TmdbProxy(
         token = token,
         upstream = upstream,
