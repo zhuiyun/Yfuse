@@ -19,6 +19,12 @@ data class HandoffDevice(
      * a phone of the same account can join by [sessionId].
      */
     val acceptsRemote: Boolean = false,
+    /**
+     * 用手机登录: that television's 添加服务器 is waiting for a phone of the same account to hand it a
+     * server over the relay ([WatchProtocol.CAPABILITY_REMOTE_SIGN_IN]). Only one that
+     * [acceptsRemote] can: it asks on the socket it hosts on.
+     */
+    val asksRemoteSignIn: Boolean = false,
 )
 
 /**
@@ -33,8 +39,8 @@ data class HandoffPull(
 )
 
 /**
- * [nowPlaying], [pull] and [acceptsRemote] are optional and newer than the rest: a service that
- * predates them ignores them, and a device that predates them sends none.
+ * [nowPlaying], [pull], [acceptsRemote] and [asksRemoteSignIn] are optional and newer than the
+ * rest: a service that predates them ignores them, and a device that predates them sends none.
  */
 @Serializable
 data class HandoffHeartbeat(
@@ -44,6 +50,7 @@ data class HandoffHeartbeat(
     val nowPlaying: HandoffEnvelope? = null,
     val pull: HandoffPull? = null,
     val acceptsRemote: Boolean = false,
+    val asksRemoteSignIn: Boolean = false,
 )
 
 /** The media identity, credentials-free locator and track preferences stay inside the vault. */

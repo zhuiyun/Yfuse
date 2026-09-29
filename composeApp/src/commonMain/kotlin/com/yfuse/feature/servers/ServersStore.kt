@@ -5,6 +5,7 @@ import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
+import com.yfuse.core.data.AuthedServer
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlexCloudResource
 import com.yfuse.core.data.PlexPinSession
@@ -404,6 +405,17 @@ sealed interface ServersIntent {
 
     data object Submit : ServersIntent
 
+    /**
+     * 用手机登录: a session a phone of the same account handed this device. It is checked with its
+     * server and saved the way a sign-in here would have been — a password never comes, and none is
+     * needed. [localNetworkDenied] says the permission a LAN server needs was just refused, so the
+     * phone can be told at once instead of waiting on a request that cannot go.
+     */
+    data class SignInWithSession(
+        val server: AuthedServer,
+        val localNetworkDenied: Boolean = false,
+    ) : ServersIntent
+
     data object Scan : ServersIntent
 
     /** The confirmation toast finished or was swiped away. */
@@ -446,6 +458,14 @@ sealed interface ServersLabel {
     data class ServerAdded(
         val first: Boolean,
         val signedInAgain: String? = null,
+    ) : ServersLabel
+
+    /**
+     * How a session handed over by a phone went — [saved], or not — for the phone that sent it to
+     * hear. A saved one is followed by [ServerAdded], as any sign-in is.
+     */
+    data class SessionHandedOver(
+        val saved: Boolean,
     ) : ServersLabel
 }
 
@@ -686,6 +706,7 @@ class ServersStoreFactory(
                 is ServersIntent.SelectPlexHomeUser -> selectPlexHomeUser(intent.id)
                 is ServersIntent.SelectPlexCloudServer -> selectPlexCloudServer(intent.id)
                 ServersIntent.Submit -> submit()
+                is ServersIntent.SignInWithSession -> signInWithSession(intent)
                 ServersIntent.Scan -> scan()
                 ServersIntent.LocalNetworkPermissionDenied -> {
                     dispatch(Msg.ScanDone(emptyList(), LocalNetworkPermissionRequiredException().message))
@@ -1176,6 +1197,54 @@ class ServersStoreFactory(
                 attributes = mapOf("serverId" to savedServer.id),
             )
             finishSignIn(savedServer, firstServer)
+        }
+
+        /**
+         * 用手机登录: a phone handed over [intent]'s session. As a sign-in here would, the server has
+         * to take it first; then it is saved where every sign-in goes, the session in the secure
+         * store. Only fixed labels are logged — nothing of the server, its address or its session.
+         */
+        private fun signInWithSession(intent: ServersIntent.SignInWithSession) {
+            val refused = { message: String ->
+                dispatch(Msg.SubmitError(message))
+                publish(ServersLabel.SessionHandedOver(saved = false))
+            }
+            if (intent.localNetworkDenied) {
+                refused(LocalNetworkPermissionRequiredException().message.orEmpty())
+                return
+            }
+            // Only the add form takes one: in an edit it would replace that server with another.
+            if (!state().dialogVisible || state().editingServerId != null || state().form.submitting) {
+                publish(ServersLabel.SessionHandedOver(saved = false))
+                return
+            }
+            dispatch(Msg.Submitting)
+            val server = intent.server
+            scope.launch {
+                repo.probeAddress(server.baseUrl, server.accessToken, server.kind).onFailure {
+                    AppLog.warning(
+                        category = "server.auth",
+                        event = "handed_session_refused",
+                        message = "A server did not take a session handed over from a phone",
+                        attributes = mapOf("error" to (it::class.simpleName ?: "unknown")),
+                    )
+                    refused(it.toUserMessage("服务器没有接受手机发来的登录"))
+                    return@launch
+                }
+                val savedServer = server.toSavedServer()
+                val firstServer = state().servers.isEmpty()
+                writeRegistry { registry.addOrUpdate(savedServer) }.onFailure {
+                    refused(it.registryEditMessage())
+                    return@launch
+                }
+                AppLog.info(
+                    category = "server.auth",
+                    event = "handed_session_saved",
+                    message = "A session handed over from a phone was saved",
+                )
+                publish(ServersLabel.SessionHandedOver(saved = true))
+                finishSignIn(savedServer, firstServer)
+            }
         }
 
         /** How every sign-in that reached the registry ends, whichever part of the form it came from. */

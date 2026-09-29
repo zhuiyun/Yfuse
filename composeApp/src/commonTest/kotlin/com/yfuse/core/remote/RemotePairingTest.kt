@@ -65,6 +65,23 @@ class RemotePairingTest {
     }
 
     @Test
+    fun the_relay_hears_of_a_phone_each_time_it_is_let_in_and_not_otherwise() {
+        val waiting = RemotePairing().connected("phone-a", "小米 14", nobody)
+        assertEquals(emptyList(), waiting.admittedSince(RemotePairing()))
+        val allowed = waiting.allow("phone-a")
+        assertEquals(listOf("phone-a"), allowed.admittedSince(waiting))
+        assertEquals(emptyList(), allowed.connected("phone-a", null, nobody).admittedSince(allowed))
+        assertEquals(emptyList(), allowed.heard("phone-a", nobody).admittedSince(allowed))
+        // Back after its network blinked, while 允许一次 holds: in at once, on a connection that waits.
+        val gone = allowed.disconnected("phone-a", remaining = 0)
+        assertEquals(listOf("phone-a"), gone.connected("phone-a", "小米 14", nobody).admittedSince(gone))
+        // A trusted phone is let in as it connects; letting one go lets nobody in.
+        val trusted = RemotePairing().connected("phone-b", null) { true }
+        assertEquals(listOf("phone-b"), trusted.admittedSince(RemotePairing()))
+        assertEquals(emptyList(), trusted.release("phone-b").admittedSince(trusted))
+    }
+
+    @Test
     fun hosting_again_with_no_phone_left_starts_over() {
         val pairing = RemotePairing().connected("phone-a", null, nobody)
         assertEquals(pairing, pairing.hosted(count = 1))

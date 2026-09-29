@@ -39,10 +39,14 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
 | C→S | `grantControl` / `denyControl` | 房主同意或拒绝控制请求 |
 | C→S | `setControlMode` / `setModerator` | 房主选择仅房主、共同控制或指定管理员 |
 | C→S | `kickParticipant` | 房主将指定成员移出当前房间 |
-| C→S | `remoteHost` | 手机遥控：前台电视以自己的账号会话开放遥控 |
+| C→S | `remoteHost` | 手机遥控：前台电视以自己的账号会话开放遥控；`capabilities` 含 `remotePairing` 表示电视先询问再放手机进来 |
 | C→S | `remoteJoin` | 手机遥控：手机按 `remoteSessionId` 连接同账号的电视；可带本机安装的固定 `remoteDeviceId` 与设备名 `name` |
 | C→S | `remoteKey` / `remoteText` | 手机遥控：按键（`remoteKey`）或输入框全文（`text`，最多 64 字素、256 字节，可为空） |
 | C→S | `remoteRelease` | 手机遥控：电视按 `remoteDeviceId` 断开一部手机；`errorCode` 为 `remote_refused` 表示拒绝 |
+| C→S | `remoteAdmit` | 手机遥控：电视按 `remoteDeviceId` 放一部手机进来（允许一次或始终允许） |
+| C→S | `remoteSignInAsk` / `remoteSignInEnd` | 用手机登录：电视在开放遥控的连接上请求服务器，或结束请求（`errorCode` 只能为空、`remote_sign_in_cancelled` 或 `remote_sign_in_failed`） |
+| C→S | `remoteSignInOffer` | 用手机登录：手机按 `remoteSessionId` 把一台服务器（`signInServer`，不含会话）摆到同账号请求中的电视上 |
+| C→S | `remoteSignInSend` | 用手机登录：手机确认后发送同一台服务器及其 `userId` 与 `accessToken`，只此一次 |
 | S→C | `welcome` | 入房成功，附时间线、控制模式与成员快照 |
 | S→C | `roomUpdate` | 成员或房主变化，附当前时间线 |
 | S→C | `sync` | 房主提交的新锚点 |
@@ -51,7 +55,10 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
 | S→C | `controlRequested` / `controlDenied` | 控制权协商结果 |
 | S→C | `hostCapabilityGranted` | 主持权转移时私下下发新的主持凭据 |
 | S→C | `kicked` | 通知被房主移出的成员并结束其当前连接 |
-| S→C | `remoteHosting` / `remoteJoined` | 手机遥控：开放或连接成功，附服务端能力 |
+| S→C | `remoteHosting` / `remoteJoined` | 手机遥控：开放或连接成功，附服务端能力；`remoteJoined` 带 `ready: false` 时手机须等电视确认 |
+| S→C | `remoteAdmitted` | 手机遥控：电视已放这部手机进来（只发给这部手机） |
+| S→C | `remoteSignInOffer` / `remoteSignInWithdrawn` / `remoteSignInSend` | 用手机登录：转给电视的服务器（附手机的 `remoteDeviceId` 与 `name`）、手机离开后的撤回、手机确认后的会话 |
+| S→C | `remoteSignInOffered` / `remoteSignInEnded` | 用手机登录：电视已显示这台服务器（附服务端能力）；电视结束请求，`errorCode` 为空表示已保存 |
 | S→C | `remoteConnected` / `remoteDisconnected` | 手机遥控：手机连上或离开（发给电视，附手机数与 `remoteDeviceId`，连上时另附 `name`）；电视离开或断开这部手机（发给手机） |
 | S→C | `remoteKey` / `remoteText` | 手机遥控：转发给电视的按键与文字，附发送手机的 `remoteDeviceId` |
 | S→C | `error` | 文案在 `message` |
@@ -68,6 +75,18 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
   手机自己不能在按键或文字里填写；未自报的旧版手机由服务端给一个以 `~` 开头、只在本次连接有效的
   代号，电视不会“始终允许”它，手机也不能自报这种代号。只有电视本身的连接能用 `remoteRelease`
   断开自己的手机，被断开的手机收到 `remoteDisconnected`（`remote_refused` 或 `remote_released`）。
+  开放时声明 `remotePairing` 的电视会先询问：连上它的手机收到带 `ready: false` 的 `remoteJoined`，
+  显示“等待电视确认”；电视用 `remoteAdmit` 放行后，只有这部手机收到 `remoteAdmitted`。同样只有
+  电视本身的连接能放行。未声明的旧版电视照旧直接连上，旧版手机忽略这两个字段与消息。
+- 用手机登录（能力 `remoteSignIn`）：只有电视开放遥控的那条连接能请求；只有同账号、另开连接（不开放
+  也不遥控）的手机能在电视请求期间摆出一台 Emby 或 Jellyfin 服务器，且同一时间只有一部手机。摆出的
+  `signInServer` 只有类型、名称、地址与用户名（名称与用户名最多 128 字素、512 字节，地址只能是
+  `http(s)://` 主机加可选端口与路径，最多 2048 字节，不能带用户信息、查询、片段或 `..`），电视据此
+  显示；手机用户确认后，同一部手机发送与所示完全一致的服务器并附 `userId`（最多 256 字节）与
+  `accessToken`（最多 4096 字节），服务端只转发一次，不保存也不记录，之后该请求即告用完。请求 5 分钟
+  未用即失效；电视重连后仍保留请求并重新显示已摆出的服务器；摆出服务器的手机离开时电视收到撤回，
+  电视离开时手机收到 `remoteSignInEnded`（`remote_host_left`）。摆出服务器与按键同样限速。Plex 仍走
+  自己的 PIN 授权，不经这里。客户端只在 TLS（`wss://`）连接上请求或发送登录。
 - 房主断线后保留 20 秒控制权；宽限期内重连仍是房主，超时才移交给房内下一位成员。
 - 房间空掉后保留 5 分钟宽限期，期间可重连回同一个房间码；超时才回收。
 - 单实例最多 500 个房间、每个来源 IP 默认最多 8 个仍存续的房间、每房 12 人；单连接
