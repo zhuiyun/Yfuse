@@ -106,7 +106,7 @@ fun liquidNavigationGlass(): Boolean =
     useLiquidNavigationMaterial(
         reduceTransparency = LocalAccessibilityOptions.current.reduceTransparency,
         frosted = frostedGlass(),
-        blurSupported = supportsBackdropBlur,
+        blurSupported = backdropBlurAvailable(),
     )
 
 /**

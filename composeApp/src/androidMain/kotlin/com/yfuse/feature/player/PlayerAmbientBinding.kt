@@ -19,6 +19,7 @@ import com.yfuse.core.designsystem.AMBIENT_LIGHT_SAMPLE_MS
 import com.yfuse.core.designsystem.AmbientInset
 import com.yfuse.core.designsystem.AmbientLight
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalMotionBudget
 import com.yfuse.core.designsystem.rememberAmbientLight
 import com.yfuse.core.designsystem.rememberDominantColor
 import com.yfuse.core.designsystem.toneAmbientLight
@@ -53,6 +54,9 @@ internal fun rememberPlayerAmbient(
     // 氛围光. Live frames are read only when the light is on, motion is not reduced, the source is
     // not DRM-protected and the picture is actually rendering; otherwise the letterbox takes a
     // still glow from this item's artwork, and switching the light off paints nothing at all.
+    // A device the motion budget spares (省电, warm, low RAM; see [MotionBudget]) is treated as the
+    // playback pipeline's own power pressure: no frame readback, a dimmer still glow, no easing.
+    val powerLimited = ambientPowerLimited || LocalMotionBudget.current.reduced
     val ambientLightEnabled by playbackPreferences.ambientLight.collectAsState()
     val ambientSampler = remember { AmbientFrameSampler() }
     val ambientSampled by ambientSampler.light.collectAsState()
@@ -95,7 +99,7 @@ internal fun rememberPlayerAmbient(
         )
     val ambientLive =
         ambientVisible &&
-            !ambientPowerLimited &&
+            !powerLimited &&
             !LocalAccessibilityOptions.current.reduceMotion &&
             !ambientProtected &&
             ambientOutputSupported &&
@@ -123,9 +127,9 @@ internal fun rememberPlayerAmbient(
             fallback = Color.Black,
         )
     val ambientFallback =
-        remember(ambientArtwork, ambientPowerLimited) {
+        remember(ambientArtwork, powerLimited) {
             val color = toneAmbientLight(ambientArtwork)
-            AmbientLight.uniform(if (ambientPowerLimited) lerp(Color.Black, color, 0.5f) else color)
+            AmbientLight.uniform(if (powerLimited) lerp(Color.Black, color, 0.5f) else color)
         }
     val ambientLight =
         rememberAmbientLight(
@@ -138,7 +142,7 @@ internal fun rememberPlayerAmbient(
                 else -> ambientFallback
             },
             active = ambientNeeded,
-            animate = !ambientPowerLimited,
+            animate = !powerLimited,
         )
 
     return PlayerAmbientBinding(
