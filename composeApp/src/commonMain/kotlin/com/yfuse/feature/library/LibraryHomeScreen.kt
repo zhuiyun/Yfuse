@@ -979,6 +979,8 @@ private fun HeroCarousel(
                 contentDescription = item.title,
                 alphaOnly = false,
                 onResolvedUrl = { resolvedArtworkUrl = it },
+                // The hash belongs to whichever picture leads the list.
+                blurHash = if (urls.firstOrNull() != null) item.backdropBlurHash else item.posterBlurHash,
                 modifier =
                     Modifier
                         .sharedMediaArtwork(sharedKey)
@@ -1278,15 +1280,14 @@ private fun CategoryCards(
                     WATCH_LATER_COLLECTION_ID -> AppIcons.Bookmark
                     else -> null
                 }
-            val coverUrl =
-                cover?.let {
-                    EmbyImages.backdrop(baseUrl, it, maxWidth = 480, accessToken = accessToken)
-                        ?: EmbyImages.poster(baseUrl, it, accessToken = accessToken)
-                }
+            val coverBackdrop =
+                cover?.let { EmbyImages.backdrop(baseUrl, it, maxWidth = 480, accessToken = accessToken) }
+            val coverUrl = coverBackdrop ?: cover?.let { EmbyImages.poster(baseUrl, it, accessToken = accessToken) }
             LibraryCategoryCard(
                 title = row.title,
                 countLabel = if (row.loadFailed) "加载失败，点击重试" else "${row.totalCount}部",
                 coverUrl = coverUrl,
+                coverBlurHash = if (coverBackdrop != null) cover?.backdropBlurHash else cover?.posterBlurHash,
                 fallbackIcon = personalIcon,
                 onClick = { if (row.loadFailed) onRetry() else onOpen(row) },
             )
@@ -1321,6 +1322,7 @@ private fun LibraryCategoryCard(
     coverUrl: String?,
     fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector?,
     onClick: () -> Unit,
+    coverBlurHash: String? = null,
 ) {
     val palette = LocalPalette.current
     Box(
@@ -1346,6 +1348,7 @@ private fun LibraryCategoryCard(
                 // made a screen reader announce it twice.
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize().launchWaveImage(),
+                blurHash = coverBlurHash,
             )
         } else if (fallbackIcon != null) {
             Icon(
@@ -1494,6 +1497,7 @@ private fun PlaybackHistoryCard(
             fallbackUrls = listOfNotNull(primaryUrl),
             rating = item.communityRating,
             progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
+            blurHash = if (backdropUrl != null) item.backdropBlurHash else item.posterBlurHash,
             contentDescription = item.title,
             sharedTransitionKey = artworkKey,
             modifier =
@@ -1574,6 +1578,7 @@ private fun CategorySection(
             ) { _, item ->
                 CaptionedPoster(
                     url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
+                    blurHash = item.posterBlurHash,
                     title = item.title,
                     rating = item.communityRating,
                     year = item.year?.toString(),
@@ -1624,6 +1629,7 @@ internal fun PosterCard(
 ) {
     CaptionedPoster(
         url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
+        blurHash = item.posterBlurHash,
         liftMenu = liftMenu,
         title = item.title,
         rating = item.communityRating,

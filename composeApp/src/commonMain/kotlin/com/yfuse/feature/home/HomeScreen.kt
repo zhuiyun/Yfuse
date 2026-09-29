@@ -1519,6 +1519,7 @@ private fun ContinueWatchingCard(
                 fallbackUrl = posterUrl,
                 rating = item.communityRating,
                 progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
+                blurHash = if (backdropUrl != null) item.backdropBlurHash else item.posterBlurHash,
                 contentDescription = "$shelfTitle ${item.title}${item.subtitle?.let { "，$it" }.orEmpty()}",
                 sharedTransitionKey = artworkKey,
                 modifier = Modifier.fillMaxSize(),
@@ -1601,6 +1602,7 @@ private fun LibraryMediaShelf(
                             item,
                             accessToken = entry.server.accessToken,
                         ),
+                    blurHash = item.posterBlurHash,
                     title = item.title,
                     rating = item.communityRating,
                     year =
