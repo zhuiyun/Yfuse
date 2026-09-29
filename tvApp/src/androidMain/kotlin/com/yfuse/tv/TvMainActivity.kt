@@ -15,6 +15,7 @@ import com.yfuse.app.RootComponent
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.performance.AppJankMonitor
 import com.yfuse.core.performance.PageFrameRateOverlay
 import com.yfuse.core.performance.preferHighRefreshRateForUi
 import com.yfuse.core.security.ServerSessionRecovery
@@ -94,6 +95,7 @@ class TvMainActivity : ComponentActivity() {
                 PageFrameRateOverlay()
             }
         }
+        AppJankMonitor.attach(this)
         consumeIncomingIntent(intent)
     }
 

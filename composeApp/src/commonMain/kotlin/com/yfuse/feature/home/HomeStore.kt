@@ -1,5 +1,6 @@
 package com.yfuse.feature.home
 
+import androidx.compose.runtime.Immutable
 import com.arkivanov.mvikotlin.core.store.Reducer
 import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.core.store.StoreFactory
@@ -51,6 +52,12 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
+/**
+ * Immutable: every property down to the models is a `val`, the lists are read-only and the
+ * store only replaces the state through copy(). Without the promise Compose could not prove
+ * the `List` fields unchanged and treated the whole state as unstable.
+ */
+@Immutable
 data class HomeState(
     val loading: Boolean = true,
     /**

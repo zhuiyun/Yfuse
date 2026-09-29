@@ -66,6 +66,7 @@ import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
 import com.yfuse.core.designsystem.PlayerHandoff
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.performance.AppJankMonitor
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.network.EmbyImages
@@ -450,6 +451,8 @@ class PlayerActivity : ComponentActivity() {
             hide(WindowInsetsCompat.Type.systemBars())
         }
         keepEdgeSwipesInThePicture(window.decorView)
+        // Frame overruns in the player go into the diagnostics like the shell's, by state.
+        AppJankMonitor.attach(this)
 
         if (launchViewModel.request == null) {
             val retainedPending = launchViewModel.pending

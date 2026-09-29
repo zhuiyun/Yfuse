@@ -162,6 +162,35 @@ class ScanInputTest(unittest.TestCase):
             self.assertIn("app", dependencies[0].source)
             self.assertIn("server", dependencies[0].source)
 
+    def test_audit_evidence_is_skipped_and_the_settings_lock_is_read(self) -> None:
+        # audit/ holds frozen copies of earlier locks; `*/gradle.lockfile` matched them because
+        # git's `*` crosses `/`. The settings classpath lock was never matched at all.
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            locks = {
+                "app/gradle.lockfile": "example:used:1=runtime\n",
+                "settings-gradle.lockfile": "example:settings-plugin:2=classpath\n",
+                "audit/release/app/gradle.lockfile": "example:stale:0=runtime\n",
+                "audit/release/settings-gradle.lockfile": "example:stale-settings:0=classpath\n",
+                "audit/release/renderer/package-lock.json": json.dumps(
+                    {"lockfileVersion": 3, "packages": {"node_modules/obsolete": {"version": "0.0.1"}}}
+                ),
+            }
+            for relative, content in locks.items():
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", *locks], check=True)
+            dependencies = read_dependencies(root)
+            self.assertEqual(
+                [d.coordinate for d in dependencies],
+                ["example:settings-plugin:2", "example:used:1"],
+            )
+            self.assertEqual(dependencies[0].source, "settings-gradle.lockfile")
+            self.assertEqual(dependencies[1].source, "app/gradle.lockfile")
+            self.assertEqual(supply_chain_check.read_npm_dependencies(root), [])
+
     def test_missing_tracked_lock_fails(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)

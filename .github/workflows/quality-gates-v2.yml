@@ -52,6 +52,11 @@ jobs:
           python3 -m unittest discover -s scripts/tests -p 'test_*.py'
           python3 scripts/verify-tv-source.py --manifest tvApp/src/androidMain/AndroidManifest.xml --banner tvApp/src/main/res/drawable-nodpi/tv_banner.png
           python3 scripts/verify-module-boundaries.py
+      # PlayerRoot's content lambda grew past what R8 9.1 could turn into a DEX that Android 17
+      # verifies, and 1.0.91 crashed before its first frame. A listed function may not grow past
+      # its ceiling in config/function-size-baseline.txt, and a new one may not pass 1,500 lines.
+      - name: Keep functions under their size ceilings
+        run: python3 scripts/check_function_size.py
       - name: Verify renderer cancellation and Cast media-state isolation
         run: node --test castReceiver/receiver.test.cjs watchTogetherServer/calendarRenderer/render-scheduler.test.mjs
 
@@ -115,27 +120,70 @@ jobs:
           echo "KTLINT_STATUS=$ktlint_status" >> "$GITHUB_ENV"
       - name: Compile and run unit tests
         run: ./gradlew :composeApp:compileDebugKotlin :tvApp:compileDebugKotlin :phoneShared:testAndroidHostTest :tvShared:testAndroidHostTest --no-daemon
-      # The 26 instrumented tests under composeApp/src/androidInstrumentedTest need a device to
-      # run, but they must at least keep compiling against the current app surface.
+      # The instrumented tests (24 classes, 56 tests under composeApp/src/androidInstrumentedTest)
+      # run on an emulator in the `instrumented` job; compiling them here as well reports a break
+      # next to the other compile signals.
       - name: Compile Android instrumented tests
         run: ./gradlew :composeApp:assembleDebugAndroidTest --no-daemon
       - name: Compile startup and frame-time Macrobenchmark APK
         run: ./gradlew :macrobenchmark:assembleBenchmark --no-daemon
       - name: Verify design-system usage
         run: ./gradlew :composeApp:verifyDesignSystemUsage --no-daemon
-      - name: Run Android lint
+      # Lint reads the product code, not only the two shells: -PyfuseLintSharedCode makes each
+      # shell's lintDebug analyse :phoneShared / :tvShared as well, against the committed
+      # config/lint/<shell>-baseline.xml, so only new findings fail. A missing baseline (the
+      # first run, or one deleted to reset the debt on purpose) is written by lint here instead
+      # of failing the step; it is published as the lint-baselines artifact and the job fails at
+      # its end until a person commits it. CI never commits a baseline itself.
+      - name: Run Android lint over the shells and the shared product code
         shell: bash
         run: |
-          set +e
-          ./gradlew :composeApp:lintDebug :tvApp:lintDebug --no-daemon --continue
-          lint_status=$?
-          set -e
-          if (( lint_status != 0 )); then
-            for report in composeApp/build/reports/lint-results-debug.txt tvApp/build/reports/lint-results-debug.txt; do
+          set -uo pipefail
+          lint_status=0
+          generated=()
+          mkdir -p config/lint
+          for shell in composeApp tvApp; do
+            baseline="config/lint/$shell-baseline.xml"
+            bootstrap=()
+            if [[ ! -f "$baseline" ]]; then bootstrap=(-Dlint.baselines.continue=true); fi
+            # One shell per daemon, each with room for lint: it runs inside the Gradle daemon and
+            # now reads about 240k lines per shell rather than one Application class.
+            ./gradlew ":$shell:lintDebug" -PyfuseLintSharedCode=true "${bootstrap[@]}" \
+              "-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8" --no-daemon
+            status=$?
+            if (( status != 0 )); then
+              lint_status=$status
+              report="$shell/build/reports/lint-results-debug.txt"
               if [[ -f "$report" ]]; then echo "===== $report ====="; cat "$report"; fi
-            done
-            exit "$lint_status"
+            fi
+            if (( ${#bootstrap[@]} > 0 )) && [[ -f "$baseline" ]]; then generated+=("$baseline"); fi
+          done
+          if (( ${#generated[@]} > 0 )); then
+            mkdir -p build/lint-baselines
+            cp "${generated[@]}" build/lint-baselines/
+            echo "LINT_BASELINES_GENERATED=${generated[*]}" >> "$GITHUB_ENV"
+            echo "::warning::Lint wrote ${generated[*]}; commit them from this run's lint-baselines artifact"
           fi
+          exit "$lint_status"
+      - name: Upload lint reports
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lint-reports-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            composeApp/build/reports/lint-results-debug.*
+            tvApp/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload generated lint baselines
+        if: always() && env.LINT_BASELINES_GENERATED != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lint-baselines-${{ github.sha }}-${{ github.run_attempt }}
+          path: build/lint-baselines/
+          if-no-files-found: error
+          retention-days: 30
       - name: Build R8 release package
         run: ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true --no-daemon
       - name: Verify release package and size budget
@@ -173,6 +221,15 @@ jobs:
           for library in libavcodec.so libavformat.so libmpv.so libmdk.so; do
             grep -Fxq "lib/arm64-v8a/$library" build/apk-entries.txt || fail "lib/arm64-v8a/$library is missing from the APK"
           done
+          # A committed app profile must reach the APK: AGP merges it with the libraries' rules and
+          # compiles them into assets/dexopt/. Only the merged text shows Yfuse's own rules made it.
+          if [[ -s composeApp/src/main/baseline-prof.txt ]]; then
+            grep -Fxq assets/dexopt/baseline.prof build/apk-entries.txt || fail "Release APK has no compiled baseline profile"
+            merged="$(find composeApp/build/intermediates -path '*merged_art_profile*' -path '*elease*' -name baseline-prof.txt -print -quit)"
+            if [[ -z "$merged" ]] || ! grep -q 'Lcom/yfuse/' "$merged"; then
+              fail "AGP did not merge composeApp/src/main/baseline-prof.txt"
+            fi
+          fi
           apk_size="$(stat -c '%s' "$apk")"
           echo "APK size: $apk_size bytes (budget $APK_SIZE_BUDGET_BYTES)"
           (( apk_size <= APK_SIZE_BUDGET_BYTES )) || fail "APK is $apk_size bytes, over the $APK_SIZE_BUDGET_BYTES byte budget"
@@ -207,6 +264,125 @@ jobs:
           if-no-files-found: error
           retention-days: 3
           compression-level: 0
+      # Last, so every other gate has already reported: a lint run without a committed baseline
+      # accepted all existing findings and gated nothing.
+      - name: Fail until the generated lint baselines are committed
+        if: env.LINT_BASELINES_GENERATED != ''
+        shell: bash
+        run: |
+          echo "::error::No committed lint baseline for: ${LINT_BASELINES_GENERATED}. Download this run's lint-baselines-* artifact and commit its files under config/lint/."
+          exit 1
+
+  # The device tests only ever compiled in CI. This job runs them on every pull request and
+  # master push, beside `verify` rather than after it: with the native dependency cache warm it
+  # costs the Kotlin build, one emulator boot and the tests, and it never delays the other gates.
+  instrumented:
+    name: Instrumented tests on an Android 15 emulator
+    runs-on: ubuntu-24.04
+    # A cold native dependency cache is bootstrapped here too, as in `verify`.
+    timeout-minutes: 300
+    steps:
+      # Toolchains no step uses: the native and Kotlin builds, the emulator image and its data
+      # partition all need the room on one runner.
+      - name: Free disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift
+          df -h /
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - name: Install Android 37.0 and native build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then sdkmanager="$(find "$android_sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"; fi
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
+      - name: Download player engines
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+          test -f composeApp/libs/libmpv-release.aar
+          test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+      - name: Build and install current YCore runtime
+        uses: ./.github/actions/build-current-ycore
+      # The playback tests refuse the production application id so they can never touch a real
+      # installation's data; they install as com.yfuse.validation, as the device-gate docs do.
+      - name: Build the debug app and its instrumented test APK
+        run: ./gradlew :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation --no-daemon
+      - name: Enable hardware acceleration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      # The phone APK is arm64-v8a only. x86_64 google_apis images translate arm64 and list it in
+      # ro.product.cpu.abilist, so the APK installs as it does in android-cloud-ui.yml, whose
+      # emulator settings these are. Animations stay on: several tests measure motion curves.
+      - name: Run the instrumented tests
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          disk-size: 4096M
+          emulator-boot-timeout: 600
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          script: ./gradlew :composeApp:connectedDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation --no-daemon
+      # A run in which the device was skipped or no test executed must not read as a pass.
+      - name: Summarise instrumented test results
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob, os, sys
+          import xml.etree.ElementTree as ET
+
+          files = sorted(glob.glob("composeApp/build/outputs/androidTest-results/connected/**/TEST-*.xml", recursive=True))
+          totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+          for path in files:
+              root = ET.parse(path).getroot()
+              for suite in [root] if root.tag == "testsuite" else root.iter("testsuite"):
+                  for key in totals:
+                      totals[key] += int(suite.get(key) or 0)
+          line = (f"Instrumented tests: {totals['tests']} run, {totals['failures']} failed, "
+                  f"{totals['errors']} errors, {totals['skipped']} skipped, from {len(files)} result files")
+          print(line)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(line + "\n")
+          if totals["tests"] == 0:
+              print("::error::No instrumented test result was recorded")
+              sys.exit(1)
+          PY
+      - name: Upload instrumented test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: instrumented-tests-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            composeApp/build/reports/androidTests/
+            composeApp/build/outputs/androidTest-results/
+          if-no-files-found: warn
+          retention-days: 7
 
   supply-chain:
     name: Independent dependency vulnerability and SBOM gate
