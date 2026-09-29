@@ -291,6 +291,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val pulseSweep by prefs.pulseSweep.collectAsState()
     val motionTheme by prefs.motionTheme.collectAsState()
     val libraryCarousel by prefs.libraryCarousel.collectAsState()
+    val navCollapseOnScroll by prefs.navCollapseOnScroll.collectAsState()
     val particleLight by prefs.particleLight.collectAsState()
     val decoder by prefs.decoder.collectAsState()
     val autoNext by prefs.autoNext.collectAsState()
@@ -511,6 +512,8 @@ fun ProfileScreen(component: ProfileComponent) {
                     AppearanceSettingsScreen(
                         libraryCarousel = libraryCarousel,
                         onLibraryCarousel = prefs::setLibraryCarousel,
+                        navCollapseOnScroll = navCollapseOnScroll,
+                        onNavCollapseOnScroll = prefs::setNavCollapseOnScroll,
                         onBack = ::closePage,
                         brandSummary =
                             if (splashAnimation) {

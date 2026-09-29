@@ -45,6 +45,7 @@ class ThemePreferences(
         const val KEY_PARTICLE_LIGHT = "appearance.particleLight"
         const val KEY_PULSE_SWEEP = "appearance.pulseSweep"
         const val KEY_LIBRARY_CAROUSEL = "appearance.libraryCarousel"
+        const val KEY_NAV_COLLAPSE_ON_SCROLL = "appearance.navCollapseOnScroll"
         const val KEY_SPLASH_ANIMATION = "appearance.splashAnimation"
         const val KEY_STARTUP_TAB = "appearance.startupTab"
         const val KEY_DIALOG_ANIMATION = "appearance.dialogAnimation"
@@ -131,6 +132,16 @@ class ThemePreferences(
     fun setLibraryCarousel(enabled: Boolean) {
         settings.putBoolean(KEY_LIBRARY_CAROUSEL, enabled)
         _libraryCarousel.value = enabled
+    }
+
+    // Whether the bottom bar gives the screen to reading: collapsed to one key while scrolling down a
+    // root page, back on the way up. Off, the bar stays up everywhere it is shown.
+    private val _navCollapseOnScroll = MutableStateFlow(settings.getBoolean(KEY_NAV_COLLAPSE_ON_SCROLL, true))
+    val navCollapseOnScroll: StateFlow<Boolean> = _navCollapseOnScroll.asStateFlow()
+
+    fun setNavCollapseOnScroll(enabled: Boolean) {
+        settings.putBoolean(KEY_NAV_COLLAPSE_ON_SCROLL, enabled)
+        _navCollapseOnScroll.value = enabled
     }
 
     // Whether a launch plays the splash at all — a real choice, unlike *which* one plays: that is

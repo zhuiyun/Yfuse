@@ -1,63 +1,15 @@
 package com.yfuse.feature.player
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.ThemeText as Text
-
-/**
- * The end of an item that did not roll on into the next one: 下一集 when there is one, 重播, 返回.
- * Keys at the same size and in the same place as 继续播放, because it is the same question — what
- * happens if I touch this — asked one moment later; 下一集 leads when there is one.
- */
-@Composable
-internal fun PlayerEndedKeys(
-    hasNext: Boolean,
-    /** False for a guest whose room is driven by its host: the keys stay, dimmed and inert. */
-    enabled: Boolean,
-    onNext: () -> Unit,
-    onReplay: () -> Unit,
-    onBack: () -> Unit,
-) {
-    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-        if (hasNext) {
-            CircleControl(
-                icon = AppIcons.Next,
-                description = "下一集",
-                size = CenterKeySize,
-                iconSize = CenterKeyIconSize,
-                enabled = enabled,
-                filled = true,
-                onClick = onNext,
-            )
-        }
-        CircleControl(
-            icon = AppIcons.Refresh,
-            description = "重播",
-            size = CenterKeySize,
-            iconSize = CenterKeyIconSize,
-            enabled = enabled,
-            filled = !hasNext,
-            onClick = onReplay,
-        )
-        CircleControl(
-            icon = AppIcons.Close,
-            description = "返回",
-            size = CenterKeySize,
-            iconSize = CenterKeyIconSize,
-            onClick = onBack,
-        )
-    }
-}
 
 /**
  * The standing explanation for why the transport is dimmed in a room, and the only place the
