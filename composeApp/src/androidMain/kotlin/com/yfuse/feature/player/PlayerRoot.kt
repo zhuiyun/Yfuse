@@ -103,7 +103,6 @@ import com.yfuse.core2.legacy.asYPlayer
 import com.yfuse.tv.player.TvPlayerChromeBridge
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
@@ -116,8 +115,6 @@ import org.koin.core.context.GlobalContext
 import kotlin.math.roundToInt
 import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
-/** Seek requests inside this window collapse into one, always at the latest target. */
-private const val SEEK_MERGE_DEBOUNCE_MS = 120L
 private const val RESUME_NOTICE_MIN_MS = 30_000L
 private const val END_OF_EPISODE_ARM_WINDOW_MS = 2_000L
 private const val MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS = 2
@@ -328,11 +325,8 @@ internal fun PlayerRoot(
     val sourceSwitchCoordinator = remember { PlaybackSourceSwitchCoordinator() }
     val latestQueueRevision by rememberUpdatedState(queueRevision)
     var requestedPlaybackSpeed by remember { mutableFloatStateOf(1f) }
-    // 长按中间: the rate while the middle of the picture is held, over the chosen one. Only the
-    // engine sees it — never the room, the series memory or the preference — and a hold that
-    // began from a pause puts the pause back when it lets go.
-    var speedBoost by remember { mutableStateOf<Float?>(null) }
-    var speedBoostResumedPlayback by remember { mutableStateOf(false) }
+    // 长按中间's rate and the seeks a drag proposes, kept out of this composition.
+    val gestures = remember { PlayerGestureCommands() }
     var handoverItemId by remember { mutableStateOf<String?>(null) }
     var audioRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
     var subtitleRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
@@ -886,19 +880,9 @@ internal fun PlayerRoot(
         val castManager = remember { GlobalContext.get().get<CastManager>() }
         val liveCastState = castManager.state.collectAsState()
         val castState by remember(liveCastState) { derivedStateOf { liveCastState.value.copy(positionMs = 0L) } }
-        // Seek requests travel on a conflating channel rather than through composition. As a
-        // `sequence` counter in a MutableState, a held rewind key re-keyed this effect — and so
-        // recomposed the entire player root — every 300ms while the finger stayed down.
-        val seekRequests = remember { Channel<Long>(Channel.CONFLATED) }
-        LaunchedEffect(seekRequests, castManager, playbackGate) {
-            for (offered in seekRequests) {
-                var positionMs = offered
-                // Trailing debounce: a newer target arriving inside the window replaces this one
-                // and restarts it, so only the position the user stopped on is ever sent.
-                while (true) {
-                    delay(SEEK_MERGE_DEBOUNCE_MS)
-                    positionMs = seekRequests.tryReceive().getOrNull() ?: break
-                }
+        // The controls' proposed seeks, merged latest-wins before a receiver or the room sees them.
+        LaunchedEffect(gestures, castManager, playbackGate) {
+            gestures.deliverSeeks { positionMs ->
                 if (castState.hasActiveSession) {
                     castManager.seekTo(positionMs)
                 } else {
@@ -2410,7 +2394,7 @@ internal fun PlayerRoot(
             state = state,
             currentItemId = currentItem?.id,
             handoverItemId = handoverItemId,
-            requestedSpeed = speedBoost ?: requestedPlaybackSpeed,
+            requestedSpeed = { gestures.boost ?: requestedPlaybackSpeed },
             audioRestore = audioRestore,
             subtitleRestore = subtitleRestore,
             secondarySubtitleRestore = secondarySubtitleRestore,
@@ -3058,9 +3042,7 @@ internal fun PlayerRoot(
                                     }
                                 }
                             },
-                        onSeek = { positionMs ->
-                            seekRequests.trySend(positionMs.coerceAtLeast(0L))
-                        },
+                        onSeek = gestures::seek,
                         onSelectItem = { index ->
                             sourceSwitchCoordinator.invalidate()
                             if (sleepTimerOption == SleepTimerOption.EndOfEpisode) {
@@ -3564,20 +3546,13 @@ internal fun PlayerRoot(
                         },
                         gestures = gestureSettings,
                         onSpeedBoost = { boost ->
-                            if (boost != null) {
-                                if (speedBoost == null) {
-                                    // Judged on the play intent, not on frames: a stream that is
-                                    // buffering towards playback is not paused.
-                                    speedBoostResumedPlayback = !player.playbackRequested && playbackGate.play()
-                                }
-                                speedBoost = boost
-                            } else if (speedBoost != null) {
-                                speedBoost = null
-                                if (speedBoostResumedPlayback && player.playbackRequested && !playbackGate.locked) {
-                                    playbackGate.pause()
-                                }
-                                speedBoostResumedPlayback = false
-                            }
+                            gestures.holdBoost(
+                                rate = boost,
+                                playbackRequested = { player.playbackRequested },
+                                play = playbackGate::play,
+                                pause = { playbackGate.pause() },
+                                locked = { playbackGate.locked },
+                            )
                         },
                         sleepTimer = SleepTimerState(sleepTimerOption),
                         sleepTimerActions =
