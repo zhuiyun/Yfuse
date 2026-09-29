@@ -601,14 +601,16 @@ private fun SearchFilterSheet(
         }
         SearchFilterLabel("年份")
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            item {
+            // Keyed by year, not position: a new year is prepended, which would otherwise shift
+            // every chip's identity and move the row's scroll anchor to a different year.
+            item(key = "year-any", contentType = "year-choice") {
                 SearchFilterChoice(
                     label = "不限",
                     selected = state.year == null,
                     onClick = { onIntent(SearchIntent.SetYear(null)) },
                 )
             }
-            items(state.yearOptions) { year ->
+            items(state.yearOptions, key = { year -> "year-$year" }, contentType = { "year-choice" }) { year ->
                 SearchFilterChoice(
                     label = year.toString(),
                     selected = state.year == year,

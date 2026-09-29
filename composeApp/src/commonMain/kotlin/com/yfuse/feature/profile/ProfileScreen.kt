@@ -98,6 +98,7 @@ import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.StartupTab
 import com.yfuse.core.offline.OfflineIndexStatus
@@ -617,7 +618,10 @@ fun ProfileScreen(component: ProfileComponent) {
                             contentPadding = PaddingValues(top = Dimens.contentTop, bottom = rootBottomContentInset),
                             verticalArrangement = Arrangement.spacedBy(18.dp),
                         ) {
-                            motionItem(key = "settings-search") {
+                            // Every root item carries a stable key: the search results item above the
+                            // sections comes and goes, and index keys would shift every section after it,
+                            // dropping their state and replaying animateItem and skeleton arrival.
+                            motionItem(key = "settings-search", contentType = "settings-search") {
                                 YfFormField(
                                     value = settingsQuery,
                                     onValueChange = { settingsQuery = it.take(60) },
@@ -626,7 +630,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 )
                             }
                             if (settingsQuery.isNotBlank()) {
-                                motionItem(key = "settings-search-results") {
+                                motionItem(key = "settings-search-results", contentType = "settings-search-results") {
                                     SettingsSearchResults(
                                         query = settingsQuery,
                                         onOpen = ::openPage,
@@ -634,7 +638,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                     )
                                 }
                             }
-                            motionItem {
+                            motionItem(key = "servers-and-account", contentType = "settings-section") {
                                 Section(title = "服务器与账号") {
                                     SettingsCard {
                                         SettingRow(
@@ -670,7 +674,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 }
                             }
 
-                            motionItem(key = "personal-settings") {
+                            motionItem(key = "personal-settings", contentType = "personal-settings") {
                                 PersonalSettingsSection(
                                     personal = component.personal,
                                     onOpenContent = { openPage(ProfilePage.Personal) },
@@ -680,7 +684,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 )
                             }
 
-                            motionItem {
+                            motionItem(key = "appearance", contentType = "settings-section") {
                                 Section(title = "外观与主题") {
                                     SettingsCard {
                                         SettingSegmentRow(
@@ -713,7 +717,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 }
                             }
 
-                            motionItem {
+                            motionItem(key = "playback", contentType = "settings-section") {
                                 Section(title = "播放") {
                                     SettingsCard {
                                         SettingRow(
@@ -750,7 +754,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 }
                             }
 
-                            motionItem {
+                            motionItem(key = "subtitles-and-danmaku", contentType = "settings-section") {
                                 Section(title = "字幕与弹幕") {
                                     SettingsCard {
                                         SettingRow(
@@ -769,7 +773,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 }
                             }
 
-                            motionItem {
+                            motionItem(key = "downloads", contentType = "settings-section") {
                                 Section(title = "下载") {
                                     SettingsCard {
                                         DownloadRow(
@@ -786,7 +790,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 }
                             }
 
-                            motionItem {
+                            motionItem(key = "sync-and-data", contentType = "settings-section") {
                                 Section(title = "同步与数据") {
                                     SettingsCard {
                                         SettingRow("同步状态与恢复", "个人内容 · 播放进度 · 服务器状态", embedded = true, onClick = {
@@ -805,7 +809,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 }
                             }
 
-                            motionItem {
+                            motionItem(key = "about", contentType = "settings-about") {
                                 Section(title = "关于") {
                                     AppUpdateTools()
                                     AppVersionFooter()
@@ -831,7 +835,21 @@ fun ProfileScreen(component: ProfileComponent) {
                                 .statesForServer(offline.serverId)
                         com.yfuse.core.offline
                             .offlineStartPositionMs(offline, states)
-                    }.getOrDefault(0L)
+                    }.getOrElse { failure ->
+                        // The server's progress is already in these records (the startup pull seeds
+                        // it into this store), and every other view of it, the repository's details
+                        // and the sync manager's start position included, reads the same store. So
+                        // there is nothing else to fall back to without the network; start from the
+                        // beginning as before, but no longer silently.
+                        AppLog.warning(
+                            category = "offline",
+                            event = "resume_position_unavailable",
+                            message = "Resume point for a download could not be read; starting from the beginning",
+                            throwable = failure,
+                            attributes = mapOf("itemId" to offline.itemId),
+                        )
+                        0L
+                    }
                 }
             PlayerLauncher(
                 items =

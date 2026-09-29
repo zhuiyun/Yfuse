@@ -1603,12 +1603,15 @@ class PlayerActivity : ComponentActivity() {
                 addAction(ACTION_PLAY_PAUSE)
                 addAction(ACTION_NEXT)
             }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(mediaActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(mediaActionReceiver, filter)
-        }
+        // Below Android 13 the plain overload exported this receiver, so any app could pause or skip
+        // playback. Only this app's own notification actions send these; ContextCompat keeps it
+        // private on every version, as for the screen state receiver above.
+        ContextCompat.registerReceiver(
+            this,
+            mediaActionReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         mediaReceiverRegistered = true
     }
 

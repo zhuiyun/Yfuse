@@ -27,6 +27,7 @@ import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.capability.YDeviceCapabilities
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
+import com.yfuse.core2.demux.YAudioTrackFormat
 import com.yfuse.core2.demux.YCompressedSample
 import com.yfuse.core2.demux.YDemuxOpenResult
 import com.yfuse.core2.demux.YDemuxSource
@@ -492,8 +493,11 @@ internal class AndroidEnhancedPlaybackSession(
                                         hdrStaticMetadata = effectiveVideo.hdrStaticMetadata,
                                     ),
                             ).also {
-                                check(it.isReady) { "Vulkan swapchain/ImageReader output is unavailable" }
+                                // Owned before the readiness check: the output already runs a frame
+                                // thread and an ImageReader, and the catch below closes it on this
+                                // or any later open failure instead of leaving it to the next open.
                                 gpuVideoOutput = it
+                                check(it.isReady) { "Vulkan swapchain/ImageReader output is unavailable" }
                             }.decoderSurface
                         } else {
                             error("GpuEnhanced requires Android 9 HardwareBuffer")
@@ -553,7 +557,8 @@ internal class AndroidEnhancedPlaybackSession(
                                             .hasExactDolbyAtmosPassthrough(format.codec),
                                 )
                             }
-                        } catch (_: Exception) {
+                        } catch (failure: Exception) {
+                            logPassthroughFallback("open_configure", format, failure)
                             rejectedPassthroughTracks += audioTrack.id
                             audioFallbackCount++
                             audioOutputPath = YAudioOutputPath.DecodePcm
@@ -586,6 +591,9 @@ internal class AndroidEnhancedPlaybackSession(
             runCatching(audioDecoder::release)
             runCatching(encodedAudioRenderer::release)
             runCatching(softwareVideoRenderer::release)
+            // After the decoder that feeds it, in the same order as close().
+            runCatching { gpuVideoOutput?.close() }
+            gpuVideoOutput = null
             runCatching { softwareDecoder?.release() }
             softwareDecoder = null
             runCatching(demuxReadAhead::close)
@@ -873,7 +881,8 @@ internal class AndroidEnhancedPlaybackSession(
                         )
                     }
                     audioRendererConfigured = true
-                } catch (_: Exception) {
+                } catch (failure: Exception) {
+                    logPassthroughFallback("track_switch_configure", format, failure)
                     rejectedPassthroughTracks += trackId
                     audioFallbackCount++
                     nextPath = YAudioOutputPath.DecodePcm
@@ -2238,7 +2247,8 @@ internal class AndroidEnhancedPlaybackSession(
                     return YCodecQueueResult.TryAgain
                 }
                 pendingEncodedAudioData = null
-            } catch (_: Exception) {
+            } catch (failure: Exception) {
+                logPassthroughFallback("write", audioTrack?.audio, failure)
                 pendingEncodedAudioData = null
                 val position = currentPositionUs()
                 rejectedPassthroughTracks += requireNotNull(audioTrack).id
@@ -2309,6 +2319,30 @@ internal class AndroidEnhancedPlaybackSession(
         }
         requireNotNull(softwareDecoderOrNull()).configureAudio(track.id)
         return true
+    }
+
+    /**
+     * A refused passthrough sink is recoverable, so playback carries on as PCM. Diagnostics used to
+     * show only the PCM path and a fallback count; the refusal itself is what explains the downgrade.
+     */
+    private fun logPassthroughFallback(
+        stage: String,
+        format: YAudioTrackFormat?,
+        failure: Exception,
+    ) {
+        AppLog.warning(
+            category = "player.core2",
+            event = "enhanced_passthrough_pcm_fallback",
+            message = "Enhanced audio passthrough failed; continuing as PCM",
+            throwable = failure,
+            attributes =
+                mapOf(
+                    "stage" to stage,
+                    "codec" to (format?.codec?.name ?: "unknown"),
+                    "channelCount" to (format?.channelCount?.toString() ?: "unknown"),
+                    "sampleRate" to (format?.sampleRate?.toString() ?: "unknown"),
+                ),
+        )
     }
 
     private fun switchPassthroughToPcm(
