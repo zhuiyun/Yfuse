@@ -1,6 +1,7 @@
 package com.yfuse.watch
 
 import com.yfuse.watch.account.AuthenticatedAccount
+import com.yfuse.watch.protocol.RemoteSignInServer
 import com.yfuse.watch.protocol.WatchProtocol
 import com.yfuse.watch.protocol.WatchWireMessage
 import io.ktor.websocket.CloseReason
@@ -43,6 +44,8 @@ internal enum class RemoteRefusal(
     Busy("这台电视已连接多部手机", "remote_busy"),
     NotJoined("请先连接电视", "remote_not_joined"),
     RateLimited("操作太快，请稍后再试", "remote_rate_limited"),
+    NotAsking("电视没有在等待手机登录，请先在电视的「添加服务器」里选择「用手机登录」", "remote_sign_in_unavailable"),
+    SignInBusy("另一部手机正在为这台电视登录", "remote_sign_in_busy"),
 }
 
 /**
@@ -97,16 +100,60 @@ internal sealed interface RemoteAdmission<out S> {
         val phones: List<S>,
     ) : RemoteAdmission<S>
 
+    /**
+     * A television asks for a server. [shown] is what a phone had already put before it, to show
+     * again on a socket that has just replaced the old one. [dropped] is the phone of an earlier
+     * sign-in this ask replaced, spent or lapsed, which has to hear it ended; [droppedSent] says
+     * whether its session had gone.
+     */
+    data class SignInAsked<S>(
+        val shown: SignInShown?,
+        val dropped: S? = null,
+        val droppedSent: Boolean = false,
+    ) : RemoteAdmission<S>
+
+    /** A phone puts a server before its television, [host], which is to show [shown]. */
+    data class SignInOffered<S>(
+        val host: S,
+        val shown: SignInShown,
+    ) : RemoteAdmission<S>
+
+    /** The session for what [phone] offered goes to its television, [host] — this once. */
+    data class SignInSent<S>(
+        val host: S,
+        val phone: RemotePhone,
+    ) : RemoteAdmission<S>
+
+    /** A television stopped asking; [phone] has to hear how it went, and [sent] is whether its session went. */
+    data class SignInEnded<S>(
+        val phone: S?,
+        val sent: Boolean,
+    ) : RemoteAdmission<S>
+
     data class Refused(
         val reason: RemoteRefusal,
     ) : RemoteAdmission<Nothing>
 }
 
+/** What a television shows on 用手机登录: which phone offers which server, without its session. */
+internal data class SignInShown(
+    val phone: RemotePhone,
+    val server: RemoteSignInServer,
+)
+
 internal sealed interface RemoteDeparture<out S> {
     data object None : RemoteDeparture<Nothing>
 
+    /** [signingIn] is a phone whose 用手机登录 with this television is cut short. */
     data class HostLeft<S>(
         val phones: List<S>,
+        val signingIn: S? = null,
+    ) : RemoteDeparture<S>
+
+    /** The phone that had put a server before [host] left before it sent the session. */
+    data class SignInWithdrawn<S>(
+        val host: S,
+        val phone: RemotePhone,
     ) : RemoteDeparture<S>
 
     data class PhoneLeft<S>(
@@ -124,6 +171,11 @@ internal sealed interface RemoteDeparture<out S> {
  * lets one of its phones go — which is how it refuses one it has not agreed to — or in, which the
  * phone is told so that it stops waiting.
  *
+ * 用手机登录 rides the same pairings: only a television, on the socket it hosts on, asks for a
+ * server, and only a phone of its account — on a socket of its own, never one that hosts or
+ * controls — may offer one, while it asks. The session goes once, from the phone that offered, for
+ * exactly the server the television was shown; after that the ask is spent.
+ *
  * Generic over the socket so the bookkeeping is testable without a network.
  */
 internal class RemoteControlRelay<S : Any>(
@@ -131,6 +183,7 @@ internal class RemoteControlRelay<S : Any>(
     private val maxControllersPerHost: Int = MAX_REMOTE_CONTROLLERS_PER_HOST,
     private val maxInputsPerWindow: Int = MAX_REMOTE_INPUTS_PER_WINDOW,
     private val inputWindowMs: Long = REMOTE_INPUT_WINDOW_MS,
+    private val signInAskMs: Long = WatchProtocol.REMOTE_SIGN_IN_ASK_MS,
 ) {
     private data class HostKey(
         val userId: String,
@@ -143,6 +196,9 @@ internal class RemoteControlRelay<S : Any>(
         val asks: Boolean,
     ) {
         val controllers = LinkedHashSet<S>()
+
+        /** Its 用手机登录, from the ask until it says how it went. */
+        var signIn: SignIn<S>? = null
     }
 
     private class Controller(
@@ -155,12 +211,35 @@ internal class RemoteControlRelay<S : Any>(
         var admitted = false
     }
 
+    private class SignIn<S>(
+        val askedAtMs: Long,
+    ) {
+        /** The phone whose server the television shows now, and the socket it offered on. */
+        var offer: SignInOffer<S>? = null
+
+        /** The session went to the television: nothing more is offered or sent on this ask. */
+        var sent = false
+    }
+
+    private class SignInOffer<S>(
+        val socket: S,
+        val shown: SignInShown,
+    )
+
+    /** A phone's socket on 用手机登录, paced like a phone's keys. */
+    private class Signer(
+        val host: HostKey,
+    ) {
+        val recentOffersAtMs = ArrayDeque<Long>()
+    }
+
     private val hosts = mutableMapOf<HostKey, Host<S>>()
     private val hostedBy = mutableMapOf<S, HostKey>()
     private val controllers = mutableMapOf<S, Controller>()
+    private val signers = mutableMapOf<S, Signer>()
 
     @Synchronized
-    fun involves(socket: S): Boolean = socket in hostedBy || socket in controllers
+    fun involves(socket: S): Boolean = socket in hostedBy || socket in controllers || socket in signers
 
     /** Phones currently on the television of [userId]'s [sessionId]; for tests and metrics. */
     @Synchronized
@@ -177,14 +256,18 @@ internal class RemoteControlRelay<S : Any>(
         socket: S,
         asks: Boolean = false,
     ): RemoteAdmission<S> {
-        if (socket in controllers) return RemoteAdmission.Refused(RemoteRefusal.WrongRole)
+        if (socket in controllers || socket in signers) return RemoteAdmission.Refused(RemoteRefusal.WrongRole)
         val key = HostKey(userId, sessionId)
         val existing = hosts[key]
         if (existing == null && hosts.size >= maxHosts) return RemoteAdmission.Refused(RemoteRefusal.Full)
-        // A television that reconnects keeps its phones: they follow the session, not the socket.
+        // A television that reconnects keeps its phones, and what it asked for: they follow the
+        // session, not the socket.
         val replaced = existing?.socket?.takeIf { it != socket }
         val host = Host(socket, asks)
-        existing?.let { host.controllers.addAll(it.controllers) }
+        existing?.let {
+            host.controllers.addAll(it.controllers)
+            host.signIn = it.signIn
+        }
         replaced?.let(hostedBy::remove)
         hosts[key] = host
         hostedBy[socket] = key
@@ -200,7 +283,7 @@ internal class RemoteControlRelay<S : Any>(
         socket: S,
         phone: RemotePhone,
     ): RemoteAdmission<S> {
-        if (socket in hostedBy) return RemoteAdmission.Refused(RemoteRefusal.WrongRole)
+        if (socket in hostedBy || socket in signers) return RemoteAdmission.Refused(RemoteRefusal.WrongRole)
         val key = HostKey(userId, targetSessionId)
         val previous = controllers[socket]
         // One television per phone socket; a phone that wants another one opens a new socket.
@@ -283,6 +366,90 @@ internal class RemoteControlRelay<S : Any>(
         return RemoteAdmission.Admitted(entering)
     }
 
+    /**
+     * The television on [socket] asks for a server. Asking again while it asks — as it does on a
+     * socket that has just replaced its old one — keeps what a phone already offered, to show it
+     * again; an ask that is spent or has lapsed is replaced, and its phone let go.
+     */
+    @Synchronized
+    fun askSignIn(
+        socket: S,
+        nowMs: Long,
+    ): RemoteAdmission<S> {
+        val host = hostOn(socket) ?: return RemoteAdmission.Refused(RemoteRefusal.WrongRole)
+        val current = host.signIn
+        if (current != null && current.live(nowMs)) return RemoteAdmission.SignInAsked(current.offer?.shown)
+        host.signIn = SignIn(nowMs)
+        val dropped = current?.offer?.socket?.also(signers::remove)
+        return RemoteAdmission.SignInAsked(shown = null, dropped = dropped, droppedSent = current?.sent == true)
+    }
+
+    /**
+     * A phone offers [server] — without its session — to the television of its own account's
+     * [targetSessionId], while that television asks. One phone at a time: another is refused until
+     * it has gone; the same one may offer another of its servers instead, and stays who it said it was.
+     */
+    @Synchronized
+    fun offerSignIn(
+        userId: String,
+        ownSessionId: String,
+        targetSessionId: String,
+        socket: S,
+        phone: RemotePhone,
+        server: RemoteSignInServer,
+        nowMs: Long,
+    ): RemoteAdmission<S> {
+        if (socket in hostedBy || socket in controllers) return RemoteAdmission.Refused(RemoteRefusal.WrongRole)
+        val key = HostKey(userId, targetSessionId)
+        val signer = signers[socket]
+        // One television per phone socket, as for 手机遥控.
+        if (signer != null && signer.host != key) return RemoteAdmission.Refused(RemoteRefusal.WrongRole)
+        val host =
+            hosts[key]?.takeIf { targetSessionId != ownSessionId }
+                ?: return RemoteAdmission.Refused(RemoteRefusal.Unavailable)
+        val ask = host.signIn?.takeIf { it.live(nowMs) } ?: return RemoteAdmission.Refused(RemoteRefusal.NotAsking)
+        val offered = ask.offer
+        if (offered != null && offered.socket != socket) return RemoteAdmission.Refused(RemoteRefusal.SignInBusy)
+        val pacing = signer ?: Signer(key)
+        val recent = pacing.recentOffersAtMs
+        while (recent.isNotEmpty() && nowMs - recent.first() >= inputWindowMs) recent.removeFirst()
+        if (recent.size >= maxInputsPerWindow) return RemoteAdmission.Refused(RemoteRefusal.RateLimited)
+        recent.addLast(nowMs)
+        val shown = SignInShown(offered?.shown?.phone ?: phone, server)
+        ask.offer = SignInOffer(socket, shown)
+        signers[socket] = pacing
+        return RemoteAdmission.SignInOffered(host.socket, shown)
+    }
+
+    /**
+     * The phone on [socket] sends the session for what it offered. Only that phone, only while the
+     * television still asks, and only for exactly the server it was shown; then the ask is spent.
+     */
+    @Synchronized
+    fun sendSignIn(
+        socket: S,
+        server: RemoteSignInServer,
+        nowMs: Long,
+    ): RemoteAdmission<S> {
+        val signer = signers[socket] ?: return RemoteAdmission.Refused(RemoteRefusal.WrongRole)
+        val host = hosts[signer.host] ?: return RemoteAdmission.Refused(RemoteRefusal.Unavailable)
+        val ask = host.signIn?.takeIf { it.live(nowMs) } ?: return RemoteAdmission.Refused(RemoteRefusal.NotAsking)
+        val offer = ask.offer?.takeIf { it.socket == socket } ?: return RemoteAdmission.Refused(RemoteRefusal.NotAsking)
+        if (server.summary != offer.shown.server) return RemoteAdmission.Refused(RemoteRefusal.WrongRole)
+        ask.sent = true
+        return RemoteAdmission.SignInSent(host.socket, offer.shown.phone)
+    }
+
+    /** The television on [socket] stops asking, and names the phone that has to hear how it went. */
+    @Synchronized
+    fun endSignIn(socket: S): RemoteAdmission<S> {
+        val host = hostOn(socket) ?: return RemoteAdmission.Refused(RemoteRefusal.WrongRole)
+        val ask = host.signIn ?: return RemoteAdmission.SignInEnded(null, sent = false)
+        host.signIn = null
+        val phone = ask.offer?.socket?.also(signers::remove)
+        return RemoteAdmission.SignInEnded(phone, ask.sent)
+    }
+
     /** Forgets [socket] and says who has to hear that it went. */
     @Synchronized
     fun depart(socket: S): RemoteDeparture<S> {
@@ -291,12 +458,32 @@ internal class RemoteControlRelay<S : Any>(
             host.controllers.remove(socket)
             return RemoteDeparture.PhoneLeft(host.socket, host.controllers.size, controller.phone)
         }
+        signers.remove(socket)?.let { signer ->
+            val host = hosts[signer.host] ?: return RemoteDeparture.None
+            val ask = host.signIn ?: return RemoteDeparture.None
+            val offer = ask.offer?.takeIf { it.socket == socket } ?: return RemoteDeparture.None
+            // Once the session went the television has it, and answers whether or not anyone hears.
+            if (ask.sent) return RemoteDeparture.None
+            ask.offer = null
+            return RemoteDeparture.SignInWithdrawn(host.socket, offer.shown.phone)
+        }
         val key = hostedBy.remove(socket) ?: return RemoteDeparture.None
         val host = hosts[key]?.takeIf { it.socket == socket } ?: return RemoteDeparture.None
         hosts.remove(key)
         host.controllers.forEach(controllers::remove)
-        return RemoteDeparture.HostLeft(host.controllers.toList())
+        val signingIn = host.signIn?.offer?.socket
+        signingIn?.let(signers::remove)
+        return RemoteDeparture.HostLeft(host.controllers.toList(), signingIn)
     }
+
+    /** The television whose current socket is [socket]; a replaced one hosts nothing. */
+    private fun hostOn(socket: S): Host<S>? {
+        val key = hostedBy[socket] ?: return null
+        return hosts[key]?.takeIf { it.socket == socket }
+    }
+
+    /** Whether an ask still takes offers: not spent, and not older than [signInAskMs]. */
+    private fun SignIn<S>.live(nowMs: Long): Boolean = !sent && nowMs - askedAtMs < signInAskMs
 }
 
 /** Whether [message] is 手机遥控's rather than the room protocol's; pings stay the room's. */
@@ -314,10 +501,13 @@ internal suspend fun RemoteControlRelay<WebSocketSession>.handle(
     message: WatchWireMessage,
     nowMs: Long = System.currentTimeMillis(),
 ) {
+    if (message.type in REMOTE_SIGN_IN_MESSAGE_TYPES) return handleSignIn(socket, account, message, nowMs)
+    // A room's fields, or a server to sign in to, which only 用手机登录's own messages carry.
     val strayRoomFields =
         message.roomCode != null ||
             message.clientId != null ||
-            message.mediaKey != null
+            message.mediaKey != null ||
+            message.signInServer != null
     when (message.type) {
         "remoteHost" -> {
             // What the television says it does; it may say nothing, as one from before did.
@@ -503,7 +693,7 @@ internal suspend fun RemoteControlRelay<WebSocketSession>.handle(
 /** Runs from the socket's cleanup; tells the other side of every pairing [socket] was part of. */
 internal suspend fun RemoteControlRelay<WebSocketSession>.leave(socket: WebSocketSession) {
     when (val departure = depart(socket)) {
-        is RemoteDeparture.HostLeft ->
+        is RemoteDeparture.HostLeft -> {
             departure.phones.forEach { phone ->
                 phone.deliver(
                     WatchWireMessage(
@@ -513,6 +703,10 @@ internal suspend fun RemoteControlRelay<WebSocketSession>.leave(socket: WebSocke
                     ),
                 )
             }
+            departure.signingIn?.deliver(
+                WatchWireMessage(type = "remoteSignInEnded", message = "电视已断开", errorCode = "remote_host_left"),
+            )
+        }
         is RemoteDeparture.PhoneLeft ->
             departure.host.deliver(
                 WatchWireMessage(
@@ -520,6 +714,11 @@ internal suspend fun RemoteControlRelay<WebSocketSession>.leave(socket: WebSocke
                     participantCount = departure.phones,
                     remoteDeviceId = departure.phone.deviceId,
                 ),
+            )
+        // The television goes back to waiting for a phone; nothing it showed is coming.
+        is RemoteDeparture.SignInWithdrawn ->
+            departure.host.deliver(
+                WatchWireMessage(type = "remoteSignInWithdrawn", remoteDeviceId = departure.phone.deviceId),
             )
         RemoteDeparture.None -> Unit
     }
@@ -538,16 +737,16 @@ private suspend fun RemoteControlRelay<WebSocketSession>.forward(
     }
 }
 
-private suspend fun WebSocketSession.deliver(message: WatchWireMessage): Boolean =
+internal suspend fun WebSocketSession.deliver(message: WatchWireMessage): Boolean =
     withTimeoutOrNull(REMOTE_SEND_TIMEOUT_MS) { runCatching { remoteSend(message) }.isSuccess } ?: false
 
-private suspend fun WebSocketSession.refuse(reason: RemoteRefusal) {
+internal suspend fun WebSocketSession.refuse(reason: RemoteRefusal) {
     runCatching {
         remoteSend(WatchWireMessage(type = "error", message = reason.message, errorCode = reason.errorCode))
     }
 }
 
-private suspend fun WebSocketSession.remoteSend(message: WatchWireMessage) {
+internal suspend fun WebSocketSession.remoteSend(message: WatchWireMessage) {
     send(
         remoteJson.encodeToString(
             WatchWireMessage.serializer(),

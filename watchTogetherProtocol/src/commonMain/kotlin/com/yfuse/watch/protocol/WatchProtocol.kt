@@ -71,6 +71,11 @@ data class WatchWireMessage(
      * hears about or from that phone, and the television names it in `remoteRelease`.
      */
     val remoteDeviceId: String? = null,
+    /**
+     * 用手机登录, under [WatchProtocol.CAPABILITY_REMOTE_SIGN_IN]: the server a phone hands a
+     * television that asked for one — see [RemoteSignInServer].
+     */
+    val signInServer: RemoteSignInServer? = null,
 )
 
 /**
@@ -93,6 +98,32 @@ enum class RemoteControlKey(
     companion object {
         fun fromWireName(value: String?): RemoteControlKey? = entries.firstOrNull { it.wireName == value }
     }
+}
+
+/**
+ * 用手机登录: one saved Emby or Jellyfin server as a phone hands it to a television of the same
+ * account. `remoteSignInOffer` carries what the television shows before anything secret leaves the
+ * phone — [kind], [serverName], [baseUrl] and [userName]. `remoteSignInSend` carries the same four
+ * with [userId] and [accessToken], the session the phone signed in with, which the television keeps
+ * as its own sign-in would have. Never a password: the app keeps none.
+ */
+@Serializable
+data class RemoteSignInServer(
+    /** `Emby` or `Jellyfin` ([WatchProtocol.REMOTE_SIGN_IN_KINDS]); Plex keeps its own PIN sign-in. */
+    val kind: String,
+    val serverName: String,
+    /** The server's identity address, the one its saved id derives from. */
+    val baseUrl: String,
+    val userName: String,
+    val userId: String? = null,
+    val accessToken: String? = null,
+) {
+    /** The server without its session: what the television shows, and what the relay compares. */
+    val summary: RemoteSignInServer
+        get() = copy(userId = null, accessToken = null)
+
+    /** Printed without its session or address, so no log line or crash report can carry them. */
+    override fun toString(): String = "RemoteSignInServer(kind=$kind)"
 }
 
 @Serializable
@@ -171,6 +202,18 @@ object WatchProtocol {
      */
     const val CAPABILITY_REMOTE_PAIRING = "remotePairing"
 
+    /**
+     * 用手机登录: a television waiting on its 添加服务器 asks for a server (`remoteSignInAsk`, only
+     * from the socket it hosts 手机遥控 on). A phone of the same account puts one before it
+     * (`remoteSignInOffer`, without its session), and the television shows that; only once the
+     * phone's user confirms does the session follow (`remoteSignInSend`) — once, after which the ask
+     * is spent. The television ends the ask with `remoteSignInEnd`, whose
+     * [WatchWireMessage.errorCode] the phone hears in `remoteSignInEnded` as how it went. A relay
+     * without it refuses each of these as an unknown type, and a television does not offer
+     * 用手机登录 on one.
+     */
+    const val CAPABILITY_REMOTE_SIGN_IN = "remoteSignIn"
+
     val SERVER_CAPABILITIES =
         listOf(
             CAPABILITY_REACTIONS,
@@ -182,6 +225,7 @@ object WatchProtocol {
             CAPABILITY_ROOM_PLAYLIST,
             CAPABILITY_REMOTE_CONTROL,
             CAPABILITY_REMOTE_PAIRING,
+            CAPABILITY_REMOTE_SIGN_IN,
         )
 
     fun isSupportedVersion(version: Int?): Boolean = version != null && version in MIN_SUPPORTED_VERSION..VERSION
@@ -232,6 +276,29 @@ object WatchProtocol {
     const val MAX_REMOTE_TEXT_BYTES = 256
     const val MAX_REMOTE_TEXT_GRAPHEMES = 64
 
+    /** What 用手机登录 hands over, by [RemoteSignInServer.kind]; Plex keeps its own PIN sign-in. */
+    val REMOTE_SIGN_IN_KINDS = setOf("Emby", "Jellyfin")
+
+    /** As long as a saved server's address may be. */
+    const val MAX_REMOTE_SIGN_IN_URL_BYTES = 2_048
+
+    /** A server's display name or a user name: shown on the television, so bounded like a name. */
+    const val MAX_REMOTE_SIGN_IN_LABEL_BYTES = 512
+    const val MAX_REMOTE_SIGN_IN_LABEL_GRAPHEMES = 128
+    const val MAX_REMOTE_SIGN_IN_USER_ID_BYTES = 256
+
+    /** As long as a saved server's session may be. */
+    const val MAX_REMOTE_SIGN_IN_TOKEN_BYTES = 4_096
+
+    /** How long a television asks for a server before giving up; the relay forgets an ask this old. */
+    const val REMOTE_SIGN_IN_ASK_MS = 5L * 60L * 1_000L
+
+    /** `remoteSignInEnd` from a television that stopped asking before it had anything to save. */
+    const val REMOTE_SIGN_IN_CANCELLED_CODE = "remote_sign_in_cancelled"
+
+    /** `remoteSignInEnd` from a television whose server did not take the session it was sent. */
+    const val REMOTE_SIGN_IN_FAILED_CODE = "remote_sign_in_failed"
+
     private val graphemeRegex = Regex("\\X")
 
     /**
@@ -256,10 +323,23 @@ object WatchProtocol {
      * `remoteDisconnected` when its television leaves. Under [CAPABILITY_REMOTE_PAIRING] the
      * television also sends `remoteRelease` to let one phone go, which then hears
      * `remoteDisconnected` too, and `remoteAdmit` to let one in, which then hears `remoteAdmitted`.
-     * Such a socket never joins a room.
+     * Under [CAPABILITY_REMOTE_SIGN_IN] the television sends `remoteSignInAsk` and
+     * `remoteSignInEnd`, and a phone `remoteSignInOffer` and `remoteSignInSend`. Such a socket never
+     * joins a room.
      */
     val REMOTE_CLIENT_MESSAGE_TYPES =
-        setOf("remoteHost", "remoteJoin", "remoteKey", "remoteText", "remoteRelease", "remoteAdmit")
+        setOf(
+            "remoteHost",
+            "remoteJoin",
+            "remoteKey",
+            "remoteText",
+            "remoteRelease",
+            "remoteAdmit",
+            "remoteSignInAsk",
+            "remoteSignInEnd",
+            "remoteSignInOffer",
+            "remoteSignInSend",
+        )
 
     val CLIENT_MESSAGE_TYPES =
         setOf(
@@ -417,6 +497,51 @@ object WatchProtocol {
         if (value == null || value.hasControlCharacters()) return false
         if (value.encodeToByteArray().size > MAX_REMOTE_TEXT_BYTES) return false
         return graphemeRegex.findAll(value).count() <= MAX_REMOTE_TEXT_GRAPHEMES
+    }
+
+    /** `remoteSignInOffer`'s server: one a television can show, and nothing secret with it. */
+    fun isValidRemoteSignInOffer(value: RemoteSignInServer?): Boolean =
+        value != null &&
+            value.userId == null &&
+            value.accessToken == null &&
+            isValidRemoteSignInSummary(value)
+
+    /** `remoteSignInSend`'s server: the one offered, with the user and session it was signed in with. */
+    fun isValidRemoteSignInCredentials(value: RemoteSignInServer?): Boolean =
+        value != null &&
+            isValidRemoteSignInSummary(value) &&
+            isBoundedOpaqueId(value.userId, MAX_REMOTE_SIGN_IN_USER_ID_BYTES) &&
+            isBoundedOpaqueId(value.accessToken, MAX_REMOTE_SIGN_IN_TOKEN_BYTES)
+
+    /**
+     * A server's address as a saved server keeps it: http or https, a host, maybe a port and a base
+     * path. No user info, query or fragment, and no `..` to walk a path with.
+     */
+    fun isValidRemoteSignInUrl(value: String?): Boolean {
+        if (value.isNullOrEmpty() || value.encodeToByteArray().size > MAX_REMOTE_SIGN_IN_URL_BYTES) return false
+        if (value.any { it.isWhitespace() || it in "\\?#" } || value.hasControlCharacters() || ".." in value) {
+            return false
+        }
+        val rest =
+            when {
+                value.startsWith("https://") -> value.removePrefix("https://")
+                value.startsWith("http://") -> value.removePrefix("http://")
+                else -> return false
+            }
+        val authority = rest.substringBefore('/')
+        return authority.isNotEmpty() && '@' !in authority
+    }
+
+    private fun isValidRemoteSignInSummary(value: RemoteSignInServer): Boolean =
+        value.kind in REMOTE_SIGN_IN_KINDS &&
+            isValidRemoteSignInLabel(value.serverName) &&
+            isValidRemoteSignInLabel(value.userName) &&
+            isValidRemoteSignInUrl(value.baseUrl)
+
+    private fun isValidRemoteSignInLabel(value: String): Boolean {
+        if (value.isBlank() || value != value.trim() || value.hasControlCharacters()) return false
+        if (value.encodeToByteArray().size > MAX_REMOTE_SIGN_IN_LABEL_BYTES) return false
+        return graphemeRegex.findAll(value).count() <= MAX_REMOTE_SIGN_IN_LABEL_GRAPHEMES
     }
 
     private fun isBoundedOpaqueId(

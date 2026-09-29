@@ -137,6 +137,102 @@ class RemoteControlProtocolTest {
     }
 
     @Test
+    fun signing_in_from_a_phone_is_a_capability_of_its_own() {
+        assertTrue(WatchProtocol.CAPABILITY_REMOTE_SIGN_IN in WatchProtocol.SERVER_CAPABILITIES)
+        listOf("remoteSignInAsk", "remoteSignInEnd", "remoteSignInOffer", "remoteSignInSend").forEach { type ->
+            assertTrue(type in WatchProtocol.REMOTE_CLIENT_MESSAGE_TYPES, type)
+            assertTrue(type in WatchProtocol.CLIENT_MESSAGE_TYPES, type)
+        }
+    }
+
+    @Test
+    fun an_offer_is_a_server_the_television_can_show_and_nothing_secret() {
+        assertTrue(WatchProtocol.isValidRemoteSignInOffer(SIGN_IN.summary))
+        assertTrue(WatchProtocol.isValidRemoteSignInOffer(SIGN_IN.summary.copy(kind = "Jellyfin")))
+        assertFalse(WatchProtocol.isValidRemoteSignInOffer(null))
+        assertFalse(WatchProtocol.isValidRemoteSignInOffer(SIGN_IN), "the session never rides on an offer")
+        assertFalse(WatchProtocol.isValidRemoteSignInOffer(SIGN_IN.summary.copy(userId = "u1")))
+        // Plex keeps its own PIN sign-in, and nothing else is a server this hands over.
+        assertFalse(WatchProtocol.isValidRemoteSignInOffer(SIGN_IN.summary.copy(kind = "Plex")))
+        assertFalse(WatchProtocol.isValidRemoteSignInOffer(SIGN_IN.summary.copy(kind = "emby")))
+        assertFalse(WatchProtocol.isValidRemoteSignInOffer(SIGN_IN.summary.copy(serverName = " ")))
+        assertFalse(WatchProtocol.isValidRemoteSignInOffer(SIGN_IN.summary.copy(serverName = "客厅\n影院")))
+        assertFalse(WatchProtocol.isValidRemoteSignInOffer(SIGN_IN.summary.copy(userName = " alice")))
+        val longName = "影".repeat(WatchProtocol.MAX_REMOTE_SIGN_IN_LABEL_GRAPHEMES + 1)
+        assertFalse(WatchProtocol.isValidRemoteSignInOffer(SIGN_IN.summary.copy(serverName = longName)))
+        assertFalse(WatchProtocol.isValidRemoteSignInOffer(SIGN_IN.summary.copy(baseUrl = "ftp://media.example")))
+    }
+
+    @Test
+    fun a_sent_server_carries_a_bounded_session_and_user() {
+        assertTrue(WatchProtocol.isValidRemoteSignInCredentials(SIGN_IN))
+        assertFalse(WatchProtocol.isValidRemoteSignInCredentials(null))
+        assertFalse(WatchProtocol.isValidRemoteSignInCredentials(SIGN_IN.summary))
+        assertFalse(WatchProtocol.isValidRemoteSignInCredentials(SIGN_IN.copy(accessToken = "")))
+        assertFalse(WatchProtocol.isValidRemoteSignInCredentials(SIGN_IN.copy(accessToken = "to ken")))
+        val longToken = "t".repeat(WatchProtocol.MAX_REMOTE_SIGN_IN_TOKEN_BYTES + 1)
+        assertFalse(WatchProtocol.isValidRemoteSignInCredentials(SIGN_IN.copy(accessToken = longToken)))
+        val longUser = "u".repeat(WatchProtocol.MAX_REMOTE_SIGN_IN_USER_ID_BYTES + 1)
+        assertFalse(WatchProtocol.isValidRemoteSignInCredentials(SIGN_IN.copy(userId = longUser)))
+        assertFalse(WatchProtocol.isValidRemoteSignInCredentials(SIGN_IN.copy(kind = "Plex")))
+    }
+
+    @Test
+    fun a_server_address_is_http_or_https_to_a_host_and_nothing_more() {
+        assertTrue(WatchProtocol.isValidRemoteSignInUrl("http://192.168.1.8:8096"))
+        assertTrue(WatchProtocol.isValidRemoteSignInUrl("https://media.example.com/emby"))
+        assertTrue(WatchProtocol.isValidRemoteSignInUrl("https://[fe80::1]:8920"))
+        assertFalse(WatchProtocol.isValidRemoteSignInUrl(null))
+        assertFalse(WatchProtocol.isValidRemoteSignInUrl("http://"))
+        assertFalse(WatchProtocol.isValidRemoteSignInUrl("HTTP://media.example.com"))
+        assertFalse(WatchProtocol.isValidRemoteSignInUrl("media.example.com"))
+        assertFalse(WatchProtocol.isValidRemoteSignInUrl("http://alice:secret@media.example.com"))
+        assertFalse(WatchProtocol.isValidRemoteSignInUrl("http://media.example.com/?api_key=1"))
+        assertFalse(WatchProtocol.isValidRemoteSignInUrl("http://media.example.com/#top"))
+        assertFalse(WatchProtocol.isValidRemoteSignInUrl("http://media.example.com/emby/../admin"))
+        assertFalse(WatchProtocol.isValidRemoteSignInUrl("http://media.example.com\\admin"))
+        assertFalse(WatchProtocol.isValidRemoteSignInUrl("http://media example.com"))
+        val long = "https://" + "a".repeat(WatchProtocol.MAX_REMOTE_SIGN_IN_URL_BYTES)
+        assertFalse(WatchProtocol.isValidRemoteSignInUrl(long))
+    }
+
+    @Test
+    fun a_session_never_shows_in_what_is_printed_or_where_it_was_not_set() {
+        assertFalse("secret-token" in SIGN_IN.toString())
+        assertFalse("secret-token" in WatchWireMessage(type = "remoteSignInSend", signInServer = SIGN_IN).toString())
+        assertFalse("192.168" in SIGN_IN.toString())
+        assertEquals(null, SIGN_IN.summary.accessToken)
+        assertEquals(null, SIGN_IN.summary.userId)
+        val offer = WatchWireMessage(type = "remoteSignInOffer", signInServer = SIGN_IN.summary)
+        val encoded = json.encodeToString(WatchWireMessage.serializer(), offer)
+        assertFalse("accessToken" in encoded)
+        assertFalse("userId" in encoded)
+        assertEquals(offer, json.decodeFromString(WatchWireMessage.serializer(), encoded))
+        val key = WatchWireMessage(type = "remoteKey", remoteKey = "up")
+        assertFalse("signInServer" in json.encodeToString(WatchWireMessage.serializer(), key))
+    }
+
+    @Test
+    fun a_television_asking_for_a_server_is_said_only_by_one_that_says_so() {
+        val older =
+            json.decodeFromString(
+                HandoffDevice.serializer(),
+                """{"sessionId":"s","name":"客厅","platform":"Android","lastSeenAtEpochMs":1,"canReceive":true}""",
+            )
+        assertFalse(older.asksRemoteSignIn)
+        val heartbeat = HandoffHeartbeat("客厅", "Android", canReceive = false, acceptsRemote = true)
+        assertFalse("asksRemoteSignIn" in json.encodeToString(HandoffHeartbeat.serializer(), heartbeat))
+        val asking = heartbeat.copy(asksRemoteSignIn = true)
+        assertTrue(
+            json
+                .decodeFromString(
+                    HandoffHeartbeat.serializer(),
+                    json.encodeToString(HandoffHeartbeat.serializer(), asking),
+                ).asksRemoteSignIn,
+        )
+    }
+
+    @Test
     fun heartbeats_without_the_advertisement_still_decode() {
         val device =
             json.decodeFromString(
@@ -154,5 +250,17 @@ class RemoteControlProtocolTest {
                     json.encodeToString(HandoffHeartbeat.serializer(), advertised),
                 ).acceptsRemote,
         )
+    }
+
+    private companion object {
+        val SIGN_IN =
+            RemoteSignInServer(
+                kind = "Emby",
+                serverName = "家里的 Emby",
+                baseUrl = "http://192.168.1.8:8096",
+                userName = "alice",
+                userId = "5f0c1d2e3a4b",
+                accessToken = "secret-token",
+            )
     }
 }
