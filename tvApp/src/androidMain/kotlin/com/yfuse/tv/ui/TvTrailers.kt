@@ -20,6 +20,19 @@ import com.yfuse.tv.focus.requestFocusWhenAttached
 import com.yfuse.tv.focus.tvFocusScope
 import kotlinx.coroutines.delay
 
+/**
+ * 预告片 on the television's detail page, as the phone's key does it: a file plays in the player
+ * the page's 播放 uses, a video site's link opens in the app the television has for it. The
+ * preview on the hero gives way first — the trailer needs the decoder it holds.
+ */
+internal fun TrailerLauncher.openOnTv(
+    trailer: MediaTrailer,
+    ownerTitle: String,
+) {
+    stopTrailerPreview()
+    open(trailer, ownerTitle)
+}
+
 /** Why a link did not open, said under the hero's keys for a while and then let go. */
 @Composable
 internal fun TvTrailerNoticeTimeout(launcher: TrailerLauncher) {

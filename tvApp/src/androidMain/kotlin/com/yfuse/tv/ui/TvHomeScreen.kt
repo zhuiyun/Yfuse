@@ -116,11 +116,15 @@ internal fun TvHomeScreen(
                 index = heroIndex,
                 count = heroItems.size,
                 onOpen = { hero?.let { store.accept(HomeIntent.Open(it)) } },
-                onPlay = { hero?.let { store.accept(HomeIntent.Play(it)) } },
+                onPlay = {
+                    stopTrailerPreview()
+                    hero?.let { store.accept(HomeIntent.Play(it)) }
+                },
                 focusMemory = focusMemory,
                 navigationRequester = navigationRequester,
                 contentRequester = contentRequester,
                 reduceMotion = reduceMotion,
+                focused = heroFocused,
                 modifier = Modifier.onFocusChanged { heroFocused = it.hasFocus },
             )
         }
@@ -298,6 +302,8 @@ private fun TvHomeHero(
     navigationRequester: FocusRequester,
     contentRequester: FocusRequester,
     reduceMotion: Boolean,
+    /** Focus rests on 播放 or 详情 — what a 静音预告 waits for. */
+    focused: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -323,6 +329,13 @@ private fun TvHomeHero(
                 modifier = Modifier.fillMaxSize(),
             )
         }
+        // 今日精选 is TMDB's pick: its trailer is the one the library's copy of it holds, if any.
+        TvHeroTrailerPreview(
+            previewKey = item?.let { "tmdb:${it.mediaType}:${it.id}" },
+            focused = focused,
+            lookup = { item?.let { tmdbTrailerPreview(it) } },
+            modifier = Modifier.fillMaxSize(),
+        )
         Box(
             Modifier
                 .fillMaxSize()

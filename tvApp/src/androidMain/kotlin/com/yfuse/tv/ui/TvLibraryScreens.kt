@@ -24,11 +24,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -150,7 +153,10 @@ internal fun TvLibraryHomeScreen(
                     item = featured,
                     server = server,
                     onOpen = { component.onOpenItem(featured.id) },
-                    onPlay = { component.onPlayItem(featured.id) },
+                    onPlay = {
+                        stopTrailerPreview()
+                        component.onPlayItem(featured.id)
+                    },
                     focusMemory = focusMemory,
                     navigationRequester = navigationRequester,
                     contentRequester = remember { FocusRequester() },
@@ -266,6 +272,7 @@ private fun TvLibraryHero(
     navigationRequester: FocusRequester,
     contentRequester: FocusRequester,
 ) {
+    var focused by remember { mutableStateOf(false) }
     Box(
         Modifier
             // Whole while focus is on its keys — see TvFocusPivot.
@@ -274,7 +281,8 @@ private fun TvLibraryHero(
             .height(350.dp)
             .padding(horizontal = 8.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(TvPlaceholder),
+            .background(TvPlaceholder)
+            .onFocusChanged { focused = it.hasFocus },
     ) {
         AsyncImage(
             model =
@@ -285,6 +293,12 @@ private fun TvLibraryHero(
             // Silent: the title is written over it, and the backdrop read it a second time.
             contentDescription = null,
             contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        TvHeroTrailerPreview(
+            previewKey = "${server.id}:${item.id}",
+            focused = focused,
+            lookup = { libraryTrailerPreview(server, item.id) },
             modifier = Modifier.fillMaxSize(),
         )
         Box(

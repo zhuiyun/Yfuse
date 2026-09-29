@@ -75,7 +75,7 @@ internal fun TvDetailScreen(
     val playRequester = remember { FocusRequester() }
     val secondaryNavigationRequester = remember { FocusRequester() }
     var sheet by remember(component.itemId) { mutableStateOf<TvDetailSheet?>(null) }
-    // 预告片 under the hero's keys; 主题曲 plays itself, as on the phone.
+    // 预告片 under the hero's keys and in its preview; 主题曲 plays itself, as on the phone.
     val trailers by component.trailers.collectAsState()
     val trailerLauncher = rememberTrailerLauncher()
     TrailerLaunchEffect(trailerLauncher)
@@ -178,8 +178,14 @@ internal fun TvDetailScreen(
                         resumeTicks = state.playPositionTicks,
                         busy = state.resolvingPlay || state.selectionLoading,
                         onBack = component.onBack,
-                        onPlay = { store.accept(DetailIntent.Play) },
-                        onPlayFromStart = { store.accept(DetailIntent.PlayFromStart) },
+                        onPlay = {
+                            stopTrailerPreview()
+                            store.accept(DetailIntent.Play)
+                        },
+                        onPlayFromStart = {
+                            stopTrailerPreview()
+                            store.accept(DetailIntent.PlayFromStart)
+                        },
                         onToggleFavorite = { store.accept(DetailIntent.ToggleFavorite) },
                         onTogglePlayed = { store.accept(DetailIntent.TogglePlayed) },
                         watchLater = state.watchLater,
@@ -194,7 +200,7 @@ internal fun TvDetailScreen(
                         onOpenTrailers = {
                             val only = trailers.singleOrNull()
                             if (only != null) {
-                                trailerLauncher.open(only, detail.title)
+                                trailerLauncher.openOnTv(only, detail.title)
                             } else {
                                 sheet = TvDetailSheet.Trailers
                             }
@@ -489,7 +495,7 @@ internal fun TvDetailScreen(
                         focusMemory = focusMemory,
                         onOpen = { trailer ->
                             sheet = null
-                            trailerLauncher.open(trailer, detail.title)
+                            trailerLauncher.openOnTv(trailer, detail.title)
                         },
                         onDismiss = { sheet = null },
                     )
@@ -526,6 +532,8 @@ private fun TvDetailHero(
     serverId: String,
     profileId: String,
 ) {
+    var heroFocused by remember { mutableStateOf(false) }
+    val preview = trailers.firstNotNullOfOrNull { it as? MediaTrailer.Local }
     // Kept whole while focus is anywhere in it: 播放 pivoted on its own would push the title and
     // 返回 off the top on arrival.
     Box(
@@ -533,13 +541,21 @@ private fun TvDetailHero(
             .tvKeepWholeInView()
             .fillMaxWidth()
             .height(475.dp)
-            .background(TvPlaceholder),
+            .background(TvPlaceholder)
+            .onFocusChanged { heroFocused = it.hasFocus },
     ) {
         AsyncImage(
             model = rememberTvImage(heroUrl),
             // Silent: the title is written over it, and the backdrop read it a second time.
             contentDescription = null,
             contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        TvHeroTrailerPreview(
+            previewKey = preview?.let { "detail:$serverId:${detail.id}" },
+            focused = heroFocused,
+            lookup = { preview },
+            suspended = busy,
             modifier = Modifier.fillMaxSize(),
         )
         Box(
