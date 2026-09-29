@@ -54,6 +54,7 @@ import com.yfuse.app.BindBackgroundServices
 import com.yfuse.app.RootComponent
 import com.yfuse.app.effectiveGlassStyle
 import com.yfuse.app.rememberAppAccessibilityOptions
+import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -71,6 +72,7 @@ import com.yfuse.feature.player.PlayerScreen
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.search.SearchComponent
 import com.yfuse.tv.focus.requestFocusWhenAttached
+import com.yfuse.tv.remote.TvPhoneRemote
 import kotlinx.coroutines.launch
 
 private data class TvDestination(
@@ -91,15 +93,37 @@ private val tvDestinations =
 /** Public Android-TV entry point used by TvMainActivity. */
 @Composable
 fun TvApp(component: RootComponent) {
+    TvTheme(component.themePreferences) {
+        com.yfuse.app.BindProductServices(component)
+        val savedServers by component.dependencies.serverRegistry.data
+            .collectAsState()
+        val permissionScope = rememberCoroutineScope()
+        LocalNetworkAccessNotice(hasServers = savedServers.servers.isNotEmpty()) {
+            permissionScope.launch { component.dependencies.serverHealthMonitor.refreshAll() }
+        }
+        TvRoot(component)
+        PlaybackReportingWarning(component.dependencies.playbackReportingCoordinator)
+    }
+}
+
+/**
+ * The television's one theme, for the shell and for whatever this app lays over another page —
+ * 手机遥控's question over the player (see TvPhoneRemoteOverlay).
+ */
+@Composable
+internal fun TvTheme(
+    preferences: ThemePreferences,
+    content: @Composable () -> Unit,
+) {
     // The phone's builder: the person's switches plus the system's 「移除动画」, which the
     // television never heard — its reel kept turning and its focus kept scaling with animations
     // off for the whole device.
-    val accessibility = rememberAppAccessibilityOptions(component.themePreferences)
-    val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
-    val loadingAnimation by component.themePreferences.loadingAnimation.collectAsState()
+    val accessibility = rememberAppAccessibilityOptions(preferences)
+    val dialogAnimation by preferences.dialogAnimation.collectAsState()
+    val loadingAnimation by preferences.loadingAnimation.collectAsState()
     // 动效主题 is the phone's setting as much as the television's: 静息 asked for calm motion and
     // the TV kept running 经典 whatever was chosen.
-    val motionTheme by component.themePreferences.motionTheme.collectAsState()
+    val motionTheme by preferences.motionTheme.collectAsState()
 
     // Always dark. The shell paints [TvBackground] whatever the phone's 界面模式 says, and that
     // shared preference used to hand the four shared dialogs and the unified library light
@@ -121,17 +145,7 @@ fun TvApp(component: RootComponent) {
         // Dialog panels stay opaque, like every other plate on the television (see TvTokens):
         // with no page backdrop to sample, the shared dialog paints its solid body instead of
         // blurring the whole page behind it for as long as it is open.
-        CompositionLocalProvider(LocalDialogBackdrop provides null) {
-            com.yfuse.app.BindProductServices(component)
-            val savedServers by component.dependencies.serverRegistry.data
-                .collectAsState()
-            val permissionScope = rememberCoroutineScope()
-            LocalNetworkAccessNotice(hasServers = savedServers.servers.isNotEmpty()) {
-                permissionScope.launch { component.dependencies.serverHealthMonitor.refreshAll() }
-            }
-            TvRoot(component)
-            PlaybackReportingWarning(component.dependencies.playbackReportingCoordinator)
-        }
+        CompositionLocalProvider(LocalDialogBackdrop provides null, content = content)
     }
 }
 
@@ -265,6 +279,8 @@ fun TvRoot(component: RootComponent) {
                     }
                 }
             }
+            // 手机遥控's question about a phone that has just connected, over whichever page shows.
+            TvPhoneRemote.current?.let { remote -> TvPhoneRemotePromptHost(remote, focusMemory) }
         }
     }
 }

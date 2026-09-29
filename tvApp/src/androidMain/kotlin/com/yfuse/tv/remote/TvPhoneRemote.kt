@@ -11,29 +11,41 @@ import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.activity.findViewTreeOnBackPressedDispatcherOwner
+import androidx.activity.setViewTreeOnBackPressedDispatcherOwner
+import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.yfuse.app.RootComponent
 import com.yfuse.core.account.ACCOUNT_BASE_URL
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.handoff.HandoffController
 import com.yfuse.core.remote.RemoteControlEvent
 import com.yfuse.core.remote.RemoteControlHost
+import com.yfuse.core.remote.RemoteControlPhone
 import com.yfuse.feature.search.SearchComponent
 import com.yfuse.feature.search.SearchIntent
 import com.yfuse.tv.TvMainActivity
+import com.yfuse.tv.ui.TvPhoneRemoteOverlay
 import com.yfuse.watch.protocol.RemoteControlKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import org.koin.core.Koin
+import org.koin.core.context.GlobalContext
 import java.lang.ref.WeakReference
 
 /**
@@ -42,6 +54,12 @@ import java.lang.ref.WeakReference
  * app's windows has focus — a dialog over the page included — the way a physical remote presses
  * them, so focus moves everywhere it already moves; text into the focused field, or into 搜索 when
  * no field has focus — but never into a password field.
+ *
+ * Being signed in to the same account does not let a phone in. The first time one connects, the
+ * page in front asks the viewer 允许一次 / 始终允许此设备 / 拒绝 (TvPhoneRemotePrompt): the shell
+ * itself, and the player through a layer this class lays over it. Until the answer nothing that
+ * phone sends counts, and while any phone waits no phone is heard at all, so one already let in
+ * cannot answer the question for another.
  */
 internal class TvPhoneRemote private constructor(
     private val application: Application,
@@ -49,13 +67,37 @@ internal class TvPhoneRemote private constructor(
     private var resumed: WeakReference<Activity>? = null
     private var shell: WeakReference<TvMainActivity>? = null
     private var passwordNoticeAt = 0L
+    private var host: RemoteControlHost? = null
+    private val _phones = MutableStateFlow<List<RemoteControlPhone>>(emptyList())
+
+    /** Phones on this television now; none until hosting has started. */
+    val phones: StateFlow<List<RemoteControlPhone>> = _phones.asStateFlow()
+
+    /** Koin holds the app's settings from the first line of the application's onCreate. */
+    val preferences: TvPhoneRemotePreferences by lazy { TvPhoneRemotePreferences(GlobalContext.get().get()) }
 
     private fun replay(event: RemoteControlEvent) {
+        // Only phones already let in send anything; while another waits, even they are not heard.
+        if (_phones.value.any { !it.allowed }) return
         when (event) {
             is RemoteControlEvent.Key -> press(event.key)
             is RemoteControlEvent.Text -> type(event.text)
-            is RemoteControlEvent.Phones ->
-                if (event.joined) Toast.makeText(application, "手机遥控已连接", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** The viewer's answer to [phone]; 始终允许此设备 is remembered on this television alone. */
+    fun answer(
+        phone: RemoteControlPhone,
+        answer: TvPhoneRemoteAnswer,
+    ) {
+        val host = host ?: return
+        when (answer) {
+            TvPhoneRemoteAnswer.Refuse -> host.release(phone.deviceId)
+            TvPhoneRemoteAnswer.AllowOnce -> host.allow(phone.deviceId)
+            TvPhoneRemoteAnswer.AllowAlways -> {
+                if (phone.rememberable) preferences.trust(phone.deviceId, phone.name)
+                host.allow(phone.deviceId)
+            }
         }
     }
 
@@ -199,6 +241,34 @@ internal class TvPhoneRemote private constructor(
 
     override fun onActivityResumed(activity: Activity) {
         resumed = WeakReference(activity)
+        // The shell asks in its own composition (TvRoot); any other page is given a layer to ask in.
+        if (activity !is TvMainActivity && activity is ComponentActivity) layOver(activity)
+    }
+
+    /**
+     * A layer over [activity] — the player — in which 手机遥控 asks about a phone that connects
+     * mid-film. It sits on the window's root beside the page, not inside the page's content, which
+     * the page's own setContent would take over; and it is never a focus stop, so the page keeps
+     * the remote while the question arrives in a dialog window of its own.
+     */
+    private fun layOver(activity: ComponentActivity) {
+        val root = activity.window.decorView as? ViewGroup ?: return
+        if (root.findViewWithTag<View>(OVERLAY_TAG) != null) return
+        val layer =
+            ComposeView(activity).apply {
+                tag = OVERLAY_TAG
+                // Its own key for saved state, apart from the page's.
+                id = View.generateViewId()
+                isFocusable = false
+                descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                // The page may not have set its content, which sets these on the window, yet.
+                setViewTreeLifecycleOwner(activity)
+                setViewTreeSavedStateRegistryOwner(activity)
+                setViewTreeOnBackPressedDispatcherOwner(activity)
+                setContent { TvPhoneRemoteOverlay(this@TvPhoneRemote) }
+            }
+        val fill = ViewGroup.LayoutParams.MATCH_PARENT
+        root.addView(layer, ViewGroup.LayoutParams(fill, fill))
     }
 
     override fun onActivityPaused(activity: Activity) {
@@ -229,12 +299,16 @@ internal class TvPhoneRemote private constructor(
                 signedIn = tokens.sessionAvailable,
                 accessToken = { tokens.validAccessTokenFor(ACCOUNT_BASE_URL) },
                 refreshAccessToken = { tokens.refreshAccessTokenFor(ACCOUNT_BASE_URL) },
+                trusted = preferences::isTrusted,
             )
+        this.host = host
         val handoff = koin.get<HandoffController>()
         handoff.hostRemoteControl { host.hosting.value }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         // A phone learns of this television from the handoff heartbeat; send it as soon as that changes.
         scope.launch { host.hosting.drop(1).collect { handoff.refreshPresence() } }
+        // Read on the main thread, where replay and the screens run.
+        scope.launch { host.phones.collect { _phones.value = it } }
         scope.launch { host.events.collect { replay(it) } }
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
@@ -246,6 +320,11 @@ internal class TvPhoneRemote private constructor(
     }
 
     companion object {
+        /** This process's, for the screens that ask about phones and show who is on; set at start. */
+        @Volatile
+        var current: TvPhoneRemote? = null
+            private set
+
         /**
          * Tracks this app's activities from process start. The sessions restore on a worker and
          * [start] runs after it, usually once the first activity is already created and resumed; a
@@ -253,9 +332,23 @@ internal class TvPhoneRemote private constructor(
          * until the next page change.
          */
         fun register(application: Application): TvPhoneRemote =
-            TvPhoneRemote(application).also(application::registerActivityLifecycleCallbacks)
+            TvPhoneRemote(application).also { remote ->
+                application.registerActivityLifecycleCallbacks(remote)
+                current = remote
+            }
     }
 }
+
+/** What the viewer said to a phone asking to use 手机遥控. */
+internal enum class TvPhoneRemoteAnswer {
+    Refuse,
+    AllowOnce,
+
+    /** 始终允许此设备: let in now, and without asking whenever it connects again. */
+    AllowAlways,
+}
+
+private const val OVERLAY_TAG = "yfuse.tv.phoneRemote.overlay"
 
 /** The key a physical remote sends for [key]; 主页 has none an app may receive, and is handled in-app. */
 internal fun remoteKeyCode(key: RemoteControlKey): Int? =

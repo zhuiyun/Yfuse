@@ -27,9 +27,6 @@ private const val REMOTE_INPUT_WINDOW_MS = 3_000L
 /** Like a room broadcast: a television that cannot take a key within this is not there. */
 private const val REMOTE_SEND_TIMEOUT_MS = 2_000L
 
-/** What a television may give as its reason for letting a phone go; anything else is refused. */
-private const val REMOTE_REFUSED_CODE = "remote_refused"
-
 private val remoteJson =
     Json {
         ignoreUnknownKeys = true
@@ -378,7 +375,8 @@ internal suspend fun RemoteControlRelay<WebSocketSession>.handle(
         }
         "remoteRelease" -> {
             val deviceId = message.remoteDeviceId?.takeIf(WatchProtocol::isValidRemoteDeviceId)
-            val refused = message.errorCode == REMOTE_REFUSED_CODE
+            // The only reason a television may give for letting a phone go; anything else is refused.
+            val refused = message.errorCode == WatchProtocol.REMOTE_REFUSED_CODE
             if (
                 deviceId == null ||
                 strayRoomFields ||
@@ -397,7 +395,7 @@ internal suspend fun RemoteControlRelay<WebSocketSession>.handle(
                             WatchWireMessage(
                                 type = "remoteDisconnected",
                                 message = "电视拒绝了这部手机的遥控",
-                                errorCode = REMOTE_REFUSED_CODE,
+                                errorCode = WatchProtocol.REMOTE_REFUSED_CODE,
                             )
                         } else {
                             WatchWireMessage(

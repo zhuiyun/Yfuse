@@ -207,6 +207,12 @@ object WatchProtocol {
      */
     const val REMOTE_EPHEMERAL_DEVICE_PREFIX = "~"
 
+    /**
+     * The `errorCode` a television puts on `remoteRelease` for a phone it turned away, as opposed
+     * to one it disconnected; the phone hears `remoteDisconnected` with the same code.
+     */
+    const val REMOTE_REFUSED_CODE = "remote_refused"
+
     /** A search box's worth: the whole of the phone's field is resent on every change. */
     const val MAX_REMOTE_TEXT_BYTES = 256
     const val MAX_REMOTE_TEXT_GRAPHEMES = 64
