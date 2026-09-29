@@ -52,7 +52,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.PlayerGestureSettings
 import com.yfuse.core.designsystem.AmbientLight
-import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.DragAxis
@@ -2198,68 +2197,37 @@ internal fun PlayerControls(
                  */
                 var endingFlowsBack by remember { mutableStateOf(false) }
                 val showEndedKeys = stoppedAtItemEnd || endingFlowsBack
-                // The ending forms out of the paused key's disc when that is what is on screen: the
-                // key hands over without fading out, and the ending splits from it without fading in.
-                // Decided as the ending appears and kept while it stays, so its entrance never changes midway.
-                val pausedKeyWasUp = remember { booleanArrayOf(false) }
-                val endingFromPausedKey = remember(showEndedKeys) { showEndedKeys && pausedKeyWasUp[0] }
-                SideEffect { pausedKeyWasUp[0] = showPausedKey }
-                ChromeVisibility(
-                    visible = showPausedKey,
-                    modifier = Modifier.align(Alignment.Center),
-                    instantExit = showEndedKeys,
-                ) {
-                    CircleControl(
-                        // 播放, never 暂停. This is an affordance, not a readout — it says what the
-                        // tap does, the way every transport key in the app does.
-                        icon = AppIcons.Play,
-                        description = if (watchLocked) "已暂停，等待房主继续" else "继续播放",
-                        size = CenterKeySize,
-                        iconSize = CenterKeyIconSize,
-                        enabled = !watchLocked,
-                        // The one control that has to be found at a glance in a dark room, so it
-                        // takes the filled treatment the transport keys leave to it.
-                        filled = true,
-                        onClick = {
-                            onPlayPause()
-                            poke()
-                        },
-                    )
-                }
-
-                // The ending's keys, where the paused key was. They form out of one white drop: see [EndedKeys].
-                ChromeVisibility(
-                    visible = showEndedKeys,
-                    modifier = Modifier.align(Alignment.Center),
-                    instantEnter = endingFromPausedKey,
-                ) {
-                    EndedKeys(
-                        hasNext = state.hasNext,
-                        watchLocked = watchLocked,
-                        fromPausedKey = endingFromPausedKey,
-                        onNext = {
-                            poke()
-                            onNextItem()
-                        },
-                        onReplay = {
-                            if (playback.value.ended) {
-                                // Back to the first frame, and playing again: the engine reports
-                                // the ended item as paused, so the seek alone would leave it
-                                // standing on frame one.
-                                latestOnSeek(0L)
-                                if (!playback.value.playing) onPlayPause()
-                            } else {
-                                // Parked on the last frame instead of ended: resuming would run
-                                // into the next item before the seek landed, so the item is
-                                // started again from the top.
-                                onSelectItem(state.currentIndex)
-                            }
-                            poke()
-                        },
-                        onBack = onBack,
-                        onHold = { endingFlowsBack = it },
-                    )
-                }
+                PlayerCenterKeys(
+                    showPausedKey = showPausedKey,
+                    showEndedKeys = showEndedKeys,
+                    watchLocked = watchLocked,
+                    hasNext = state.hasNext,
+                    onResume = {
+                        onPlayPause()
+                        poke()
+                    },
+                    onNext = {
+                        poke()
+                        onNextItem()
+                    },
+                    onReplay = {
+                        if (playback.value.ended) {
+                            // Back to the first frame, and playing again: the engine reports
+                            // the ended item as paused, so the seek alone would leave it
+                            // standing on frame one.
+                            latestOnSeek(0L)
+                            if (!playback.value.playing) onPlayPause()
+                        } else {
+                            // Parked on the last frame instead of ended: resuming would run
+                            // into the next item before the seek landed, so the item is
+                            // started again from the top.
+                            onSelectItem(state.currentIndex)
+                        }
+                        poke()
+                    },
+                    onBack = onBack,
+                    onHold = { endingFlowsBack = it },
+                )
 
                 // Taught once each, while their gesture is in reach; see [PlayerGestureTips].
                 PlayerGestureTips(
