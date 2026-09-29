@@ -19,7 +19,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalContext
 import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.account.AccountAccessTokenSource
@@ -57,8 +56,6 @@ import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackPerformanceMemory
 import com.yfuse.core.playback.PlaybackProbeStatus
 import com.yfuse.core.playback.PlaybackResourcePressure
-import com.yfuse.core.playback.PlaybackRuntimeFaultKind
-import com.yfuse.core.playback.classifyPlaybackFailure
 import com.yfuse.core.playback.planPlayback
 import com.yfuse.core.playback.resolvePlaybackOptimization
 import com.yfuse.core.sync.WatchStickers
@@ -71,8 +68,6 @@ import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import com.yfuse.core2.legacy.asPlaybackStateFlow
 import com.yfuse.core2.legacy.asYPlayer
 import com.yfuse.tv.player.TvPlayerChromeBridge
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
@@ -80,16 +75,10 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
 import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 private const val RESUME_NOTICE_MIN_MS = 30_000L
-private const val MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS = 2
-private const val MAX_LONG_BUFFER_RECOVERY_ATTEMPTS = 2
-
-/** Playback must get this far past the last recovery position before its recovery budget is restored. */
-private const val RECOVERY_BUDGET_RESET_PROGRESS_MS = 30_000L
 
 /** Stable `engine_attached`/`engine_detached` label while [PreparingVideoEngine] fills the slot. */
 private const val PREPARING_VIDEO_ENGINE_LABEL = "Preparing"
@@ -468,11 +457,6 @@ internal fun PlayerRoot(
     val player = remember(engine) { engine.asYPlayer() }
     val engineCreatedElapsedMs = remember(engine) { SystemClock.elapsedRealtime() }
     val engineHandoverSnapshot = remember(engine) { engineBinding.input.handover }
-    var handoverPositionValidated by remember(engine) { mutableStateOf(false) }
-    // When the replacement engine first reported motion; null until it does. Opening a stream
-    // takes wall-clock time in which the timeline does not move, so the handover budget only
-    // starts here rather than at engine construction.
-    var enginePlaybackStartedAtElapsedMs by remember(engine) { mutableStateOf<Long?>(null) }
     val backendExtensions = remember(engine) { PlayerBackendExtensions(engine) }
     val presentationState = remember(player) { player.asPlaybackStateFlow() }
     val latestQueueAppender =
@@ -834,7 +818,7 @@ internal fun PlayerRoot(
             remember(localCastItem?.serverId, localCastItem?.id, localCastItem?.versionId) {
                 PlaybackNetworkRecoveryState()
             }
-        var longBufferRecoveryAttempts by
+        val longBufferRecoveryAttempts =
             remember(localCastItem?.serverId, localCastItem?.id, localCastItem?.versionId) {
                 mutableIntStateOf(0)
             }
@@ -911,21 +895,23 @@ internal fun PlayerRoot(
                 sessionRevision = build.runtimeSessionGeneration,
                 tapAnchoredStartupMs = tapAnchoredStartupMs,
             )
-        val runtimeAssessment by remember(runtimeAssessmentState) {
-            derivedStateOf {
-                val current = runtimeAssessmentState.value
-                current.copy(
-                    health =
-                        current.health.copy(
-                            observedPlaybackMs = 0L,
-                            droppedFrames = current.health.droppedFrames / 10 * 10,
-                            droppedFramesPerMinute = 0f,
-                        ),
-                    power = current.power.copy(measuredMilliwatts = null),
-                    reportHealth = false,
-                )
+        val runtimeAssessmentSource =
+            remember(runtimeAssessmentState) {
+                derivedStateOf {
+                    val current = runtimeAssessmentState.value
+                    current.copy(
+                        health =
+                            current.health.copy(
+                                observedPlaybackMs = 0L,
+                                droppedFrames = current.health.droppedFrames / 10 * 10,
+                                droppedFramesPerMinute = 0f,
+                            ),
+                        power = current.power.copy(measuredMilliwatts = null),
+                        reportHealth = false,
+                    )
+                }
             }
-        }
+        val runtimeAssessment by runtimeAssessmentSource
         LaunchedEffect(activeProbe.probeDepth, activeProbe.capabilitySignature) {
             if (castAuthoritative) return@LaunchedEffect
             // Pure YCore is fail-closed: an unsupported local path is reported to the user and must
@@ -1651,7 +1637,8 @@ internal fun PlayerRoot(
             onPlaybackRequestChanged = sourceSwitchCoordinator::invalidate,
         )
         val latestState by livePlayback
-        val latestActiveItems by rememberUpdatedState(activeItems)
+        val latestActiveItemsSource = rememberUpdatedState(activeItems)
+        val latestActiveItems by latestActiveItemsSource
 
         fun sourceSwitchContext(): PlaybackSourceSwitchContext {
             val index = latestState.currentIndex
@@ -1769,489 +1756,55 @@ internal fun PlayerRoot(
             onPlaybackProgress,
         )
 
-        // Last resort of the fallback chain: exhaust decoder stacks for this file, then move to
-        // the best untried file the same item owns. Both sets are bounded, so a title nothing can
-        // play settles on an error instead of cycling through engines and versions forever.
-        var versionsTried by remember(state.currentIndex, currentItem?.serverId) {
-            mutableStateOf(setOfNotNull(currentItem?.versionId))
-        }
-        LaunchedEffect(state.currentIndex, currentItem?.serverId, currentItem?.versionId) {
-            currentItem?.versionId?.let { versionsTried = versionsTried + it }
-        }
-        var enginesTried by remember(state.currentIndex, currentItem?.serverId, currentItem?.versionId) {
-            mutableStateOf(setOf(build.kind))
-        }
-        BindPlaybackDiagnostics(livePlayback, build.kind, enginesTried, core2NativeOnlyActive)
-        var serversTried by remember(state.currentIndex) {
-            mutableStateOf(setOfNotNull(currentItem?.serverId))
-        }
-        LaunchedEffect(state.currentIndex, currentItem?.serverId) {
-            currentItem?.serverId?.let { serversTried = serversTried + it }
-        }
-        var versionSwitchJob by remember { mutableStateOf<Job?>(null) }
-        var versionSwitchNonce by remember { mutableIntStateOf(0) }
-        var pendingVersionId by remember { mutableStateOf<String?>(null) }
-        var serverSwitchJob by remember { mutableStateOf<Job?>(null) }
-        var serverSwitchNonce by remember { mutableIntStateOf(0) }
-
-        /**
-         * Plays the current entry from a different file. The old server-side encoder is ended
-         * before another engine is created, and every binding gets a fresh playback-session id.
-         * That ordering prevents a late DELETE for A from killing a rapid A -> B -> A switch.
-         */
-        fun selectVersion(
-            versionId: String,
-            automaticRecovery: Boolean = false,
-        ) {
-            val switchState = latestState
-            val item = latestActiveItems.getOrNull(switchState.currentIndex) ?: return
-            val committedVersionId = sources.versionChoices[item.id]?.id ?: item.versionId
-            if (committedVersionId == versionId && pendingVersionId == null) return
-            if (pendingVersionId == versionId) return
-            val version = item.versions.firstOrNull { it.id == versionId } ?: return
-            val freshVersion = version.withFreshPlaySession()
-            val itemIndex = switchState.currentIndex
-            val itemId = item.id
-            val oldSessionId = item.playSessionId
-
-            versionSwitchNonce++
-            val operation = versionSwitchNonce
-            val switchRequest = sourceSwitchCoordinator.begin(sourceSwitchContext())
-            versionSwitchJob?.cancel()
-            serverSwitchJob?.cancel()
-            serverSwitchJob = null
-            pendingVersionId = versionId
-            AppLog.info(
-                category = "player",
-                event = "version_switch_requested",
-                message = "Playback media version switch requested",
-                attributes =
-                    mapOf(
-                        "itemIndex" to itemIndex.toString(),
-                        "engine" to attachedEngineLabel,
-                        "fromVersionId" to committedVersionId.orEmpty(),
-                        "toVersionId" to versionId,
-                    ),
+        val switching =
+            rememberPlayerSourceSwitching(
+                stateSource = runtimeState,
+                livePlayback = livePlayback,
+                latestActiveItemsSource = latestActiveItemsSource,
+                currentItem = currentItem,
+                items = items,
+                serverFallbackPlans = serverFallbackPlans,
+                build = build,
+                choices = choices,
+                sources = sources,
+                core2NativeOnlyActive = core2NativeOnlyActive,
+                player = player,
+                backendExtensions = backendExtensions,
+                playbackSink = playbackSink,
+                sourceSwitchCoordinator = sourceSwitchCoordinator,
+                sourceSwitchContext = ::sourceSwitchContext,
+                capturePlaybackHandover = ::capturePlaybackHandover,
+                scope = scope,
+                attachedEngineLabel = attachedEngineLabel,
+                activeProbe = activeProbe,
+                deviceCapabilities = deviceCapabilities,
+                capabilityProvider = capabilityProvider,
+                allowAudioPassthrough = allowAudioPassthrough,
+                effectiveOptimizationMode = effectiveOptimizationMode,
+                dolbyVisionRuntime = dolbyVisionRuntime,
+                failureMemory = failureMemory,
+                performanceMemory = performanceMemory,
             )
 
-            versionSwitchJob =
-                scope.launch {
-                    try {
-                        val preparation =
-                            sourceSwitchCoordinator.prepare(switchRequest, ::sourceSwitchContext) {
-                                if (oldSessionId.isBlank() || playbackSink == null) {
-                                    true
-                                } else {
-                                    try {
-                                        withTimeoutOrNull(5_000L) {
-                                            playbackSink.stopEncoding(oldSessionId)
-                                        } == true
-                                    } catch (cancelled: CancellationException) {
-                                        throw cancelled
-                                    } catch (failure: Throwable) {
-                                        AppLog.warning(
-                                            category = "player",
-                                            event = "version_switch_cleanup_failed",
-                                            message = "Old transcode cleanup threw before a version switch",
-                                            throwable = failure,
-                                            attributes =
-                                                mapOf(
-                                                    "itemIndex" to itemIndex.toString(),
-                                                    "fromVersionId" to committedVersionId.orEmpty(),
-                                                    "toVersionId" to versionId,
-                                                    "playSessionId" to oldSessionId,
-                                                ),
-                                        )
-                                        false
-                                    }
-                                }
-                            }
-
-                        if (operation != versionSwitchNonce) return@launch
-                        if (preparation == PlaybackSourceSwitchPreparation.Superseded) return@launch
-                        if (preparation == PlaybackSourceSwitchPreparation.CleanupRejected) {
-                            AppLog.warning(
-                                category = "player",
-                                event = "version_switch_cleanup_rejected",
-                                message = "Old transcode could not be cleaned up; keeping current version",
-                                attributes =
-                                    mapOf(
-                                        "itemIndex" to itemIndex.toString(),
-                                        "fromVersionId" to committedVersionId.orEmpty(),
-                                        "toVersionId" to versionId,
-                                        "playSessionId" to oldSessionId,
-                                    ),
-                            )
-                            Toast
-                                .makeText(
-                                    context,
-                                    "切换版本失败：无法清理旧的服务器转码，请稍后重试",
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                            return@launch
-                        }
-
-                        // Read the position only after cleanup succeeds. Until this point the old
-                        // engine remains attached, so a rejected/timeout cleanup is non-destructive.
-                        capturePlaybackHandover()
-                        player.pause()
-                        build.resume =
-                            build.resume.copy(
-                                itemIndex = itemIndex,
-                                positionMs = player.currentPositionMs(),
-                            )
-                        versionsTried =
-                            updatedVersionAttempts(
-                                tried = versionsTried,
-                                selected = versionId,
-                                automaticRecovery = automaticRecovery,
-                            )
-                        sources.versionChoices = sources.versionChoices + (itemId to freshVersion)
-                        build.engineGeneration++
-                    } finally {
-                        if (operation == versionSwitchNonce) {
-                            pendingVersionId = null
-                            versionSwitchJob = null
-                        }
-                    }
-                }
-        }
-
-        /** Manually moves the current episode to one of its already-resolved server copies. */
-        fun selectServer(serverId: String) {
-            val switchState = latestState
-            val itemIndex = switchState.currentIndex
-            val item = latestActiveItems.getOrNull(itemIndex) ?: return
-            if (item.serverId == serverId) return
-            val candidate =
-                buildList {
-                    items.getOrNull(itemIndex)?.let(::add)
-                    addAll(serverFallbackPlans[itemIndex].orEmpty())
-                }.firstOrNull { it.serverId == serverId } ?: return
-            val freshCandidate =
-                candidate.activeVersion
-                    ?.withFreshPlaySession()
-                    ?.let(candidate::withVersion)
-                    ?: candidate
-            val oldSessionId = item.playSessionId
-
-            serverSwitchNonce++
-            val operation = serverSwitchNonce
-            val switchRequest = sourceSwitchCoordinator.begin(sourceSwitchContext())
-            serverSwitchJob?.cancel()
-            versionSwitchJob?.cancel()
-            versionSwitchJob = null
-            pendingVersionId = null
-            serverSwitchJob =
-                scope.launch {
-                    try {
-                        val preparation =
-                            sourceSwitchCoordinator.prepare(switchRequest, ::sourceSwitchContext) {
-                                if (oldSessionId.isBlank() || playbackSink == null) {
-                                    true
-                                } else {
-                                    try {
-                                        withTimeoutOrNull(5_000L) {
-                                            playbackSink.stopEncoding(oldSessionId)
-                                        } == true
-                                    } catch (cancelled: CancellationException) {
-                                        throw cancelled
-                                    } catch (failure: Throwable) {
-                                        AppLog.warning(
-                                            category = "player",
-                                            event = "server_switch_cleanup_failed",
-                                            message = "Old transcode cleanup threw before a server switch",
-                                            throwable = failure,
-                                            attributes =
-                                                mapOf(
-                                                    "fromServerId" to item.serverId.orEmpty(),
-                                                    "toServerId" to serverId,
-                                                ),
-                                        )
-                                        false
-                                    }
-                                }
-                            }
-                        if (operation != serverSwitchNonce) return@launch
-                        if (preparation == PlaybackSourceSwitchPreparation.Superseded) return@launch
-                        if (preparation == PlaybackSourceSwitchPreparation.CleanupRejected) {
-                            Toast
-                                .makeText(
-                                    context,
-                                    "切换服务器失败：无法清理旧的服务器转码，请稍后重试",
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                            return@launch
-                        }
-
-                        capturePlaybackHandover()
-                        player.pause()
-                        build.resume =
-                            build.resume.copy(
-                                itemIndex = itemIndex,
-                                positionMs = player.currentPositionMs(),
-                            )
-                        sources.versionChoices = sources.versionChoices - item.id - freshCandidate.id
-                        sources.serverChoices = sources.serverChoices + (itemIndex to freshCandidate)
-                        serversTried = serversTried + serverId
-                        build.engineGeneration++
-                        AppLog.info(
-                            category = "player",
-                            event = "playback_server_switch_requested",
-                            message = "Playback server switch requested",
-                            attributes =
-                                mapOf(
-                                    "itemIndex" to itemIndex.toString(),
-                                    "fromServerId" to item.serverId.orEmpty(),
-                                    "toServerId" to serverId,
-                                ),
-                        )
-                    } finally {
-                        if (operation == serverSwitchNonce) serverSwitchJob = null
-                    }
-                }
-        }
-
-        fun switchEngine(target: PlayerEngine) {
-            if (target == build.kind) return
-            sourceSwitchCoordinator.invalidate()
-            // Read the position before the old engine is torn down.
-            capturePlaybackHandover()
-            player.pause()
-            val positionMs = player.currentPositionMs()
-            AppLog.info(
-                category = "player",
-                event = "engine_switch_requested",
-                message = "Playback engine switch requested",
-                attributes =
-                    mapOf(
-                        "from" to build.kind.name,
-                        "to" to target.name,
-                        "itemIndex" to state.currentIndex.toString(),
-                        "positionMs" to positionMs.toString(),
-                    ),
-            )
-            build.resume = build.resume.copy(itemIndex = state.currentIndex, positionMs = positionMs)
-            build.kind = target
-        }
-
-        fun selectEngineStrategy(selection: PlaybackEngineSelection) {
-            if (selection == choices.sessionEngineSelection) return
-            sourceSwitchCoordinator.invalidate()
-            capturePlaybackHandover()
-            choices.sessionEngineSelection = selection
-            val selectionPlan =
-                planPlayback(
-                    probe = activeProbe,
-                    capabilities = deviceCapabilities,
-                    preferredEngine = build.kind,
-                    preferredDecoderMode = build.effectiveDecoderMode,
-                    allowAudioPassthrough = allowAudioPassthrough,
-                    optimizationMode = effectiveOptimizationMode,
-                    engineSelection = selection,
-                    excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
-                    engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
-                    videoSupport =
-                        capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
-                            ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
-                    dolbyVisionRuntime = dolbyVisionRuntime,
-                )
-            val decoderChanged = selectionPlan.decoderMode != build.effectiveDecoderMode
-            build.effectiveDecoderMode = selectionPlan.decoderMode
-            if (!core2NativeOnlyActive && selectionPlan.requiresServerTranscode && !state.transcoding) {
-                backendExtensions.switchToTranscode(selectionPlan.reason)
-            }
-            if (selectionPlan.primaryEngine != build.kind) {
-                switchEngine(selectionPlan.primaryEngine)
-            } else if (decoderChanged) {
-                build.resume =
-                    build.resume.copy(
-                        itemIndex = state.currentIndex,
-                        positionMs = player.currentPositionMs(),
-                    )
-                build.engineGeneration++
-            }
-        }
-
-        var nativeOnlyRecoveryAttempts by
-            remember(activeProbe.capabilitySignature, state.currentIndex) { mutableIntStateOf(0) }
-        // Where the last runtime recovery reopened this item. A title that fails at a fixed position
-        // plays healthily for a moment after every reopen, and clearing the budgets at that moment
-        // restarted them on each cycle, so the same failure looped forever.
-        var lastRecoveryPositionMs by remember(state.currentIndex) { mutableLongStateOf(0L) }
-        LaunchedEffect(
-            runtimeAssessment.health.evaluationReady,
-            runtimeAssessment.runtimeFault,
-            state.currentIndex,
-        ) {
-            if (
-                runtimeAssessment.health.evaluationReady &&
-                runtimeAssessment.runtimeFault == null &&
-                state.playing &&
-                !state.buffering
-            ) {
-                // The budgets are earned back only by real progress past the failure; a new fault
-                // restarts this effect and cancels the wait.
-                snapshotFlow {
-                    livePlayback.value.positionMs >= lastRecoveryPositionMs + RECOVERY_BUDGET_RESET_PROGRESS_MS
-                }.first { it }
-                nativeOnlyRecoveryAttempts = 0
-                longBufferRecoveryAttempts = 0
-            }
-        }
-        LaunchedEffect(
-            runtimeAssessment.runtimeFault,
-            build.kind,
-            choices.sessionEngineSelection,
-            engine,
-            build.core2DisabledForSession,
-            core2NativeOnlyActive,
-        ) {
-            val fault = runtimeAssessment.runtimeFault ?: return@LaunchedEffect
-            if (choices.sessionEngineSelection != PlaybackEngineSelection.Auto || castAuthoritative) {
-                return@LaunchedEffect
-            }
-            if (
-                fault.kind.failureKind == PlaybackFailureKind.Network &&
-                longBufferRecoveryAttempts < MAX_LONG_BUFFER_RECOVERY_ATTEMPTS
-            ) {
-                val positionMs = player.currentPositionMs().coerceAtLeast(0L)
-                longBufferRecoveryAttempts++
-                lastRecoveryPositionMs = positionMs
-                networkRecovery.attempts++
-                networkRecovery.pending = true
-                networkRecovery.resumePositionMs = positionMs
-                build.resume =
-                    choices.handover(
-                        state = state,
-                        positionMs = positionMs,
-                        playbackRequested = player.playbackRequested,
-                    )
-                build.runtimeSessionGeneration++
-                player.seekTo(positionMs)
-                player.retry()
-                AppLog.warning(
-                    category = "player.network",
-                    event =
-                        if (fault.kind == PlaybackRuntimeFaultKind.StartupNetworkTimeout) {
-                            "startup_starvation_recovery"
-                        } else {
-                            "long_rebuffer_recovery"
-                        },
-                    message = "Playback transport was reopened after sustained source starvation",
-                    attributes =
-                        mapOf(
-                            "engine" to attachedEngineLabel,
-                            "itemIndex" to state.currentIndex.toString(),
-                            "positionMs" to positionMs.toString(),
-                            "fault" to fault.kind.name,
-                            "attempt" to longBufferRecoveryAttempts.toString(),
-                        ),
-                )
-                Toast.makeText(context, "网络数据长时间未到达，正在重新连接", Toast.LENGTH_SHORT).show()
-                return@LaunchedEffect
-            }
-            if (core2NativeOnlyActive) {
-                val positionMs = player.currentPositionMs().coerceAtLeast(0L)
-                if (nativeOnlyRecoveryAttempts < MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS) {
-                    nativeOnlyRecoveryAttempts++
-                    lastRecoveryPositionMs = positionMs
-                    build.resume =
-                        choices.handover(
-                            state = state,
-                            positionMs = positionMs,
-                            playbackRequested = player.playbackRequested,
-                        )
-                    // Restart the existing Core2 worker in place. Its command queue serializes
-                    // releaseMedia(), source reopen and decoder configuration, so a blocked outgoing
-                    // extractor cannot overlap a second MediaCodec instance on the same Surface.
-                    build.runtimeSessionGeneration++
-                    player.retry()
-                    AppLog.warning(
-                        category = "player.core2",
-                        event = "native_only_runtime_recovery",
-                        message = "YCore Native restarted its local pipeline after a silent output fault",
-                        attributes =
-                            mapOf(
-                                "engine" to attachedEngineLabel,
-                                "itemIndex" to state.currentIndex.toString(),
-                                "positionMs" to positionMs.toString(),
-                                "fault" to fault.kind.name,
-                                "attempt" to nativeOnlyRecoveryAttempts.toString(),
-                            ),
-                    )
-                    Toast
-                        .makeText(
-                            context,
-                            "YCore 正在重建本地解码链路",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    return@LaunchedEffect
-                }
-                AppLog.warning(
-                    category = "player.core2",
-                    event = "native_only_runtime_fault",
-                    message = "YCore Native exhausted local recovery without using Legacy fallback",
-                    attributes =
-                        mapOf(
-                            "engine" to attachedEngineLabel,
-                            "itemIndex" to state.currentIndex.toString(),
-                            "fault" to fault.kind.name,
-                        ),
-                )
-                Toast
-                    .makeText(
-                        context,
-                        "YCore 本地恢复失败，未切换兼容内核或服务器解码",
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                return@LaunchedEffect
-            }
-            if (engine is YPlayerVideoEngineAdapter && !build.core2DisabledForSession) {
-                build.resume =
-                    choices.handover(
-                        state = state,
-                        positionMs = player.currentPositionMs(),
-                        playbackRequested = player.playbackRequested,
-                    )
-                backendExtensions.prepareForHandover()
-                build.core2DisabledForSession = true
-                build.engineGeneration++
-                AppLog.warning(
-                    category = "player.core2",
-                    event = "trial_runtime_fault_fallback",
-                    message = "YCore 2.0 trial had a silent output fault; rebuilt the selected Legacy engine",
-                    attributes =
-                        mapOf(
-                            "engine" to attachedEngineLabel,
-                            "itemIndex" to state.currentIndex.toString(),
-                            "fault" to fault.kind.name,
-                        ),
-                )
-                Toast.makeText(context, "试用内核输出异常，已切回兼容内核", Toast.LENGTH_SHORT).show()
-                return@LaunchedEffect
-            }
-            val tried = enginesTried + build.kind
-            enginesTried = tried
-            val nextEngine = activePlan.engineOrder.firstOrNull { it !in tried }
-            AppLog.info(
-                category = "player.health",
-                event = "runtime_fault_recovery",
-                message = "YCore detected a silent playback failure",
-                attributes =
-                    mapOf(
-                        "engine" to attachedEngineLabel,
-                        "fault" to fault.kind.name,
-                        "nextEngine" to (nextEngine?.name ?: "server"),
-                    ),
-            )
-            if (nextEngine != null) {
-                enginesTried = tried + nextEngine
-                switchEngine(nextEngine)
-            } else if (activeProbe.hasServerTranscode && !state.transcoding) {
-                backendExtensions.switchToTranscode(fault.reason)
-            }
-        }
+        PlayerRuntimeFaultRecovery(
+            stateSource = runtimeState,
+            livePlayback = livePlayback,
+            runtimeAssessmentSource = runtimeAssessmentSource,
+            engine = engine,
+            player = player,
+            backendExtensions = backendExtensions,
+            build = build,
+            choices = choices,
+            core2NativeOnlyActive = core2NativeOnlyActive,
+            castAuthoritative = castAuthoritative,
+            activeProbe = activeProbe,
+            activePlan = activePlan,
+            networkRecovery = networkRecovery,
+            longBufferRecoveryAttemptsState = longBufferRecoveryAttempts,
+            enginesTriedState = switching.enginesTried,
+            switchEngine = switching.switchEngine,
+            attachedEngineLabel = attachedEngineLabel,
+        )
 
         PlayerTrackEffects(
             player = player,
@@ -2284,198 +1837,41 @@ internal fun PlayerRoot(
                     build.kind = PlayerEngine.Mpv
                     build.engineGeneration++
                 } else {
-                    selectEngineStrategy(PlaybackEngineSelection.LockMpv)
+                    switching.selectEngineStrategy(PlaybackEngineSelection.LockMpv)
                 }
             },
             subtitlePeekActive = choices.subtitlePeek != null,
         )
 
-        LaunchedEffect(engine, state.playing, state.buffering) {
-            if (enginePlaybackStartedAtElapsedMs == null && state.playing && !state.buffering) {
-                enginePlaybackStartedAtElapsedMs = SystemClock.elapsedRealtime()
-            }
-        }
+        PlayerHandoverValidation(
+            engine = engine,
+            stateSource = runtimeState,
+            player = player,
+            engineHandoverSnapshot = engineHandoverSnapshot,
+            attachedEngineLabel = attachedEngineLabel,
+        )
 
-        // Validate one replacement clock sample. A correction is issued only outside the allowed
-        // 250 ms window, so this cannot become a recurring seek loop on imprecise TS keyframes.
-        LaunchedEffect(engine, state.diagnostics.effectiveVideoReadiness, state.currentIndex) {
-            if (state.diagnostics.effectiveVideoReadiness != PlaybackOutputReadiness.Rendering) {
-                return@LaunchedEffect
-            }
-            if (
-                !shouldValidatePlaybackHandoverPosition(
-                    snapshot = engineHandoverSnapshot,
-                    currentItemIndex = state.currentIndex,
-                    alreadyValidated = handoverPositionValidated,
-                )
-            ) {
-                if (!handoverPositionValidated) {
-                    handoverPositionValidated = true
-                    AppLog.info(
-                        category = "player.handover",
-                        event = "position_validation_skipped",
-                        message = "Playback moved to another queue item before handover validation",
-                        attributes =
-                            mapOf(
-                                "snapshotItemIndex" to engineHandoverSnapshot.itemIndex.toString(),
-                                "currentItemIndex" to state.currentIndex.toString(),
-                            ),
-                    )
-                }
-                return@LaunchedEffect
-            }
-            // Mark first so a renderer readiness bounce cannot schedule the same correction again.
-            handoverPositionValidated = true
-            val elapsed =
-                enginePlaybackStartedAtElapsedMs?.let { SystemClock.elapsedRealtime() - it } ?: 0L
-            val actual = player.currentPositionMs().coerceAtLeast(0L)
-            val error = handoverPositionErrorMs(actual, engineHandoverSnapshot, elapsed)
-            if (error > 0L) {
-                val correction =
-                    if (engineHandoverSnapshot.playbackRequested) {
-                        engineHandoverSnapshot.positionMs +
-                            (elapsed.coerceAtLeast(0L) * engineHandoverSnapshot.speed).toLong()
-                    } else {
-                        engineHandoverSnapshot.positionMs
-                    }
-                player.seekTo(correction.coerceAtLeast(0L))
-            }
-            AppLog.info(
-                category = "player.handover",
-                event = if (error == 0L) "position_verified" else "position_corrected",
-                message = "Playback handover position was checked against the 250 ms budget",
-                attributes =
-                    mapOf(
-                        "engine" to attachedEngineLabel,
-                        "targetMs" to engineHandoverSnapshot.positionMs.toString(),
-                        "actualMs" to actual.toString(),
-                        "errorMs" to error.toString(),
-                        "toleranceMs" to PLAYBACK_HANDOVER_POSITION_TOLERANCE_MS.toString(),
-                    ),
-            )
-        }
-
-        LaunchedEffect(
-            engine,
-            state.fallbacksExhausted,
-            state.automaticFallbackBlocked,
-            state.currentIndex,
-            build.kind,
-            currentItem?.serverId,
-            currentItem?.versionId,
-            state.error,
-            core2NativeOnlyActive,
-            serverFallbackPlans[state.currentIndex],
-        ) {
-            if (
-                core2NativeOnlyActive ||
-                engine is YPlayerVideoEngineAdapter ||
-                !state.fallbacksExhausted ||
-                state.automaticFallbackBlocked
-            ) {
-                return@LaunchedEffect
-            }
-            // The backend's own classification wins. Reading it back out of the message only ever
-            // worked when the sentence happened to carry an English keyword, and a misread here is
-            // not cosmetic: an Unknown network failure passes `allowsBackendFallback` and writes an
-            // engine-scoped record that blacklists a healthy decoder for a week.
-            val failureKind =
-                state.errorKind?.takeIf { !state.automaticFallbackBlocked }
-                    ?: classifyPlaybackFailure(
-                        message = state.error,
-                        automaticFallbackBlocked = state.automaticFallbackBlocked,
-                    )
-            failureMemory.record(activeProbe.capabilitySignature, build.kind, failureKind)
-            val triedEngines = enginesTried + build.kind
-            enginesTried = triedEngines
-            val recoveryPlan =
-                planPlayback(
-                    probe = activeProbe,
-                    capabilities = deviceCapabilities,
-                    preferredEngine = build.kind,
-                    preferredDecoderMode = build.effectiveDecoderMode,
-                    allowAudioPassthrough = allowAudioPassthrough,
-                    optimizationMode = effectiveOptimizationMode,
-                    engineSelection = choices.sessionEngineSelection,
-                    excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
-                    engineCosts = performanceMemory.engineCosts(activeProbe.capabilitySignature),
-                    videoSupport =
-                        capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
-                            ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
-                    dolbyVisionRuntime = dolbyVisionRuntime,
-                )
-            when (
-                val step =
-                    nextPlaybackRecoveryStep(
-                        engineOrder = recoveryPlan.engineOrder,
-                        enginesTried = triedEngines,
-                        backendFallbackEligible = failureKind.allowsBackendFallback,
-                        nextVersionId = currentItem?.nextFallbackVersionId(versionsTried),
-                        serverCandidates = serverFallbackPlans[state.currentIndex].orEmpty(),
-                        serversTried = serversTried,
-                    )
-            ) {
-                is PlaybackRecoveryStep.Engine -> {
-                    AppLog.info(
-                        category = "player",
-                        event = "engine_fallback",
-                        message = "Playback exhausted its streams; trying another engine",
-                        attributes =
-                            mapOf(
-                                "from" to build.kind.name,
-                                "to" to step.engine.name,
-                                "itemIndex" to state.currentIndex.toString(),
-                                "failureKind" to failureKind.name,
-                                "plannedPath" to recoveryPlan.renderPath.name,
-                            ),
-                    )
-                    enginesTried = triedEngines + step.engine
-                    switchEngine(step.engine)
-                }
-
-                is PlaybackRecoveryStep.Version -> {
-                    AppLog.info(
-                        category = "player",
-                        event = "version_fallback",
-                        message = "Playback exhausted every engine; trying another media version",
-                        attributes =
-                            mapOf(
-                                "itemIndex" to state.currentIndex.toString(),
-                                "failedVersionId" to currentItem?.versionId.orEmpty(),
-                                "nextVersionId" to step.versionId,
-                            ),
-                    )
-                    selectVersion(step.versionId, automaticRecovery = true)
-                }
-
-                is PlaybackRecoveryStep.Server -> {
-                    val failedServerId = currentItem?.serverId
-                    capturePlaybackHandover()
-                    player.pause()
-                    val positionMs = player.currentPositionMs()
-                    serversTried = serversTried + step.serverId
-                    sources.versionChoices = sources.versionChoices - (currentItem?.id ?: "")
-                    sources.serverChoices = sources.serverChoices + (state.currentIndex to step.candidate)
-                    build.resume = build.resume.copy(itemIndex = state.currentIndex, positionMs = positionMs)
-                    build.engineGeneration++
-                    AppLog.warning(
-                        category = "player",
-                        event = "playback_server_failover",
-                        message = "Playback exhausted local engines and versions; switched to another server",
-                        attributes =
-                            mapOf(
-                                "itemIndex" to state.currentIndex.toString(),
-                                "fromServerId" to failedServerId.orEmpty(),
-                                "toServerId" to step.serverId,
-                                "positionMs" to positionMs.toString(),
-                            ),
-                    )
-                    Toast.makeText(context, "当前线路播放失败，已切换服务器", Toast.LENGTH_SHORT).show()
-                }
-
-                PlaybackRecoveryStep.Exhausted -> Unit
-            }
-        }
+        PlaybackFailureRecovery(
+            engine = engine,
+            stateSource = runtimeState,
+            currentItem = currentItem,
+            serverFallbackPlans = serverFallbackPlans,
+            build = build,
+            choices = choices,
+            sources = sources,
+            switching = switching,
+            core2NativeOnlyActive = core2NativeOnlyActive,
+            player = player,
+            capturePlaybackHandover = ::capturePlaybackHandover,
+            activeProbe = activeProbe,
+            deviceCapabilities = deviceCapabilities,
+            capabilityProvider = capabilityProvider,
+            allowAudioPassthrough = allowAudioPassthrough,
+            effectiveOptimizationMode = effectiveOptimizationMode,
+            dolbyVisionRuntime = dolbyVisionRuntime,
+            failureMemory = failureMemory,
+            performanceMemory = performanceMemory,
+        )
         // Held as State and read where the level is drawn. Destructured to a Float here, every
         // pointer sample of a volume/brightness drag invalidated this whole runtime scope.
         val (volumeLevel, setVolume) = rememberSystemVolume()
@@ -2652,10 +2048,10 @@ internal fun PlayerRoot(
                 loadCastItem = { deviceId, index, positionMs -> loadCastItem(deviceId, index, positionMs) },
                 rememberSeriesPlayback = ::rememberSeriesPlayback,
                 applySubtitlePair = ::applySubtitlePair,
-                switchEngine = ::switchEngine,
-                selectEngineStrategy = ::selectEngineStrategy,
-                selectServer = ::selectServer,
-                selectVersion = { versionId -> selectVersion(versionId) },
+                switchEngine = switching.switchEngine,
+                selectEngineStrategy = switching.selectEngineStrategy,
+                selectServer = switching.selectServer,
+                selectVersion = { versionId -> switching.selectVersion(versionId) },
                 onDismissNextUp = { nextUpDismissedItemId = activeItems.getOrNull(state.currentIndex)?.id },
                 onBack = onBack,
                 onEnterPictureInPicture = onEnterPictureInPicture,
