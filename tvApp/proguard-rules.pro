@@ -2,6 +2,7 @@
 -keep class com.yfuse.tv.TvApplication { *; }
 -keep class com.yfuse.tv.TvMainActivity { *; }
 -keep class com.yfuse.feature.player.PlayerActivity { *; }
+-keep class com.yfuse.feature.player.ExternalPlaybackActivity { *; }
 -keep class com.yfuse.feature.player.PlaybackKeepAliveService { *; }
 -keep class com.yfuse.core.cast.YfuseCastOptionsProvider { *; }
 -keep class com.yfuse.tv.integration.YfuseCastReceiverOptionsProvider { *; }

@@ -110,6 +110,40 @@
             android:supportsPictureInPicture="true"
             android:theme="@style/Theme.Yfuse.Player" />
 
+        <!--
+          打开方式 → Yfuse, as on the phone (composeApp's manifest explains the choices): a
+          trampoline that turns a video address or a shared http(s) link into a server-less entry
+          for the unexported PlayerActivity and finishes without drawing. Not BROWSABLE.
+        -->
+        <activity
+            android:name="com.yfuse.feature.player.ExternalPlaybackActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="Yfuse 播放"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name="com.yfuse.feature.player.PlaybackKeepAliveService"
             android:exported="false"
