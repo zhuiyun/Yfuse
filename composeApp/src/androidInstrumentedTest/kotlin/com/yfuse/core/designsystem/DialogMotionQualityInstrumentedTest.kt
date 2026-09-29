@@ -43,6 +43,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yfuse.MainActivity
+import com.yfuse.launchMainActivityForInput
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertTrue
@@ -75,7 +76,9 @@ class DialogMotionQualityInstrumentedTest {
         val exits = AtomicInteger()
         val reports = JSONArray()
         try {
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            // The first tap is injected as soon as its target is laid out; it is lost if the window
+            // it aims at is not on screen yet.
+            launchMainActivityForInput().use { scenario ->
                 scenario.onActivity { activity ->
                     activity.setContent {
                         YfuseTheme(dark = true, dialogAnimation = style.value) {

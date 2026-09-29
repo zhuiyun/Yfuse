@@ -11,7 +11,6 @@ import androidx.test.filters.LargeTest
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -53,7 +52,7 @@ private const val LIFT_TIMEOUT_MS = 5_000L
 
 /** Scrolls the fixture's feed until [LIFT_POSTER] sits clear of both of its edges. */
 internal fun MacrobenchmarkScope.liftPosterInView(): UiObject2 {
-    val feed = (device.findObject(By.res("home-feed")) ?: error("Production home list is missing")).visibleBounds
+    val feed = (device.findObject(By.res("home-feed")) ?: failOnScreen("Production home list is missing")).visibleBounds
     val x = feed.centerX()
     repeat(6) {
         device.findObject(By.desc(LIFT_POSTER))?.let { poster ->
@@ -65,16 +64,16 @@ internal fun MacrobenchmarkScope.liftPosterInView(): UiObject2 {
         device.swipe(x, feed.top + (feed.height() * 0.8f).toInt(), x, feed.top + (feed.height() * 0.45f).toInt(), 120)
         device.waitForIdle()
     }
-    error("$LIFT_POSTER never came fully into view")
+    failOnScreen("$LIFT_POSTER never came fully into view")
 }
 
 /** Ten lifts: long-press until the menu is up, then back until the poster has settled. */
 internal fun MacrobenchmarkScope.liftMenuJourney() {
     repeat(10) {
         // Found again every time: the settle re-composes the tile and retires the old node.
-        (device.findObject(By.desc(LIFT_POSTER)) ?: error("$LIFT_POSTER left the screen")).longClick()
-        assertTrue("浮起菜单 did not open", device.wait(Until.hasObject(By.text(LIFT_MENU_ROW)), LIFT_TIMEOUT_MS))
+        (device.findObject(By.desc(LIFT_POSTER)) ?: failOnScreen("$LIFT_POSTER left the screen")).longClick()
+        assertOnScreen("浮起菜单 did not open", device.wait(Until.hasObject(By.text(LIFT_MENU_ROW)), LIFT_TIMEOUT_MS))
         device.pressBack()
-        assertTrue("浮起菜单 did not close", device.wait(Until.gone(By.text(LIFT_MENU_ROW)), LIFT_TIMEOUT_MS))
+        assertOnScreen("浮起菜单 did not close", device.wait(Until.gone(By.text(LIFT_MENU_ROW)), LIFT_TIMEOUT_MS))
     }
 }

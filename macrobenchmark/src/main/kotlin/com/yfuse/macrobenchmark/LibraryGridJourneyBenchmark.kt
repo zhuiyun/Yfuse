@@ -8,7 +8,6 @@ import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.uiautomator.Direction
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -49,25 +48,25 @@ private const val FAST_FLING_PX_PER_SECOND = 12_000
 
 /** Spread to 2 columns, pinch to 5, spread back to 2; more posters show at 5 than at 2. */
 internal fun MacrobenchmarkScope.pinchGridDensityJourney() {
-    (libraryGrid() ?: error("Library grid missing")).pinchOpen(PINCH_PERCENT)
+    (libraryGrid() ?: failOnScreen("Library grid missing")).pinchOpen(PINCH_PERCENT)
     device.waitForIdle()
-    val atTwo = libraryGrid()?.childCount ?: error("Library grid missing after the spread")
-    (libraryGrid() ?: error("Library grid missing")).pinchClose(PINCH_PERCENT)
+    val atTwo = libraryGrid()?.childCount ?: failOnScreen("Library grid missing after the spread")
+    (libraryGrid() ?: failOnScreen("Library grid missing")).pinchClose(PINCH_PERCENT)
     device.waitForIdle()
-    val atFive = libraryGrid()?.childCount ?: error("Library grid missing after the pinch")
-    assertTrue("Pinching did not make the grid denser ($atTwo -> $atFive posters)", atFive > atTwo)
-    (libraryGrid() ?: error("Library grid missing")).pinchOpen(PINCH_PERCENT)
+    val atFive = libraryGrid()?.childCount ?: failOnScreen("Library grid missing after the pinch")
+    assertOnScreen("Pinching did not make the grid denser ($atTwo -> $atFive posters)", atFive > atTwo)
+    (libraryGrid() ?: failOnScreen("Library grid missing")).pinchOpen(PINCH_PERCENT)
     device.waitForIdle()
 }
 
 /** Four flings down the library and four back up. */
 internal fun MacrobenchmarkScope.flingGridJourney() {
     repeat(4) {
-        (libraryGrid() ?: error("Library grid missing")).fling(Direction.DOWN, FAST_FLING_PX_PER_SECOND)
+        (libraryGrid() ?: failOnScreen("Library grid missing")).fling(Direction.DOWN, FAST_FLING_PX_PER_SECOND)
         device.waitForIdle()
     }
     repeat(4) {
-        (libraryGrid() ?: error("Library grid missing")).fling(Direction.UP, FAST_FLING_PX_PER_SECOND)
+        (libraryGrid() ?: failOnScreen("Library grid missing")).fling(Direction.UP, FAST_FLING_PX_PER_SECOND)
         device.waitForIdle()
     }
 }
