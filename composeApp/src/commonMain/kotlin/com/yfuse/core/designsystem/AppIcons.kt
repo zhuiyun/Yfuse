@@ -707,6 +707,25 @@ object AppIcons {
             lineTo(15.8f, 2.9f)
         }.build()
 
+    /**
+     * 文件夹 — a folder and its tab, for 文件来源. No flap line across the front: at the 14dp a
+     * browser row draws it, that line and the top edge merge into one heavy bar.
+     */
+    val Folder =
+        strokeVector("folder") {
+            moveTo(3.2f, 7.1f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.9f, -1.9f)
+            horizontalLineTo(9.2f)
+            lineTo(11.1f, 7.4f)
+            horizontalLineTo(18.9f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.9f, 1.9f)
+            verticalLineTo(16.9f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, -1.9f, 1.9f)
+            horizontalLineTo(5.1f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, -1.9f, -1.9f)
+            close()
+        }.build()
+
     // ------------------------------------------------------------ navigation
     //
     // The bar's own family, drawn apart from the general set.

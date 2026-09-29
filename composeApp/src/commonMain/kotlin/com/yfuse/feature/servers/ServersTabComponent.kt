@@ -21,6 +21,7 @@ import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.personal.PersonalAccessPolicy
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.util.componentScope
+import com.yfuse.feature.filesource.FileSourcesController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -40,8 +41,8 @@ import kotlinx.coroutines.launch
  * fast, and how long it has been since anyone opened it are all worth seeing at a glance;
  * that is a card, and a screenful of cards is a tab.
  *
- * There is no navigation stack here on purpose: adding, editing and removing are modals
- * over the grid, so this tab is only ever showing the grid.
+ * Servers get no navigation stack on purpose: adding, editing and removing are modals over the
+ * grid. The one page ever pushed over it is a 文件来源 being browsed — see [fileSources].
  */
 class ServersTabComponent(
     componentContext: ComponentContext,
@@ -85,6 +86,22 @@ class ServersTabComponent(
      * [PersonalAccessPolicy.canManageServers].
      */
     val access: StateFlow<PersonalAccessPolicy> get() = personal.policy
+
+    /**
+     * 文件来源 — WebDAV, SMB and Alist/OpenList shares — listed under the servers and browsed
+     * from this tab. Lazy, as [personal] is: a launch that never opens this tab never builds it.
+     */
+    val fileSources: FileSourcesController by lazy {
+        val koin =
+            org.koin.core.context.GlobalContext
+                .get()
+        FileSourcesController(
+            registry = koin.get(),
+            client = koin.get(),
+            progressStore = koin.get(),
+            scope = scope,
+        )
+    }
 
     /** Arriving from 库's empty page: the add form, open — unless this profile cannot add one. */
     fun openAddServer() {

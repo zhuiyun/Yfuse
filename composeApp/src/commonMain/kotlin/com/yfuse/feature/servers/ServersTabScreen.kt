@@ -125,6 +125,7 @@ import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.core.util.rememberShareHandler
+import com.yfuse.feature.filesource.FileSourcesSection
 import com.yfuse.feature.profile.AddServerDialog
 import kotlinx.coroutines.delay
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -151,7 +152,7 @@ private const val CHILD_PROFILE_NOTE = "儿童资料不能管理服务器，请�
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ServersTabScreen(component: ServersTabComponent) {
+internal fun ServersGridScreen(component: ServersTabComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val palette = LocalPalette.current
     val routeVisible = LocalRouteVisible.current
@@ -414,6 +415,14 @@ fun ServersTabScreen(component: ServersTabComponent) {
                                 onMore = { actionsFor = server },
                                 modifier = cardMotion,
                             )
+                        }
+
+                        // 文件来源 below the servers. A child profile can neither add one nor play
+                        // a file that belongs to no server, so it is not offered one.
+                        if (canManage) {
+                            motionItem(key = "file-sources", span = { GridItemSpan(maxLineSpan) }) {
+                                FileSourcesSection(component.fileSources)
+                            }
                         }
                     }
                 }
