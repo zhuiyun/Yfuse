@@ -2,7 +2,9 @@ package com.yfuse.core.designsystem
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class SharedMediaTransitionTest {
     @Test
@@ -44,5 +46,43 @@ class SharedMediaTransitionTest {
         controller.begin(second)
         assertEquals(false, controller.popSuppressed)
         assertEquals(second, controller.activeKey)
+    }
+
+    @Test
+    fun a_back_during_the_morph_keeps_it_so_it_turns_round_where_it_is() {
+        val controller = SharedMediaTransitionController()
+        val poster = MediaSharedElementKey(serverId = "server-a", itemId = "movie-1")
+
+        controller.begin(poster)
+        controller.onPop(returnTo = null)
+
+        assertEquals(poster, controller.activeKey)
+        assertFalse(controller.popSuppressed)
+    }
+
+    @Test
+    fun a_back_after_the_morph_settled_morphs_into_the_poster_it_came_from() {
+        val controller = SharedMediaTransitionController()
+        val poster = MediaSharedElementKey(serverId = "server-a", itemId = "movie-1")
+        controller.begin(poster)
+        controller.finish(poster)
+
+        controller.onPop(returnTo = poster)
+
+        assertEquals(poster, controller.activeKey)
+        assertFalse(controller.popSuppressed)
+    }
+
+    @Test
+    fun a_back_with_nowhere_to_return_to_suppresses_the_forward_morph() {
+        val controller = SharedMediaTransitionController()
+        val poster = MediaSharedElementKey(serverId = "server-a", itemId = "movie-1")
+        controller.begin(poster)
+        controller.finish(poster)
+
+        controller.onPop(returnTo = null)
+
+        assertNull(controller.activeKey)
+        assertTrue(controller.popSuppressed)
     }
 }
