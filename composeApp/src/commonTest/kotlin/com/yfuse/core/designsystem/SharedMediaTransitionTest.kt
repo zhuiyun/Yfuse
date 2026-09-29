@@ -85,4 +85,34 @@ class SharedMediaTransitionTest {
         assertNull(controller.activeKey)
         assertTrue(controller.popSuppressed)
     }
+
+    @Test
+    fun a_card_opening_the_page_keeps_the_poster_as_origin_but_calls_its_morph_off() {
+        val controller = SharedMediaTransitionController()
+        val poster = MediaSharedElementKey(serverId = "server-a", itemId = "movie-1")
+        var opened = 0
+
+        val key =
+            controller.openFromCard {
+                opened++
+                controller.begin(poster)
+            }
+
+        assertEquals(1, opened)
+        assertEquals(poster, key)
+        assertNull(controller.activeKey)
+        assertEquals(poster, controller.takeOrigin())
+    }
+
+    @Test
+    fun a_card_does_not_carry_a_page_its_open_never_named() {
+        val controller = SharedMediaTransitionController()
+        val earlier = MediaSharedElementKey(serverId = "server-a", itemId = "movie-1")
+        controller.noteOrigin(earlier)
+
+        val key = controller.openFromCard {}
+
+        assertNull(key)
+        assertNull(controller.takeOrigin())
+    }
 }

@@ -100,6 +100,22 @@ internal class SharedMediaTransitionController {
         activeKey = returnTo
     }
 
+    /**
+     * A lifted card is about to carry the page open itself (一镜到底, see LiftExpansion.kt). Runs
+     * the poster's own [open], keeps the poster it names as the page's origin for 跟手返回, and
+     * calls off that poster's artwork morph: the poster is hidden under the card, and a second
+     * copy flying out of its empty cell was the double motion. Returns the key [open] named.
+     */
+    fun openFromCard(open: () -> Unit): MediaSharedElementKey? {
+        // Only a key this open names: one left from an earlier tap is not this card's page.
+        pendingOrigin = null
+        pendingSince = null
+        open()
+        val key = pendingOrigin ?: return null
+        if (activeKey == key) activeKey = null
+        return key
+    }
+
     fun finish(key: MediaSharedElementKey) {
         if (activeKey == key) activeKey = null
     }
