@@ -6,6 +6,7 @@ import android.app.Application
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.text.InputType
 import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
@@ -40,13 +41,14 @@ import java.lang.ref.WeakReference
  * watch relay, and it replays what a phone of the same account sends: keys into whichever of this
  * app's windows has focus — a dialog over the page included — the way a physical remote presses
  * them, so focus moves everywhere it already moves; text into the focused field, or into 搜索 when
- * no field has focus.
+ * no field has focus — but never into a password field.
  */
 internal class TvPhoneRemote private constructor(
     private val application: Application,
 ) : Application.ActivityLifecycleCallbacks {
     private var resumed: WeakReference<Activity>? = null
     private var shell: WeakReference<TvMainActivity>? = null
+    private var passwordNoticeAt = 0L
 
     private fun replay(event: RemoteControlEvent) {
         when (event) {
@@ -106,14 +108,23 @@ internal class TvPhoneRemote private constructor(
         search.component.store.accept(SearchIntent.QueryChanged(text))
     }
 
-    /** Replaces the focused field's whole text, since the phone sends its field whole. */
+    /**
+     * Replaces the focused field's whole text, since the phone sends its field whole. A password
+     * field is left alone — see [isPasswordInputType] — and still counts as the field typed into,
+     * so the text never goes on to 搜索 instead.
+     */
     private fun typeIntoFocusedField(
         root: View,
         text: String,
     ): Boolean {
         val focused = root.findFocus()?.takeIf { it.onCheckIsTextEditor() } ?: return false
-        val connection = focused.onCreateInputConnection(EditorInfo()) ?: return false
+        val field = EditorInfo()
+        val connection = focused.onCreateInputConnection(field) ?: return false
         try {
+            if (isPasswordInputType(field.inputType)) {
+                refusePassword()
+                return true
+            }
             val current = connection.getExtractedText(ExtractedTextRequest(), 0)?.text?.toString()
             if (current == text) return true
             connection.beginBatchEdit()
@@ -128,6 +139,17 @@ internal class TvPhoneRemote private constructor(
             connection.closeConnection()
         }
         return true
+    }
+
+    /**
+     * Says why the phone's typing did not arrive. The phone resends its field on every pause in
+     * typing, so this is said once in a while rather than on every resend.
+     */
+    private fun refusePassword() {
+        val now = SystemClock.uptimeMillis()
+        if (passwordNoticeAt != 0L && now - passwordNoticeAt < PASSWORD_NOTICE_INTERVAL_MS) return
+        passwordNoticeAt = now
+        Toast.makeText(application, "手机遥控不能输入密码，请用遥控器输入", Toast.LENGTH_SHORT).show()
     }
 
     private fun dispatchKey(
@@ -247,3 +269,23 @@ internal fun remoteKeyCode(key: RemoteControlKey): Int? =
         RemoteControlKey.PlayPause -> KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
         RemoteControlKey.Home -> null
     }
+
+/**
+ * Whether a field of [inputType] takes a password, shown or hidden. A phone's typing never fills
+ * one: it would pass through the relay and sit in the phone's own field in the clear, and a
+ * password is short enough to enter with the remote itself.
+ */
+internal fun isPasswordInputType(inputType: Int): Boolean {
+    val variation = inputType and InputType.TYPE_MASK_VARIATION
+    return when (inputType and InputType.TYPE_MASK_CLASS) {
+        InputType.TYPE_CLASS_TEXT ->
+            variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
+                variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
+        InputType.TYPE_CLASS_NUMBER -> variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        else -> false
+    }
+}
+
+/** A toast lasts about two seconds; this keeps the next one from following straight on. */
+private const val PASSWORD_NOTICE_INTERVAL_MS = 5_000L
