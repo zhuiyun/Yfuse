@@ -1,8 +1,7 @@
 package com.yfuse.di
 
-import com.arkivanov.mvikotlin.core.store.StoreFactory
-import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.MapSettings
+import com.russhwolf.settings.Settings
 import com.yfuse.core.data.DiagnosticPreferences
 import com.yfuse.core.data.NoOpCalendarLocalStore
 import com.yfuse.core.data.ServerRegistry
@@ -107,10 +106,11 @@ class AppModuleGraphTest {
     @Test
     fun a_type_bound_a_second_time_fails_the_load_instead_of_overriding() {
         // What the test above relies on: Koin refuses the second binding rather than keeping either.
+        // Settings, because every graph binds it whatever the feature modules hold.
         assertFailsWith<DefinitionOverrideException> {
             koinApplication {
                 allowOverride(false)
-                modules(graph(), module { single<StoreFactory> { DefaultStoreFactory() } })
+                modules(graph(), module { single<Settings> { MapSettings() } })
             }
         }
     }
