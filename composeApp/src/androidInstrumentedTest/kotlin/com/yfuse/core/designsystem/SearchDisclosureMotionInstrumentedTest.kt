@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -130,21 +131,17 @@ class SearchDisclosureMotionInstrumentedTest {
             }
             awaitDraw(scenario)
             assertDisclosureEnd(metrics, expanded = false)
-            awaitPartial(scenario, metrics) { expanded.value = true }
-            val measures = metrics.measures.get()
-            repeat(4) { index -> awaitDraw(scenario) { expanded.value = index % 2 == 1 } }
+            val measures = reverseInFlight(scenario, metrics, expanded, reversals = 4)
             observeAnimation(scenario) {}
             assertDisclosureEnd(metrics, expanded = true)
             assertEquals("Reversal duplicated or recreated the body", 1, metrics.created.get())
             assertEquals("Height animation remeasured the unchanged body", measures, metrics.measures.get())
             assertNull(metrics.layoutViolation.get(), metrics.layoutViolation.get())
 
-            awaitPartial(scenario, metrics) { expanded.value = false }
-            awaitDraw(scenario) { reduced.value = true }
+            assertSnapsInFlight(scenario, metrics, start = { expanded.value = false }) { reduced.value = true }
             assertDisclosureEnd(metrics, expanded = false)
             awaitDraw(scenario) { reduced.value = false }
-            awaitPartial(scenario, metrics) { expanded.value = true }
-            awaitDraw(scenario) { visible.value = false }
+            assertSnapsInFlight(scenario, metrics, start = { expanded.value = true }) { visible.value = false }
             assertDisclosureEnd(metrics, expanded = true)
             awaitDraw(scenario) { expanded.value = false }
             assertDisclosureEnd(metrics, expanded = false)
@@ -165,18 +162,82 @@ class SearchDisclosureMotionInstrumentedTest {
         assertEquals(if (expanded) 1 else 0, metrics.live.get())
     }
 
-    private fun awaitPartial(
+    /**
+     * Expands the disclosure and reverses it [reversals] times, each time as soon as a frame shows
+     * the body moving toward the current target. Returns how often the body had been measured by
+     * the first part-way frame.
+     */
+    private fun reverseInFlight(
         scenario: ActivityScenario<MainActivity>,
         metrics: SearchDisclosureMetrics,
-        update: () -> Unit,
+        expanded: MutableState<Boolean>,
+        reversals: Int,
+    ): Int {
+        var measures = -1
+        var previous = 0f
+        var reversed = 0
+        whileInFlight(scenario, metrics, start = { expanded.value = true }) { fraction ->
+            // The frame after a reversal can still carry the old motion; wait until it has turned.
+            val turned = if (expanded.value) fraction > previous else fraction < previous
+            previous = fraction
+            if (turned) {
+                if (measures < 0) measures = metrics.measures.get()
+                expanded.value = !expanded.value
+                reversed++
+            }
+            reversed == reversals
+        }
+        return measures
+    }
+
+    /** Changes a motion policy while the disclosure moves; no later frame may draw it part-way. */
+    private fun assertSnapsInFlight(
+        scenario: ActivityScenario<MainActivity>,
+        metrics: SearchDisclosureMetrics,
+        start: () -> Unit,
+        policy: () -> Unit,
     ) {
-        val partial = CountDownLatch(1)
-        metrics.partial.set(partial)
+        var partialFramesAtChange = -1
+        whileInFlight(scenario, metrics, start) {
+            policy()
+            partialFramesAtChange = metrics.partialFrames.get()
+            true
+        }
+        awaitDraw(scenario)
+        assertEquals(
+            "The disclosure kept moving after a policy change",
+            partialFramesAtChange,
+            metrics.partialFrames.get(),
+        )
+    }
+
+    /**
+     * Runs [start], then gives [step] each frame that draws the disclosure part-way until it returns
+     * true. [step] runs on the main thread straight after that frame and before the next one, so
+     * what it changes lands while the animation is certainly still under way.
+     *
+     * Acting from the test thread could not promise that: every change there is a round trip
+     * through [ActivityScenario.onActivity], which first waits for the main thread to go idle, and
+     * on the software-rendered CI emulator a 160 ms collapse finished between two such changes.
+     * A finished collapse rightly removes the body, so the "reversal" after it built a second one.
+     */
+    private fun whileInFlight(
+        scenario: ActivityScenario<MainActivity>,
+        metrics: SearchDisclosureMetrics,
+        start: () -> Unit,
+        step: (fraction: Float) -> Boolean,
+    ) {
+        val done = CountDownLatch(1)
+        val main = Handler(Looper.getMainLooper())
+        metrics.partialFrame.set { fraction ->
+            // At the front of the queue: ahead of the next frame's callback even when it is due.
+            main.postAtFrontOfQueue { if (done.count > 0L && step(fraction)) done.countDown() }
+        }
         try {
-            scenario.onActivity { update() }
-            assertTrue("No intermediate disclosure frame was rendered", partial.await(5, TimeUnit.SECONDS))
+            scenario.onActivity { start() }
+            assertTrue("No intermediate disclosure frame was rendered", done.await(5, TimeUnit.SECONDS))
         } finally {
-            metrics.partial.set(null)
+            metrics.partialFrame.set(null)
         }
     }
 
@@ -287,7 +348,10 @@ private class SearchDisclosureMetrics {
     val bodyHeight = AtomicInteger()
     val viewportHeight = AtomicInteger()
     val layoutViolation = AtomicReference<String?>()
-    val partial = AtomicReference<CountDownLatch?>()
+    val partialFrames = AtomicInteger()
+
+    /** Called on the main thread from each draw that shows the disclosure part-way. */
+    val partialFrame = AtomicReference<((Float) -> Unit)?>()
     val bounds = AtomicReference<Rect?>()
 }
 
@@ -329,7 +393,10 @@ private fun DisclosureProbe(
                 )
             }
             drawContent()
-            if (fraction > 0f && fraction < 1f) metrics.partial.get()?.countDown()
+            if (fraction > 0f && fraction < 1f) {
+                metrics.partialFrames.incrementAndGet()
+                metrics.partialFrame.get()?.invoke(fraction)
+            }
         },
         contentAlignment = Alignment.Center,
     ) {

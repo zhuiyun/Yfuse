@@ -37,31 +37,11 @@ fun TraktPlaybackReportingEffect(
     LaunchedEffect(media, playbackSessionId, playing, completed) {
         sample.positionMs = position()
         sample.durationMs = duration()
-        if (completed && sample.started && !sample.finished) {
-            sample.finished = true
+        sample.scrobble.onPlayback(playing = playing, completed = completed)?.let { action ->
             repository.recordPlayback(
                 media,
                 playbackSessionId,
-                TraktPlaybackAction.Stop,
-                sample.positionMs,
-                sample.durationMs,
-                expectedOwner = recordingOwner,
-            )
-        } else if (playing && !sample.finished) {
-            sample.started = true
-            repository.recordPlayback(
-                media,
-                playbackSessionId,
-                TraktPlaybackAction.Start,
-                sample.positionMs,
-                sample.durationMs,
-                expectedOwner = recordingOwner,
-            )
-        } else if (sample.started && !sample.finished) {
-            repository.recordPlayback(
-                media,
-                playbackSessionId,
-                TraktPlaybackAction.Pause,
+                action,
                 sample.positionMs,
                 sample.durationMs,
                 expectedOwner = recordingOwner,
@@ -71,13 +51,11 @@ fun TraktPlaybackReportingEffect(
     DisposableEffect(repository, media, playbackSessionId) {
         onDispose {
             // Capture only the old item's last sample; a queue switch may already expose the new item.
-            if (sample.started &&
-                !sample.finished
-            ) {
+            sample.scrobble.onLeave()?.let { action ->
                 repository.recordPlayback(
                     media,
                     playbackSessionId,
-                    TraktPlaybackAction.Stop,
+                    action,
                     sample.positionMs,
                     sample.durationMs,
                     expectedOwner = recordingOwner,
@@ -90,6 +68,38 @@ fun TraktPlaybackReportingEffect(
 private class PlaybackSample {
     var positionMs: Long = 0
     var durationMs: Long = 0
+    val scrobble = TraktScrobble()
+}
+
+/**
+ * What one item's playback tells Trakt: a scrobble starts on the first real playing moment, pauses
+ * whenever playback stops short of the end, and stops exactly once — at completion, or when the
+ * item leaves the player — after which nothing more is sent for it.
+ */
+internal class TraktScrobble {
     var started: Boolean = false
+        private set
     var finished: Boolean = false
+        private set
+
+    /** The action for playback now [playing] or [completed], or null when there is nothing to say. */
+    fun onPlayback(
+        playing: Boolean,
+        completed: Boolean,
+    ): TraktPlaybackAction? =
+        when {
+            completed && started && !finished -> {
+                finished = true
+                TraktPlaybackAction.Stop
+            }
+            playing && !finished -> {
+                started = true
+                TraktPlaybackAction.Start
+            }
+            started && !finished -> TraktPlaybackAction.Pause
+            else -> null
+        }
+
+    /** The item leaves the player: a scrobble still open stops. */
+    fun onLeave(): TraktPlaybackAction? = if (started && !finished) TraktPlaybackAction.Stop else null
 }

@@ -484,6 +484,8 @@ internal fun WatchTogetherSettingsScreen(
 internal fun AppearanceSettingsScreen(
     libraryCarousel: Boolean,
     onLibraryCarousel: (Boolean) -> Unit,
+    navCollapseOnScroll: Boolean,
+    onNavCollapseOnScroll: (Boolean) -> Unit,
     onBack: () -> Unit,
     brandSummary: String,
     backgroundSummary: String,
@@ -529,6 +531,17 @@ internal fun AppearanceSettingsScreen(
                         icon = AppIcons.Grid,
                         iconTint = SettingTint.library,
                         onChange = onLibraryCarousel,
+                    )
+                    SettingsDivider()
+                    // Two ways to live with the bar: give the screen to reading, or keep navigation up.
+                    SwitchRow(
+                        "滚动时收起导航栏",
+                        navCollapseOnScroll,
+                        true,
+                        icon = AppIcons.Collapse,
+                        iconTint = SettingTint.general,
+                        description = "往下浏览时收成一个键，往回滑或点它就展开",
+                        onChange = onNavCollapseOnScroll,
                     )
                     SettingsDivider()
                     SettingRow(

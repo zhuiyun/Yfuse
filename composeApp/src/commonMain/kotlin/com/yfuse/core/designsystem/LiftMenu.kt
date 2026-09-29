@@ -374,8 +374,11 @@ class LiftMenuState {
     }
 }
 
-/** How a lift leaves: back into its poster, or away with the page it opened. */
-internal enum class LiftExit { None, SettleBack, FadeAway }
+/**
+ * How a lift leaves: back into its poster, away with the page it opened, or as that page — the
+ * card growing into its hero (一镜到底, see [LiftExpansion]).
+ */
+internal enum class LiftExit { None, SettleBack, FadeAway, Expand }
 
 @Stable
 internal class LiftSession(
@@ -563,6 +566,26 @@ internal class LiftSession(
         hot = LiftHit.Card
         exit = LiftExit.FadeAway
         open()
+    }
+
+    /** 一镜到底: the page this card is opening into, once [open] has named one. */
+    var expansion by mutableStateOf<LiftExpansion?>(null)
+        private set
+
+    /**
+     * The title just opened is [key]'s page, and the card can carry it there: it grows into the
+     * page's hero instead of fading where it is. [velocity] is the finger's as it let go, in pixels
+     * a second. Asked by the poster, from inside [open].
+     */
+    fun expandInto(
+        key: MediaSharedElementKey,
+        velocity: Offset,
+    ) {
+        if (abandoned || exit != LiftExit.FadeAway || menu.anchored) return
+        // A scrubbed frame is not the page's picture; the card flies as the title's own art.
+        scrubFrame = -1
+        expansion = LiftExpansion(key, velocity)
+        exit = LiftExit.Expand
     }
 
     fun dismiss() {

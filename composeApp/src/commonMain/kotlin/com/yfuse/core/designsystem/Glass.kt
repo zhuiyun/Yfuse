@@ -296,38 +296,57 @@ fun Modifier.glass(
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
     if (LocalMutedGlass.current) return mutedGlassControl(shape, fill, border)
-    val materialBorder = resolveGlassMaterialBorder(border, palette)
     val frosted = frostedGlass()
-    val resolvedBorder =
-        if (accessibility.reduceTransparency) {
-            reducedTransparencyBorder(materialBorder, palette)
-        } else if (frosted) {
-            frostedMaterialBorder(materialBorder, palette)
-        } else {
-            materialBorder
-        }
+    val resolvedBorder = glassPlateBorder(border, palette, accessibility.reduceTransparency, frosted)
     val animatedFill = rememberThemeConsumerColor(fill)
     val animatedBorder = rememberThemeConsumerColor(resolvedBorder ?: Color.Transparent)
     return clip(shape).drawWithCache {
         val outline = shape.createOutline(size, layoutDirection, this)
         val stroke = Stroke(Dimens.hairline.toPx() * 2f)
         // The cache observes paint state, so steady surfaces reuse their brush between draws.
-        val color = animatedFill.value
         val surface =
-            when {
-                accessibility.reduceTransparency -> {
-                    val opaque = reducedTransparencyFill(color, palette)
-                    Brush.linearGradient(listOf(opaque, opaque))
-                }
-                frosted -> frostedSurfaceBrush(color, palette, weight.frostDensity)
-                else -> liquidSurfaceBrush(color, palette, weight)
-            }
+            glassPlateSurface(animatedFill.value, palette, accessibility.reduceTransparency, frosted, weight)
         onDrawBehind {
             drawOutline(outline, brush = surface)
             if (resolvedBorder != null) drawOutline(outline, animatedBorder.value, style = stroke)
         }
     }
 }
+
+/** [glass]'s edge, resolved for the material in use; null when the plate has none. */
+internal fun glassPlateBorder(
+    border: Color?,
+    palette: Palette,
+    reduceTransparency: Boolean,
+    frosted: Boolean,
+): Color? {
+    val materialBorder = resolveGlassMaterialBorder(border, palette)
+    return when {
+        reduceTransparency -> reducedTransparencyBorder(materialBorder, palette)
+        frosted -> frostedMaterialBorder(materialBorder, palette)
+        else -> materialBorder
+    }
+}
+
+/**
+ * [glass]'s body for [fill] under the material in use — for surfaces that paint their own outline,
+ * such as the dock while a key grows out of it.
+ */
+internal fun glassPlateSurface(
+    fill: Color,
+    palette: Palette,
+    reduceTransparency: Boolean,
+    frosted: Boolean,
+    weight: GlassWeight = GlassWeight.Standard,
+): Brush =
+    when {
+        reduceTransparency -> {
+            val opaque = reducedTransparencyFill(fill, palette)
+            Brush.linearGradient(listOf(opaque, opaque))
+        }
+        frosted -> frostedSurfaceBrush(fill, palette, weight.frostDensity)
+        else -> liquidSurfaceBrush(fill, palette, weight)
+    }
 
 /** [glass] at [GlassWeight.Quiet] — dense forms and settings. */
 @Composable

@@ -134,6 +134,9 @@ private fun LiftLayer(
     val firstRow = remember { FocusRequester() }
     // Opened from a keyboard or a screen reader rather than by a finger still on the glass.
     val openedWithoutFinger = remember { !session.holding }
+    // 一镜到底: the card's way into the page it opened, once it opens one (LiftExpansion.kt).
+    val flight = remember { LiftFlight() }
+    val cardCornerPx = with(density) { AppShapes.card.radius.toPx() }
 
     LaunchedEffect(session) {
         if (openedWithoutFinger) runCatching { firstRow.requestFocus() }
@@ -147,11 +150,31 @@ private fun LiftLayer(
     val exit = session.exit
     LaunchedEffect(exit) {
         if (exit == LiftExit.None) return@LaunchedEffect
-        if (exit == LiftExit.SettleBack && !still) {
-            launch { reveal.animateTo(0f, Motion.tween(Motion.QUICK, easing = LinearEasing)) }
-            lift.animateTo(0f, Motion.lift())
-        } else {
-            presence.animateTo(0f, Motion.tween(if (still) Motion.REDUCED_FADE else Motion.QUICK))
+        val expansion = session.expansion
+        val placed = session.placement
+        when {
+            exit == LiftExit.Expand && expansion != null && placed != null -> {
+                // The rows go in the first 120 ms and the dimming on the card's own clock, while the
+                // card itself becomes the page's hero. It sets off from wherever the lift has it.
+                launch { reveal.animateTo(0f, Motion.tween(Motion.QUICK, easing = LinearEasing)) }
+                launch { presence.animateTo(0f, Motion.oneTakeFade()) }
+                lift.stop()
+                val fraction = lift.value
+                flight.carry(
+                    expansion = expansion,
+                    resting = lerp(session.source, placed.card, fraction),
+                    cornerPx = cardCornerPx,
+                    art = fraction.coerceIn(0f, 1f),
+                    words = liftTextAlpha(fraction),
+                    home = session.source,
+                    homeCornerPx = cardCornerPx,
+                )
+            }
+            exit == LiftExit.SettleBack && !still -> {
+                launch { reveal.animateTo(0f, Motion.tween(Motion.QUICK, easing = LinearEasing)) }
+                lift.animateTo(0f, Motion.lift())
+            }
+            else -> presence.animateTo(0f, Motion.tween(if (still) Motion.REDUCED_FADE else Motion.QUICK))
         }
         session.finish()
     }
@@ -267,6 +290,7 @@ private fun LiftLayer(
                 presence = { presence.value },
                 target = placement.card,
                 origin = { origin },
+                flight = flight,
             )
         }
 
@@ -311,6 +335,9 @@ private fun LiftLayer(
  * from the poster's bounds to [target], in layout rather than as a scale, so the artwork is
  * cropped anew at each size instead of being stretched between a portrait tile and a landscape
  * card. The words are laid out once at the card's own width and only fade.
+ *
+ * Opening the title, the card goes on the same way into the page's hero along [flight]: frame,
+ * corners, the landscape art and the words all follow that flight instead of the lift.
  */
 @Composable
 private fun LiftCard(
@@ -319,14 +346,14 @@ private fun LiftCard(
     presence: () -> Float,
     target: Rect,
     origin: () -> Offset,
+    flight: LiftFlight,
 ) {
     val menu = session.menu
     val density = LocalDensity.current
 
-    fun frame(): Rect = lerp(session.source, target, fraction())
+    fun frame(): Rect = if (flight.flying) flight.frame() else lerp(session.source, target, fraction())
 
     val cardWidth = with(density) { target.width.toDp() }
-    val cardHeight = with(density) { target.height.toDp() }
     Box(
         Modifier
             .offset {
@@ -339,9 +366,12 @@ private fun LiftCard(
                 val height = rect.height.roundToInt().coerceAtLeast(1)
                 val placeable = measurable.measure(Constraints.fixed(width, height))
                 layout(width, height) { placeable.place(0, 0) }
-            }.graphicsLayer { alpha = presence() }
-            .clip(AppShapes.card)
-            .background(skeletonFill())
+            }.graphicsLayer {
+                // Carrying the page open, the card keeps its own opacity while the dimming clears.
+                alpha = if (flight.carrying) flight.alpha.value else presence()
+                shape = if (flight.flying) ContinuousRoundedCornerShape(flight.cornerPx().toDp()) else AppShapes.card
+                clip = true
+            }.background(skeletonFill())
             .then(
                 if (session.canOpen) {
                     Modifier.pressable(onClickLabel = "打开", onClick = session::open)
@@ -360,12 +390,18 @@ private fun LiftCard(
         if (menu.backdropUrls.isNotEmpty()) {
             // Requested at the card's full size and revealed through the moving frame, so the
             // landscape art arrives sharp rather than scaled up from the first frame's poster size.
+            // Growing past the card into the hero, it grows with the frame so it always covers it.
             Box(
                 Modifier
                     .align(Alignment.Center)
                     .wrapContentSize(unbounded = true)
-                    .size(cardWidth, cardHeight)
-                    .graphicsLayer { alpha = fraction().coerceIn(0f, 1f) },
+                    .layout { measurable, _ ->
+                        val grow = if (flight.flying) liftArtCover(frame(), target) else 1f
+                        val width = (target.width * grow).roundToInt().coerceAtLeast(1)
+                        val height = (target.height * grow).roundToInt().coerceAtLeast(1)
+                        val placeable = measurable.measure(Constraints.fixed(width, height))
+                        layout(width, height) { placeable.place(0, 0) }
+                    }.graphicsLayer { alpha = if (flight.flying) flight.art() else fraction().coerceIn(0f, 1f) },
             ) {
                 FallbackImage(
                     urls = menu.backdropUrls,
@@ -377,7 +413,7 @@ private fun LiftCard(
         Box(
             Modifier
                 .matchParentSize()
-                .graphicsLayer { alpha = liftTextAlpha(fraction()) }
+                .graphicsLayer { alpha = if (flight.flying) flight.words() else liftTextAlpha(fraction()) }
                 .background(
                     Brush.verticalGradient(
                         0.35f to Color.Transparent,
@@ -392,7 +428,7 @@ private fun LiftCard(
                 // the frame around them grows, instead of again on every frame of the lift.
                 .wrapContentSize(align = Alignment.BottomStart, unbounded = true)
                 .width(cardWidth)
-                .graphicsLayer { alpha = liftTextAlpha(fraction()) }
+                .graphicsLayer { alpha = if (flight.flying) flight.words() else liftTextAlpha(fraction()) }
                 .padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
             Text(

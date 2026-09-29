@@ -268,6 +268,8 @@ private fun TvLibraryHero(
 ) {
     Box(
         Modifier
+            // Whole while focus is on its keys — see TvFocusPivot.
+            .tvKeepWholeInView()
             .fillMaxWidth()
             .height(350.dp)
             .padding(horizontal = 8.dp)

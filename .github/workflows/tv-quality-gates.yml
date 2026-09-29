@@ -112,11 +112,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Both APKs dex inside the Gradle daemon in one invocation; at the default 2 GB heap, D8
+          # ran out of memory once the shared code passed what one heap could hold alongside the
+          # tests. The phone's quality gate gives its builds the same room.
           ./gradlew \
             :tvApp:ktlintCheck :tvShared:ktlintCheck \
             :tvShared:testAndroidHostTest \
             :tvApp:assembleDebug \
             :tvApp:assembleRelease -PallowDebugSigning=true \
+            "-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8" \
             --stacktrace \
             --no-daemon
           # The R8 build is what ships; a debug APK proves nothing about shrinking.

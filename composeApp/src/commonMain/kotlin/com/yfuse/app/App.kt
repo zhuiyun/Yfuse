@@ -1,18 +1,25 @@
 package com.yfuse.app
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -23,15 +30,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -41,17 +52,27 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
@@ -59,6 +80,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
@@ -100,12 +122,17 @@ import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.drawLensIsland
 import com.yfuse.core.designsystem.drawMotionSweep
 import com.yfuse.core.designsystem.drawPhaseLight
+import com.yfuse.core.designsystem.liquidMotionEnabled
 import com.yfuse.core.designsystem.liquidNavigationGlass
+import com.yfuse.core.designsystem.liquidOutline
 import com.yfuse.core.designsystem.navigationGlass
+import com.yfuse.core.designsystem.pathBackdropBlurOrigin
 import com.yfuse.core.designsystem.playerHandoffStage
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberBackdropState
+import com.yfuse.core.designsystem.rememberLiquidNavigationGlass
 import com.yfuse.core.designsystem.rememberPhaseLightCount
+import com.yfuse.core.designsystem.rememberRouteVisibility
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.designsystem.searchDockSource
 import com.yfuse.core.network.LocalNetworkAccessNotice
@@ -125,6 +152,7 @@ import com.yfuse.feature.watch.InviteResolution
 import com.yfuse.feature.watch.WatchInviteSheet
 import com.yfuse.feature.watch.WatchRoomInfoDialog
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -184,6 +212,7 @@ fun App(root: RootComponent) {
     val accessibility = rememberAppAccessibilityOptions(root.themePreferences)
     val motionOff = accessibility.reduceMotion
     val pulseSweep by root.themePreferences.pulseSweep.collectAsState()
+    val navCollapseOnScroll by root.themePreferences.navCollapseOnScroll.collectAsState()
     val particleLight by root.themePreferences.particleLight.collectAsState()
     val dialogAnimation by root.themePreferences.dialogAnimation.collectAsState()
     val glassStyle by root.themePreferences.glassStyle.collectAsState()
@@ -295,9 +324,25 @@ fun App(root: RootComponent) {
                 Tab.Profile -> profileStack.active.instance is ProfileTabComponent.Child.Home
             }
         // The bar belongs to the roots and nothing else: it used to also ride along on the
-        // library's grid, and to slide away under scroll, which left "is the bar there?"
-        // depending on where the user happened to have scrolled to.
+        // library's grid. Under a scroll it no longer slides away either — with 滚动时收起导航栏
+        // on it collapses to the one key below, so "is the bar there?" never depends on where the
+        // user has scrolled to; with it off, it simply stays up.
         val showBottomBar = atRoot
+
+        // Reading gets the screen; navigating gets it back. Not saveable on purpose: a collapsed
+        // bar is a transient consequence of where the finger just went, and restoring one after
+        // process death would leave the user looking at an app with no visible navigation and no
+        // idea why.
+        // Read by the dock alone, so a collapse recomposes the dock and not the shell around it.
+        val navCollapsed = remember { mutableStateOf(false) }
+        val navCollapseGuard = remember { NavigationCollapseGuard() }
+        // Arriving anywhere new is a fresh page, and a fresh page shows its bar; so does turning
+        // the collapse off while the bar is collapsed.
+        LaunchedEffect(active, navCollapseOnScroll) {
+            navCollapsed.value = false
+            navCollapseGuard.reset()
+        }
+        val navScroll = rememberNavCollapseConnection(navCollapsed, navCollapseGuard)
 
         // An overlay owned by one of the tab screens composes below this shell's floating
         // furniture, so the bar has to be told to get out of its way. The visibility is the
@@ -352,7 +397,16 @@ fun App(root: RootComponent) {
                         Box(
                             Modifier
                                 .fillMaxSize()
-                                .backdropSource(backdrop, record = { dockOnScreen.value || liftMenu.isOpen }),
+                                // Only root pages with the bottom dock collapse it under a scroll, and
+                                // only while the setting asks for it. Pushed pages own the whole screen
+                                // and have no root navigation to collapse or expand.
+                                .then(
+                                    if (showBottomBar && navCollapseOnScroll) {
+                                        Modifier.nestedScroll(navScroll)
+                                    } else {
+                                        Modifier
+                                    },
+                                ).backdropSource(backdrop, record = { dockOnScreen.value || liftMenu.isOpen }),
                         ) {
                             val previousRootTab = remember { arrayOf(active) }
                             val rootMotion = remember(active) { rootTabMotion(previousRootTab[0], active) }
@@ -460,7 +514,17 @@ fun App(root: RootComponent) {
                             val dockWanted by rememberUpdatedState(dockShown)
                             BottomNavigationDock(
                                 active = active,
+                                collapsed = navCollapsed.value,
                                 onSelect = { if (dockWanted) onSelectTab(it) },
+                                onExpand = {
+                                    if (dockWanted) {
+                                        // A tap during a fling is explicit navigation intent. Keep the
+                                        // expanded dock pinned until that fling finishes or the user
+                                        // starts a new direct scroll gesture.
+                                        navCollapseGuard.onManualExpand()
+                                        navCollapsed.value = false
+                                    }
+                                },
                                 onSearch = { if (dockWanted) onSelectTab(Tab.Search) },
                                 backdrop = backdrop,
                                 cueKey = pendingInvite?.roomCode,
@@ -640,14 +704,129 @@ internal fun dockHeight(): Dp {
 internal fun dockHeight(captionLine: Dp): Dp =
     maxOf(Dimens.tabBarHeight, DockIconBox + captionLine + DockVerticalPadding)
 
+/** How far a drag has to travel in one direction before the bar answers it. */
+private val NavCollapseThreshold = 42.dp
+
+/** Prevents leftover fling deltas from undoing an explicit tap on the collapsed dock. */
+internal class NavigationCollapseGuard {
+    private var suppressAnimatedCollapse = false
+
+    fun onManualExpand() {
+        suppressAnimatedCollapse = true
+    }
+
+    fun acceptsScroll(userInput: Boolean): Boolean {
+        if (userInput) {
+            suppressAnimatedCollapse = false
+            return true
+        }
+        return !suppressAnimatedCollapse
+    }
+
+    fun onFlingFinished() {
+        suppressAnimatedCollapse = false
+    }
+
+    fun reset() {
+        suppressAnimatedCollapse = false
+    }
+}
+
+/**
+ * Collapses the bar while the user is reading down a page and brings it back on the way up.
+ *
+ * Accumulated rather than per-event: a single fling delivers dozens of small deltas, and
+ * reacting to each one would flip the bar back and forth inside one gesture. The accumulator
+ * resets on every direction change, so the threshold is "42dp of travel *this way*", not
+ * 42dp of net movement since the page loaded.
+ *
+ * Reaching the top always restores the bar regardless of travel: at rest at the top of a page
+ * there is no reading in progress to protect, and it is the one position where a user who has
+ * lost the bar will reliably look for it.
+ */
+@Composable
+private fun rememberNavCollapseConnection(
+    collapsed: MutableState<Boolean>,
+    guard: NavigationCollapseGuard,
+): NestedScrollConnection {
+    val threshold = with(LocalDensity.current) { NavCollapseThreshold.toPx() }
+    return remember(threshold, collapsed, guard) {
+        object : NestedScrollConnection {
+            private var travel = 0f
+
+            override fun onPreScroll(
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (!guard.acceptsScroll(source == NestedScrollSource.UserInput)) {
+                    travel = 0f
+                    return Offset.Zero
+                }
+                val delta = available.y
+                if (delta == 0f) return Offset.Zero
+                if (delta > 0f != travel > 0f) travel = 0f
+                travel += delta
+                val isCollapsed = collapsed.value
+                when {
+                    // Dragging up moves content down: the user is reading forward.
+                    travel <= -threshold && !isCollapsed -> {
+                        travel = 0f
+                        collapsed.value = true
+                    }
+                    travel >= threshold && isCollapsed -> {
+                        travel = 0f
+                        collapsed.value = false
+                    }
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                // Unconsumed downward scroll means the list is already at its top.
+                if (available.y > 0f && collapsed.value) {
+                    travel = 0f
+                    collapsed.value = false
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPostFling(
+                consumed: Velocity,
+                available: Velocity,
+            ): Velocity {
+                travel = 0f
+                guard.onFlingFinished()
+                return Velocity.Zero
+            }
+        }
+    }
+}
+
 /**
  * The bottom furniture: the four destinations in a capsule, and 搜索 as its own round key at
  * the end of the row — one tap from anywhere, which is the point of moving it out of the row.
+ *
+ * Two shapes for one row. Expanded, the tabs fill a capsule and search is a circle at its end.
+ * Collapsed, the capsule contracts to a single button carrying the icon of wherever the user is
+ * — enough to say "navigation lives here" without spending a bar's worth of screen on four
+ * destinations nobody is looking at while reading — and tapping it brings the row back. Search
+ * does not collapse: it is one tap from anywhere, and that is the point of moving it out.
+ *
+ * Every time the row shows — rising onto a root page, or coming back from collapsed — it shows
+ * as liquid: one capsule that 搜索 grows out of (see [DockLiquid]). For those frames the two
+ * panes hand their glass to the liquid drawn behind the row, and take it back once 搜索 has
+ * landed. Leaving and collapsing are what they always were.
  */
 @Composable
 private fun BottomNavigationDock(
     active: Tab,
+    collapsed: Boolean,
     onSelect: (Tab) -> Unit,
+    onExpand: () -> Unit,
     onSearch: () -> Unit,
     backdrop: BackdropState,
     modifier: Modifier = Modifier,
@@ -655,6 +834,33 @@ private fun BottomNavigationDock(
     cueKey: Any? = null,
 ) {
     val height = dockHeight()
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val liquidMotion = liquidMotionEnabled()
+    // Composed afresh each time the dock enters, so every entrance starts as one capsule.
+    val liquid = remember { DockLiquid(armed = if (liquidMotion && !collapsed) DockLiquidMove.Enter else null) }
+    val routeVisible = rememberRouteVisibility()
+    LaunchedEffect(liquid) {
+        if (liquid.clock.move != DockLiquidMove.Enter) return@LaunchedEffect
+        // At launch the dock is composed behind the splash: 搜索 buds once the app is on screen.
+        snapshotFlow { routeVisible.value }.first { it }
+        liquid.clock.play(DockLiquidMove.Enter, DockLiquidMove.Enter.durationMs)
+    }
+    val latestLiquidMotion by rememberUpdatedState(liquidMotion)
+    val wasCollapsed = remember { booleanArrayOf(collapsed) }
+    LaunchedEffect(collapsed) {
+        val expanding = wasCollapsed[0] && !collapsed
+        wasCollapsed[0] = collapsed
+        when {
+            // Collapsing is the capsule's own spring, as it always was.
+            collapsed -> liquid.clock.rest()
+            expanding && latestLiquidMotion ->
+                liquid.clock.play(DockLiquidMove.Expand, DockLiquidMove.Expand.durationMs)
+        }
+    }
+    val liquidDrawing = liquid.drawing
+    val glass = rememberLiquidNavigationGlass(backdrop)
+    val density = LocalDensity.current
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Row(
         modifier
             .widthIn(max = 520.dp)
@@ -662,6 +868,28 @@ private fun BottomNavigationDock(
             .padding(horizontal = Dimens.tabBarInset)
             .padding(bottom = Dimens.tabBarInset)
             .height(height)
+            .onSizeChanged {
+                liquid.metrics =
+                    DockLiquidMetrics(
+                        width = it.width / density.density,
+                        height = it.height / density.density,
+                        gap = Dimens.tabBarInset.value,
+                    )
+            }.pathBackdropBlurOrigin(glass.blur)
+            // Behind both panes while the dock shows: the capsule and 搜索 as one body.
+            .drawBehind {
+                val frame = liquid.frame() ?: return@drawBehind
+                val metrics = liquid.metrics ?: return@drawBehind
+                val segments = liquidOutline(frame.bodies(metrics), 0f, metrics.width, metrics.radius * 1.5f)
+                // Laid out from the right under RTL, where the capsule is on the right.
+                liquid.paths.update(
+                    segments,
+                    scale = if (rtl) -density.density else density.density,
+                    axisY = size.height / 2f,
+                    originX = if (rtl) size.width else 0f,
+                )
+                with(glass) { drawGlass(liquid.paths) }
+            }
             // One accent sweep across the dock as the invite lands, before its sheet opens:
             // the bar is where the user is looking, and it is the surface the invite belongs to.
             .attentionSweep(cueKey),
@@ -670,19 +898,125 @@ private fun BottomNavigationDock(
         horizontalArrangement = Arrangement.spacedBy(Dimens.tabBarInset),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GlassTabBar(
-            active = active,
-            onSelect = onSelect,
-            backdrop = backdrop,
-            modifier = Modifier.weight(1f),
-            height = height,
-        )
+        BoxWithConstraints(Modifier.weight(1f)) {
+            val expandedWidth = maxWidth
+            val dockWidth =
+                animateDpAsState(
+                    targetValue = if (collapsed) height else maxWidth,
+                    // The liquid owns the way back, so the pane is at full width under it at once.
+                    animationSpec =
+                        if (reduceMotion || (liquidMotion && !collapsed)) {
+                            snap()
+                        } else {
+                            spring(dampingRatio = 0.92f, stiffness = 360f)
+                        },
+                    label = "navigationDockWidth",
+                )
+            // A single continuous lens changes width; content fades inside its clipped bounds.
+            // The fixed outer slot keeps search still, including when a fling is interrupted.
+            AnimatedContent(
+                targetState = collapsed,
+                modifier =
+                    Modifier
+                        .then(
+                            if (liquidDrawing) {
+                                Modifier.clipToLiquidCapsule(liquid, rtl)
+                            } else {
+                                Modifier.clip(CircleShape).navigationGlass(backdrop, CircleShape)
+                            },
+                        ).navigationDockViewport(dockWidth, expandedWidth),
+                contentAlignment = Alignment.CenterStart,
+                transitionSpec = {
+                    val duration = if (reduceMotion) 0 else Motion.EMPHASIZED
+                    val quick = if (reduceMotion) 0 else Motion.QUICK
+                    val arriving =
+                        fadeIn(Motion.tween(duration)) + scaleIn(Motion.tween(duration), initialScale = 0.96f)
+                    val leaving =
+                        fadeOut(Motion.tween(quick)) + scaleOut(Motion.tween(duration), targetScale = 0.98f)
+                    (arriving togetherWith leaving).using(null)
+                },
+                label = "navigationDockContent",
+            ) { isCollapsed ->
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+                    if (isCollapsed) {
+                        CollapsedNavButton(active = active, diameter = height, onClick = onExpand)
+                    } else {
+                        GlassTabBar(
+                            active = active,
+                            onSelect = onSelect,
+                            backdrop = backdrop,
+                            modifier =
+                                Modifier
+                                    .wrapContentWidth(Alignment.Start, unbounded = true)
+                                    .requiredWidth(expandedWidth),
+                            height = height,
+                            drawShell = false,
+                            dockLiquid = liquid,
+                        )
+                    }
+                }
+            }
+        }
         SearchButton(
             selected = active == Tab.Search,
             backdrop = backdrop,
             diameter = height,
             onClick = onSearch,
+            dockLiquid = liquid,
         )
+    }
+}
+
+/** Content inside the capsule stays inside it, wherever the liquid has the capsule's right edge this frame. */
+private fun Modifier.clipToLiquidCapsule(
+    liquid: DockLiquid,
+    rtl: Boolean,
+): Modifier =
+    drawWithContent {
+        val right = liquid.frame()?.capsuleRight?.times(density)
+        if (right == null) {
+            drawContent()
+        } else if (rtl) {
+            clipRect(left = size.width - right) { this@drawWithContent.drawContent() }
+        } else {
+            clipRect(right = right) { this@drawWithContent.drawContent() }
+        }
+    }
+
+/** Measure tab content once at its resting width; animation only changes the surrounding clipped viewport. */
+internal fun Modifier.navigationDockViewport(
+    animatedWidth: State<Dp>,
+    expandedWidth: Dp,
+): Modifier =
+    layout { measurable, constraints ->
+        val fullWidth = expandedWidth.roundToPx().coerceIn(constraints.minWidth, constraints.maxWidth)
+        val content = measurable.measure(constraints.copy(minWidth = fullWidth, maxWidth = fullWidth))
+        // The width clock is deliberately read during layout, never while composing the tab buttons.
+        val visibleWidth = animatedWidth.value.roundToPx().coerceIn(constraints.minWidth, fullWidth)
+        layout(visibleWidth, content.height) { content.placeRelative(0, 0) }
+    }
+
+/** The bar contracted to one key — the current tab's glyph, and a way back to the rest. */
+@Composable
+private fun CollapsedNavButton(
+    active: Tab,
+    diameter: Dp,
+    onClick: () -> Unit,
+) {
+    val accent = LocalAccentColors.current
+    val item = tabs.firstOrNull { it.tab == active } ?: tabs.first()
+    Box(
+        Modifier
+            .size(diameter)
+            .pressable(
+                pressedScale = 0.96f,
+                haptic = HapticSignal.Select,
+                onClickLabel = "展开导航栏",
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        LiquidGlassTabIcon(item = item, tint = accent.accent, description = item.label)
     }
 }
 
@@ -697,6 +1031,10 @@ private fun BottomNavigationDock(
  * shrunk like an unselected tab, which is the language of "not where you are" — but
  * search is not a place, it is an action that is always available, and it should look it.
  * Only while the search page is open does it take the accent and an island of its own.
+ *
+ * While the dock shows as liquid its pane is the drop growing out of the capsule: the key
+ * stays where it is to be tapped, and the island and magnifier ride the drop, the magnifier
+ * coming into focus as the drop lands.
  */
 @Composable
 private fun SearchButton(
@@ -704,12 +1042,15 @@ private fun SearchButton(
     backdrop: BackdropState,
     diameter: Dp,
     onClick: () -> Unit,
+    dockLiquid: DockLiquid? = null,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val liquid = liquidNavigationGlass()
     val navigationGlass = navigationGlassVisuals(palette, accent)
+    val drawShell = dockLiquid?.drawing != true
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val tint by animateColorAsState(
         targetValue = if (selected) accent.accent else palette.text,
         animationSpec = Motion.settle<Color>(reduceMotion),
@@ -734,18 +1075,24 @@ private fun SearchButton(
                     onClick()
                 },
             ).semantics(mergeDescendants = true) { this.selected = selected }
-            .navigationGlass(backdrop, CircleShape)
-            .drawBehind {
-                if (islandAlpha <= 0f) return@drawBehind
+            .then(if (drawShell) Modifier.navigationGlass(backdrop, CircleShape) else Modifier)
+            .graphicsLayer {
+                val frame = dockLiquid?.frame() ?: return@graphicsLayer
+                translationX = frame.dropShift * density * if (rtl) -1f else 1f
+                scaleX = frame.dropScale
+                scaleY = frame.dropScale
+            }.drawBehind {
+                val shown = islandAlpha * (dockLiquid?.frame()?.glyph ?: 1f)
+                if (shown <= 0f) return@drawBehind
                 // The island sits just inside the rim, as the tab pill sits inside the bar.
                 val inset = SEARCH_ISLAND_INSET.toPx()
                 val rect = Rect(inset, inset, size.width - inset, size.height - inset)
                 if (liquid) {
-                    drawLensIsland(rect, dark = palette.isDark, accent = accent.accent, alpha = islandAlpha)
+                    drawLensIsland(rect, dark = palette.isDark, accent = accent.accent, alpha = shown)
                 } else {
                     val selection = navigationGlass.selection
                     drawRoundRect(
-                        color = selection.copy(alpha = selection.alpha * islandAlpha),
+                        color = selection.copy(alpha = selection.alpha * shown),
                         topLeft = rect.topLeft,
                         size = rect.size,
                         cornerRadius = CornerRadius(rect.height / 2f),
@@ -758,7 +1105,16 @@ private fun SearchButton(
             AppIcons.SearchTab,
             contentDescription = "搜索",
             tint = tint,
-            modifier = Modifier.size(26.dp),
+            modifier =
+                Modifier.size(26.dp).graphicsLayer {
+                    // Shape first, content after: the magnifier comes into focus as the drop lands.
+                    val glyph = dockLiquid?.frame()?.glyph ?: return@graphicsLayer
+                    alpha = glyph
+                    scaleX = SEARCH_GLYPH_FOCUS_FROM + (1f - SEARCH_GLYPH_FOCUS_FROM) * glyph
+                    scaleY = scaleX
+                    val blur = SEARCH_GLYPH_BLUR.toPx() * (1f - glyph)
+                    renderEffect = if (blur > 0.5f) BlurEffect(blur, blur, TileMode.Decal) else null
+                },
         )
     }
 }
@@ -777,6 +1133,10 @@ internal fun GlassTabBar(
     backdrop: BackdropState,
     modifier: Modifier = Modifier,
     height: Dp = dockHeight(),
+    /** False inside the dock, whose viewport or liquid draws the pane instead. */
+    drawShell: Boolean = true,
+    /** While the dock shows as liquid, the four cells follow the capsule's right edge. */
+    dockLiquid: DockLiquid? = null,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -826,12 +1186,14 @@ internal fun GlassTabBar(
             .height(height)
             // A true capsule rather than a rounded rectangle, so the shell stays soft at the
             // taller bar height.
-            .navigationGlass(backdrop, CircleShape)
+            .then(if (drawShell) Modifier.navigationGlass(backdrop, CircleShape) else Modifier)
             // After the material and before the buttons: the island belongs to the glass, not
             // over the icons.
             .drawBehind {
                 if (indicatorAlpha.value <= 0f) return@drawBehind
-                val cell = size.width / tabs.size
+                // While the dock shows as liquid, the cells follow the capsule's right edge.
+                val span = dockLiquid?.frame()?.tabSpan?.times(density) ?: size.width
+                val cell = span / tabs.size
                 // The selected region nearly fills its cell — a broad island, not a small
                 // Material indicator — so it stays legible over artwork-heavy roots and the
                 // quiet ones alike.
@@ -845,7 +1207,7 @@ internal fun GlassTabBar(
                 val pillWidth = cell * bounds.width
                 val stretch = (bounds.width / TAB_PILL_WIDTH_FRACTION - 1f).coerceIn(0f, 0.8f)
                 val pillHeight = size.height * 0.86f * (1f - if (enhanced) stretch * 0.12f else 0f)
-                val left = cell * if (rtl) tabs.size - bounds.left - bounds.width else bounds.left
+                val left = if (rtl) size.width - cell * (bounds.left + bounds.width) else cell * bounds.left
                 val top = (size.height - pillHeight) / 2f
                 val alpha = indicatorAlpha.value.coerceIn(0f, 1f)
                 if (liquid) {
@@ -882,8 +1244,24 @@ internal fun GlassTabBar(
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        tabs.forEach { item ->
-            TabButton(item = item, selected = active == item.tab, onClick = { onSelect(item.tab) })
+        tabs.forEachIndexed { index, item ->
+            TabButton(
+                item = item,
+                selected = active == item.tab,
+                onClick = { onSelect(item.tab) },
+                // Where the liquid capsule has this tab's cell this frame: from a quarter of the
+                // whole row, closing up behind the capsule's retreating edge.
+                modifier =
+                    if (dockLiquid == null) {
+                        Modifier
+                    } else {
+                        Modifier.graphicsLayer {
+                            val span = dockLiquid.frame()?.tabSpan ?: return@graphicsLayer
+                            val shift = (index + 0.5f) * (span * density / tabs.size - size.width)
+                            translationX = if (rtl) -shift else shift
+                        }
+                    },
+            )
         }
     }
 }
@@ -894,6 +1272,7 @@ private fun RowScope.TabButton(
     item: TabItem,
     selected: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -911,6 +1290,7 @@ private fun RowScope.TabButton(
         modifier =
             Modifier
                 .weight(1f)
+                .then(modifier)
                 .fillMaxHeight()
                 .heightIn(min = MinTouchTarget)
                 .clip(CircleShape)
@@ -945,6 +1325,8 @@ private fun LiquidGlassTabIcon(
     item: TabItem,
     tint: Color,
     selected: Boolean = false,
+    /** Only where no caption names the glyph — the collapsed key. */
+    description: String? = null,
 ) {
     // No lift-and-settle on the selected glyph under 静息 either.
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
@@ -964,7 +1346,7 @@ private fun LiquidGlassTabIcon(
         Icon(
             item.icon,
             // The visible caption labels the merged tab; the glyph would only repeat it.
-            contentDescription = null,
+            contentDescription = description,
             tint = tint,
             modifier = Modifier.size(DockIconGlyph),
         )
@@ -1015,3 +1397,7 @@ private const val TAB_PILL_MAX_SCALE = 1.12f
 
 /** How far 搜索's island sits inside its rim, as the tab island sits inside the bar. */
 private val SEARCH_ISLAND_INSET = 3.dp
+
+/** 搜索's magnifier comes into focus from this scale and this blur as its drop lands. */
+private const val SEARCH_GLYPH_FOCUS_FROM = 0.75f
+private val SEARCH_GLYPH_BLUR = 5.dp

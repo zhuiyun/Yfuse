@@ -3,6 +3,7 @@ package com.yfuse.watch
 import com.yfuse.watch.account.AccountBackend
 import com.yfuse.watch.account.LoginRequest
 import com.yfuse.watch.account.RegisterRequest
+import com.yfuse.watch.protocol.WatchProtocol
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocketSession
 import io.ktor.http.HttpHeaders
@@ -32,23 +33,27 @@ class RemoteControlRelayTest {
         // Another account's phone cannot even find the television, and nothing controls itself.
         assertEquals(
             RemoteAdmission.Refused(RemoteRefusal.Unavailable),
-            relay.join("mallory", "mallory-phone", "tv", "mallory-socket"),
+            relay.join("mallory", "mallory-phone", "tv", "mallory-socket", MALLORY),
         )
-        assertEquals(RemoteAdmission.Refused(RemoteRefusal.Unavailable), relay.join("alice", "tv", "tv", "loop"))
+        assertEquals(RemoteAdmission.Refused(RemoteRefusal.Unavailable), relay.join("alice", "tv", "tv", "loop", PHONE))
         assertEquals(
-            RemoteAdmission.Joined("tv-socket", 1, fresh = true),
-            relay.join("alice", "phone", "tv", "phone-socket"),
+            RemoteAdmission.Joined("tv-socket", 1, fresh = true, phone = PHONE),
+            relay.join("alice", "phone", "tv", "phone-socket", PHONE),
         )
+        // The same socket again stays who it said it was.
         assertEquals(
-            RemoteAdmission.Joined("tv-socket", 1, fresh = false),
-            relay.join("alice", "phone", "tv", "phone-socket"),
+            RemoteAdmission.Joined("tv-socket", 1, fresh = false, phone = PHONE),
+            relay.join("alice", "phone", "tv", "phone-socket", MALLORY),
         )
-        assertEquals(RemoteAdmission.Input("tv-socket"), relay.admitInput("phone-socket", nowMs = 0L))
+        assertEquals(RemoteAdmission.Input("tv-socket", PHONE), relay.admitInput("phone-socket", nowMs = 0L))
         // A socket is a television or a phone, never both, and a television sends no input.
         assertEquals(RemoteAdmission.Refused(RemoteRefusal.NotJoined), relay.admitInput("tv-socket", nowMs = 0L))
         assertEquals(RemoteAdmission.Refused(RemoteRefusal.NotJoined), relay.admitInput("mallory-socket", 0L))
         assertEquals(RemoteAdmission.Refused(RemoteRefusal.WrongRole), relay.host("alice", "phone", "phone-socket"))
-        assertEquals(RemoteAdmission.Refused(RemoteRefusal.WrongRole), relay.join("alice", "tv", "tv", "tv-socket"))
+        assertEquals(
+            RemoteAdmission.Refused(RemoteRefusal.WrongRole),
+            relay.join("alice", "tv", "tv", "tv-socket", PHONE),
+        )
         assertTrue(relay.involves("phone-socket"))
         assertFalse(relay.involves("mallory-socket"))
     }
@@ -57,11 +62,17 @@ class RemoteControlRelayTest {
     fun a_television_takes_a_few_phones_and_hears_them_come_and_go() {
         val relay = RemoteControlRelay<String>(maxControllersPerHost = 2)
         relay.host("alice", "tv", "tv-socket")
-        relay.join("alice", "phone-1", "tv", "p1")
-        relay.join("alice", "phone-2", "tv", "p2")
-        assertEquals(RemoteAdmission.Refused(RemoteRefusal.Busy), relay.join("alice", "phone-3", "tv", "p3"))
-        assertEquals(RemoteDeparture.PhoneLeft("tv-socket", 1), relay.depart("p1"))
-        assertEquals(RemoteAdmission.Joined("tv-socket", 2, fresh = true), relay.join("alice", "phone-3", "tv", "p3"))
+        relay.join("alice", "phone-1", "tv", "p1", RemotePhone("phone-1"))
+        relay.join("alice", "phone-2", "tv", "p2", RemotePhone("phone-2"))
+        assertEquals(
+            RemoteAdmission.Refused(RemoteRefusal.Busy),
+            relay.join("alice", "phone-3", "tv", "p3", RemotePhone("phone-3")),
+        )
+        assertEquals(RemoteDeparture.PhoneLeft("tv-socket", 1, RemotePhone("phone-1")), relay.depart("p1"))
+        assertEquals(
+            RemoteAdmission.Joined("tv-socket", 2, fresh = true, phone = RemotePhone("phone-3")),
+            relay.join("alice", "phone-3", "tv", "p3", RemotePhone("phone-3")),
+        )
         assertEquals(2, relay.phonesOn("alice", "tv"))
         assertEquals(RemoteDeparture.None, relay.depart("never-seen"))
     }
@@ -70,9 +81,9 @@ class RemoteControlRelayTest {
     fun a_reconnecting_television_keeps_its_phones_and_its_stale_socket_leaves_quietly() {
         val relay = RemoteControlRelay<String>()
         relay.host("alice", "tv", "old")
-        relay.join("alice", "phone", "tv", "p1")
+        relay.join("alice", "phone", "tv", "p1", PHONE)
         assertEquals(RemoteAdmission.Hosted("old", 1), relay.host("alice", "tv", "new"))
-        assertEquals(RemoteAdmission.Input("new"), relay.admitInput("p1", nowMs = 0L))
+        assertEquals(RemoteAdmission.Input("new", PHONE), relay.admitInput("p1", nowMs = 0L))
         assertEquals(RemoteDeparture.None, relay.depart("old"))
         assertEquals(RemoteDeparture.HostLeft(listOf("p1")), relay.depart("new"))
         assertEquals(RemoteAdmission.Refused(RemoteRefusal.NotJoined), relay.admitInput("p1", nowMs = 0L))
@@ -85,10 +96,45 @@ class RemoteControlRelayTest {
         relay.host("alice", "tv", "tv-socket")
         assertEquals(RemoteAdmission.Refused(RemoteRefusal.Full), relay.host("bob", "tv", "bob-tv"))
         assertEquals(RemoteAdmission.Hosted("tv-socket", 0), relay.host("alice", "tv", "tv-again"))
-        relay.join("alice", "phone", "tv", "p1")
-        repeat(3) { assertEquals(RemoteAdmission.Input("tv-again"), relay.admitInput("p1", nowMs = it.toLong())) }
+        relay.join("alice", "phone", "tv", "p1", PHONE)
+        repeat(3) { input ->
+            assertEquals(RemoteAdmission.Input("tv-again", PHONE), relay.admitInput("p1", nowMs = input.toLong()))
+        }
         assertEquals(RemoteAdmission.Refused(RemoteRefusal.RateLimited), relay.admitInput("p1", nowMs = 3L))
-        assertEquals(RemoteAdmission.Input("tv-again"), relay.admitInput("p1", nowMs = 1_000L))
+        assertEquals(RemoteAdmission.Input("tv-again", PHONE), relay.admitInput("p1", nowMs = 1_000L))
+    }
+
+    @Test
+    fun only_the_television_lets_a_phone_go_and_the_phone_is_then_no_longer_on_it() {
+        val relay = RemoteControlRelay<String>()
+        relay.host("alice", "tv", "tv-socket")
+        relay.join("alice", "phone-a", "tv", "a1", PHONE)
+        relay.join("alice", "phone-b", "tv", "b1", RemotePhone("phone-b"))
+        // A phone cannot let another phone go, nor can a socket that hosts nothing.
+        assertEquals(RemoteAdmission.Refused(RemoteRefusal.WrongRole), relay.release("b1", PHONE.deviceId))
+        assertEquals(RemoteAdmission.Refused(RemoteRefusal.WrongRole), relay.release("stranger", PHONE.deviceId))
+
+        assertEquals(RemoteAdmission.Released(listOf("a1"), remaining = 1), relay.release("tv-socket", PHONE.deviceId))
+        assertEquals(RemoteAdmission.Refused(RemoteRefusal.NotJoined), relay.admitInput("a1", nowMs = 0L))
+        assertFalse(relay.involves("a1"))
+        // Its socket closing later tells the television nothing twice.
+        assertEquals(RemoteDeparture.None, relay.depart("a1"))
+        // Letting go of a phone that is not there is nothing to do.
+        assertEquals(RemoteAdmission.Released(emptyList<String>(), remaining = 1), relay.release("tv-socket", "gone"))
+
+        // A television socket that has been replaced lets nothing go; the one replacing it does.
+        relay.host("alice", "tv", "tv-new")
+        assertEquals(RemoteAdmission.Refused(RemoteRefusal.WrongRole), relay.release("tv-socket", "phone-b"))
+        assertEquals(RemoteAdmission.Released(listOf("b1"), remaining = 0), relay.release("tv-new", "phone-b"))
+    }
+
+    @Test
+    fun a_phone_that_names_none_gets_a_stand_in_no_television_will_keep() {
+        val first = RemotePhone.unnamed()
+        val second = RemotePhone.unnamed()
+        assertTrue(first.deviceId != second.deviceId)
+        assertTrue(WatchProtocol.isValidRemoteDeviceId(first.deviceId))
+        assertFalse(WatchProtocol.isStableRemoteDeviceId(first.deviceId))
     }
 
     @Test
@@ -109,6 +155,7 @@ class RemoteControlRelayTest {
             tv.send("""{"type":"remoteHost"}""")
             val hosting = tv.receiveType("remoteHosting")
             assertTrue(hosting.getValue("capabilities").jsonArray.any { it.jsonPrimitive.content == "remoteControl" })
+            assertTrue(hosting.getValue("capabilities").jsonArray.any { it.jsonPrimitive.content == "remotePairing" })
 
             val stranger = connect(strangerAuth.accessToken)
             stranger.send("""{"type":"remoteJoin","remoteSessionId":"$tvSession"}""")
@@ -117,16 +164,29 @@ class RemoteControlRelayTest {
             assertEquals("remote_not_joined", stranger.receiveType("error").string("errorCode"))
 
             val phone = connect(phoneAuth.accessToken)
-            phone.send("""{"type":"remoteJoin","remoteSessionId":"$tvSession"}""")
+            phone.send(
+                """{"type":"remoteJoin","remoteSessionId":"$tvSession","remoteDeviceId":"phone-a","name":"小米 14"}""",
+            )
             phone.receiveType("remoteJoined")
-            assertEquals(1, tv.receiveType("remoteConnected").int("participantCount"))
+            val connected = tv.receiveType("remoteConnected")
+            assertEquals(1, connected.int("participantCount"))
+            // The television hears which phone it is, to ask about it by name and to keep it.
+            assertEquals("phone-a", connected.string("remoteDeviceId"))
+            assertEquals("小米 14", connected.string("name"))
             phone.send("""{"type":"remoteKey","remoteKey":"left"}""")
-            assertEquals("left", tv.receiveType("remoteKey").string("remoteKey"))
+            val left = tv.receiveType("remoteKey")
+            assertEquals("left", left.string("remoteKey"))
+            assertEquals("phone-a", left.string("remoteDeviceId"))
             phone.send("""{"type":"remoteText","text":"星际 "}""")
-            assertEquals("星际 ", tv.receiveType("remoteText").string("text"))
+            val typed = tv.receiveType("remoteText")
+            assertEquals("星际 ", typed.string("text"))
+            assertEquals("phone-a", typed.string("remoteDeviceId"))
             phone.send("""{"type":"remoteText","text":""}""")
             assertEquals("", tv.receiveType("remoteText").string("text"))
             phone.send("""{"type":"remoteKey","remoteKey":"power"}""")
+            assertEquals("remote_invalid", phone.receiveType("error").string("errorCode"))
+            // A phone does not stamp its own input: the relay does.
+            phone.send("""{"type":"remoteKey","remoteKey":"up","remoteDeviceId":"phone-b"}""")
             assertEquals("remote_invalid", phone.receiveType("error").string("errorCode"))
 
             // Nothing goes from the television to a phone, and a remote socket never joins a room.
@@ -145,17 +205,59 @@ class RemoteControlRelayTest {
             assertEquals("remote_invalid", member.receiveType("error").string("errorCode"))
 
             phone.close()
+            val gone = tv.receiveType("remoteDisconnected")
+            assertEquals(0, gone.int("participantCount"))
+            assertEquals("phone-a", gone.string("remoteDeviceId"))
+
+            // A phone from before names itself not at all, and gets a stand-in for the connection.
+            val older = connect(phoneAuth.accessToken)
+            older.send("""{"type":"remoteJoin","remoteSessionId":"$tvSession"}""")
+            older.receiveType("remoteJoined")
+            val standIn = tv.receiveType("remoteConnected").string("remoteDeviceId")
+            assertFalse(WatchProtocol.isStableRemoteDeviceId(standIn))
+            // Only a television lets a phone go, and only with a reason the relay knows.
+            older.send("""{"type":"remoteRelease","remoteDeviceId":"$standIn"}""")
+            assertEquals("remote_invalid", older.receiveType("error").string("errorCode"))
+            tv.send("""{"type":"remoteRelease","remoteDeviceId":"$standIn","errorCode":"whatever"}""")
+            assertEquals("remote_invalid", tv.receiveType("error").string("errorCode"))
+            // The television refuses it: the phone hears why, and its keys go nowhere after.
+            tv.send("""{"type":"remoteRelease","remoteDeviceId":"$standIn","errorCode":"remote_refused"}""")
+            assertEquals("remote_refused", older.receiveType("remoteDisconnected").string("errorCode"))
             assertEquals(0, tv.receiveType("remoteDisconnected").int("participantCount"))
+            older.send("""{"type":"remoteKey","remoteKey":"up"}""")
+            assertEquals("remote_not_joined", older.receiveType("error").string("errorCode"))
+            // A phone may not claim the relay's kind of id for itself.
+            val impostor = connect(phoneAuth.accessToken)
+            impostor.send("""{"type":"remoteJoin","remoteSessionId":"$tvSession","remoteDeviceId":"$standIn"}""")
+            assertEquals("remote_invalid", impostor.receiveType("error").string("errorCode"))
+
             val again = connect(phoneAuth.accessToken)
-            again.send("""{"type":"remoteJoin","remoteSessionId":"$tvSession"}""")
+            again.send("""{"type":"remoteJoin","remoteSessionId":"$tvSession","remoteDeviceId":"phone-a"}""")
             again.receiveType("remoteJoined")
             tv.receiveType("remoteConnected")
+            // Let go without a reason, the phone hears the television let it go.
+            tv.send("""{"type":"remoteRelease","remoteDeviceId":"phone-a"}""")
+            assertEquals("remote_released", again.receiveType("remoteDisconnected").string("errorCode"))
+            tv.receiveType("remoteDisconnected")
+
+            val last = connect(phoneAuth.accessToken)
+            last.send("""{"type":"remoteJoin","remoteSessionId":"$tvSession","remoteDeviceId":"phone-a"}""")
+            last.receiveType("remoteJoined")
+            tv.receiveType("remoteConnected")
             tv.close()
-            assertEquals("remote_host_left", again.receiveType("remoteDisconnected").string("errorCode"))
+            assertEquals("remote_host_left", last.receiveType("remoteDisconnected").string("errorCode"))
+            last.close()
             again.close()
+            older.close()
+            impostor.close()
             member.close()
             stranger.close()
         }
+
+    private companion object {
+        val PHONE = RemotePhone("phone-a", "小米 14")
+        val MALLORY = RemotePhone("mallory-phone")
+    }
 
     private fun JsonObject.string(name: String): String = getValue(name).jsonPrimitive.content
 

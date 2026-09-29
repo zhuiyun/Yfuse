@@ -2,6 +2,8 @@ package com.yfuse.feature.player
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -78,6 +80,10 @@ internal fun ChromeVisibility(
      * fade and nothing more.
      */
     coversScreen: Boolean = false,
+    /** Appear with no fade or scale — something already on screen in the same place hands over to it. */
+    instantEnter: Boolean = false,
+    /** Go with no fade or scale — something appearing in the same place takes over from it. */
+    instantExit: Boolean = false,
     content: @Composable AnimatedVisibilityScope.() -> Unit,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -144,8 +150,8 @@ internal fun ChromeVisibility(
                     }
                 },
             ),
-        enter = enter,
-        exit = exit,
+        enter = if (instantEnter) EnterTransition.None else enter,
+        exit = if (instantExit) ExitTransition.None else exit,
         content = content,
     )
 }

@@ -32,6 +32,9 @@ class PhoneRemoteClientTest {
             val join = socket.sent.receive()
             assertEquals("remoteJoin", join.type)
             assertEquals("tv-session", join.remoteSessionId)
+            // It says which phone it is, so the television can ask about it by name.
+            assertEquals("phone-a", join.remoteDeviceId)
+            assertEquals("测试手机", join.name)
             assertFalse(client.sendKey(RemoteControlKey.Up), "nothing is sent before the relay has paired")
             socket.push(joined)
             client.state.first { it == PhoneRemoteState.Connected }
@@ -118,9 +121,28 @@ class PhoneRemoteClientTest {
             assertEquals(3, relay.connects)
         }
 
+    @Test
+    fun a_phone_that_cannot_say_who_it_is_still_joins_unnamed() =
+        runTest {
+            val relay = FakeRelay()
+            val broken = client(relay, backgroundScope, identity = { error("no install id yet") })
+            broken.connect("tv-session")
+            val unnamed = relay.sessions.receive()
+            val join = unnamed.sent.receive()
+            assertEquals("remoteJoin", join.type)
+            assertEquals(null, join.remoteDeviceId)
+
+            // Nor does it name itself with an id the relay would refuse the whole join over.
+            val impostor = client(relay, backgroundScope, identity = { RemotePhoneIdentity("~made-up", null) })
+            impostor.connect("tv-session")
+            val madeUp = relay.sessions.receive()
+            assertEquals(null, madeUp.sent.receive().remoteDeviceId)
+        }
+
     private fun client(
         relay: FakeRelay,
         scope: CoroutineScope,
+        identity: () -> RemotePhoneIdentity? = { RemotePhoneIdentity("phone-a", "测试手机") },
     ) = PhoneRemoteClient(
         accessToken = { "token" },
         refreshAccessToken = { null },
@@ -128,6 +150,7 @@ class PhoneRemoteClientTest {
         connector = relay,
         retryDelayMs = { RETRY_MS },
         scope = scope,
+        identity = identity,
     )
 
     private companion object {

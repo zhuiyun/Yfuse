@@ -890,6 +890,7 @@ class PlayerActivity : ComponentActivity() {
                             }
                             updateMediaSession(state)
                             updatePictureInPictureParams()
+                            followVideoOrientation(state)
                             if (
                                 (state.playing || state.buffering) &&
                                 (
@@ -1202,6 +1203,22 @@ class PlayerActivity : ComponentActivity() {
         ) {
             finishPlayback()
         }
+    }
+
+    /**
+     * 竖屏视频: on a phone, a picture taller than it is wide turns the player upright and a wide one
+     * turns it back ([phonePlayerOrientation]). Not while the window shares the screen or has
+     * shrunk to picture-in-picture, where the system decides, nor on a television.
+     */
+    private fun followVideoOrientation(state: PlaybackState) {
+        if (televisionDevice || isInMultiWindowMode || isInPictureInPictureMode) return
+        val wanted =
+            phonePlayerOrientation(
+                videoWidth = state.diagnostics.videoWidth,
+                videoHeight = state.videoHeight,
+                current = requestedOrientation,
+            ) ?: return
+        if (wanted != requestedOrientation) requestedOrientation = wanted
     }
 
     /**

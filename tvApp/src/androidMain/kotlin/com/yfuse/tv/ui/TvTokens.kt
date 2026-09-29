@@ -45,7 +45,7 @@ internal val TvOnSurfaceMuted: Color = DarkPalette.body
 internal val TvHairline: Color = DarkPalette.border.copy(alpha = 0.08f)
 
 /** The brand emphasis as the dark theme resolves it: 4.5:1 on a dark surface, dark ink on top. */
-internal val TvAccent: Color = resolveAccentColors(Brand.Primary, dark = true).accent
+internal val TvAccent: Color = resolveAccentColors(Brand.Primary, dark = true).accent // design-system: brand-identity
 
 /**
  * A selected card, row or chip at rest: a fifth of the accent over the plate, under a 2dp accent

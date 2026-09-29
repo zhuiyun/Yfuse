@@ -121,6 +121,15 @@ jobs:
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
               summary.write("\n".join(lines) + "\n")
           PY
+      # The same files in the log, compressed onto one line each, for whoever cannot reach the
+      # artifact store: `base64 -d | gunzip` on the text after the file name gives the file back.
+      - name: Print the baseline profile into the log
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in build/baseline-profile/*.txt; do
+            echo "BASELINE-PROFILE $(basename "$file") $(gzip -9c "$file" | base64 -w 0)"
+          done
       - name: Upload the baseline profile
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
