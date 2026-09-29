@@ -25,6 +25,8 @@ import com.yfuse.core.data.smartFailoverServerIds
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.Person
+import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.ThemeSong
 import com.yfuse.core.model.capabilities
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.OfflineBatchItem
@@ -166,6 +168,12 @@ class DetailComponent(
             dependencies.searchRequests.openPerson(store.state.server?.id ?: serverId, person)
         }
     }
+
+    /** 主题曲 for [itemId]; an episode's or a season's comes from its show. */
+    internal suspend fun themeSongs(
+        server: SavedServer,
+        itemId: String,
+    ): List<ThemeSong> = repo.themeSongs(server, itemId)
 
     private val delegateStore =
         DetailStoreFactory(

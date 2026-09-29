@@ -182,6 +182,7 @@ internal fun PlaybackSettingsScreen(
     optimizationMode: PlaybackOptimizationMode,
     mediaVersionPreference: MediaVersionPreference,
     autoNext: Boolean,
+    detailThemeSong: Boolean,
     smartCrossServerSource: Boolean,
     progressSyncEnabled: Boolean,
     anonymousQoeSharing: Boolean,
@@ -192,6 +193,7 @@ internal fun PlaybackSettingsScreen(
     onMediaVersionPreference: () -> Unit,
     onOpenAdvanced: () -> Unit,
     onAutoNext: (Boolean) -> Unit,
+    onDetailThemeSong: (Boolean) -> Unit,
     onSmartCrossServerSource: (Boolean) -> Unit,
     onProgressSync: (Boolean) -> Unit,
     onAnonymousQoeSharing: (Boolean) -> Unit,
@@ -228,6 +230,14 @@ internal fun PlaybackSettingsScreen(
             Section(title = "播放行为") {
                 SettingsCard {
                     SwitchRow("自动播放下一集", autoNext, true, onChange = onAutoNext)
+                    SettingsDivider()
+                    SwitchRow(
+                        "详情页主题曲",
+                        detailThemeSong,
+                        true,
+                        description = "服务器有主题曲时，在详情页轻声播放；进入播放器即停",
+                        onChange = onDetailThemeSong,
+                    )
                     SettingsDivider()
                     SwitchRow(
                         "智能跨服选源",

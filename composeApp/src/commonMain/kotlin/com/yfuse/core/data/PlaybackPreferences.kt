@@ -541,6 +541,19 @@ class PlaybackPreferences(
         if (!enabled) settings.remove(PLAYBACK_QOE_OUTBOX_KEY)
     }
 
+    private val _detailThemeSong = MutableStateFlow(settings.getBoolean(KEY_DETAIL_THEME_SONG, false))
+
+    /**
+     * 详情页主题曲: a title's theme music, faded in once its detail page has settled. Off by default —
+     * sound nobody asked for is the one thing a page must not start on its own.
+     */
+    val detailThemeSong: StateFlow<Boolean> = _detailThemeSong.asStateFlow()
+
+    fun setDetailThemeSong(enabled: Boolean) {
+        _detailThemeSong.value = enabled
+        settings.putBoolean(KEY_DETAIL_THEME_SONG, enabled)
+    }
+
     /**
      * The remembered choices for a title. Episodes share one entry per series; a film has
      * no series, so it keys its own entry by [itemId] — without that fallback every choice
@@ -688,6 +701,7 @@ class PlaybackPreferences(
         const val KEY_PLAYBACK_PERFORMANCE = "player.ycore.performance.v1"
         const val KEY_SMART_CROSS_SERVER_SOURCE = "player.smartCrossServerSource"
         const val KEY_ANONYMOUS_QOE_SHARING = "player.ycore.qoeSharing"
+        const val KEY_DETAIL_THEME_SONG = "detail.themeSong"
         const val KEY_SERIES_PLAYBACK = "player.seriesPlayback.v1"
         const val MAX_SERIES_KEY_CHARS = 256
         const val MAX_TRACK_FIELD_CHARS = 128

@@ -54,6 +54,7 @@ import com.yfuse.feature.detail.episodeLiftMenu
 import com.yfuse.feature.detail.episodeStillUrl
 import com.yfuse.feature.detail.relatedLiftMenu
 import com.yfuse.feature.detail.rememberEpisodeRowActions
+import com.yfuse.feature.extras.DetailThemeSong
 import com.yfuse.feature.personal.PersonalMediaActions
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
@@ -71,6 +72,8 @@ internal fun TvDetailScreen(
     val playRequester = remember { FocusRequester() }
     val secondaryNavigationRequester = remember { FocusRequester() }
     var sheet by remember(component.itemId) { mutableStateOf<TvDetailSheet?>(null) }
+    // 主题曲 plays itself, as on the phone's detail page.
+    DetailThemeSong(component)
     if (detail != null && server != null) {
         // One route per title, so returning from a related title restores this page's own focus.
         val route = tvDetailRoute(detail.id)

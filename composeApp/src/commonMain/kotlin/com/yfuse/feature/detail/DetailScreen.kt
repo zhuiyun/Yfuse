@@ -84,6 +84,7 @@ import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.util.rememberPosterCardSharer
 import com.yfuse.core.util.rememberShareHandler
+import com.yfuse.feature.extras.DetailThemeSong
 import com.yfuse.feature.library.posterShareCard
 import com.yfuse.feature.player.PlaybackSelection
 import com.yfuse.feature.player.PlaybackSelectionState
@@ -379,6 +380,8 @@ fun DetailScreen(component: DetailComponent) {
     val episodeRowActions = rememberEpisodeRowActions(component, state.playServer?.id)
     // The top bar's 投屏 and its device list; null where this platform cannot cast.
     val cast = rememberDetailCast(component)
+    // 主题曲 plays itself, when the setting asks for it — see DetailThemeSong.
+    DetailThemeSong(component)
     var organizationSheetOpen by remember { mutableStateOf(false) }
     var sourceListOpen by remember { mutableStateOf(false) }
     var allEpisodesOpen by remember { mutableStateOf(false) }
