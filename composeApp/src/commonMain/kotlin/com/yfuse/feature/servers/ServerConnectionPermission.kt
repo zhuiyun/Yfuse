@@ -31,14 +31,28 @@ internal fun ServersIntent.connectsToServer(): Boolean =
     this == ServersIntent.Submit ||
         this == ServersIntent.StartQuickConnect ||
         this is ServersIntent.SelectDiscovered ||
-        this is ServersIntent.SelectPlexCloudServer
+        this is ServersIntent.SelectPlexCloudServer ||
+        this is ServersIntent.SignInWithSession
 
 internal fun connectionIntentAfterPermission(
     action: ServersIntent,
     endpoint: String,
     granted: Boolean,
 ): ServersIntent =
-    if (!granted && serverUsesLocalNetwork(endpoint)) ServersIntent.LocalNetworkPermissionDenied else action
+    when {
+        granted || !serverUsesLocalNetwork(endpoint) -> action
+        // A phone is waiting to hear how its session went: it is answered, not dropped.
+        action is ServersIntent.SignInWithSession -> action.copy(localNetworkDenied = true)
+        else -> ServersIntent.LocalNetworkPermissionDenied
+    }
+
+/** The address [action] connects to, where it names its own; the form's otherwise. */
+private fun ServersIntent.endpointOr(form: String): String =
+    when (this) {
+        is ServersIntent.SelectDiscovered -> server.address
+        is ServersIntent.SignInWithSession -> server.baseUrl
+        else -> form
+    }
 
 /** Ask on explicit connection actions, including hostnames whose DNS can resolve to a LAN. */
 @Composable
@@ -54,7 +68,7 @@ fun rememberServerConnectionIntent(
         val action = pending ?: return
         pending = null
         if (!currentState.dialogVisible) return
-        val endpoint = (action as? ServersIntent.SelectDiscovered)?.server?.address ?: currentState.form.url
+        val endpoint = action.endpointOr(currentState.form.url)
         // A refused LAN permission must not prevent connecting to an Internet server.
         dispatch(connectionIntentAfterPermission(action, endpoint, granted))
     }

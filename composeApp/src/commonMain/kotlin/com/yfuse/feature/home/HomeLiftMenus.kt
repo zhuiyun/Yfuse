@@ -3,6 +3,7 @@ package com.yfuse.feature.home
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftMenu
+import com.yfuse.core.designsystem.SelectionAction
 import com.yfuse.core.designsystem.mediaRatingLabel
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.EmbyImages
@@ -94,6 +95,29 @@ internal fun HomeResumeEntry.homeLiftMenu(
                     onShare?.let(::shareLiftAction),
                 ),
             ),
+    )
+}
+
+/**
+ * 编辑's bar on 继续观看's 全部 page (I-21): the lift's 标记为已看 and 从继续观看移除, for every card in
+ * [selection] at once. Both are held back for the toast's one 撤销, as the lift holds one card's.
+ * 标记已看 passes over a card that is watched already, and dims when that is every card.
+ */
+internal fun resumeSelectionActions(
+    selection: List<HomeResumeEntry>,
+    onIntent: (HomeIntent) -> Unit,
+): List<SelectionAction> {
+    val unwatched = selection.filterNot { it.item.played }
+    return listOf(
+        SelectionAction("标记已看", enabled = unwatched.isNotEmpty(), onClickLabel = "将所选标记为已看") {
+            onIntent(HomeIntent.MarkEntriesWatched(unwatched))
+        },
+        SelectionAction(
+            "移除",
+            enabled = selection.isNotEmpty(),
+            destructive = true,
+            onClickLabel = "从继续观看移除所选",
+        ) { onIntent(HomeIntent.RemoveEntriesFromResume(selection)) },
     )
 }
 

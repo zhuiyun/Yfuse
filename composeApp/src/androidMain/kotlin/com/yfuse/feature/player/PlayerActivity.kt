@@ -65,6 +65,8 @@ import com.yfuse.core.designsystem.ParticleStyle
 import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
 import com.yfuse.core.designsystem.PlayerHandoff
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.core.filesource.FileSourceProgressRecorder
+import com.yfuse.core.filesource.FileSourceProgressStore
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.performance.AppJankMonitor
 import com.yfuse.core.model.DecoderMode
@@ -79,6 +81,7 @@ import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core2.api.YPlayer
+import com.yfuse.feature.filesource.FileSourcePlaybackProgress
 import com.yfuse.tv.integration.CastConnectReceiverBridge
 import com.yfuse.tv.player.TvMediaSessionActions
 import com.yfuse.tv.player.TvMediaSessionAdapter
@@ -202,6 +205,9 @@ class PlayerActivity : ComponentActivity() {
     private lateinit var audioManager: AudioManager
     private lateinit var audioFocusController: PlayerAudioFocusController
     private var remoteCastManager: CastManager? = null
+
+    /** Resume points for 文件来源 files, which have no server to remember them. */
+    private var fileSourceProgress: FileSourcePlaybackProgress? = null
     private var sessionTitles: List<String> = emptyList()
     private val mediaSessionPositionSync = MediaSessionPositionSync()
     private val pictureInPicture = MutableStateFlow(false)
@@ -736,6 +742,10 @@ class PlayerActivity : ComponentActivity() {
         val skipSegmentPreferences = koin.get<SkipSegmentPreferences>()
         val danmakuRepository = koin.get<DanmakuRepository>()
         val offlineMediaManager = koin.get<OfflineMediaManager>()
+        fileSourceProgress =
+            koin.getOrNull<FileSourceProgressStore>()?.let { store ->
+                FileSourcePlaybackProgress(FileSourceProgressRecorder(store, SystemClock::elapsedRealtime))
+            }
         playbackPreferences = koin.get()
         val videoCacheBytes = playbackPreferences.videoCacheSize.value.bytes
         val yCoreBufferTargetUs = playbackPreferences.yCoreBufferDuration.value.targetDurationUs
@@ -885,6 +895,7 @@ class PlayerActivity : ComponentActivity() {
                             } else if (!state.ended) {
                                 completedOfflineKey = null
                             }
+                            fileSourceProgress?.onState(item, state)
                             if (item != null && state.currentIndex in sessionTitles.indices) {
                                 sessionTitles = playbackItems.value.map { it.title }
                             }
@@ -927,6 +938,7 @@ class PlayerActivity : ComponentActivity() {
                                 item?.title.orEmpty(),
                                 state,
                             )
+                            fileSourceProgress?.onProgress(item, state)
                             val now = SystemClock.elapsedRealtime()
                             if (mediaSessionPositionSync.shouldPublish(state, now)) {
                                 publishMediaSessionState(state, now)
@@ -1096,6 +1108,7 @@ class PlayerActivity : ComponentActivity() {
             return
         }
         activityStarted = false
+        fileSourceProgress?.flush()
         // A picture-in-picture player is still on screen and still streaming, whether or not this
         // callback ran for it. Keeping the flag set is what stops MainActivity - restarted
         // underneath the PiP window - from resuming health probes and sync over the same link.
@@ -1129,6 +1142,7 @@ class PlayerActivity : ComponentActivity() {
         }
         runCatching { unregisterReceiver(pictureInPictureReceiver) }
         PlayerForegroundRegistry.setVisible(false)
+        fileSourceProgress?.flush()
         episodeRefreshJob?.cancel()
         capabilityMonitorJob?.cancel()
         outputRenegotiationJob?.cancel()

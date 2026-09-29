@@ -27,6 +27,12 @@ sealed interface PhoneRemoteState {
 
     data object Connecting : PhoneRemoteState
 
+    /**
+     * 等待电视确认: on the television, which asks before a phone may press anything and has not
+     * answered yet. Nothing this phone sent would count, so nothing is sent.
+     */
+    data object Waiting : PhoneRemoteState
+
     data object Connected : PhoneRemoteState
 
     /** [retryable] is false where 重新连接 cannot help: no 手机遥控 on the relay, or a lapsed account. */
@@ -44,7 +50,9 @@ sealed interface PhoneRemoteState {
  *
  * The phone names itself as it joins — [identity], this install unless a test says otherwise — so
  * the television can ask about it by name before anything it sends is let through, and remember it
- * when told to. A phone that cannot say who it is still joins, as one the relay names for it.
+ * when told to. A phone that cannot say who it is still joins, as one the relay names for it. Where
+ * the relay says the television is asking, the phone waits ([PhoneRemoteState.Waiting]) until it
+ * hears it was let in; a relay or a television from before that says nothing, and it is in at once.
  */
 class PhoneRemoteClient(
     private val accessToken: suspend () -> String?,
@@ -139,29 +147,42 @@ class PhoneRemoteClient(
                 ),
             )
             coroutineScope {
+                var joined = false
                 var sending: Job? = null
+
+                fun letIn() {
+                    if (sending != null) return
+                    // Keys pressed while reconnecting, or while the television asked, would land
+                    // somewhere the viewer has left.
+                    drainKeys()
+                    _state.value = PhoneRemoteState.Connected
+                    sending = launch { sendInput(channel) }
+                }
                 try {
                     while (true) {
                         val message = channel.receive() ?: break
                         when (message.type) {
                             "remoteJoined" -> {
-                                if (WatchProtocol.CAPABILITY_REMOTE_CONTROL !in message.capabilities.orEmpty()) {
+                                val offered = message.capabilities.orEmpty()
+                                if (WatchProtocol.CAPABILITY_REMOTE_CONTROL !in offered) {
                                     throw RemoteControlRefusedException("服务器暂不支持手机遥控", supported = false)
                                 }
-                                if (sending == null) {
+                                if (!joined) {
+                                    joined = true
                                     onJoined()
-                                    // Keys pressed while reconnecting would land somewhere the viewer has left.
-                                    drainKeys()
-                                    _state.value = PhoneRemoteState.Connected
-                                    sending = launch { sendInput(channel) }
+                                    // Only a relay that passes on the television's answer says to wait for it.
+                                    val asked =
+                                        message.ready == false && WatchProtocol.CAPABILITY_REMOTE_PAIRING in offered
+                                    if (asked) _state.value = PhoneRemoteState.Waiting else letIn()
                                 }
                             }
+                            "remoteAdmitted" -> if (joined) letIn()
                             "remoteDisconnected" ->
                                 throw RemoteControlRefusedException(message.message ?: "电视已断开手机遥控")
                             // Before joining an error is the relay's answer; after, only a vanished
                             // television ends the session — pacing and a stray key are not worth it.
                             "error" ->
-                                if (sending == null || message.errorCode in SESSION_ENDING_ERRORS) {
+                                if (!joined || message.errorCode in SESSION_ENDING_ERRORS) {
                                     throw message.remoteRefusal("无法连接电视")
                                 }
                         }

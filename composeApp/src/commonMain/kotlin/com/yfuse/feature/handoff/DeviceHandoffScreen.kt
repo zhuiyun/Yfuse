@@ -40,6 +40,7 @@ import com.yfuse.core.handoff.HandoffMedia
 import com.yfuse.core.handoff.HandoffPlaybackRegistry
 import com.yfuse.feature.profile.SettingsPage
 import com.yfuse.watch.protocol.HandoffRequest
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -54,12 +55,49 @@ fun DeviceHandoffScreen(
     // 遥控器 opens in place of this page: it belongs to the television picked here, and back returns here.
     var remoteSessionId by rememberSaveable { mutableStateOf<String?>(null) }
     var remoteName by rememberSaveable { mutableStateOf("") }
+    // So does 登录服务器到电视, for a television whose 添加服务器 waits on a phone.
+    var signInSessionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var signInName by rememberSaveable { mutableStateOf("") }
     val television = remoteSessionId
     if (television != null) {
         PhoneRemoteScreen(television, remoteName, onBack = { remoteSessionId = null })
         return
     }
+    val asking = signInSessionId
+    if (asking != null) {
+        RemoteSignInScreen(asking, signInName, onBack = { signInSessionId = null })
+        return
+    }
+    // While this page is open a television that starts asking for a server, or hosting 手机遥控,
+    // shows within seconds rather than at the next heartbeat.
+    LaunchedEffect(controller) {
+        while (true) {
+            controller.refreshPresence()
+            delay(PRESENCE_REFRESH_MS)
+        }
+    }
     SettingsPage(title = "设备接力", onBack = onBack) {
+        if (state.signInAsks.isNotEmpty()) {
+            item {
+                Section(title = "等待登录的电视") {
+                    SettingsCard {
+                        state.signInAsks.forEachIndexed { index, waiting ->
+                            if (index > 0) SettingsDivider()
+                            SettingRow(
+                                "登录服务器到 ${waiting.name}",
+                                embedded = true,
+                                onClick = {
+                                    signInName = waiting.name
+                                    signInSessionId = waiting.sessionId
+                                },
+                                icon = AppIcons.Server,
+                                supporting = "电视正在等待，选一台服务器发给它",
+                            )
+                        }
+                    }
+                }
+            }
+        }
         item {
             Section(title = "在线设备") {
                 SettingsCard {
@@ -219,6 +257,9 @@ private fun HandoffRequestDialog(
 
 /** The account client's own request limit; past it the reject has answered or never will. */
 private const val REJECT_ANSWER_TIMEOUT_MS = 15_000L
+
+/** How often 设备接力, while open, asks for the account's devices; the heartbeat alone waits 10s. */
+private const val PRESENCE_REFRESH_MS = 5_000L
 
 /** PlayerRoot only publishes its currently mounted source; Activity owns receiver preparation. */
 @Composable

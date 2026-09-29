@@ -1089,8 +1089,22 @@ internal fun TvConfirmDialog(
 
 @Composable
 internal fun TvLoadingState(label: String = "正在加载") {
-    // The dot breathes — see [TvLoadingMotion] — read only while drawing, so the wait costs a
-    // redraw of one small circle a frame and no recomposition.
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            TvLoadingDot()
+            Spacer(Modifier.height(12.dp))
+            Text(label, color = TvOnSurfaceMuted, fontSize = TvType.body)
+        }
+    }
+}
+
+/**
+ * The dot of a wait. It breathes — see [TvLoadingMotion] — in place, which 静息 keeps, and holds
+ * still under 减少动态效果. The breath is read only while drawing, so the wait costs a redraw of one
+ * small circle a frame and no recomposition.
+ */
+@Composable
+internal fun TvLoadingDot(modifier: Modifier = Modifier) {
     val breath =
         if (LocalAccessibilityOptions.current.reduceMotion) {
             null
@@ -1106,17 +1120,11 @@ internal fun TvLoadingState(label: String = "正在加载") {
                 label = "tv-loading-breath",
             )
         }
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                Modifier
-                    .size(12.dp)
-                    .graphicsLayer { alpha = breath?.value ?: 1f }
-                    .clip(CircleShape)
-                    .background(TvAccent),
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(label, color = TvOnSurfaceMuted, fontSize = TvType.body)
-        }
-    }
+    Box(
+        modifier
+            .size(12.dp)
+            .graphicsLayer { alpha = breath?.value ?: 1f }
+            .clip(CircleShape)
+            .background(TvAccent),
+    )
 }

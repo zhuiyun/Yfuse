@@ -1,5 +1,6 @@
 package com.yfuse.feature.detail
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -47,12 +48,9 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.semantics.toggleableState
-import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -66,7 +64,6 @@ import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyBadge
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.HeroInk
 import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LiftMenu
@@ -82,13 +79,18 @@ import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.isSharedMediaArtworkActive
+import com.yfuse.core.designsystem.liftExpansionTarget
 import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.oneTakeArrival
 import com.yfuse.core.designsystem.playerArtworkSource
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberLiftExpansion
+import com.yfuse.core.designsystem.rememberOneTakeArrival
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -232,7 +234,10 @@ internal fun Hero(
     // means not even the first frame is drawn at 1.08.
     val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     val sharedEntrance = isSharedMediaArtworkActive(sharedKey)
-    var entered by remember(animationKey) { mutableStateOf(sharedEntrance || still) }
+    // 一镜到底: a lifted card is growing into this hero (LiftExpansion.kt). The hero stays out of
+    // sight under it until it hands over, and then is simply there at rest, the card's own size.
+    val expansion = rememberLiftExpansion(sharedKey)
+    var entered by remember(animationKey) { mutableStateOf(sharedEntrance || still || expansion != null) }
     LaunchedEffect(animationKey) { entered = true }
     val entrance by animateFloatAsState(
         targetValue = if (entered) 1f else 0f,
@@ -243,6 +248,7 @@ internal fun Hero(
             ),
         label = "heroEntrance",
     )
+    val heldByCard = expansion != null && !expansion.landed && !expansion.gaveUp
     Box(
         Modifier
             .fillMaxWidth()
@@ -277,7 +283,7 @@ internal fun Hero(
         // Clip only the artwork plane. The outer hero may still grow for pull-down overscroll,
         // while its 1.08 entrance can no longer bleed below the physical hero edge without
         // the scrim and flash through the sheet's transparent gradient start.
-        Box(Modifier.fillMaxSize().clipToBounds()) {
+        Box(Modifier.fillMaxSize().clipToBounds().liftExpansionTarget(expansion)) {
             FallbackImage(
                 urls = urls,
                 contentDescription = title,
@@ -285,7 +291,13 @@ internal fun Hero(
                 // so a network/disk result does not arrive as a hard cut or add a second scale.
                 progressive = true,
                 alphaOnly = true,
-                onResolvedUrl = onResolvedUrl,
+                // Under a card that is about to hand over, a picture arrives whole: fading in, it
+                // would still be half there when the card lifts off it.
+                revealDurationMillis = if (heldByCard) 0 else Motion.POSTER_FADE,
+                onResolvedUrl = { url ->
+                    expansion?.heroReady = true
+                    onResolvedUrl(url)
+                },
                 modifier =
                     Modifier
                         .sharedMediaArtwork(sharedKey)
@@ -331,13 +343,13 @@ internal fun DetailTopBar(
     onMore: () -> Unit,
     /** What holding 更多 lifts for the finger to slide through; null keeps it a plain button. */
     moreMenu: (() -> LiftMenu)? = null,
-    /** 服务器收藏 beside 更多操作; null when the title has no server favourite to switch. */
-    favorite: Boolean? = null,
-    onToggleFavorite: () -> Unit = {},
+    /** 投屏 beside 更多, while there is something to cast to; null where this page cannot cast. */
+    cast: DetailCast? = null,
 ) {
     val palette = LocalPalette.current
     val playBody = primaryActionColor(accent)
     val playInk = primaryActionContentColor(accent)
+    val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     // 0.94 was very nearly opaque, and it had to be: with nothing blurred behind it, any
     // less and the poster underneath read straight through the title. Now that §8.1's blur
     // is actually under the plate, the fill can go back to being a fill — this bar was the
@@ -415,23 +427,34 @@ internal fun DetailTopBar(
                     Text("播放", style = AppTypography.body.strong, color = playInk)
                 }
             }
-            if (favorite != null) {
-                // One tap, where it used to be … → switch → close. Like 更多操作 it stays up
-                // over the artwork; the title gives up the width, never the play shortcut.
-                DetailTopBarIcon(
-                    icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
-                    description = "服务器收藏",
-                    progress = progress,
-                    surfaceColor = surfaceColor,
-                    onClick = onToggleFavorite,
-                    checked = favorite,
-                    stateLabel = if (favorite) "已收藏" else "未收藏",
-                )
+            // 服务器收藏 used to sit here; it is one of the keys under 播放 now, beside 稍后看, 已看
+            // and 下载, and the bar keeps only what the whole page needs.
+            if (cast != null) {
+                // Up over the artwork like 更多, as the Cast guidelines want on any page that can
+                // cast: it plays what 播放 would, on the television, without the phone's player.
+                // Lit while a cast is live, waiting while one from here is on its way.
+                AnimatedVisibility(
+                    visible = cast.available,
+                    enter = castKeyEnter(still),
+                    exit = castKeyExit(still),
+                    label = "detailCastKey",
+                ) {
+                    DetailTopBarIcon(
+                        icon = AppIcons.Cast,
+                        description = "投屏",
+                        progress = progress,
+                        surfaceColor = surfaceColor,
+                        onClick = cast::open,
+                        stateLabel = cast.stateLabel,
+                        lit = accent.takeIf { cast.casting },
+                        busy = cast.busy,
+                    )
+                }
             }
             if (showMore) {
-                // Unlike the title and the play shortcut this does not fade in with scroll:
-                // it is the only route to 下载 / 标记已看 / 一起看, so it has to be reachable
-                // from the top of the page as well as the bottom.
+                // Unlike the title and the play shortcut this does not fade in with scroll: once the
+                // keys under 播放 have scrolled away it is the route to 下载 / 标记已看 / 一起看, so it
+                // has to be reachable from the top of the page as well as the bottom.
                 DetailTopBarIcon(
                     icon = AppIcons.More,
                     description = "更多操作",
@@ -446,8 +469,8 @@ internal fun DetailTopBar(
 }
 
 /**
- * Both glyph tint and glass colour follow scroll solely in the draw phase. A [checked] key is a
- * switch: it says its state, and it is felt, because it changes state in place.
+ * Both glyph tint and glass colour follow scroll solely in the draw phase. The bar holds no switch
+ * since 服务器收藏 moved under 播放: every key here opens something or goes somewhere.
  */
 @Composable
 private fun DetailTopBarIcon(
@@ -457,35 +480,44 @@ private fun DetailTopBarIcon(
     surfaceColor: Color,
     onClick: () -> Unit,
     liftMenu: (() -> LiftMenu)? = null,
-    checked: Boolean? = null,
+    /** Read after [description]: what the key's action is doing now. */
     stateLabel: String? = null,
+    /**
+     * A body of this colour, the play shortcut's, with its ink: something the key started is live
+     * (a cast). Over the artwork and over the plate alike, so it does not follow scroll.
+     */
+    lit: Color? = null,
+    /** The waiting pulse: what the key started is on its way. */
+    busy: Boolean = false,
 ) {
     val palette = LocalPalette.current
     val painter = rememberVectorPainter(icon)
+    val litBody = lit?.let(::primaryActionColor)
+    val litInk = lit?.let(::primaryActionContentColor)
+    val heroFill = Color(0xFF11151F).copy(alpha = 0.28f)
+    val heroEdge = Color.White.copy(alpha = 0.34f)
     Canvas(
         Modifier
             .liftable(menu = liftMenu, onOpen = onClick)
-            .pressable(
-                haptic = HapticSignal.Confirm.takeIf { checked != null },
-                role = if (checked == null) Role.Button else Role.Checkbox,
-                onClick = onClick,
-            ).touchTarget()
+            .pressable(onClick = onClick)
+            .touchTarget()
             .size(38.dp)
             .liquidGlass(
                 shape = CircleShape,
-                fill = { lerp(Color(0xFF11151F).copy(alpha = 0.28f), palette.card2, progress.value) },
-                border = { lerp(Color.White.copy(alpha = 0.34f), palette.border, progress.value) },
+                fill = { litBody ?: lerp(heroFill, palette.card2, progress.value) },
+                border = { if (litBody == null) lerp(heroEdge, palette.border, progress.value) else null },
                 over = { lerp(HeroInk, surfaceColor, progress.value) },
                 sheen = 0.7f,
-            ).padding(11.dp)
+            ).waitingPulse(active = busy, shape = CircleShape, color = litInk ?: Color.White)
+            .padding(11.dp)
             .semantics {
                 contentDescription = description
-                if (checked != null) toggleableState = ToggleableState(checked)
                 if (stateLabel != null) stateDescription = stateLabel
             },
     ) {
         with(painter) {
-            draw(size, colorFilter = ColorFilter.tint(lerp(Color.White, palette.text, progress.value)))
+            val ink = litInk ?: lerp(Color.White, palette.text, progress.value)
+            draw(size, colorFilter = ColorFilter.tint(ink))
         }
     }
 }
@@ -519,6 +551,10 @@ internal fun TitleBlock(
     statuses: List<DetailStatus> = emptyList(),
     onStatusClick: () -> Unit = {},
 ) {
+    // 一镜到底: opened by a lifted card, the words rise into place one row after another once the
+    // card has handed the artwork over (LiftExpansion.kt). Opened any other way they are there.
+    val arrival = rememberOneTakeArrival(detail.id)
+    var row = 0
     Column(
         modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.Start,
@@ -530,6 +566,7 @@ internal fun TitleBlock(
             textAlign = TextAlign.Start,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.oneTakeArrival(arrival, row++),
         )
         val facts =
             listOfNotNull(
@@ -544,11 +581,13 @@ internal fun TitleBlock(
                 color = ArtworkInkSub,
                 textAlign = TextAlign.Start,
                 maxLines = 1,
+                modifier = Modifier.oneTakeArrival(arrival, row++),
             )
         }
         if (detail.communityRating != null || detail.officialRating != null) {
             Spacer(Modifier.height(9.dp))
             Row(
+                Modifier.oneTakeArrival(arrival, row++),
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -560,7 +599,13 @@ internal fun TitleBlock(
         }
         detail.genres.take(2).joinToString(" · ").takeIf { it.isNotBlank() }?.let { genre ->
             Spacer(Modifier.height(8.dp))
-            Text(genre, style = AppTypography.body.medium, color = ArtworkInkFaint, maxLines = 1)
+            Text(
+                genre,
+                style = AppTypography.body.medium,
+                color = ArtworkInkFaint,
+                maxLines = 1,
+                modifier = Modifier.oneTakeArrival(arrival, row++),
+            )
         }
         // Only what this copy actually carries. A page that always claims Dolby says
         // nothing; here the badge is the answer to "is this the good file", which on a
@@ -569,13 +614,13 @@ internal fun TitleBlock(
         val dolbyAtmos = version?.hasDolbyAtmos == true
         if (dolbyVision || dolbyAtmos) {
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+            Row(Modifier.oneTakeArrival(arrival, row++), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                 if (dolbyVision) DolbyBadge("VISION", ArtworkInk)
                 if (dolbyAtmos) DolbyBadge("ATMOS", ArtworkInk)
             }
         }
         // Its 48dp touch target is its spacing: the chips sit centred in it, a gap either side.
-        if (statuses.isNotEmpty()) DetailStatusRow(statuses, onStatusClick)
+        if (statuses.isNotEmpty()) DetailStatusRow(statuses, onStatusClick, Modifier.oneTakeArrival(arrival, row))
     }
 }
 
@@ -618,9 +663,10 @@ internal fun detailStatuses(
 private fun DetailStatusRow(
     statuses: List<DetailStatus>,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     FlowRow(
-        Modifier
+        modifier
             .pressable(
                 focusShape = AppShapes.chip,
                 onClickLabel = "打开更多操作",

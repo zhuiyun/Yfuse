@@ -26,6 +26,7 @@ import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
+import io.ktor.client.statement.HttpResponse
 import io.ktor.serialization.ContentConvertException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -181,6 +182,13 @@ class TmdbRepository(
     /** Home fans out sixteen feed requests at once on a cold start; six in flight is plenty. */
     private val feedRequests = Semaphore(FEED_REQUEST_CONCURRENCY)
 
+    /**
+     * Scraping a share asks one question per title for as long as the share is large. Its own
+     * permits, so a long scan never queues the home page behind it, and few enough of them that
+     * TMDB's rate limit is not what ends the scan.
+     */
+    private val lookupRequests = Semaphore(LOOKUP_REQUEST_CONCURRENCY)
+
     private val people = TmdbPeopleService(client)
 
     /** One person's record with every credit, for 演员页's biography and 其他作品. */
@@ -323,6 +331,87 @@ class TmdbRepository(
             )
             Result.failure(TmdbRecommendationException(failure))
         }
+
+    /**
+     * TMDB's title search for one kind — `movie` or `tv` — as 文件来源 scraping asks it. [year]
+     * narrows a film to its release year and a show to its first season's; nothing about the
+     * query is logged, since it comes from someone's file names.
+     */
+    suspend fun searchTitles(
+        query: String,
+        mediaType: String,
+        year: Int? = null,
+        language: String = "zh-CN",
+    ): Result<List<TmdbSearchResult>> =
+        lookup("title_search_failed") {
+            val yearParameter = if (mediaType == "tv") "first_air_date_year" else "primary_release_year"
+            val response =
+                client.get("$TMDB_BASE/search/$mediaType") {
+                    parameter("query", query)
+                    parameter("language", language)
+                    parameter("include_adult", "false")
+                    year?.let { parameter(yearParameter, it) }
+                }
+            response.requireSuccess()
+            response.body<TmdbSearchPageDto>().results.mapNotNull { it.toSearchResult(mediaType) }
+        }
+
+    /**
+     * Every other name TMDB knows a title by — romanised, regional, English. A file called
+     * `Sousou no Frieren` or `The Wandering Earth` matches no Chinese title, and these are what
+     * confirm that TMDB's first hit for it is the right one.
+     */
+    suspend fun alternativeTitles(
+        mediaType: String,
+        id: Int,
+    ): Result<List<String>> =
+        lookup("alternative_titles_failed") {
+            val response = client.get("$TMDB_BASE/$mediaType/$id/alternative_titles")
+            response.requireSuccess()
+            response.body<TmdbAlternativeTitlesDto>().names()
+        }
+
+    /** One bounded, logged lookup; the scan it serves decides what a failure means. */
+    private suspend fun <T> lookup(
+        event: String,
+        request: suspend () -> T,
+    ): Result<T> {
+        var responseStatus: Int? = null
+        return try {
+            val value =
+                withTimeoutOrNull(FEED_TOTAL_BUDGET_MS) {
+                    lookupRequests.withPermit {
+                        try {
+                            request()
+                        } catch (e: TmdbHttpStatusException) {
+                            responseStatus = e.status
+                            throw TmdbRecommendationException(recommendationHttpFailure(e.status))
+                        }
+                    }
+                } ?: throw TmdbRecommendationException(TmdbRecommendationFailure.TIMEOUT)
+            Result.success(value)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            val failure = e.toRecommendationFailure()
+            AppLog.warning(
+                category = "tmdb",
+                event = event,
+                message = "TMDB title lookup failed",
+                attributes = e.recommendationFailureAttributes(failure, responseStatus),
+            )
+            Result.failure(TmdbRecommendationException(failure))
+        }
+    }
+
+    /** Mock and custom clients may not set expectSuccess; an error body is never an answer. */
+    private fun HttpResponse.requireSuccess() {
+        if (status.value !in 200..299) throw TmdbHttpStatusException(status.value)
+    }
+
+    private class TmdbHttpStatusException(
+        val status: Int,
+    ) : Exception("HTTP $status")
 
     suspend fun detail(
         item: TmdbItem,
@@ -1209,6 +1298,7 @@ class TmdbRepository(
          */
         const val CALENDAR_REQUEST_CONCURRENCY = 6
         const val FEED_REQUEST_CONCURRENCY = 6
+        const val LOOKUP_REQUEST_CONCURRENCY = 4
         const val FEED_TOTAL_BUDGET_MS = 20_000L
         const val FEATURED_ENRICHMENT_BUDGET_MS = 2_000L
 

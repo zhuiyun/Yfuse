@@ -88,6 +88,15 @@ internal data class RemotePairing(
             allowedOnce = allowedOnce - deviceId,
         )
 
+    /**
+     * The phones let in on the way here from [previous]: by the viewer, or at once as they came —
+     * trusted, or back while 允许一次 still held. These are the ones the relay is to tell.
+     */
+    fun admittedSince(previous: RemotePairing): List<String> =
+        phones
+            .filter { phone -> phone.allowed && previous.phones.none { it.deviceId == phone.deviceId && it.allowed } }
+            .map { it.deviceId }
+
     private fun lets(
         deviceId: String,
         trusted: (String) -> Boolean,

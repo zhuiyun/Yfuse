@@ -146,6 +146,20 @@ class ThemePreferencesTest {
     }
 
     @Test
+    fun the_bottom_bar_collapses_under_a_scroll_until_turned_off_and_remembers_it() {
+        val settings = MapSettings()
+        val original = ThemePreferences(settings)
+        assertTrue(original.navCollapseOnScroll.value)
+        original.setNavCollapseOnScroll(false)
+        val restored = ThemePreferences(settings)
+        assertFalse(restored.navCollapseOnScroll.value)
+        // Its own switch: turning it off leaves the navigation motion alone.
+        assertTrue(restored.pulseSweep.value)
+        restored.setNavCollapseOnScroll(true)
+        assertTrue(ThemePreferences(settings).navCollapseOnScroll.value)
+    }
+
+    @Test
     fun pulse_sweep_can_be_disabled_and_restored_independently_of_reduced_motion() {
         val settings = MapSettings()
         val original = ThemePreferences(settings)

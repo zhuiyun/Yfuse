@@ -332,6 +332,16 @@ internal fun HomeContentBody(
     // A library shelf opened out by its 全部. Held by kind, and its entries read live, so a card
     // marked watched from inside the page leaves it as it leaves the shelf.
     var expandedShelf by remember { mutableStateOf<HomeLibraryShelf?>(null) }
+    // Whether that page is in 编辑's 多选: its own 编辑, or the shelf's, which opens it that way.
+    var editingShelf by remember { mutableStateOf(false) }
+
+    fun openShelf(
+        shelf: HomeLibraryShelf,
+        editing: Boolean = false,
+    ) {
+        editingShelf = editing
+        expandedShelf = shelf
+    }
     val upNext = remember(state.nextUp, state.resume) { homeNextUpShelf(state.nextUp, state.resume) }
 
     fun shelfEntries(shelf: HomeLibraryShelf): List<HomeResumeEntry> =
@@ -573,7 +583,8 @@ internal fun HomeContentBody(
                                     motionItem(key = "continue-watching") {
                                         ContinueWatching(
                                             items = state.resume,
-                                            onSeeAll = { expandedShelf = HomeLibraryShelf.ContinueWatching },
+                                            onSeeAll = { openShelf(HomeLibraryShelf.ContinueWatching) },
+                                            onEdit = { openShelf(HomeLibraryShelf.ContinueWatching, editing = true) },
                                             onPlay = playEntry,
                                             onOpen = openEntry,
                                             liftMenu = { entry ->
@@ -596,7 +607,7 @@ internal fun HomeContentBody(
                                         ContinueWatching(
                                             title = HomeLibraryShelf.NextUp.title,
                                             items = upNext,
-                                            onSeeAll = { expandedShelf = HomeLibraryShelf.NextUp },
+                                            onSeeAll = { openShelf(HomeLibraryShelf.NextUp) },
                                             onPlay = playEntry,
                                             onOpen = openEntry,
                                             liftMenu = { entry ->
@@ -618,7 +629,7 @@ internal fun HomeContentBody(
                                         LibraryMediaShelf(
                                             title = "我的收藏",
                                             items = state.favorites,
-                                            onSeeAll = { expandedShelf = HomeLibraryShelf.Favorites },
+                                            onSeeAll = { openShelf(HomeLibraryShelf.Favorites) },
                                             onClick = openEntry,
                                             liftMenu = { entry ->
                                                 entry.homeLiftMenu(
@@ -777,6 +788,17 @@ internal fun HomeContentBody(
                     )
                 },
                 onDismiss = { expandedShelf = null },
+                editing = editingShelf,
+                onEditingChange = { editingShelf = it },
+                // 编辑 on 继续观看 (I-21): what the lift does to one card, done to every ticked one.
+                selectionActions =
+                    { selection: List<HomeResumeEntry> ->
+                        resumeSelectionActions(selection) { intent ->
+                            onIntent(intent)
+                            // The cards have gone, and the toast offering them back takes the bar's place.
+                            editingShelf = false
+                        }
+                    }.takeIf { shelf == HomeLibraryShelf.ContinueWatching },
             )
         }
 
@@ -1448,9 +1470,11 @@ private fun ContinueWatching(
     liftMenu: (HomeResumeEntry) -> LiftMenu,
     /** 下一集 is the same rail of stills; only its title, and what each card announces, differ. */
     title: String = "继续观看",
+    /** The header's 编辑: 全部, already selecting; null for a shelf 编辑 has nothing for. */
+    onEdit: (() -> Unit)? = null,
 ) {
     Column {
-        HomeShelfHeader(title = title, source = "Emby", onSeeAll = onSeeAll)
+        HomeShelfHeader(title = title, source = "Emby", onSeeAll = onSeeAll, onEdit = onEdit)
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(11.dp),
@@ -1631,6 +1655,8 @@ private fun HomeShelfHeader(
     source: String,
     onSeeAll: () -> Unit,
     onSeeAllLabel: String? = null,
+    /** 编辑 beside 全部, for a shelf whose cards can be taken off it several at a time. */
+    onEdit: (() -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
     val editShelves = LocalHomeShelfEdit.current
@@ -1667,21 +1693,37 @@ private fun HomeShelfHeader(
             Text(title, style = AppTypography.section.strong, color = palette.text)
             HomeSourceBadge(source)
         }
-        Row(
-            Modifier
-                .pressable(onClickLabel = onSeeAllLabel, onClick = onSeeAll)
-                .touchTarget()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("全部", style = AppTypography.caption.medium, color = palette.sub2)
-            Icon(
-                AppIcons.ChevronRight,
-                contentDescription = null,
-                tint = palette.hint,
-                modifier = Modifier.size(11.dp),
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // Taking cards off 继续观看 was one held card at a time, with nothing on screen to say
+            // it could be done at all. The word is 全部's size and ink, so the shelf reads the same.
+            if (onEdit != null) {
+                Text(
+                    "编辑",
+                    style = AppTypography.caption.medium,
+                    color = palette.sub2,
+                    modifier =
+                        Modifier
+                            .pressable(onClickLabel = "编辑$title", onClick = onEdit)
+                            .touchTarget()
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                )
+            }
+            Row(
+                Modifier
+                    .pressable(onClickLabel = onSeeAllLabel, onClick = onSeeAll)
+                    .touchTarget()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("全部", style = AppTypography.caption.medium, color = palette.sub2)
+                Icon(
+                    AppIcons.ChevronRight,
+                    contentDescription = null,
+                    tint = palette.hint,
+                    modifier = Modifier.size(11.dp),
+                )
+            }
         }
     }
 }
