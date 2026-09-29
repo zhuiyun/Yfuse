@@ -7,8 +7,10 @@ import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportFeature
 import java.io.IOException
+import java.util.concurrent.Callable
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
@@ -16,6 +18,21 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+
+/**
+ * How long a read may take before the test calls it stuck. None of these tests time anything: a read
+ * either finishes without the full block, which [TestRangeTransport] holds until the test lets it go,
+ * or it waits on that hold and never finishes. The bound only has to tell those apart, so it is
+ * generous enough that a loaded machine never decides the outcome.
+ */
+private const val READ_BOUND_SECONDS = 20L
+
+/** Longer than [READ_BOUND_SECONDS], so a read that waited for the held block fails on its own bound. */
+private const val FULL_BLOCK_HOLD_SECONDS = 60L
+
+/** Runs [read] on this worker and returns its result, failing if it has not finished in [READ_BOUND_SECONDS]. */
+private fun <T> ExecutorService.await(read: () -> T): T =
+    submit(Callable(read)).get(READ_BOUND_SECONDS, TimeUnit.SECONDS)
 
 class AndroidTransportStartupAndResumeTest {
     @Test
@@ -34,12 +51,9 @@ class AndroidTransportStartupAndResumeTest {
         try {
             for (position in listOf(0L, 128 * 1024L, 256 * 1024L)) {
                 val output = ByteArray(16)
-                // The full block stays held by the release latch until `finally`, so any read that waited
-                // for it never returns; the generous bound only absorbs scheduling under full-suite load.
-                assertEquals(
-                    16,
-                    worker.submit<Int> { source.readAt(position, output, 0, 16) }.get(10, TimeUnit.SECONDS),
-                )
+                // The full block stays held by the release latch until `finally`, so a read that waited
+                // for it never returns.
+                assertEquals(16, worker.await { source.readAt(position, output, 0, 16) })
                 assertContentEquals(media.copyOfRange(position.toInt(), position.toInt() + 16), output)
             }
         } finally {
@@ -65,10 +79,10 @@ class AndroidTransportStartupAndResumeTest {
             )
         val worker = Executors.newSingleThreadExecutor()
         try {
-            assertEquals(1, worker.submit<Int> { source.readAt(0L, ByteArray(1), 0, 1) }.get(2, TimeUnit.SECONDS))
+            assertEquals(1, worker.await { source.readAt(0L, ByteArray(1), 0, 1) })
             val position = blockBytes * 3L + 37L
             val output = ByteArray(16)
-            assertEquals(16, worker.submit<Int> { source.readAt(position, output, 0, 16) }.get(2, TimeUnit.SECONDS))
+            assertEquals(16, worker.await { source.readAt(position, output, 0, 16) })
             assertContentEquals(media.copyOfRange(position.toInt(), position.toInt() + 16), output)
             assertTrue(requests.any { it.range == YByteRange(position, position + 128 * 1024L - 1L) })
         } finally {
@@ -106,9 +120,9 @@ class AndroidTransportStartupAndResumeTest {
         try {
             val output = ByteArray(16)
             if (probeSize) {
-                assertEquals(media.size.toLong(), worker.submit<Long> { source.getSize() }.get(2, TimeUnit.SECONDS))
+                assertEquals(media.size.toLong(), worker.await { source.getSize() })
             } else {
-                assertEquals(16, worker.submit<Int> { source.readAt(position, output, 0, 16) }.get(2, TimeUnit.SECONDS))
+                assertEquals(16, worker.await { source.readAt(position, output, 0, 16) })
                 assertContentEquals(media.copyOfRange(position.toInt(), position.toInt() + 16), output)
             }
             val initial = requests.first { it.range?.startInclusive == position }
@@ -116,7 +130,7 @@ class AndroidTransportStartupAndResumeTest {
             // Allow the background full block now, then cross the end of the startup slice.
             releaseFullBlock.countDown()
             val next = position + 128 * 1024L
-            assertEquals(16, worker.submit<Int> { source.readAt(next, output, 0, 16) }.get(2, TimeUnit.SECONDS))
+            assertEquals(16, worker.await { source.readAt(next, output, 0, 16) })
             assertContentEquals(media.copyOfRange(next.toInt(), next.toInt() + 16), output)
         } finally {
             releaseFullBlock.countDown()
@@ -169,7 +183,7 @@ class AndroidTransportStartupAndResumeTest {
             if (changedTag) {
                 val failure =
                     assertFailsWith<java.util.concurrent.ExecutionException> {
-                        worker.submit<Long> { source.getSize() }.get(3, TimeUnit.SECONDS)
+                        worker.await { source.getSize() }
                     }
                 assertTrue(
                     failure.cause
@@ -178,9 +192,9 @@ class AndroidTransportStartupAndResumeTest {
                         .contains("representation changed"),
                 )
             } else {
-                assertEquals(64L, worker.submit<Long> { source.getSize() }.get(3, TimeUnit.SECONDS))
+                assertEquals(64L, worker.await { source.getSize() })
                 val output = ByteArray(64)
-                assertEquals(64, worker.submit<Int> { source.readAt(0L, output, 0, 64) }.get(2, TimeUnit.SECONDS))
+                assertEquals(64, worker.await { source.readAt(0L, output, 0, 64) })
                 assertContentEquals(media, output)
             }
             assertEquals(expectedStarts, requests.map { it.range?.startInclusive })
@@ -229,7 +243,9 @@ private class TestRangeTransport(
         offset: Int,
         length: Int,
     ): Int {
-        if (fullBlock && fullBlockRelease != null) check(fullBlockRelease.await(5, TimeUnit.SECONDS))
+        if (fullBlock && fullBlockRelease != null) {
+            check(fullBlockRelease.await(FULL_BLOCK_HOLD_SECONDS, TimeUnit.SECONDS))
+        }
         if (position == endExclusive) return -1
         if (attempt == 1 &&
             failFirstAfter != null &&
