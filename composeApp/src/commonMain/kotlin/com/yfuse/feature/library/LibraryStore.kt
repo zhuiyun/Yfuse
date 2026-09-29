@@ -1,5 +1,6 @@
 package com.yfuse.feature.library
 
+import androidx.compose.runtime.Immutable
 import com.arkivanov.mvikotlin.core.store.Reducer
 import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.core.store.StoreFactory
@@ -86,6 +87,8 @@ enum class LibraryContentSource {
     Live,
 }
 
+/** Immutable for the same reasons as [com.yfuse.feature.home.HomeState]. */
+@Immutable
 data class LibraryState(
     val servers: List<SavedServer> = emptyList(),
     val currentServer: SavedServer? = null,
