@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  One Android Lint policy for every module. It lives at the root because lint looks for lint.xml
+  from a module's own directory upwards: :phoneShared and :tvShared, which compile the product code
+  from composeApp/src and are analysed when -PyfuseLintSharedCode=true, find it without a lint
+  block of their own, and the two application shells name it explicitly.
+-->
 <lint>
     <!-- Dependency upgrades are reviewed by the dedicated supply-chain workflow. -->
     <issue id="AndroidGradlePluginVersion" severity="ignore" />

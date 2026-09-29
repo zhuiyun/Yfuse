@@ -123,19 +123,61 @@ jobs:
         run: ./gradlew :macrobenchmark:assembleBenchmark --no-daemon
       - name: Verify design-system usage
         run: ./gradlew :composeApp:verifyDesignSystemUsage --no-daemon
-      - name: Run Android lint
+      # Lint reads the product code, not only the two shells: -PyfuseLintSharedCode makes each
+      # shell's lintDebug analyse :phoneShared / :tvShared as well, against the committed
+      # config/lint/<shell>-baseline.xml, so only new findings fail. A missing baseline (the
+      # first run, or one deleted to reset the debt on purpose) is written by lint here instead
+      # of failing the step; it is published as the lint-baselines artifact and the job fails at
+      # its end until a person commits it. CI never commits a baseline itself.
+      - name: Run Android lint over the shells and the shared product code
         shell: bash
         run: |
-          set +e
-          ./gradlew :composeApp:lintDebug :tvApp:lintDebug --no-daemon --continue
-          lint_status=$?
-          set -e
-          if (( lint_status != 0 )); then
-            for report in composeApp/build/reports/lint-results-debug.txt tvApp/build/reports/lint-results-debug.txt; do
+          set -uo pipefail
+          lint_status=0
+          generated=()
+          mkdir -p config/lint
+          for shell in composeApp tvApp; do
+            baseline="config/lint/$shell-baseline.xml"
+            bootstrap=()
+            if [[ ! -f "$baseline" ]]; then bootstrap=(-Dlint.baselines.continue=true); fi
+            # One shell per daemon, each with room for lint: it runs inside the Gradle daemon and
+            # now reads about 240k lines per shell rather than one Application class.
+            ./gradlew ":$shell:lintDebug" -PyfuseLintSharedCode=true "${bootstrap[@]}" \
+              "-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8" --no-daemon
+            status=$?
+            if (( status != 0 )); then
+              lint_status=$status
+              report="$shell/build/reports/lint-results-debug.txt"
               if [[ -f "$report" ]]; then echo "===== $report ====="; cat "$report"; fi
-            done
-            exit "$lint_status"
+            fi
+            if (( ${#bootstrap[@]} > 0 )) && [[ -f "$baseline" ]]; then generated+=("$baseline"); fi
+          done
+          if (( ${#generated[@]} > 0 )); then
+            mkdir -p build/lint-baselines
+            cp "${generated[@]}" build/lint-baselines/
+            echo "LINT_BASELINES_GENERATED=${generated[*]}" >> "$GITHUB_ENV"
+            echo "::warning::Lint wrote ${generated[*]}; commit them from this run's lint-baselines artifact"
           fi
+          exit "$lint_status"
+      - name: Upload lint reports
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lint-reports-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            composeApp/build/reports/lint-results-debug.*
+            tvApp/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload generated lint baselines
+        if: always() && env.LINT_BASELINES_GENERATED != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lint-baselines-${{ github.sha }}-${{ github.run_attempt }}
+          path: build/lint-baselines/
+          if-no-files-found: error
+          retention-days: 30
       - name: Build R8 release package
         run: ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true --no-daemon
       - name: Verify release package and size budget
@@ -207,6 +249,14 @@ jobs:
           if-no-files-found: error
           retention-days: 3
           compression-level: 0
+      # Last, so every other gate has already reported: a lint run without a committed baseline
+      # accepted all existing findings and gated nothing.
+      - name: Fail until the generated lint baselines are committed
+        if: env.LINT_BASELINES_GENERATED != ''
+        shell: bash
+        run: |
+          echo "::error::No committed lint baseline for: ${LINT_BASELINES_GENERATED}. Download this run's lint-baselines-* artifact and commit its files under config/lint/."
+          exit 1
 
   supply-chain:
     name: Independent dependency vulnerability and SBOM gate
