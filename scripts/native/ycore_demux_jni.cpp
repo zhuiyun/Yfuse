@@ -2019,6 +2019,15 @@ jlong open_session(
         record_open_failure("avformat_open_input", error);
         return open_failure_status(error, session->remote_source, kOpenStageOpenInput);
     }
+    // The pinned DASH demuxer answers a raised interrupt with success and no packet, and hands its
+    // outer streams the nested demuxer's parser. libavformat gives that empty packet to the parser,
+    // gets no frame and reads again, so av_read_frame spins until the interrupt is withdrawn. A read
+    // interrupt is withdrawn only by the control queued behind the read on this same owner thread,
+    // and a cancellation never is. The nested demuxer has already parsed every packet, so the outer
+    // context drops its duplicate parser and the empty packet reaches native_read_packet instead.
+    if (session->format->iformat && std::strcmp(session->format->iformat->name, "dash") == 0) {
+        session->format->flags |= AVFMT_FLAG_NOPARSE;
+    }
     error = avformat_find_stream_info(session->format, nullptr);
     if (error < 0) {
         record_open_failure("avformat_find_stream_info", error);
@@ -2466,6 +2475,20 @@ jlongArray native_read_packet(JNIEnv* env, jclass, jlong handle, jobject target)
             return make_packet_result(
                 env,
                 failure_status(error, session->remote_source),
+                -1,
+                0,
+                kNoTimestamp,
+                kNoTimestamp,
+                kNoTimestamp,
+                0);
+        }
+        // An interrupted DASH read succeeds without a packet (see open_session). Report it as the
+        // interruption other demuxers return, never as a packet or as a reason to read again.
+        if (session->packet->size == 0 && interrupt_demux(session->cancellation.get())) {
+            av_packet_unref(session->packet);
+            return make_packet_result(
+                env,
+                failure_status(AVERROR_EXIT, session->remote_source),
                 -1,
                 0,
                 kNoTimestamp,
