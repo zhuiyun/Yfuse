@@ -55,7 +55,6 @@ import com.yfuse.core.designsystem.AmbientLight
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackOverlay
-import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.DragAxis
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -540,6 +539,7 @@ internal fun PlayerControls(
     }
 
     fun rewindMissedLine() {
+        tips?.markUsed(Tips.PLAYER_MISSED_LINE)
         // The key is dimmed for a guest already; the rewind would be the room's, not theirs.
         if (latestWatchLocked) {
             gestureHud = "房主控制播放"
@@ -1204,6 +1204,7 @@ internal fun PlayerControls(
                     ) {
                         // 双击步长, as 播放设置 last left it.
                         val moved = seekBurst.add(direction, latestGestures.doubleTapSeekMs, taps)
+                        tips?.markUsed(Tips.PLAYER_DOUBLE_TAP)
                         seekPulsePosition = at
                         seekPulseRevision++
                         latestOnSeek((latestPosition + direction * moved).coerceIn(0L, latestDuration))
@@ -1243,7 +1244,9 @@ internal fun PlayerControls(
                                     haptics.play(HapticSignal.Confirm)
                                 }
                                 // 点弹幕 with the chrome up only: with it away, a tap always brings it up first.
-                                !locked && visible && latestExtras.onPictureTap(offset) -> Unit
+                                !locked && visible && latestExtras.onPictureTap(offset) -> {
+                                    tips?.markUsed(Tips.PLAYER_DANMAKU_PICK)
+                                }
                                 visible -> visible = false
                                 else -> poke()
                             }
@@ -1364,7 +1367,9 @@ internal fun PlayerControls(
                                     !latestWatchLocked
                                 ) {
                                     latestOnSeek(seekTarget)
+                                    tips?.markUsed(Tips.PLAYER_SWIPE_SEEK)
                                 }
+                                if (axis == DragAxis.Vertical) tips?.markUsed(Tips.PLAYER_SIDE_DRAG)
                                 poke()
                             }
                         },
@@ -1467,6 +1472,7 @@ internal fun PlayerControls(
                         },
                         onFill = { fill ->
                             latestOnSetFill(fill)
+                            tips?.markUsed(Tips.PLAYER_PINCH_FILL)
                             gestureHud = pinchFillMessage(fill)
                             haptics.play(HapticSignal.Threshold)
                         },
@@ -2239,29 +2245,15 @@ internal fun PlayerControls(
                     )
                 }
 
-                // Taught once, while the controls are up over something that can play faster.
-                ContextualTip(
-                    id = Tips.PLAYER_CENTER_HOLD,
-                    text =
-                        if (gestures.sideHoldScans) {
-                            "长按画面中间可以临时加速，按住左右滑动换挡"
-                        } else {
-                            "长按画面可以临时加速，按住左右滑动换挡"
-                        },
-                    active =
-                        visible &&
-                            remoteChrome == null &&
-                            (gestures.centerHoldSpeedBoost || !gestures.sideHoldScans) &&
-                            state.durationMs > 0L &&
-                            !watch.connected &&
-                            castingDeviceId == null,
-                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 88.dp),
-                )
-                ContextualTip(
-                    id = Tips.FINE_SCRUB,
-                    text = "拖动进度条时手指上移可以精细定位",
-                    active = fineScrubTipArmed && visible && !watchLocked,
-                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 88.dp),
+                // Taught once each, while their gesture is in reach; see [PlayerGestureTips].
+                PlayerGestureTips(
+                    chromeUp = visible && remoteChrome == null && !locked,
+                    seekable = state.durationMs > 0L && !watchLocked,
+                    speedBoostable = !watch.connected && castingDeviceId == null,
+                    subtitlesAvailable = state.subtitleTracks.isNotEmpty(),
+                    danmakuShowing = danmaku.enabled && danmaku.count > 0,
+                    fineScrubArmed = fineScrubTipArmed,
+                    gestures = gestures,
                 )
 
                 // Where the title bar sits — it has stepped aside for the hold — and clear of the

@@ -215,6 +215,7 @@ internal fun EpisodeProgressManager(
                             val download = downloads[episode.id]
                             SwipeActionsRow(
                                 modifier = Modifier.dragSelectRow(sweep, episode.id),
+                                tipId = Tips.SWIPE_ROW_EPISODES,
                                 leading =
                                     rowActions?.let { actions ->
                                         ItemAction(
@@ -260,7 +261,7 @@ internal fun EpisodeProgressManager(
                     }
                     // Where the rows can be swiped, once there are rows; the first swipe retires it.
                     ContextualTip(
-                        id = Tips.SWIPE_ROW,
+                        id = Tips.SWIPE_ROW_EPISODES,
                         text = "右滑标记已看，左滑下载；长按一集后上下拖动可连续选择",
                         active = rowActions != null && episodes.isNotEmpty(),
                         modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),

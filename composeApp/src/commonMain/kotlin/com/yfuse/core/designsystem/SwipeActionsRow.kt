@@ -228,6 +228,8 @@ fun SwipeActionsRow(
     enabled: Boolean = true,
     /** The row's own outline, which the uncovered strip follows at its corners. */
     shape: Shape = AppShapes.card,
+    /** The 情境提示 teaching this list's swipe, retired once a swipe is used here; null for none. */
+    tipId: String? = null,
     content: @Composable (actions: Modifier) -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -244,6 +246,7 @@ fun SwipeActionsRow(
     val latestStill by rememberUpdatedState(still)
     val latestHaptics by rememberUpdatedState(haptics)
     val latestTips by rememberUpdatedState(tips)
+    val latestTipId by rememberUpdatedState(tipId)
     val openWidth = with(LocalDensity.current) { SwipeRowActionWidth.toPx() }
     val scope = rememberCoroutineScope()
     val state = remember { SwipeRowState() }
@@ -387,7 +390,7 @@ fun SwipeActionsRow(
                 }
                 state.motion?.cancel()
                 state.open = 0
-                latestTips?.markUsed(Tips.SWIPE_ROW)
+                latestTipId?.let { latestTips?.markUsed(it) }
                 var travel = swipeRowTravel(state.offset, width)
                 var past = swipeRowPastRunLine(state.offset, width)
                 var released = false

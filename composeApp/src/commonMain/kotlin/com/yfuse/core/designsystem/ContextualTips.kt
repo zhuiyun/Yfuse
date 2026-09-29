@@ -30,9 +30,13 @@ import com.yfuse.core.designsystem.ThemeText as Text
 /**
  * 情境提示 — a new gesture explained once, where it can first be used, and never again.
  *
- * Modelled on Apple's TipKit: a tip shows only where its gesture applies, retires the moment it
- * has been shown or the gesture has been used — whichever comes first — and no more than one
- * tip appears on any day, so a first run is not a tour.
+ * Modelled on Apple's TipKit: a tip shows only where its gesture applies, retires once it has been
+ * on screen for [TIP_SEEN_MS] (or was answered with 知道了) or the gesture has been used — whichever
+ * comes first — and no more than one tip is seen on any day, so a first run is not a tour. A tip that
+ * flashed past because the controls under it went away has not been seen, and may come back.
+ *
+ * One id per place: a swipe on a download does something else than a swipe on 观看记录, and seeing
+ * one of those tips used to retire the other two unread.
  */
 object Tips {
     /** 浮起菜单 on content posters. */
@@ -44,8 +48,35 @@ object Tips {
     /** Scrubbing finer by moving up off the progress bar. */
     const val FINE_SCRUB = "tip.player.fineScrub"
 
-    /** Swiping a row for its actions. */
-    const val SWIPE_ROW = "tip.swipeRow"
+    /** 双击左右 to seek, and taps after it adding up. */
+    const val PLAYER_DOUBLE_TAP = "tip.player.doubleTap"
+
+    /** 横滑 across the picture to scrub. */
+    const val PLAYER_SWIPE_SEEK = "tip.player.swipeSeek"
+
+    /** 竖滑 on either half for brightness and volume. */
+    const val PLAYER_SIDE_DRAG = "tip.player.sideDrag"
+
+    /** 没听清: holding ⟲10. */
+    const val PLAYER_MISSED_LINE = "tip.player.missedLine"
+
+    /** 点弹幕 for its menu. */
+    const val PLAYER_DANMAKU_PICK = "tip.player.danmakuPick"
+
+    /** 捏合 to fill the screen. */
+    const val PLAYER_PINCH_FILL = "tip.player.pinchFill"
+
+    /** Holding 弹幕 for its settings; a tap only switches it. */
+    const val PLAYER_DANMAKU_KEY = "tip.player.danmakuKey"
+
+    /** Swiping a download row for its actions. */
+    const val SWIPE_ROW_DOWNLOADS = "tip.swipeRow.downloads"
+
+    /** Swiping a 观看记录 row for its actions. */
+    const val SWIPE_ROW_HISTORY = "tip.swipeRow.history"
+
+    /** Swiping an episode in 管理进度 for its actions. */
+    const val SWIPE_ROW_EPISODES = "tip.swipeRow.episodes"
 
     /** Pinching a grid to change its density. */
     const val PINCH_GRID = "tip.pinchGrid"
@@ -77,22 +108,27 @@ class TipsState(
         private set
 
     /**
-     * Whether [id] may appear now, taking the day's one slot if so. A tip already showing keeps
-     * its slot; nothing else may take one while it is up.
+     * Whether [id] may appear now. A tip already showing keeps its place; nothing else may appear
+     * while it is up, nor on a day that has already had its tip seen.
      */
     fun claim(id: String): Boolean {
         if (showing == id) return true
         if (showing != null || store.isRetired(id)) return false
-        val day = today()
-        if (store.lastShownDay() == day) return false
+        if (store.lastShownDay() == today()) return false
         showing = id
-        // Shown once is shown enough: it retires now, not when it is dismissed.
-        store.retire(id)
-        store.setLastShownDay(day)
         return true
     }
 
-    /** The tip was read, closed, or timed out. */
+    /**
+     * [id] has been on screen long enough to read, or was answered: it retires and takes the day's
+     * one slot. Appearing is not enough — a tip under controls that hid a moment later was not read.
+     */
+    fun markSeen(id: String) {
+        if (!store.isRetired(id)) store.retire(id)
+        store.setLastShownDay(today())
+    }
+
+    /** The tip was closed, or timed out. */
     fun dismiss(id: String) {
         if (showing == id) showing = null
     }
@@ -109,6 +145,9 @@ val LocalTips = staticCompositionLocalOf<TipsState?> { null }
 
 /** How long a tip stays before it retires on its own, before any accessibility adjustment. */
 private const val TIP_MS = 6_000L
+
+/** How long a tip has to be on screen to count as seen. */
+internal const val TIP_SEEN_MS = 2_000L
 
 /**
  * A tip bubble for [id], shown once [active] says its gesture is in reach — the posters it is
@@ -128,6 +167,13 @@ fun ContextualTip(
     val latestActive by rememberUpdatedState(active)
     LaunchedEffect(active) {
         if (active) tips.claim(id)
+    }
+    // Seen once it has stayed up long enough to read, not the moment it appears.
+    val onScreen = shown && active
+    LaunchedEffect(onScreen) {
+        if (!onScreen) return@LaunchedEffect
+        delay(TIP_SEEN_MS)
+        tips.markSeen(id)
     }
     LaunchedEffect(shown, accessibility) {
         if (!shown) return@LaunchedEffect
@@ -183,8 +229,12 @@ fun ContextualTip(
                 color = LocalAccentColors.current.accent,
                 modifier =
                     Modifier
-                        .pressable(onClick = { tips.dismiss(id) })
-                        .touchTarget()
+                        .pressable(
+                            onClick = {
+                                tips.markSeen(id)
+                                tips.dismiss(id)
+                            },
+                        ).touchTarget()
                         .padding(horizontal = 10.dp, vertical = 8.dp),
             )
         }

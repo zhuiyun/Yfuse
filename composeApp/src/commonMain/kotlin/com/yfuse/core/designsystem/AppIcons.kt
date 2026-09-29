@@ -662,6 +662,16 @@ object AppIcons {
         }.andDots(12f to 5.8f)
             .build()
 
+    /** 手势与快捷键 — a touch and the two rings it sends out. */
+    val Gesture =
+        strokeVector("gesture") {
+            moveTo(7.5f, 15f)
+            arcToRelative(4.5f, 4.5f, 0f, isMoreThanHalf = false, isPositiveArc = true, 9f, 0f)
+            moveTo(4f, 15f)
+            arcToRelative(8f, 8f, 0f, isMoreThanHalf = false, isPositiveArc = true, 16f, 0f)
+        }.andDots(12f to 15f)
+            .build()
+
     // ------------------------------------------------- state glyphs (收藏 / 稍后 / 评分)
 
     /** 收藏 — outline; [HeartFilled] is the same contour filled. */

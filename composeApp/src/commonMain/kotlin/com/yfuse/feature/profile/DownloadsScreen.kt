@@ -689,6 +689,7 @@ internal fun DownloadsScreen(
                     // Selecting is its own mode, and a row being ticked does not also swipe.
                     SwipeActionsRow(
                         modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                        tipId = Tips.SWIPE_ROW_DOWNLOADS,
                         leading =
                             downloadSwipe(item.status)?.let { swipe ->
                                 ItemAction(
@@ -733,7 +734,7 @@ internal fun DownloadsScreen(
 
         // Once there are rows to swipe; the first swipe retires it.
         ContextualTip(
-            id = Tips.SWIPE_ROW,
+            id = Tips.SWIPE_ROW_DOWNLOADS,
             text = "左滑可删除下载，右滑可暂停或继续",
             active = shown.isNotEmpty() && !selecting,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = TabBarInset),

@@ -455,6 +455,7 @@ private fun RefinedBottomBarContent(
     playKeyModifier: Modifier = Modifier,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val tips = LocalTips.current
     // Where the finger left the thumb. Read from derived state only, never from composition:
     // under a drag it changes sixty times a second.
     val scrubbed = remember { mutableStateOf<Float?>(null) }
@@ -759,7 +760,10 @@ private fun RefinedBottomBarContent(
                     iconSize = 12.dp,
                     active = danmakuEnabled,
                     onClick = onToggleDanmaku,
-                    onLongClick = onOpenDanmaku,
+                    onLongClick = {
+                        tips?.markUsed(Tips.PLAYER_DANMAKU_KEY)
+                        onOpenDanmaku()
+                    },
                     onLongClickLabel = "弹幕设置",
                 )
                 RefinedSpeedControl(speed, onOpenSpeed)
