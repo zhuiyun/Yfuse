@@ -6,7 +6,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,7 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -40,9 +38,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,7 +46,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -69,7 +64,6 @@ import com.yfuse.core.designsystem.ArrivalMotion
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
-import com.yfuse.core.designsystem.CarouselAutoAdvance
 import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.Dimens
@@ -77,18 +71,14 @@ import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.HeroActionDock
-import com.yfuse.core.designsystem.HeroPageFade
-import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftMenu
-import com.yfuse.core.designsystem.LightEffect
-import com.yfuse.core.designsystem.LivingPosterAmbient
 import com.yfuse.core.designsystem.LivingPosterDefaults
+import com.yfuse.core.designsystem.LivingPosterHeroCarousel
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
-import com.yfuse.core.designsystem.LocalLiftMenu
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSharedElementKey
@@ -111,8 +101,6 @@ import com.yfuse.core.designsystem.ZoomBackAnchor
 import com.yfuse.core.designsystem.arrivalSweep
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
-import com.yfuse.core.designsystem.carouselPageVisual
-import com.yfuse.core.designsystem.carouselTouchPause
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
@@ -121,13 +109,10 @@ import com.yfuse.core.designsystem.heroScrollCollapse
 import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.liftedCardOpen
-import com.yfuse.core.designsystem.lightFeedback
 import com.yfuse.core.designsystem.liveStatus
+import com.yfuse.core.designsystem.livingPosterArtwork
 import com.yfuse.core.designsystem.livingPosterFrame
 import com.yfuse.core.designsystem.livingPosterHeroHeight
-import com.yfuse.core.designsystem.loopingCarouselItemIndex
-import com.yfuse.core.designsystem.loopingCarouselSemantics
-import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.motionItemsIndexed
@@ -139,8 +124,7 @@ import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
 import com.yfuse.core.designsystem.rememberCarouselPageColor
-import com.yfuse.core.designsystem.rememberLightFeedback
-import com.yfuse.core.designsystem.rememberLoopingCarouselState
+import com.yfuse.core.designsystem.rememberLivingPosterHeroState
 import com.yfuse.core.designsystem.rememberRefreshReveal
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
@@ -158,7 +142,6 @@ import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.currentHourOfDay
 import com.yfuse.core.util.rememberPosterCardSharer
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -328,7 +311,6 @@ internal fun HomeContentBody(
     var expandedSource by remember { mutableStateOf<ZoomBackAnchor?>(null) }
 
     fun shelfAnchor(title: String): ZoomBackAnchor = shelfAnchors.getOrPut(title) { ZoomBackAnchor() }
-    val liftMenu = LocalLiftMenu.current
     // A library shelf opened out by its 全部. Held by kind, and its entries read live, so a card
     // marked watched from inside the page leaves it as it leaves the shelf.
     var expandedShelf by remember { mutableStateOf<HomeLibraryShelf?>(null) }
@@ -484,7 +466,7 @@ internal fun HomeContentBody(
                                     height = heroHeight,
                                     showSidePreview = showSidePreview,
                                     visible = heroCarouselVisible,
-                                    held = liftMenu?.isOpen == true || expandedRow != null || expandedShelf != null,
+                                    held = expandedRow != null || expandedShelf != null,
                                     refreshing = state.refreshing,
                                     onRefresh = refreshPage,
                                     onOpenProfile = onOpenProfile,
@@ -894,7 +876,7 @@ private fun HomeHeroCarousel(
     height: androidx.compose.ui.unit.Dp,
     showSidePreview: Boolean,
     visible: Boolean,
-    /** Something is open over the reel — a menu, 查看全部 — so it must not turn under it. */
+    /** Something is open over the reel — 查看全部, a shelf's 全部 — so it must not turn under it. */
     held: Boolean,
     refreshing: Boolean,
     onRefresh: () -> Unit,
@@ -906,205 +888,72 @@ private fun HomeHeroCarousel(
     onAccent: (Color) -> Unit,
     onPageColor: (Color) -> Unit,
 ) {
-    val pagerState = rememberLoopingCarouselState(items.map { it.id.toString() })
-    val carouselTouched = remember { mutableStateOf(false) }
-    val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
-    val carouselScope = rememberCoroutineScope()
-    // `enabled` gates whether [rememberLightFeedback] even builds its state (see its own
-    // `available` check), not just whether it may emit — so passing the carousel's `visible`
-    // there rebuilt the state from scratch on every scroll start/stop. It now stays alive
-    // permanently and `visible` only gates the `.emit(...)` calls below, the same way
-    // [rememberLightFeedback] itself already treats route visibility as a post-build gate.
-    val carouselLight = rememberLightFeedback(enhancedOnly = true)
-    LaunchedEffect(carouselDragging, carouselLight, visible) {
-        if (carouselDragging && visible) carouselLight.emit(LightEffect.Dust)
-    }
-    // Every level gets the settle: a page that has just left sweeps a gathering light along
-    // the side it left from. Dust on the edges stays an 增强 detail.
-    val carouselSweep = rememberLightFeedback()
-    LaunchedEffect(pagerState, carouselSweep, visible) {
-        var previous = pagerState.settledPage
-        snapshotFlow { pagerState.settledPage }.collect { page ->
-            // Tracking keeps running while hidden so a page change during that time is not
-            // mistaken for one later, once visible again; only the sweep itself is gated.
-            if (page != previous && visible) {
-                carouselSweep.emit(LightEffect.Converge, fractionX = if (page > previous) 0.04f else 0.96f)
-            }
-            previous = page
-        }
-    }
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    // Touching the reel restarts its clock rather than stopping it for good. The pause
-    // control this replaces could only be undone by finding it again, so a single swipe
-    // left the hero permanently still with a play glyph as the only clue why.
-    var interaction by remember { mutableStateOf(0) }
-    val ambientItem = items.getOrNull(loopingCarouselItemIndex(pagerState.settledPage, items.size))
+    val hero = rememberLivingPosterHeroState(items.map { it.id.toString() })
+    val ambientItem = items.getOrNull(hero.settledIndex(items.size))
     val ambientUrls = remember(ambientItem) { tmdbHeroArtworkUrls(ambientItem) }
-
-    CarouselAutoAdvance(
-        pagerState = pagerState,
-        pageCount = items.size,
-        held = held || !visible || carouselDragging || carouselTouched.value,
-        restartKey = interaction,
-    )
 
     BoxWithConstraints(
         Modifier
             .fillMaxWidth()
-            .height(height)
-            .carouselTouchPause(carouselTouched)
-            .lightFeedback(carouselLight)
-            .lightFeedback(carouselSweep),
+            .height(height),
     ) {
-        val indicatorStart =
-            if (showSidePreview) LivingPosterDefaults.LEADING_INSET else 0.dp
-        val indicatorEnd =
-            if (showSidePreview) LivingPosterDefaults.TRAILING_PEEK else 0.dp
-        val artworkWidth =
-            if (showSidePreview) {
-                (maxWidth - LivingPosterDefaults.LEADING_INSET - LivingPosterDefaults.TRAILING_PEEK)
-                    .coerceAtLeast(1.dp)
-            } else {
-                maxWidth
-            }
-        val artworkAspectRatio = artworkWidth.value / maxHeight.value.coerceAtLeast(1f)
-        val artworkFadeFraction =
-            (HeroPageFade.value / maxHeight.value.coerceAtLeast(1f)).coerceIn(0.02f, 1f)
-        // Full-bleed phone artwork must dissolve straight into the real page. Drawing a
-        // second, blurred copy behind it made that copy show through the fade as a saturated
-        // horizontal band and also decoded the first image twice. Wide layouts still need
-        // the ambient layer behind their inset poster, so it shares the same dissolve.
-        if (showSidePreview) {
-            LivingPosterAmbient(
-                urls = ambientUrls,
-                modifier = Modifier.fillMaxSize().fadeIntoPage(),
-            )
-        }
-        if (items.isEmpty()) {
-            HeroSlide(
-                item = null,
-                onPlay = {},
-                onDetails = {},
-                onFavorite = {},
-                artworkAspectRatio = artworkAspectRatio,
-                artworkFadeFraction = artworkFadeFraction,
-                modifier =
-                    Modifier
-                        .fillMaxSize(),
-            )
-        } else {
-            HorizontalPager(
-                state = pagerState,
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .loopingCarouselSemantics(pagerState.currentPage, items.size),
-                contentPadding =
-                    if (showSidePreview) {
-                        PaddingValues(
-                            start = LivingPosterDefaults.LEADING_INSET,
-                            end = LivingPosterDefaults.TRAILING_PEEK,
-                        )
-                    } else {
-                        PaddingValues(0.dp)
-                    },
-                pageSpacing = if (showSidePreview) LivingPosterDefaults.PAGE_SPACING else 0.dp,
-                beyondViewportPageCount = 1,
-                key = { page -> page },
-            ) { page ->
-                val item = items[loopingCarouselItemIndex(page, items.size)]
-                val settled = page == pagerState.settledPage
+        val artwork = livingPosterArtwork(maxWidth, maxHeight, showSidePreview)
+        LivingPosterHeroCarousel(
+            state = hero,
+            pageCount = items.size,
+            showSidePreview = showSidePreview,
+            // A 浮起菜单 holds it too, from inside the reel.
+            held = held || !visible,
+            ambientUrls = ambientUrls,
+            modifier = Modifier.fillMaxSize(),
+            lit = visible,
+            empty = {
                 HeroSlide(
-                    item = item,
-                    onPlay = { onPlay(item) },
-                    onDetails = { onDetails(item) },
-                    onFavorite = { onFavorite(item) },
-                    settled = settled,
-                    pageOffset = { (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction },
-                    onAccent = onAccent,
-                    onPageColor = onPageColor,
-                    artworkAspectRatio = artworkAspectRatio,
-                    artworkFadeFraction = artworkFadeFraction,
-                    framed = showSidePreview,
+                    item = null,
+                    onPlay = {},
+                    onDetails = {},
+                    onFavorite = {},
+                    artworkAspectRatio = artwork.aspectRatio,
+                    artworkFadeFraction = artwork.fadeFraction,
                     modifier =
                         Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                val visual =
-                                    carouselPageVisual(
-                                        signedPageOffset =
-                                            (pagerState.currentPage - page) +
-                                                pagerState.currentPageOffsetFraction,
-                                        reduceMotion = reduceMotion,
-                                        preservePreviewEdge = showSidePreview,
-                                    )
-                                scaleX = visual.scale
-                                scaleY = visual.scale
-                                alpha = visual.alpha
-                                translationX = size.width * visual.parallaxFraction
-                            },
+                            .fillMaxSize(),
                 )
-            }
-        }
-
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(HomeStatusBarScrimHeight)
-                .align(Alignment.TopCenter)
-                .background(HomeStatusBarScrim),
-        )
-
-        HeroHeader(
-            userName = userName,
-            refreshing = refreshing,
-            onRefresh = onRefresh,
-            onOpenProfile = onOpenProfile,
-            onOpenCalendar = onOpenCalendar,
-            modifier = Modifier.align(Alignment.TopStart),
-        )
-
-        if (items.size > 1) {
-            Box(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .padding(
-                        start = indicatorStart,
-                        end = indicatorEnd,
-                        bottom = LivingPosterDefaults.INDICATOR_BOTTOM,
-                    ),
-            ) {
-                HeroPageIndicator(
-                    pageCount = items.size,
-                    selectedPage = loopingCarouselItemIndex(pagerState.currentPage, items.size),
-                    pageOffsetProvider = { pagerState.currentPageOffsetFraction },
-                    onPageSelected = { targetIndex ->
-                        if (targetIndex != loopingCarouselItemIndex(pagerState.currentPage, items.size)) {
-                            carouselLight.emit(LightEffect.Dust)
-                        }
-                        interaction++
-                        carouselScope.launch {
-                            val targetPage =
-                                loopingCarouselTargetPage(
-                                    currentPage = pagerState.currentPage,
-                                    targetIndex = targetIndex,
-                                    itemCount = items.size,
-                                )
-                            if (reduceMotion) {
-                                pagerState.scrollToPage(targetPage)
-                            } else {
-                                pagerState.animateScrollToPage(
-                                    page = targetPage,
-                                    animationSpec = tween(Motion.EMPHASIZED, easing = Motion.Curve),
-                                )
-                            }
-                        }
-                    },
-                    onArtwork = false,
-                    modifier = Modifier.align(Alignment.Center),
+            },
+            overlay = {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(HomeStatusBarScrimHeight)
+                        .align(Alignment.TopCenter)
+                        .background(HomeStatusBarScrim),
                 )
-            }
+
+                HeroHeader(
+                    userName = userName,
+                    refreshing = refreshing,
+                    onRefresh = onRefresh,
+                    onOpenProfile = onOpenProfile,
+                    onOpenCalendar = onOpenCalendar,
+                    modifier = Modifier.align(Alignment.TopStart),
+                )
+            },
+        ) { page ->
+            val item = items[page.index]
+            HeroSlide(
+                item = item,
+                onPlay = { onPlay(item) },
+                onDetails = { onDetails(item) },
+                onFavorite = { onFavorite(item) },
+                settled = page.settled,
+                pageOffset = page.offset,
+                onAccent = onAccent,
+                onPageColor = onPageColor,
+                artworkAspectRatio = artwork.aspectRatio,
+                artworkFadeFraction = artwork.fadeFraction,
+                framed = showSidePreview,
+                modifier = page.modifier,
+            )
         }
     }
 }
