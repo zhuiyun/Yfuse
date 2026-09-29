@@ -12,7 +12,6 @@ import androidx.test.filters.LargeTest
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -68,7 +67,7 @@ private const val FILMSTRIP_LIFT_DP = 130f
 
 internal fun MacrobenchmarkScope.enterPlayer() {
     detailPlayKey().click()
-    assertTrue("播放器 did not open", device.wait(Until.hasObject(PLAYER_SURFACE), SERVER_CONTENT_TIMEOUT_MS))
+    assertOnScreen("播放器 did not open", device.wait(Until.hasObject(PLAYER_SURFACE), SERVER_CONTENT_TIMEOUT_MS))
 }
 
 /**
@@ -79,8 +78,8 @@ internal fun MacrobenchmarkScope.playerEnterExitJourney() {
     repeat(4) {
         enterPlayer()
         device.pressBack()
-        assertTrue("播放器 did not close", device.wait(Until.gone(PLAYER_SURFACE), SERVER_CONTENT_TIMEOUT_MS))
-        assertTrue("详情 did not come back", device.wait(Until.hasObject(DETAIL_PLAY), SERVER_CONTENT_TIMEOUT_MS))
+        assertOnScreen("播放器 did not close", device.wait(Until.gone(PLAYER_SURFACE), SERVER_CONTENT_TIMEOUT_MS))
+        assertOnScreen("详情 did not come back", device.wait(Until.hasObject(DETAIL_PLAY), SERVER_CONTENT_TIMEOUT_MS))
     }
 }
 
@@ -113,6 +112,6 @@ internal fun MacrobenchmarkScope.playerScrubJourney() {
 /** The seek bar, bringing the controls back with a tap on the picture when they have hidden. */
 private fun MacrobenchmarkScope.seekBar(): UiObject2 {
     device.findObject(SEEK_BAR)?.let { return it }
-    (device.findObject(PLAYER_SURFACE) ?: error("The player is not on screen")).click()
-    return device.wait(Until.findObject(SEEK_BAR), SERVER_CONTENT_TIMEOUT_MS) ?: error("The seek bar never showed")
+    (device.findObject(PLAYER_SURFACE) ?: failOnScreen("The player is not on screen")).click()
+    return awaitObject(SEEK_BAR, SERVER_CONTENT_TIMEOUT_MS, "The seek bar never showed")
 }

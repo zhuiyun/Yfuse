@@ -7,7 +7,6 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
-import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import java.util.regex.Pattern
 import kotlin.math.abs
@@ -37,13 +36,13 @@ private const val GRID_MIN_POSTERS = 6
 /** 库 → the first library's 全部, and waits until its grid holds a screenful of posters. */
 internal fun MacrobenchmarkScope.openLibraryGrid() {
     startProductionApp()
-    device.wait(Until.findObject(dockTab("库")), SERVER_CONTENT_TIMEOUT_MS)?.click() ?: error("Library tab missing")
+    awaitObject(dockTab("库"), SERVER_CONTENT_TIMEOUT_MS, "Library tab missing").click()
     // Without a server 库 has no 全部 at all; with one, wait for the load before looking past the lists.
     assumeTrue(SIGNED_IN, device.wait(Until.hasObject(By.text("全部")), SERVER_CONTENT_TIMEOUT_MS))
     val seeAll = libraryEntry()
     assumeTrue("Needs a library besides 我的收藏 and 稍后观看", seeAll != null)
     checkNotNull(seeAll).click()
-    assertTrue("The library grid did not open", device.wait(Until.hasObject(GRID_COUNT), SERVER_CONTENT_TIMEOUT_MS))
+    assertOnScreen("The library grid did not open", device.wait(Until.hasObject(GRID_COUNT), SERVER_CONTENT_TIMEOUT_MS))
     val filled = pollFor(SERVER_CONTENT_TIMEOUT_MS) { libraryGrid()?.takeIf { it.childCount >= GRID_MIN_POSTERS } }
     assumeTrue("Needs a library with at least $GRID_MIN_POSTERS posters", filled != null)
 }
@@ -81,15 +80,15 @@ internal fun MacrobenchmarkScope.libraryGrid(): UiObject2? =
 
 /** Opens 详情 of the grid's first poster and returns once its play key is on screen. */
 internal fun MacrobenchmarkScope.openFirstDetail() {
-    val grid = libraryGrid() ?: error("Library grid missing")
-    val poster = grid.children.firstOrNull { it.isClickable } ?: error("Library grid has no poster to open")
+    val grid = libraryGrid() ?: failOnScreen("Library grid missing")
+    val poster = grid.children.firstOrNull { it.isClickable } ?: failOnScreen("Library grid has no poster to open")
     poster.click()
-    assertTrue("详情 did not open", device.wait(Until.hasObject(DETAIL_PLAY), SERVER_CONTENT_TIMEOUT_MS))
+    assertOnScreen("详情 did not open", device.wait(Until.hasObject(DETAIL_PLAY), SERVER_CONTENT_TIMEOUT_MS))
 }
 
 /** The play key in the page, below the top bar's own 播放 chip that fades in on scroll. */
 internal fun MacrobenchmarkScope.detailPlayKey(): UiObject2 =
-    device.findObjects(DETAIL_PLAY).maxByOrNull { it.visibleBounds.top } ?: error("详情 play key missing")
+    device.findObjects(DETAIL_PLAY).maxByOrNull { it.visibleBounds.top } ?: failOnScreen("详情 play key missing")
 
 private fun sameRow(
     a: Rect,

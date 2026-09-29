@@ -8,7 +8,6 @@ import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.uiautomator.Until
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -45,8 +44,11 @@ internal fun MacrobenchmarkScope.detailPullBackJourney() {
         openFirstDetail()
         device.waitForIdle()
         device.swipe(x, (device.displayHeight * 0.3f).toInt(), x, (device.displayHeight * 0.8f).toInt(), 50)
-        assertTrue("跟手返回 did not leave 详情", device.wait(Until.gone(DETAIL_PLAY), SERVER_CONTENT_TIMEOUT_MS))
-        assertTrue("跟手返回 did not land on the grid", device.wait(Until.hasObject(GRID_COUNT), SERVER_CONTENT_TIMEOUT_MS))
+        assertOnScreen("跟手返回 did not leave 详情", device.wait(Until.gone(DETAIL_PLAY), SERVER_CONTENT_TIMEOUT_MS))
+        assertOnScreen(
+            "跟手返回 did not land on the grid",
+            device.wait(Until.hasObject(GRID_COUNT), SERVER_CONTENT_TIMEOUT_MS),
+        )
         device.waitForIdle()
     }
 }
