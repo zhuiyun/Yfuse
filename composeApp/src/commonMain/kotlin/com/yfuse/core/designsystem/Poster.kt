@@ -541,3 +541,21 @@ internal fun mediaRatingLabel(rating: Double?): String? {
 
 /** How much denser the placeholder is at the foot of a tile than at its head. */
 private const val PLACEHOLDER_FALL = 1.35f
+
+/**
+ * What letting go on a lifted card does, for a card whose tap does something else — a 继续观看 card
+ * resumes: open the title's page, noting the artwork as the place 跟手返回 goes back into, without
+ * the shared-element morph. The artwork is hidden under the lifted card, so a morph would fly a
+ * second copy of it out of the shelf while the card fades.
+ */
+@Composable
+internal fun liftedCardOpen(
+    key: MediaSharedElementKey?,
+    onOpen: () -> Unit,
+): () -> Unit {
+    val controller = LocalSharedMediaTransitionController.current
+    return {
+        if (key != null) controller?.noteOrigin(key)
+        onOpen()
+    }
+}

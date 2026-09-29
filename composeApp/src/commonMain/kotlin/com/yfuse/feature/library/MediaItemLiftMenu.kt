@@ -71,6 +71,13 @@ internal fun liftClock(totalSeconds: Long): String {
     return if (hours > 0L) "$hours:$tail" else "$minutes:${seconds.toString().padStart(2, '0')}"
 }
 
+/**
+ * 查看详情, on a card whose tap resumes playback instead (继续观看, 下一集, 播放记录): the lift is
+ * where the title's page is reached from there, as releasing on the lifted card also does.
+ */
+internal fun detailsLiftAction(onOpen: () -> Unit): ItemAction =
+    ItemAction(label = "查看详情", icon = AppIcons.Info, leavesPage = true, onSelect = onOpen)
+
 /** 收藏 / 取消收藏, named for what it will do rather than what the title is now. */
 internal fun favoriteLiftAction(
     favorite: Boolean,
