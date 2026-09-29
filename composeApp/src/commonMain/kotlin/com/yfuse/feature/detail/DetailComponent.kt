@@ -7,7 +7,9 @@ import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.russhwolf.settings.Settings
 import com.yfuse.app.AppDependencies
+import com.yfuse.core.cast.CastManager
 import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.FollowedSeries
@@ -41,6 +43,7 @@ import com.yfuse.feature.player.PlayerStoreFactory
 import com.yfuse.feature.player.PreparedPlaybackGate
 import com.yfuse.feature.player.PreparedPlaybackRegistry
 import com.yfuse.feature.player.PreparedPlayerStore
+import com.yfuse.feature.player.RecentCastTargets
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -97,6 +100,22 @@ class DetailComponent(
     private val playbackSync =
         runCatching { GlobalContext.get().get<PlaybackSyncManager>() }.getOrNull()
     private var explicitFromStartPending = false
+
+    /** 投屏 from this page's top bar: where the next [DetailLabel.Play] goes instead of the player. */
+    private var pendingCast: DetailCastRequest? = null
+
+    /**
+     * 投屏 from this page. The cast manager and the remembered devices are the player's, fetched only
+     * once the page shows its 投屏 key — the television's detail page never does.
+     */
+    internal val castLauncher =
+        DetailCastLauncher(
+            scope = componentScope(lifecycle),
+            castManager = { runCatching { GlobalContext.get().get<CastManager>() }.getOrNull() },
+            recentTargets = { runCatching { RecentCastTargets(GlobalContext.get().get<Settings>()) }.getOrNull() },
+            queue = ::castQueue,
+            report = { message -> store.accept(DetailIntent.ShowMessage(message)) },
+        )
 
     /** 标记已看 and 收藏 on a 相关推荐 poster, from its 浮起菜单; the list is not reloaded for them. */
     val relatedFlags =
@@ -157,6 +176,9 @@ class DetailComponent(
     val store: Store<DetailIntent, DetailState, DetailLabel> =
         object : Store<DetailIntent, DetailState, DetailLabel> by delegateStore {
             override fun accept(intent: DetailIntent) {
+                // A 投屏 still resolving gives way to any tap that plays here or changes what 播放
+                // would open: the latest tap wins, and no later play goes to the television by mistake.
+                if (intent.supersedesCast()) pendingCast = null
                 when (intent) {
                     DetailIntent.Play -> explicitFromStartPending = false
                     DetailIntent.PlayFromStart -> explicitFromStartPending = true
@@ -174,6 +196,38 @@ class DetailComponent(
                 delegateStore.accept(intent)
             }
         }
+
+    /**
+     * Plays on [request]'s television what 播放 would open here, without this phone's player: the
+     * same item, file and resume point, because it is the same [DetailIntent.Play] that resolves them
+     * — the recommended line, a selection still loading, the cloud's resume point and all. Only where
+     * the play goes differs, at the label.
+     */
+    internal fun castTo(request: DetailCastRequest) {
+        pendingCast = request
+        explicitFromStartPending = false
+        // Past the override, which would take this 播放 for the phone's own and drop the cast.
+        delegateStore.accept(DetailIntent.Play)
+    }
+
+    /**
+     * The queue a cast from here plays: the Store this page prepared for [key], claimed as a launching
+     * player claims it, or one built as [com.yfuse.feature.player.PlayerComponent] builds its own.
+     */
+    private fun castQueue(key: PlaybackPreloadKey): PreparedPlayerStore =
+        PreparedPlaybackRegistry.claim(key)
+            ?: PlayerStoreFactory(
+                storeFactory = storeFactory,
+                repo = repo,
+                registry = registry,
+                itemId = key.itemId,
+                startPositionTicks = key.startPositionTicks,
+                serverId = key.serverId,
+                mediaSourceId = key.mediaSourceId,
+                mediaVersionPreference = dependencies.playbackPreferences.mediaVersionPreference.value,
+                failoverRequest = dependencies.playbackFailoverRequest,
+                healthMonitor = dependencies.serverHealthMonitor,
+            ).create()
 
     /** Queues the selection and reports what was actually queued; null when nothing could be. */
     fun download(selection: OfflineDownloadSelection): OfflineEnqueueResult? {
@@ -407,11 +461,19 @@ class DetailComponent(
                             syncedStartPositionTicks(store.state, it.startPositionTicks)
                         }
                     explicitFromStartPending = false
+                    val cast = pendingCast
+                    pendingCast = null
                     sourceWarmup?.handoff()
                     sourceWarmup = null
                     preloadObserver?.cancel()
                     preloadObserver = null
-                    onPlay(it.serverId, it.itemId, launchTicks, it.mediaSourceId)
+                    if (cast == null) {
+                        onPlay(it.serverId, it.itemId, launchTicks, it.mediaSourceId)
+                    } else {
+                        // The same launch, played by the television; this phone's player never opens.
+                        val key = PlaybackPreloadKey(it.serverId, it.itemId, launchTicks, it.mediaSourceId)
+                        castLauncher.launch(cast, key)
+                    }
                 }
             }.launchIn(scope)
 

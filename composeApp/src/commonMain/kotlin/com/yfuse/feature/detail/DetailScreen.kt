@@ -377,6 +377,8 @@ fun DetailScreen(component: DetailComponent) {
     val sharer = rememberPosterCardSharer()
     // The episode rows' 浮起菜单, swipes and 长按拖选, and what of the season is downloaded.
     val episodeRowActions = rememberEpisodeRowActions(component, state.playServer?.id)
+    // The top bar's 投屏 and its device list; null where this platform cannot cast.
+    val cast = rememberDetailCast(component)
     var organizationSheetOpen by remember { mutableStateOf(false) }
     var sourceListOpen by remember { mutableStateOf(false) }
     var allEpisodesOpen by remember { mutableStateOf(false) }
@@ -994,6 +996,7 @@ fun DetailScreen(component: DetailComponent) {
                                     )
                                 }
                             },
+                        cast = cast.takeIf { detail != null },
                     )
                 }
 
@@ -1114,6 +1117,11 @@ fun DetailScreen(component: DetailComponent) {
 
                 downloadRange?.let { range ->
                     DetailDownloadSheet(component, state, range, onClose = { downloadRange = null })
+                }
+
+                // Picked, a device plays what 播放 would open, and the page stays where it is.
+                if (cast != null && cast.listOpen && detail != null) {
+                    DetailCastSheet(cast, state.playPositionTicks, playDetailLine, onPick = component::castTo)
                 }
 
                 if (organizationSheetOpen && detail != null) {
@@ -1287,18 +1295,11 @@ fun DetailScreen(component: DetailComponent) {
                 }
 
                 if (seriesPlayedConfirmOpen && detail != null) {
-                    val markPlayed = !detail.played
-                    ConfirmDialog(
-                        title = if (markPlayed) "整部剧标记为已看？" else "整部剧标记为未看？",
-                        message = seriesProgressConfirmMessage(detail.title, state.seasons.size, markPlayed),
-                        confirmLabel = if (markPlayed) "标记已看" else "标记未看",
-                        destructive = true,
-                        onConfirm = {
-                            seriesPlayedConfirmOpen = false
-                            component.store.accept(DetailIntent.TogglePlayed)
-                        },
-                        onDismiss = { seriesPlayedConfirmOpen = false },
-                    )
+                    val close = { seriesPlayedConfirmOpen = false }
+                    SeriesPlayedConfirmDialog(detail, state.seasons.size, onDismiss = close) {
+                        close()
+                        component.store.accept(DetailIntent.TogglePlayed)
+                    }
                 }
 
                 if (replaceRoomConfirmOpen && detail != null) {

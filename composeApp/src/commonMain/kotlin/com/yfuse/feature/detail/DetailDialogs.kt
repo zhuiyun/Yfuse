@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
@@ -263,6 +264,28 @@ internal fun DetailDownloadSheet(
             }
         },
         onDismiss = onClose,
+    )
+}
+
+/**
+ * 整部剧标记为已看 / 未看 — every episode's history and resume point in one tap, so it is asked
+ * first, whether it came from the key under 播放 or from 更多.
+ */
+@Composable
+internal fun SeriesPlayedConfirmDialog(
+    detail: MediaDetail,
+    seasonCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val markPlayed = !detail.played
+    ConfirmDialog(
+        title = if (markPlayed) "整部剧标记为已看？" else "整部剧标记为未看？",
+        message = seriesProgressConfirmMessage(detail.title, seasonCount, markPlayed),
+        confirmLabel = if (markPlayed) "标记已看" else "标记未看",
+        destructive = true,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
     )
 }
 
