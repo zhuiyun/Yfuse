@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.data.CrossServerMediaGroup
+import com.yfuse.core.data.CrossServerMediaHit
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.designsystem.AppIcons
@@ -46,7 +47,15 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.personal.PersonalLibraryRepository
+import com.yfuse.feature.filesource.FileSourcePosterCard
+import com.yfuse.feature.filesource.FileSourceTitlePlayerHost
+import com.yfuse.feature.filesource.FileSourceTitleSheet
+import com.yfuse.feature.filesource.fileSourceId
+import com.yfuse.feature.filesource.rememberFileSourceLibraryShelf
+import com.yfuse.feature.filesource.rememberFileSourceTitlePlayer
 import kotlinx.coroutines.launch
+import org.koin.core.context.GlobalContext
 import com.yfuse.core.designsystem.ThemeText as Text
 
 @Composable
@@ -57,9 +66,15 @@ fun UnifiedLibraryScreen(
     onOpenItem: (String, String) -> Unit,
 ) {
     val servers by registry.data.collectAsState()
+    val access =
+        remember { runCatching { GlobalContext.get().getOrNull<PersonalLibraryRepository>() }.getOrNull()?.policy }
+    val canSeeShares = access?.collectAsState()?.value?.canManageServers ?: true
+    // 文件来源's 片库, merged by TMDB id with the servers' copies of the same titles.
+    val shelf = rememberFileSourceLibraryShelf(allowed = canSeeShares)
     val pager =
-        remember(repository) {
+        remember(repository, shelf) {
             UnifiedLibraryPager(
+                extraHits = { query -> shelf?.hits(query.type.itemType, query.unplayedOnly).orEmpty() },
                 libraries = repository::libraries,
                 page = { server, library, offset, limit, unplayed ->
                     repository.libraryItems(
@@ -77,11 +92,23 @@ fun UnifiedLibraryScreen(
     var query by remember { mutableStateOf(UnifiedLibraryQuery()) }
     var refresh by remember { mutableStateOf(0) }
     var sources by remember { mutableStateOf<CrossServerMediaGroup?>(null) }
+    var shareTitle by remember { mutableStateOf<List<CrossServerMediaHit>?>(null) }
     val scope = rememberCoroutineScope()
     val palette = LocalPalette.current
     LaunchedEffect(servers, query, refresh) {
         pager.reset(servers.servers, query)
         pager.loadMore()
+    }
+    // A scan finishing while this page is open adds its titles without reading the servers again.
+    LaunchedEffect(pager, shelf) {
+        shelf?.libraries?.collect { pager.refreshExtras() }
+    }
+    // A share's copy opens the title's files rather than a server's detail page.
+    val openCopy: (CrossServerMediaGroup, CrossServerMediaHit) -> Unit = { group, copy ->
+        when {
+            registry.serverById(copy.serverId) != null -> onOpenItem(copy.serverId, copy.item.id)
+            copy.fileSourceId != null -> shareTitle = group.copies.filter { it.fileSourceId != null }
+        }
     }
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -117,7 +144,7 @@ fun UnifiedLibraryScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            if (servers.servers.isEmpty()) {
+            if (servers.servers.isEmpty() && state.groups.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     PageHint(
                         "当前资料没有可访问的服务器，请在服务器页添加或由家长关联媒体用户。",
@@ -147,9 +174,18 @@ fun UnifiedLibraryScreen(
                 }
             }
             items(state.groups, key = { it.identity }) { group ->
-                val hit = group.recommended
+                // A server's copy draws the card when there is one; it has the richer page.
+                val hit =
+                    group.recommended.takeIf { it.fileSourceId == null }
+                        ?: group.copies.firstOrNull { it.fileSourceId == null }
+                        ?: group.recommended
                 val server = registry.serverById(hit.serverId)
-                if (server != null) {
+                if (server == null && hit.fileSourceId != null && shelf != null) {
+                    Column {
+                        FileSourcePosterCard(title = shelf.title(hit), hit = hit, onClick = { openCopy(group, hit) })
+                        LibraryAction("${group.copies.size} 个片源 · 选择") { sources = group }
+                    }
+                } else if (server != null) {
                     Column {
                         PosterCard(
                             baseUrl = server.baseUrl,
@@ -174,11 +210,7 @@ fun UnifiedLibraryScreen(
                                                     icon = AppIcons.Server,
                                                     detail = if (copy == group.recommended) "推荐" else null,
                                                     leavesPage = true,
-                                                    onSelect = {
-                                                        if (registry.serverById(copy.serverId) != null) {
-                                                            onOpenItem(copy.serverId, copy.item.id)
-                                                        }
-                                                    },
+                                                    onSelect = { openCopy(group, copy) },
                                                 )
                                             },
                                         ),
@@ -215,17 +247,29 @@ fun UnifiedLibraryScreen(
             }
         }
     }
+    if (shelf != null) {
+        val player = rememberFileSourceTitlePlayer(shelf)
+        shareTitle?.let { copies ->
+            FileSourceTitleSheet(shelf = shelf, player = player, copies = copies, onDismiss = { shareTitle = null })
+        }
+        FileSourceTitlePlayerHost(player, onLaunched = { shareTitle = null })
+    }
     sources?.let { group ->
         GlassDialog(onDismiss = { sources = null }) {
             OverlayHeader(group.recommended.item.title, onClose = { sources = null })
             group.copies.forEach { hit ->
                 OverlayOptionRow(
-                    label = "${hit.serverName} · ${hit.item.year ?: "年份未知"}",
+                    label =
+                        listOfNotNull(
+                            hit.serverName,
+                            "文件来源".takeIf { hit.fileSourceId != null },
+                            "${hit.item.year ?: "年份未知"}",
+                        ).joinToString(" · "),
                     selected = hit == group.recommended,
                     onClick =
                         overlayAction {
                             sources = null
-                            if (registry.serverById(hit.serverId) != null) onOpenItem(hit.serverId, hit.item.id)
+                            openCopy(group, hit)
                         },
                 )
             }
