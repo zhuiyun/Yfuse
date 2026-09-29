@@ -76,12 +76,10 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlin.math.abs
-import kotlin.time.TimeSource
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Controls fade out after this long without interaction, while playing. */
 private const val MAX_ERROR_ALTERNATIVES = 3
-private const val DOUBLE_TAP_BURST_WINDOW_MS = 900L
 private const val AUTO_HIDE_MS = 5_000L
 private const val CHAT_PREVIEW_MS = 4_000L
 private const val GESTURE_HUD_MS = 1_600L
@@ -378,9 +376,7 @@ internal fun PlayerControls(
     var holdSeekDirection by remember { mutableIntStateOf(0) }
     var seekPulseRevision by remember(state.currentIndex) { mutableIntStateOf(0) }
     var seekPulsePosition by remember { mutableStateOf(Offset.Zero) }
-    var seekBurstDirection by remember { mutableIntStateOf(0) }
-    var seekBurstMs by remember { mutableLongStateOf(0L) }
-    var seekBurstMark by remember { mutableStateOf<TimeSource.Monotonic.ValueTimeMark?>(null) }
+    val seekBurst = remember { DoubleTapSeekBurst() }
     var holdSeekTarget by remember { mutableLongStateOf(0L) }
     // Where the current scan set out from, and — for a few seconds after it lets go — the 回到 offer
     // back to it: a hold that ran further than meant costs one tap, not a hunt along the rail.
@@ -1199,6 +1195,20 @@ internal fun PlayerControls(
                 // to fast-forward cannot survive, since it is the release that lands the
                 // seek and `poke()` flips `visible` the moment the hold starts.
                 .pointerInput(Unit) {
+                    // Taps in quick succession on the same side add up, and the HUD reports the
+                    // running total rather than "10 秒" each time.
+                    fun burstSeek(
+                        direction: Int,
+                        at: Offset,
+                        taps: Int,
+                    ) {
+                        // 双击步长, as 播放设置 last left it.
+                        val moved = seekBurst.add(direction, latestGestures.doubleTapSeekMs, taps)
+                        seekPulsePosition = at
+                        seekPulseRevision++
+                        latestOnSeek((latestPosition + direction * moved).coerceIn(0L, latestDuration))
+                        gestureHud = "${if (direction < 0) "快退" else "快进"} ${seekBurst.totalMs / 1_000L} 秒"
+                    }
                     detectTapGestures(
                         onPress = {
                             // The engine follows merged held ticks; release only stops the producer.
@@ -1213,6 +1223,13 @@ internal fun PlayerControls(
                             endSpeedBoost()
                         },
                         onTap = { offset ->
+                            // Once a double tap is seeking, a tap on the same side keeps it going.
+                            val burstSide =
+                                pictureThird(offset.x, size.width).takeIf { side ->
+                                    seekBurst.continues(side) &&
+                                        !latestWatchLocked &&
+                                        allowsPlayerDrag(offset.y, currentSystemGestureTop)
+                                }
                             when {
                                 locked -> revealLock(explain = false)
                                 watchChatOpen -> watchChatOpen = false
@@ -1221,8 +1238,12 @@ internal fun PlayerControls(
                                 quickPopup != null -> quickPopup = null
                                 settingsPanelKind != null -> settingsPanelKind = null
                                 drawerOpen -> drawerOpen = false
-                                // 点弹幕: a tap that landed on a comment is the comment's; any other is unchanged.
-                                !locked && latestExtras.onPictureTap(offset) -> Unit
+                                burstSide != null -> {
+                                    burstSeek(burstSide, offset, taps = 1)
+                                    haptics.play(HapticSignal.Confirm)
+                                }
+                                // 点弹幕 with the chrome up only: with it away, a tap always brings it up first.
+                                !locked && visible && latestExtras.onPictureTap(offset) -> Unit
                                 visible -> visible = false
                                 else -> poke()
                             }
@@ -1239,28 +1260,6 @@ internal fun PlayerControls(
                                 gestureHud = "房主控制播放"
                                 haptics.play(HapticSignal.Reject)
                             } else {
-                                // Taps in quick succession on the same side add up, and the
-                                // HUD reports the running total rather than "10 秒" each time.
-                                fun burstSeek(direction: Int) {
-                                    // 双击步长, as 播放设置 last left it.
-                                    val step = latestGestures.doubleTapSeekMs
-                                    val continuing =
-                                        seekBurstDirection == direction &&
-                                            seekBurstMark?.let {
-                                                it.elapsedNow().inWholeMilliseconds < DOUBLE_TAP_BURST_WINDOW_MS
-                                            } == true
-                                    seekBurstMs = if (continuing) seekBurstMs + step else step
-                                    seekPulsePosition = offset
-                                    seekPulseRevision++
-                                    seekBurstDirection = direction
-                                    seekBurstMark = TimeSource.Monotonic.markNow()
-                                    latestOnSeek(
-                                        (latestPosition + direction * step)
-                                            .coerceIn(0L, latestDuration),
-                                    )
-                                    val verb = if (direction < 0) "快退" else "快进"
-                                    gestureHud = "$verb ${seekBurstMs / 1_000L} 秒"
-                                }
                                 when {
                                     // 双击 · 全屏暂停: the whole picture is one play/pause key, as in
                                     // the domestic apps whose double tap never seeks.
@@ -1268,8 +1267,9 @@ internal fun PlayerControls(
                                         latestOnPlayPause()
                                         gestureHud = if (state.playing) "暂停" else "播放"
                                     }
-                                    offset.x < size.width / 3f -> burstSeek(-1)
-                                    offset.x > size.width * 2f / 3f -> burstSeek(1)
+                                    // A double tap inside a running burst is two more of its taps.
+                                    offset.x < size.width / 3f -> burstSeek(-1, offset, taps = 2)
+                                    offset.x > size.width * 2f / 3f -> burstSeek(1, offset, taps = 2)
                                     else -> {
                                         latestOnPlayPause()
                                         gestureHud = if (state.playing) "暂停" else "播放"
@@ -1291,12 +1291,7 @@ internal fun PlayerControls(
                             // long as it is held. The hold used to split the frame in halves,
                             // so the same spot on the picture meant 播放 to one gesture and 快进
                             // to the other.
-                            val direction =
-                                when {
-                                    offset.x < size.width / 3f -> -1
-                                    offset.x > size.width * 2f / 3f -> 1
-                                    else -> 0
-                                }
+                            val direction = pictureThird(offset.x, size.width)
                             // 中间长按 and 两侧长按 in 播放设置 decide; 中间长按 · 关闭 leaves the held
                             // middle to do nothing, as it once did.
                             val action =
@@ -1342,6 +1337,7 @@ internal fun PlayerControls(
                     // began sideways ever seeks, however far a volume drag's thumb wanders.
                     var axis = DragAxis.Undecided
                     var seekTarget = latestPosition
+                    val pace = SwipeSeekPace()
                     var volumeAtDragStart = latestVolume()
                     var brightnessAtDragStart = latestBrightness()
                     detectPlayerDragGestures(
@@ -1353,6 +1349,7 @@ internal fun PlayerControls(
                             axis = DragAxis.Undecided
                             pictureScrubMs = null
                             seekTarget = latestPosition
+                            pace.reset()
                             volumeAtDragStart = latestVolume()
                             brightnessAtDragStart = latestBrightness()
                         },
@@ -1392,10 +1389,9 @@ internal fun PlayerControls(
                                 return@detectPlayerDragGestures
                             }
                             val span = latestDuration.coerceAtLeast(1L)
-                            seekTarget =
-                                (
-                                    latestPosition + totalX / size.width * span * 0.45f
-                                ).toLong().coerceIn(0L, span)
+                            val dt = change.uptimeMillis - change.previousUptimeMillis
+                            val step = pace.step(amount.x, dt, size.width, density, span)
+                            seekTarget = (seekTarget + step).coerceIn(0L, span)
                             val delta = seekTarget - latestPosition
                             val sign = if (delta < 0L) "-" else "+"
                             gestureHud = "$sign${abs(delta).asClock()} · ${seekTarget.asClock()} / ${span.asClock()}"
@@ -2173,12 +2169,13 @@ internal fun PlayerControls(
                         !state.ended &&
                         state.error == null &&
                         !stoppedAtItemEnd
-                // Beneath the 继续播放 key, so that key still resumes; any other touch only puts it away.
+                // Beneath the 继续播放 key, so that key still resumes. Any other touch, and Back, bring
+                // the chrome up, which is what they were for; the layer leaves with the pause it needs.
                 PauseInfoLayer(
                     shown = pauseInfoShown,
                     playback = playback,
                     chapters = chapters,
-                    onDismiss = { pauseInfoShown = false },
+                    onDismiss = ::poke,
                     modifier = Modifier.align(Alignment.CenterStart).padding(start = 28.dp),
                 )
                 ChromeVisibility(
