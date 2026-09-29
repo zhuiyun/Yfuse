@@ -247,7 +247,7 @@ internal fun Hero(
             ),
         label = "heroEntrance",
     )
-    val heldByCard = expansion != null && !expansion.landed
+    val heldByCard = expansion != null && !expansion.landed && !expansion.gaveUp
     Box(
         Modifier
             .fillMaxWidth()

@@ -65,6 +65,12 @@ internal class LiftExpansion(
     /** The hero's picture has arrived; a card handing over before it would uncover an empty frame. */
     internal var heroReady by mutableStateOf(false)
 
+    /**
+     * The page was too slow to lay its hero out and the card faded where it was: the hero, when
+     * it comes, is simply there, as on a page opened any other way.
+     */
+    internal var gaveUp by mutableStateOf(false)
+
     /** The card has landed and handed over: the hero draws itself again and the page's words rise. */
     var landed by mutableStateOf(false)
         internal set
@@ -108,7 +114,7 @@ internal fun Modifier.liftExpansionTarget(expansion: LiftExpansion?): Modifier {
     }
     return this
         .onPlaced { expansion.target = it }
-        .graphicsLayer { alpha = if (expansion.landed) 1f else 0f }
+        .graphicsLayer { alpha = if (expansion.landed || expansion.gaveUp) 1f else 0f }
 }
 
 /**
@@ -183,6 +189,7 @@ internal class LiftFlight {
                 snapshotFlow { expansion.gone || expansion.targetBounds() != null }.first { it }
             }
         if (found == null) {
+            expansion.gaveUp = true
             alpha.animateTo(0f, Motion.tween(Motion.QUICK))
             return
         }
@@ -336,6 +343,17 @@ internal fun oneTakeArrivalProgress(
 }
 
 /**
+ * Whether a page's words still wait for [expansion]'s card: only while it is on its way to the
+ * hero and still [current], the lift's expansion now. Once the card has handed over, given up on
+ * a page slow to lay its hero out or lost its page — or its lift ended some other way — nothing
+ * will hand over, and words left waiting for it would never show.
+ */
+internal fun oneTakeHoldsWords(
+    expansion: LiftExpansion,
+    current: LiftExpansion?,
+): Boolean = current === expansion && !expansion.landed && !expansion.gaveUp && !expansion.gone
+
+/**
  * The clock a page's words rise in on after a lifted card has opened it: held at 0 while the card
  * is on its way over them, running from the moment it hands over. Null for a page opened any other
  * way, whose words are simply there.
@@ -348,12 +366,13 @@ internal fun rememberOneTakeArrival(itemId: String): State<Float>? {
     val arriving =
         remember(menu, itemId) {
             Snapshot.withoutReadObservation {
-                menu.session?.expansion?.takeIf { it.key.itemId == itemId && !it.landed }
+                val current = menu.session?.expansion
+                current?.takeIf { it.key.itemId == itemId && oneTakeHoldsWords(it, current) }
             }
         } ?: return null
     val clock = remember(arriving) { Animatable(0f) }
     LaunchedEffect(arriving) {
-        snapshotFlow { arriving.landed || arriving.gone }.first { it }
+        snapshotFlow { oneTakeHoldsWords(arriving, menu.session?.expansion) }.first { !it }
         clock.animateTo(1f, Motion.tween(ONE_TAKE_ARRIVAL_MS, easing = LinearEasing))
     }
     return clock.asState()

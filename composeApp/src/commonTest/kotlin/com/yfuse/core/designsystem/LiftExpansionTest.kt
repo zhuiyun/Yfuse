@@ -75,6 +75,22 @@ class LiftExpansionTest {
     }
 
     @Test
+    fun thePagesWordsWaitOnlyForACardStillOnItsWay() {
+        val flying = LiftExpansion(poster, Offset.Zero)
+        assertTrue(oneTakeHoldsWords(flying, current = flying))
+        // The lift ended without handing over, or another took its place: nothing will land.
+        assertFalse(oneTakeHoldsWords(flying, current = null))
+        assertFalse(oneTakeHoldsWords(flying, current = LiftExpansion(poster, Offset.Zero)))
+
+        val landed = LiftExpansion(poster, Offset.Zero).apply { landed = true }
+        assertFalse(oneTakeHoldsWords(landed, current = landed))
+        val slowPage = LiftExpansion(poster, Offset.Zero).apply { gaveUp = true }
+        assertFalse(oneTakeHoldsWords(slowPage, current = slowPage))
+        val popped = LiftExpansion(poster, Offset.Zero).apply { detached = true }
+        assertFalse(oneTakeHoldsWords(popped, current = popped))
+    }
+
+    @Test
     fun cornersAndArtFollowTheFlightButNeverPastItsEnds() {
         assertEquals(48f, liftFlightBlend(48f, 0f, 0f), 0.001f)
         assertEquals(24f, liftFlightBlend(48f, 0f, 0.5f), 0.001f)
