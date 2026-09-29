@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -27,6 +28,9 @@ import coil3.request.SuccessResult
 import com.yfuse.BuildConfig
 import com.yfuse.R
 import com.yfuse.core.designsystem.ArtworkPageTheme
+import com.yfuse.core.designsystem.LiftMenuHost
+import com.yfuse.core.designsystem.LiftMenuState
+import com.yfuse.core.designsystem.LocalLiftMenu
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.rememberCarouselPageColor
 import com.yfuse.core.model.TmdbHome
@@ -132,26 +136,32 @@ class HomeFixtureActivity : ComponentActivity() {
                     withFrameNanos {}
                     drawn = true
                 }
-                Box(
-                    Modifier.fillMaxSize().semantics {
-                        testTagsAsResourceId = true
-                        if (drawn && imageCount > 0) contentDescription = "home-fixture-v1-ready"
-                    },
-                ) {
-                    ArtworkPageTheme(background = color, artworkAccent = accent) {
-                        HomeContentBody(
-                            state = state,
-                            calendarState = HomeCalendarState(loading = false),
-                            listState = listState,
-                            heroPageColor = pageColor,
-                            onHeroAccent = { accent = it },
-                            onHeroPageColor = { color = it },
-                            onIntent = {},
-                            onRefreshCalendar = {},
-                            onOpenProfile = {},
-                            onOpenCalendar = {},
-                            onOpenCalendarEntry = {},
-                        )
+                // As in the app shell: posters lift into one host drawn over the page, so the
+                // long-press 浮起菜单 exists here and its journey can be measured on local data.
+                val liftMenu = remember { LiftMenuState() }
+                CompositionLocalProvider(LocalLiftMenu provides liftMenu) {
+                    Box(
+                        Modifier.fillMaxSize().semantics {
+                            testTagsAsResourceId = true
+                            if (drawn && imageCount > 0) contentDescription = "home-fixture-v1-ready"
+                        },
+                    ) {
+                        ArtworkPageTheme(background = color, artworkAccent = accent) {
+                            HomeContentBody(
+                                state = state,
+                                calendarState = HomeCalendarState(loading = false),
+                                listState = listState,
+                                heroPageColor = pageColor,
+                                onHeroAccent = { accent = it },
+                                onHeroPageColor = { color = it },
+                                onIntent = {},
+                                onRefreshCalendar = {},
+                                onOpenProfile = {},
+                                onOpenCalendar = {},
+                                onOpenCalendarEntry = {},
+                            )
+                        }
+                        LiftMenuHost(liftMenu)
                     }
                 }
             }

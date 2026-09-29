@@ -216,6 +216,15 @@ jobs:
           for library in libavcodec.so libavformat.so libmpv.so libmdk.so; do
             grep -Fxq "lib/arm64-v8a/$library" build/apk-entries.txt || fail "lib/arm64-v8a/$library is missing from the APK"
           done
+          # A committed app profile must reach the APK: AGP merges it with the libraries' rules and
+          # compiles them into assets/dexopt/. Only the merged text shows Yfuse's own rules made it.
+          if [[ -s composeApp/src/main/baseline-prof.txt ]]; then
+            grep -Fxq assets/dexopt/baseline.prof build/apk-entries.txt || fail "Release APK has no compiled baseline profile"
+            merged="$(find composeApp/build/intermediates -path '*merged_art_profile*' -path '*elease*' -name baseline-prof.txt -print -quit)"
+            if [[ -z "$merged" ]] || ! grep -q 'Lcom/yfuse/' "$merged"; then
+              fail "AGP did not merge composeApp/src/main/baseline-prof.txt"
+            fi
+          fi
           apk_size="$(stat -c '%s' "$apk")"
           echo "APK size: $apk_size bytes (budget $APK_SIZE_BUDGET_BYTES)"
           (( apk_size <= APK_SIZE_BUDGET_BYTES )) || fail "APK is $apk_size bytes, over the $APK_SIZE_BUDGET_BYTES byte budget"
