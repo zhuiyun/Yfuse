@@ -161,6 +161,13 @@ jobs:
           if (( ${#generated[@]} > 0 )); then
             mkdir -p build/lint-baselines
             cp "${generated[@]}" build/lint-baselines/
+            # Also in the log, for whoever cannot reach the artifact store: a fresh baseline lists
+            # only the findings that exist today, so it is short.
+            for file in "${generated[@]}"; do
+              echo "::group::$file"
+              cat "$file"
+              echo "::endgroup::"
+            done
             echo "LINT_BASELINES_GENERATED=${generated[*]}" >> "$GITHUB_ENV"
             echo "::warning::Lint wrote ${generated[*]}; commit them from this run's lint-baselines artifact"
           fi
