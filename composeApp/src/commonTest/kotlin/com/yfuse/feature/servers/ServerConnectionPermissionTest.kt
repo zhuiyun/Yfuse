@@ -1,5 +1,6 @@
 package com.yfuse.feature.servers
 
+import com.yfuse.core.data.AuthedServer
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -43,6 +44,28 @@ class ServerConnectionPermissionTest {
             assertFalse(serverUsesLocalNetwork(endpoint), endpoint)
             assertEquals(ServersIntent.Submit, connectionIntentAfterPermission(ServersIntent.Submit, endpoint, false))
         }
+    }
+
+    @Test
+    fun a_session_handed_over_by_a_phone_is_answered_even_when_the_lan_is_refused() {
+        val handed =
+            ServersIntent.SignInWithSession(
+                AuthedServer(
+                    baseUrl = "http://192.168.1.4:8096",
+                    serverName = "家里的 Emby",
+                    userId = "u1",
+                    userName = "alice",
+                    accessToken = "token",
+                ),
+            )
+        assertTrue(handed.connectsToServer())
+        // The phone that sent it is waiting: the store says why it could not go, and the phone hears.
+        assertEquals(
+            handed.copy(localNetworkDenied = true),
+            connectionIntentAfterPermission(handed, handed.server.baseUrl, false),
+        )
+        assertEquals(handed, connectionIntentAfterPermission(handed, handed.server.baseUrl, true))
+        assertEquals(handed, connectionIntentAfterPermission(handed, "https://media.example.com", false))
     }
 
     @Test

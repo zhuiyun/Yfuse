@@ -433,6 +433,30 @@ class HandoffControllerTest {
             controller.close()
         }
 
+    @Test
+    fun a_television_says_its_add_form_asks_for_a_server_only_while_it_hosts() =
+        runTest {
+            val api = FakeApi { testScheduler.currentTime }
+            val controller = controller(api, FakePlayback())
+            var accepting = true
+            var asking = false
+            controller.hostRemoteControl({ accepting }, { asking })
+            controller.start()
+            runCurrent()
+            assertEquals(true, api.lastHeartbeat?.acceptsRemote)
+            assertEquals(false, api.lastHeartbeat?.asksRemoteSignIn)
+            asking = true
+            controller.refreshPresence()
+            runCurrent()
+            assertEquals(true, api.lastHeartbeat?.asksRemoteSignIn)
+            // It asks on the socket it hosts on: with 手机遥控 off it cannot be asking.
+            accepting = false
+            controller.refreshPresence()
+            runCurrent()
+            assertEquals(false, api.lastHeartbeat?.asksRemoteSignIn)
+            controller.close()
+        }
+
     private fun TestScope.controller(
         api: FakeApi,
         bridge: FakePlayback,

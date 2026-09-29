@@ -31,19 +31,25 @@ import com.yfuse.core.handoff.HandoffController
 import com.yfuse.core.remote.RemoteControlEvent
 import com.yfuse.core.remote.RemoteControlHost
 import com.yfuse.core.remote.RemoteControlPhone
+import com.yfuse.core.remote.RemoteSignInRequest
 import com.yfuse.feature.search.SearchComponent
 import com.yfuse.feature.search.SearchIntent
 import com.yfuse.tv.TvMainActivity
 import com.yfuse.tv.ui.TvPhoneRemoteOverlay
 import com.yfuse.watch.protocol.RemoteControlKey
+import com.yfuse.watch.protocol.RemoteSignInServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.koin.core.Koin
 import org.koin.core.context.GlobalContext
@@ -64,6 +70,10 @@ import java.lang.ref.WeakReference
  *
  * While a phone is in, the shell shows 手机遥控中 · 断开 at its top right and the player shows 手机遥控中
  * (TvPhoneRemoteIndicator). 设置 → 手机遥控 turns it off altogether and forgets trusted phones.
+ *
+ * 添加服务器 asks on the same session for 用手机登录 (TvPhoneSignInDialog): a phone of the same account
+ * offers one of its servers, the television shows which, and only once the phone confirms does its
+ * session arrive, to be checked with the server and saved as any sign-in here would be.
  */
 internal class TvPhoneRemote private constructor(
     private val application: Application,
@@ -71,11 +81,46 @@ internal class TvPhoneRemote private constructor(
     private var resumed: WeakReference<Activity>? = null
     private var shell: WeakReference<TvMainActivity>? = null
     private var passwordNoticeAt = 0L
+
+    /** Set once by [start], on whichever thread the sessions were restored; the screens read it on main. */
+    @Volatile
     private var host: RemoteControlHost? = null
     private val _phones = MutableStateFlow<List<RemoteControlPhone>>(emptyList())
 
     /** Phones on this television now; none until hosting has started. */
     val phones: StateFlow<List<RemoteControlPhone>> = _phones.asStateFlow()
+
+    private val _signInAvailable = MutableStateFlow(false)
+
+    /** 用手机登录 can be offered: this television hosts, on a relay that carries it. */
+    val signInAvailable: StateFlow<Boolean> = _signInAvailable.asStateFlow()
+
+    private val _signIn = MutableStateFlow<RemoteSignInRequest>(RemoteSignInRequest.Idle)
+
+    /** Where 用手机登录 stands. */
+    val signIn: StateFlow<RemoteSignInRequest> = _signIn.asStateFlow()
+
+    /**
+     * Each server a phone handed over, session and all, once — for 添加服务器 to check and save,
+     * then to answer with [finishSignIn]. Nothing until hosting has started.
+     */
+    val handedServers: Flow<RemoteSignInServer>
+        get() = host?.handedServers ?: emptyFlow()
+
+    /** 用手机登录: ask the phones of this account for a server. */
+    fun askForServer() {
+        host?.askForServer()
+    }
+
+    /** Stops asking — 取消, Back, or 添加服务器 closing. A session already on its way is answered instead. */
+    fun cancelSignIn() {
+        host?.cancelSignIn()
+    }
+
+    /** Whether the server a phone handed over was saved; the phone hears which. */
+    fun finishSignIn(saved: Boolean) {
+        host?.finishSignIn(saved)
+    }
 
     /** Koin holds the app's settings from the first line of the application's onCreate. */
     val preferences: TvPhoneRemotePreferences by lazy { TvPhoneRemotePreferences(GlobalContext.get().get()) }
@@ -307,12 +352,25 @@ internal class TvPhoneRemote private constructor(
             )
         this.host = host
         val handoff = koin.get<HandoffController>()
-        handoff.hostRemoteControl { host.hosting.value }
+        handoff.hostRemoteControl(
+            accepting = { host.hosting.value },
+            askingForServer = { host.signIn.value.asking },
+        )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-        // A phone learns of this television from the handoff heartbeat; send it as soon as that changes.
+        // A phone learns of this television from the handoff heartbeat — that it hosts, and that
+        // 添加服务器 asks for a server — so send it as soon as either changes.
         scope.launch { host.hosting.drop(1).collect { handoff.refreshPresence() } }
+        scope.launch {
+            host.signIn
+                .map { it.asking }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { handoff.refreshPresence() }
+        }
         // Read on the main thread, where replay and the screens run.
         scope.launch { host.phones.collect { _phones.value = it } }
+        scope.launch { host.signInAvailable.collect { _signInAvailable.value = it } }
+        scope.launch { host.signIn.collect { _signIn.value = it } }
         scope.launch { host.events.collect { replay(it) } }
         // Hosting follows the app's foreground and the television's own 手机遥控 switch: switched
         // off, the relay tells every phone its television left, and phones stop listing it.

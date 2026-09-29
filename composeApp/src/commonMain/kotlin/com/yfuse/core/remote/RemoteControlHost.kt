@@ -4,6 +4,7 @@ import com.yfuse.core.sync.AccountRequiredForWatchException
 import com.yfuse.core.sync.backoffDelayMs
 import com.yfuse.core.sync.isWatchAuthenticationFailure
 import com.yfuse.watch.protocol.RemoteControlKey
+import com.yfuse.watch.protocol.RemoteSignInServer
 import com.yfuse.watch.protocol.WatchProtocol
 import com.yfuse.watch.protocol.WatchWireMessage
 import kotlinx.coroutines.CancellationException
@@ -11,9 +12,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -25,6 +28,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -73,6 +77,11 @@ data class RemoteControlPhone(
  * [WatchProtocol.CAPABILITY_REMOTE_PAIRING] cannot tell phones apart or let one go: each newcomer
  * waits, and letting them go means hosting afresh, which every phone hears as its television
  * leaving.
+ *
+ * 用手机登录 asks on the same socket: [askForServer] has a phone of the same account offer this
+ * television a server from 设备接力, which [signIn] shows before anything secret is sent; the
+ * session the phone then confirms arrives once, on [handedServers], for the caller to check and
+ * save, and [finishSignIn] tells the phone how that went.
  */
 class RemoteControlHost(
     private val signedIn: StateFlow<Boolean>,
@@ -99,14 +108,54 @@ class RemoteControlHost(
     /** The viewer's 拒绝 and 断开, for whichever socket is hosting to pass on. */
     private val releases = Channel<Release>(Channel.UNLIMITED)
 
-    /** Who was let in, for whichever socket is hosting to tell the relay, so that phone stops waiting. */
+    /**
+     * Who was let in, and what 用手机登录 asks, for whichever socket is hosting to tell the relay —
+     * so that phone stops waiting, and a phone can offer a server.
+     */
     private val signals = Channel<Signal>(Channel.UNLIMITED)
+
+    private val _signInAvailable = MutableStateFlow(false)
+
+    /** 用手机登录 can be offered: hosting, on a relay that carries it, inside TLS — see [remoteSignInCarried]. */
+    val signInAvailable: StateFlow<Boolean> = _signInAvailable.asStateFlow()
+
+    private val _signIn = MutableStateFlow<RemoteSignInRequest>(RemoteSignInRequest.Idle)
+
+    /** Where 用手机登录 stands; [RemoteSignInRequest.asking] is what the handoff heartbeat says. */
+    val signIn: StateFlow<RemoteSignInRequest> = _signIn.asStateFlow()
+
+    /** The one session a phone sent, held only until it is taken; see [handedServers]. */
+    private val handovers = Channel<RemoteSignInServer>(capacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /**
+     * Each server a phone handed this television, session and all, once. The caller checks it with
+     * its server and saves it the way its own sign-in would, then calls [finishSignIn].
+     */
+    val handedServers: Flow<RemoteSignInServer> = handovers.receiveAsFlow()
 
     init {
         scope.launch {
             combine(active, signedIn) { foreground, account -> foreground && account }
                 .distinctUntilChanged()
                 .collectLatest { run -> if (run) host() }
+        }
+        // An ask gives up on its own, counted from when it began whatever phones come and go.
+        scope.launch {
+            _signIn.map { it.asking }.distinctUntilChanged().collectLatest { asking ->
+                if (asking) {
+                    delay(WatchProtocol.REMOTE_SIGN_IN_ASK_MS)
+                    expireSignIn()
+                }
+            }
+        }
+        // A session that is never said to be saved or not is not saved: the phone hears so.
+        scope.launch {
+            _signIn.map { it is RemoteSignInRequest.Receiving }.distinctUntilChanged().collectLatest { receiving ->
+                if (receiving) {
+                    delay(REMOTE_SIGN_IN_RECEIVE_MS)
+                    finishSignIn(saved = false)
+                }
+            }
         }
     }
 
@@ -135,6 +184,82 @@ class RemoteControlHost(
         pairing.value.phones.forEach { release(it.deviceId) }
     }
 
+    /**
+     * 用手机登录: ask for a server, which a phone of the same account can then offer from 设备接力.
+     * Only where [signInAvailable]; it gives up by itself after [WatchProtocol.REMOTE_SIGN_IN_ASK_MS].
+     */
+    fun askForServer() {
+        if (!_signInAvailable.value) return
+        val previous = _signIn.value
+        if (previous.asking || previous is RemoteSignInRequest.Receiving) return
+        if (_signIn.compareAndSet(previous, RemoteSignInRequest.Waiting)) signals.trySend(Signal.SignInAsk)
+    }
+
+    /**
+     * Stops asking — 取消, or Back — and puts away what [RemoteSignInRequest.Expired] said. A
+     * session that has already arrived is not taken back: [finishSignIn] ends that.
+     */
+    fun cancelSignIn() {
+        val previous = _signIn.value
+        if (previous == RemoteSignInRequest.Idle || previous is RemoteSignInRequest.Receiving) return
+        if (!_signIn.compareAndSet(previous, RemoteSignInRequest.Idle)) return
+        if (previous.asking) signals.trySend(Signal.SignInEnd(WatchProtocol.REMOTE_SIGN_IN_CANCELLED_CODE))
+        drainHandovers()
+    }
+
+    /** How the server a phone handed over went — [saved], or not; the phone hears which. */
+    fun finishSignIn(saved: Boolean) {
+        val previous = _signIn.value as? RemoteSignInRequest.Receiving ?: return
+        if (!_signIn.compareAndSet(previous, RemoteSignInRequest.Idle)) return
+        signals.trySend(Signal.SignInEnd(WatchProtocol.REMOTE_SIGN_IN_FAILED_CODE.takeUnless { saved }))
+        drainHandovers()
+    }
+
+    /** No phone came in time: say so until the viewer closes it or asks again. */
+    private fun expireSignIn() {
+        val previous = _signIn.value
+        if (!previous.asking) return
+        if (_signIn.compareAndSet(previous, RemoteSignInRequest.Expired)) {
+            signals.trySend(Signal.SignInEnd(WatchProtocol.REMOTE_SIGN_IN_CANCELLED_CODE))
+        }
+    }
+
+    /** A phone put a server before this television: show it, if this television still asks. */
+    private fun offered(message: WatchWireMessage) {
+        val server = message.signInServer?.takeIf(WatchProtocol::isValidRemoteSignInOffer) ?: return
+        val phone = message.phone() ?: return
+        when (val current = _signIn.value) {
+            RemoteSignInRequest.Waiting, is RemoteSignInRequest.Offered ->
+                _signIn.compareAndSet(current, RemoteSignInRequest.Offered(phone, message.phoneName(), server))
+            // An ask the relay kept after this television stopped: end it there too.
+            RemoteSignInRequest.Idle, RemoteSignInRequest.Expired ->
+                signals.trySend(Signal.SignInEnd(WatchProtocol.REMOTE_SIGN_IN_CANCELLED_CODE))
+            is RemoteSignInRequest.Receiving -> Unit
+        }
+    }
+
+    /** The phone whose server this television shows left before sending it: wait for another. */
+    private fun withdrawn(message: WatchWireMessage) {
+        _signIn.update { current ->
+            val left = current is RemoteSignInRequest.Offered && current.phoneId == message.phone()
+            if (left) RemoteSignInRequest.Waiting else current
+        }
+    }
+
+    /** The phone confirmed: take its session, once, and only for exactly what this television showed. */
+    private fun received(message: WatchWireMessage) {
+        val server = message.signInServer?.takeIf(WatchProtocol::isValidRemoteSignInCredentials) ?: return
+        val current = _signIn.value as? RemoteSignInRequest.Offered ?: return
+        if (current.phoneId != message.phone() || current.server != server.summary) return
+        if (_signIn.compareAndSet(current, RemoteSignInRequest.Receiving(current.phoneName, current.server))) {
+            handovers.trySend(server)
+        }
+    }
+
+    private fun drainHandovers() {
+        while (handovers.tryReceive().isSuccess) Unit
+    }
+
     private suspend fun host() {
         var failures = 0
         var refreshed = false
@@ -148,6 +273,7 @@ class RemoteControlHost(
                         }
                     }.exceptionOrNull()
                 _hosting.value = false
+                _signInAvailable.value = false
                 if (failure is CancellationException) throw failure
                 if (failure is RemoteControlRefusedException && !failure.supported) return
                 if (failure is PhonesLetGoException) {
@@ -166,9 +292,13 @@ class RemoteControlHost(
             }
         } finally {
             _hosting.value = false
-            // Every phone hears its television leave; each one is asked about again next time.
+            _signInAvailable.value = false
+            // Every phone hears its television leave; each one is asked about again next time. A
+            // phone offering a server hears it too, and nothing it offered is kept.
             pairing.value = RemotePairing()
+            _signIn.value = RemoteSignInRequest.Idle
             drainReleases()
+            drainHandovers()
             while (signals.tryReceive().isSuccess) Unit
         }
     }
@@ -199,12 +329,21 @@ class RemoteControlHost(
                                 if (staying == 0) drainReleases()
                                 pairing.update { it.hosted(staying) }
                                 _hosting.value = true
-                                if (answering == null) answering = launch { answer(channel, offered) }
+                                val signsIn =
+                                    WatchProtocol.CAPABILITY_REMOTE_SIGN_IN in offered && remoteSignInCarried(relay)
+                                _signInAvailable.value = signsIn
+                                // Still asking after a reconnect: ask on this socket too, and be shown
+                                // again what a phone had offered.
+                                if (_signIn.value.asking) signals.trySend(Signal.SignInAsk)
+                                if (answering == null) answering = launch { answer(channel, offered, signsIn) }
                             }
                             "remoteConnected" ->
                                 changePairing { it.connected(message.phone(), message.phoneName(), trusted) }
                             "remoteDisconnected" ->
                                 pairing.update { it.disconnected(message.phone(), message.participantCount) }
+                            "remoteSignInOffer" -> offered(message)
+                            "remoteSignInWithdrawn" -> withdrawn(message)
+                            "remoteSignInSend" -> received(message)
                             "remoteKey" ->
                                 RemoteControlKey.fromWireName(message.remoteKey)?.let { key ->
                                     if (admits(message)) _events.tryEmit(RemoteControlEvent.Key(key))
@@ -243,14 +382,16 @@ class RemoteControlHost(
     }
 
     /**
-     * Passes the viewer's answers to the relay as they come: 拒绝 and 断开, and who was let in. A relay
-     * that cannot let one phone go is left instead, and hosted again after a pause, which ends every
-     * phone's session; one that does not name phones cannot be told who was let in, and never makes
-     * a phone wait for it.
+     * Passes the viewer's answers to the relay as they come: 拒绝 and 断开, who was let in, and what
+     * 用手机登录 asks. A relay that cannot let one phone go is left instead, and hosted again after a
+     * pause, which ends every phone's session; one that does not name phones cannot be told who was
+     * let in, and never makes a phone wait for it; one that cannot carry 用手机登录 ([signsIn]) is
+     * never asked for a server.
      */
     private suspend fun answer(
         channel: RemoteRelayChannel,
         offered: List<String>,
+        signsIn: Boolean,
     ) {
         val namesPhones = WatchProtocol.CAPABILITY_REMOTE_PAIRING in offered
         while (true) {
@@ -266,12 +407,17 @@ class RemoteControlHost(
                     )
                 }
                 signals.onReceive { signal ->
-                    when (signal) {
-                        is Signal.Admit ->
-                            if (namesPhones) {
-                                channel.send(WatchWireMessage(type = "remoteAdmit", remoteDeviceId = signal.deviceId))
-                            }
-                    }
+                    val message =
+                        when (signal) {
+                            is Signal.Admit ->
+                                WatchWireMessage(type = "remoteAdmit", remoteDeviceId = signal.deviceId)
+                                    .takeIf { namesPhones }
+                            Signal.SignInAsk -> WatchWireMessage(type = "remoteSignInAsk").takeIf { signsIn }
+                            is Signal.SignInEnd ->
+                                WatchWireMessage(type = "remoteSignInEnd", errorCode = signal.errorCode)
+                                    .takeIf { signsIn }
+                        }
+                    message?.let { channel.send(it) }
                 }
             }
         }
@@ -292,6 +438,14 @@ class RemoteControlHost(
         data class Admit(
             val deviceId: String,
         ) : Signal
+
+        /** 用手机登录: ask for a server — again, harmlessly, on a socket that replaced another. */
+        data object SignInAsk : Signal
+
+        /** 用手机登录 is over: saved when [errorCode] is null, else cancelled or failed. */
+        data class SignInEnd(
+            val errorCode: String?,
+        ) : Signal
     }
 
     /** Ends a session on a relay that cannot let one phone go, so that all of them go. */
@@ -301,6 +455,13 @@ class RemoteControlHost(
         const val EVENT_BUFFER = 64
     }
 }
+
+/**
+ * How long a television gives its server to accept a session a phone handed over before it tells
+ * the phone it did not; shorter than the phone waits for that answer, so the phone hears it rather
+ * than its own time running out.
+ */
+internal const val REMOTE_SIGN_IN_RECEIVE_MS = 45_000L
 
 /** The phone a relay message is about, or null from a relay that does not name phones. */
 private fun WatchWireMessage.phone(): String? = remoteDeviceId?.takeIf(WatchProtocol::isValidRemoteDeviceId)
