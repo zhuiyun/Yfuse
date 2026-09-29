@@ -561,7 +561,12 @@ internal class AndroidNativeDirectYPlayer(
          *
          * Distinguishes "video output was lost" from "video output was never established". Losing
          * it must not stop audio; never having had it still gates startup on the Surface.
+         *
+         * Volatile because the MediaCodec render callback sets it ([markFirstVideoFrameRendered])
+         * on its own thread while the playback pump reads it through [audioPumpAllowed] and
+         * [videoOutputPending]; without it the pump may keep gating audio on a stale false.
          */
+        @Volatile
         private var videoOutputEstablished = false
 
         /** Set when a rebuilt video decoder still needs a sync sample before it can decode. */
@@ -616,7 +621,11 @@ internal class AndroidNativeDirectYPlayer(
          * Sticky for the whole binding, unlike [firstVideoFrameRendered], which an audio route
          * change or a recovery restart clears. Buffering before the very first frame is startup,
          * not a rebuffer; buffering after it is a rebuffer however the pipeline got there.
+         *
+         * Volatile for the same reason as [videoOutputEstablished]: the render callback writes it
+         * and the pump's state publish reads it to classify rebuffers.
          */
+        @Volatile
         private var outputHasEverRendered = false
 
         private val rebufferTracker =
