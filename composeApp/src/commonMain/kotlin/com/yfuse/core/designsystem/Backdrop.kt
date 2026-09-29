@@ -1,6 +1,7 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -17,8 +18,11 @@ import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.GraphicsLayer
@@ -318,3 +322,94 @@ private class RefractionCache {
     var size: Size = Size.Zero
     var effect: RenderEffect? = null
 }
+
+/**
+ * [backdropBlur] for a surface whose outline is a path that changes every frame — a liquid layer
+ * while one key grows out of another.
+ *
+ * The blur goes into a layer of its own and is clipped to the path it is drawn with, so the node
+ * it is drawn from is not clipped at all: the keys laid over the liquid keep their own bounds.
+ * There is no refraction — the bend is keyed to a surface's rectangle, and a liquid outline has
+ * none — which at this radius nobody can tell from the resting glass.
+ */
+@Stable
+internal class PathBackdropBlur internal constructor(
+    private val state: BackdropState,
+    private val layer: GraphicsLayer,
+    private val effect: RenderEffect,
+    private val vibrancyFallback: Paint?,
+) {
+    /** Where the drawing node sits in root coordinates — see [Modifier.pathBackdropBlurOrigin]. */
+    internal var origin by mutableStateOf(Offset.Zero)
+
+    /** Draws what the backdrop captured behind this node, blurred, inside [clip]. */
+    fun DrawScope.drawBlurred(clip: Path) {
+        // Sampled first: sampling is also the subscription — see [backdropBlur].
+        val source = state.sample()
+        if (!state.hasContent) return
+        layer.renderEffect = effect
+        layer.alpha = 1f
+        layer.record {
+            translate(left = state.origin.x - origin.x, top = state.origin.y - origin.y) {
+                drawLayer(source)
+            }
+        }
+        clipPath(clip) {
+            if (vibrancyFallback == null) {
+                drawLayer(layer)
+            } else {
+                drawIntoCanvas { canvas ->
+                    canvas.saveLayer(Rect(Offset.Zero, size), vibrancyFallback)
+                    drawLayer(layer)
+                    canvas.restore()
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The blur for a liquid layer over [state], or null where the backdrop is not blurred at all —
+ * the platform cannot, or 降低透明度 asked for opaque surfaces.
+ */
+@Composable
+internal fun rememberPathBackdropBlur(
+    state: BackdropState,
+    radius: Dp,
+    saturation: Float,
+): PathBackdropBlur? {
+    val layer = rememberGraphicsLayer()
+    val radiusPx = with(LocalDensity.current) { radius.toPx() }
+    if (!state.enabled) return null
+    return remember(state, layer, radiusPx, saturation) {
+        val chained = saturatedBlurEffect(radiusPx, saturation)
+        PathBackdropBlur(
+            state = state,
+            layer = layer,
+            effect = chained ?: BlurEffect(radiusPx, radiusPx),
+            vibrancyFallback =
+                if (chained != null) {
+                    null
+                } else {
+                    Paint().apply {
+                        colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(saturation) })
+                    }
+                },
+        )
+    }
+}
+
+/** Keeps [blur]'s idea of where this node is in step with layout. */
+internal fun Modifier.pathBackdropBlurOrigin(blur: PathBackdropBlur?): Modifier =
+    if (blur == null) this else onGloballyPositioned { blur.origin = it.positionInRoot() }
+
+/** The saturation [backdropBlur] gives a surface that does not name its own. */
+@Composable
+@ReadOnlyComposable
+internal fun defaultBackdropSaturation(): Float =
+    if (frostedGlass()) FROSTED_BACKDROP_SATURATION else LIQUID_BACKDROP_SATURATION
+
+/** The radius [backdropBlur] gives a surface that does not name its own. */
+@Composable
+@ReadOnlyComposable
+internal fun defaultBackdropRadius(): Dp = if (frostedGlass()) FrostedBackdropBlurRadius else BackdropBlurRadius

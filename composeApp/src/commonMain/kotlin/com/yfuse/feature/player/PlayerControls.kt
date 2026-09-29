@@ -12,9 +12,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -2070,9 +2068,30 @@ internal fun PlayerControls(
                     onDismiss = { pauseInfoShown = false },
                     modifier = Modifier.align(Alignment.CenterStart).padding(start = 28.dp),
                 )
+                /**
+                 * The end of an item that did not roll on into the next one, where nothing used to be.
+                 *
+                 * A film, the last entry in a series, or an episode that stopped at its end because
+                 * 自动播放下一集 is off (or 取消 or the sleep timer said so). The picture stops on its
+                 * final frame with no controls, nothing saying the episode is over rather than
+                 * stalled, and no way on that does not start with a tap to summon the chrome. Keys at
+                 * the same size and in the same place as 继续播放, because it is the same question —
+                 * what happens if I touch this — asked one moment later; 下一集 leads when there is one.
+                 *
+                 * 重播 runs the ending's split backwards before its keys go, and they stay up for that.
+                 */
+                var endingFlowsBack by remember { mutableStateOf(false) }
+                val showEndedKeys = stoppedAtItemEnd || endingFlowsBack
+                // The ending forms out of the paused key's disc when that is what is on screen: the
+                // key hands over without fading out, and the ending splits from it without fading in.
+                // Decided as the ending appears and kept while it stays, so its entrance never changes midway.
+                val pausedKeyWasUp = remember { booleanArrayOf(false) }
+                val endingFromPausedKey = remember(showEndedKeys) { showEndedKeys && pausedKeyWasUp[0] }
+                SideEffect { pausedKeyWasUp[0] = showPausedKey }
                 ChromeVisibility(
                     visible = showPausedKey,
                     modifier = Modifier.align(Alignment.Center),
+                    instantExit = showEndedKeys,
                 ) {
                     CircleControl(
                         // 播放, never 暂停. This is an affordance, not a readout — it says what the
@@ -2092,67 +2111,38 @@ internal fun PlayerControls(
                     )
                 }
 
-                /**
-                 * The end of an item that did not roll on into the next one, where nothing used to be.
-                 *
-                 * A film, the last entry in a series, or an episode that stopped at its end because
-                 * 自动播放下一集 is off (or 取消 or the sleep timer said so). The picture stops on its
-                 * final frame with no controls, nothing saying the episode is over rather than
-                 * stalled, and no way on that does not start with a tap to summon the chrome. Keys at
-                 * the same size and in the same place as 继续播放, because it is the same question —
-                 * what happens if I touch this — asked one moment later; 下一集 leads when there is one.
-                 */
-                val showEndedKeys = stoppedAtItemEnd
+                // The ending's keys, where the paused key was. They form out of one white drop: see [EndedKeys].
                 ChromeVisibility(
                     visible = showEndedKeys,
                     modifier = Modifier.align(Alignment.Center),
+                    instantEnter = endingFromPausedKey,
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                        if (state.hasNext) {
-                            CircleControl(
-                                icon = AppIcons.Next,
-                                description = "下一集",
-                                size = CenterKeySize,
-                                iconSize = CenterKeyIconSize,
-                                enabled = !watchLocked,
-                                filled = true,
-                                onClick = {
-                                    poke()
-                                    onNextItem()
-                                },
-                            )
-                        }
-                        CircleControl(
-                            icon = AppIcons.Refresh,
-                            description = "重播",
-                            size = CenterKeySize,
-                            iconSize = CenterKeyIconSize,
-                            enabled = !watchLocked,
-                            filled = !state.hasNext,
-                            onClick = {
-                                if (playback.value.ended) {
-                                    // Back to the first frame, and playing again: the engine reports
-                                    // the ended item as paused, so the seek alone would leave it
-                                    // standing on frame one.
-                                    latestOnSeek(0L)
-                                    if (!playback.value.playing) onPlayPause()
-                                } else {
-                                    // Parked on the last frame instead of ended: resuming would run
-                                    // into the next item before the seek landed, so the item is
-                                    // started again from the top.
-                                    onSelectItem(state.currentIndex)
-                                }
-                                poke()
-                            },
-                        )
-                        CircleControl(
-                            icon = AppIcons.Close,
-                            description = "返回",
-                            size = CenterKeySize,
-                            iconSize = CenterKeyIconSize,
-                            onClick = onBack,
-                        )
-                    }
+                    EndedKeys(
+                        hasNext = state.hasNext,
+                        watchLocked = watchLocked,
+                        fromPausedKey = endingFromPausedKey,
+                        onNext = {
+                            poke()
+                            onNextItem()
+                        },
+                        onReplay = {
+                            if (playback.value.ended) {
+                                // Back to the first frame, and playing again: the engine reports
+                                // the ended item as paused, so the seek alone would leave it
+                                // standing on frame one.
+                                latestOnSeek(0L)
+                                if (!playback.value.playing) onPlayPause()
+                            } else {
+                                // Parked on the last frame instead of ended: resuming would run
+                                // into the next item before the seek landed, so the item is
+                                // started again from the top.
+                                onSelectItem(state.currentIndex)
+                            }
+                            poke()
+                        },
+                        onBack = onBack,
+                        onHold = { endingFlowsBack = it },
+                    )
                 }
 
                 // Taught once, while the controls are up over something that can play faster.
