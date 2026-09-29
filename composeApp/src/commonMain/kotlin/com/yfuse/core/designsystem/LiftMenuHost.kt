@@ -234,18 +234,28 @@ private fun LiftLayer(
                 blurred -> LIFT_SCRIM_ALPHA
                 else -> LIFT_SOLID_SCRIM_ALPHA
             }
+        val scrim = palette.scrim.copy(alpha = scrimAlpha)
+        // Read while drawing, by the blur's own layer and by the dimming. An alpha layer around the
+        // two made the full-screen blur a second offscreen pass on every frame of the lift and the
+        // settle; the blur's layer already is one, and it takes the fade as it composites.
+        val fade = { presence.value * lift.value.coerceIn(0f, 1f) }
         Box(
             Modifier
                 .fillMaxSize()
                 .onPlaced { origin = it.positionInRoot() }
-                .graphicsLayer { alpha = presence.value * lift.value.coerceIn(0f, 1f) }
                 .then(
                     if (backdrop != null && blurred) {
-                        Modifier.backdropBlur(backdrop, RectangleShape, radius = LiftBlurRadius, saturation = 1f)
+                        Modifier.backdropBlur(
+                            backdrop,
+                            RectangleShape,
+                            radius = LiftBlurRadius,
+                            saturation = 1f,
+                            alpha = fade,
+                        )
                     } else {
                         Modifier
                     },
-                ).background(palette.scrim.copy(alpha = scrimAlpha))
+                ).drawBehind { drawRect(scrim, alpha = fade()) }
                 .pointerInput(session) { detectTapGestures { session.dismiss() } },
         )
 
