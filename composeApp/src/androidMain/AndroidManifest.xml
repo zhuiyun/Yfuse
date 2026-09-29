@@ -188,7 +188,8 @@
                 <data android:scheme="file" />
                 <data android:mimeType="video/*" />
             </intent-filter>
-            <intent-filter>
+            <!-- Lint expects an http(s) VIEW filter to be BROWSABLE; this one must not be (above). -->
+            <intent-filter tools:ignore="AppLinkUrlError">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="http" />
