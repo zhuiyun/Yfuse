@@ -40,8 +40,9 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
 | C→S | `setControlMode` / `setModerator` | 房主选择仅房主、共同控制或指定管理员 |
 | C→S | `kickParticipant` | 房主将指定成员移出当前房间 |
 | C→S | `remoteHost` | 手机遥控：前台电视以自己的账号会话开放遥控 |
-| C→S | `remoteJoin` | 手机遥控：手机按 `remoteSessionId` 连接同账号的电视 |
+| C→S | `remoteJoin` | 手机遥控：手机按 `remoteSessionId` 连接同账号的电视；可带本机安装的固定 `remoteDeviceId` 与设备名 `name` |
 | C→S | `remoteKey` / `remoteText` | 手机遥控：按键（`remoteKey`）或输入框全文（`text`，最多 64 字素、256 字节，可为空） |
+| C→S | `remoteRelease` | 手机遥控：电视按 `remoteDeviceId` 断开一部手机；`errorCode` 为 `remote_refused` 表示拒绝 |
 | S→C | `welcome` | 入房成功，附时间线、控制模式与成员快照 |
 | S→C | `roomUpdate` | 成员或房主变化，附当前时间线 |
 | S→C | `sync` | 房主提交的新锚点 |
@@ -51,8 +52,8 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
 | S→C | `hostCapabilityGranted` | 主持权转移时私下下发新的主持凭据 |
 | S→C | `kicked` | 通知被房主移出的成员并结束其当前连接 |
 | S→C | `remoteHosting` / `remoteJoined` | 手机遥控：开放或连接成功，附服务端能力 |
-| S→C | `remoteConnected` / `remoteDisconnected` | 手机遥控：手机连上或离开（发给电视，附手机数）；电视离开（发给手机） |
-| S→C | `remoteKey` / `remoteText` | 手机遥控：转发给电视的按键与文字 |
+| S→C | `remoteConnected` / `remoteDisconnected` | 手机遥控：手机连上或离开（发给电视，附手机数与 `remoteDeviceId`，连上时另附 `name`）；电视离开或断开这部手机（发给手机） |
+| S→C | `remoteKey` / `remoteText` | 手机遥控：转发给电视的按键与文字，附发送手机的 `remoteDeviceId` |
 | S→C | `error` | 文案在 `message` |
 
 行为要点：
@@ -63,6 +64,10 @@ seek / 变速 / 换片）提交一个新锚点，其他人本地按
 - 手机遥控（能力 `remoteControl`）：配对按连接自身的账号查找，只能连到同一账号的电视，其他账号的
   会话 id 与离线电视无从区分；按键和文字只从手机转发到电视。遥控连接不能入房，房间连接也不能遥控。
   每台电视最多 4 部手机，每部手机每 3 秒最多 40 条输入；电视重连后原有手机自动跟随。
+- 手机配对（能力 `remotePairing`）：手机自报的 `remoteDeviceId` 由服务端盖在它的每条消息上转给电视，
+  手机自己不能在按键或文字里填写；未自报的旧版手机由服务端给一个以 `~` 开头、只在本次连接有效的
+  代号，电视不会“始终允许”它，手机也不能自报这种代号。只有电视本身的连接能用 `remoteRelease`
+  断开自己的手机，被断开的手机收到 `remoteDisconnected`（`remote_refused` 或 `remote_released`）。
 - 房主断线后保留 20 秒控制权；宽限期内重连仍是房主，超时才移交给房内下一位成员。
 - 房间空掉后保留 5 分钟宽限期，期间可重连回同一个房间码；超时才回收。
 - 单实例最多 500 个房间、每个来源 IP 默认最多 8 个仍存续的房间、每房 12 人；单连接

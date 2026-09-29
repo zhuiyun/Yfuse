@@ -106,7 +106,6 @@ import com.yfuse.tv.focus.FocusRestorePolicy
 import com.yfuse.tv.focus.FocusRestoreRequest
 import com.yfuse.tv.focus.FocusTargetId
 import com.yfuse.tv.focus.InMemoryFocusRepository
-import com.yfuse.tv.focus.RemoteIntent
 import com.yfuse.tv.focus.TvFocusRequesterRegistry
 import com.yfuse.tv.focus.requestFocusWhenAttached
 import com.yfuse.tv.focus.tvFocusScope
@@ -290,12 +289,20 @@ internal class TvUiFocusMemory {
     fun gridState(route: String): LazyGridState = gridStates.getOrPut(route) { LazyGridState() }
 }
 
-/** Scrolls [index] into view for a restore, and leaves a row that already shows it where it is. */
+/**
+ * Scrolls [index] into view for a restore, and leaves a row that already shows it where it is. It
+ * lands where focus will hold it — see [TvFocusPivot.restoreLead] — rather than at the start, from
+ * where it would glide on to its place the moment it took focus.
+ */
 internal suspend fun LazyListState.revealForRestore(
     index: Int,
     scrollOffset: Int = 0,
 ) {
-    if (layoutInfo.visibleItemsInfo.none { it.index == index }) scrollToItem(index, scrollOffset)
+    val info = layoutInfo
+    if (info.visibleItemsInfo.none { it.index == index }) {
+        val lead = TvFocusPivot.restoreLead(info.orientation, info.viewportSize, info.beforeContentPadding)
+        scrollToItem(index, scrollOffset - lead)
+    }
 }
 
 /** [LazyListState.revealForRestore] for a grid. */
@@ -303,7 +310,11 @@ internal suspend fun LazyGridState.revealForRestore(
     index: Int,
     scrollOffset: Int = 0,
 ) {
-    if (layoutInfo.visibleItemsInfo.none { it.index == index }) scrollToItem(index, scrollOffset)
+    val info = layoutInfo
+    if (info.visibleItemsInfo.none { it.index == index }) {
+        val lead = TvFocusPivot.restoreLead(info.orientation, info.viewportSize, info.beforeContentPadding)
+        scrollToItem(index, scrollOffset - lead)
+    }
 }
 
 internal enum class TvArtworkShape(
@@ -445,7 +456,8 @@ internal fun TvFocusableSurface(
                     false
                 }
             }.tvRemoteKeyHandler { intent ->
-                if (intent is RemoteIntent.OpenContextMenu && onContextMenu != null) {
+                // Holding 确定, or 菜单 — see [opensTvQuickActions].
+                if (intent.opensTvQuickActions() && onContextMenu != null) {
                     onContextMenu()
                     true
                 } else {
@@ -940,39 +952,42 @@ internal fun TvMediaRow(
                 )
             }
         }
-        LazyRow(
-            state = rowState,
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            itemsIndexed(items, key = { _, item -> "$sectionKey:${item.stableId}" }) { index, item ->
-                TvMediaCard(
-                    model = item,
-                    focusScope = sectionKey,
-                    focusMemory = focusMemory,
-                    focusRequester = if (index == 0) firstFocusRequester else null,
-                    navigationRequester = navigationRequester,
-                    returnToNavigationOnLeft = index == 0,
-                    fallbackIndex = index,
-                )
-            }
-            if (onSeeAll != null) {
-                item(key = "$sectionKey:see-all") {
-                    TvFocusableSurface(
-                        stableId = "$sectionKey:see-all",
+        // The focused card rests a third of the way in while the row slides — see TvFocusPivot.
+        ProvideTvRowPivot {
+            LazyRow(
+                state = rowState,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                itemsIndexed(items, key = { _, item -> "$sectionKey:${item.stableId}" }) { index, item ->
+                    TvMediaCard(
+                        model = item,
                         focusScope = sectionKey,
                         focusMemory = focusMemory,
-                        onClick = onSeeAll,
-                        modifier = Modifier.width(116.dp).height(180.dp),
-                        parallax = true,
-                    ) {
-                        Column(
-                            Modifier.fillMaxSize(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
+                        focusRequester = if (index == 0) firstFocusRequester else null,
+                        navigationRequester = navigationRequester,
+                        returnToNavigationOnLeft = index == 0,
+                        fallbackIndex = index,
+                    )
+                }
+                if (onSeeAll != null) {
+                    item(key = "$sectionKey:see-all") {
+                        TvFocusableSurface(
+                            stableId = "$sectionKey:see-all",
+                            focusScope = sectionKey,
+                            focusMemory = focusMemory,
+                            onClick = onSeeAll,
+                            modifier = Modifier.width(116.dp).height(180.dp),
+                            parallax = true,
                         ) {
-                            Text("›", color = TvOnSurface, fontSize = TvType.display)
-                            Text("查看全部", color = TvOnSurfaceMuted, fontSize = TvType.caption)
+                            Column(
+                                Modifier.fillMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                            ) {
+                                Text("›", color = TvOnSurface, fontSize = TvType.display)
+                                Text("查看全部", color = TvOnSurfaceMuted, fontSize = TvType.caption)
+                            }
                         }
                     }
                 }

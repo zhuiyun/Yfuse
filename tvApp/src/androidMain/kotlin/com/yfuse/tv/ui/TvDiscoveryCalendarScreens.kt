@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.ItemAction
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.network.TmdbImages
@@ -68,6 +70,8 @@ internal fun TvTmdbInfoScreen(
         item(key = "tmdb-info:hero:${item.mediaType}:${item.id}") {
             Box(
                 Modifier
+                    // Whole while focus is on 播放, 追剧 or 返回 — see TvFocusPivot.
+                    .tvKeepWholeInView()
                     .fillMaxWidth()
                     .height(455.dp)
                     .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
@@ -374,6 +378,14 @@ internal fun TvCalendarScreen(
 
 private fun CalendarEntry.toCalendarTvCard(component: CalendarComponent): TvMediaCardModel {
     val target = openItemId
+    val entry = this
+    val openInLibrary: (() -> Unit)? = target?.let { itemId -> { component.onOpenItem(serverId, itemId) } }
+    val follow: (() -> Unit)? =
+        if (followed) {
+            null
+        } else {
+            { component.toggleFollow(entry) }
+        }
     val stableProviderId =
         if (target != null && serverId != null) {
             "server:$serverId:$target"
@@ -396,6 +408,12 @@ private fun CalendarEntry.toCalendarTvCard(component: CalendarComponent): TvMedi
                 LibraryStatus.Watched -> "已看"
                 LibraryStatus.Unknown -> if (followed) "已追剧" else "发现"
             },
+        quickActions =
+            if (openInLibrary == null && follow == null) {
+                null
+            } else {
+                { tvCalendarQuickActions(episode.showTitle, episode.episodeLabel, openInLibrary, follow) }
+            },
         onClick = {
             if (target != null) {
                 component.onOpenItem(serverId, target)
@@ -405,3 +423,29 @@ private fun CalendarEntry.toCalendarTvCard(component: CalendarComponent): TvMedi
         },
     )
 }
+
+/**
+ * 长按面板 on a 追剧 card: the phone's 追剧中心 menu as far as the television has the pages for it —
+ * 在媒体库打开 once the episode has arrived, and 追剧 for a show not followed yet. 播出日历 is a sheet
+ * only the phone has, and 取消追剧 stays in 追剧管理 there, where it can be undone. The caller offers
+ * no panel at all when neither row applies.
+ */
+internal fun tvCalendarQuickActions(
+    title: String,
+    meta: String?,
+    onOpenInLibrary: (() -> Unit)?,
+    onFollow: (() -> Unit)?,
+): LiftMenu =
+    LiftMenu(
+        title = title,
+        meta = meta,
+        sections =
+            listOf(
+                listOfNotNull(
+                    onOpenInLibrary?.let {
+                        ItemAction(label = "在媒体库打开", icon = AppIcons.Play, leavesPage = true, onSelect = it)
+                    },
+                ),
+                listOfNotNull(onFollow?.let { ItemAction(label = "追剧", icon = AppIcons.Bell, onSelect = it) }),
+            ),
+    )
