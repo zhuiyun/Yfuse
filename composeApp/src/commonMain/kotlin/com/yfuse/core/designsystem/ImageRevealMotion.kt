@@ -8,6 +8,43 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+/** How one picture takes over from its placeholder; see [ImageRevealMotion]. */
+internal data class ImageReveal(
+    val durationMillis: Int,
+    /** Blur and overscale settle along with the fade. Otherwise the fade is all there is. */
+    val resolves: Boolean,
+)
+
+/**
+ * 图片渐进加载 §3.1: how a picture arrives over its placeholder.
+ *
+ * A large single picture — a page hero, the detail poster — resolves out of [ResolveBlur] and a
+ * [RESOLVE_SCALE_FROM] overscale over [Motion.ARTWORK_REVEAL]. Everything dense, the rails, grids
+ * and avatars, only fades, in [Motion.POSTER_FADE]: a grid scrolling quickly would otherwise hold
+ * a blur layer per tile in the same frame. 静息 keeps the fade alone and shortens it to
+ * [Motion.STATE_HANDOFF] for both, because the resolve is exactly the kind of flourish it takes
+ * away. 减弱动态效果 and a picture Coil already held in memory have no reveal at all — that is
+ * decided per request by [rememberImageRevealProgress].
+ */
+internal object ImageRevealMotion {
+    /** Large artwork may resolve cinematically, but should never hold the picture soft for long. */
+    val ResolveBlur: Dp = 6.dp
+    const val RESOLVE_SCALE_FROM = 1.025f
+
+    fun reveal(
+        large: Boolean,
+        calm: Boolean,
+        durationMillis: Int = if (large) Motion.ARTWORK_REVEAL else Motion.POSTER_FADE,
+    ): ImageReveal =
+        if (calm) {
+            ImageReveal(minOf(durationMillis, Motion.STATE_HANDOFF), resolves = false)
+        } else {
+            ImageReveal(durationMillis, resolves = large)
+        }
+}
 
 /** The request owns its reveal. Hidden, cached and reduced-motion images have no running clock. */
 @Composable

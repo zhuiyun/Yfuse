@@ -127,6 +127,9 @@ val releaseSigningReady =
         }
 val allowDebugSigning = providers.strictBooleanProperty("allowDebugSigning")
 
+// Passed by the quality gate's lint step; see the lint block below.
+val lintSharedCode = providers.strictBooleanProperty("yfuseLintSharedCode")
+
 // Default TV is the actual YCore system-native path: MediaExtractor + MediaCodec + AudioTrack.
 // It contains no .so and therefore installs on arm64, armeabi-v7a and x86_64 UI-test devices.
 // The optional full-native carrier is fail-closed and must contain both production TV ABIs.
@@ -227,6 +230,18 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+    }
+
+    lint {
+        lintConfig = rootProject.file("lint.xml")
+        textReport = true
+        // As in :composeApp: the TV product code (shared sources plus tvApp/src/androidMain) is
+        // compiled by :tvShared, so only with the property does lint read it, against the
+        // committed baseline.
+        if (lintSharedCode) {
+            checkDependencies = true
+            baseline = rootProject.file("config/lint/tvApp-baseline.xml")
+        }
     }
 
     packaging {

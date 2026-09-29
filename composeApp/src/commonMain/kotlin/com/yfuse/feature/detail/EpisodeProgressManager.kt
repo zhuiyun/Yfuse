@@ -52,6 +52,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalToastBottomInset
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.RollingNumber
 import com.yfuse.core.designsystem.SwipeActionsRow
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.ToastAction
@@ -215,6 +216,7 @@ internal fun EpisodeProgressManager(
                             val download = downloads[episode.id]
                             SwipeActionsRow(
                                 modifier = Modifier.dragSelectRow(sweep, episode.id),
+                                tipId = Tips.SWIPE_ROW_EPISODES,
                                 leading =
                                     rowActions?.let { actions ->
                                         ItemAction(
@@ -260,7 +262,7 @@ internal fun EpisodeProgressManager(
                     }
                     // Where the rows can be swiped, once there are rows; the first swipe retires it.
                     ContextualTip(
-                        id = Tips.SWIPE_ROW,
+                        id = Tips.SWIPE_ROW_EPISODES,
                         text = "右滑标记已看，左滑下载；长按一集后上下拖动可连续选择",
                         active = rowActions != null && episodes.isNotEmpty(),
                         modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
@@ -424,20 +426,32 @@ private fun ProgressEpisodeRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(3.dp))
-            Text(
-                listOfNotNull(
+            val watching = !episode.played && (episode.resumePositionTicks ?: 0L) > 0L
+            val ink = if (selected) accent else palette.sub2
+            val tail = episodeDownloadLabel(download?.status)?.let { " · $it" }.orEmpty()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
                     when {
-                        episode.played -> "已看完"
-                        (episode.resumePositionTicks ?: 0L) > 0L ->
-                            "观看中 · ${episode.playedPercentage?.toInt() ?: 0}%"
-                        else -> "未观看"
+                        episode.played -> "已看完$tail"
+                        watching -> "观看中 · "
+                        else -> "未观看$tail"
                     },
-                    episodeDownloadLabel(download?.status),
-                ).joinToString(" · "),
-                style = AppTypography.caption.regular,
-                color = if (selected) accent else palette.sub2,
-                maxLines = 1,
-            )
+                    style = AppTypography.caption.regular,
+                    color = ink,
+                    maxLines = 1,
+                )
+                if (watching) {
+                    // How far in, rolling to its new figure as the episode's progress changes.
+                    RollingNumber(
+                        text = "${episode.playedPercentage?.toInt() ?: 0}%",
+                        style = AppTypography.caption.regular,
+                        color = ink,
+                    )
+                    if (tail.isNotEmpty()) {
+                        Text(tail, style = AppTypography.caption.regular, color = ink, maxLines = 1)
+                    }
+                }
+            }
         }
     }
 }

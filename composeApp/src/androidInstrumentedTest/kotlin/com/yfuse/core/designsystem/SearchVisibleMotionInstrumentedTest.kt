@@ -89,7 +89,13 @@ class SearchVisibleMotionInstrumentedTest {
                 SystemClock.sleep(100)
                 val early = capture(scenario, bounds.get(), "$prefix-early.png")
                 SystemClock.sleep(170)
-                val later = capture(scenario, bounds.get(), "$prefix-later.png")
+                // A capture shows the frame the window queued last, and the pulse's clock starts a
+                // frame after the highlight first appears. The sleeps assume frames every 16 ms; on
+                // the software-rendered CI emulator both captures once showed the highlight in one
+                // place. Later frames are sampled for a full pulse instead; a highlight that does
+                // not move never differs.
+                val later =
+                    captureDiffering(scenario, bounds.get(), "$prefix-later.png", early, 2L * Motion.WAIT_HALF_CYCLE)
                 scenario.onActivity { reduced.value = true }
                 SystemClock.sleep(120)
                 val reducedFrame = capture(scenario, bounds.get(), "$prefix-reduced.png")
@@ -101,13 +107,30 @@ class SearchVisibleMotionInstrumentedTest {
                 val disabledAgain = capture(scenario, bounds.get(), "$prefix-disabled.png")
                 try {
                     assertTrue("$prefix loading highlight is imperceptible", difference(off, early) > 0.025)
-                    assertTrue("$prefix loading highlight does not move", difference(early, later) > 0.015)
+                    assertTrue("$prefix loading highlight does not move", difference(early, later) > MOVED)
                     assertTrue("Reduced motion left an animated decoration", difference(off, reducedFrame) < 0.005)
                     assertTrue("Disabling motion did not restore the field", difference(off, disabledAgain) < 0.005)
                 } finally {
                     listOf(off, early, later, reducedFrame, disabledAgain).forEach(Bitmap::recycle)
                 }
             }
+        }
+    }
+
+    /** Captures until a frame differs from [reference] as a moved highlight does, for up to [withinMs]. */
+    private fun captureDiffering(
+        scenario: ActivityScenario<MainActivity>,
+        bounds: Rect,
+        name: String,
+        reference: Bitmap,
+        withinMs: Long,
+    ): Bitmap {
+        val deadline = SystemClock.uptimeMillis() + withinMs
+        while (true) {
+            val frame = capture(scenario, bounds, name)
+            if (difference(reference, frame) > MOVED || SystemClock.uptimeMillis() >= deadline) return frame
+            frame.recycle()
+            SystemClock.sleep(50)
         }
     }
 
@@ -159,3 +182,6 @@ class SearchVisibleMotionInstrumentedTest {
         return bitmap
     }
 }
+
+/** Share of the field's pixels that must change between two positions of the loading highlight. */
+private const val MOVED = 0.015

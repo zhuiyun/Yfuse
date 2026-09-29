@@ -7,6 +7,26 @@ which builds and retains the signed APK without publishing. A manual dispatch re
 available as a fallback. Both
 paths run in the `production` environment.
 
+## Jobs, and which secret each one sees
+
+A run is six jobs: `request` → `gates` ‖ `build` → `sign` → `smoke` → `deploy`. Each secret
+reaches only the step that needs it, and every job hands on the same APK, checked by SHA-256.
+
+| Job | What it does | Secrets it can read |
+| --- | --- | --- |
+| `request` | Resolves the version, notes and publish mode; checks the MDK confirmation and, for a publishing run, that an update-manifest key is configured | `UPDATE_MANIFEST_SIGNING_KEY` (only to derive the public key the APK embeds) |
+| `gates` | Waits for the exact commit's quality gates (unit tests, lint, ktlint) | none |
+| `build` | Builds the R8 release APK, signed with a throwaway debug key | `TMDB_TOKEN` |
+| `sign` | Re-signs that APK with the production key (zipalign, then apksigner: v2 only, as every Yfuse release has been) and checks a single signer with the pinned certificate | the four keystore secrets, in one step; the keystore lives in the runner's temp directory for that step only |
+| `smoke` | Installs and starts that signed APK on Android 35, 36 and 37 emulators through `android-cloud-ui.yml` (see `docs/CLOUD_TESTING.md`) | none |
+| `deploy` | Saves the artifact; for a publishing run, signs both manifests and uploads over SSH | `UPDATE_MANIFEST_SIGNING_KEY`, and `DEPLOY_SSH_PRIVATE_KEY` / `DEPLOY_KNOWN_HOSTS` in the upload step only |
+
+Nothing is saved or uploaded unless the smoke passed on all three Android versions: Yfuse
+1.0.91 shipped a release that crashed at startup on Android 17 because no check had
+installed that exact build there. A missing secret fails in the job that uses it rather
+than at the start of the run, and if the `production` environment has required reviewers,
+each job that uses it (`request`, `build`, `sign`, `deploy`) asks for approval.
+
 ## One-time GitHub setup
 
 Create an environment named `production` in the repository settings. If the
@@ -292,8 +312,8 @@ so a source-only push does not request a package. A retry of an undelivered vers
 its existing version numbers in accordance with `AGENTS.md`.
 
 The marker selects package-only mode instead of skipping the entire job. It retains the
-same production environment, exact-commit quality gate, signing certificate check, and
-APK verification used by a manual package-only run. A normal version push without the
+same production environment, exact-commit quality gate, signing certificate check, startup
+smoke on Android 35 to 37, and APK verification used by a manual package-only run. A normal version push without the
 marker retains its existing publishing behavior.
 
 Run the manual fallback above with **publish** turned off to get a production-signed APK that

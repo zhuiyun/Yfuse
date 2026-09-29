@@ -21,14 +21,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -845,6 +850,10 @@ internal fun CircleControl(
      * it on every press.
      */
     crossfadeIcon: Boolean = false,
+    /** False while something else draws the disc or ring — the ending's liquid, as it forms. */
+    bodyVisible: Boolean = true,
+    /** Applied to the glyph, for callers that move or focus it while [bodyVisible] is false. */
+    glyphModifier: Modifier = Modifier,
 ) {
     val interactions = remember { MutableInteractionSource() }
     // Across a room the phone's ring is a speck: a television draws it no smaller than 40 dp, and
@@ -886,11 +895,10 @@ internal fun CircleControl(
                 // and made it read as a third kind of object wedged between two rings rather
                 // than as the emphatic member of their family.
                 .let {
-                    if (filled) {
-                        it.background(PlayerTokens.playFill, CircleShape)
-                    } else {
-                        it
-                            .border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape)
+                    when {
+                        !bodyVisible -> it
+                        filled -> it.background(PlayerTokens.playFill, CircleShape)
+                        else -> it.border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape)
                     }
                 }.softSelectionSurface(
                     interactionSource = interactions,
@@ -903,9 +911,10 @@ internal fun CircleControl(
             contentAlignment = Alignment.Center,
         ) {
             val tint = if (filled) PlayerTokens.onPlay else Color.White
+            val glyphBox = Modifier.size(glyphSize).then(glyphModifier)
             when {
                 glyph != null -> {
-                    Icon(glyph, contentDescription = description, tint = tint, modifier = Modifier.size(glyphSize))
+                    Icon(glyph, contentDescription = description, tint = tint, modifier = glyphBox)
                 }
                 crossfadeIcon -> {
                     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -913,7 +922,7 @@ internal fun CircleControl(
                     // hears both halves of the dissolve.
                     Crossfade(
                         targetState = icon,
-                        modifier = Modifier.size(glyphSize).semantics { contentDescription = description },
+                        modifier = glyphBox.semantics { contentDescription = description },
                         animationSpec = Motion.tween(if (reduceMotion) 0 else Motion.QUICK),
                         label = "circle-control-glyph",
                     ) { shown ->
@@ -921,7 +930,7 @@ internal fun CircleControl(
                     }
                 }
                 else -> {
-                    Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(glyphSize))
+                    Icon(icon, contentDescription = description, tint = tint, modifier = glyphBox)
                 }
             }
         }
@@ -985,7 +994,8 @@ internal fun PlayerLockKey(
         onClick = onClick,
         onLongClick = onLongClick,
         onLongClickLabel = "解锁屏幕".takeIf { onLongClick != null },
-        modifier = modifier,
+        // On the left edge in landscape, which is where a phone's notch or punch-hole may be.
+        modifier = modifier.windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Start)),
     )
 }
 

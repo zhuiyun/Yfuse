@@ -70,16 +70,21 @@ val verifyDesignSystemUsage by tasks.registering {
     group = "verification"
     description = "Rejects raw UI typography, radii, fixed functional colours, and motion off the house curve."
     val designSources =
-        fileTree("src/commonMain/kotlin/com/yfuse") {
-            include("app/App.kt", "core/designsystem/**/*.kt", "feature/**/*.kt")
-            // These files define the low-level primitives or scale type from runtime geometry.
-            exclude(
-                "core/designsystem/ContinuousCorner.kt",
-                "core/designsystem/SemanticTypography.kt",
-                "core/designsystem/Tokens.kt",
-                "core/designsystem/WatchAvatar.kt",
-            )
-        }
+        files(
+            fileTree("src/commonMain/kotlin/com/yfuse") {
+                include("app/App.kt", "core/designsystem/**/*.kt", "feature/**/*.kt")
+                // These files define the low-level primitives or scale type from runtime geometry.
+                exclude(
+                    "core/designsystem/ContinuousCorner.kt",
+                    "core/designsystem/SemanticTypography.kt",
+                    "core/designsystem/Tokens.kt",
+                    "core/designsystem/WatchAvatar.kt",
+                )
+            },
+            // The television's screens draw with the same tokens, so they answer to the same rules
+            // rather than drifting on their own.
+            fileTree(rootProject.file("tvApp/src/androidMain/kotlin")) { include("**/*.kt") },
+        )
     // Motion is checked wherever it is written: shared code, Android code, and the television.
     val motionSources =
         files(
@@ -185,7 +190,7 @@ val verifyDesignSystemUsage by tasks.registering {
                             if (
                                 !(label == "fixed interactive brand colour" && explicitlyBrandIdentity)
                             ) {
-                                add("${source.relativeTo(projectDir)}:$lineNumber: $label")
+                                add("${source.relativeTo(rootDir)}:$lineNumber: $label")
                             }
                         }
                     }
@@ -826,6 +831,16 @@ if (signDeviceTestsWithReleaseKey) {
     }
 }
 
+// Passed by the quality gate's lint step; see the lint block below.
+val lintSharedCode =
+    providers.gradleProperty("yfuseLintSharedCode").orNull?.let { raw ->
+        when (raw.trim().lowercase()) {
+            "", "true" -> true
+            "false" -> false
+            else -> error("yfuseLintSharedCode must be omitted, true, or false")
+        }
+    } ?: false
+
 val versionFile = rootProject.file("version.properties")
 val versionProperties =
     Properties().apply {
@@ -1000,6 +1015,8 @@ android {
 
     sourceSets {
 
+        // The main source set keeps its default root, so AGP compiles src/main/baseline-prof.txt
+        // (from the Baseline profile workflow) into non-debuggable APKs for ProfileInstaller.
         getByName("main") {
             manifest.srcFile("src/androidMain/AndroidManifest.xml")
             assets.directories += "src/androidMain/assets"
@@ -1023,6 +1040,21 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+    }
+
+    lint {
+        lintConfig = rootProject.file("lint.xml")
+        textReport = true
+        // This shell compiles one Application class; the product code is compiled by :phoneShared
+        // from composeApp/src, so lint of the shell alone reads almost nothing that ships. With the
+        // property, lintDebug also analyses its project dependencies, and the findings that code
+        // already had live in the committed baseline: only new ones fail. It is opt-in because that
+        // analysis reads ~240k lines inside the Gradle daemon, which the release workflows' lint
+        // (sized for the shell) and every release build's lintVital should not inherit.
+        if (lintSharedCode) {
+            checkDependencies = true
+            baseline = rootProject.file("config/lint/composeApp-baseline.xml")
+        }
     }
 
     packaging {

@@ -77,6 +77,9 @@ internal class ArtworkColorCache(
                                         if (flights[key]?.token === token) {
                                             colors[key] = value
                                             while (colors.size > maxEntries) colors.remove(colors.keys.first())
+                                            if (key.sample == ArtworkColorSample.Dominant) {
+                                                ArtworkPlaceholderColors.record(key.url, value)
+                                            }
                                         }
                                     }
                                 }
@@ -102,3 +105,77 @@ internal class ArtworkColorCache(
         }
     }
 }
+
+/**
+ * 图片渐进加载 for Emby and Plex, which send no BlurHash: the dominant colour already worked out
+ * for a picture — by a hero, a detail page, the player — kept by the picture rather than by its
+ * URL, so a card asking for the same artwork at another size can wash its skeleton in it.
+ *
+ * Read while a tile composes, so a plain lock rather than the cache's mutex; and colours only,
+ * like the cache itself — Coil still owns every pixel.
+ */
+internal object ArtworkPlaceholderColors {
+    private const val MAX_ENTRIES = 256
+    private val lock = Any()
+    private val colors = linkedMapOf<String, Int>()
+
+    fun record(
+        url: String,
+        argb: Int,
+    ) {
+        val identity = artworkIdentity(url)
+        synchronized(lock) {
+            colors.remove(identity)
+            colors[identity] = argb
+            while (colors.size > MAX_ENTRIES) colors.remove(colors.keys.first())
+        }
+    }
+
+    /** The colour remembered for the first of [urls] that has one. */
+    fun peek(urls: List<String>): Int? {
+        if (urls.isEmpty()) return null
+        val identities = urls.map(::artworkIdentity)
+        return synchronized(lock) { identities.firstNotNullOfOrNull { colors[it] } }
+    }
+}
+
+/**
+ * The picture a URL names, whatever size, quality, encoding or credentials it is asked for with:
+ * an Emby or Jellyfin image path with its `tag`, a Plex transcode with the `url` it transcodes, a
+ * TMDB file by name whichever size directory and host serve it.
+ */
+internal fun artworkIdentity(url: String): String {
+    val queryStart = url.indexOf('?')
+    val path = if (queryStart < 0) url else url.substring(0, queryStart)
+    TmdbSizeDirectory.find(path)?.let { return "tmdb:" + path.substring(it.range.last + 1) }
+    if (queryStart < 0) return path
+    val kept =
+        url
+            .substring(queryStart + 1)
+            .split('&')
+            .filter { it.isNotEmpty() && it.substringBefore('=').lowercase() !in RenditionParameters }
+            .sorted()
+    return if (kept.isEmpty()) path else kept.joinToString("&", prefix = "$path?")
+}
+
+/** Query parameters that choose how a picture is served rather than which picture it is. */
+private val RenditionParameters =
+    setOf(
+        "maxwidth",
+        "maxheight",
+        "width",
+        "height",
+        "fillwidth",
+        "fillheight",
+        "quality",
+        "format",
+        "minsize",
+        "upscale",
+        "api_key",
+        "apikey",
+        "x-plex-token",
+        "x-emby-token",
+    )
+
+/** TMDB's size directory, `/t/p/w500`, between either image host and the file name. */
+private val TmdbSizeDirectory = Regex("(tmdb|themoviedb)\\.org/t/p/[^/]+")

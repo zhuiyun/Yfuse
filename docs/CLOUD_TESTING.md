@@ -1,14 +1,23 @@
 # Cloud UI evidence
 
-The workflow runs the production-signed APK from a successful **Publish Android update**
-run on master, using that run's exact source commit. It verifies the source version,
-artifact manifest SHA-256 and production signing certificate, and refuses real devices
-or existing installations. A manual run requires both the package run ID and source SHA.
+**Publish Android update** calls this workflow for every production-signed package,
+publishing or not, before anything is saved or uploaded: its `smoke` job hands over the
+signed APK artifact, its SHA-256 and the expected version, and the release goes no further
+unless that exact APK installs, starts and passes the smoke on every API level below. It
+used to run only after packaging had finished, so it could not stop a bad release.
 
-`Android cloud UI evidence` runs after packaging completes. It uses Ubuntu 24.04 KVM
-and Android 35/36 Google APIs x86_64 images.
-ARM64 native translation must be advertised and the actual APK must install and
-start; image assumptions alone never count as a pass.
+It uses Ubuntu 24.04 KVM and Android 35, 36 and 37 Google APIs x86_64 images (37 through
+the `android-37.0` packages; the runner's own cmdline-tools misread that image, so the job
+installs the pinned newer ones first). The script fails a run whose booted system does not
+report the expected API level, or whose APK does not match the expected SHA-256, versionCode
+and versionName. ARM64 native translation must be advertised and the actual APK must install
+and start; image assumptions alone never count as a pass. Real devices and existing
+installations are refused.
+
+A manual dispatch remains for looking at an already published package: it takes that
+package run's ID and exact source SHA, verifies the source version, artifact manifest
+SHA-256 and production signing certificate, and can run the layout probe below instead of
+the full smoke.
 
 Artifacts contain JSON case results, screenshots, accessibility trees, startup
 output, crash logs, exit info and diagnostic memory output. A passed page capture
@@ -21,12 +30,11 @@ media-server requests, playback, downloads, live update UI and real-device
 performance remain separate pending tests. Artifacts on this public repository
 must not contain account credentials or restored private media configurations.
 
-The follow-up `--layout-probe` mode samples 1/3/10 seconds after rotation at
-font scales 1.0 and 1.3, captures the empty Library tab and an emulated tablet
-viewport. It skips the already completed foreground/background smoke loop.
-Actual elapsed capture times and pixel dimensions are saved; these sampled
-frames do not establish exact blank-frame duration. The current workflow runs
-this targeted mode to investigate observations from run `36351030665`.
+The `--layout-probe` mode (the manual dispatch's `layout_probe` input) samples 1/3/10
+seconds after rotation at font scales 1.0 and 1.3, captures the empty Library tab and an
+emulated tablet viewport, and skips the foreground/background smoke loop. Actual elapsed
+capture times and pixel dimensions are saved; these sampled frames do not establish exact
+blank-frame duration. A release's own smoke always runs the full loop.
 
 Local command (disposable emulator only):
 

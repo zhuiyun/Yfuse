@@ -833,6 +833,18 @@ internal fun SettingsPanel(
                                         subtitle = "定时与播放控制",
                                         onClick = { advancedPage = AdvancedPage.Playback },
                                     )
+                                    // On the first page rather than eleven rows into 播放设置: most of what
+                                    // the picture answers to is invisible until someone says so. A remote
+                                    // has no touches to explain.
+                                    if (!LocalTelevisionChrome.current) {
+                                        PopupDivider()
+                                        PopupMenuRow(
+                                            icon = AppIcons.Gesture,
+                                            title = "手势与快捷键",
+                                            subtitle = "画面手势、按键长按与键盘快捷键",
+                                            onClick = overlayAction(onOpenGestureHelp),
+                                        )
+                                    }
                                 }
 
                                 AdvancedPage.Playback -> {
@@ -976,10 +988,9 @@ internal fun SettingsPanel(
                                         checked = ambientLightEnabled,
                                         onToggle = onToggleAmbientLight,
                                     )
-                                    // A remote has no touches to lock out and no gestures to explain.
+                                    // A remote has no touches to lock out.
                                     if (!LocalTelevisionChrome.current) {
                                         OptionRow("锁定控制", false, onClick = overlayAction(onLock))
-                                        OptionRow("手势说明", false, onClick = overlayAction(onOpenGestureHelp))
                                     }
                                     onExternalPlayer?.let { open ->
                                         OptionRow("使用外部播放器", false, onClick = overlayAction(open))

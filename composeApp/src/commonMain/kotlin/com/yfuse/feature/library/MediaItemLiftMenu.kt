@@ -71,6 +71,13 @@ internal fun liftClock(totalSeconds: Long): String {
     return if (hours > 0L) "$hours:$tail" else "$minutes:${seconds.toString().padStart(2, '0')}"
 }
 
+/**
+ * 查看详情, on a card whose tap resumes playback instead (继续观看, 下一集, 播放记录): the lift is
+ * where the title's page is reached from there, as releasing on the lifted card also does.
+ */
+internal fun detailsLiftAction(onOpen: () -> Unit): ItemAction =
+    ItemAction(label = "查看详情", icon = AppIcons.Info, leavesPage = true, onSelect = onOpen)
+
 /** 收藏 / 取消收藏, named for what it will do rather than what the title is now. */
 internal fun favoriteLiftAction(
     favorite: Boolean,
@@ -119,6 +126,59 @@ internal fun libraryHomeLiftMenu(
                         detail = item.liftRemainingLabel(),
                         leavesPage = true,
                         onSelect = onPlay,
+                    ),
+                ),
+                listOfNotNull(favoriteLiftAction(item.isFavorite, onFavorite), onShare?.let(::shareLiftAction)),
+            ),
+    )
+}
+
+/**
+ * 浮起菜单 on 媒体库's 播放记录, whose tap already resumes: the rows 首页's 继续观看 offers — 查看详情
+ * and 从头播放, 标记为已看 and 从播放记录移除, then the favourite and 分享. The two in the middle are
+ * held back by the page's toast for 撤销 rather than written as they are picked.
+ */
+internal fun libraryHistoryLiftMenu(
+    item: MediaItem,
+    backdropUrl: String?,
+    onOpen: () -> Unit,
+    onPlayFromStart: () -> Unit,
+    onMarkWatched: () -> Unit,
+    onRemove: () -> Unit,
+    onFavorite: (Boolean) -> Unit,
+    onShare: (() -> Unit)? = null,
+): LiftMenu {
+    // A series resolves its own next episode; only a single title has a place to go back to.
+    val resumable = item.type != "Series" && (item.resumePositionTicks ?: 0L) > 0L && !item.played
+    return mediaItemLiftMenu(
+        item = item,
+        backdropUrl = backdropUrl,
+        onOpen = onOpen,
+        actions =
+            listOf(
+                listOfNotNull(
+                    detailsLiftAction(onOpen),
+                    if (resumable) {
+                        ItemAction(
+                            label = "从头播放",
+                            icon = AppIcons.Refresh,
+                            leavesPage = true,
+                            onSelect = onPlayFromStart,
+                        )
+                    } else {
+                        null
+                    },
+                ),
+                listOfNotNull(
+                    // This store writes 已看 and nothing else of the flag, so an already watched
+                    // title has nothing here to mark.
+                    if (item.played) null else playedLiftAction(played = false) { onMarkWatched() },
+                    ItemAction(
+                        label = "从播放记录移除",
+                        icon = AppIcons.Close,
+                        destructive = true,
+                        undoable = true,
+                        onSelect = onRemove,
                     ),
                 ),
                 listOfNotNull(favoriteLiftAction(item.isFavorite, onFavorite), onShare?.let(::shareLiftAction)),

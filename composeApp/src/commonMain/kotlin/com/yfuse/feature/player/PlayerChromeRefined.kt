@@ -29,13 +29,18 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -154,6 +159,8 @@ internal fun RefinedTopBar(
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val haptics = LocalHaptics.current
+    // The scrim runs edge to edge; the keys keep clear of a notch or a punch-hole.
+    val cutout = WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
     Row(
         modifier
             .fillMaxWidth()
@@ -165,7 +172,8 @@ internal fun RefinedTopBar(
                         1f to Color.Transparent,
                     ),
                 )
-            }.padding(horizontal = 22.dp, vertical = 14.dp),
+            }.windowInsetsPadding(cutout)
+            .padding(horizontal = 22.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
@@ -447,6 +455,7 @@ private fun RefinedBottomBarContent(
     playKeyModifier: Modifier = Modifier,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val tips = LocalTips.current
     // Where the finger left the thumb. Read from derived state only, never from composition:
     // under a drag it changes sixty times a second.
     val scrubbed = remember { mutableStateOf<Float?>(null) }
@@ -523,6 +532,8 @@ private fun RefinedBottomBarContent(
             { ambientSeekAccent(ambientLight?.value, artworkAccent.value) }
         }
 
+    // As the title bar: the scrim runs edge to edge, the keys and the rail keep clear of a cutout.
+    val cutout = WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
     Column(
         modifier
             .fillMaxWidth()
@@ -534,7 +545,8 @@ private fun RefinedBottomBarContent(
                         1f to Color.Transparent,
                     ),
                 )
-            }.padding(start = 22.dp, end = 22.dp, top = 10.dp, bottom = 16.dp),
+            }.windowInsetsPadding(cutout)
+            .padding(start = 22.dp, end = 22.dp, top = 10.dp, bottom = 16.dp),
     ) {
         Row(
             verticalAlignment = Alignment.Bottom,
@@ -748,7 +760,10 @@ private fun RefinedBottomBarContent(
                     iconSize = 12.dp,
                     active = danmakuEnabled,
                     onClick = onToggleDanmaku,
-                    onLongClick = onOpenDanmaku,
+                    onLongClick = {
+                        tips?.markUsed(Tips.PLAYER_DANMAKU_KEY)
+                        onOpenDanmaku()
+                    },
                     onLongClickLabel = "弹幕设置",
                 )
                 RefinedSpeedControl(speed, onOpenSpeed)

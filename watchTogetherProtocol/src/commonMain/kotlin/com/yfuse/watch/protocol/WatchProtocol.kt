@@ -59,6 +59,13 @@ data class WatchWireMessage(
     val remoteSessionId: String? = null,
     /** 手机遥控: a [RemoteControlKey.wireName]. */
     val remoteKey: String? = null,
+    /**
+     * 手机遥控, under [WatchProtocol.CAPABILITY_REMOTE_PAIRING]: which phone — its own id for this
+     * install, the same on every connection, so a television can remember it. A phone names itself
+     * with it (and its [name]) on `remoteJoin`; the relay stamps it on everything the television
+     * hears about or from that phone, and the television names it in `remoteRelease`.
+     */
+    val remoteDeviceId: String? = null,
 )
 
 /**
@@ -145,6 +152,14 @@ object WatchProtocol {
      */
     const val CAPABILITY_REMOTE_CONTROL = "remoteControl"
 
+    /**
+     * 手机遥控 with named phones: the television hears which phone connected, left or sent each key
+     * ([WatchWireMessage.remoteDeviceId]), and can let one go with `remoteRelease` — which is how it
+     * asks before a phone it does not know may press anything. A relay without it tells the
+     * television only that some phone is on.
+     */
+    const val CAPABILITY_REMOTE_PAIRING = "remotePairing"
+
     val SERVER_CAPABILITIES =
         listOf(
             CAPABILITY_REACTIONS,
@@ -155,6 +170,7 @@ object WatchProtocol {
             CAPABILITY_VERSION_RANGE,
             CAPABILITY_ROOM_PLAYLIST,
             CAPABILITY_REMOTE_CONTROL,
+            CAPABILITY_REMOTE_PAIRING,
         )
 
     fun isSupportedVersion(version: Int?): Boolean = version != null && version in MIN_SUPPORTED_VERSION..VERSION
@@ -182,6 +198,20 @@ object WatchProtocol {
     const val MIN_REASONABLE_EPOCH_MS = 1_577_836_800_000L // 2020-01-01 UTC
     const val MAX_FUTURE_CLOCK_SKEW_MS = 5L * 60L * 1_000L
     const val MAX_REMOTE_SESSION_ID_BYTES = 128
+    const val MAX_REMOTE_DEVICE_ID_BYTES = 128
+
+    /**
+     * Starts the id the relay makes up for a phone that named none — an app from before
+     * [CAPABILITY_REMOTE_PAIRING]. It lasts that one connection, so a television never trusts it
+     * for good; a phone may not name itself with it.
+     */
+    const val REMOTE_EPHEMERAL_DEVICE_PREFIX = "~"
+
+    /**
+     * The `errorCode` a television puts on `remoteRelease` for a phone it turned away, as opposed
+     * to one it disconnected; the phone hears `remoteDisconnected` with the same code.
+     */
+    const val REMOTE_REFUSED_CODE = "remote_refused"
 
     /** A search box's worth: the whole of the phone's field is resent on every change. */
     const val MAX_REMOTE_TEXT_BYTES = 256
@@ -207,9 +237,11 @@ object WatchProtocol {
      * `remoteJoin` with the television's [WatchWireMessage.remoteSessionId], then `remoteKey` and
      * `remoteText`. The relay answers `remoteHosting` / `remoteJoined`, tells the television
      * `remoteConnected` / `remoteDisconnected` as phones come and go, and tells a phone
-     * `remoteDisconnected` when its television leaves. Such a socket never joins a room.
+     * `remoteDisconnected` when its television leaves. Under [CAPABILITY_REMOTE_PAIRING] the
+     * television also sends `remoteRelease` to let one phone go, which then hears
+     * `remoteDisconnected` too. Such a socket never joins a room.
      */
-    val REMOTE_CLIENT_MESSAGE_TYPES = setOf("remoteHost", "remoteJoin", "remoteKey", "remoteText")
+    val REMOTE_CLIENT_MESSAGE_TYPES = setOf("remoteHost", "remoteJoin", "remoteKey", "remoteText", "remoteRelease")
 
     val CLIENT_MESSAGE_TYPES =
         setOf(
@@ -334,6 +366,20 @@ object WatchProtocol {
         )
 
     fun isValidRemoteKey(value: String?): Boolean = RemoteControlKey.fromWireName(value) != null
+
+    /** A phone's id as the relay passes it on: opaque and bounded, the phone's own or made up. */
+    fun isValidRemoteDeviceId(value: String?): Boolean =
+        isBoundedOpaqueId(
+            value = value,
+            maxBytes = MAX_REMOTE_DEVICE_ID_BYTES,
+        )
+
+    /**
+     * An id a phone may name itself with, and a television may remember for good: a valid one that
+     * is not the relay's stand-in for a phone that named none.
+     */
+    fun isStableRemoteDeviceId(value: String?): Boolean =
+        isValidRemoteDeviceId(value) && !value.orEmpty().startsWith(REMOTE_EPHEMERAL_DEVICE_PREFIX)
 
     /**
      * The phone's whole field, so a lost or repeated message cannot garble what the television

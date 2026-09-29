@@ -23,12 +23,10 @@ import com.yfuse.core2.network.YTransportFeature
 import com.yfuse.core2.quirk.InMemoryYCore2FailureStore
 import com.yfuse.core2.quirk.YCore2FailureLedger
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -106,13 +104,7 @@ class AndroidAdaptiveDashInstrumentedTest {
                                     assertEquals(20_000L, player.state.value.durationMs)
 
                                     freshVideo(player, "global-seek-final", 19_000L)
-                                    val ended =
-                                        withTimeout(20_000L) {
-                                            player.state.first { state ->
-                                                assertHealthy("final-ended", state)
-                                                state.phase == YPlaybackPhase.Ended
-                                            }
-                                        }
+                                    val ended = awaitState(player, "final-ended") { it.phase == YPlaybackPhase.Ended }
                                     assertTrue(
                                         "Presentation ended before the second Period: $ended",
                                         ended.positionMs >= 19_900L,
@@ -173,19 +165,28 @@ class AndroidAdaptiveDashInstrumentedTest {
         return withTimeout(10_000L) { ready.await() }
     }
 
+    /**
+     * Seeks, resumes, and waits for a picture from after the seek.
+     *
+     * Where the seek landed and whether a picture followed it are proved one after the other. Asked
+     * of one state, they required the first verified frame within about a second of media time; on
+     * the software-rendered CI emulator that frame sometimes came later, the position had moved past
+     * the window by then, and the wait could no longer succeed however long it ran. The seek's output
+     * reset advances outputEvidenceGeneration in the same update that clears the proof, so a newer
+     * generation marks a picture from after the seek even when StateFlow skips the unverified moment.
+     */
     private suspend fun freshVideo(
         player: YPlayer,
         label: String,
         positionMs: Long,
-    ) = coroutineScope {
-        val invalidated =
-            async(start = CoroutineStart.UNDISPATCHED) {
-                withTimeout(20_000L) { player.state.first { !it.diagnostics.videoOutputVerified } }
-            }
+    ) {
+        val generation = player.state.value.diagnostics.outputEvidenceGeneration
         player.seekTo(positionMs)
         player.play()
-        invalidated.await()
-        awaitVideo(player, label) { it.positionMs in (positionMs - 100L)..(positionMs + 1_200L) }
+        awaitState(player, "$label-landing") { it.positionMs in (positionMs - 100L)..(positionMs + 1_200L) }
+        awaitVideo(player, label) { state ->
+            state.diagnostics.outputEvidenceGeneration > generation && state.positionMs >= positionMs - 100L
+        }
     }
 
     private suspend fun awaitVideo(
@@ -193,15 +194,29 @@ class AndroidAdaptiveDashInstrumentedTest {
         label: String,
         predicate: (YPlayerState) -> Boolean,
     ) {
-        val state =
-            withTimeout(25_000L) {
-                player.state.first { state ->
-                    assertHealthy(label, state)
-                    state.diagnostics.videoOutputVerified && predicate(state)
-                }
-            }
+        val state = awaitState(player, label) { it.diagnostics.videoOutputVerified && predicate(it) }
         assertTrue("$label did not use native decoding: $state", state.diagnostics.route != YPlaybackRoute.Legacy)
         progress("$label: position=${state.positionMs}, duration=${state.durationMs}, route=${state.diagnostics.route}")
+    }
+
+    /**
+     * The first healthy state [predicate] accepts. A timeout names the step and the last state seen,
+     * because the console shows only the failure message: a bare coroutine timeout said nothing about
+     * which of the test's waits had stalled, or on what.
+     */
+    private suspend fun awaitState(
+        player: YPlayer,
+        label: String,
+        predicate: (YPlayerState) -> Boolean,
+    ): YPlayerState {
+        var last: YPlayerState? = null
+        return withTimeoutOrNull(STEP_TIMEOUT_MS) {
+            player.state.first { state ->
+                last = state
+                assertHealthy(label, state)
+                predicate(state)
+            }
+        } ?: throw AssertionError("$label: not reached in $STEP_TIMEOUT_MS ms; last state=$last")
     }
 
     private fun assertHealthy(
@@ -215,6 +230,9 @@ class AndroidAdaptiveDashInstrumentedTest {
         InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply { putString("stream", "$message\n") })
     }
 }
+
+/** How long one step of the DASH test may take before it fails with the state it stalled on. */
+private const val STEP_TIMEOUT_MS = 25_000L
 
 /** The real production proxy serves HTTP; only its upstream transport reads this test's fixed byte arrays. */
 private class GeneratedDashOrigin(
