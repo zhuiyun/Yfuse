@@ -210,6 +210,7 @@ fun App(root: RootComponent) {
     val accessibility = rememberAppAccessibilityOptions(root.themePreferences)
     val motionOff = accessibility.reduceMotion
     val pulseSweep by root.themePreferences.pulseSweep.collectAsState()
+    val navCollapseOnScroll by root.themePreferences.navCollapseOnScroll.collectAsState()
     val particleLight by root.themePreferences.particleLight.collectAsState()
     val dialogAnimation by root.themePreferences.dialogAnimation.collectAsState()
     val glassStyle by root.themePreferences.glassStyle.collectAsState()
@@ -321,8 +322,9 @@ fun App(root: RootComponent) {
                 Tab.Profile -> profileStack.active.instance is ProfileTabComponent.Child.Home
             }
         // The bar belongs to the roots and nothing else: it used to also ride along on the
-        // library's grid. Under a scroll it no longer slides away either — it collapses to the
-        // one key below, so "is the bar there?" never depends on where the user has scrolled to.
+        // library's grid. Under a scroll it no longer slides away either — with 滚动时收起导航栏
+        // on it collapses to the one key below, so "is the bar there?" never depends on where the
+        // user has scrolled to; with it off, it simply stays up.
         val showBottomBar = atRoot
 
         // Reading gets the screen; navigating gets it back. Not saveable on purpose: a collapsed
@@ -332,8 +334,9 @@ fun App(root: RootComponent) {
         // Read by the dock alone, so a collapse recomposes the dock and not the shell around it.
         val navCollapsed = remember { mutableStateOf(false) }
         val navCollapseGuard = remember { NavigationCollapseGuard() }
-        // Arriving anywhere new is a fresh page, and a fresh page shows its bar.
-        LaunchedEffect(active) {
+        // Arriving anywhere new is a fresh page, and a fresh page shows its bar; so does turning
+        // the collapse off while the bar is collapsed.
+        LaunchedEffect(active, navCollapseOnScroll) {
             navCollapsed.value = false
             navCollapseGuard.reset()
         }
@@ -392,11 +395,16 @@ fun App(root: RootComponent) {
                         Box(
                             Modifier
                                 .fillMaxSize()
-                                // Only root pages with the bottom dock collapse it under a scroll.
-                                // Pushed pages own the whole screen and have no root navigation to
-                                // collapse or expand.
-                                .then(if (showBottomBar) Modifier.nestedScroll(navScroll) else Modifier)
-                                .backdropSource(backdrop, record = { dockOnScreen.value || liftMenu.isOpen }),
+                                // Only root pages with the bottom dock collapse it under a scroll, and
+                                // only while the setting asks for it. Pushed pages own the whole screen
+                                // and have no root navigation to collapse or expand.
+                                .then(
+                                    if (showBottomBar && navCollapseOnScroll) {
+                                        Modifier.nestedScroll(navScroll)
+                                    } else {
+                                        Modifier
+                                    },
+                                ).backdropSource(backdrop, record = { dockOnScreen.value || liftMenu.isOpen }),
                         ) {
                             val previousRootTab = remember { arrayOf(active) }
                             val rootMotion = remember(active) { rootTabMotion(previousRootTab[0], active) }
