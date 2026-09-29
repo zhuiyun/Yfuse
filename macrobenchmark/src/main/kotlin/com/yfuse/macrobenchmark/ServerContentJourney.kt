@@ -37,7 +37,7 @@ private const val GRID_MIN_POSTERS = 6
 /** 库 → the first library's 全部, and waits until its grid holds a screenful of posters. */
 internal fun MacrobenchmarkScope.openLibraryGrid() {
     startProductionApp()
-    device.wait(Until.findObject(By.desc("库")), SERVER_CONTENT_TIMEOUT_MS)?.click() ?: error("Library tab missing")
+    device.wait(Until.findObject(dockTab("库")), SERVER_CONTENT_TIMEOUT_MS)?.click() ?: error("Library tab missing")
     // Without a server 库 has no 全部 at all; with one, wait for the load before looking past the lists.
     assumeTrue(SIGNED_IN, device.wait(Until.hasObject(By.text("全部")), SERVER_CONTENT_TIMEOUT_MS))
     val seeAll = libraryEntry()
