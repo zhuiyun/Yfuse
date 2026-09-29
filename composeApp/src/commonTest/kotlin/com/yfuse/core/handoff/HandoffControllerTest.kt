@@ -457,6 +457,48 @@ class HandoffControllerTest {
             controller.close()
         }
 
+    @Test
+    fun a_phone_lists_a_television_asking_for_a_server_only_while_it_hosts_and_asks() =
+        runTest {
+            val asking = television.copy(acceptsRemote = true, asksRemoteSignIn = true)
+            // A flag from a television that hosts nothing is no ask: it asks on the socket it hosts on.
+            val notHosting = television.copy(sessionId = "tv-2", name = "卧室电视", asksRemoteSignIn = true)
+            val api =
+                FakeApi { testScheduler.currentTime }.apply {
+                    currentSession = "phone"
+                    devices = listOf(asking, notHosting)
+                }
+            val controller = controller(api, FakePlayback())
+            controller.start()
+            runCurrent()
+            assertEquals(listOf(asking), controller.state.value.signInAsks)
+            assertEquals(listOf(asking), controller.state.value.remotes)
+
+            api.devices = listOf(asking.copy(asksRemoteSignIn = false))
+            controller.refreshPresence()
+            runCurrent()
+            assertEquals(emptyList(), controller.state.value.signInAsks)
+            api.devices = listOf(asking)
+            api.heartbeatFails = true
+            controller.refreshPresence()
+            runCurrent()
+            assertEquals(emptyList(), controller.state.value.signInAsks)
+            controller.close()
+
+            // A television lists none: it is the one that asks.
+            val hostingApi =
+                FakeApi { testScheduler.currentTime }.apply {
+                    currentSession = "tv-3"
+                    devices = listOf(asking)
+                }
+            val hosting = controller(hostingApi, FakePlayback())
+            hosting.hostRemoteControl({ true })
+            hosting.start()
+            runCurrent()
+            assertEquals(emptyList(), hosting.state.value.signInAsks)
+            hosting.close()
+        }
+
     private fun TestScope.controller(
         api: FakeApi,
         bridge: FakePlayback,

@@ -54,6 +54,11 @@ data class HandoffUiState(
     val canReceive: Boolean = false,
     /** Televisions of this account taking 手机遥控 now; always empty on a device that hosts it. */
     val remotes: List<HandoffDevice> = emptyList(),
+    /**
+     * Those of [remotes] whose 添加服务器 waits for a phone to hand them a server — 用手机登录.
+     * Always empty on a device that hosts, as [remotes] is.
+     */
+    val signInAsks: List<HandoffDevice> = emptyList(),
 ) {
     val connectionLabel: String
         get() =
@@ -171,6 +176,12 @@ class HandoffController(
                                         }
                                     // 在此继续 asked for exactly this transfer: it is taken without asking again.
                                     val answer = requested?.takeIf { it.sourceSessionId == asking?.target?.sessionId }
+                                    val remotes =
+                                        if (hostsRemote != null) {
+                                            emptyList()
+                                        } else {
+                                            inbox.devices.filter { it.acceptsRemote }
+                                        }
                                     _state.update { current ->
                                         current.copy(
                                             online = true,
@@ -179,12 +190,8 @@ class HandoffController(
                                             incoming = requested?.takeIf { answer == null },
                                             playingElsewhere = elsewhere,
                                             canReceive = receiving,
-                                            remotes =
-                                                if (hostsRemote != null) {
-                                                    emptyList()
-                                                } else {
-                                                    inbox.devices.filter { it.acceptsRemote }
-                                                },
+                                            remotes = remotes,
+                                            signInAsks = remotes.filter { it.asksRemoteSignIn },
                                         )
                                     }
                                     if (answer != null) {
@@ -202,6 +209,7 @@ class HandoffController(
                                             online = false,
                                             devices = emptyList(),
                                             remotes = emptyList(),
+                                            signInAsks = emptyList(),
                                             incoming = null,
                                             connectionError =
                                                 (error as? HandoffApiException)?.message
