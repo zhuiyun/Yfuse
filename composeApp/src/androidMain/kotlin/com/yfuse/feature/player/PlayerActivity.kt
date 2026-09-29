@@ -23,6 +23,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Rational
 import android.view.KeyEvent
+import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -448,6 +449,7 @@ class PlayerActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.systemBars())
         }
+        keepEdgeSwipesInThePicture(window.decorView)
 
         if (launchViewModel.request == null) {
             val retainedPending = launchViewModel.pending
@@ -1196,6 +1198,28 @@ class PlayerActivity : ComponentActivity() {
             } != true
         ) {
             finishPlayback()
+        }
+    }
+
+    /**
+     * The lower part of both side edges belongs to the picture. A sideways seek, or a brightness or
+     * volume drag, that started a thumb's width from the edge was Android's back gesture and left the
+     * player mid-film; the upper part of the edges, and 返回 in the title bar, still go back. Android
+     * honours at most 200 dp of exclusion per edge, and only inside its own gesture zone.
+     */
+    private fun keepEdgeSwipesInThePicture(root: View) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        root.addOnLayoutChangeListener { view, left, top, right, bottom, _, _, _, _ ->
+            val density = resources.displayMetrics.density
+            val width = right - left
+            val height = bottom - top
+            val band = minOf(height / 2, (EDGE_SWIPE_EXCLUSION_MAX_DP * density).toInt())
+            val edge = (EDGE_SWIPE_EXCLUSION_WIDTH_DP * density).toInt()
+            view.systemGestureExclusionRects =
+                listOf(
+                    Rect(0, height - band, edge, height),
+                    Rect(width - edge, height - band, width, height),
+                )
         }
     }
 
@@ -1997,6 +2021,12 @@ private fun Long.toEmbyTicks(): Long =
     coerceIn(0L, Long.MAX_VALUE / EMBY_TICKS_PER_MILLISECOND) * EMBY_TICKS_PER_MILLISECOND
 
 private const val TABLET_MIN_SMALLEST_WIDTH_DP = 600
+
+/** Android's per-edge cap on gesture exclusion. */
+private const val EDGE_SWIPE_EXCLUSION_MAX_DP = 200
+
+/** Wide enough for the back gesture's zone at its most sensitive setting. */
+private const val EDGE_SWIPE_EXCLUSION_WIDTH_DP = 48
 private const val ACTION_PIP_CONTROL = "com.yfuse.player.PIP_CONTROL"
 private const val EXTRA_PIP_COMMAND = "command"
 private const val PIP_COMMAND_PLAY = "play"
