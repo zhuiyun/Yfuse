@@ -3,6 +3,9 @@ package com.yfuse.core2.android
 import android.content.Context
 import com.yfuse.core.data.PlaybackNetworkClass
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.diagnosticOrigin
+import com.yfuse.core.logging.diagnosticRootCause
+import com.yfuse.core.logging.diagnosticTypeName
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.playback.PLAYBACK_PROXY_HEADER_TIMEOUT_MS
 import com.yfuse.core.playback.PlaybackProxyAdmission
@@ -545,6 +548,7 @@ internal class AndroidYCoreHttpProxy(
     private val routeIds = HashMap<Route, String>()
     private val resolvedResources = LinkedHashMap<String, Route>(16, 0.75f, true)
     private val responsesStarted = ConcurrentHashMap.newKeySet<Socket>()
+    private val failureLogGate = AndroidProxyFailureLogGate()
     private val closed = AtomicBoolean(false)
     private val requests = YCoreProxyRequests()
     private val mediaSessions = AndroidProxyMediaSessions()
@@ -965,7 +969,65 @@ internal class AndroidYCoreHttpProxy(
                 }
             }
             val (status, reason) = proxyFailureStatus(failure)
-            if (socket !in responsesStarted) runCatching { writeEmptyResponse(socket, status, reason) }
+            // Read before answering: writeEmptyResponse marks the response as started itself.
+            val responseStarted = socket in responsesStarted
+            if (!responseStarted) runCatching { writeEmptyResponse(socket, status, reason) }
+            if (!closed.get()) logServeFailure(failure, route, method, status, responseStarted)
+        }
+    }
+
+    /**
+     * serve() turns every failure into a status for the player, and 401/403/404/410 into a terminal
+     * source failure, but it logged none of them: a diagnostic could not say why the player kept
+     * getting 502s. Safe by construction: no URL, header or exception message is written, only the
+     * statuses, the route kind and the root cause's kept class name and first app frame.
+     */
+    private fun logServeFailure(
+        failure: Throwable,
+        route: Route,
+        method: String,
+        status: Int,
+        responseStarted: Boolean,
+    ) {
+        val upstreamStatus = failure.mediaHttpStatus()
+        val root = failure.diagnosticRootCause()
+        val exceptionType = root.diagnosticTypeName()
+        val suppressed =
+            failureLogGate.admit(
+                kind = "$status:${upstreamStatus ?: 0}:$exceptionType:$responseStarted",
+                nowMs = System.nanoTime() / 1_000_000L,
+            ) ?: return
+        val attributes =
+            mapOf(
+                "method" to method,
+                "route" to
+                    when {
+                        route.hlsManifest -> "hls"
+                        route.dashManifest -> "dash"
+                        else -> "binary"
+                    },
+                "status" to status.toString(),
+                "upstreamStatus" to upstreamStatus?.toString().orEmpty(),
+                "responseStarted" to responseStarted.toString(),
+                "exceptionType" to exceptionType,
+                "origin" to root.diagnosticOrigin(),
+                "suppressed" to suppressed.toString(),
+            )
+        if (responseStarted && upstreamStatus == null) {
+            // A body cut short is mostly routine: the player drops its range request when it seeks.
+            AppLog.info(
+                category = "player.proxy",
+                event = "request_interrupted",
+                message = "Playback proxy response ended before its body was complete",
+                attributes = attributes,
+            )
+        } else {
+            AppLog.warning(
+                category = "player.proxy",
+                event = "request_failed",
+                message = "Playback proxy could not serve a player request",
+                attributes = attributes,
+            )
         }
     }
 
