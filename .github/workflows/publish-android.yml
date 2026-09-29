@@ -63,7 +63,7 @@ env:
 #   build   - TMDB_TOKEN, which is compiled into the APK
 #   sign    - the release keystore and its passwords
 #   deploy  - UPDATE_MANIFEST_SIGNING_KEY to sign the manifests, and the deployment SSH key
-# The gates job holds no secret.
+# The gates and smoke jobs hold no secret.
 # Every job that reads a production secret or variable keeps the production environment.
 jobs:
   request:
@@ -765,7 +765,7 @@ jobs:
             echo "size=$apk_size"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Keep the signed APK for deployment
+      - name: Keep the signed APK for the smoke test and deployment
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ steps.apk.outputs.artifact }}
@@ -774,9 +774,24 @@ jobs:
           retention-days: 1
           compression-level: 0
 
+  smoke:
+    name: Signed APK startup smoke
+    needs: [request, sign]
+    # Holds no secret: installs and drives the exact signed APK on Android 35, 36 and 37 before
+    # the deploy job may save it as the package or publish it.
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/android-cloud-ui.yml
+    with:
+      apk_artifact: ${{ needs.sign.outputs.artifact }}
+      apk_sha256: ${{ needs.sign.outputs.sha256 }}
+      version_code: ${{ needs.request.outputs.version_code }}
+      version_name: ${{ needs.request.outputs.version_name }}
+
   deploy:
     name: Sign update manifests and publish
-    needs: [request, sign]
+    needs: [request, sign, smoke]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment:
@@ -804,7 +819,7 @@ jobs:
           name: ${{ needs.sign.outputs.artifact }}
           path: build/signed
 
-      - name: Confirm the APK is the one that was signed and verified
+      - name: Confirm the APK is the one that was signed and smoke-tested
         id: apk
         shell: bash
         env:
