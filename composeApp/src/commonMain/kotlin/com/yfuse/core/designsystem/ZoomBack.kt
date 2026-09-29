@@ -571,12 +571,12 @@ private data class ZoomCardShape(
 
 /**
  * The pull-down: watches the finger from outside the page and takes over when the page's own
- * scrolling has nothing left to give — the list is at its top — and the drag has been decided
- * vertical (|dy| > 0.8 |dx| after 8 dp). A finger landing on a card still in flight catches it. A
- * horizontal drag belongs to whatever shelf it began on; a second finger sends a pull home. Until
- * [canStart] says yes and [onStart] starts it, this only listens. With [swallowLeftover] a downward
- * drag the page cannot scroll goes no further up, so a page drawn over another never pulls the one
- * beneath it.
+ * scrolling has nothing left to give — the list is at its top, and has not scrolled since the finger
+ * came down — and the drag has been decided vertical (|dy| > 0.8 |dx| after 8 dp). A finger landing
+ * on a card still in flight catches it. A horizontal drag belongs to whatever shelf it began on; a
+ * second finger sends a pull home. Until [canStart] says yes and [onStart] starts it, this only
+ * listens. With [swallowLeftover] a downward drag the page cannot scroll goes no further up, so a
+ * page drawn over another never pulls the one beneath it.
  */
 @Composable
 internal fun Modifier.zoomBackPull(
@@ -603,9 +603,13 @@ internal fun Modifier.zoomBackPull(
                     source: NestedScrollSource,
                 ): Offset {
                     if (tracker.pulled && controller.pullFollowing) return available
+                    // I-19: a list that has scrolled in this gesture keeps the gesture to the end.
+                    // Only a drag that began with the list already at its top becomes a pull; one
+                    // that reached the top on the way used to turn into a pull mid-scroll.
+                    if (source == NestedScrollSource.UserInput && consumed.y != 0f) tracker.listMoved = true
                     if (source != NestedScrollSource.UserInput || available.y <= 0f) return Offset.Zero
                     val leftover = if (latestSwallow) Offset(0f, available.y) else Offset.Zero
-                    if (!tracker.pressed || tracker.multiTouch || tracker.pulled) return leftover
+                    if (!tracker.pressed || tracker.multiTouch || tracker.pulled || tracker.listMoved) return leftover
                     if (tracker.axisNow() != DragAxis.Vertical || !latestCanStart()) return leftover
                     latestOnStart(tracker.current)
                     if (!controller.pullFollowing) return leftover
@@ -670,6 +674,8 @@ private class PullTracker {
     /** This gesture became a pull; its release and its fling are the pull's. */
     var pulled = false
 
+    /** The page's own list has scrolled in this gesture, so the gesture stays the list's (I-19). */
+    var listMoved = false
     val velocity = VelocityTracker()
 
     fun start(
@@ -682,6 +688,7 @@ private class PullTracker {
         multiTouch = false
         axis = DragAxis.Undecided
         pulled = false
+        listMoved = false
         velocity.resetTracking()
         velocity.addPosition(timeMillis, position)
     }
