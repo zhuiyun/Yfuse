@@ -14,13 +14,12 @@ import com.arkivanov.decompose.retainedComponent
 import com.yfuse.app.RootComponent
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.performance.PageFrameRateOverlay
 import com.yfuse.core.performance.preferHighRefreshRateForUi
 import com.yfuse.core.security.ServerSessionRecovery
 import com.yfuse.feature.player.PlayerActivity
-import com.yfuse.feature.player.PlayerMediaItem
+import com.yfuse.feature.player.externalPlaybackItem
 import com.yfuse.tv.integration.CastConnectHostAction
 import com.yfuse.tv.integration.CastConnectHostActionResolver
 import com.yfuse.tv.integration.CastConnectIntentResult
@@ -29,7 +28,6 @@ import com.yfuse.tv.integration.CastConnectReceiverBridge
 import com.yfuse.tv.integration.TvPlaybackDeepLinkResolver
 import com.yfuse.tv.ui.TvApp
 import kotlinx.coroutines.launch
-import java.util.UUID
 
 /** Android TV launcher hosting the real shared server graph and native TV navigation surface. */
 class TvMainActivity : ComponentActivity() {
@@ -169,16 +167,9 @@ class TvMainActivity : ComponentActivity() {
 
                 is CastConnectHostAction.PlayDirect -> {
                     check(!action.transcodeAllowed)
-                    val media =
-                        PlayerMediaItem(
-                            id = "cast-direct-${UUID.randomUUID()}",
-                            url = action.url,
-                            transcodeUrl = "",
-                            fallbackTranscodeUrl = "",
-                            title = action.title ?: "Cast 媒体",
-                            playMethod = PlaybackMethod.DirectPlay,
-                            serverTranscodeSupported = false,
-                        )
+                    // A sender's address belongs to no library here: an outside entry, so its
+                    // playback is never reported to this television's default server.
+                    val media = externalPlaybackItem(url = action.url, title = action.title ?: "Cast 媒体")
                     startActivity(
                         PlayerActivity.intent(
                             context = this,

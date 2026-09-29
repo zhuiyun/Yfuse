@@ -118,8 +118,11 @@ private fun Char.isSharedLinkCharacter(): Boolean = code in 0x21..0x7E && this !
  * playback headers only ever come from credentials already inside the address and go back to its
  * own origin (see `embyPlaybackHeaders`). The id is random, so no record keyed by it outlives the
  * visit, and its prefix is what [isExternalPlayback] recognises.
+ *
+ * Public because the television's Cast receiver builds its PlayDirect entries with it too: an
+ * address a sender casts is no more this device's library than a pasted one.
  */
-internal fun externalPlaybackItem(
+fun externalPlaybackItem(
     url: String,
     title: String,
 ): PlayerMediaItem =
