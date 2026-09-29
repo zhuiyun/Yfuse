@@ -47,12 +47,9 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.semantics.toggleableState
-import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -66,7 +63,6 @@ import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyBadge
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.HeroInk
 import com.yfuse.core.designsystem.InlineLoadingContent
 import com.yfuse.core.designsystem.LiftMenu
@@ -345,9 +341,6 @@ internal fun DetailTopBar(
     onMore: () -> Unit,
     /** What holding 更多 lifts for the finger to slide through; null keeps it a plain button. */
     moreMenu: (() -> LiftMenu)? = null,
-    /** 服务器收藏 beside 更多操作; null when the title has no server favourite to switch. */
-    favorite: Boolean? = null,
-    onToggleFavorite: () -> Unit = {},
 ) {
     val palette = LocalPalette.current
     val playBody = primaryActionColor(accent)
@@ -429,23 +422,12 @@ internal fun DetailTopBar(
                     Text("播放", style = AppTypography.body.strong, color = playInk)
                 }
             }
-            if (favorite != null) {
-                // One tap, where it used to be … → switch → close. Like 更多操作 it stays up
-                // over the artwork; the title gives up the width, never the play shortcut.
-                DetailTopBarIcon(
-                    icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
-                    description = "服务器收藏",
-                    progress = progress,
-                    surfaceColor = surfaceColor,
-                    onClick = onToggleFavorite,
-                    checked = favorite,
-                    stateLabel = if (favorite) "已收藏" else "未收藏",
-                )
-            }
+            // 服务器收藏 used to sit here; it is one of the keys under 播放 now, beside 稍后看, 已看
+            // and 下载, and the bar keeps only what the whole page needs.
             if (showMore) {
-                // Unlike the title and the play shortcut this does not fade in with scroll:
-                // it is the only route to 下载 / 标记已看 / 一起看, so it has to be reachable
-                // from the top of the page as well as the bottom.
+                // Unlike the title and the play shortcut this does not fade in with scroll: once the
+                // keys under 播放 have scrolled away it is the route to 下载 / 标记已看 / 一起看, so it
+                // has to be reachable from the top of the page as well as the bottom.
                 DetailTopBarIcon(
                     icon = AppIcons.More,
                     description = "更多操作",
@@ -460,8 +442,8 @@ internal fun DetailTopBar(
 }
 
 /**
- * Both glyph tint and glass colour follow scroll solely in the draw phase. A [checked] key is a
- * switch: it says its state, and it is felt, because it changes state in place.
+ * Both glyph tint and glass colour follow scroll solely in the draw phase. The bar holds no switch
+ * since 服务器收藏 moved under 播放: every key here opens something or goes somewhere.
  */
 @Composable
 private fun DetailTopBarIcon(
@@ -471,7 +453,7 @@ private fun DetailTopBarIcon(
     surfaceColor: Color,
     onClick: () -> Unit,
     liftMenu: (() -> LiftMenu)? = null,
-    checked: Boolean? = null,
+    /** Read after [description]: what the key's action is doing now. */
     stateLabel: String? = null,
 ) {
     val palette = LocalPalette.current
@@ -479,11 +461,8 @@ private fun DetailTopBarIcon(
     Canvas(
         Modifier
             .liftable(menu = liftMenu, onOpen = onClick)
-            .pressable(
-                haptic = HapticSignal.Confirm.takeIf { checked != null },
-                role = if (checked == null) Role.Button else Role.Checkbox,
-                onClick = onClick,
-            ).touchTarget()
+            .pressable(onClick = onClick)
+            .touchTarget()
             .size(38.dp)
             .liquidGlass(
                 shape = CircleShape,
@@ -494,7 +473,6 @@ private fun DetailTopBarIcon(
             ).padding(11.dp)
             .semantics {
                 contentDescription = description
-                if (checked != null) toggleableState = ToggleableState(checked)
                 if (stateLabel != null) stateDescription = stateLabel
             },
     ) {
