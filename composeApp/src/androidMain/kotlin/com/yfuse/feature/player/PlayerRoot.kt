@@ -53,7 +53,6 @@ import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackPerformanceMemory
-import com.yfuse.core.playback.PlaybackProbeStatus
 import com.yfuse.core.playback.PlaybackResourcePressure
 import com.yfuse.core.playback.planPlayback
 import com.yfuse.core.playback.resolvePlaybackOptimization
@@ -566,134 +565,25 @@ internal fun PlayerRoot(
     }
 
     PlaybackRuntimeContent(owner = engine, source = presentationState, items = items) { localState, liveLocalState ->
-        LaunchedEffect(
-            engine,
-            localState.error,
-            localState.fallbacksExhausted,
-            core2NativeOnlyActive,
-        ) {
-            if (
-                engine !is YPlayerVideoEngineAdapter ||
-                localState.error == null ||
-                !localState.fallbacksExhausted
-            ) {
-                return@LaunchedEffect
-            }
-            if (core2NativeOnlyActive) {
-                AppLog.warning(
-                    category = "player.core2",
-                    event = "native_only_failure",
-                    message = "YCore Native failed without invoking a compatibility engine",
-                    attributes =
-                        mapOf(
-                            "engine" to attachedEngineLabel,
-                            "itemIndex" to localState.currentIndex.toString(),
-                            "failureKind" to (localState.errorKind?.name ?: "Unknown"),
-                            "failure" to localState.error.orEmpty(),
-                        ),
-                )
-                Toast
-                    .makeText(
-                        context,
-                        core2NativeOnlyFailureToast(localState.errorKind),
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                return@LaunchedEffect
-            }
-            build.resume =
-                choices.handover(
-                    state = localState,
-                    positionMs = player.currentPositionMs(),
-                    playbackRequested = player.playbackRequested,
-                )
-            backendExtensions.prepareForHandover()
-            build.core2DisabledForSession = true
-            build.engineGeneration++
-            AppLog.warning(
-                category = "player.core2",
-                event = "trial_fallback_to_legacy",
-                message = "YCore 2.0 trial failed; rebuilt the selected Legacy engine",
-                attributes =
-                    mapOf(
-                        "engine" to attachedEngineLabel,
-                        "itemIndex" to localState.currentIndex.toString(),
-                        "failureKind" to (localState.errorKind?.name ?: "Unknown"),
-                        "failure" to localState.error.orEmpty(),
-                    ),
-            )
-            Toast.makeText(context, "YCore 2.0 播放失败，已切回兼容内核", Toast.LENGTH_SHORT).show()
-        }
-        var appliedCapabilityRevision by remember { mutableLongStateOf(capabilityRevision) }
-        var appliedOptimizationMode by remember { mutableStateOf(effectiveOptimizationMode) }
-        LaunchedEffect(capabilityRevision, effectiveOptimizationMode) {
-            if (
-                capabilityRevision == appliedCapabilityRevision &&
-                effectiveOptimizationMode == appliedOptimizationMode
-            ) {
-                return@LaunchedEffect
-            }
-            appliedCapabilityRevision = capabilityRevision
-            appliedOptimizationMode = effectiveOptimizationMode
-            val index = localState.currentIndex.coerceIn(0, (activeItems.size - 1).coerceAtLeast(0))
-            val plan =
-                activeItems.getOrNull(index)?.let { item ->
-                    val probe = item.playbackMediaProbe(usingServerTranscode = localState.transcoding)
-                    planPlayback(
-                        probe = probe,
-                        capabilities = deviceCapabilities,
-                        preferredEngine = build.kind,
-                        preferredDecoderMode = build.effectiveDecoderMode,
-                        allowAudioPassthrough = allowAudioPassthrough,
-                        optimizationMode = effectiveOptimizationMode,
-                        engineSelection = choices.sessionEngineSelection,
-                        engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
-                        videoSupport =
-                            capabilityProvider?.videoSupport(probe.source.videoRequirements)
-                                ?: deviceCapabilities.videoSupport(probe.source.videoRequirements),
-                        dolbyVisionRuntime = dolbyVisionRuntime,
-                    )
-                }
-            val targetEngine = plan?.primaryEngine ?: build.kind
-            val targetDecoder = plan?.decoderMode ?: build.effectiveDecoderMode
-            val targetTranscoding =
-                preflightItems
-                    .getOrNull(index)
-                    ?.startsWithServerTranscode() == true
-            val requiresRebuild =
-                targetEngine != build.kind ||
-                    targetDecoder != build.effectiveDecoderMode ||
-                    targetTranscoding != localState.transcoding
-            if (!requiresRebuild) {
-                AppLog.info(
-                    category = "player.capabilities",
-                    event = "playback_reconciliation_not_required",
-                    message = "The active engine remains valid after the output route changed",
-                    attributes = mapOf("revision" to capabilityRevision.toString()),
-                )
-                return@LaunchedEffect
-            }
-            build.resume =
-                choices.handover(
-                    state = localState.copy(currentIndex = index),
-                    positionMs = player.currentPositionMs(),
-                    playbackRequested = player.playbackRequested,
-                )
-            backendExtensions.prepareForHandover()
-            build.kind = targetEngine
-            build.effectiveDecoderMode = targetDecoder
-            build.engineGeneration++
-            AppLog.info(
-                category = "player.capabilities",
-                event = "playback_reconciled",
-                message = "Playback engine was rebuilt after the output route changed",
-                attributes =
-                    buildMap {
-                        put("revision", capabilityRevision.toString())
-                        put("itemIndex", index.toString())
-                        plan?.reason?.let { put("reason", it) }
-                    },
-            )
-        }
+        PlayerEngineReconciliation(
+            engine = engine,
+            localState = localState,
+            player = player,
+            backendExtensions = backendExtensions,
+            build = build,
+            choices = choices,
+            core2NativeOnlyActive = core2NativeOnlyActive,
+            attachedEngineLabel = attachedEngineLabel,
+            capabilityRevisionState = capabilityRevisionState,
+            effectiveOptimizationMode = effectiveOptimizationMode,
+            activeItems = activeItems,
+            preflightItems = preflightItems,
+            deviceCapabilities = deviceCapabilities,
+            capabilityProvider = capabilityProvider,
+            allowAudioPassthrough = allowAudioPassthrough,
+            performanceMemory = performanceMemory,
+            dolbyVisionRuntime = dolbyVisionRuntime,
+        )
         val castManager = remember { GlobalContext.get().get<CastManager>() }
         val liveCastState = castManager.state.collectAsState()
         val castStateSource = remember(liveCastState) { derivedStateOf { liveCastState.value.copy(positionMs = 0L) } }
@@ -819,59 +709,19 @@ internal fun PlayerRoot(
                 }
             }
         val runtimeAssessment by runtimeAssessmentSource
-        LaunchedEffect(activeProbe.probeDepth, activeProbe.capabilitySignature) {
-            if (castAuthoritative) return@LaunchedEffect
-            // Pure YCore is fail-closed: an unsupported local path is reported to the user and must
-            // never be rewritten to a server transcode behind the playback engine.
-            if (core2NativeOnlyActive) return@LaunchedEffect
-
-            // A remote disc image is never probed. `PlaybackMediaProbeService` returns Skipped for
-            // it on purpose — the answer is already settled, because libdvdnav and libbluray need a
-            // device path that an http URL cannot be, so only the server can parse a main feature
-            // out of it. The Complete gate below then withheld the transcode switch from the one
-            // source that can never play without it, and the engine was left holding an `.iso` URL
-            // no demuxer will open. It has to be decided before that gate, not behind it.
-            val remoteDiscNeedsServer =
-                activeProbe.discSource &&
-                    !activeProbe.localSource &&
-                    activePlan.requiresServerTranscode
-            if (remoteDiscNeedsServer && !localState.transcoding) {
-                backendExtensions.switchToTranscode(activePlan.reason)
-                return@LaunchedEffect
-            }
-
-            // Everything past this point reconciles against facts the probe discovered, so it does
-            // need the probe to have finished.
-            if (activeProbeResult.status != PlaybackProbeStatus.Complete) return@LaunchedEffect
-            if (activePlan.requiresServerTranscode && !localState.transcoding) {
-                backendExtensions.switchToTranscode(activePlan.reason)
-                return@LaunchedEffect
-            }
-            val baselineDiscKind =
-                localCastItem
-                    .playbackMediaProbe(usingServerTranscode = localState.transcoding)
-                    .discKind
-            val resolvedDiscRouteChanged =
-                build.kind == PlayerEngine.Mpv &&
-                    baselineDiscKind == com.yfuse.core.playback.PlaybackDiscKind.Iso &&
-                    activeProbe.discKind != baselineDiscKind
-            if (
-                activePlan.primaryEngine != build.kind ||
-                activePlan.decoderMode != build.effectiveDecoderMode ||
-                resolvedDiscRouteChanged
-            ) {
-                build.resume =
-                    choices.handover(
-                        state = localState,
-                        positionMs = player.currentPositionMs(),
-                        playbackRequested = player.playbackRequested,
-                    )
-                backendExtensions.prepareForHandover()
-                build.kind = activePlan.primaryEngine
-                build.effectiveDecoderMode = activePlan.decoderMode
-                build.engineGeneration++
-            }
-        }
+        PlayerProbeReconciliation(
+            activeProbe = activeProbe,
+            activeProbeResult = activeProbeResult,
+            activePlan = activePlan,
+            localState = localState,
+            localCastItem = localCastItem,
+            castAuthoritative = castAuthoritative,
+            core2NativeOnlyActive = core2NativeOnlyActive,
+            player = player,
+            backendExtensions = backendExtensions,
+            build = build,
+            choices = choices,
+        )
         val metadataSource =
             rememberUpdatedState<(PlaybackState) -> PlaybackState> { base ->
                 val assessment = runtimeAssessmentState.value
