@@ -57,6 +57,8 @@ class PlexPlaybackRouteTest {
         assertTrue("X-Plex-Token=secret" in route.url)
         assertFalse("/Videos/100/stream" in route.url)
         assertEquals(1, route.externalSubtitles.size)
+        // Already absolute and carrying the Plex token: Emby credentials must not be added.
+        assertEquals("http://plex:32400/library/streams/3?X-Plex-Token=secret", route.externalSubtitles.single().uri)
         assertEquals("srt", route.externalSubtitles.single().codec)
         assertTrue(route.externalSubtitles.single().default)
 

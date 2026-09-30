@@ -33,10 +33,16 @@ data class Core2NativeBaselineSource(
  * absent: it is verified from demuxed tracks at runtime because queue metadata only carries a
  * display string and must not be treated as codec evidence.
  * External subtitles are optional, independently loaded tracks and never block the video source.
+ *
+ * A file already on this device, such as a finished download, has no server MediaSource to
+ * describe it. YCore's platform and FFmpeg probes read its container and codecs from the local
+ * bytes before routing, and fail closed there. Only a remote source without metadata is refused
+ * here, before any of it has been read.
  */
-fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeBaselineBlock? =
-    when {
-        !source.hasMetadata -> Core2NativeBaselineBlock.MissingMetadata
+fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeBaselineBlock? {
+    val probedOnDevice = !source.hasMetadata && source.scheme.lowercase() in CORE2_NATIVE_LOCAL_SCHEMES
+    return when {
+        !source.hasMetadata && !probedOnDevice -> Core2NativeBaselineBlock.MissingMetadata
         source.scheme.lowercase() !in CORE2_NATIVE_BASELINE_SCHEMES ->
             Core2NativeBaselineBlock.UnsupportedScheme
         source.serverTranscode -> Core2NativeBaselineBlock.ServerTranscode
@@ -44,6 +50,8 @@ fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeB
         source.disc && !source.discSupported -> Core2NativeBaselineBlock.Disc
         source.drm && !source.drmSupported -> Core2NativeBaselineBlock.Drm
         source.dolbyVision && !source.dolbyVisionSupported -> Core2NativeBaselineBlock.DolbyVision
+        // No container or codec is named until YCore opens the local file.
+        probedOnDevice -> null
         !source.adaptiveManifest &&
             !source.disc &&
             source.container.normalizedContainer() !in CORE2_NATIVE_BASELINE_CONTAINERS ->
@@ -52,6 +60,7 @@ fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeB
             Core2NativeBaselineBlock.UnsupportedVideoCodec
         else -> null
     }
+}
 
 private fun String?.normalizedContainer(): String =
     orEmpty()
@@ -86,6 +95,10 @@ private fun String?.normalizedVideoCodec(): String {
 
 private val CORE2_NATIVE_BASELINE_SCHEMES =
     setOf("http", "https", "file", "content", "android.resource")
+
+/** Sources whose bytes are on this device, where YCore can read them before choosing a route. */
+private val CORE2_NATIVE_LOCAL_SCHEMES = setOf("file", "content", "android.resource")
+
 private val CORE2_NATIVE_BASELINE_CONTAINERS =
     setOf(
         "mp4",
