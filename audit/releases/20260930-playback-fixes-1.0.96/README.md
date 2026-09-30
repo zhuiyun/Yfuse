@@ -27,6 +27,8 @@ The owner asked to package both fixes below as one 1.0.96 (258) delivery.
 - Sidecar fix: a Kotlin 2.4.20 JVM harness built from the real `EmbyStream`, `MediaVersion`, DTO and `PlayerStore` sources passed 10 tests, including the 6 new `SidecarSubtitleUrlTest` cases, 4 of which fail on the pre-fix code.
 - `python scripts/release_metadata.py`, `python scripts/test_release_metadata.py`, `python scripts/verify-module-boundaries.py`, `git diff --check`, and ktlint 1.3.1 on the changed Kotlin files: passed.
 - Local Android execution is unavailable: this workspace has no Android SDK and `dl.google.com` is blocked.
-- Pending: Android quality gates on the merge commit, the release owner's MDK confirmation for this package-only 1.0.96 (258) delivery, and production signing.
+- PR #209 head `47929f95`: all 8 checks passed, including Android quality gates run [36691372028](https://github.com/zhuiyun/Yfuse/actions/runs/36691372028) (unit tests, instrumented-test compilation, Android lint, R8 release package at 29,817,959 bytes within the 30,000,000-byte budget, ktlint and dependency locks), the TV APK, the YCore native runtime, CodeQL, the release scripts and the dependency gate.
+- On September 30 at 17:15 (Asia/Shanghai) the release owner explicitly confirmed use and distribution of the existing MDK SDK for this package-only 1.0.96 (258) delivery. `.github/mdk-distribution-approval.json` records it without changing the SDK checksum or the approval scope.
+- Pending: Android quality gates on the merge commit and production signing.
 
 Package-only delivery is intended. Do not publish an application update as part of this build.
