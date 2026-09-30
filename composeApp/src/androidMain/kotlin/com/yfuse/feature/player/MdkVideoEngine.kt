@@ -259,7 +259,7 @@ class MdkVideoEngine(
             index.takeIf { item.startsWithServerTranscode() }
         }
     private val progressiveIndices = mutableSetOf<Int>()
-    private val progressiveTransitionIndices = mutableSetOf<Int>()
+    private val pendingProgressiveSwitches = PendingProgressiveSwitches()
     private var fallbackJob: Job? = null
     private val _state =
         MutableStateFlow(
@@ -524,14 +524,12 @@ class MdkVideoEngine(
         if (!canUpdatePlaybackQueue(previous, previousIndex, items, currentIndex)) return false
         val transcoded = remapPlaybackQueueIndices(transcodedIndices, previous, items)
         val progressive = remapPlaybackQueueIndices(progressiveIndices, previous, items)
-        val transitions = remapPlaybackQueueIndices(progressiveTransitionIndices, previous, items)
         transcodedIndices.clear()
         transcodedIndices.addAll(transcoded)
         items.forEachIndexed { index, item -> if (item.startsWithServerTranscode()) transcodedIndices += index }
         progressiveIndices.clear()
         progressiveIndices.addAll(progressive)
-        progressiveTransitionIndices.clear()
-        progressiveTransitionIndices.addAll(transitions)
+        pendingProgressiveSwitches.remap(previous, items)
         if (tracksLoadedForIndex == previousIndex) tracksLoadedForIndex = currentIndex
         this.items = items.toList()
         _state.update { it.copy(currentIndex = currentIndex, itemCount = items.size) }
@@ -543,7 +541,7 @@ class MdkVideoEngine(
         if (index !in items.indices || released) return
         fallbackJob?.cancel()
         fallbackJob = null
-        progressiveTransitionIndices.clear()
+        pendingProgressiveSwitches.clear()
         pendingSeekMs = 0L
         tracksLoadedForIndex = -1
         endHandled = false
@@ -599,7 +597,7 @@ class MdkVideoEngine(
         if (released) return
         fallbackJob?.cancel()
         fallbackJob = null
-        progressiveTransitionIndices.clear()
+        pendingProgressiveSwitches.clear()
         pendingSeekMs = _state.value.positionMs
         tracksLoadedForIndex = -1
         endHandled = false
@@ -958,7 +956,7 @@ class MdkVideoEngine(
             PlaybackFallbackLadder.streamRung(
                 transcoded = index in transcodedIndices,
                 progressive = index in progressiveIndices,
-                progressivePending = index in progressiveTransitionIndices,
+                progressivePending = index in pendingProgressiveSwitches,
             )
         val progressive =
             when (PlaybackFallbackLadder.nextStreamStep(rung, item, reason)) {
@@ -1025,7 +1023,7 @@ class MdkVideoEngine(
             return true
         }
 
-        progressiveTransitionIndices += index
+        pendingProgressiveSwitches.start(index)
         runMdk { it.setState(MDKPlayer.STATE_STOPPED) }
         fallbackJob?.cancel()
         fallbackJob =
@@ -1034,10 +1032,9 @@ class MdkVideoEngine(
                     item.playSessionId.isBlank() ||
                         withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
                 synchronized(this@MdkVideoEngine) {
-                    if (released || _state.value.currentIndex != index || !loadStateGate.isCurrent(epoch)) {
-                        return@launch
-                    }
-                    progressiveTransitionIndices -= index
+                    val stillCurrent =
+                        !released && _state.value.currentIndex == index && loadStateGate.isCurrent(epoch)
+                    if (!pendingProgressiveSwitches.settle(index, stillCurrent)) return@launch
                     if (!cleaned) {
                         _state.update {
                             it.copy(

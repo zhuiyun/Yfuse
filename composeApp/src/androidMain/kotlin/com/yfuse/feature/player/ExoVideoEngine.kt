@@ -150,7 +150,7 @@ class ExoVideoEngine(
             index.takeIf { item.startsWithServerTranscode() }
         }
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
-    private val progressiveTransitionIndices = mutableSetOf<Int>()
+    private val pendingProgressiveSwitches = PendingProgressiveSwitches()
     private val retryCounts = mutableMapOf<Triple<String, String, String>, Int>()
 
     /** Compact, credential-free failure trail preserved across replaceMediaItem fallback hops. */
@@ -1332,6 +1332,9 @@ class ExoVideoEngine(
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
         failureHistory.remove(index)
+        // The entry starts over, so a failure from here on gets an answer from the ladder, not the
+        // "switching" of an MP4 switch begun before (MDK clears it here too).
+        pendingProgressiveSwitches.clear()
         clearActiveOutputEvidence()
         _state.update {
             it.copy(
@@ -1351,6 +1354,8 @@ class ExoVideoEngine(
     override fun currentPositionMs(): Long = player.currentPosition
 
     override fun retry() {
+        // As in selectItem: a failure after the retry gets an answer from the ladder.
+        pendingProgressiveSwitches.clear()
         clearActiveOutputEvidence()
         _state.update {
             it.copy(
@@ -1595,7 +1600,7 @@ class ExoVideoEngine(
         PlaybackFallbackLadder.streamRung(
             transcoded = index in transcodedIndices,
             progressive = index in progressiveTranscodeIndices,
-            progressivePending = index in progressiveTransitionIndices,
+            progressivePending = index in pendingProgressiveSwitches,
         )
 
     /** Carries out the stream-ladder [step] the ladder chose for the entry at [index]. */
@@ -1699,7 +1704,6 @@ class ExoVideoEngine(
         if (!canUpdatePlaybackQueue(previous, oldIndex, items, currentIndex)) return false
         val remappedTranscoded = remapPlaybackQueueIndices(transcodedIndices, previous, items)
         val remappedProgressive = remapPlaybackQueueIndices(progressiveTranscodeIndices, previous, items)
-        val remappedTransitions = remapPlaybackQueueIndices(progressiveTransitionIndices, previous, items)
         val remappedHistory =
             failureHistory.entries
                 .mapNotNull { (index, history) ->
@@ -1714,8 +1718,7 @@ class ExoVideoEngine(
         items.forEachIndexed { index, item -> if (item.startsWithServerTranscode()) transcodedIndices += index }
         progressiveTranscodeIndices.clear()
         progressiveTranscodeIndices.addAll(remappedProgressive)
-        progressiveTransitionIndices.clear()
-        progressiveTransitionIndices.addAll(remappedTransitions)
+        pendingProgressiveSwitches.remap(previous, items)
         failureHistory.clear()
         failureHistory.putAll(remappedHistory)
         persistentCacheUrls.clear()
@@ -1757,7 +1760,7 @@ class ExoVideoEngine(
         item: PlayerMediaItem,
     ): Boolean {
         transcodedIndices += index
-        progressiveTransitionIndices += index
+        pendingProgressiveSwitches.start(index)
         val position = player.currentPosition
         val fallbackReason = failureChainReason(index, "HLS 转码不可用，已改用 MP4 转码")
         clearActiveOutputEvidence()
@@ -1798,8 +1801,8 @@ class ExoVideoEngine(
                 val cleaned =
                     item.playSessionId.isBlank() ||
                         withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
-                if (released || player.currentMediaItemIndex != index) return@launch
-                progressiveTransitionIndices -= index
+                val stillCurrent = !released && player.currentMediaItemIndex == index
+                if (!pendingProgressiveSwitches.settle(index, stillCurrent)) return@launch
                 if (!cleaned) {
                     AppLog.warning(
                         category = "player.exo",
@@ -1835,16 +1838,12 @@ class ExoVideoEngine(
         return true
     }
 
-    private fun advanceFallback(): Boolean {
-        val index = player.currentMediaItemIndex
-        val item = items.getOrNull(index)
-        return takeStreamStep(
-            index,
-            item,
-            reason = null,
-            PlaybackFallbackLadder.exoStreamStepAfterTransportFailure(streamRung(index), item),
-        )
-    }
+    /**
+     * After a transport failure Exo no longer retries: the next step of the ladder, like any other
+     * failure. It used to fall through to the MP4 when that step was refused, which asked a server
+     * that had not approved transcoding for a transcode it would refuse.
+     */
+    private fun advanceFallback(): Boolean = switchToTranscode()
 
     private fun scheduleRetry(
         index: Int,

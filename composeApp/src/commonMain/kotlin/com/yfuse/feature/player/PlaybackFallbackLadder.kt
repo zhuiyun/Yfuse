@@ -16,11 +16,11 @@ import com.yfuse.core.playback.PlaybackRuntimeFaultKind
  *    [SURFACE_REBIND_LIMIT] times per file. Neither changes what is played.
  * 2. The stream ladder: the original file, the server's HLS transcode, its progressive MP4
  *    ([PlaybackStreamRung]). Leaving the original file needs the server's approval and, for a
- *    local Dolby title, the viewer's own request ([PlayerMediaItem.allowsServerTranscodeFallback]).
- *    mpv and MDK step with [nextStreamStep]. Exo steps with [nextExoStreamStep], because it enters
+ *    local Dolby title, the viewer's own request ([PlayerMediaItem.allowsServerTranscodeFallback]),
+ *    whichever way the step is taken. mpv and MDK step with [nextStreamStep]. Exo steps with
+ *    [nextExoStreamStep], also after a transport failure it no longer retries, because it enters
  *    the MP4 only through [progressiveStreamStep], which it also takes directly for a malformed
- *    manifest and, after a transport failure, when the next step is refused
- *    ([exoStreamStepAfterTransportFailure]).
+ *    manifest.
  * 3. Nothing left: the engine reports `fallbacksExhausted` with a typed failure kind, which hands
  *    the failure to PlayerRoot.
  *
@@ -117,7 +117,7 @@ internal object PlaybackFallbackLadder {
             PlaybackStreamRung.Original ->
                 when {
                     item == null || !item.allowsServerTranscodeFallback(reason) -> PlaybackStreamStep.Exhausted
-                    item.transcodeUrl.isNotEmpty() -> PlaybackStreamStep.Transcode
+                    item.transcodeUrl.isNotBlank() -> PlaybackStreamStep.Transcode
                     // No HLS stream: the MP4 is the next rung.
                     else -> item.progressiveOrExhausted()
                 }
@@ -141,9 +141,10 @@ internal object PlaybackFallbackLadder {
 
     /**
      * Straight to the progressive MP4, Exo's way onto that rung: taken for a manifest no HLS retry
-     * can fix, after a transport failure the next step refused, and in place of [nextStreamStep]'s
-     * own MP4 answer. It asks for no server approval, so it keeps a local Dolby original off the MP4
-     * by itself, and does so even when the viewer asked for the transcode.
+     * can fix, and in place of [nextStreamStep]'s own MP4 answer. Off the original file it needs the
+     * server's approval like every other step: a server that refused transcoding refuses the MP4
+     * too, so asking for it only delayed the failure the source ladder answers. It asks without the
+     * viewer's reason, so a local Dolby original stays off the MP4 even on the viewer's request.
      */
     fun progressiveStreamStep(
         rung: PlaybackStreamRung,
@@ -154,25 +155,12 @@ internal object PlaybackFallbackLadder {
             PlaybackStreamRung.ProgressivePending -> PlaybackStreamStep.InProgress
             PlaybackStreamRung.Transcode -> item.progressiveOrExhausted()
             PlaybackStreamRung.Original ->
-                if (item?.requiresLocalDolbyPipeline == true) {
+                if (item == null || !item.allowsServerTranscodeFallback(reason = null)) {
                     PlaybackStreamStep.Exhausted
                 } else {
                     item.progressiveOrExhausted()
                 }
         }
-
-    /**
-     * Exo after a transport failure it no longer retries (an HTTP error that is not an access
-     * refusal, or a network failure past [TRANSIENT_RETRY_LIMIT]): the next step, or when that is
-     * refused, straight to the MP4. The second half asks for no server approval.
-     */
-    fun exoStreamStepAfterTransportFailure(
-        rung: PlaybackStreamRung,
-        item: PlayerMediaItem?,
-    ): PlaybackStreamStep =
-        nextExoStreamStep(rung, item, reason = null)
-            .takeUnless { it == PlaybackStreamStep.Exhausted }
-            ?: progressiveStreamStep(rung, item)
 
     /** The first engine of [engineOrder] not yet tried for this file. */
     fun nextUntriedEngine(
@@ -226,8 +214,13 @@ internal object PlaybackFallbackLadder {
         lastRecoveryPositionMs: Long,
     ): Boolean = positionMs >= lastRecoveryPositionMs + BUDGET_RESTORING_PROGRESS_MS
 
+    /**
+     * The MP4 if the entry has one. A blank URL counts as none here and in the HLS step, as in
+     * [PlayerMediaItem.allowsServerTranscodeFallback]: a step must not pick a stream that check did
+     * not count.
+     */
     private fun PlayerMediaItem?.progressiveOrExhausted(): PlaybackStreamStep =
-        if (this == null || fallbackTranscodeUrl.isEmpty()) {
+        if (this == null || fallbackTranscodeUrl.isBlank()) {
             PlaybackStreamStep.Exhausted
         } else {
             PlaybackStreamStep.Progressive

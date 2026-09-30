@@ -68,6 +68,22 @@ class PlaybackStreamLadderTest {
     }
 
     @Test
+    fun a_blank_stream_url_counts_as_missing() {
+        // The approval check counts a whitespace-only URL as missing; the step it allowed used to
+        // pick that URL anyway, which the engine could only fail to open.
+        val blankHls = ladderItem(hls = " ")
+        val blankMp4 = ladderItem(mp4 = " ")
+        assertEveryEngine(PlaybackStreamStep.Progressive, StreamSets.original, blankHls)
+        assertEveryEngine(PlaybackStreamStep.Exhausted, StreamSets.transcode, blankMp4)
+        assertEveryEngine(PlaybackStreamStep.Exhausted, StreamSets.original, ladderItem(hls = " ", mp4 = " "))
+        forEachFallbackLadder { ladder ->
+            assertEquals(PlaybackStreamStep.Progressive, ladder.exoAfterTransportFailure(StreamSets.original, blankHls))
+            assertEquals(PlaybackStreamStep.Exhausted, ladder.exoProgressive(StreamSets.original, blankMp4))
+            assertEquals(PlaybackStreamStep.Exhausted, ladder.exoProgressive(StreamSets.transcode, blankMp4))
+        }
+    }
+
+    @Test
     fun leaving_the_original_file_needs_the_servers_approval_leaving_the_hls_transcode_does_not() {
         val unapproved = ladderItem(approved = false)
         assertEveryEngine(PlaybackStreamStep.Exhausted, StreamSets.original, unapproved)
@@ -124,9 +140,9 @@ class PlaybackStreamLadderTest {
     fun exo_goes_straight_to_the_mp4_for_a_manifest_no_retry_can_fix() {
         forEachFallbackLadder { ladder ->
             assertEquals(PlaybackStreamStep.Progressive, ladder.exoProgressive(StreamSets.original, ladderItem()))
-            // The direct entry asks for no approval; only the local Dolby rule stops it.
+            // Straight to the MP4 or not, leaving the original file needs the server's approval.
             assertEquals(
-                PlaybackStreamStep.Progressive,
+                PlaybackStreamStep.Exhausted,
                 ladder.exoProgressive(StreamSets.original, ladderItem(approved = false)),
             )
             assertEquals(
@@ -145,10 +161,14 @@ class PlaybackStreamLadderTest {
     }
 
     @Test
-    fun after_a_transport_failure_exo_takes_the_mp4_when_the_next_step_is_refused() {
+    fun after_a_transport_failure_exo_takes_the_next_step_and_nothing_else() {
         forEachFallbackLadder { ladder ->
             assertEquals(
                 PlaybackStreamStep.Progressive,
+                ladder.exoAfterTransportFailure(StreamSets.original, ladderItem(hls = "")),
+            )
+            assertEquals(
+                PlaybackStreamStep.Exhausted,
                 ladder.exoAfterTransportFailure(StreamSets.original, ladderItem(approved = false)),
             )
             assertEquals(
@@ -158,6 +178,23 @@ class PlaybackStreamLadderTest {
             assertEquals(
                 PlaybackStreamStep.Exhausted,
                 ladder.exoAfterTransportFailure(StreamSets.original, ladderItem(approved = false, mp4 = "")),
+            )
+        }
+    }
+
+    @Test
+    fun a_server_that_did_not_approve_transcoding_keeps_every_engine_on_the_original_file() {
+        // Exo used to ask such a server for its MP4 anyway, straight after a malformed manifest or
+        // a transport failure, and waited for a refusal before PlayerRoot could try anything else.
+        val unapproved = ladderItem(approved = false)
+        assertEveryEngine(PlaybackStreamStep.Exhausted, StreamSets.original, unapproved)
+        assertEveryEngine(PlaybackStreamStep.Exhausted, StreamSets.original, unapproved, manualRequest)
+        forEachFallbackLadder { ladder ->
+            assertEquals(PlaybackStreamStep.Exhausted, ladder.exoProgressive(StreamSets.original, unapproved))
+            assertEquals(PlaybackStreamStep.Exhausted, ladder.exoAfterTransportFailure(StreamSets.original, unapproved))
+            assertEquals(
+                PlaybackStreamStep.Exhausted,
+                ladder.exoProgressive(StreamSets.original, ladderItem(approved = false, hls = "")),
             )
         }
     }
