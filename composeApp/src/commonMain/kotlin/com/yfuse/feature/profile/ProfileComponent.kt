@@ -1,6 +1,8 @@
 package com.yfuse.feature.profile
 
 import com.arkivanov.decompose.ComponentContext
+import com.arkivanov.decompose.router.stack.ChildStack
+import com.arkivanov.decompose.value.Value
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
@@ -60,17 +62,6 @@ class ProfileComponent(
     fun familyServers() =
         if (personal.policy.value.canManageServers) registry.allDataForSync().servers else registry.data.value.servers
 
-    private val requestedPage = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
-    val pageRequest: kotlinx.coroutines.flow.StateFlow<String?> = requestedPage
-
-    fun requestPage(page: String) {
-        requestedPage.value = page
-    }
-
-    fun consumePageRequest(page: String) {
-        if (requestedPage.value == page) requestedPage.value = null
-    }
-
     val store = ProfileStoreFactory(storeFactory, registry).create()
 
     val offlineMedia: OfflineMediaManager = dependencies.offlineMediaManager
@@ -115,6 +106,37 @@ class ProfileComponent(
         transferSecret: ByteArray,
         nowEpochSeconds: Long,
     ): Result<Int> = registry.importRelayBackup(payload, transferSecret, nowEpochSeconds)
+
+    // Last among the properties: a stack restored after process death builds its pages here, and
+    // a page may read anything declared above.
+    private val pageStack = ProfilePages<Child>(this) { page, _ -> Child.Settings(page) }
+
+    /** 我的's pages, the settings root at the bottom; [ProfileScreen] draws them. */
+    val pages: Value<ChildStack<ProfilePage, Child>> = pageStack.stack
+
+    /** What a page of [pages] is. */
+    sealed interface Child {
+        /** A page drawn from this component's own preferences and state; [page] says which. */
+        data class Settings(
+            val page: ProfilePage,
+        ) : Child
+    }
+
+    /** Opens [page] over whatever is showing; see [ProfilePages.open]. */
+    fun openPage(page: ProfilePage) = pageStack.open(page)
+
+    /** Back from the page in front — its back button, the gesture, system back. */
+    fun closePage() = pageStack.close()
+
+    /** 下载与离线库 from outside 我的 — a download's notification, the activity capsule. */
+    fun openDownloads() = pageStack.openDownloads()
+
+    /**
+     * 一起看 has become unavailable — signed out, or the session lapsed: its page closes if it is in
+     * front. [ProfileScreen] calls it as it sees that, arriving on screen included, so a page left
+     * open while that happened elsewhere closes as 我的 comes back into view.
+     */
+    fun closeWatchTogetherPage() = pageStack.closeWatchTogether()
 
     init {
         lifecycle.doOnDestroy {
