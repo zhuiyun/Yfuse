@@ -21,7 +21,6 @@ import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackDolbyVisionRuntimeCapabilities
 import com.yfuse.core.playback.PlaybackEngineSelection
-import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackMediaProbe
 import com.yfuse.core.playback.PlaybackOptimizationMode
@@ -45,11 +44,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 // the check that a rebuilt engine resumed where it should, and the step taken once an engine has
 // exhausted its streams. Each is called from PlayerRoot's runtime content where its code used to
 // be, so remembers and effects keep their keys and their order.
-
-/** Playback must get this far past the last recovery position before its recovery budget is restored. */
-private const val RECOVERY_BUDGET_RESET_PROGRESS_MS = 30_000L
-private const val MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS = 2
-private const val MAX_LONG_BUFFER_RECOVERY_ATTEMPTS = 2
 
 /**
  * The fallback chain's tried sets for the current item, and the actions that move it to another
@@ -436,8 +430,9 @@ internal fun rememberPlayerSourceSwitching(
 /**
  * YCore's runtime faults — a source starved for too long, a silent output failure — answered with
  * the cheapest recovery left: reopening the transport, restarting the native pipeline in place,
- * leaving the YCore 2.0 trial, then the next engine or a server transcode. The budgets for the
- * first two are earned back only by real progress past the point that failed.
+ * leaving the YCore 2.0 trial, then the next engine or a server transcode. The order and the
+ * budgets are PlaybackFallbackLadder's; the budgets for the first two are earned back only by real
+ * progress past the point that failed.
  */
 @Composable
 internal fun PlayerRuntimeFaultRecovery(
@@ -484,7 +479,7 @@ internal fun PlayerRuntimeFaultRecovery(
             // The budgets are earned back only by real progress past the failure; a new fault
             // restarts this effect and cancels the wait.
             snapshotFlow {
-                livePlayback.value.positionMs >= lastRecoveryPositionMs + RECOVERY_BUDGET_RESET_PROGRESS_MS
+                PlaybackFallbackLadder.restoresRecoveryBudget(livePlayback.value.positionMs, lastRecoveryPositionMs)
             }.first { it }
             nativeOnlyRecoveryAttempts = 0
             longBufferRecoveryAttempts = 0
@@ -502,49 +497,59 @@ internal fun PlayerRuntimeFaultRecovery(
         if (choices.sessionEngineSelection != PlaybackEngineSelection.Auto || castAuthoritative) {
             return@LaunchedEffect
         }
-        if (
-            fault.kind.failureKind == PlaybackFailureKind.Network &&
-            longBufferRecoveryAttempts < MAX_LONG_BUFFER_RECOVERY_ATTEMPTS
-        ) {
-            val positionMs = player.currentPositionMs().coerceAtLeast(0L)
-            longBufferRecoveryAttempts++
-            lastRecoveryPositionMs = positionMs
-            networkRecovery.attempts++
-            networkRecovery.pending = true
-            networkRecovery.resumePositionMs = positionMs
-            build.resume =
-                choices.handover(
-                    state = state,
-                    positionMs = positionMs,
-                    playbackRequested = player.playbackRequested,
+        val tried = enginesTried + build.kind
+        when (
+            val step =
+                PlaybackFallbackLadder.nextRuntimeFaultStep(
+                    fault = fault.kind,
+                    transportReopens = longBufferRecoveryAttempts,
+                    nativeOnly = core2NativeOnlyActive,
+                    nativeRestarts = nativeOnlyRecoveryAttempts,
+                    inCore2Trial = engine is YPlayerVideoEngineAdapter && !build.core2DisabledForSession,
+                    engineOrder = activePlan.engineOrder,
+                    enginesTried = tried,
+                    serverTranscodeAvailable = activeProbe.hasServerTranscode && !state.transcoding,
                 )
-            build.runtimeSessionGeneration++
-            player.seekTo(positionMs)
-            player.retry()
-            AppLog.warning(
-                category = "player.network",
-                event =
-                    if (fault.kind == PlaybackRuntimeFaultKind.StartupNetworkTimeout) {
-                        "startup_starvation_recovery"
-                    } else {
-                        "long_rebuffer_recovery"
-                    },
-                message = "Playback transport was reopened after sustained source starvation",
-                attributes =
-                    mapOf(
-                        "engine" to attachedEngineLabel,
-                        "itemIndex" to state.currentIndex.toString(),
-                        "positionMs" to positionMs.toString(),
-                        "fault" to fault.kind.name,
-                        "attempt" to longBufferRecoveryAttempts.toString(),
-                    ),
-            )
-            Toast.makeText(context, "网络数据长时间未到达，正在重新连接", Toast.LENGTH_SHORT).show()
-            return@LaunchedEffect
-        }
-        if (core2NativeOnlyActive) {
-            val positionMs = player.currentPositionMs().coerceAtLeast(0L)
-            if (nativeOnlyRecoveryAttempts < MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS) {
+        ) {
+            PlaybackRuntimeFaultStep.ReopenTransport -> {
+                val positionMs = player.currentPositionMs().coerceAtLeast(0L)
+                longBufferRecoveryAttempts++
+                lastRecoveryPositionMs = positionMs
+                networkRecovery.attempts++
+                networkRecovery.pending = true
+                networkRecovery.resumePositionMs = positionMs
+                build.resume =
+                    choices.handover(
+                        state = state,
+                        positionMs = positionMs,
+                        playbackRequested = player.playbackRequested,
+                    )
+                build.runtimeSessionGeneration++
+                player.seekTo(positionMs)
+                player.retry()
+                AppLog.warning(
+                    category = "player.network",
+                    event =
+                        if (fault.kind == PlaybackRuntimeFaultKind.StartupNetworkTimeout) {
+                            "startup_starvation_recovery"
+                        } else {
+                            "long_rebuffer_recovery"
+                        },
+                    message = "Playback transport was reopened after sustained source starvation",
+                    attributes =
+                        mapOf(
+                            "engine" to attachedEngineLabel,
+                            "itemIndex" to state.currentIndex.toString(),
+                            "positionMs" to positionMs.toString(),
+                            "fault" to fault.kind.name,
+                            "attempt" to longBufferRecoveryAttempts.toString(),
+                        ),
+                )
+                Toast.makeText(context, "网络数据长时间未到达，正在重新连接", Toast.LENGTH_SHORT).show()
+            }
+
+            PlaybackRuntimeFaultStep.RestartNativePipeline -> {
+                val positionMs = player.currentPositionMs().coerceAtLeast(0L)
                 nativeOnlyRecoveryAttempts++
                 lastRecoveryPositionMs = positionMs
                 build.resume =
@@ -577,70 +582,76 @@ internal fun PlayerRuntimeFaultRecovery(
                         "YCore 正在重建本地解码链路",
                         Toast.LENGTH_SHORT,
                     ).show()
-                return@LaunchedEffect
             }
-            AppLog.warning(
-                category = "player.core2",
-                event = "native_only_runtime_fault",
-                message = "YCore Native exhausted local recovery without using Legacy fallback",
-                attributes =
-                    mapOf(
-                        "engine" to attachedEngineLabel,
-                        "itemIndex" to state.currentIndex.toString(),
-                        "fault" to fault.kind.name,
-                    ),
-            )
-            Toast
-                .makeText(
-                    context,
-                    "YCore 本地恢复失败，未切换兼容内核或服务器解码",
-                    Toast.LENGTH_SHORT,
-                ).show()
-            return@LaunchedEffect
-        }
-        if (engine is YPlayerVideoEngineAdapter && !build.core2DisabledForSession) {
-            build.resume =
-                choices.handover(
-                    state = state,
-                    positionMs = player.currentPositionMs(),
-                    playbackRequested = player.playbackRequested,
+
+            PlaybackRuntimeFaultStep.NativeRestartsSpent -> {
+                AppLog.warning(
+                    category = "player.core2",
+                    event = "native_only_runtime_fault",
+                    message = "YCore Native exhausted local recovery without using Legacy fallback",
+                    attributes =
+                        mapOf(
+                            "engine" to attachedEngineLabel,
+                            "itemIndex" to state.currentIndex.toString(),
+                            "fault" to fault.kind.name,
+                        ),
                 )
-            backendExtensions.prepareForHandover()
-            build.core2DisabledForSession = true
-            build.engineGeneration++
-            AppLog.warning(
-                category = "player.core2",
-                event = "trial_runtime_fault_fallback",
-                message = "YCore 2.0 trial had a silent output fault; rebuilt the selected Legacy engine",
-                attributes =
-                    mapOf(
-                        "engine" to attachedEngineLabel,
-                        "itemIndex" to state.currentIndex.toString(),
-                        "fault" to fault.kind.name,
-                    ),
-            )
-            Toast.makeText(context, "试用内核输出异常，已切回兼容内核", Toast.LENGTH_SHORT).show()
-            return@LaunchedEffect
-        }
-        val tried = enginesTried + build.kind
-        enginesTried = tried
-        val nextEngine = activePlan.engineOrder.firstOrNull { it !in tried }
-        AppLog.info(
-            category = "player.health",
-            event = "runtime_fault_recovery",
-            message = "YCore detected a silent playback failure",
-            attributes =
-                mapOf(
-                    "engine" to attachedEngineLabel,
-                    "fault" to fault.kind.name,
-                    "nextEngine" to (nextEngine?.name ?: "server"),
-                ),
-        )
-        if (nextEngine != null) {
-            enginesTried = tried + nextEngine
-            switchEngine(nextEngine)
-        } else if (activeProbe.hasServerTranscode && !state.transcoding) {
-            backendExtensions.switchToTranscode(fault.reason)
+                Toast
+                    .makeText(
+                        context,
+                        "YCore 本地恢复失败，未切换兼容内核或服务器解码",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+            }
+
+            PlaybackRuntimeFaultStep.LeaveCore2Trial -> {
+                build.resume =
+                    choices.handover(
+                        state = state,
+                        positionMs = player.currentPositionMs(),
+                        playbackRequested = player.playbackRequested,
+                    )
+                backendExtensions.prepareForHandover()
+                build.core2DisabledForSession = true
+                build.engineGeneration++
+                AppLog.warning(
+                    category = "player.core2",
+                    event = "trial_runtime_fault_fallback",
+                    message = "YCore 2.0 trial had a silent output fault; rebuilt the selected Legacy engine",
+                    attributes =
+                        mapOf(
+                            "engine" to attachedEngineLabel,
+                            "itemIndex" to state.currentIndex.toString(),
+                            "fault" to fault.kind.name,
+                        ),
+                )
+                Toast.makeText(context, "试用内核输出异常，已切回兼容内核", Toast.LENGTH_SHORT).show()
+            }
+
+            is PlaybackRuntimeFaultStep.Engine,
+            PlaybackRuntimeFaultStep.ServerTranscode,
+            PlaybackRuntimeFaultStep.Exhausted,
+            -> {
+                enginesTried = tried
+                val nextEngine = (step as? PlaybackRuntimeFaultStep.Engine)?.engine
+                AppLog.info(
+                    category = "player.health",
+                    event = "runtime_fault_recovery",
+                    message = "YCore detected a silent playback failure",
+                    attributes =
+                        mapOf(
+                            "engine" to attachedEngineLabel,
+                            "fault" to fault.kind.name,
+                            "nextEngine" to (nextEngine?.name ?: "server"),
+                        ),
+                )
+                if (nextEngine != null) {
+                    enginesTried = tried + nextEngine
+                    switchEngine(nextEngine)
+                } else if (step == PlaybackRuntimeFaultStep.ServerTranscode) {
+                    backendExtensions.switchToTranscode(fault.reason)
+                }
+            }
         }
     }
 }

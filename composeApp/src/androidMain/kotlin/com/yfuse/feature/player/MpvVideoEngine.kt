@@ -1413,27 +1413,26 @@ class MpvVideoEngine(
 
     /**
      * Steps the current entry down the chain: original file, then the server's HLS
-     * transcode, then its progressive MP4. Returns false once the chain is spent, which is
-     * what tells the caller to stop retrying and report the failure.
+     * transcode, then its progressive MP4, as [PlaybackFallbackLadder.nextStreamStep] decides.
+     * Returns false once the chain is spent, which is what tells the caller to stop retrying
+     * and report the failure.
      */
     override fun switchToTranscode(reason: String?): Boolean {
         val index = _state.value.currentIndex
         resetFrameEvidence()
         val item = items.getOrNull(index) ?: return false
-        if (index !in transcodedIndices && !item.allowsServerTranscodeFallback(reason)) return false
-        val next =
-            when {
-                index in progressiveIndices -> return false
-                index in progressiveTransitionIndices -> return true
-                index in transcodedIndices ->
-                    if (item.fallbackTranscodeUrl.isEmpty()) return false else Step.Progressive
-                item.transcodeUrl.isEmpty() ->
-                    if (item.fallbackTranscodeUrl.isEmpty()) return false else Step.Progressive
-                else -> Step.Transcode
-            }
+        val rung =
+            PlaybackFallbackLadder.streamRung(
+                transcoded = index in transcodedIndices,
+                progressive = index in progressiveIndices,
+                progressivePending = index in progressiveTransitionIndices,
+            )
+        val next = PlaybackFallbackLadder.nextStreamStep(rung, item, reason)
         when (next) {
-            Step.Transcode -> transcodedIndices += index
-            Step.Progressive -> {
+            PlaybackStreamStep.InProgress -> return true
+            PlaybackStreamStep.Exhausted -> return false
+            PlaybackStreamStep.Transcode -> transcodedIndices += index
+            PlaybackStreamStep.Progressive -> {
                 transcodedIndices += index
                 progressiveTransitionIndices += index
             }
@@ -1468,9 +1467,10 @@ class MpvVideoEngine(
                         videoReadiness = PlaybackOutputReadiness.Waiting,
                         audioReadiness = PlaybackOutputReadiness.Waiting,
                         fallbackReason =
-                            reason ?: when (next) {
-                                Step.Transcode -> "直放失败，已切换服务器转码"
-                                Step.Progressive -> "HLS 转码不可用，已改用 MP4 转码"
+                            reason ?: if (next == PlaybackStreamStep.Transcode) {
+                                "直放失败，已切换服务器转码"
+                            } else {
+                                "HLS 转码不可用，已改用 MP4 转码"
                             },
                         bufferedDurationMs = 0L,
                         outputEvidence =
@@ -1482,7 +1482,7 @@ class MpvVideoEngine(
                     ),
             )
         }
-        if (next == Step.Transcode) {
+        if (next == PlaybackStreamStep.Transcode) {
             loadFileOrFail(currentUrl())
             return true
         }
@@ -1513,8 +1513,6 @@ class MpvVideoEngine(
             }
         return true
     }
-
-    private enum class Step { Transcode, Progressive }
 
     private fun playNextIfAny() {
         val next = _state.value.currentIndex + 1
@@ -2017,7 +2015,7 @@ class MpvVideoEngine(
             return true
         }
         val attempt = surfaceRecoveryAttempts.incrementAndGet()
-        if (attempt > MAX_MPV_SURFACE_RECOVERY_ATTEMPTS) return false
+        if (attempt > PlaybackFallbackLadder.SURFACE_REBIND_LIMIT) return false
         if (!surfaceRecoveryInProgress.compareAndSet(false, true)) return true
         val recovered =
             try {
@@ -2232,7 +2230,6 @@ class MpvVideoEngine(
 private const val HUGE_REMOTE_MEDIA_BYTES = 64L * 1024L * 1024L * 1024L
 
 private const val MAX_MPV_REPORTED_AV_SYNC_OFFSET_MS = 5_000L
-private const val MAX_MPV_SURFACE_RECOVERY_ATTEMPTS = 2L
 private const val NATIVE_TEARDOWN_JOIN_TIMEOUT_MS = 5_000L
 
 private fun PlayerMediaItem?.initialDiscNavigation(transcoding: Boolean): PlaybackDiscNavigationState {

@@ -18,13 +18,10 @@ internal data class StreamSets(
         val transcode = StreamSets(transcoded = true)
         val pendingMp4 = StreamSets(transcoded = true, pending = true)
         val mp4 = StreamSets(transcoded = true, progressive = true)
-
-        /** What an engine can reach: it adds an entry to its transcoded set with either other set. */
-        val reachable = listOf(original, transcode, pendingMp4, mp4, StreamSets(true, true, true))
     }
 }
 
-/** The fallback decisions of the engines and PlayerRoot, behind one face so a table can ask each implementation. */
+/** The fallback decisions of the engines and PlayerRoot, as each caller asks them. */
 internal interface FallbackLadders {
     val name: String
 
@@ -146,8 +143,11 @@ internal object ConvergedFallbackLadders : FallbackLadders {
     ) = PlaybackFallbackLadder.restoresRecoveryBudget(positionMs, lastRecoveryPositionMs)
 }
 
-/** Every table runs against today's code and against the ladder that replaces it. */
-internal val fallbackLadders: List<FallbackLadders> = listOf(TodayFallbackLadders, ConvergedFallbackLadders)
+/**
+ * The implementations every table runs against. The tables were written against a transcription
+ * of the engines' and PlayerRoot's own code as well, and passed on both before the callers moved.
+ */
+internal val fallbackLadders: List<FallbackLadders> = listOf(ConvergedFallbackLadders)
 
 /** Runs [check] against each implementation, naming the one that disagrees. */
 internal fun forEachFallbackLadder(check: (FallbackLadders) -> Unit) {

@@ -974,24 +974,28 @@ class MdkVideoEngine(
 
     /**
      * Steps the current entry down the chain: original file, then the server's HLS
-     * transcode, then its progressive MP4. Returns false once the chain is spent, which is
-     * what tells the caller to stop retrying and report the failure.
+     * transcode, then its progressive MP4, as [PlaybackFallbackLadder.nextStreamStep] decides.
+     * Returns false once the chain is spent, which is what tells the caller to stop retrying
+     * and report the failure.
      */
     @Synchronized
     override fun switchToTranscode(reason: String?): Boolean {
         if (released) return false
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return false
-        if (index !in transcodedIndices && !item.allowsServerTranscodeFallback(reason)) return false
+        val rung =
+            PlaybackFallbackLadder.streamRung(
+                transcoded = index in transcodedIndices,
+                progressive = index in progressiveIndices,
+                progressivePending = index in progressiveTransitionIndices,
+            )
         val progressive =
-            when {
-                index in progressiveIndices -> return false
-                index in progressiveTransitionIndices -> return true
-                index in transcodedIndices -> true
-                item.transcodeUrl.isEmpty() -> true
-                else -> false
+            when (PlaybackFallbackLadder.nextStreamStep(rung, item, reason)) {
+                PlaybackStreamStep.Exhausted -> return false
+                PlaybackStreamStep.InProgress -> return true
+                PlaybackStreamStep.Transcode -> false
+                PlaybackStreamStep.Progressive -> true
             }
-        if (progressive && item.fallbackTranscodeUrl.isEmpty()) return false
         transcodedIndices += index
         val epoch = loadStateGate.beginLoad()
         // Resume where the failure happened rather than from the top; a codec the device

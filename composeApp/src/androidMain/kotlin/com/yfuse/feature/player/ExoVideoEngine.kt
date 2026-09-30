@@ -72,7 +72,6 @@ private val exoRuntimeCadence =
         activeIntervalMs = PLAYBACK_PROGRESS_STEP_MS,
         idleIntervalMs = 2_000L,
     )
-private const val TRANSIENT_RETRY_LIMIT = 2
 private const val FAILURE_HISTORY_LIMIT = 4
 private const val MPEG_TS_TIMESTAMP_SEARCH_BYTES = 5 * 1024 * 1024
 
@@ -1245,7 +1244,7 @@ class ExoVideoEngine(
                     PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
                     ->
                         if (
-                            !scheduleRetry(index, TRANSIENT_RETRY_LIMIT, "transient_network") &&
+                            !scheduleRetry(index, PlaybackFallbackLadder.TRANSIENT_RETRY_LIMIT, "transient_network") &&
                             !advanceFallback()
                         ) {
                             failPlayback(
@@ -1665,10 +1664,42 @@ class ExoVideoEngine(
 
     override fun switchToTranscode(reason: String?): Boolean {
         val index = player.currentMediaItemIndex
-        if (index in transcodedIndices) return switchToProgressiveTranscode()
-        val item = items.getOrNull(index) ?: return false
-        if (!item.allowsServerTranscodeFallback(reason)) return false
-        if (item.transcodeUrl.isEmpty()) return switchToProgressiveTranscode()
+        val item = items.getOrNull(index)
+        return takeStreamStep(
+            index,
+            item,
+            reason,
+            PlaybackFallbackLadder.nextExoStreamStep(streamRung(index), item, reason),
+        )
+    }
+
+    /** Where the entry at [index] stands on the stream ladder, from this engine's per-entry sets. */
+    private fun streamRung(index: Int): PlaybackStreamRung =
+        PlaybackFallbackLadder.streamRung(
+            transcoded = index in transcodedIndices,
+            progressive = index in progressiveTranscodeIndices,
+            progressivePending = index in progressiveTransitionIndices,
+        )
+
+    /** Carries out the stream-ladder [step] the ladder chose for the entry at [index]. */
+    private fun takeStreamStep(
+        index: Int,
+        item: PlayerMediaItem?,
+        reason: String?,
+        step: PlaybackStreamStep,
+    ): Boolean =
+        when (step) {
+            PlaybackStreamStep.Transcode -> item != null && startServerTranscode(index, item, reason)
+            PlaybackStreamStep.Progressive -> item != null && startProgressiveTranscode(index, item)
+            PlaybackStreamStep.InProgress -> true
+            PlaybackStreamStep.Exhausted -> false
+        }
+
+    private fun startServerTranscode(
+        index: Int,
+        item: PlayerMediaItem,
+        reason: String?,
+    ): Boolean {
         transcodedIndices += index
         val position = player.currentPosition
         val fallbackReason = failureChainReason(index, reason ?: "直放失败，已切换服务器转码")
@@ -1795,11 +1826,19 @@ class ExoVideoEngine(
 
     private fun switchToProgressiveTranscode(): Boolean {
         val index = player.currentMediaItemIndex
-        if (index in progressiveTranscodeIndices) return false
-        if (index in progressiveTransitionIndices) return true
-        val item = items.getOrNull(index) ?: return false
-        if (item.requiresLocalDolbyPipeline && index !in transcodedIndices) return false
-        if (item.fallbackTranscodeUrl.isEmpty()) return false
+        val item = items.getOrNull(index)
+        return takeStreamStep(
+            index,
+            item,
+            reason = null,
+            PlaybackFallbackLadder.progressiveStreamStep(streamRung(index), item),
+        )
+    }
+
+    private fun startProgressiveTranscode(
+        index: Int,
+        item: PlayerMediaItem,
+    ): Boolean {
         transcodedIndices += index
         progressiveTransitionIndices += index
         val position = player.currentPosition
@@ -1879,7 +1918,16 @@ class ExoVideoEngine(
         return true
     }
 
-    private fun advanceFallback(): Boolean = switchToTranscode() || switchToProgressiveTranscode()
+    private fun advanceFallback(): Boolean {
+        val index = player.currentMediaItemIndex
+        val item = items.getOrNull(index)
+        return takeStreamStep(
+            index,
+            item,
+            reason = null,
+            PlaybackFallbackLadder.exoStreamStepAfterTransportFailure(streamRung(index), item),
+        )
+    }
 
     private fun scheduleRetry(
         index: Int,
@@ -1916,7 +1964,7 @@ class ExoVideoEngine(
         )
         retryJob =
             scope.launch {
-                delay(if (nextAttempt == 1) 500L else 1_500L)
+                delay(PlaybackFallbackLadder.transientRetryDelayMs(nextAttempt))
                 if (released || player.currentMediaItemIndex != index) return@launch
                 player.prepare()
                 player.playWhenReady = true
