@@ -550,22 +550,20 @@ fun ProfileScreen(component: ProfileComponent) {
                     )
 
                 ProfilePage.Personal, ProfilePage.Family, ProfilePage.Sync ->
-                    com.yfuse.feature.personal.PersonalCenterScreen(
-                        personal = component.personal,
-                        account = component.account,
-                        playbackSync = component.playbackSync,
-                        serverSync = component.dependencies.serverSyncManager,
-                        servers = component.familyServers(),
-                        onBack = component::closePage,
-                        onOpenMedia = component.onOpenPersonalMedia,
-                        initialTab =
-                            when (activePage) {
-                                ProfilePage.Family -> com.yfuse.feature.personal.PersonalCenterTab.Profiles
-                                ProfilePage.Sync -> com.yfuse.feature.personal.PersonalCenterTab.Sync
-                                else -> com.yfuse.feature.personal.PersonalCenterTab.WatchLater
-                            },
-                        repo = component.repository,
-                    )
+                    (entry.instance as? ProfileComponent.Child.Personal)?.let { personalPage ->
+                        com.yfuse.feature.personal.PersonalCenterScreen(
+                            store = personalPage.store,
+                            servers = component.familyServers(),
+                            onBack = component::closePage,
+                            onOpenMedia = component.onOpenPersonalMedia,
+                            initialTab =
+                                when (activePage) {
+                                    ProfilePage.Family -> com.yfuse.feature.personal.PersonalCenterTab.Profiles
+                                    ProfilePage.Sync -> com.yfuse.feature.personal.PersonalCenterTab.Sync
+                                    else -> com.yfuse.feature.personal.PersonalCenterTab.WatchLater
+                                },
+                        )
+                    }
 
                 ProfilePage.Handoff ->
                     com.yfuse.feature.handoff

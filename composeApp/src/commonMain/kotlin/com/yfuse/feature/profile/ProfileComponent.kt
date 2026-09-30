@@ -4,6 +4,7 @@ import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.decompose.router.stack.ChildStack
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.essenty.lifecycle.doOnDestroy
+import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
 import com.yfuse.core.account.AccountRepository
@@ -18,12 +19,16 @@ import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.clearImageCache
 import com.yfuse.core.util.clearVideoCache
+import com.yfuse.feature.personal.PersonalCenterIntent
+import com.yfuse.feature.personal.PersonalCenterState
+import com.yfuse.feature.personal.PersonalCenterStoreFactory
+import com.yfuse.feature.personal.PersonalSync
 import com.yfuse.core.util.imageCacheUsageBytes as currentImageCacheUsageBytes
 import com.yfuse.core.util.videoCacheUsageBytes as currentVideoCacheUsageBytes
 
 class ProfileComponent(
     componentContext: ComponentContext,
-    storeFactory: StoreFactory,
+    private val storeFactory: StoreFactory,
     private val registry: ServerRegistry,
     val themePreferences: ThemePreferences,
     /** Re-opens the player on the current 一起看 room; see `RootComponent.enterWatchRoom`. */
@@ -109,7 +114,7 @@ class ProfileComponent(
 
     // Last among the properties: a stack restored after process death builds its pages here, and
     // a page may read anything declared above.
-    private val pageStack = ProfilePages<Child>(this) { page, _ -> Child.Settings(page) }
+    private val pageStack = ProfilePages(this, ::pageChild)
 
     /** 我的's pages, the settings root at the bottom; [ProfileScreen] draws them. */
     val pages: Value<ChildStack<ProfilePage, Child>> = pageStack.stack
@@ -120,7 +125,34 @@ class ProfileComponent(
         data class Settings(
             val page: ProfilePage,
         ) : Child
+
+        /** 我的内容, 家庭资料 or 同步状态与恢复, one store for the three. */
+        class Personal(
+            val store: Store<PersonalCenterIntent, PersonalCenterState, Nothing>,
+        ) : Child
     }
+
+    /** A page's store is made as the page opens and disposed as it closes, as its state was before. */
+    private fun pageChild(
+        page: ProfilePage,
+        context: ComponentContext,
+    ): Child =
+        when (page) {
+            ProfilePage.Personal, ProfilePage.Family, ProfilePage.Sync ->
+                Child.Personal(
+                    PersonalCenterStoreFactory(
+                        storeFactory = storeFactory,
+                        personal = personal,
+                        sync = PersonalSync(account, playbackSync, dependencies.serverSyncManager),
+                        repo = repository,
+                    ).create()
+                        .disposedWith(context),
+                )
+            else -> Child.Settings(page)
+        }
+
+    private fun <S : Store<*, *, *>> S.disposedWith(context: ComponentContext): S =
+        also { store -> context.lifecycle.doOnDestroy(store::dispose) }
 
     /** Opens [page] over whatever is showing; see [ProfilePages.open]. */
     fun openPage(page: ProfilePage) = pageStack.open(page)
