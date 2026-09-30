@@ -343,10 +343,18 @@ data class SubtitleTrackInfo(
     val forced: Boolean = false,
     val external: Boolean = false,
     val default: Boolean = false,
-    /** Authenticated provider URL for a sidecar subtitle; null for embedded streams. */
+    /**
+     * Sidecar address as the server sent it, null for embedded streams. Emby and Jellyfin send it
+     * relative to the server; `toPlayerMediaVersions` turns it into a loadable URL.
+     */
     val uri: String? = null,
     /** The file's own name for the track (`简英双语`), kept even when [language] came from a tag. */
     val title: String? = null,
+    /**
+     * [uri] is the sidecar file's own location (`IsExternalUrl`), not the server's subtitle
+     * endpoint. Beside a `.strm` file that is a path on the server's disk.
+     */
+    val uriIsSidecarPath: Boolean = false,
 ) {
     /**
      * `中文 · 简英双语 · ASS`. A release's 简体, 繁體 and 简英双语 tracks are all tagged `chi`;
