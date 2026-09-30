@@ -10,6 +10,20 @@
   "baselineApkSha256": "e6345102bdddbf1d3a14894a409158178f45424ead5b5533ad2f3204930c8de9",
   "plannedVersionName": "1.0.95",
   "plannedVersionCode": 257,
-  "kotlinTests": "not run: Gradle download blocked; Android SDK unavailable",
-  "apkBuild": "not run: requires cloud signing workflow"
+  "verifiedRepairCommit": "228ed1d0cf533bc05e56c51c0be2004cda9d0ffe",
+  "qualityGatesRun": 36657529338,
+  "kotlinTests": "passed in cloud quality gates, including new regression cases",
+  "qualityGates": "passed: compilation, tests, ktlint, Android lint, R8 release package, APK checks and size budget",
+  "otherWorkflows": "passed: TV, CodeQL, YCore native runtime",
+  "previewArtifact": 11073906223,
+  "previewApk": {
+    "package": "com.yfuse",
+    "versionName": "1.0.95",
+    "versionCode": 257,
+    "sizeBytes": 29817927,
+    "sha256": "930108af5b9f85d50b90cce1dccf9a78c1dae47c8a5dde2ad01580361d02dfb2",
+    "productionSigned": false
+  },
+  "mdkPackageOnlyConfirmation": "release owner confirmed this version at 2026-09-30T10:35:30+08:00",
+  "apkBuild": "CI preview verified; production signing pending package-only workflow"
 }

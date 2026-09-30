@@ -18,6 +18,8 @@ The separate September 30 integration checkout is preserved; this repair does no
 - `python scripts/test_release_metadata.py`: 4 tests passed.
 - `python scripts/verify-module-boundaries.py`: passed.
 - Added regression cases for unsupported sidecars in the current/queued item, subtitle failure isolation, rejected-engine labels, malformed redirects, and redirect loops; updated the non-retry policy test.
-- Kotlin tests, ktlint and release compilation: not executed. Gradle 9.8.0 download failed with `Network is unreachable`; the local workspace has no Android SDK. Cloud verification and production signing are still required.
+- Local Android execution was unavailable because the Gradle download was blocked and this workspace has no Android SDK. Cloud run [36657529338](https://github.com/zhuiyun/Yfuse/actions/runs/36657529338) subsequently passed all Android quality gates on repair commit `228ed1d0cf533bc05e56c51c0be2004cda9d0ffe`: compilation, unit tests, ktlint, Android lint, R8 release build, package checks and size budget. TV, CodeQL and YCore native runtime checks also passed.
+- Read the actual CI preview APK manifest: `com.yfuse`, `1.0.95 (257)`, 29,817,927 bytes. Its certificate is Android Debug, so it is not the production deliverable. Production signing remains pending.
+- At 2026-09-30 10:35:30 Asia/Shanghai, the release owner explicitly confirmed use and distribution of the existing MDK SDK for this package-only 1.0.95 (257) delivery. The version-specific approval record is updated without changing the SDK checksum or approval scope.
 
 Package-only delivery is intended. Do not publish an application update as part of this build.
