@@ -320,7 +320,8 @@ def main(argv=None) -> int:
     if variant == "profile":
         metadata["profiles"] = export_profiles(raw, output / "profiles")
         if args.export_profiles:
-            export_profiles(raw, ROOT / "composeApp/src/main")
+            # Beside the main manifest: that is where AGP reads baseline-prof.txt from.
+            export_profiles(raw, ROOT / "composeApp/src/androidMain")
     else:
         documents = [json.loads(path.read_text(encoding="utf-8")) for path in raw.rglob("*benchmarkData.json")]
         metadata["measurements"] = summarize_results(documents)

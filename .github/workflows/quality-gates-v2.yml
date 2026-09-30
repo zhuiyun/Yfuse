@@ -240,12 +240,24 @@ jobs:
           done
           # A committed app profile must reach the APK: AGP merges it with the libraries' rules and
           # compiles them into assets/dexopt/. Only the merged text shows Yfuse's own rules made it.
-          if [[ -s composeApp/src/main/baseline-prof.txt ]]; then
+          # The libraries' own rules alone already produce assets/dexopt/baseline.prof, which is how a
+          # file in src/main/ (where AGP never looks) went unnoticed: the APK entry proves nothing
+          # about this app's rules, the merged text does.
+          profile="composeApp/src/androidMain/baseline-prof.txt"
+          if [[ -s "$profile" ]]; then
             grep -Fxq assets/dexopt/baseline.prof build/apk-entries.txt || fail "Release APK has no compiled baseline profile"
-            merged="$(find composeApp/build/intermediates -path '*merged_art_profile*' -path '*elease*' -name baseline-prof.txt -print -quit)"
-            if [[ -z "$merged" ]] || ! grep -q 'Lcom/yfuse/' "$merged"; then
-              fail "AGP did not merge composeApp/src/main/baseline-prof.txt"
+            merged=""
+            while IFS= read -r candidate; do
+              if grep -q 'Lcom/yfuse/' "$candidate"; then merged="$candidate"; break; fi
+            done < <(find composeApp/build/intermediates -path '*art_profile*' -path '*elease*' -name '*.txt' | sort)
+            if [[ -z "$merged" ]]; then
+              echo "Release ART profile texts AGP produced (lines, then Yfuse rules):"
+              while IFS= read -r candidate; do
+                echo "  $candidate: $(wc -l < "$candidate") lines, $(grep -c 'Lcom/yfuse/' "$candidate" || true) Yfuse"
+              done < <(find composeApp/build/intermediates -path '*art_profile*' -name '*.txt' | sort)
+              fail "AGP did not merge $profile: no release ART profile text holds a Yfuse rule"
             fi
+            echo "AGP merged $profile: $(grep -c 'Lcom/yfuse/' "$merged") Yfuse rules in $merged"
           fi
           apk_size="$(stat -c '%s' "$apk")"
           echo "APK size: $apk_size bytes (budget $APK_SIZE_BUDGET_BYTES)"

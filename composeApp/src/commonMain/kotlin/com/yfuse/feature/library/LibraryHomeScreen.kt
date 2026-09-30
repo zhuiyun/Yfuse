@@ -1,9 +1,7 @@
 package com.yfuse.feature.library
 
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,8 +23,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,9 +36,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,7 +44,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -70,31 +63,25 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
-import com.yfuse.core.designsystem.CarouselAutoAdvance
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.HeroActionDock
-import com.yfuse.core.designsystem.HeroPageFade
-import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.LaunchWaveState
 import com.yfuse.core.designsystem.LiftAnchor
 import com.yfuse.core.designsystem.LiftMenu
-import com.yfuse.core.designsystem.LightEffect
-import com.yfuse.core.designsystem.LivingPosterAmbient
 import com.yfuse.core.designsystem.LivingPosterDefaults
+import com.yfuse.core.designsystem.LivingPosterHeroCarousel
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalLaunchWave
-import com.yfuse.core.designsystem.LocalLiftMenu
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.LocalSkeletonArrival
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.MediaSizing
-import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.MotionSwap
 import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
@@ -113,8 +100,6 @@ import com.yfuse.core.designsystem.ToastAction
 import com.yfuse.core.designsystem.arrivalSweep
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
-import com.yfuse.core.designsystem.carouselPageVisual
-import com.yfuse.core.designsystem.carouselTouchPause
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
@@ -127,12 +112,9 @@ import com.yfuse.core.designsystem.launchWaveItem
 import com.yfuse.core.designsystem.liftAnchor
 import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.liftedCardOpen
-import com.yfuse.core.designsystem.lightFeedback
+import com.yfuse.core.designsystem.livingPosterArtwork
 import com.yfuse.core.designsystem.livingPosterFrame
 import com.yfuse.core.designsystem.livingPosterHeroHeight
-import com.yfuse.core.designsystem.loopingCarouselItemIndex
-import com.yfuse.core.designsystem.loopingCarouselSemantics
-import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.mediaLazyItemKey
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
@@ -148,8 +130,7 @@ import com.yfuse.core.designsystem.rememberArtworkPagePalette
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
 import com.yfuse.core.designsystem.rememberCarouselPageColor
 import com.yfuse.core.designsystem.rememberLaunchWave
-import com.yfuse.core.designsystem.rememberLightFeedback
-import com.yfuse.core.designsystem.rememberLoopingCarouselState
+import com.yfuse.core.designsystem.rememberLivingPosterHeroState
 import com.yfuse.core.designsystem.rememberRefreshReveal
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
@@ -169,7 +150,6 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.util.rememberPosterCardSharer
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -282,28 +262,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val accessToken = state.currentServer?.accessToken.orEmpty()
 
     val slides = state.content.featured.take(8)
-    val pagerState = rememberLoopingCarouselState(slides.map { it.id })
-    val carouselTouched = remember { mutableStateOf(false) }
-    val slideIndex = loopingCarouselItemIndex(pagerState.settledPage, slides.size)
-    val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
-    val carouselScope = rememberCoroutineScope()
-    val carouselLight = rememberLightFeedback(enhancedOnly = true)
-    LaunchedEffect(carouselDragging, carouselLight) {
-        if (carouselDragging) carouselLight.emit(LightEffect.Dust)
-    }
-    // Same settle sweep as 首页's hero; see there.
-    val carouselSweep = rememberLightFeedback()
-    LaunchedEffect(pagerState, carouselSweep) {
-        var previous = pagerState.settledPage
-        snapshotFlow { pagerState.settledPage }.collect { page ->
-            if (page != previous) {
-                carouselSweep.emit(LightEffect.Converge, fractionX = if (page > previous) 0.04f else 0.96f)
-                previous = page
-            }
-        }
-    }
-    // Interaction restarts the reel's clock instead of stopping it; see 首页's hero.
-    var interaction by remember { mutableStateOf(0) }
+    // Kept by the page, not the list item the reel sits in: the settled slide picks this page's
+    // accent and colour, and the reel keeps its place while it is scrolled out of the list.
+    val hero = rememberLivingPosterHeroState(slides.map { it.id })
+    val slideIndex = hero.settledIndex(slides.size)
     val slide = slides.getOrNull(slideIndex)
     val slideUrls =
         slide
@@ -339,7 +301,6 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     var serverMenuOpen by remember { mutableStateOf(false) }
     val listState = component.listState
     val density = LocalDensity.current
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val routeVisible = LocalRouteVisible.current
     // 「水火潮涌」: armed by a cold start that opens on 库, played once when content is first on screen.
     val launchWave = rememberLaunchWave(contentVisible = routeVisible && !state.content.isEmpty)
@@ -357,12 +318,6 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val carouselVisible by remember(listState) {
         derivedStateOf { listState.firstVisibleItemIndex == 0 && !listState.isScrollInProgress }
     }
-    LibraryCarouselAutoAdvance(
-        pagerState = pagerState,
-        pageCount = slides.size,
-        held = !libraryCarousel || !carouselVisible || serverMenuOpen || carouselDragging || carouselTouched.value,
-        restartKey = interaction,
-    )
     ScrollToTopOnReselect(listState)
 
     val bottomContentInset = floatingNavigationContentInset()
@@ -377,20 +332,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
             Box(Modifier.fillMaxSize().drawBehind { drawRect(sampledPageColor.value) })
             val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
             val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
-            val artworkWidth =
-                if (showSidePreview) {
-                    (maxWidth - LivingPosterDefaults.LEADING_INSET - LivingPosterDefaults.TRAILING_PEEK)
-                        .coerceAtLeast(1.dp)
-                } else {
-                    maxWidth
-                }
-            val artworkAspectRatio = artworkWidth.value / heroHeight.value.coerceAtLeast(1f)
-            val artworkFadeFraction =
-                (HeroPageFade.value / heroHeight.value.coerceAtLeast(1f)).coerceIn(0.02f, 1f)
-            val indicatorStart =
-                if (showSidePreview) LivingPosterDefaults.LEADING_INSET else 0.dp
-            val indicatorEnd =
-                if (showSidePreview) LivingPosterDefaults.TRAILING_PEEK else 0.dp
+            val artwork = livingPosterArtwork(maxWidth, heroHeight, showSidePreview)
             StatusBarIconStyle(darkIcons = (!libraryCarousel || slide == null || lightPageReached) && !palette.isDark)
             when {
                 state.currentServer == null && access.canManageServers ->
@@ -487,170 +429,69 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 }
                                 if (libraryCarousel && slide != null) {
                                     motionItem {
-                                        Box(
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .height(
-                                                    heroHeight,
-                                                ).heroScrollCollapse(
-                                                    listState,
-                                                    heroHeight,
-                                                ).carouselTouchPause(carouselTouched)
-                                                .lightFeedback(carouselLight)
-                                                .lightFeedback(carouselSweep),
-                                        ) {
-                                            // No second full-bleed copy on phones: it would show through the dissolve.
-                                            if (showSidePreview) {
-                                                LivingPosterAmbient(
-                                                    urls = slideUrls,
-                                                    modifier = Modifier.fillMaxSize().fadeIntoPage(),
+                                        LivingPosterHeroCarousel(
+                                            state = hero,
+                                            pageCount = slides.size,
+                                            showSidePreview = showSidePreview,
+                                            held = !carouselVisible || serverMenuOpen,
+                                            ambientUrls = slideUrls,
+                                            modifier =
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .height(heroHeight)
+                                                    .heroScrollCollapse(listState, heroHeight),
+                                            beyondViewportPageCount = if (showSidePreview) 1 else 0,
+                                        ) { page ->
+                                            val animatedItem = slides.getOrNull(page.index) ?: slide
+                                            // Backdrop first, poster as the understudy: an item can
+                                            // carry a backdrop id whose image the server no longer has,
+                                            // and the hero used to go blank rather than fall back.
+                                            val animatedUrls =
+                                                listOf(
+                                                    EmbyImages.backdrop(
+                                                        baseUrl,
+                                                        animatedItem,
+                                                        accessToken = accessToken,
+                                                    ),
+                                                    EmbyImages.poster(
+                                                        baseUrl,
+                                                        animatedItem,
+                                                        accessToken = accessToken,
+                                                    ),
                                                 )
-                                            }
-                                            HorizontalPager(
-                                                state = pagerState,
+                                            HeroCarousel(
+                                                item = animatedItem,
+                                                urls = animatedUrls,
+                                                accent = accent,
+                                                serverId = state.currentServer?.id,
+                                                serverName = state.currentServer?.serverName.orEmpty(),
+                                                settled = page.settled,
+                                                pageOffset = page.offset,
+                                                artworkAspectRatio = artwork.aspectRatio,
+                                                artworkFadeFraction = artwork.fadeFraction,
+                                                onPageColor = retainedPageColor::update,
+                                                framed = showSidePreview,
+                                                // The first stop TalkBack makes on this page, so 下拉刷新 lives
+                                                // here for someone who cannot pull.
                                                 modifier =
-                                                    Modifier
-                                                        .fillMaxSize()
-                                                        .loopingCarouselSemantics(pagerState.currentPage, slides.size),
-                                                contentPadding =
-                                                    if (showSidePreview) {
-                                                        PaddingValues(
-                                                            start = LivingPosterDefaults.LEADING_INSET,
-                                                            end = LivingPosterDefaults.TRAILING_PEEK,
-                                                        )
-                                                    } else {
-                                                        PaddingValues(0.dp)
+                                                    page.modifier.refreshAction(enabled = !state.refreshing) {
+                                                        store.accept(LibraryIntent.Retry)
                                                     },
-                                                pageSpacing =
-                                                    if (showSidePreview) LivingPosterDefaults.PAGE_SPACING else 0.dp,
-                                                beyondViewportPageCount = if (showSidePreview) 1 else 0,
-                                                key = { page -> page },
-                                            ) { page ->
-                                                val animatedIndex = loopingCarouselItemIndex(page, slides.size)
-                                                val animatedItem = slides.getOrNull(animatedIndex) ?: slide
-                                                // Backdrop first, poster as the understudy: an item can
-                                                // carry a backdrop id whose image the server no longer has,
-                                                // and the hero used to go blank rather than fall back.
-                                                val animatedUrls =
-                                                    listOf(
-                                                        EmbyImages.backdrop(
-                                                            baseUrl,
-                                                            animatedItem,
-                                                            accessToken = accessToken,
-                                                        ),
-                                                        EmbyImages.poster(
-                                                            baseUrl,
-                                                            animatedItem,
-                                                            accessToken = accessToken,
+                                                onClick = { component.onOpenItem(animatedItem.id) },
+                                                onPlay = { component.onPlayItem(animatedItem.id) },
+                                                onToggleFavorite = {
+                                                    store.accept(
+                                                        LibraryIntent.ToggleFavorite(
+                                                            itemId = animatedItem.id,
+                                                            title = animatedItem.title,
+                                                            favorite = !animatedItem.isFavorite,
                                                         ),
                                                     )
-                                                HeroCarousel(
-                                                    item = animatedItem,
-                                                    urls = animatedUrls,
-                                                    accent = accent,
-                                                    serverId = state.currentServer?.id,
-                                                    serverName = state.currentServer?.serverName.orEmpty(),
-                                                    settled = page == pagerState.settledPage,
-                                                    pageOffset = {
-                                                        (pagerState.currentPage - page) +
-                                                            pagerState.currentPageOffsetFraction
-                                                    },
-                                                    artworkAspectRatio = artworkAspectRatio,
-                                                    artworkFadeFraction = artworkFadeFraction,
-                                                    onPageColor = retainedPageColor::update,
-                                                    framed = showSidePreview,
-                                                    // The first stop TalkBack makes on this page, so 下拉刷新 lives
-                                                    // here for someone who cannot pull.
-                                                    modifier =
-                                                        Modifier
-                                                            .fillMaxSize()
-                                                            .graphicsLayer {
-                                                                val visual =
-                                                                    carouselPageVisual(
-                                                                        signedPageOffset =
-                                                                            (pagerState.currentPage - page) +
-                                                                                pagerState.currentPageOffsetFraction,
-                                                                        reduceMotion = reduceMotion,
-                                                                        preservePreviewEdge = showSidePreview,
-                                                                    )
-                                                                scaleX = visual.scale
-                                                                scaleY = visual.scale
-                                                                alpha = visual.alpha
-                                                                translationX = size.width * visual.parallaxFraction
-                                                            }.refreshAction(enabled = !state.refreshing) {
-                                                                store.accept(LibraryIntent.Retry)
-                                                            },
-                                                    onClick = { component.onOpenItem(animatedItem.id) },
-                                                    onPlay = { component.onPlayItem(animatedItem.id) },
-                                                    onToggleFavorite = {
-                                                        store.accept(
-                                                            LibraryIntent.ToggleFavorite(
-                                                                itemId = animatedItem.id,
-                                                                title = animatedItem.title,
-                                                                favorite = !animatedItem.isFavorite,
-                                                            ),
-                                                        )
-                                                    },
-                                                    onToggleServerMenu = {
-                                                        serverMenuOpen = !serverMenuOpen
-                                                    },
-                                                )
-                                            }
-                                            if (slides.size > 1) {
-                                                Box(
-                                                    Modifier
-                                                        .align(Alignment.BottomStart)
-                                                        .fillMaxWidth()
-                                                        .padding(
-                                                            start = indicatorStart,
-                                                            end = indicatorEnd,
-                                                            bottom = LivingPosterDefaults.INDICATOR_BOTTOM,
-                                                        ),
-                                                ) {
-                                                    HeroPageIndicator(
-                                                        pageCount = slides.size,
-                                                        selectedPage =
-                                                            loopingCarouselItemIndex(
-                                                                pagerState.currentPage,
-                                                                slides.size,
-                                                            ),
-                                                        pageOffsetProvider = { pagerState.currentPageOffsetFraction },
-                                                        onPageSelected = { targetIndex ->
-                                                            if (targetIndex !=
-                                                                loopingCarouselItemIndex(
-                                                                    pagerState.currentPage,
-                                                                    slides.size,
-                                                                )
-                                                            ) {
-                                                                carouselLight.emit(LightEffect.Dust)
-                                                            }
-                                                            interaction++
-                                                            carouselScope.launch {
-                                                                val targetPage =
-                                                                    loopingCarouselTargetPage(
-                                                                        currentPage = pagerState.currentPage,
-                                                                        targetIndex = targetIndex,
-                                                                        itemCount = slides.size,
-                                                                    )
-                                                                if (reduceMotion) {
-                                                                    pagerState.scrollToPage(targetPage)
-                                                                } else {
-                                                                    pagerState.animateScrollToPage(
-                                                                        page = targetPage,
-                                                                        animationSpec =
-                                                                            tween(
-                                                                                Motion.EMPHASIZED,
-                                                                                easing = Motion.Curve,
-                                                                            ),
-                                                                    )
-                                                                }
-                                                            }
-                                                        },
-                                                        onArtwork = false,
-                                                        modifier = Modifier.align(Alignment.Center),
-                                                    )
-                                                }
-                                            }
+                                                },
+                                                onToggleServerMenu = {
+                                                    serverMenuOpen = !serverMenuOpen
+                                                },
+                                            )
                                         }
                                     }
                                 }
@@ -825,28 +666,6 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
             }
         }
     }
-}
-
-/**
- * The reel's clock, held as well while a 浮起菜单 is up — as 首页's hero already was. The menu blurs
- * the page it lifts off, and a reel turning underneath had that blur worked out again on every
- * frame of the turn. The lift is read here, in a scope of its own, so opening one does not
- * recompose the page around it.
- */
-@Composable
-private fun LibraryCarouselAutoAdvance(
-    pagerState: PagerState,
-    pageCount: Int,
-    held: Boolean,
-    restartKey: Any?,
-) {
-    val lifted = LocalLiftMenu.current?.isOpen == true
-    CarouselAutoAdvance(
-        pagerState = pagerState,
-        pageCount = pageCount,
-        held = held || lifted,
-        restartKey = restartKey,
-    )
 }
 
 /** Non-blocking disclosure for content that is not currently verified live. */

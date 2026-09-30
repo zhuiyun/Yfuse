@@ -28,7 +28,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -95,6 +94,7 @@ import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.rememberSegmentIndicator
+import com.yfuse.core.designsystem.rememberUndoWindow
 import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.sharedMediaOnClick
@@ -1272,15 +1272,13 @@ private fun CalendarTrackingPane(
     component: CalendarComponent,
     bottomContentInset: androidx.compose.ui.unit.Dp,
 ) {
-    val unfollows = remember { UndoWindow<FollowedSeries>() }
+    val unfollows = rememberUndoWindow<FollowedSeries> { component.unfollow(it.tmdbId) }
     var unfollowing by remember { mutableStateOf<FollowedSeries?>(null) }
     // A fresh toast for every 取消追剧, so two in a row each get their own.
     var unfollowToast by remember { mutableIntStateOf(0) }
 
-    fun commitUnfollow(series: FollowedSeries) = component.unfollow(series.tmdbId)
-
     fun unfollow(series: FollowedSeries) {
-        unfollows.hold(series)?.let(::commitUnfollow)
+        unfollows.hold(series)
         unfollowing = series
         unfollowToast++
     }
@@ -1290,13 +1288,10 @@ private fun CalendarTrackingPane(
     }
 
     // The toast left — timed out, swiped away, the app sent to the background: the follow goes now.
+    // Leaving the pane is the toast leaving too, and the window settles itself then.
     fun settleUnfollow() {
-        unfollows.release()?.let(::commitUnfollow)
+        unfollows.settle()
         unfollowing = null
-    }
-    // Leaving the pane is the toast leaving too.
-    DisposableEffect(unfollows) {
-        onDispose { unfollows.release()?.let(::commitUnfollow) }
     }
     val pendingTmdbId = unfollowing?.tmdbId
     Box(Modifier.fillMaxSize()) {
