@@ -75,8 +75,8 @@ internal class PlayerSourceSwitching(
 
 /**
  * The fallback chain's state and the switching actions, with the diagnostics binding that reports
- * which engines were tried. [latestActiveItems] and [livePlayback] are read when an action runs,
- * as the inline code's delegates were.
+ * which engines were tried. [stateSource], [livePlayback] and [latestActiveItemsSource] are read
+ * when an action runs, as the inline code's delegates were.
  */
 @Composable
 internal fun rememberPlayerSourceSwitching(
