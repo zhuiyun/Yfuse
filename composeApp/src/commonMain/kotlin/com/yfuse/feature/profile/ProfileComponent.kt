@@ -26,6 +26,9 @@ import com.yfuse.feature.personal.PersonalCenterIntent
 import com.yfuse.feature.personal.PersonalCenterState
 import com.yfuse.feature.personal.PersonalCenterStoreFactory
 import com.yfuse.feature.personal.PersonalSync
+import com.yfuse.feature.trakt.TraktSettingsIntent
+import com.yfuse.feature.trakt.TraktSettingsState
+import com.yfuse.feature.trakt.TraktSettingsStoreFactory
 import com.yfuse.core.util.imageCacheUsageBytes as currentImageCacheUsageBytes
 import com.yfuse.core.util.videoCacheUsageBytes as currentVideoCacheUsageBytes
 
@@ -138,6 +141,11 @@ class ProfileComponent(
         class Handoff(
             val store: Store<DeviceHandoffIntent, HandoffUiState, Nothing>,
         ) : Child
+
+        /** Trakt, authorized the phone's way — see [TraktSettingsStoreFactory]. */
+        class Trakt(
+            val store: Store<TraktSettingsIntent, TraktSettingsState, Nothing>,
+        ) : Child
     }
 
     /** A page's store is made as the page opens and disposed as it closes, as its state was before. */
@@ -158,6 +166,10 @@ class ProfileComponent(
                 )
             ProfilePage.Handoff ->
                 Child.Handoff(DeviceHandoffStoreFactory(storeFactory, handoff).create().disposedWith(context))
+            ProfilePage.Trakt ->
+                Child.Trakt(
+                    TraktSettingsStoreFactory(storeFactory, trakt, television = false).create().disposedWith(context),
+                )
             else -> Child.Settings(page)
         }
 

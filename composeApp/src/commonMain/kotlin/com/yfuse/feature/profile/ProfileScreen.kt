@@ -572,8 +572,10 @@ fun ProfileScreen(component: ProfileComponent) {
                     }
 
                 ProfilePage.Trakt ->
-                    com.yfuse.feature.trakt
-                        .TraktSettingsScreen(component.trakt, component::closePage)
+                    (entry.instance as? ProfileComponent.Child.Trakt)?.let { traktPage ->
+                        com.yfuse.feature.trakt
+                            .TraktSettingsScreen(traktPage.store, component::closePage)
+                    }
 
                 ProfilePage.Root ->
                     SkeletonHandoff(

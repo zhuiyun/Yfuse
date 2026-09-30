@@ -170,7 +170,7 @@ class TraktRepositoryTest {
             repository.recordPlayback(media, "playback-1", action, 95_000, 100_000)
     }
 
-    private class FakeAuth(
+    internal class FakeAuth(
         private val now: () -> Long,
     ) : TraktAuthApi {
         var token = TraktRepositoryTest.token
@@ -198,7 +198,7 @@ class TraktRepositoryTest {
         override suspend fun revoke(accessToken: String) {}
     }
 
-    private class FakeApi : TraktApi {
+    internal class FakeApi : TraktApi {
         val writes = mutableListOf<TraktPlaybackAction>()
         val pages = mutableListOf<Int>()
         var failure: Exception? = null
