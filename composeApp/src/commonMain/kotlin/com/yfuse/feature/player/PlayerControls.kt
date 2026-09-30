@@ -48,8 +48,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.data.PlayerGestureSettings
-import com.yfuse.core.designsystem.AmbientLight
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.DragAxis
@@ -61,8 +59,6 @@ import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.rememberScreenReaderActive
-import com.yfuse.core.model.PlaybackChapter
-import com.yfuse.tv.player.TvPlayerChromeBridge
 import com.yfuse.tv.player.TvPlayerChromeCommandType
 import com.yfuse.tv.player.TvPlayerChromeLayer
 import com.yfuse.tv.player.TvPlayerChromePanel
@@ -161,151 +157,42 @@ internal fun shouldShowManualSkipPill(
  * top bar, a centred transport cluster, a gradient bottom bar with the scrubber and
  * chip row, plus the lock screen, settings panel and episode drawer.
  *
- * Everything shown comes from [playback], so ExoPlayer and libmpv get the same controls.
+ * Everything shown comes from [playback], so ExoPlayer and libmpv get the same controls. The rest
+ * arrives by area — the transport, the picture, tracks, the source, 更多's pages, 投屏, 弹幕, 一起看
+ * and what the player root lends the chrome — each as a state snapshot and its callbacks; see
+ * PlayerControlAreas.kt.
  */
 @Composable
 internal fun PlayerControls(
     playback: State<PlaybackState>,
-    // The queue, as the strip and the title bar both read it.
-    episodes: List<EpisodeCard>,
-    scaleMode: VideoScaleMode,
-    onBack: () -> Unit,
-    onEnterPictureInPicture: (() -> Unit)?,
-    onPlayPause: () -> Unit,
-    onRetry: () -> Unit,
-    /** Where playback resumed from, when it did; shows a brief 从头开始 offer. */
-    resumedFromMs: Long? = null,
-    onExternalPlayer: (() -> Unit)? = null,
-    onSeek: (Long) -> Unit,
-    onSelectItem: (Int) -> Unit,
-    onPreviousItem: () -> Boolean,
-    onNextItem: () -> Boolean,
-    /** 取消 on the next-up card: the engine must not advance on its own either. */
-    onDismissNextUp: () -> Unit = {},
-    /** 片尾接管: true while the credits have the picture in its corner; the caller shrinks the surface. */
-    onCreditsTakeover: (Boolean) -> Unit = {},
-    /** 自动播放下一集, as the engine was built with it: off, nothing counts down to the next item. */
-    autoNext: Boolean = true,
-    onRefreshEpisodes: () -> Unit,
-    onSelectAudio: (String) -> Unit,
-    audioControls: AudioControlState = AudioControlState(),
-    audioActions: AudioControlActions = AudioControlActions(),
-    onSelectSubtitle: (String) -> Unit,
-    /**
-     * 没听清: show [SubtitlePeek.trackId] on the engine for the replay. Temporary by contract — the
-     * caller keeps it out of series memory, preferences and its own restore state.
-     */
-    onPeekSubtitle: (SubtitlePeek) -> Unit = {},
-    /** 没听清 is over: put the given track back ([EngineTrack.OFF] included), or with null touch nothing. */
-    onEndSubtitlePeek: (String?) -> Unit = {},
-    subtitleControls: SubtitleControlState = SubtitleControlState(),
-    subtitleActions: SubtitleControlActions = SubtitleControlActions(),
-    bookmarks: PlaybackBookmarkPanelState = PlaybackBookmarkPanelState(),
-    bookmarkActions: PlaybackBookmarkActions = PlaybackBookmarkActions(),
-    remoteSubtitles: RemoteSubtitlePanelState = RemoteSubtitlePanelState(),
-    remoteSubtitleActions: RemoteSubtitleActions = RemoteSubtitleActions(),
-    onSpeed: (Float) -> Unit,
-    /**
-     * 长按中间: the speed to play at while the middle third is held, or null once it is let go.
-     * Temporary by contract — the caller must not remember it as the series' speed.
-     */
-    onSpeedBoost: (Float?) -> Unit = {},
-    /** 手势 from 播放设置: the double-tap step, whether the middle holds a speed, which side is which. */
-    gestures: PlayerGestureSettings = PlayerGestureSettings(),
-    sleepTimer: SleepTimerState = SleepTimerState(),
-    sleepTimerActions: SleepTimerActions = SleepTimerActions(),
-    onToggleFill: (stretch: Boolean) -> Unit,
-    /** 捏合填充 and the F key: 裁剪填满 (true) or 适应 (false), remembered for the series like the button. */
-    onSetFill: (Boolean) -> Unit = {},
-    trickplay: TrickplayStoryboard? = null,
-    /*
-     * System volume, 0f..1f, and its setter — read by the right-edge drag gesture and by the
-     * slider the volume rocker raises. There is no on-screen volume control any more. A reader
-     * rather than a value: a drag or the rocker changes it many times a second, and as a value
-     * each of those recomposed every control on this screen.
-     */
-    volume: () -> Float = { 0f },
-    onVolume: (Float) -> Unit = {},
-    /*
-     * Increments on each volume key press. Any change raises the vertical slider; the value
-     * itself is meaningless, which is what lets a press at the volume ceiling still show it.
-     */
-    volumeKeyPresses: Long = 0L,
-    // Current window brightness, 0f..1f, as a reader for the same reason. Vertical drags on the left half adjust it.
-    brightness: () -> Float = { 0.5f },
-    onBrightness: (Float) -> Unit = {},
-    // Engine picker rows: label to selected.
-    engineOptions: List<Pair<String, Boolean>> = emptyList(),
-    onSelectEngine: (Int) -> Unit = {},
-    // Null when the active engine has no transcode fallback.
-    transcodeLabel: String? = null,
-    transcodeActive: Boolean = false,
-    onTranscode: () -> Unit = {},
-    onResetAdaptiveLearning: () -> Unit = {},
-    onNextDiscTitle: () -> Unit = {},
-    onNextDiscChapter: () -> Unit = {},
-    onShowDiscMenu: () -> Unit = {},
-    castDevices: List<Pair<String, String>> = emptyList(),
-    castingDeviceId: String? = null,
-    castDiscovering: Boolean = false,
-    castError: String? = null,
-    castStatus: String? = null,
-    /** A session is connecting or live on a receiver; [castStatus] then names it and its state. */
-    castActive: Boolean = false,
-    castPosition: String? = null,
-    castPositionSource: (() -> String?)? = null,
-    castCapabilities: String? = null,
-    onDiscoverCast: () -> Unit = {},
-    onCastTo: (String) -> Unit = {},
-    onStopCast: () -> Unit = {},
-    danmaku: DanmakuPanelState = DanmakuPanelState(),
+    transport: PlayerTransportState,
+    transportActions: PlayerTransportActions,
+    picture: PlayerPictureState,
+    pictureActions: PlayerPictureActions,
+    tracks: PlayerTrackState = PlayerTrackState(),
+    trackActions: PlayerTrackActions,
+    source: PlayerSourceState = PlayerSourceState(),
+    sourceActions: PlayerSourceActions = PlayerSourceActions(),
+    panels: PlayerPanelState = PlayerPanelState(),
+    panelActions: PlayerPanelActions = PlayerPanelActions(),
+    cast: PlayerCastState = PlayerCastState(),
+    castActions: PlayerCastActions = PlayerCastActions(),
+    danmaku: PlayerDanmakuState = PlayerDanmakuState(),
     danmakuActions: DanmakuPanelActions = DanmakuPanelActions(),
-    /** 弹幕热度 of the matched comments, read while the rail draws; null when nothing is matched. */
-    danmakuHeat: () -> DanmakuHeat? = { null },
-    // The server this file is on. Null when there is only ever one server to be on.
-    sourceLabel: String? = null,
-    // Resolved copies of the current item on other servers.
-    sourceOptions: List<Pair<String, String>> = emptyList(),
-    selectedSourceId: String? = null,
-    onSelectSource: (String) -> Unit = {},
-    // `MKV` — the container, which the engine cannot report but the library knows.
-    containerLabel: String? = null,
-    dolbyVision: Boolean = false,
-    dolbyAtmos: Boolean = false,
-    // Files the server holds for this entry; a picker appears once there are two.
-    versions: List<Pair<String, String>> = emptyList(),
-    selectedVersionId: String? = null,
-    onSelectVersion: (String) -> Unit = {},
-    skip: SkipSegmentState = SkipSegmentState(),
-    skipActions: SkipSegmentActions = SkipSegmentActions(),
-    /** The file's named chapters: the progress bar is divided at them and the preview names them. */
-    chapters: List<PlaybackChapter> = emptyList(),
     watch: WatchRoomState = WatchRoomState(),
     watchActions: WatchRoomActions = WatchRoomActions(),
-    /** 点弹幕, 旋转锁 and the press-and-slide keys, supplied by the player root; see [PlayerChromeExtras]. */
-    extras: PlayerChromeExtras = PlayerChromeExtras(),
-    remoteChrome: TvPlayerChromeBridge? = null,
-    /**
-     * A hardware keyboard is attached: 键盘快捷键 answer. Ignored with [remoteChrome], because TV keeps
-     * its remote controller, which sees every key before the window does.
-     */
-    hardwareKeyboard: Boolean = false,
-    /** 氛围光 for the scrims and seek accent; null while the light is off. */
-    ambientLight: State<AmbientLight>? = null,
-    ambientLightEnabled: Boolean = true,
-    onToggleAmbientLight: () -> Unit = {},
-    onAmbientChromeVisibleChange: (Boolean) -> Unit = {},
+    host: PlayerChromeHost,
     modifier: Modifier = Modifier,
-    systemGestureTopPx: Float = 0f,
-    /** Bumped by the owner to bring the controls up, as a tap on the picture would. */
-    wakeRequests: Int = 0,
 ) {
-    val currentSystemGestureTop by rememberUpdatedState(systemGestureTopPx)
-    val latestExtras by rememberUpdatedState(extras)
+    val remoteChrome = host.remoteChrome
+    val skip = transport.skip
+    val skipActions = transportActions.skip
+    val currentSystemGestureTop by rememberUpdatedState(picture.systemGestureTopPx)
+    val latestExtras by rememberUpdatedState(host.extras)
     val state by rememberPlayerControlSnapshot(playback)
     var visible by remember { mutableStateOf(true) }
     var ambientChromeCount by remember { mutableIntStateOf(0) }
-    val latestAmbientVisibility by rememberUpdatedState(onAmbientChromeVisibleChange)
+    val latestAmbientVisibility by rememberUpdatedState(pictureActions.onAmbientChromeVisibleChange)
     val ambientPresenceChanged =
         remember {
             { present: Boolean -> ambientChromeCount += if (present) 1 else -1 }
@@ -337,7 +224,7 @@ internal fun PlayerControls(
     var danmakuSearchOpen by remember { mutableStateOf(false) }
     var danmakuSendOpen by remember { mutableStateOf(false) }
     // 键盘快捷键 on a phone, tablet or Chromebook; TV's remote has its own controller.
-    val keyboardShortcuts = hardwareKeyboard && remoteChrome == null
+    val keyboardShortcuts = host.hardwareKeyboard && remoteChrome == null
     val keyboardAnchor = remember { FocusRequester() }
     val keyboard = remember { PlayerKeyboardShortcuts() }
     var keyboardAnchorFocused by remember { mutableStateOf(false) }
@@ -368,12 +255,12 @@ internal fun PlayerControls(
     var interactions by remember { mutableIntStateOf(0) }
     val latestPosition by remember(playback) { derivedStateOf { playback.value.positionMs } }
     val latestDuration by rememberUpdatedState(state.durationMs)
-    val latestVolume by rememberUpdatedState(volume)
-    val latestBrightness by rememberUpdatedState(brightness)
-    val latestOnSeek by rememberUpdatedState(onSeek)
-    val latestOnPlayPause by rememberUpdatedState(onPlayPause)
-    val latestOnVolume by rememberUpdatedState(onVolume)
-    val latestOnBrightness by rememberUpdatedState(onBrightness)
+    val latestVolume by rememberUpdatedState(picture.volume)
+    val latestBrightness by rememberUpdatedState(picture.brightness)
+    val latestOnSeek by rememberUpdatedState(transportActions.onSeek)
+    val latestOnPlayPause by rememberUpdatedState(transportActions.onPlayPause)
+    val latestOnVolume by rememberUpdatedState(pictureActions.onVolume)
+    val latestOnBrightness by rememberUpdatedState(pictureActions.onBrightness)
     // Timeline controls (play/pause, seek, episode, speed) are read-only for a connected
     // non-host: the room's host drives them, this device only follows. Volume, brightness,
     // subtitle/audio track, aspect ratio, cast and danmaku stay untouched by this — those
@@ -382,11 +269,11 @@ internal fun PlayerControls(
     val latestWatchLocked by rememberUpdatedState(watchLocked)
     // Read by the long-lived gesture detector, which would otherwise keep its first frame's values.
     val latestWatchConnected by rememberUpdatedState(watch.connected)
-    val latestCasting by rememberUpdatedState(castingDeviceId != null)
-    val latestOnSpeedBoost by rememberUpdatedState(onSpeedBoost)
-    val latestGestures by rememberUpdatedState(gestures)
-    val latestFilled by rememberUpdatedState(scaleMode != VideoScaleMode.Fit)
-    val latestOnSetFill by rememberUpdatedState(onSetFill)
+    val latestCasting by rememberUpdatedState(cast.deviceId != null)
+    val latestOnSpeedBoost by rememberUpdatedState(transportActions.onSpeedBoost)
+    val latestGestures by rememberUpdatedState(picture.gestures)
+    val latestFilled by rememberUpdatedState(picture.scaleMode != VideoScaleMode.Fit)
+    val latestOnSetFill by rememberUpdatedState(pictureActions.onSetFill)
     val remoteChromeState = remoteChrome?.state?.collectAsState()?.value
     LaunchedEffect(remoteChromeState?.seekTargetMs, remoteChromeState?.seeking) {
         val target = remoteChromeState?.seekTargetMs ?: return@LaunchedEffect
@@ -483,7 +370,7 @@ internal fun PlayerControls(
 
     // 没听清: the subtitle a held ⟲10 brought up for the replay, until the line has been heard.
     var subtitlePeek by remember { mutableStateOf<SubtitlePeek?>(null) }
-    val latestOnEndSubtitlePeek by rememberUpdatedState(onEndSubtitlePeek)
+    val latestOnEndSubtitlePeek by rememberUpdatedState(trackActions.onEndSubtitlePeek)
 
     fun endSubtitlePeek(restoreTrackId: String?) {
         if (subtitlePeek == null) return
@@ -504,12 +391,12 @@ internal fun PlayerControls(
                 positionMs = live.positionMs,
                 subtitleTracks = live.subtitleTracks,
                 audioTracks = live.audioTracks,
-                secondarySubtitleTrackId = live.secondarySubtitleTrackId ?: subtitleControls.secondaryTrackId,
+                secondarySubtitleTrackId = live.secondarySubtitleTrackId ?: tracks.subtitles.secondaryTrackId,
                 running = subtitlePeek,
-                subtitlesAllowed = castingDeviceId == null,
+                subtitlesAllowed = cast.deviceId == null,
             )
         latestOnSeek(plan.targetMs)
-        plan.peek?.takeIf { subtitlePeek == null }?.let(onPeekSubtitle)
+        plan.peek?.takeIf { subtitlePeek == null }?.let(trackActions.onPeekSubtitle)
         subtitlePeek = plan.peek
         gestureState.say(plan.message)
         poke()
@@ -519,7 +406,7 @@ internal fun PlayerControls(
     fun keyContext(): PlayerKeyContext {
         val live = playback.value
         val frames =
-            trickplay
+            transport.trickplay
                 ?.takeIf { live.durationMs > 0L }
                 ?.let { SeekFilmstripFrames(it, live.durationMs) }
                 ?.takeIf { it.count > 1 }
@@ -661,7 +548,7 @@ internal fun PlayerControls(
 
     val resumeNotice =
         rememberResumeNotice(
-            resumedFromMs = resumedFromMs,
+            resumedFromMs = transport.resumedFromMs,
             itemIndex = state.currentIndex,
             ready = state.playing && !state.buffering && state.error == null,
             controlsVisible = visible,
@@ -884,8 +771,8 @@ internal fun PlayerControls(
         }
     }
     // A room or a cast that begins while the middle is held owns the rate from then on.
-    LaunchedEffect(watch.connected, castingDeviceId) {
-        if (watch.connected || castingDeviceId != null) endSpeedBoost()
+    LaunchedEffect(watch.connected, cast.deviceId) {
+        if (watch.connected || cast.deviceId != null) endSpeedBoost()
     }
     // Leaving the player mid-hold, or into 画中画, lets go too: the release that ends the boost
     // would otherwise never arrive.
@@ -899,7 +786,7 @@ internal fun PlayerControls(
         onEnd = { endSubtitlePeek(it) },
     )
     // The next item and a cast bring their own subtitles: the replay's is dropped, not put back.
-    LaunchedEffect(state.currentIndex, castingDeviceId) { endSubtitlePeek(null) }
+    LaunchedEffect(state.currentIndex, cast.deviceId) { endSubtitlePeek(null) }
     // Runs for as long as the press is held; cancelled by the release setting the
     // direction back to 0.
     LaunchedEffect(gestureState.scanDirection) {
@@ -919,12 +806,12 @@ internal fun PlayerControls(
     var nextUpDismissed by remember(state.currentIndex) { mutableStateOf(false) }
     var volumeSliderTouches by remember { mutableIntStateOf(0) }
     var volumeSliderVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(volumeKeyPresses) {
+    LaunchedEffect(picture.volumeKeyPresses) {
         // Nothing has been pressed yet on first composition; don't flash the slider up.
-        if (volumeKeyPresses == 0L) return@LaunchedEffect
+        if (picture.volumeKeyPresses == 0L) return@LaunchedEffect
         volumeSliderVisible = true
     }
-    LaunchedEffect(volumeKeyPresses, volumeSliderTouches, volumeSliderVisible, accessibilityManager) {
+    LaunchedEffect(picture.volumeKeyPresses, volumeSliderTouches, volumeSliderVisible, accessibilityManager) {
         if (!volumeSliderVisible) return@LaunchedEffect
         val timeout =
             accessibilityManager?.calculateRecommendedTimeoutMillis(
@@ -937,8 +824,8 @@ internal fun PlayerControls(
         delay(timeout)
         volumeSliderVisible = false
     }
-    LaunchedEffect(wakeRequests) {
-        if (wakeRequests > 0) poke()
+    LaunchedEffect(host.wakeRequests) {
+        if (host.wakeRequests > 0) poke()
     }
     // The 回到 offer lasts a few seconds (longer under 操作时长), then the scan stands.
     LaunchedEffect(gestureState.scanUndoMs, accessibilityManager) {
@@ -1008,13 +895,13 @@ internal fun PlayerControls(
             creditsTakeoverDismissed ||
                 nextUpDismissed ||
                 watchLocked ||
-                castingDeviceId != null ||
+                cast.deviceId != null ||
                 locked ||
                 skip.countdownSeconds != null ||
                 gestureState.scanning,
     )
     val creditsTakeover = creditsPhase != CreditsTakeoverPhase.Off
-    val latestOnCreditsTakeover by rememberUpdatedState(onCreditsTakeover)
+    val latestOnCreditsTakeover by rememberUpdatedState(transportActions.onCreditsTakeover)
     LaunchedEffect(creditsTakeover) { latestOnCreditsTakeover(creditsTakeover) }
     DisposableEffect(Unit) {
         onDispose { latestOnCreditsTakeover(false) }
@@ -1027,13 +914,13 @@ internal fun PlayerControls(
     val nextUpCardShowing by remember(playback, nextUpDismissed) {
         derivedStateOf { nextUpCardVisible(playback.value, nextUpDismissed) }
     }
-    val latestPlayNextFromRemote by rememberUpdatedState { onNextItem() }
+    val latestPlayNextFromRemote by rememberUpdatedState { transportActions.onNextItem() }
     val latestKeepCreditsFromRemote by rememberUpdatedState<() -> Unit> {
         if (creditsPhase == CreditsTakeoverPhase.Card) {
             creditsTakeoverDismissed = true
         } else if (!nextUpDismissed) {
             nextUpDismissed = true
-            onDismissNextUp()
+            transportActions.onDismissNextUp()
         }
     }
     LaunchedEffect(remoteChrome) {
@@ -1372,11 +1259,11 @@ internal fun PlayerControls(
                         !lockedExplained -> "屏幕已锁定"
                         remoteChrome != null -> "屏幕已锁定，按返回键解锁"
                         screenReaderActive -> "屏幕已锁定，请先解锁"
-                        gestures.unlockByLongPress -> "屏幕已锁定，长按左侧锁键解锁"
+                        picture.gestures.unlockByLongPress -> "屏幕已锁定，长按左侧锁键解锁"
                         else -> "屏幕已锁定，点按左侧锁键解锁"
                     },
                 screenReaderActive = screenReaderActive,
-                unlockByLongPress = gestures.unlockByLongPress,
+                unlockByLongPress = picture.gestures.unlockByLongPress,
                 onReveal = { revealLock(explain = false) },
                 onRefuse = ::refuseWhileLocked,
                 onUnlock = {
@@ -1414,32 +1301,36 @@ internal fun PlayerControls(
                         ambientPresenceChanged(true)
                         onDispose { ambientPresenceChanged(false) }
                     }
-                    val readout by remember(playback, sourceLabel, containerLabel) {
-                        derivedStateOf { playback.value.readoutLine(sourceLabel, containerLabel) }
+                    val readout by remember(playback, source.sourceLabel, source.containerLabel) {
+                        derivedStateOf { playback.value.readoutLine(source.sourceLabel, source.containerLabel) }
                     }
                     RefinedTopBar(
-                        title = episodes.getOrNull(state.currentIndex)?.title.orEmpty(),
+                        title =
+                            transport.episodes
+                                .getOrNull(state.currentIndex)
+                                ?.title
+                                .orEmpty(),
                         subtitle = readout,
-                        scaleMode = scaleMode,
-                        dolbyVision = dolbyVision,
-                        dolbyAtmos = dolbyAtmos,
-                        onBack = onBack,
-                        onEnterPictureInPicture = onEnterPictureInPicture,
+                        scaleMode = picture.scaleMode,
+                        dolbyVision = source.dolbyVision,
+                        dolbyAtmos = source.dolbyAtmos,
+                        onBack = host.onBack,
+                        onEnterPictureInPicture = host.onEnterPictureInPicture,
                         onToggleFill = { stretch ->
                             poke()
-                            onToggleFill(stretch)
+                            pictureActions.onToggleFill(stretch)
                         },
                         onOpenCast = { openSettingsPanel(SettingsPanelKind.Cast) },
                         onOpenMore = { openSettingsPanel(SettingsPanelKind.More) },
-                        ambientLight = ambientLight,
-                        castActive = castActive,
+                        ambientLight = picture.ambientLight,
+                        castActive = cast.active,
                         watchConnected = watch.connected,
                         unreadChat =
                             watch.chatMessages.lastOrNull()?.id?.let { latest ->
                                 lastReadChatId?.let { latest > it } ?: true
                             } ?: false,
                         onOpenChat = ::openWatchChat,
-                        extras = extras,
+                        extras = host.extras,
                         onKeyActivity = ::poke,
                     )
                 }
@@ -1478,19 +1369,19 @@ internal fun PlayerControls(
                             seekLocked = watchLocked,
                             onPlayPause = {
                                 poke()
-                                onPlayPause()
+                                transportActions.onPlayPause()
                             },
                             onPrevious = {
                                 poke()
-                                onPreviousItem()
+                                transportActions.onPreviousItem()
                             },
                             onNext = {
                                 poke()
-                                onNextItem()
+                                transportActions.onNextItem()
                             },
                             onSeek = {
                                 poke()
-                                onSeek(it)
+                                transportActions.onSeek(it)
                             },
                             onScrub = {
                                 // Every touch sample lands here. `interactions` is read by this
@@ -1503,23 +1394,27 @@ internal fun PlayerControls(
                                 gestureState.endScrub()
                                 poke()
                             },
-                            trickplay = trickplay,
+                            trickplay = transport.trickplay,
                             progressMarkers =
                                 remember(
                                     skip.introStartSeconds,
                                     skip.introEndSeconds,
                                     skip.creditsLeadSeconds,
                                     state.durationMs,
-                                    chapters,
+                                    transport.chapters,
                                 ) {
-                                    playbackProgressMarkers(skip, state.durationMs, chapters.asProgressChapters())
+                                    playbackProgressMarkers(
+                                        skip,
+                                        state.durationMs,
+                                        transport.chapters.asProgressChapters(),
+                                    )
                                 },
                             hasEpisodes = state.itemCount > 1,
                             onOpenEpisodes = {
-                                onRefreshEpisodes()
+                                transportActions.onRefreshEpisodes()
                                 openEpisodeDrawer()
                             },
-                            hasMultipleSources = sourceOptions.size > 1,
+                            hasMultipleSources = source.sourceOptions.size > 1,
                             onOpenSources = { openQuickPopup(QuickPopup.Source) },
                             onOpenSubtitles = {
                                 openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Subtitle)
@@ -1530,14 +1425,15 @@ internal fun PlayerControls(
                             onOpenSpeed = { openQuickPopup(QuickPopup.Speed) },
                             skipSettingsAvailable = skip.seriesName != null,
                             onOpenSkipSettings = { openSettingsPanel(SettingsPanelKind.Skip) },
-                            danmakuEnabled = danmaku.enabled,
+                            danmakuEnabled = danmaku.panel.enabled,
                             onToggleDanmaku = danmakuActions.onToggle,
                             onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
                             // 进度条跟随作品取色: the series poster, or the episode still without one.
-                            artworkUrl = episodes.getOrNull(state.currentIndex)?.let { it.posterUrl ?: it.stillUrl },
+                            artworkUrl =
+                                transport.episodes.getOrNull(state.currentIndex)?.let { it.posterUrl ?: it.stillUrl },
                             artworkIdentity = state.currentIndex,
-                            ambientLight = ambientLight,
-                            danmakuHeat = danmakuHeat,
+                            ambientLight = picture.ambientLight,
+                            danmakuHeat = danmaku.heat,
                             onSeekBackwardLongPress = { rewindMissedLine() },
                             playKeyModifier =
                                 if (remoteChrome != null) Modifier.focusRequester(playKeyFocus) else Modifier,
@@ -1675,19 +1571,19 @@ internal fun PlayerControls(
                             // formatting, and every list around them, on the position tick.
                             state = state,
                             playback = playback,
-                            containerLabel = containerLabel,
-                            engineOptions = engineOptions,
-                            transcodeLabel = transcodeLabel,
-                            transcodeActive = transcodeActive,
-                            castDevices = castDevices,
-                            castingDeviceId = castingDeviceId,
-                            castDiscovering = castDiscovering,
-                            castError = castError,
-                            castStatus = castStatus,
-                            castPosition = castPosition,
-                            castPositionSource = castPositionSource,
-                            castCapabilities = castCapabilities,
-                            danmaku = danmaku,
+                            containerLabel = source.containerLabel,
+                            engineOptions = source.engineOptions,
+                            transcodeLabel = source.transcodeLabel,
+                            transcodeActive = source.transcodeActive,
+                            castDevices = cast.devices,
+                            castingDeviceId = cast.deviceId,
+                            castDiscovering = cast.discovering,
+                            castError = cast.error,
+                            castStatus = cast.status,
+                            castPosition = cast.position,
+                            castPositionSource = cast.positionSource,
+                            castCapabilities = cast.capabilities,
+                            danmaku = danmaku.panel,
                             danmakuActions = danmakuActions,
                             onOpenDanmakuSearch = {
                                 settingsPanelKind = null
@@ -1704,52 +1600,54 @@ internal fun PlayerControls(
                             onSelectSubtitle = { id ->
                                 // A pick is the viewer's own: 没听清 steps aside without putting anything back.
                                 endSubtitlePeek(null)
-                                onSelectSubtitle(id)
+                                trackActions.onSelectSubtitle(id)
                                 gestureState.say("字幕 · ${trackLabel(state.subtitleTracks, id)}")
                                 settingsPanelKind = null
                             },
-                            subtitleControls = subtitleControls,
-                            subtitleActions = subtitleActions,
-                            bookmarks = bookmarks,
+                            subtitleControls = tracks.subtitles,
+                            subtitleActions = trackActions.subtitles,
+                            bookmarks = panels.bookmarks,
                             bookmarkActions =
-                                bookmarkActions.copy(onSeek = { position ->
+                                panelActions.bookmarks.copy(onSeek = { position ->
                                     if (watchLocked) {
                                         gestureState.say("房主控制播放")
                                     } else {
-                                        onSeek(position.coerceIn(0L, state.durationMs.coerceAtLeast(0L)))
+                                        transportActions.onSeek(
+                                            position.coerceIn(0L, state.durationMs.coerceAtLeast(0L)),
+                                        )
                                         settingsPanelKind = null
                                     }
                                 }),
-                            remoteSubtitles = remoteSubtitles,
-                            remoteSubtitleActions = remoteSubtitleActions,
-                            audioControls = audioControls,
-                            audioActions = audioActions,
+                            remoteSubtitles = tracks.remoteSubtitles,
+                            remoteSubtitleActions = trackActions.remoteSubtitles,
+                            audioControls = tracks.audio,
+                            audioActions = trackActions.audio,
                             onSelectAudio = { id ->
-                                onSelectAudio(id)
+                                trackActions.onSelectAudio(id)
                                 gestureState.say("音轨 · ${trackLabel(state.audioTracks, id)}")
                                 settingsPanelKind = null
                             },
-                            sleepTimer = sleepTimer,
-                            sleepTimerActions = sleepTimerActions,
+                            sleepTimer = panels.sleepTimer,
+                            sleepTimerActions = panelActions.sleepTimer,
                             onSelectEngine = {
-                                onSelectEngine(it)
+                                sourceActions.onSelectEngine(it)
                                 settingsPanelKind = null
                             },
                             onTranscode = {
-                                onTranscode()
+                                sourceActions.onTranscode()
                                 settingsPanelKind = null
                             },
                             onResetAdaptiveLearning = {
-                                onResetAdaptiveLearning()
+                                sourceActions.onResetAdaptiveLearning()
                                 settingsPanelKind = null
                             },
-                            onNextDiscTitle = onNextDiscTitle,
-                            onNextDiscChapter = onNextDiscChapter,
-                            onShowDiscMenu = onShowDiscMenu,
-                            onExternalPlayer = onExternalPlayer,
-                            onDiscoverCast = onDiscoverCast,
-                            onCastTo = onCastTo,
-                            onStopCast = onStopCast,
+                            onNextDiscTitle = sourceActions.onNextDiscTitle,
+                            onNextDiscChapter = sourceActions.onNextDiscChapter,
+                            onShowDiscMenu = sourceActions.onShowDiscMenu,
+                            onExternalPlayer = sourceActions.onExternalPlayer,
+                            onDiscoverCast = castActions.onDiscover,
+                            onCastTo = castActions.onCastTo,
+                            onStopCast = castActions.onStop,
                             onLock = ::lockScreen,
                             onOpenGestureHelp = {
                                 settingsPanelKind = null
@@ -1760,10 +1658,10 @@ internal fun PlayerControls(
                                 settingsPanelKind = null
                                 watchDialogOpen = true
                             },
-                            versions = versions,
-                            selectedVersionId = selectedVersionId,
+                            versions = source.versions,
+                            selectedVersionId = source.selectedVersionId,
                             onSelectVersion = {
-                                onSelectVersion(it)
+                                sourceActions.onSelectVersion(it)
                                 settingsPanelKind = null
                             },
                             skip = skip,
@@ -1771,8 +1669,8 @@ internal fun PlayerControls(
                             // the picture behind it, and often two of the three in one visit.
                             skipActions = skipActions,
                             trackPanelMode = trackPanelMode,
-                            ambientLightEnabled = ambientLightEnabled,
-                            onToggleAmbientLight = onToggleAmbientLight,
+                            ambientLightEnabled = picture.ambientLightEnabled,
+                            onToggleAmbientLight = pictureActions.onToggleAmbientLight,
                             onDismiss = { settingsPanelKind = null },
                         )
                     }
@@ -1805,10 +1703,10 @@ internal fun PlayerControls(
                             when (current) {
                                 QuickPopup.Source ->
                                     SourcePickerPopup(
-                                        options = sourceOptions,
-                                        selectedId = selectedSourceId,
+                                        options = source.sourceOptions,
+                                        selectedId = source.selectedSourceId,
                                         onSelect = {
-                                            onSelectSource(it)
+                                            sourceActions.onSelectSource(it)
                                             quickPopup = null
                                         },
                                         onDismiss = { quickPopup = null },
@@ -1819,7 +1717,7 @@ internal fun PlayerControls(
                                         speeds = SPEEDS,
                                         selectedSpeed = state.speed,
                                         onSelect = {
-                                            onSpeed(it)
+                                            transportActions.onSpeed(it)
                                             quickPopup = null
                                         },
                                         onDismiss = { quickPopup = null },
@@ -1830,7 +1728,7 @@ internal fun PlayerControls(
                 }
 
                 if (gestureHelpOpen) {
-                    PlayerGestureHelpOverlay(onDismiss = { gestureHelpOpen = false }, gestures = gestures)
+                    PlayerGestureHelpOverlay(onDismiss = { gestureHelpOpen = false }, gestures = picture.gestures)
                 }
 
                 if (watchDialogOpen) {
@@ -1918,7 +1816,7 @@ internal fun PlayerControls(
                         onBack = { drawerOpen = false },
                     ) {
                         EpisodeStrip(
-                            episodes = episodes,
+                            episodes = transport.episodes,
                             currentIndex = state.currentIndex,
                             onSelect =
                                 if (watchLocked) {
@@ -1927,7 +1825,7 @@ internal fun PlayerControls(
                                     { gestureState.say("房主控制播放") }
                                 } else {
                                     {
-                                        onSelectItem(it)
+                                        transportActions.onSelectItem(it)
                                         drawerOpen = false
                                     }
                                 },
@@ -1943,7 +1841,7 @@ internal fun PlayerControls(
                         onBack = { danmakuSearchOpen = false },
                     ) {
                         DanmakuSearchPanel(
-                            state = danmaku,
+                            state = danmaku.panel,
                             // Picking closes the sheet: the choice is made, and the result of it is
                             // the 弹幕 now running over the picture the sheet is covering.
                             actions =
@@ -1961,8 +1859,8 @@ internal fun PlayerControls(
 
                 if (danmakuSendOpen) {
                     DanmakuSendDialog(
-                        sending = danmaku.sending,
-                        error = danmaku.sendError,
+                        sending = danmaku.panel.sending,
+                        error = danmaku.panel.sendError,
                         onSend = {
                             danmakuActions.onSend(it)
                             danmakuSendOpen = false
@@ -1987,9 +1885,9 @@ internal fun PlayerControls(
                 // Standing, like the paused key: the picture is on another screen whether or not the
                 // controls are up. It rides below the title bar while that is shown.
                 val lastCastStatus = remember { arrayOf("") }
-                castStatus?.let { lastCastStatus[0] = it }
+                cast.status?.let { lastCastStatus[0] = it }
                 ChromeVisibility(
-                    visible = castActive && castStatus != null,
+                    visible = cast.active && cast.status != null,
                     edge = ChromeEdge.Top,
                     modifier =
                         Modifier
@@ -2002,9 +1900,9 @@ internal fun PlayerControls(
                         onOpen = { openSettingsPanel(SettingsPanelKind.Cast) },
                         onDisconnect = {
                             poke()
-                            onStopCast()
+                            castActions.onStop()
                         },
-                        announce = castError != null,
+                        announce = cast.error != null,
                     )
                 }
 
@@ -2043,7 +1941,7 @@ internal fun PlayerControls(
                 PauseInfoLayer(
                     shown = pauseInfoShown,
                     playback = playback,
-                    chapters = chapters,
+                    chapters = transport.chapters,
                     onDismiss = ::poke,
                     modifier = Modifier.align(Alignment.CenterStart).padding(start = 28.dp),
                 )
@@ -2067,12 +1965,12 @@ internal fun PlayerControls(
                     watchLocked = watchLocked,
                     hasNext = state.hasNext,
                     onResume = {
-                        onPlayPause()
+                        transportActions.onPlayPause()
                         poke()
                     },
                     onNext = {
                         poke()
-                        onNextItem()
+                        transportActions.onNextItem()
                     },
                     onReplay = {
                         if (playback.value.ended) {
@@ -2080,16 +1978,16 @@ internal fun PlayerControls(
                             // the ended item as paused, so the seek alone would leave it
                             // standing on frame one.
                             latestOnSeek(0L)
-                            if (!playback.value.playing) onPlayPause()
+                            if (!playback.value.playing) transportActions.onPlayPause()
                         } else {
                             // Parked on the last frame instead of ended: resuming would run
                             // into the next item before the seek landed, so the item is
                             // started again from the top.
-                            onSelectItem(state.currentIndex)
+                            transportActions.onSelectItem(state.currentIndex)
                         }
                         poke()
                     },
-                    onBack = onBack,
+                    onBack = host.onBack,
                     onHold = { endingFlowsBack = it },
                 )
 
@@ -2097,11 +1995,11 @@ internal fun PlayerControls(
                 PlayerGestureTips(
                     chromeUp = visible && remoteChrome == null && !locked,
                     seekable = state.durationMs > 0L && !watchLocked,
-                    speedBoostable = !watch.connected && castingDeviceId == null,
+                    speedBoostable = !watch.connected && cast.deviceId == null,
                     subtitlesAvailable = state.subtitleTracks.isNotEmpty(),
-                    danmakuShowing = danmaku.enabled && danmaku.count > 0,
+                    danmakuShowing = danmaku.panel.enabled && danmaku.panel.count > 0,
                     fineScrubArmed = gestureState.fineScrubArmed,
-                    gestures = gestures,
+                    gestures = picture.gestures,
                 )
 
                 // Where the title bar sits — it has stepped aside for the hold — and clear of the
@@ -2114,9 +2012,9 @@ internal fun PlayerControls(
                 // 全程缩略图: the frame a swipe across the picture, or a held side, has got to — or,
                 // on a television, a held fast-forward or rewind on the remote.
                 PictureScrubPreview(
-                    storyboard = trickplay,
+                    storyboard = transport.trickplay,
                     positionMs = { remoteChromeState?.holdPreviewMs ?: gestureState.previewMs },
-                    chapters = chapters,
+                    chapters = transport.chapters,
                     modifier = Modifier.align(Alignment.Center),
                 )
 
@@ -2139,10 +2037,10 @@ internal fun PlayerControls(
                     modifier = Modifier.align(Alignment.CenterEnd).padding(end = 26.dp),
                 ) {
                     VolumeSlider(
-                        volume = volume,
+                        volume = picture.volume,
                         onVolume = { target ->
                             volumeSliderTouches++
-                            onVolume(target)
+                            pictureActions.onVolume(target)
                         },
                         modifier = Modifier,
                     )
@@ -2155,14 +2053,18 @@ internal fun PlayerControls(
                     modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 96.dp),
                 ) {
                     CreditsTakeoverCard(
-                        title = episodes.getOrNull(state.currentIndex + 1)?.title.orEmpty(),
+                        title =
+                            transport.episodes
+                                .getOrNull(state.currentIndex + 1)
+                                ?.title
+                                .orEmpty(),
                         // The picture comes back and the credits play on; the ordinary card still
                         // counts down at the very end.
                         onWatchCredits = { creditsTakeoverDismissed = true },
                         onPlayNext = {
                             if (creditsPhase == CreditsTakeoverPhase.Card) {
                                 poke()
-                                onNextItem()
+                                transportActions.onNextItem()
                             }
                         },
                     )
@@ -2170,19 +2072,19 @@ internal fun PlayerControls(
 
                 PlayerNextUpOverlay(
                     playback,
-                    episodes,
+                    transport.episodes,
                     nextUpDismissed,
                     onPlayNow = {
                         poke()
-                        onNextItem()
+                        transportActions.onNextItem()
                     },
                     onDismiss = {
                         poke()
                         nextUpDismissed = true
-                        onDismissNextUp()
+                        transportActions.onDismissNextUp()
                     },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 96.dp),
-                    autoAdvance = autoNext,
+                    autoAdvance = transport.autoNext,
                 )
             }
         }
@@ -2192,24 +2094,24 @@ internal fun PlayerControls(
         if (showProblem) PlaybackProblemDialog(playback = playback, onDismiss = { showProblem = false })
         ChromeContent(errorMessage, modifier = Modifier.fillMaxSize(), coversScreen = true) { message ->
             val otherVersions =
-                versions
-                    .filter { (id, _) -> id != selectedVersionId }
+                source.versions
+                    .filter { (id, _) -> id != source.selectedVersionId }
                     .take(MAX_ERROR_ALTERNATIVES)
-                    .map { (id, label) -> "版本 · $label" to { onSelectVersion(id) } }
+                    .map { (id, label) -> "版本 · $label" to { sourceActions.onSelectVersion(id) } }
             // One strategy on offer (a native-only package) is no alternative to itself, whichever
             // row happens to be marked: reloading it replays the same path into the same failure.
             val otherEngines =
-                engineOptions
+                source.engineOptions
                     .takeIf { it.size > 1 }
                     .orEmpty()
                     .mapIndexedNotNull { index, (label, selected) ->
-                        if (selected) null else label to { onSelectEngine(index) }
+                        if (selected) null else label to { sourceActions.onSelectEngine(index) }
                     }.take(MAX_ERROR_ALTERNATIVES)
             PlaybackErrorOverlay(
                 message = message,
-                onRetry = onRetry,
-                onExternalPlayer = onExternalPlayer,
-                onBack = onBack,
+                onRetry = transportActions.onRetry,
+                onExternalPlayer = sourceActions.onExternalPlayer,
+                onBack = host.onBack,
                 alternatives = otherVersions + otherEngines,
                 onExplain = { showProblem = true },
             )
