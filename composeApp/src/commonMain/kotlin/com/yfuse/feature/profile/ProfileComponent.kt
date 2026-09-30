@@ -15,10 +15,13 @@ import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.handoff.HandoffUiState
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.clearImageCache
 import com.yfuse.core.util.clearVideoCache
+import com.yfuse.feature.handoff.DeviceHandoffIntent
+import com.yfuse.feature.handoff.DeviceHandoffStoreFactory
 import com.yfuse.feature.personal.PersonalCenterIntent
 import com.yfuse.feature.personal.PersonalCenterState
 import com.yfuse.feature.personal.PersonalCenterStoreFactory
@@ -130,6 +133,11 @@ class ProfileComponent(
         class Personal(
             val store: Store<PersonalCenterIntent, PersonalCenterState, Nothing>,
         ) : Child
+
+        /** 设备接力. */
+        class Handoff(
+            val store: Store<DeviceHandoffIntent, HandoffUiState, Nothing>,
+        ) : Child
     }
 
     /** A page's store is made as the page opens and disposed as it closes, as its state was before. */
@@ -148,6 +156,8 @@ class ProfileComponent(
                     ).create()
                         .disposedWith(context),
                 )
+            ProfilePage.Handoff ->
+                Child.Handoff(DeviceHandoffStoreFactory(storeFactory, handoff).create().disposedWith(context))
             else -> Child.Settings(page)
         }
 

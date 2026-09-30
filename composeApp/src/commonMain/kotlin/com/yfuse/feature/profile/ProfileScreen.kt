@@ -566,8 +566,10 @@ fun ProfileScreen(component: ProfileComponent) {
                     }
 
                 ProfilePage.Handoff ->
-                    com.yfuse.feature.handoff
-                        .DeviceHandoffScreen(component.handoff, component::closePage)
+                    (entry.instance as? ProfileComponent.Child.Handoff)?.let { handoffPage ->
+                        com.yfuse.feature.handoff
+                            .DeviceHandoffScreen(handoffPage.store, component::closePage)
+                    }
 
                 ProfilePage.Trakt ->
                     com.yfuse.feature.trakt
