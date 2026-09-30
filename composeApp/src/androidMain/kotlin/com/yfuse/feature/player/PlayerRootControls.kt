@@ -39,8 +39,6 @@ import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import com.yfuse.tv.player.TvPlayerChromeBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
