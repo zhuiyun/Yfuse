@@ -1332,6 +1332,9 @@ class ExoVideoEngine(
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
         failureHistory.remove(index)
+        // The entry starts over, so a failure from here on gets an answer from the ladder, not the
+        // "switching" of an MP4 switch begun before (MDK clears it here too).
+        pendingProgressiveSwitches.clear()
         clearActiveOutputEvidence()
         _state.update {
             it.copy(
@@ -1351,6 +1354,8 @@ class ExoVideoEngine(
     override fun currentPositionMs(): Long = player.currentPosition
 
     override fun retry() {
+        // As in selectItem: a failure after the retry gets an answer from the ladder.
+        pendingProgressiveSwitches.clear()
         clearActiveOutputEvidence()
         _state.update {
             it.copy(

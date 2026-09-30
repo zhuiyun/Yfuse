@@ -17,20 +17,20 @@ internal class PendingProgressiveSwitches {
     }
 
     /**
-     * The encoder stop for [index] has returned. True when the MP4 switch goes ahead, which it does
-     * only while [stillCurrent]; the entry then stops being pending. An entry the viewer has left
-     * keeps its mark.
+     * The encoder stop for [index] has returned: the entry stops being pending whatever happens
+     * next. True when the MP4 switch goes ahead, which it does only while [stillCurrent]. The MP4
+     * of an entry the viewer has left never loads, and a mark kept for it would answer every later
+     * failure of that entry with "switching".
      */
     fun settle(
         index: Int,
         stillCurrent: Boolean,
     ): Boolean {
-        if (!stillCurrent) return false
         indices -= index
-        return true
+        return stillCurrent
     }
 
-    /** No switch is under way any more. */
+    /** Nothing counts as switching any more: the engine switched items or retried. */
     fun clear() {
         indices.clear()
     }

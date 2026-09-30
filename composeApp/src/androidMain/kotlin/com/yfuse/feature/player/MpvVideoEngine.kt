@@ -1186,6 +1186,9 @@ class MpvVideoEngine(
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
         resetFrameEvidence()
+        // The entry starts over, so a failure from here on gets an answer from the ladder, not the
+        // "switching" of an MP4 switch begun before (MDK clears it here too).
+        pendingProgressiveSwitches.clear()
         playRequested = true
         pendingSeekMs = 0L
         lastPositionMs = -PLAYBACK_PROGRESS_STEP_MS
@@ -1226,6 +1229,8 @@ class MpvVideoEngine(
 
     override fun retry() {
         resetFrameEvidence()
+        // As in selectItem: a failure after the retry gets an answer from the ladder.
+        pendingProgressiveSwitches.clear()
         val position = _state.value.positionMs
         playRequested = true
         pendingSeekMs = position.coerceAtLeast(0L)

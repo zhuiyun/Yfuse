@@ -37,6 +37,18 @@ class PendingProgressiveSwitchesTest {
     }
 
     @Test
+    fun an_entry_the_viewer_left_while_its_switch_was_under_way_answers_the_next_failure() {
+        // The viewer moved on before the HLS encoder stopped, so the MP4 never loaded. Left
+        // marked, the entry answered "switching" to every later failure and never moved on.
+        val switches = PendingProgressiveSwitches()
+        switches.start(3)
+        assertFalse(switches.settle(3, stillCurrent = false))
+        assertFalse(3 in switches)
+        assertEquals(PlaybackStreamStep.Progressive, switches.nextStepFor(3))
+        assertEquals(PlaybackStreamStep.Progressive, switches.exoNextStepFor(3))
+    }
+
+    @Test
     fun an_item_switch_or_retry_ends_every_switch_under_way() {
         val switches = PendingProgressiveSwitches()
         switches.start(1)
