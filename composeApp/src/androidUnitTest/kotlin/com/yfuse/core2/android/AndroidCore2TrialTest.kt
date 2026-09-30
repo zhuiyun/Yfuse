@@ -1,6 +1,7 @@
 package com.yfuse.core2.android
 
 import com.yfuse.core.model.PlaybackMethod
+import com.yfuse.core.offline.offlinePlaybackUri
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDrmConfiguration
 import com.yfuse.core.playback.PlaybackDrmScheme
@@ -195,6 +196,45 @@ class AndroidCore2TrialTest {
         val mapped = queue.toCore2MediaItems("", appVersion = { "test" }).single()
         assertEquals(subtitles.map { it.uri }, mapped.allExternalSubtitles.map { it.uri })
         assertEquals(com.yfuse.core2.subtitle.YSubtitleFormat.Srt, mapped.allExternalSubtitles[2].format)
+    }
+
+    @Test
+    fun finished_downloads_reach_the_native_lane_without_server_metadata() {
+        // Built the way the phone and TV download lists launch a finished download: the file and
+        // its sidecar, with no MediaSource to describe either.
+        fun download(path: String) =
+            PlayerMediaItem(
+                id = "111461",
+                url = offlinePlaybackUri(path),
+                transcodeUrl = offlinePlaybackUri(path),
+                title = "S1 E5",
+                serverId = "server-a",
+                externalSubtitleUri = offlinePlaybackUri("/data/user/0/com.yfuse/files/offline/111461.srt"),
+                externalSubtitleLanguage = "zh-CN",
+            )
+        val privateFile = download("/data/user/0/com.yfuse/files/offline/111461.3.media")
+        val safDocument =
+            download(
+                "content://com.android.externalstorage.documents/tree/primary%3AMovies" +
+                    "/document/primary%3AMovies%2F111461.3.media",
+            )
+
+        listOf(privateFile, safDocument).forEach { item ->
+            val queue = listOf(item)
+            assertNull(queue.core2NativeBaselineBlockReason(0), item.url)
+            assertTrue(queue.canUseCore2Trial(0))
+            val mapped = queue.toCore2MediaItems("", appVersion = { "test" }).single()
+            assertEquals(item.url, mapped.uri)
+            // YCore reads the container and codecs from the file itself.
+            assertNull(mapped.mimeType)
+            assertNull(mapped.sourceHints)
+            assertTrue(mapped.headers.isEmpty())
+        }
+        // A remote stream whose MediaSource was never fetched is still refused, not guessed at.
+        assertEquals(
+            "YCore Native 缺少片源格式元数据",
+            listOf(mediaItem("https://media.example.test/Videos/1/stream")).core2NativeBaselineBlockReason(0),
+        )
     }
 
     @Test
