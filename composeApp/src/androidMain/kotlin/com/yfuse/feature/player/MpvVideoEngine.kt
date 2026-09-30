@@ -102,19 +102,6 @@ internal fun mpvDecoderDiagnostic(hwdecCurrent: String?): String =
         ?.let { "硬件解码 · $it" }
         ?: "FFmpeg 软件解码"
 
-internal fun String.mpvPixelFormatBitDepth(): Int =
-    lowercase().let { format ->
-        when {
-            format.isBlank() -> 0
-            format.startsWith("p016") || "p16" in format || format in setOf("rgb48", "rgba64") -> 16
-            format.startsWith("p014") || "p14" in format -> 14
-            format.startsWith("p012") || "p12" in format -> 12
-            format.startsWith("p010") || "p10" in format -> 10
-            format.startsWith("p009") || "p9" in format -> 9
-            else -> 8
-        }
-    }
-
 internal fun mpvDolbyVisionVideoFilter(stripToBaseLayer: Boolean): String =
     if (stripToBaseLayer) {
         "format=dolbyvision=no:enhancement-layer=no"
@@ -239,13 +226,7 @@ class MpvVideoEngine(
                         decoder = decoderMode.label,
                         item = items.getOrNull(startIndex),
                     ).copy(
-                        outputEvidence =
-                            PlaybackOutputEvidence(
-                                sessionRevision = 1L,
-                                videoConfidence = PlaybackEvidenceConfidence.Requested,
-                                audioConfidence = PlaybackEvidenceConfidence.Requested,
-                                renderApi = PlaybackVideoRenderApi.OpenGl,
-                            ),
+                        outputEvidence = PlaybackOutputEvidence().nextLoadAttempt(PlaybackVideoRenderApi.OpenGl),
                     ),
             ),
         )
@@ -393,16 +374,7 @@ class MpvVideoEngine(
                                 rendererDroppedFrames = value.toInt().coerceAtLeast(0)
                             }
                             val total = decoderDroppedFrames + rendererDroppedFrames
-                            it.copy(
-                                diagnostics =
-                                    it.diagnostics.copy(
-                                        droppedFrames = total,
-                                        outputEvidence =
-                                            it.diagnostics.outputEvidence.copy(
-                                                droppedFramesMeasured = true,
-                                            ),
-                                    ),
-                            )
+                            it.copy(diagnostics = it.diagnostics.withDroppedFrames(total))
                         }
                     "mistimed-frame-count" ->
                         _state.update {
@@ -993,22 +965,7 @@ class MpvVideoEngine(
             it.detachSurface()
         }
         attachedSurface = null
-        _state.update {
-            it.copy(
-                diagnostics =
-                    it.diagnostics.copy(
-                        videoOutput = "视频 Surface 已释放",
-                        videoReadiness = PlaybackOutputReadiness.Released,
-                        dolbyVisionOutput = false,
-                        outputEvidence =
-                            it.diagnostics.outputEvidence.copy(
-                                videoReadiness = PlaybackOutputReadiness.Released,
-                                videoConfidence = PlaybackEvidenceConfidence.Confirmed,
-                                outputDynamicRange = "",
-                            ),
-                    ),
-            )
-        }
+        _state.update { it.copy(diagnostics = it.diagnostics.withVideoOutputReleased("视频 Surface 已释放")) }
     }
 
     /** Keep mpv's Android render target in sync with SurfaceView size changes. */
@@ -1260,12 +1217,7 @@ class MpvVideoEngine(
                         item = nextItem,
                         transcoding = transcoding,
                     ).copy(
-                        outputEvidence =
-                            it.diagnostics.outputEvidence.nextSession().copy(
-                                videoConfidence = PlaybackEvidenceConfidence.Requested,
-                                audioConfidence = PlaybackEvidenceConfidence.Requested,
-                                renderApi = PlaybackVideoRenderApi.OpenGl,
-                            ),
+                        outputEvidence = it.diagnostics.outputEvidence.nextLoadAttempt(PlaybackVideoRenderApi.OpenGl),
                     ),
             )
         }
@@ -1298,12 +1250,7 @@ class MpvVideoEngine(
                         dolbyAtmosOutput = false,
                         spatialAudioOutput = false,
                         headTrackingAvailable = false,
-                        outputEvidence =
-                            it.diagnostics.outputEvidence.nextSession().copy(
-                                videoConfidence = PlaybackEvidenceConfidence.Requested,
-                                audioConfidence = PlaybackEvidenceConfidence.Requested,
-                                renderApi = PlaybackVideoRenderApi.OpenGl,
-                            ),
+                        outputEvidence = it.diagnostics.outputEvidence.nextLoadAttempt(PlaybackVideoRenderApi.OpenGl),
                     ),
             )
         }
@@ -1473,12 +1420,7 @@ class MpvVideoEngine(
                                 "HLS 转码不可用，已改用 MP4 转码"
                             },
                         bufferedDurationMs = 0L,
-                        outputEvidence =
-                            it.diagnostics.outputEvidence.nextSession().copy(
-                                videoConfidence = PlaybackEvidenceConfidence.Requested,
-                                audioConfidence = PlaybackEvidenceConfidence.Requested,
-                                renderApi = PlaybackVideoRenderApi.OpenGl,
-                            ),
+                        outputEvidence = it.diagnostics.outputEvidence.nextLoadAttempt(PlaybackVideoRenderApi.OpenGl),
                     ),
             )
         }
@@ -1748,7 +1690,7 @@ class MpvVideoEngine(
                                     dolbyVisionRpuRendered = dolbyEvidence.rpuRendered,
                                     dolbyVisionFelComposed = dolbyEvidence.felComposed,
                                     renderApi = renderApi,
-                                    bitDepth = pixelFormat.mpvPixelFormatBitDepth(),
+                                    bitDepth = pixelFormat.pixelFormatBitDepth(),
                                     rendererDetail = rendererDetail,
                                 ),
                         ),
@@ -1814,11 +1756,9 @@ class MpvVideoEngine(
                                 state.diagnostics.outputEvidence.copy(
                                     audioReadiness = readiness,
                                     audioConfidence =
-                                        if (readiness == PlaybackOutputReadiness.Rendering) {
-                                            PlaybackEvidenceConfidence.Confirmed
-                                        } else {
-                                            PlaybackEvidenceConfidence.Requested
-                                        },
+                                        PlaybackRenderEvidence.confidence(
+                                            verified = readiness == PlaybackOutputReadiness.Rendering,
+                                        ),
                                     audioDecoder = decoder.orEmpty(),
                                     audioMode =
                                         if (passthroughStatus is PlaybackOutputStatus.Active) {

@@ -139,12 +139,7 @@ class ExoVideoEngine(
                         item = this.items.getOrNull(startIndex),
                     ).copy(
                         outputEvidence =
-                            PlaybackOutputEvidence(
-                                sessionRevision = 1L,
-                                videoConfidence = PlaybackEvidenceConfidence.Requested,
-                                audioConfidence = PlaybackEvidenceConfidence.Requested,
-                                renderApi = PlaybackVideoRenderApi.MediaCodecSurface,
-                            ),
+                            PlaybackOutputEvidence().nextLoadAttempt(PlaybackVideoRenderApi.MediaCodecSurface),
                     ),
             ),
         )
@@ -385,12 +380,7 @@ class ExoVideoEngine(
             renderedFrameRate = null,
             avSyncOffsetMs = null,
             avSyncMeasurement = "等待 Media3 呈现时钟",
-            outputEvidence =
-                diagnostics.outputEvidence.nextSession().copy(
-                    videoConfidence = PlaybackEvidenceConfidence.Requested,
-                    audioConfidence = PlaybackEvidenceConfidence.Requested,
-                    renderApi = PlaybackVideoRenderApi.MediaCodecSurface,
-                ),
+            outputEvidence = diagnostics.outputEvidence.nextLoadAttempt(PlaybackVideoRenderApi.MediaCodecSurface),
         )
 
     private fun updateAudioOutput() {
@@ -520,30 +510,15 @@ class ExoVideoEngine(
                 diagnostics =
                     state.diagnostics.copy(
                         videoOutput = label,
-                        videoReadiness =
-                            if (renderedFirstFrame) {
-                                PlaybackOutputReadiness.Rendering
-                            } else {
-                                PlaybackOutputReadiness.Waiting
-                            },
+                        videoReadiness = PlaybackRenderEvidence.readiness(renderedFirstFrame),
                         // The same three facts the label was spelling out: a frame is on
                         // screen, its range is Dolby Vision, and the display chain declared
                         // that format.
                         dolbyVisionOutput = nativeDolbyVisionOutput,
                         outputEvidence =
                             state.diagnostics.outputEvidence.copy(
-                                videoReadiness =
-                                    if (renderedFirstFrame) {
-                                        PlaybackOutputReadiness.Rendering
-                                    } else {
-                                        PlaybackOutputReadiness.Waiting
-                                    },
-                                videoConfidence =
-                                    if (renderedFirstFrame) {
-                                        PlaybackEvidenceConfidence.Confirmed
-                                    } else {
-                                        PlaybackEvidenceConfidence.Requested
-                                    },
+                                videoReadiness = PlaybackRenderEvidence.readiness(renderedFirstFrame),
+                                videoConfidence = PlaybackRenderEvidence.confidence(renderedFirstFrame),
                                 videoDecoder = currentVideoDecoder,
                                 inputDynamicRange = range,
                                 outputDynamicRange =
@@ -614,20 +589,7 @@ class ExoVideoEngine(
                 if (decoderName != currentVideoDecoder) return
                 renderedFirstFrame = false
                 _state.update {
-                    it.copy(
-                        diagnostics =
-                            it.diagnostics.copy(
-                                videoOutput = "$decoderName · 视频输出已释放",
-                                videoReadiness = PlaybackOutputReadiness.Released,
-                                dolbyVisionOutput = false,
-                                outputEvidence =
-                                    it.diagnostics.outputEvidence.copy(
-                                        videoReadiness = PlaybackOutputReadiness.Released,
-                                        videoConfidence = PlaybackEvidenceConfidence.Confirmed,
-                                        outputDynamicRange = "",
-                                    ),
-                            ),
-                    )
+                    it.copy(diagnostics = it.diagnostics.withVideoOutputReleased("$decoderName · 视频输出已释放"))
                 }
             }
 
@@ -639,22 +601,7 @@ class ExoVideoEngine(
                 currentAudioDecoder = ""
                 if (currentAudioTrackConfig == null) {
                     _state.update {
-                        it.copy(
-                            diagnostics =
-                                it.diagnostics.copy(
-                                    audioOutput = "音频解码器已释放",
-                                    audioReadiness = PlaybackOutputReadiness.Released,
-                                    immersiveAudioCarrierOutput = false,
-                                    dolbyAtmosOutput = false,
-                                    spatialAudioOutput = false,
-                                    headTrackingAvailable = false,
-                                    outputEvidence =
-                                        it.diagnostics.outputEvidence.copy(
-                                            audioReadiness = PlaybackOutputReadiness.Released,
-                                            audioMode = PlaybackAudioOutputMode.Unknown,
-                                        ),
-                                ),
-                        )
+                        it.copy(diagnostics = it.diagnostics.withAudioOutputReleased("音频解码器已释放"))
                     }
                 }
             }
@@ -836,26 +783,7 @@ class ExoVideoEngine(
                 if (currentAudioTrackConfig == audioTrackConfig) {
                     currentAudioTrackConfig = null
                 }
-                _state.update {
-                    it.copy(
-                        diagnostics =
-                            it.diagnostics.copy(
-                                audioOutput = "音频输出已释放",
-                                audioReadiness = PlaybackOutputReadiness.Released,
-                                // The label rule cleared this implicitly, because the released
-                                // sentence no longer said 源码输出. A flag has to be told.
-                                immersiveAudioCarrierOutput = false,
-                                dolbyAtmosOutput = false,
-                                spatialAudioOutput = false,
-                                headTrackingAvailable = false,
-                                outputEvidence =
-                                    it.diagnostics.outputEvidence.copy(
-                                        audioReadiness = PlaybackOutputReadiness.Released,
-                                        audioMode = PlaybackAudioOutputMode.Unknown,
-                                    ),
-                            ),
-                    )
-                }
+                _state.update { it.copy(diagnostics = it.diagnostics.withAudioOutputReleased("音频输出已释放")) }
             }
 
             override fun onDroppedVideoFrames(
@@ -865,16 +793,7 @@ class ExoVideoEngine(
             ) {
                 this@ExoVideoEngine.droppedFrames += droppedFrames
                 _state.update {
-                    it.copy(
-                        diagnostics =
-                            it.diagnostics.copy(
-                                droppedFrames = this@ExoVideoEngine.droppedFrames,
-                                outputEvidence =
-                                    it.diagnostics.outputEvidence.copy(
-                                        droppedFramesMeasured = true,
-                                    ),
-                            ),
-                    )
+                    it.copy(diagnostics = it.diagnostics.withDroppedFrames(this@ExoVideoEngine.droppedFrames))
                 }
             }
 
@@ -1087,10 +1006,8 @@ class ExoVideoEngine(
                             ).copy(
                                 fallbackReason = preservedFallbackReason,
                                 outputEvidence =
-                                    previousState.diagnostics.outputEvidence.nextSession().copy(
-                                        videoConfidence = PlaybackEvidenceConfidence.Requested,
-                                        audioConfidence = PlaybackEvidenceConfidence.Requested,
-                                        renderApi = PlaybackVideoRenderApi.MediaCodecSurface,
+                                    previousState.diagnostics.outputEvidence.nextLoadAttempt(
+                                        PlaybackVideoRenderApi.MediaCodecSurface,
                                     ),
                             ),
                     )
