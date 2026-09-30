@@ -1,0 +1,29 @@
+{
+  "sourceCommit": "f9e4d87cc3b4c7ec22bdee3f70a61fa426e1795f",
+  "baselineWorkflowRun": 36603643853,
+  "baselineArtifact": 11052860389,
+  "baselineApk": {
+    "package": "com.yfuse",
+    "versionName": "1.0.94",
+    "versionCode": 256
+  },
+  "baselineApkSha256": "e6345102bdddbf1d3a14894a409158178f45424ead5b5533ad2f3204930c8de9",
+  "plannedVersionName": "1.0.95",
+  "plannedVersionCode": 257,
+  "verifiedRepairCommit": "228ed1d0cf533bc05e56c51c0be2004cda9d0ffe",
+  "qualityGatesRun": 36657529338,
+  "kotlinTests": "passed in cloud quality gates, including new regression cases",
+  "qualityGates": "passed: compilation, tests, ktlint, Android lint, R8 release package, APK checks and size budget",
+  "otherWorkflows": "passed: TV, CodeQL, YCore native runtime",
+  "previewArtifact": 11073906223,
+  "previewApk": {
+    "package": "com.yfuse",
+    "versionName": "1.0.95",
+    "versionCode": 257,
+    "sizeBytes": 29817927,
+    "sha256": "930108af5b9f85d50b90cce1dccf9a78c1dae47c8a5dde2ad01580361d02dfb2",
+    "productionSigned": false
+  },
+  "mdkPackageOnlyConfirmation": "release owner confirmed this version at 2026-09-30T10:35:30+08:00",
+  "apkBuild": "CI preview verified; production signing pending package-only workflow"
+}

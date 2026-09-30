@@ -4,6 +4,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.api.YExternalSubtitleSource
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
+import com.yfuse.feature.player.externalSubtitleFormatHint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -87,11 +88,21 @@ internal class AndroidExternalSubtitleSession(
         // Failures are terminal until the user selects this track again, not a retry per video frame.
         loaded += result.id
         result.errorType?.let { type ->
+            val source = sources[result.id]
+            val scheme = source?.uri?.substringBefore(':')
+            val safeScheme = scheme?.takeIf { it.matches(Regex("[A-Za-z][A-Za-z0-9+.-]{0,31}")) }
+            val formatHint = source?.format?.name ?: source?.uri?.let(::externalSubtitleFormatHint)
             AppLog.warning(
                 category = "player.core2",
                 event = "external_subtitle_load_failed",
                 message = "External subtitle failed; video playback continues",
-                attributes = mapOf("trackId" to result.id, "exceptionType" to type),
+                attributes =
+                    mapOf(
+                        "trackId" to result.id,
+                        "exceptionType" to type,
+                        "sourceScheme" to safeScheme.orEmpty(),
+                        "formatHint" to formatHint.orEmpty(),
+                    ),
             )
         }
         result.subtitle?.let { subtitle -> tracks = tracks.map { if (it.track.id == result.id) subtitle else it } }

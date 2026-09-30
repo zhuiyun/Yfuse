@@ -1,6 +1,8 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlayerState
+import com.yfuse.core2.api.isPrematurePlaybackEnd
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleTimeBase
 
@@ -44,6 +46,19 @@ internal fun mapAdaptivePresentationState(
         secondarySubtitleCues = subtitles(state.secondarySubtitleCues),
     )
 }
+
+/**
+ * Where the title continues once a child's own [state] ended this target's Period: the Period's end
+ * on the whole title. Null while the Period plays, when no later Period is known (the last one, or a
+ * title of unknown duration), and when it ended short of its duration: that is a transport failure
+ * for the router to recover, not a boundary to cross.
+ */
+internal fun YAdaptivePlaybackTarget.nextPeriodStartMs(state: YPlayerState): Long? =
+    periodEndGlobalMs?.takeIf { endMs ->
+        state.phase == YPlaybackPhase.Ended &&
+            !isPrematurePlaybackEnd(state.positionMs, state.durationMs) &&
+            presentationDurationMs > endMs
+    }
 
 /**
  * Carries one output evidence generation through every child a player republishes.

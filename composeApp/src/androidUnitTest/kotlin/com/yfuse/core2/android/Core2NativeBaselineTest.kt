@@ -128,7 +128,6 @@ class Core2NativeBaselineTest {
         drmSupported: Boolean = false,
         dolbyVision: Boolean = false,
         dolbyVisionSupported: Boolean = false,
-        externalSubtitleSupported: Boolean = true,
     ) = Core2NativeBaselineSource(
         hasMetadata = hasMetadata,
         scheme = scheme,
@@ -143,6 +142,5 @@ class Core2NativeBaselineTest {
         drmSupported = drmSupported,
         dolbyVision = dolbyVision,
         dolbyVisionSupported = dolbyVisionSupported,
-        externalSubtitleSupported = externalSubtitleSupported,
     )
 }

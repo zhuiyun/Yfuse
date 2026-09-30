@@ -1,10 +1,12 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.demux.YDemuxSource
 import com.yfuse.core2.network.YByteRange
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportCredentials
+import com.yfuse.core2.network.YTransportFailureKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.awaitCancellation
@@ -29,10 +31,88 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class AndroidHttpMediaTransportTest {
+    @Test
+    fun `malformed redirect is a source failure with safe details rather than an invalid range`() =
+        runTest {
+            val server = MockWebServer()
+            server.start()
+            try {
+                val cases =
+                    listOf(
+                        null to MediaRedirectFailureReason.MissingLocation,
+                        "ftp://untrusted.invalid/movie?api_key=secret" to MediaRedirectFailureReason.InvalidLocation,
+                    )
+                for ((location, reason) in cases) {
+                    server.enqueue(
+                        MockResponse().setResponseCode(302).apply { location?.let { setHeader("Location", it) } },
+                    )
+                    val transport = AndroidHttpMediaTransport(followSafeRedirects = true)
+                    try {
+                        val failure =
+                            assertFailsWith<AndroidMediaRedirectException> {
+                                transport.open(
+                                    YMediaTransportRequest(
+                                        uri = server.url("movie?api_key=private").toString(),
+                                        protocol = YSourceProtocol.Http,
+                                        range = YByteRange(4, 7),
+                                    ),
+                                )
+                            }
+                        assertEquals(reason, failure.reason)
+                        assertEquals(302, failure.mediaHttpStatus())
+                        assertEquals(YTransportFailureKind.RedirectRejected, failure.failureKind)
+                        assertEquals(YPlaybackFailureCategory.Network, failure.mediaSourceFailure()?.category)
+                        assertEquals(location != null, failure.locationPresent)
+                        assertEquals(4L, failure.expectedRangeStart)
+                        assertFalse(failure.toString().contains("secret"))
+                        assertFalse(failure.toString().contains("private"))
+                        assertFalse(failure.toString().contains("untrusted.invalid"))
+                    } finally {
+                        transport.close()
+                    }
+                }
+                assertEquals(2, server.requestCount)
+            } finally {
+                server.shutdown()
+            }
+        }
+
+    @Test
+    fun `a redirect loop stops at the configured bound without leaking its location`() =
+        runTest {
+            val server = MockWebServer()
+            server.start()
+            repeat(MAX_SAFE_MEDIA_REDIRECTS + 1) {
+                server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/loop?api_key=secret"))
+            }
+            val transport = AndroidHttpMediaTransport(followSafeRedirects = true)
+            try {
+                val failure =
+                    assertFailsWith<AndroidMediaRedirectException> {
+                        transport.open(
+                            YMediaTransportRequest(
+                                server.url("loop").toString(),
+                                YSourceProtocol.Http,
+                                range = YByteRange(0, 3),
+                            ),
+                        )
+                    }
+                assertEquals(MediaRedirectFailureReason.TooManyRedirects, failure.reason)
+                assertEquals(MAX_SAFE_MEDIA_REDIRECTS, failure.redirectCount)
+                assertEquals(MAX_SAFE_MEDIA_REDIRECTS + 1, server.requestCount)
+                assertFalse(failure.toString().contains("secret"))
+            } finally {
+                transport.close()
+                server.shutdown()
+            }
+        }
+
     @Test
     fun `normal range close preserves connection reuse for chunked bodies`() =
         runBlocking {

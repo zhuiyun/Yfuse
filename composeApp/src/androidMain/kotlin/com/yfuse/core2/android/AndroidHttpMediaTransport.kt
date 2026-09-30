@@ -7,6 +7,7 @@ import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportCredentials
+import com.yfuse.core2.network.YTransportFailureKind
 import com.yfuse.core2.network.YTransportFeature
 import com.yfuse.core2.network.YTransportMethod
 import kotlinx.coroutines.CancellationException
@@ -120,7 +121,7 @@ internal class AndroidHttpMediaTransport(
                 }
                 val redirectTarget =
                     if (followSafeRedirects && request.method == YTransportMethod.Get) {
-                        candidate.safeMediaRedirectTarget()
+                        candidate.requireMediaRedirectTarget(request, redirectCount)
                     } else {
                         null
                     }
@@ -129,14 +130,16 @@ internal class AndroidHttpMediaTransport(
                     break
                 }
                 if (redirectCount >= MAX_SAFE_MEDIA_REDIRECTS) {
-                    candidate.close()
-                    error("Too many media redirects")
+                    candidate.rejectMediaRedirect(request, MediaRedirectFailureReason.TooManyRedirects, redirectCount)
                 }
                 val previous = candidate.request.url
                 val redirectsToCleartext = previous.scheme == "https" && redirectTarget.scheme == "http"
                 if (redirectsToCleartext && !allowCrossProtocolRedirects) {
-                    candidate.close()
-                    error("Secure media redirect cannot downgrade to HTTP")
+                    candidate.rejectMediaRedirect(
+                        request,
+                        MediaRedirectFailureReason.CleartextDisallowed,
+                        redirectCount,
+                    )
                 }
                 redirectCount += 1
                 cleartextRedirect = cleartextRedirect || redirectsToCleartext
@@ -309,11 +312,56 @@ internal data class AndroidHttpMediaRedirectRoute(
     val stripCredentials: Boolean,
 )
 
-private fun Response.safeMediaRedirectTarget(): HttpUrl? {
+internal enum class MediaRedirectFailureReason {
+    MissingLocation,
+    InvalidLocation,
+    TooManyRedirects,
+    CleartextDisallowed,
+}
+
+private fun Response.requireMediaRedirectTarget(
+    mediaRequest: YMediaTransportRequest,
+    redirectCount: Int,
+): HttpUrl? {
     if (code !in SAFE_MEDIA_REDIRECT_CODES) return null
     val location = header("Location")?.trim().orEmpty()
-    if (location.isEmpty()) return null
+    if (location.isEmpty()) {
+        rejectMediaRedirect(mediaRequest, MediaRedirectFailureReason.MissingLocation, redirectCount)
+    }
     return request.url.resolve(location)
+        ?: rejectMediaRedirect(mediaRequest, MediaRedirectFailureReason.InvalidLocation, redirectCount)
+}
+
+/** Only status and policy facts survive: Location can contain a signed URL or credentials. */
+internal class AndroidMediaRedirectException(
+    statusCode: Int,
+    expectedRangeStart: Long,
+    val reason: MediaRedirectFailureReason,
+    val redirectCount: Int,
+    val locationPresent: Boolean,
+) : AndroidRangeResponseException(
+        failureKind = YTransportFailureKind.RedirectRejected,
+        statusCode = statusCode,
+        expectedRangeStart = expectedRangeStart,
+        acceptedRangeStart = null,
+        safeMessage = "Media redirect rejected: ${reason.name} (HTTP $statusCode)",
+    )
+
+private fun Response.rejectMediaRedirect(
+    mediaRequest: YMediaTransportRequest,
+    reason: MediaRedirectFailureReason,
+    redirectCount: Int,
+): Nothing {
+    val failure =
+        AndroidMediaRedirectException(
+            statusCode = code,
+            expectedRangeStart = mediaRequest.range?.startInclusive ?: 0L,
+            reason = reason,
+            redirectCount = redirectCount,
+            locationPresent = !header("Location").isNullOrBlank(),
+        )
+    close()
+    throw failure
 }
 
 internal fun HttpUrl.hasSameOrigin(other: HttpUrl): Boolean =

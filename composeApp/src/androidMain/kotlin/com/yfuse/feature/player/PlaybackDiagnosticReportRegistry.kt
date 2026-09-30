@@ -146,7 +146,9 @@ internal object PlaybackDiagnosticReportRegistry {
                     appendLine("route=${diagnostics.plannedRenderPath.ifBlank { "unknown" }}")
                     appendLine(
                         "fallback.chain=" +
-                            if (nativeOnly) {
+                            if (diagnostics.engine == UNAVAILABLE_VIDEO_ENGINE_LABEL) {
+                                "none"
+                            } else if (nativeOnly) {
                                 "YCore2Native"
                             } else {
                                 fallbackChain.joinToString(" -> ") { it.name }
@@ -435,6 +437,7 @@ internal fun engineBindingLabel(
     nativeOnly: Boolean,
 ): String =
     when {
+        diagnostics.engine == UNAVAILABLE_VIDEO_ENGINE_LABEL -> UNAVAILABLE_VIDEO_ENGINE_LABEL
         nativeOnly || diagnostics.isNativeCore2Binding -> YCORE2_NATIVE_ENGINE_LABEL
         else -> diagnostics.engine.ifBlank { selectedEngine.name }
     }

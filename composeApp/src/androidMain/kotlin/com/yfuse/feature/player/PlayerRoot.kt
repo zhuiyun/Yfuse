@@ -106,6 +106,7 @@ internal fun engineAttachedLabel(
 ): String =
     when {
         engine is PreparingVideoEngine -> PREPARING_VIDEO_ENGINE_LABEL
+        engine is MissingNativeCapabilityVideoEngine -> UNAVAILABLE_VIDEO_ENGINE_LABEL
         engine is YPlayerVideoEngineAdapter -> YCORE2_NATIVE_ENGINE_LABEL
         else -> attachedKind.name
     }
