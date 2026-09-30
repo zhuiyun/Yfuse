@@ -96,20 +96,22 @@ class SearchVisibleMotionInstrumentedTest {
                 // not move never differs.
                 val later =
                     captureDiffering(scenario, bounds.get(), "$prefix-later.png", early, 2L * Motion.WAIT_HALF_CYCLE)
+                // Switching the motion off meets the same frame lag: on a head that changed no motion
+                // code, a capture 120 ms after 减少动态效果 still showed the highlight. Each switch is
+                // sampled until the field is still, then for a full pulse, and judged by the frame
+                // that differs most, so a highlight that comes back fails just as one that stayed.
                 scenario.onActivity { reduced.value = true }
-                SystemClock.sleep(120)
-                val reducedFrame = capture(scenario, bounds.get(), "$prefix-reduced.png")
+                val reducedFrame = captureSettled(scenario, bounds.get(), "$prefix-reduced.png", off, PULSE_MS)
                 scenario.onActivity {
                     enabled.value = false
                     reduced.value = false
                 }
-                SystemClock.sleep(120)
-                val disabledAgain = capture(scenario, bounds.get(), "$prefix-disabled.png")
+                val disabledAgain = captureSettled(scenario, bounds.get(), "$prefix-disabled.png", off, PULSE_MS)
                 try {
                     assertTrue("$prefix loading highlight is imperceptible", difference(off, early) > 0.025)
                     assertTrue("$prefix loading highlight does not move", difference(early, later) > MOVED)
-                    assertTrue("Reduced motion left an animated decoration", difference(off, reducedFrame) < 0.005)
-                    assertTrue("Disabling motion did not restore the field", difference(off, disabledAgain) < 0.005)
+                    assertTrue("Reduced motion left an animated decoration", difference(off, reducedFrame) < STILL)
+                    assertTrue("Disabling motion did not restore the field", difference(off, disabledAgain) < STILL)
                 } finally {
                     listOf(off, early, later, reducedFrame, disabledAgain).forEach(Bitmap::recycle)
                 }
@@ -132,6 +134,45 @@ class SearchVisibleMotionInstrumentedTest {
             frame.recycle()
             SystemClock.sleep(50)
         }
+    }
+
+    /**
+     * Captures until a frame matches [still] within [STILL], for up to [holdMs], then keeps capturing
+     * for another [holdMs] and returns the frame that differs from [still] the most. A decoration
+     * that stopped stays gone for the whole second window; one that was only between two sweeps
+     * shows again and is what comes back.
+     */
+    private fun captureSettled(
+        scenario: ActivityScenario<MainActivity>,
+        bounds: Rect,
+        name: String,
+        still: Bitmap,
+        holdMs: Long,
+    ): Bitmap {
+        val settleBy = SystemClock.uptimeMillis() + holdMs
+        var worst = capture(scenario, bounds, name)
+        var worstDifference = difference(still, worst)
+        while (worstDifference >= STILL) {
+            if (SystemClock.uptimeMillis() >= settleBy) return worst
+            worst.recycle()
+            SystemClock.sleep(50)
+            worst = capture(scenario, bounds, name)
+            worstDifference = difference(still, worst)
+        }
+        val holdUntil = SystemClock.uptimeMillis() + holdMs
+        while (SystemClock.uptimeMillis() < holdUntil) {
+            SystemClock.sleep(50)
+            val frame = capture(scenario, bounds, name)
+            val frameDifference = difference(still, frame)
+            if (frameDifference > worstDifference) {
+                worst.recycle()
+                worst = frame
+                worstDifference = frameDifference
+            } else {
+                frame.recycle()
+            }
+        }
+        return worst
     }
 
     private fun difference(
@@ -185,3 +226,9 @@ class SearchVisibleMotionInstrumentedTest {
 
 /** Share of the field's pixels that must change between two positions of the loading highlight. */
 private const val MOVED = 0.015
+
+/** Share of the field's pixels that may differ from the still field once no decoration moves. */
+private const val STILL = 0.005
+
+/** One full loading pulse: out and back. */
+private const val PULSE_MS = 2L * Motion.WAIT_HALF_CYCLE
