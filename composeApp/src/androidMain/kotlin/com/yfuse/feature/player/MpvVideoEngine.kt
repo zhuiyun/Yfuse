@@ -165,7 +165,7 @@ class MpvVideoEngine(
             index.takeIf { item.startsWithServerTranscode() }
         }
     private val progressiveIndices = mutableSetOf<Int>()
-    private val progressiveTransitionIndices = mutableSetOf<Int>()
+    private val pendingProgressiveSwitches = PendingProgressiveSwitches()
     private var fallbackJob: Job? = null
     private var audioRouteJob: Job? = null
     private var fileLoadWatchdogJob: Job? = null
@@ -1170,14 +1170,12 @@ class MpvVideoEngine(
         if (!canUpdatePlaybackQueue(previous, _state.value.currentIndex, items, currentIndex)) return false
         val transcoded = remapPlaybackQueueIndices(transcodedIndices, previous, items)
         val progressive = remapPlaybackQueueIndices(progressiveIndices, previous, items)
-        val transitions = remapPlaybackQueueIndices(progressiveTransitionIndices, previous, items)
         transcodedIndices.clear()
         transcodedIndices.addAll(transcoded)
         items.forEachIndexed { index, item -> if (item.startsWithServerTranscode()) transcodedIndices += index }
         progressiveIndices.clear()
         progressiveIndices.addAll(progressive)
-        progressiveTransitionIndices.clear()
-        progressiveTransitionIndices.addAll(transitions)
+        pendingProgressiveSwitches.remap(previous, items)
         this.items = items.toList()
         // libmpv plays one file; only our catalog and its ordinal change, never loadfile/seek.
         _state.update { it.copy(currentIndex = currentIndex, itemCount = items.size) }
@@ -1372,7 +1370,7 @@ class MpvVideoEngine(
             PlaybackFallbackLadder.streamRung(
                 transcoded = index in transcodedIndices,
                 progressive = index in progressiveIndices,
-                progressivePending = index in progressiveTransitionIndices,
+                progressivePending = index in pendingProgressiveSwitches,
             )
         val next = PlaybackFallbackLadder.nextStreamStep(rung, item, reason)
         when (next) {
@@ -1381,7 +1379,7 @@ class MpvVideoEngine(
             PlaybackStreamStep.Transcode -> transcodedIndices += index
             PlaybackStreamStep.Progressive -> {
                 transcodedIndices += index
-                progressiveTransitionIndices += index
+                pendingProgressiveSwitches.start(index)
             }
         }
         // Resume where the failure happened rather than from the top; a codec the device
@@ -1438,8 +1436,8 @@ class MpvVideoEngine(
                 val cleaned =
                     item.playSessionId.isBlank() ||
                         withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
-                if (released || _state.value.currentIndex != index) return@launch
-                progressiveTransitionIndices -= index
+                val stillCurrent = !released && _state.value.currentIndex == index
+                if (!pendingProgressiveSwitches.settle(index, stillCurrent)) return@launch
                 if (!cleaned) {
                     _state.update {
                         it.copy(

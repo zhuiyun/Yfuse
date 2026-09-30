@@ -150,7 +150,7 @@ class ExoVideoEngine(
             index.takeIf { item.startsWithServerTranscode() }
         }
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
-    private val progressiveTransitionIndices = mutableSetOf<Int>()
+    private val pendingProgressiveSwitches = PendingProgressiveSwitches()
     private val retryCounts = mutableMapOf<Triple<String, String, String>, Int>()
 
     /** Compact, credential-free failure trail preserved across replaceMediaItem fallback hops. */
@@ -1595,7 +1595,7 @@ class ExoVideoEngine(
         PlaybackFallbackLadder.streamRung(
             transcoded = index in transcodedIndices,
             progressive = index in progressiveTranscodeIndices,
-            progressivePending = index in progressiveTransitionIndices,
+            progressivePending = index in pendingProgressiveSwitches,
         )
 
     /** Carries out the stream-ladder [step] the ladder chose for the entry at [index]. */
@@ -1699,7 +1699,6 @@ class ExoVideoEngine(
         if (!canUpdatePlaybackQueue(previous, oldIndex, items, currentIndex)) return false
         val remappedTranscoded = remapPlaybackQueueIndices(transcodedIndices, previous, items)
         val remappedProgressive = remapPlaybackQueueIndices(progressiveTranscodeIndices, previous, items)
-        val remappedTransitions = remapPlaybackQueueIndices(progressiveTransitionIndices, previous, items)
         val remappedHistory =
             failureHistory.entries
                 .mapNotNull { (index, history) ->
@@ -1714,8 +1713,7 @@ class ExoVideoEngine(
         items.forEachIndexed { index, item -> if (item.startsWithServerTranscode()) transcodedIndices += index }
         progressiveTranscodeIndices.clear()
         progressiveTranscodeIndices.addAll(remappedProgressive)
-        progressiveTransitionIndices.clear()
-        progressiveTransitionIndices.addAll(remappedTransitions)
+        pendingProgressiveSwitches.remap(previous, items)
         failureHistory.clear()
         failureHistory.putAll(remappedHistory)
         persistentCacheUrls.clear()
@@ -1757,7 +1755,7 @@ class ExoVideoEngine(
         item: PlayerMediaItem,
     ): Boolean {
         transcodedIndices += index
-        progressiveTransitionIndices += index
+        pendingProgressiveSwitches.start(index)
         val position = player.currentPosition
         val fallbackReason = failureChainReason(index, "HLS 转码不可用，已改用 MP4 转码")
         clearActiveOutputEvidence()
@@ -1798,8 +1796,8 @@ class ExoVideoEngine(
                 val cleaned =
                     item.playSessionId.isBlank() ||
                         withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
-                if (released || player.currentMediaItemIndex != index) return@launch
-                progressiveTransitionIndices -= index
+                val stillCurrent = !released && player.currentMediaItemIndex == index
+                if (!pendingProgressiveSwitches.settle(index, stillCurrent)) return@launch
                 if (!cleaned) {
                     AppLog.warning(
                         category = "player.exo",
