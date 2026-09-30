@@ -624,7 +624,7 @@ private fun PersonalCenterPage(
 private class PersonalRemovals(
     private val personal: PersonalLibraryRepository,
 ) {
-    private val window = UndoWindow<PersonalEntry>()
+    private val window = UndoWindow(personal::removeEntry)
 
     var pending by mutableStateOf<PersonalEntry?>(null)
         private set
@@ -637,7 +637,7 @@ private class PersonalRemovals(
     var swipeable by mutableStateOf(false)
 
     fun remove(entry: PersonalEntry) {
-        window.hold(entry)?.let(personal::removeEntry)
+        window.hold(entry)
         pending = entry
         generation++
     }
@@ -648,7 +648,7 @@ private class PersonalRemovals(
 
     /** The toast left — timed out, swiped away, the app or the page gone: the record goes now. */
     fun settle() {
-        window.release()?.let(personal::removeEntry)
+        window.settle()
         pending = null
     }
 }

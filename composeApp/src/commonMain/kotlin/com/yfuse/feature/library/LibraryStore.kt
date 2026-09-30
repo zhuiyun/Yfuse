@@ -17,9 +17,9 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.deduplicatePlaybackHistory
 import com.yfuse.core.network.toUserMessage
+import com.yfuse.core.util.LatestWins
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -289,9 +289,8 @@ class LibraryStoreFactory(
     private inner class ExecutorImpl :
         CoroutineExecutor<LibraryIntent, Action, LibraryState, Msg, Nothing>(mainContext) {
         private var loadedConnection: LibraryConnection? = null
-        private var loadGeneration = 0L
-        private var loadJob: Job? = null
-        private val historyChanges = UndoWindow<HistoryChange>()
+        private val libraryLoad = LatestWins(scope)
+        private val historyChanges = UndoWindow(::commitHistoryChange)
 
         override fun executeAction(action: Action) {
             when (action) {
@@ -325,7 +324,7 @@ class LibraryStoreFactory(
                         ?.let { dispatch(Msg.HistoryRestored(it.item, it.index)) }
                 LibraryIntent.DismissMessage -> {
                     dispatch(Msg.ActionMessage(null))
-                    historyChanges.release()?.let(::commitHistoryChange)
+                    historyChanges.settle()
                 }
             }
         }
@@ -338,7 +337,7 @@ class LibraryStoreFactory(
             val index = state().content.resume.indexOfFirst { it.id == item.id }
             if (index < 0) return
             // Something new sends the change still waiting on its toast on its way, as on 首页.
-            historyChanges.hold(HistoryChange(item, index, server, watched))?.let(::commitHistoryChange)
+            historyChanges.hold(HistoryChange(item, index, server, watched))
             dispatch(
                 Msg.HistoryHidden(
                     item = item,
@@ -396,116 +395,110 @@ class LibraryStoreFactory(
             server: SavedServer,
             refresh: Boolean = false,
         ) {
-            loadJob?.cancel()
-            val generation = ++loadGeneration
+            val request = libraryLoad.next()
             val connection = server.libraryConnection()
             dispatch(Msg.Loading(refresh = refresh && !state().content.isEmpty))
-            loadJob =
-                scope.launch {
-                    if (state().content.isEmpty) {
-                        val snapshot =
-                            withContext(workContext) {
-                                runCatching { cache.readSnapshot(server.id) }
-                                    .onFailure {
-                                        AppLog.warning(
-                                            "feature.library",
-                                            "cache_read_failed",
-                                            "Library cache is unavailable; continuing online",
-                                            throwable = it,
-                                        )
-                                    }.getOrNull()
-                            }
-                        if (!ownsLoad(generation, connection)) return@launch
-                        snapshot?.let { dispatch(Msg.Cached(it.content.withoutHeldHistory(), it.updatedAtEpochMs)) }
-                    }
-                    val initialContent = state().content
-                    val started = TimeSource.Monotonic.markNow()
-                    val startedAtEpochMs = nowEpochMs()
-                    var firstProgress = true
-                    val logAttributes = mapOf("serverId" to server.id, "generation" to generation.toString())
-                    AppLog.info("feature.library", "load_started", "Media library load started", logAttributes)
-                    try {
+            libraryLoad.launch(request) {
+                if (state().content.isEmpty) {
+                    val snapshot =
                         withContext(workContext) {
-                            repo.homeContent(server, initialContent = initialContent) { content ->
-                                withContext(mainContext) {
-                                    if (ownsLoad(generation, connection)) {
-                                        dispatch(Msg.Progress(content.withoutHeldHistory()))
-                                        if (firstProgress) {
-                                            firstProgress = false
-                                            AppLog.info(
-                                                "feature.library",
-                                                "directory_ready",
-                                                "Media library directory is ready for browsing",
-                                                logAttributes +
-                                                    (
-                                                        "durationMs" to
-                                                            started.elapsedNow().inWholeMilliseconds.toString()
-                                                    ),
-                                            )
-                                        }
+                            runCatching { cache.readSnapshot(server.id) }
+                                .onFailure {
+                                    AppLog.warning(
+                                        "feature.library",
+                                        "cache_read_failed",
+                                        "Library cache is unavailable; continuing online",
+                                        throwable = it,
+                                    )
+                                }.getOrNull()
+                        }
+                    if (!ownsLoad(request, connection)) return@launch
+                    snapshot?.let { dispatch(Msg.Cached(it.content.withoutHeldHistory(), it.updatedAtEpochMs)) }
+                }
+                val initialContent = state().content
+                val started = TimeSource.Monotonic.markNow()
+                val startedAtEpochMs = nowEpochMs()
+                var firstProgress = true
+                val logAttributes = mapOf("serverId" to server.id, "generation" to request.generation.toString())
+                AppLog.info("feature.library", "load_started", "Media library load started", logAttributes)
+                try {
+                    withContext(workContext) {
+                        repo.homeContent(server, initialContent = initialContent) { content ->
+                            withContext(mainContext) {
+                                if (ownsLoad(request, connection)) {
+                                    dispatch(Msg.Progress(content.withoutHeldHistory()))
+                                    if (firstProgress) {
+                                        firstProgress = false
+                                        AppLog.info(
+                                            "feature.library",
+                                            "directory_ready",
+                                            "Media library directory is ready for browsing",
+                                            logAttributes +
+                                                (
+                                                    "durationMs" to
+                                                        started.elapsedNow().inWholeMilliseconds.toString()
+                                                ),
+                                        )
                                     }
                                 }
                             }
-                        }.onSuccess { content ->
-                            if (!ownsLoad(generation, connection)) return@onSuccess
-                            val updatedAtEpochMs = nowEpochMs().coerceAtLeast(0L)
-                            withContext(workContext) {
-                                runCatching { cache.write(server.id, content, updatedAtEpochMs) }
-                                    .onFailure {
-                                        AppLog.warning(
-                                            "feature.library",
-                                            "cache_write_failed",
-                                            "Loaded library could not be cached",
-                                            throwable = it,
-                                        )
-                                    }
-                            }
-                            if (!ownsLoad(generation, connection)) return@onSuccess
-                            dispatch(Msg.Loaded(content.withoutHeldHistory(), updatedAtEpochMs))
-                            AppLog.info(
-                                "feature.library",
-                                "load_completed",
-                                "Media library load completed",
-                                logAttributes +
-                                    ("durationMs" to started.elapsedNow().inWholeMilliseconds.toString()) +
-                                    // A backgrounded, frozen process can hold this load open for
-                                    // minutes without it being a stall (see load of 92 s in the
-                                    // 1.0.83 diagnostics); readers should not average it in with
-                                    // one that actually ran that long in the foreground.
-                                    ("appBackgrounded" to appBackgroundedSince(startedAtEpochMs).toString()),
-                            )
-                        }.onFailure { error ->
-                            if (!ownsLoad(generation, connection)) return@onFailure
-                            AppLog.warning(
-                                category = "feature.library",
-                                event = "load_failed",
-                                message = "Media library home failed to load",
-                                throwable = error,
-                                attributes = mapOf("serverId" to server.id),
-                            )
-                            dispatch(Msg.Failed(error.toUserMessage("加载失败")))
                         }
-                    } catch (cancelled: CancellationException) {
-                        AppLog.info("feature.library", "load_cancelled", "Media library load cancelled", logAttributes)
-                        throw cancelled
-                    } finally {
-                        if (generation == loadGeneration) loadJob = null
+                    }.onSuccess { content ->
+                        if (!ownsLoad(request, connection)) return@onSuccess
+                        val updatedAtEpochMs = nowEpochMs().coerceAtLeast(0L)
+                        withContext(workContext) {
+                            runCatching { cache.write(server.id, content, updatedAtEpochMs) }
+                                .onFailure {
+                                    AppLog.warning(
+                                        "feature.library",
+                                        "cache_write_failed",
+                                        "Loaded library could not be cached",
+                                        throwable = it,
+                                    )
+                                }
+                        }
+                        if (!ownsLoad(request, connection)) return@onSuccess
+                        dispatch(Msg.Loaded(content.withoutHeldHistory(), updatedAtEpochMs))
+                        AppLog.info(
+                            "feature.library",
+                            "load_completed",
+                            "Media library load completed",
+                            logAttributes +
+                                ("durationMs" to started.elapsedNow().inWholeMilliseconds.toString()) +
+                                // A backgrounded, frozen process can hold this load open for
+                                // minutes without it being a stall (see load of 92 s in the
+                                // 1.0.83 diagnostics); readers should not average it in with
+                                // one that actually ran that long in the foreground.
+                                ("appBackgrounded" to appBackgroundedSince(startedAtEpochMs).toString()),
+                        )
+                    }.onFailure { error ->
+                        if (!ownsLoad(request, connection)) return@onFailure
+                        AppLog.warning(
+                            category = "feature.library",
+                            event = "load_failed",
+                            message = "Media library home failed to load",
+                            throwable = error,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                        dispatch(Msg.Failed(error.toUserMessage("加载失败")))
                     }
+                } catch (cancelled: CancellationException) {
+                    AppLog.info("feature.library", "load_cancelled", "Media library load cancelled", logAttributes)
+                    throw cancelled
                 }
+            }
         }
 
         private fun ownsLoad(
-            generation: Long,
+            request: LatestWins.Ticket,
             connection: LibraryConnection,
         ): Boolean =
-            generation == loadGeneration &&
+            request.isCurrent &&
                 loadedConnection == connection &&
                 state().currentServer?.libraryConnection() == connection
 
         private fun cancelLoad() {
-            loadGeneration++
-            loadJob?.cancel()
-            loadJob = null
+            libraryLoad.cancel()
         }
     }
 

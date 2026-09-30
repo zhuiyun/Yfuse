@@ -21,6 +21,7 @@ import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.UserStateWriter
+import com.yfuse.core.util.LatestWins
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -255,11 +256,10 @@ class LibraryGridStoreFactory(
         CoroutineExecutor<GridIntent, GridAction, GridState, GridMsg, Nothing>(mainContext) {
         /**
          * Guards against a slow page landing after the criteria changed under it. Both
-         * loaders bump it, so a sort change also discards an append that is still in
-         * flight for the previous order.
+         * loaders start a request on it, so a sort change also discards an append that is
+         * still in flight for the previous order.
          */
-        private var generation = 0L
-        private var pageJob: Job? = null
+        private val pageLoad = LatestWins(scope)
         private var genresJob: Job? = null
         private var genresLoaded = false
 
@@ -451,8 +451,7 @@ class LibraryGridStoreFactory(
         }
 
         private fun loadFirstPage() {
-            pageJob?.cancel()
-            val current = ++generation
+            val page = pageLoad.next()
             val server = serverId?.let(registry::serverById)
             dispatch(GridMsg.Loading)
             if (server == null) {
@@ -466,69 +465,68 @@ class LibraryGridStoreFactory(
             }
             val sort = state().sort
             val genre = state().genre
-            pageJob =
-                scope.launch {
-                    if (directoryKind != null) {
-                        repo
-                            .mediaContainersPage(
-                                server = server,
-                                kind = directoryKind,
-                                startIndex = 0,
-                                limit = LIBRARY_PAGE_SIZE,
-                            ).onSuccess {
-                                if (current != generation) return@onSuccess
-                                dispatch(GridMsg.ContainersLoaded(it))
-                            }.onFailure {
-                                if (current != generation) return@onFailure
-                                AppLog.warning(
-                                    category = "feature.library",
-                                    event = "container_directory_failed",
-                                    message = "Container directory failed to load",
-                                    throwable = it,
-                                    attributes = mapOf("serverId" to server.id),
-                                )
-                                dispatch(GridMsg.Failed(it.toUserMessage("容器目录加载失败")))
-                            }
-                        return@launch
-                    }
-                    val request =
-                        containerKind?.let { kind ->
-                            repo.mediaContainerItems(
-                                server = server,
-                                containerId = libraryId,
-                                kind = kind,
-                                sort = sort,
-                                genre = genre,
-                                startIndex = 0,
-                                limit = LIBRARY_PAGE_SIZE,
-                                resolution = state().resolution,
-                            )
-                        } ?: repo.libraryItems(
+            pageLoad.launch(page) {
+                if (directoryKind != null) {
+                    repo
+                        .mediaContainersPage(
                             server = server,
-                            libraryId = libraryId,
+                            kind = directoryKind,
+                            startIndex = 0,
+                            limit = LIBRARY_PAGE_SIZE,
+                        ).onSuccess {
+                            if (!page.isCurrent) return@onSuccess
+                            dispatch(GridMsg.ContainersLoaded(it))
+                        }.onFailure {
+                            if (!page.isCurrent) return@onFailure
+                            AppLog.warning(
+                                category = "feature.library",
+                                event = "container_directory_failed",
+                                message = "Container directory failed to load",
+                                throwable = it,
+                                attributes = mapOf("serverId" to server.id),
+                            )
+                            dispatch(GridMsg.Failed(it.toUserMessage("容器目录加载失败")))
+                        }
+                    return@launch
+                }
+                val request =
+                    containerKind?.let { kind ->
+                        repo.mediaContainerItems(
+                            server = server,
+                            containerId = libraryId,
+                            kind = kind,
                             sort = sort,
                             genre = genre,
                             startIndex = 0,
                             limit = LIBRARY_PAGE_SIZE,
                             resolution = state().resolution,
-                            unplayedOnly = state().unplayedOnly,
                         )
-                    request
-                        .onSuccess {
-                            if (current != generation) return@onSuccess
-                            dispatch(GridMsg.Loaded(it))
-                        }.onFailure {
-                            if (current != generation) return@onFailure
-                            AppLog.warning(
-                                category = "feature.library",
-                                event = "grid_load_failed",
-                                message = "Library grid failed to load",
-                                throwable = it,
-                                attributes = mapOf("serverId" to server.id),
-                            )
-                            dispatch(GridMsg.Failed(it.toUserMessage("加载失败")))
-                        }
-                }
+                    } ?: repo.libraryItems(
+                        server = server,
+                        libraryId = libraryId,
+                        sort = sort,
+                        genre = genre,
+                        startIndex = 0,
+                        limit = LIBRARY_PAGE_SIZE,
+                        resolution = state().resolution,
+                        unplayedOnly = state().unplayedOnly,
+                    )
+                request
+                    .onSuccess {
+                        if (!page.isCurrent) return@onSuccess
+                        dispatch(GridMsg.Loaded(it))
+                    }.onFailure {
+                        if (!page.isCurrent) return@onFailure
+                        AppLog.warning(
+                            category = "feature.library",
+                            event = "grid_load_failed",
+                            message = "Library grid failed to load",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                        dispatch(GridMsg.Failed(it.toUserMessage("加载失败")))
+                    }
+            }
         }
 
         private fun loadNextPage() {
@@ -537,69 +535,68 @@ class LibraryGridStoreFactory(
             // fling past the end of the list into several identical requests.
             if (state.loading || state.loadingMore || !state.canLoadMore) return
             val server = serverId?.let(registry::serverById) ?: return
-            val current = ++generation
+            val page = pageLoad.outdate()
             val startIndex = state.nextStartIndex
             dispatch(GridMsg.LoadingMore)
-            pageJob =
-                scope.launch {
-                    if (directoryKind != null) {
-                        repo
-                            .mediaContainersPage(
-                                server = server,
-                                kind = directoryKind,
-                                startIndex = startIndex,
-                                limit = LIBRARY_PAGE_SIZE,
-                            ).onSuccess {
-                                if (current != generation) return@onSuccess
-                                dispatch(GridMsg.ContainersAppended(it))
-                            }.onFailure {
-                                if (current != generation) return@onFailure
-                                dispatch(GridMsg.AppendFailed(it.toUserMessage("加载更多容器失败")))
-                            }
-                        return@launch
-                    }
-                    val request =
-                        containerKind?.let { kind ->
-                            repo.mediaContainerItems(
-                                server = server,
-                                containerId = libraryId,
-                                kind = kind,
-                                sort = state.sort,
-                                genre = state.genre,
-                                startIndex = startIndex,
-                                limit = LIBRARY_PAGE_SIZE,
-                                resolution = state.resolution,
-                            )
-                        } ?: repo.libraryItems(
+            pageLoad.launch(page) {
+                if (directoryKind != null) {
+                    repo
+                        .mediaContainersPage(
                             server = server,
-                            libraryId = libraryId,
+                            kind = directoryKind,
+                            startIndex = startIndex,
+                            limit = LIBRARY_PAGE_SIZE,
+                        ).onSuccess {
+                            if (!page.isCurrent) return@onSuccess
+                            dispatch(GridMsg.ContainersAppended(it))
+                        }.onFailure {
+                            if (!page.isCurrent) return@onFailure
+                            dispatch(GridMsg.AppendFailed(it.toUserMessage("加载更多容器失败")))
+                        }
+                    return@launch
+                }
+                val request =
+                    containerKind?.let { kind ->
+                        repo.mediaContainerItems(
+                            server = server,
+                            containerId = libraryId,
+                            kind = kind,
                             sort = state.sort,
                             genre = state.genre,
                             startIndex = startIndex,
                             limit = LIBRARY_PAGE_SIZE,
                             resolution = state.resolution,
-                            unplayedOnly = state().unplayedOnly,
                         )
-                    request
-                        .onSuccess {
-                            if (current != generation) return@onSuccess
-                            dispatch(GridMsg.Appended(it))
-                        }.onFailure {
-                            if (current != generation) return@onFailure
-                            AppLog.warning(
-                                category = "feature.library",
-                                event = "grid_page_failed",
-                                message = "Library grid failed to load a further page",
-                                throwable = it,
-                                attributes =
-                                    mapOf(
-                                        "serverId" to server.id,
-                                        "startIndex" to startIndex.toString(),
-                                    ),
-                            )
-                            dispatch(GridMsg.AppendFailed(it.toUserMessage("加载更多失败")))
-                        }
-                }
+                    } ?: repo.libraryItems(
+                        server = server,
+                        libraryId = libraryId,
+                        sort = state.sort,
+                        genre = state.genre,
+                        startIndex = startIndex,
+                        limit = LIBRARY_PAGE_SIZE,
+                        resolution = state.resolution,
+                        unplayedOnly = state().unplayedOnly,
+                    )
+                request
+                    .onSuccess {
+                        if (!page.isCurrent) return@onSuccess
+                        dispatch(GridMsg.Appended(it))
+                    }.onFailure {
+                        if (!page.isCurrent) return@onFailure
+                        AppLog.warning(
+                            category = "feature.library",
+                            event = "grid_page_failed",
+                            message = "Library grid failed to load a further page",
+                            throwable = it,
+                            attributes =
+                                mapOf(
+                                    "serverId" to server.id,
+                                    "startIndex" to startIndex.toString(),
+                                ),
+                        )
+                        dispatch(GridMsg.AppendFailed(it.toUserMessage("加载更多失败")))
+                    }
+            }
         }
     }
 
