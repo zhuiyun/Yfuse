@@ -21,6 +21,7 @@ import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.PlaybackChapter
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackSegment
+import com.yfuse.core.model.SubtitleTrackInfo
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.EmbyImages
@@ -317,20 +318,76 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             externalSubtitles =
                 version.subtitleTracks
                     .mapNotNull { track ->
-                        track.uri
-                            ?.takeIf { track.external && it.isNotBlank() }
-                            ?.let { uri ->
-                                PlayerExternalSubtitle(
-                                    uri = uri,
-                                    language = track.language,
-                                    codec = track.codec,
-                                    default = track.default,
-                                    forced = track.forced,
-                                )
-                            }
+                        if (!track.external) return@mapNotNull null
+                        val uri =
+                            track.playbackSidecarUrl(
+                                baseUrl = baseUrl,
+                                itemId = itemId,
+                                mediaSourceId = version.id,
+                                token = token,
+                                localCleartextConfirmed = localCleartextConfirmed,
+                                userId = userId,
+                            ) ?: return@mapNotNull null
+                        PlayerExternalSubtitle(
+                            uri = uri,
+                            language = track.language,
+                            codec = uri.subtitleEndpointFormat() ?: track.codec,
+                            default = track.default,
+                            forced = track.forced,
+                        )
                     }.distinctBy(PlayerExternalSubtitle::uri),
         )
     }
+
+/**
+ * Emby and Jellyfin send a sidecar as a path relative to the server, which no player can open, so it
+ * is completed and authenticated like the stream URLs above. A [SubtitleTrackInfo.uriIsSidecarPath]
+ * value that is not a web URL names a file on the server's disk; the subtitle endpoint serves that one
+ * by index. Absolute provider URLs (Plex, a CDN) are kept as they are.
+ */
+private fun SubtitleTrackInfo.playbackSidecarUrl(
+    baseUrl: String,
+    itemId: String,
+    mediaSourceId: String,
+    token: String,
+    localCleartextConfirmed: Boolean,
+    userId: String?,
+): String? {
+    val raw = uri?.trim()?.takeIf(String::isNotEmpty) ?: return null
+    val webUrl = raw.substringBefore("://", missingDelimiterValue = "").lowercase() in setOf("http", "https")
+    if (uriIsSidecarPath && !webUrl) {
+        return EmbyStream.subtitle(
+            baseUrl = baseUrl,
+            itemId = itemId,
+            mediaSourceId = mediaSourceId,
+            streamIndex = index ?: return null,
+            token = token,
+            format = codec?.lowercase()?.takeIf { it in setOf("ass", "ssa", "vtt") } ?: "srt",
+        )
+    }
+    return EmbyStream.negotiatedUrl(
+        baseUrl = baseUrl,
+        rawUrl = raw,
+        token = token,
+        playSessionId = "",
+        addApiKey = !raw.contains("X-Plex-Token=", ignoreCase = true),
+        localCleartextConfirmed = localCleartextConfirmed,
+        userId = userId,
+    )
+}
+
+/**
+ * The format the subtitle endpoint sends (`…/Subtitles/3/0/Stream.srt`). It differs from the track
+ * codec when the server converts the sidecar, as it does for ASS under this device profile.
+ */
+private fun String.subtitleEndpointFormat(): String? {
+    val path = substringBefore('#').substringBefore('?')
+    val file = path.substringAfterLast('/')
+    if (!path.contains("/Subtitles/", ignoreCase = true) || !file.startsWith("Stream.", ignoreCase = true)) {
+        return null
+    }
+    return file.substringAfter('.').lowercase().takeIf { it.matches(Regex("[a-z0-9]{2,8}")) }
+}
 
 private fun String?.isLinearMediaStreamUrl(): Boolean {
     val path = this?.substringBefore('?')?.substringBefore('#')?.lowercase() ?: return false

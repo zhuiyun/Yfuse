@@ -1,0 +1,25 @@
+{
+  "sourceCommit": "508db23578aa54383b9a36657dbc93b81fa9b2ce",
+  "baselineWorkflowRun": 36660691976,
+  "baselineArtifact": 11075606084,
+  "baselineApk": {
+    "package": "com.yfuse",
+    "versionName": "1.0.95",
+    "versionCode": 257,
+    "fileName": "Yfuse-257-1.0.95.apk",
+    "sizeBytes": 29818223,
+    "productionSigned": true,
+    "published": false
+  },
+  "baselineApkSha256": "2fe20288f15daed39d46ab04dde889f9344747f62fd4f9cd2c7fe24cc3172580",
+  "baselineEvidence": "CI verification step of the packaging run; the artifact is not downloadable from this workspace",
+  "plannedVersionName": "1.0.96",
+  "plannedVersionCode": 258,
+  "repairCommit": "b704959c656c730097fc9fa048189a5ed06a289b",
+  "releaseMetadata": "release_metadata.py and 4 test_release_metadata.py tests passed",
+  "localHarness": "Kotlin 2.4.20 JVM harness over the real sources: 10 tests passed; 4 new cases fail on the pre-fix code",
+  "ktlint": "1.3.1: no violations in changed files",
+  "qualityGates": "pending",
+  "mdkPackageOnlyConfirmation": "pending",
+  "apkBuild": "pending production signing on the merge commit"
+}
