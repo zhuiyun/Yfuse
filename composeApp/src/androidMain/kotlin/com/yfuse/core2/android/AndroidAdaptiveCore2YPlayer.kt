@@ -1563,51 +1563,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                 if (localChildState.diagnostics.videoOutputVerified) verifiedRouteSuspicion.onVideoOutput()
                 if (activeChild !== next) return
                 val reportedChildState = presentedChildState(next, localChildState, attachedTarget)
-                val nextPeriodPosition =
-                    attachedTarget?.periodEndGlobalMs?.takeIf { endMs ->
-                        localChildState.phase == YPlaybackPhase.Ended &&
-                            !isPrematurePlaybackEnd(localChildState.positionMs, localChildState.durationMs) &&
-                            attachedTarget.presentationDurationMs > endMs
-                    }
-                if (nextPeriodPosition != null && !recoveryQueued) {
-                    recoveryQueued = true
-                    commands.trySend(Command.AdaptiveTransition(next, nextPeriodPosition, null))
-                    return
-                }
-                val reportedBufferedDurationMs =
-                    maxOf(
-                        reportedChildState.diagnostics.sourceBufferedMs,
-                        (reportedChildState.bufferedPositionMs - reportedChildState.positionMs)
-                            .coerceAtLeast(0L),
-                    )
-                adaptiveFeedbackSink?.updatePlaybackFeedback(
-                    YAdaptivePlaybackFeedback(
-                        bufferedDurationUs =
-                            reportedBufferedDurationMs * MICROSECONDS_PER_MILLISECOND,
-                        playing = reportedChildState.playing,
-                        speed = speed,
-                        generation = adaptiveFeedbackGeneration.get(),
-                    ),
-                )
-                if (attachedTarget != null &&
-                    localChildState.phase == YPlaybackPhase.Ready &&
-                    !recoveryQueued
-                ) {
-                    val transition =
-                        adaptiveFeedbackSink?.pollPlaybackTransition(
-                            attachedTarget.rootUri,
-                            reportedChildState.positionMs,
-                        )
-                    if (transition != null &&
-                        transition.feedbackGeneration == adaptiveFeedbackGeneration.get()
-                    ) {
-                        recoveryQueued = true
-                        commands.trySend(
-                            Command.AdaptiveTransition(next, reportedChildState.positionMs, transition),
-                        )
-                        return
-                    }
-                }
+                if (queueNextPeriod(localChildState)) return
+                reportAdaptiveFeedback(reportedChildState)
+                if (queueAdaptiveTransition(localChildState, reportedChildState)) return
                 val prematureEnd =
                     reportedChildState.phase == YPlaybackPhase.Ended &&
                         isPrematurePlaybackEnd(
@@ -1629,6 +1587,137 @@ internal class AndroidAdaptiveCore2YPlayer(
                 ) {
                     sameRouteRecoveryAttempts.remove(prematureEndRecoveryKey)
                 }
+                discardNextPreparationIfUnaffordable(reportedChildState)
+                if (reopenAfterTransportFailure(reportedChildState, prematureEnd, prematureEndRecoveryKey)) return
+                val childState =
+                    if (prematureEnd) {
+                        reportedChildState.copy(
+                            phase = YPlaybackPhase.Failed,
+                            playing = false,
+                            playbackRequested = requestedPlay,
+                            buffering = false,
+                            error = "片源在声明时长前提前结束，已判定为网络传输中断",
+                            errorCategory = YPlaybackFailureCategory.Network,
+                            diagnostics =
+                                reportedChildState.diagnostics.copy(
+                                    reason = "Premature EOF remained after bounded transport recovery",
+                                ),
+                        )
+                    } else {
+                        reportedChildState
+                    }
+                if (childState.phase != YPlaybackPhase.Failed && recoveryQueued) {
+                    // An in-place retry keeps this collector. Give the recovered attempt a
+                    // fresh failure edge so a second terminal failure can advance to the
+                    // next recovery tier instead of being hidden by the first attempt.
+                    failureRecorded = false
+                    recoveryQueued = false
+                }
+                recordFailureEdge(childState, prematureEnd)
+                recordSuccessEdge(childState)
+                if (
+                    !childState.buffering &&
+                    childState.playing &&
+                    childState.phase == YPlaybackPhase.Ready
+                ) {
+                    scheduleNextItemPreload(childIndex())
+                }
+                if (queueRecovery(childState)) return
+                publish(childState)
+                // An audio route change held back during preparation applies now that
+                // the graph has reached a settled phase.
+                if (
+                    childState.phase != YPlaybackPhase.Preparing &&
+                    childState.phase != YPlaybackPhase.Idle &&
+                    deferredAudioRouteChange.compareAndSet(true, false)
+                ) {
+                    commands.trySend(Command.AudioRouteChanged)
+                }
+                logHandoffOutput(childState)
+                if (
+                    childState.phase == YPlaybackPhase.Ended &&
+                    !learningRecorded
+                ) {
+                    recordLearning(childState, terminal = true)
+                }
+                if (
+                    childState.phase == YPlaybackPhase.Ended &&
+                    request.autoNext &&
+                    !autoNextQueued &&
+                    childIndex() + 1 < queueItems.size
+                ) {
+                    autoNextQueued = true
+                    commands.trySend(Command.SelectItem(queueItems[childIndex() + 1].id))
+                }
+            }
+
+            /** Moves on to the next Period once this one ended at its boundary; true when it queued that. */
+            private fun queueNextPeriod(localChildState: YPlayerState): Boolean {
+                val nextPeriodPosition =
+                    attachedTarget?.periodEndGlobalMs?.takeIf { endMs ->
+                        localChildState.phase == YPlaybackPhase.Ended &&
+                            !isPrematurePlaybackEnd(localChildState.positionMs, localChildState.durationMs) &&
+                            attachedTarget.presentationDurationMs > endMs
+                    }
+                if (nextPeriodPosition != null && !recoveryQueued) {
+                    recoveryQueued = true
+                    commands.trySend(Command.AdaptiveTransition(next, nextPeriodPosition, null))
+                    return true
+                }
+                return false
+            }
+
+            /** Reports this child's buffer and play state to the adaptive source, which paces its reads by them. */
+            private fun reportAdaptiveFeedback(reportedChildState: YPlayerState) {
+                val reportedBufferedDurationMs =
+                    maxOf(
+                        reportedChildState.diagnostics.sourceBufferedMs,
+                        (reportedChildState.bufferedPositionMs - reportedChildState.positionMs)
+                            .coerceAtLeast(0L),
+                    )
+                adaptiveFeedbackSink?.updatePlaybackFeedback(
+                    YAdaptivePlaybackFeedback(
+                        bufferedDurationUs =
+                            reportedBufferedDurationMs * MICROSECONDS_PER_MILLISECOND,
+                        playing = reportedChildState.playing,
+                        speed = speed,
+                        generation = adaptiveFeedbackGeneration.get(),
+                    ),
+                )
+            }
+
+            /**
+             * Queues the rebuild the adaptive source asks for at this position, when the request answers
+             * this child's latest feedback; true when it queued that.
+             */
+            private fun queueAdaptiveTransition(
+                localChildState: YPlayerState,
+                reportedChildState: YPlayerState,
+            ): Boolean {
+                if (attachedTarget != null &&
+                    localChildState.phase == YPlaybackPhase.Ready &&
+                    !recoveryQueued
+                ) {
+                    val transition =
+                        adaptiveFeedbackSink?.pollPlaybackTransition(
+                            attachedTarget.rootUri,
+                            reportedChildState.positionMs,
+                        )
+                    if (transition != null &&
+                        transition.feedbackGeneration == adaptiveFeedbackGeneration.get()
+                    ) {
+                        recoveryQueued = true
+                        commands.trySend(
+                            Command.AdaptiveTransition(next, reportedChildState.positionMs, transition),
+                        )
+                        return true
+                    }
+                }
+                return false
+            }
+
+            /** Next-item preparation gives way while this child buffers or the network no longer allows it. */
+            private fun discardNextPreparationIfUnaffordable(reportedChildState: YPlayerState) {
                 if ((nextItemPreloadJob != null || preloadedNextRoute != null) &&
                     (
                         reportedChildState.buffering ||
@@ -1639,6 +1728,17 @@ internal class AndroidAdaptiveCore2YPlayer(
                 ) {
                     discardNextPreparation()
                 }
+            }
+
+            /**
+             * Reopens the route in place after a premature end or a recoverable read failure, at most
+             * [MAX_CONSECUTIVE_NETWORK_RECOVERY_ATTEMPTS] times in a row; true when it queued that.
+             */
+            private fun reopenAfterTransportFailure(
+                reportedChildState: YPlayerState,
+                prematureEnd: Boolean,
+                prematureEndRecoveryKey: RouteRecoveryKey,
+            ): Boolean {
                 val transientNetworkFailure =
                     reportedChildState.phase == YPlaybackPhase.Failed &&
                         reportedChildState.errorCategory == YPlaybackFailureCategory.Network &&
@@ -1687,32 +1787,19 @@ internal class AndroidAdaptiveCore2YPlayer(
                             route = reportedChildState.diagnostics.route,
                         ),
                     )
-                    return
+                    return true
                 }
-                val childState =
-                    if (prematureEnd) {
-                        reportedChildState.copy(
-                            phase = YPlaybackPhase.Failed,
-                            playing = false,
-                            playbackRequested = requestedPlay,
-                            buffering = false,
-                            error = "片源在声明时长前提前结束，已判定为网络传输中断",
-                            errorCategory = YPlaybackFailureCategory.Network,
-                            diagnostics =
-                                reportedChildState.diagnostics.copy(
-                                    reason = "Premature EOF remained after bounded transport recovery",
-                                ),
-                        )
-                    } else {
-                        reportedChildState
-                    }
-                if (childState.phase != YPlaybackPhase.Failed && recoveryQueued) {
-                    // An in-place retry keeps this collector. Give the recovered attempt a
-                    // fresh failure edge so a second terminal failure can advance to the
-                    // next recovery tier instead of being hidden by the first attempt.
-                    failureRecorded = false
-                    recoveryQueued = false
-                }
+                return false
+            }
+
+            /**
+             * Takes this attempt's failure edge once: files the failure under the route that ran and notes
+             * what it tells the recovery decision.
+             */
+            private fun recordFailureEdge(
+                childState: YPlayerState,
+                prematureEnd: Boolean,
+            ) {
                 if (childState.phase == YPlaybackPhase.Failed && !failureRecorded) {
                     failureRecorded = true
                     val category = childState.errorCategory
@@ -1745,6 +1832,13 @@ internal class AndroidAdaptiveCore2YPlayer(
                     }
                     if (!prematureEnd) recordLearning(childState, terminal = true)
                 }
+            }
+
+            /**
+             * Takes the success edge once video, and audio when there is any, is verified: records the
+             * route's success and this media's verified route.
+             */
+            private fun recordSuccessEdge(childState: YPlayerState) {
                 if (
                     !successRecorded &&
                     childFailureKey != null &&
@@ -1761,13 +1855,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                         verifiedRouteMemory.recordVerified(verifiedItem, probe)
                     }
                 }
-                if (
-                    !childState.buffering &&
-                    childState.playing &&
-                    childState.phase == YPlaybackPhase.Ready
-                ) {
-                    scheduleNextItemPreload(childIndex())
-                }
+            }
+
+            /** Asks the recovery policy what follows this child's failure and queues it; true when it queued one. */
+            private fun queueRecovery(childState: YPlayerState): Boolean {
                 if (
                     childState.phase == YPlaybackPhase.Failed &&
                     failureRecorded &&
@@ -1819,7 +1910,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     renewProbeBudget = renewProbeBudget,
                                 ),
                             )
-                            return
+                            return true
                         }
                         YPlaybackRecoveryAction.DisableTunnel -> {
                             commands.trySend(
@@ -1829,7 +1920,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     renewProbeBudget = renewProbeBudget,
                                 ),
                             )
-                            return
+                            return true
                         }
                         YPlaybackRecoveryAction.FallbackToEnhanced -> {
                             commands.trySend(
@@ -1839,7 +1930,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     renewProbeBudget = renewProbeBudget,
                                 ),
                             )
-                            return
+                            return true
                         }
                         YPlaybackRecoveryAction.FallbackToSoftware -> {
                             commands.trySend(
@@ -1849,11 +1940,19 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     renewProbeBudget = renewProbeBudget,
                                 ),
                             )
-                            return
+                            return true
                         }
                         YPlaybackRecoveryAction.Stop -> Unit
                     }
                 }
+                return false
+            }
+
+            /**
+             * Publishes [childState] as the router's state, placed in the whole queue and carrying the play
+             * intent it leaves behind.
+             */
+            private fun publish(childState: YPlayerState) {
                 val naturalAutoNext =
                     childState.phase == YPlaybackPhase.Ended &&
                         request.autoNext &&
@@ -1883,15 +1982,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                                         (codecResetCounts[childIndex()] ?: 0),
                             ),
                     )
-                // An audio route change held back during preparation applies now that
-                // the graph has reached a settled phase.
-                if (
-                    childState.phase != YPlaybackPhase.Preparing &&
-                    childState.phase != YPlaybackPhase.Idle &&
-                    deferredAudioRouteChange.compareAndSet(true, false)
-                ) {
-                    commands.trySend(Command.AudioRouteChanged)
-                }
+            }
+
+            /** Logs how long after its selection this child's first video and audio output arrived. */
+            private fun logHandoffOutput(childState: YPlayerState) {
                 handoffStartedNs?.takeIf { handoffItemId == childItemId }?.let { started ->
                     val video = childState.diagnostics.videoOutputVerified
                     val audio = childState.diagnostics.audioOutputVerified
@@ -1911,21 +2005,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                         handoffVideoLogged = handoffVideoLogged || video
                         handoffAudioLogged = handoffAudioLogged || audio
                     }
-                }
-                if (
-                    childState.phase == YPlaybackPhase.Ended &&
-                    !learningRecorded
-                ) {
-                    recordLearning(childState, terminal = true)
-                }
-                if (
-                    childState.phase == YPlaybackPhase.Ended &&
-                    request.autoNext &&
-                    !autoNextQueued &&
-                    childIndex() + 1 < queueItems.size
-                ) {
-                    autoNextQueued = true
-                    commands.trySend(Command.SelectItem(queueItems[childIndex() + 1].id))
                 }
             }
         }
