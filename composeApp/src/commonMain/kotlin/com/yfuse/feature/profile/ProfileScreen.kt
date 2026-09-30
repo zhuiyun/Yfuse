@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.app.systemNavigationContentInset
@@ -110,6 +111,7 @@ import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.externalPlaybackItem
 import com.yfuse.feature.player.externalStreamTitle
+import com.yfuse.feature.watch.WatchTogetherSettingsIntent
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -141,26 +143,6 @@ private enum class Sheet {
 
 /** Light to dark, which is how the segmented control is read left to right. */
 private val ThemeModeDisplayOrder = listOf(ThemeMode.Light, ThemeMode.System, ThemeMode.Dark)
-
-private enum class ProfilePage {
-    Root,
-    Personal,
-    Family,
-    Sync,
-    Handoff,
-    Trakt,
-    Account,
-    AccountSessions,
-    Playback,
-    AdvancedPlayback,
-    Danmaku,
-    WatchTogether,
-    Appearance,
-    GlassMaterial,
-    DataAndDiagnostics,
-    Downloads,
-    Splash,
-}
 
 private data class SettingsSearchDestination(
     val title: String,
@@ -316,13 +298,9 @@ fun ProfileScreen(component: ProfileComponent) {
     val anonymousQoeSharing by component.playbackPreferences.anonymousQoeSharing.collectAsState()
     val progressSyncEnabled by component.dependencies.serverSyncManager.syncProgress
         .collectAsState()
-    val watchTogether = component.watchTogether
-    val watchState by watchTogether.state.collectAsState()
-    val watchEndpoint by component.watchTogetherPreferences.endpoint.collectAsState()
+    // The root's 一起看 row; the page and its two dialogs read the page's own store.
+    val watchState by component.watchTogether.state.collectAsState()
     val watchNickname by component.watchTogetherPreferences.nickname.collectAsState()
-    val watchAvatarId by component.watchTogetherPreferences.avatarId.collectAsState()
-    val watchChatPreview by component.watchTogetherPreferences.chatPreviewEnabled.collectAsState()
-    val watchChatDanmaku by component.watchTogetherPreferences.chatDanmakuEnabled.collectAsState()
     val danmakuSources by component.danmakuPreferences.sources.collectAsState()
     val danmakuActiveSourceId by component.danmakuPreferences.activeSourceId.collectAsState()
     val danmakuBlocked by component.danmakuPreferences.blockedWords.collectAsState()
@@ -346,7 +324,7 @@ fun ProfileScreen(component: ProfileComponent) {
     var notice by remember { mutableStateOf<String?>(null) }
     var imageCacheUsageBytes by remember { mutableStateOf<Long?>(null) }
     var videoCacheUsageBytes by remember { mutableStateOf<Long?>(null) }
-    var pageStack by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+    val pages by component.pages.subscribeAsState()
     var settingsQuery by rememberSaveable { mutableStateOf("") }
     var offlineToPlay by remember { mutableStateOf<OfflineMedia?>(null) }
     var openLinkDialog by remember { mutableStateOf(false) }
@@ -356,74 +334,49 @@ fun ProfileScreen(component: ProfileComponent) {
     val rootBottomContentInset = floatingNavigationContentInset()
     ScrollToTopOnReselect(mainListState)
     val screenScope = rememberCoroutineScope()
-
-    fun openPage(target: ProfilePage) {
-        pageStack = pageStack + target.name
-    }
-
-    val requestedPage by component.pageRequest.collectAsState()
-    LaunchedEffect(requestedPage) {
-        val target = requestedPage ?: return@LaunchedEffect
-        if (target == "Downloads") pageStack = listOf(ProfilePage.Downloads.name)
-        component.consumePageRequest(target)
-    }
-
-    fun closePage() {
-        pageStack = pageStack.dropLast(1)
-    }
+    val frontPage = pages.active.configuration
 
     StatusBarIconStyle(darkIcons = !palette.isDark)
-    ReportOverlayVisible(enabled = pageStack.isNotEmpty())
+    ReportOverlayVisible(enabled = frontPage != ProfilePage.Root)
 
     LaunchedEffect(watchAvailable) {
         if (!watchAvailable) {
             if (sheet == Sheet.WatchTogether || sheet == Sheet.WatchProfile) sheet = null
-            if (pageStack.lastOrNull() == ProfilePage.WatchTogether.name) closePage()
+            component.closeWatchTogetherPage()
         }
     }
 
-    LaunchedEffect(pageStack) {
-        // Drop routes persisted by older versions after their settings page is removed.
-        val valid = pageStack.filter { saved -> ProfilePage.entries.any { it.name == saved } }
-        if (valid != pageStack) pageStack = valid
-    }
-
-    LaunchedEffect(pageStack.lastOrNull(), videoCacheSize) {
-        if (pageStack.lastOrNull() == ProfilePage.DataAndDiagnostics.name) {
+    LaunchedEffect(frontPage, videoCacheSize) {
+        if (frontPage == ProfilePage.DataAndDiagnostics) {
             imageCacheUsageBytes = component.imageCacheUsageBytes()
             videoCacheUsageBytes = component.videoCacheUsageBytes()
         }
     }
 
     Box(Modifier.fillMaxSize()) {
-        val navigationBackStack =
-            remember(pageStack) {
-                listOf(ProfilePage.Root) +
-                    pageStack.mapNotNull { saved -> ProfilePage.entries.firstOrNull { it.name == saved } }
-            }
         OfficialNavDisplay(
-            backStack = navigationBackStack,
-            onBack = ::closePage,
-            contentKey = ProfilePage::name,
+            backStack = pages.items,
+            onBack = component::closePage,
+            contentKey = { it.configuration.name },
             modifier = Modifier.fillMaxSize(),
-        ) { activePage ->
-            when (activePage) {
+        ) { entry ->
+            when (val activePage = entry.configuration) {
                 ProfilePage.Account ->
                     AccountSettingsScreen(
                         account = component.account,
-                        onBack = ::closePage,
-                        onOpenSessions = { openPage(ProfilePage.AccountSessions) },
+                        onBack = component::closePage,
+                        onOpenSessions = { component.openPage(ProfilePage.AccountSessions) },
                     )
 
                 ProfilePage.AccountSessions ->
                     AccountSessionsScreen(
                         account = component.account,
-                        onBack = ::closePage,
+                        onBack = component::closePage,
                     )
 
                 ProfilePage.Playback ->
                     PlaybackSettingsScreen(
-                        onBack = ::closePage,
+                        onBack = component::closePage,
                         optimizationMode = optimizationMode,
                         mediaVersionPreference = mediaVersionPreference,
                         autoNext = autoNext,
@@ -441,7 +394,7 @@ fun ProfileScreen(component: ProfileComponent) {
                             },
                         onPlaybackMode = { sheet = Sheet.PlaybackMode },
                         onMediaVersionPreference = { sheet = Sheet.MediaVersionPreference },
-                        onOpenAdvanced = { openPage(ProfilePage.AdvancedPlayback) },
+                        onOpenAdvanced = { component.openPage(ProfilePage.AdvancedPlayback) },
                         onAutoNext = prefs::setAutoNext,
                         onDetailThemeSong = component.playbackPreferences::setDetailThemeSong,
                         onSmartCrossServerSource = component.playbackPreferences::setSmartCrossServerSource,
@@ -454,7 +407,7 @@ fun ProfileScreen(component: ProfileComponent) {
 
                 ProfilePage.AdvancedPlayback ->
                     AdvancedPlaybackSettingsScreen(
-                        onBack = ::closePage,
+                        onBack = component::closePage,
                         optimizationMode = optimizationMode,
                         engineSelection = engineSelection,
                         decoder = decoder,
@@ -467,7 +420,7 @@ fun ProfileScreen(component: ProfileComponent) {
 
                 ProfilePage.Danmaku ->
                     DanmakuSettingsScreen(
-                        onBack = ::closePage,
+                        onBack = component::closePage,
                         sourceSummary =
                             when (danmakuSources.size) {
                                 0 -> "未配置"
@@ -484,23 +437,30 @@ fun ProfileScreen(component: ProfileComponent) {
 
                 ProfilePage.WatchTogether ->
                     if (watchAvailable) {
-                        WatchTogetherSettingsScreen(
-                            onBack = ::closePage,
-                            connected = watchState.connected,
-                            roomCode = watchState.roomCode,
-                            nickname = watchNickname,
-                            chatDanmaku = watchChatDanmaku,
-                            chatPreview = watchChatPreview,
-                            onJoin = { sheet = Sheet.WatchTogether },
-                            onProfile = { sheet = Sheet.WatchProfile },
-                            onChatDanmaku = component.watchTogetherPreferences::setChatDanmakuEnabled,
-                            onChatPreview = component.watchTogetherPreferences::setChatPreviewEnabled,
-                        )
+                        (entry.instance as? ProfileComponent.Child.WatchTogether)?.let { watchPage ->
+                            val watch by watchPage.store.states.collectAsState(watchPage.store.state)
+                            WatchTogetherSettingsScreen(
+                                onBack = component::closePage,
+                                connected = watch.connected,
+                                roomCode = watch.roomCode,
+                                nickname = watch.nickname,
+                                chatDanmaku = watch.chatDanmaku,
+                                chatPreview = watch.chatPreview,
+                                onJoin = { sheet = Sheet.WatchTogether },
+                                onProfile = { sheet = Sheet.WatchProfile },
+                                onChatDanmaku = { enabled ->
+                                    watchPage.store.accept(WatchTogetherSettingsIntent.SetChatDanmaku(enabled))
+                                },
+                                onChatPreview = { enabled ->
+                                    watchPage.store.accept(WatchTogetherSettingsIntent.SetChatPreview(enabled))
+                                },
+                            )
+                        }
                     } else {
                         AccountSettingsScreen(
                             account = component.account,
-                            onBack = ::closePage,
-                            onOpenSessions = { openPage(ProfilePage.AccountSessions) },
+                            onBack = component::closePage,
+                            onOpenSessions = { component.openPage(ProfilePage.AccountSessions) },
                         )
                     }
 
@@ -508,7 +468,7 @@ fun ProfileScreen(component: ProfileComponent) {
                     GlassMaterialSettingsScreen(
                         materials = glassMaterials,
                         onChange = prefs::setGlassMaterial,
-                        onBack = ::closePage,
+                        onBack = component::closePage,
                     )
 
                 ProfilePage.Appearance ->
@@ -517,7 +477,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         onLibraryCarousel = prefs::setLibraryCarousel,
                         navCollapseOnScroll = navCollapseOnScroll,
                         onNavCollapseOnScroll = prefs::setNavCollapseOnScroll,
-                        onBack = ::closePage,
+                        onBack = component::closePage,
                         brandSummary =
                             if (splashAnimation) {
                                 "${appIcon.label} · 开屏已开启"
@@ -541,14 +501,14 @@ fun ProfileScreen(component: ProfileComponent) {
                         onDialogAnimation = { sheet = Sheet.DialogAnimation },
                         onLoadingAnimation = { sheet = Sheet.LoadingAnimation },
                         onPlayerTransition = { sheet = Sheet.PlayerTransition },
-                        onGlassMaterial = { openPage(ProfilePage.GlassMaterial) },
+                        onGlassMaterial = { component.openPage(ProfilePage.GlassMaterial) },
                         reduceTransparency = reduceTransparency,
                         largeText = largeText,
                         reduceMotion = reduceMotion,
                         systemMotionOff = platformAnimationsDisabled(),
                         pulseSweep = pulseSweep,
                         onBackground = { sheet = Sheet.Background },
-                        onBrand = { openPage(ProfilePage.Splash) },
+                        onBrand = { component.openPage(ProfilePage.Splash) },
                         onStartupTab = { sheet = Sheet.StartupTab },
                         onReduceTransparency = prefs::setReduceTransparency,
                         onLargeText = prefs::setLargeText,
@@ -558,7 +518,7 @@ fun ProfileScreen(component: ProfileComponent) {
 
                 ProfilePage.DataAndDiagnostics ->
                     DataAndDiagnosticsScreen(
-                        onBack = ::closePage,
+                        onBack = component::closePage,
                         serverCount = state.servers.size,
                         customUserAgent = customUserAgent,
                         onExport = component::exportServers,
@@ -577,14 +537,14 @@ fun ProfileScreen(component: ProfileComponent) {
 
                 ProfilePage.Downloads ->
                     DownloadsScreen(
-                        onBack = ::closePage,
+                        onBack = component::closePage,
                         manager = component.offlineMedia,
                         onPlay = { offlineToPlay = it },
                     )
 
                 ProfilePage.Splash ->
                     BrandAndSplashScreen(
-                        onBack = ::closePage,
+                        onBack = component::closePage,
                         prefs = prefs,
                         appIcon = appIcon,
                         onAppIcon = { chosen ->
@@ -594,30 +554,32 @@ fun ProfileScreen(component: ProfileComponent) {
                     )
 
                 ProfilePage.Personal, ProfilePage.Family, ProfilePage.Sync ->
-                    com.yfuse.feature.personal.PersonalCenterScreen(
-                        personal = component.personal,
-                        account = component.account,
-                        playbackSync = component.playbackSync,
-                        serverSync = component.dependencies.serverSyncManager,
-                        servers = component.familyServers(),
-                        onBack = ::closePage,
-                        onOpenMedia = component.onOpenPersonalMedia,
-                        initialTab =
-                            when (activePage) {
-                                ProfilePage.Family -> com.yfuse.feature.personal.PersonalCenterTab.Profiles
-                                ProfilePage.Sync -> com.yfuse.feature.personal.PersonalCenterTab.Sync
-                                else -> com.yfuse.feature.personal.PersonalCenterTab.WatchLater
-                            },
-                        repo = component.repository,
-                    )
+                    (entry.instance as? ProfileComponent.Child.Personal)?.let { personalPage ->
+                        com.yfuse.feature.personal.PersonalCenterScreen(
+                            store = personalPage.store,
+                            servers = component.familyServers(),
+                            onBack = component::closePage,
+                            onOpenMedia = component.onOpenPersonalMedia,
+                            initialTab =
+                                when (activePage) {
+                                    ProfilePage.Family -> com.yfuse.feature.personal.PersonalCenterTab.Profiles
+                                    ProfilePage.Sync -> com.yfuse.feature.personal.PersonalCenterTab.Sync
+                                    else -> com.yfuse.feature.personal.PersonalCenterTab.WatchLater
+                                },
+                        )
+                    }
 
                 ProfilePage.Handoff ->
-                    com.yfuse.feature.handoff
-                        .DeviceHandoffScreen(component.handoff, ::closePage)
+                    (entry.instance as? ProfileComponent.Child.Handoff)?.let { handoffPage ->
+                        com.yfuse.feature.handoff
+                            .DeviceHandoffScreen(handoffPage.store, component::closePage)
+                    }
 
                 ProfilePage.Trakt ->
-                    com.yfuse.feature.trakt
-                        .TraktSettingsScreen(component.trakt, ::closePage)
+                    (entry.instance as? ProfileComponent.Child.Trakt)?.let { traktPage ->
+                        com.yfuse.feature.trakt
+                            .TraktSettingsScreen(traktPage.store, component::closePage)
+                    }
 
                 ProfilePage.Root ->
                     SkeletonHandoff(
@@ -646,7 +608,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 motionItem(key = "settings-search-results", contentType = "settings-search-results") {
                                     SettingsSearchResults(
                                         query = settingsQuery,
-                                        onOpen = ::openPage,
+                                        onOpen = component::openPage,
                                         onOpenServers = component.onOpenServers,
                                     )
                                 }
@@ -666,7 +628,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                                     is AccountState.SignedIn -> "${account.session.user.nickname} · 加密同步"
                                                 },
                                             embedded = true,
-                                            onClick = { openPage(ProfilePage.Account) },
+                                            onClick = { component.openPage(ProfilePage.Account) },
                                         )
                                         SettingsDivider()
                                         SettingRow(
@@ -690,10 +652,10 @@ fun ProfileScreen(component: ProfileComponent) {
                             motionItem(key = "personal-settings", contentType = "personal-settings") {
                                 PersonalSettingsSection(
                                     personal = component.personal,
-                                    onOpenContent = { openPage(ProfilePage.Personal) },
-                                    onOpenFamily = { openPage(ProfilePage.Family) },
-                                    onOpenHandoff = { openPage(ProfilePage.Handoff) },
-                                    onOpenTrakt = { openPage(ProfilePage.Trakt) },
+                                    onOpenContent = { component.openPage(ProfilePage.Personal) },
+                                    onOpenFamily = { component.openPage(ProfilePage.Family) },
+                                    onOpenHandoff = { component.openPage(ProfilePage.Handoff) },
+                                    onOpenTrakt = { component.openPage(ProfilePage.Trakt) },
                                 )
                             }
 
@@ -722,7 +684,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                             "更多外观与辅助",
                                             "弹窗动画 · 背景 · 辅助功能",
                                             embedded = true,
-                                            onClick = { openPage(ProfilePage.Appearance) },
+                                            onClick = { component.openPage(ProfilePage.Appearance) },
                                             icon = AppIcons.Info,
                                             iconTint = SettingTint.appearance,
                                         )
@@ -737,7 +699,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                             "播放设置",
                                             "${playbackSettingsSummary(optimizationMode, decoder)}",
                                             embedded = true,
-                                            onClick = { openPage(ProfilePage.Playback) },
+                                            onClick = { component.openPage(ProfilePage.Playback) },
                                             icon = AppIcons.Play,
                                             iconTint = SettingTint.playback,
                                         )
@@ -752,7 +714,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                             },
                                             embedded = true,
                                             onClick = {
-                                                openPage(
+                                                component.openPage(
                                                     if (watchAvailable) {
                                                         ProfilePage.WatchTogether
                                                     } else {
@@ -788,7 +750,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                                 else -> "${danmakuSources.size} 个来源 · 关键词屏蔽"
                                             },
                                             embedded = true,
-                                            onClick = { openPage(ProfilePage.Danmaku) },
+                                            onClick = { component.openPage(ProfilePage.Danmaku) },
                                             icon = AppIcons.Danmaku,
                                             iconTint = SettingTint.danmaku,
                                         )
@@ -807,7 +769,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                                     OfflineIndexStatus.Ready -> "${offlineItems.size} 项"
                                                 },
                                             embedded = true,
-                                            onClick = { openPage(ProfilePage.Downloads) },
+                                            onClick = { component.openPage(ProfilePage.Downloads) },
                                         )
                                     }
                                 }
@@ -817,14 +779,14 @@ fun ProfileScreen(component: ProfileComponent) {
                                 Section(title = "同步与数据") {
                                     SettingsCard {
                                         SettingRow("同步状态与恢复", "个人内容 · 播放进度 · 服务器状态", embedded = true, onClick = {
-                                            openPage(ProfilePage.Sync)
+                                            component.openPage(ProfilePage.Sync)
                                         }, icon = AppIcons.Refresh, iconTint = SettingTint.account)
                                         SettingsDivider()
                                         SettingRow(
                                             "高级设置",
                                             "网络兼容 · 备份 · 缓存 · 诊断",
                                             embedded = true,
-                                            onClick = { openPage(ProfilePage.DataAndDiagnostics) },
+                                            onClick = { component.openPage(ProfilePage.DataAndDiagnostics) },
                                             icon = AppIcons.Server,
                                             iconTint = SettingTint.advanced,
                                         )
@@ -913,6 +875,8 @@ fun ProfileScreen(component: ProfileComponent) {
             )
         }
 
+        // 一起看's two dialogs open from its page and work through that page's store.
+        val watchPage = pages.items.firstNotNullOfOrNull { it.instance as? ProfileComponent.Child.WatchTogether }
         when (sheet) {
             Sheet.MotionTheme ->
                 OptionSheet(
@@ -1147,57 +1111,58 @@ fun ProfileScreen(component: ProfileComponent) {
                     onDismiss = { sheet = null },
                 )
 
-            Sheet.WatchTogether -> {
-                var confirmLeaveRoom by remember { mutableStateOf(false) }
-                WatchJoinDialog(
-                    connected = watchState.connected,
-                    connecting = watchState.connecting,
-                    roomCode = watchState.roomCode,
-                    participantCount = watchState.participantCount,
-                    error = watchState.error ?: watchState.syncWarning,
-                    onJoin = { code -> watchTogether.joinRoom(watchEndpoint, code, mediaKey = "") },
-                    onEnter = component.onEnterWatchRoom,
-                    onLeave = { confirmLeaveRoom = true },
-                    onDismiss = { sheet = null },
-                )
-                // Leaving cannot be taken back from here, and a host leaves a room others are in:
-                // the relay keeps it for them and hands the host role to one of them shortly after.
-                if (confirmLeaveRoom) {
-                    ConfirmDialog(
-                        title = "退出一起看房间？",
-                        message =
-                            if (watchState.isHost) {
-                                "其他成员会留在房间里，房主身份稍后交给其中一人。你之后要用房间码重新加入。"
-                            } else {
-                                "退出后不再同步播放，之后仍可以用房间码重新加入。"
-                            },
-                        confirmLabel = "退出房间",
-                        dismissLabel = "留在房间",
-                        destructive = true,
-                        onConfirm = {
-                            confirmLeaveRoom = false
-                            watchTogether.leave()
-                            sheet = null
-                        },
-                        onDismiss = { confirmLeaveRoom = false },
+            Sheet.WatchTogether ->
+                watchPage?.let { page ->
+                    val watch by page.store.states.collectAsState(page.store.state)
+                    var confirmLeaveRoom by remember { mutableStateOf(false) }
+                    WatchJoinDialog(
+                        connected = watch.connected,
+                        connecting = watch.connecting,
+                        roomCode = watch.roomCode,
+                        participantCount = watch.participantCount,
+                        error = watch.problem,
+                        onJoin = { code -> page.store.accept(WatchTogetherSettingsIntent.Join(code)) },
+                        onEnter = component.onEnterWatchRoom,
+                        onLeave = { confirmLeaveRoom = true },
+                        onDismiss = { sheet = null },
                     )
+                    // Leaving cannot be taken back from here, and a host leaves a room others are in:
+                    // the relay keeps it for them and hands the host role to one of them shortly after.
+                    if (confirmLeaveRoom) {
+                        ConfirmDialog(
+                            title = "退出一起看房间？",
+                            message =
+                                if (watch.isHost) {
+                                    "其他成员会留在房间里，房主身份稍后交给其中一人。你之后要用房间码重新加入。"
+                                } else {
+                                    "退出后不再同步播放，之后仍可以用房间码重新加入。"
+                                },
+                            confirmLabel = "退出房间",
+                            dismissLabel = "留在房间",
+                            destructive = true,
+                            onConfirm = {
+                                confirmLeaveRoom = false
+                                page.store.accept(WatchTogetherSettingsIntent.Leave)
+                                sheet = null
+                            },
+                            onDismiss = { confirmLeaveRoom = false },
+                        )
+                    }
                 }
-            }
 
             Sheet.WatchProfile ->
-                WatchProfileDialog(
-                    currentName = watchNickname,
-                    currentAvatarId = watchAvatarId,
-                    onSave = { name, avatarId ->
-                        component.watchTogetherPreferences.setProfile(name, avatarId)
-                        watchTogether.updateProfile(
-                            component.watchTogetherPreferences.nickname.value,
-                            component.watchTogetherPreferences.avatarId.value,
-                        )
-                        sheet = null
-                    },
-                    onDismiss = { sheet = null },
-                )
+                watchPage?.let { page ->
+                    val watch by page.store.states.collectAsState(page.store.state)
+                    WatchProfileDialog(
+                        currentName = watch.nickname,
+                        currentAvatarId = watch.avatarId,
+                        onSave = { name, avatarId ->
+                            page.store.accept(WatchTogetherSettingsIntent.SaveProfile(name, avatarId))
+                            sheet = null
+                        },
+                        onDismiss = { sheet = null },
+                    )
+                }
 
             null -> Unit
         }

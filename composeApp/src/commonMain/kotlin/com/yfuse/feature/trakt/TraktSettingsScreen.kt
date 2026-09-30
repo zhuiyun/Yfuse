@@ -3,11 +3,13 @@ package com.yfuse.feature.trakt
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
+import com.arkivanov.mvikotlin.core.store.Store
+import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalPalette
@@ -19,30 +21,21 @@ import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.ThemeText
 import com.yfuse.core.trakt.TraktRepository
 import com.yfuse.feature.profile.SettingsPage
-import io.ktor.http.Url
+import com.yfuse.feature.profile.rememberComposedPageStore
 
 @Composable
 fun TraktSettingsScreen(
-    repository: TraktRepository,
+    store: Store<TraktSettingsIntent, TraktSettingsState, Nothing>,
     onBack: () -> Unit,
-    television: Boolean = false,
 ) {
-    val state by repository.state.collectAsState()
+    val settings by store.states.collectAsState(store.state)
+    val state = settings.trakt
     val palette = LocalPalette.current
     val uriHandler = LocalUriHandler.current
-    LaunchedEffect(state.signedIn) { repository.refreshConfiguration() }
-    DisposableEffect(repository) { onDispose { repository.cancelAuthorization() } }
-    val canConnect =
-        state.signedIn &&
-            !state.busy &&
-            (
-                if (television) {
-                    state.configuration?.deviceAvailable == true
-                } else {
-                    state.configuration?.oauthAvailable ==
-                        true
-                }
-            )
+    DisposableEffect(store) {
+        store.accept(TraktSettingsIntent.PageShown)
+        onDispose { store.accept(TraktSettingsIntent.PageHidden) }
+    }
     SettingsPage(title = "Trakt", onBack = onBack) {
         item {
             Section(title = "账号连接") {
@@ -64,10 +57,10 @@ fun TraktSettingsScreen(
                             "打开授权",
                             embedded = true,
                             onClick =
-                                if (canConnect) {
+                                if (settings.canConnect) {
                                     (
                                         {
-                                            repository.connect(television)
+                                            store.accept(TraktSettingsIntent.Connect)
                                         }
                                     )
                                 } else {
@@ -81,7 +74,9 @@ fun TraktSettingsScreen(
                     }
                     if (state.connected) {
                         SettingsDivider()
-                        SettingRow("断开 Trakt", "解除当前资料的连接", embedded = true, onClick = repository::disconnect)
+                        SettingRow("断开 Trakt", "解除当前资料的连接", embedded = true, onClick = {
+                            store.accept(TraktSettingsIntent.Disconnect)
+                        })
                     }
                 }
             }
@@ -96,21 +91,19 @@ fun TraktSettingsScreen(
                                 ?: "在 Trakt 网页确认授权后返回",
                             embedded = true,
                         )
-                        val url = runCatching { Url(challenge.verificationUrl) }.getOrNull()
-                        if (url != null &&
-                            url.protocol.name == "https" &&
-                            url.host in setOf("auth.trakt.tv", "trakt.tv", "app.trakt.tv")
-                        ) {
+                        settings.verificationPage?.let { page ->
                             SettingsDivider()
                             SettingRow(
                                 "打开授权网页",
                                 "前往 Trakt",
                                 embedded = true,
-                                onClick = { uriHandler.openUri(challenge.verificationUrl) },
+                                onClick = { uriHandler.openUri(page) },
                             )
                         }
                         SettingsDivider()
-                        SettingRow("取消授权", "结束本次授权", embedded = true, onClick = repository::cancelAuthorization)
+                        SettingRow("取消授权", "结束本次授权", embedded = true, onClick = {
+                            store.accept(TraktSettingsIntent.CancelAuthorization)
+                        })
                     }
                 }
             }
@@ -123,24 +116,31 @@ fun TraktSettingsScreen(
                             "导入想看单",
                             if (state.busy) "正在处理…" else "合并到当前资料",
                             embedded = true,
-                            onClick = if (state.busy) null else repository::importWatchlist,
+                            onClick = if (state.busy) null else ({ store.accept(TraktSettingsIntent.ImportWatchlist) }),
                         )
                         SettingsDivider()
                         SettingRow(
                             "导入观看历史",
                             if (state.busy) "正在处理…" else "合并到当前资料",
                             embedded = true,
-                            onClick = if (state.busy) null else repository::importHistory,
+                            onClick = if (state.busy) null else ({ store.accept(TraktSettingsIntent.ImportHistory) }),
                         )
                         SettingsDivider()
-                        SwitchRow("播放上报", state.scrobbling, true, onChange = repository::setScrobbling)
+                        SwitchRow("播放上报", state.scrobbling, true, onChange = {
+                            store.accept(TraktSettingsIntent.SetScrobbling(it))
+                        })
                         if (state.pending > 0) {
                             SettingsDivider()
                             SettingRow(
                                 "重试待上报内容",
                                 state.pending.toString() + " 项",
                                 embedded = true,
-                                onClick = if (state.busy) null else repository::retryPending,
+                                onClick =
+                                    if (state.busy) {
+                                        null
+                                    } else {
+                                        ({ store.accept(TraktSettingsIntent.RetryPending) })
+                                    },
                             )
                         }
                     }
@@ -166,4 +166,22 @@ fun TraktSettingsScreen(
             }
         }
     }
+}
+
+/**
+ * The same page for the television's settings, which swap their pages in place rather than through
+ * the phone's page stack; the store lives as long as the page is composed there.
+ */
+@Composable
+fun TraktSettingsScreen(
+    repository: TraktRepository,
+    onBack: () -> Unit,
+    television: Boolean = false,
+) {
+    val store =
+        rememberComposedPageStore(repository, television) {
+            // The app's StoreFactory is this one; the television reaches the page without it.
+            TraktSettingsStoreFactory(DefaultStoreFactory(), repository, television).create()
+        }
+    TraktSettingsScreen(store, onBack)
 }

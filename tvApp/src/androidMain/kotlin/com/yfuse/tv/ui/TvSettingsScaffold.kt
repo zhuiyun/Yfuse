@@ -28,10 +28,11 @@ import com.yfuse.core.designsystem.AppIcons
 /**
  * The settings sub-pages a television viewer can reach.
  *
- * Android keeps the same list as a local `ProfilePage` enum inside `ProfileScreen.kt` rather than as
- * Decompose children, so there is no component seam to reuse. These pages therefore mirror that
- * structure and share the phone's stores and preference objects instead of its composables, which
- * are built for touch.
+ * The phone keeps the same list as `ProfilePage`, a Decompose stack in `ProfileComponent` that pushes
+ * whole pages; here the navigation rail stays while a sub-page is open (see [TvSettingsScreen]), so
+ * the television swaps its own pages in place instead. These pages therefore mirror that structure
+ * and share the phone's stores and preference objects instead of its composables, which are built
+ * for touch.
  */
 internal enum class TvSettingsPage(
     val title: String,

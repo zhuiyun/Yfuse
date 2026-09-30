@@ -516,7 +516,7 @@ class HandoffControllerTest {
         cryptoDispatcher = StandardTestDispatcher(testScheduler),
     ) { testScheduler.currentTime }
 
-    private class FakeApi(
+    internal class FakeApi(
         private val now: () -> Long,
     ) : HandoffApi {
         var currentSession = "source"
@@ -578,7 +578,7 @@ class HandoffControllerTest {
         }
     }
 
-    private class FakeCipher : HandoffPayloadCipher {
+    internal class FakeCipher : HandoffPayloadCipher {
         var lastEncrypted: HandoffMedia? = null
         var lastRequestId: String? = null
         var lastOpenedId: String? = null
@@ -604,7 +604,7 @@ class HandoffControllerTest {
         }
     }
 
-    private class FakePlayback : HandoffPlaybackBridge {
+    internal class FakePlayback : HandoffPlaybackBridge {
         var pauses = 0
         var resumes = 0
         var starts = 0
