@@ -555,9 +555,7 @@ data class PlayerMediaItem(
 
     /** The next untried cross-server copy, or null when the bounded plan is exhausted. */
     fun nextServerFallback(triedServerIds: Set<String>): PlayerMediaItem? =
-        serverFallbacks.firstOrNull { fallback ->
-            fallback.serverId != null && fallback.serverId !in triedServerIds
-        }
+        PlaybackFallbackLadder.nextServerCandidate(serverFallbacks, triedServerIds)
 }
 
 @Serializable
