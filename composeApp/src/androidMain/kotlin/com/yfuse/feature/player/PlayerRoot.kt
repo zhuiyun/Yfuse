@@ -11,7 +11,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -42,7 +41,6 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlayerEngine
-import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.network.playbackNetworkClasses
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
@@ -921,64 +919,12 @@ internal fun PlayerRoot(
             }
         val remoteSubtitleRepository = remember { GlobalContext.get().get<EmbyRepository>() }
         val remoteSubtitleRegistry = remember { GlobalContext.get().get<ServerRegistry>() }
-        var trickplayCache by remember {
-            mutableStateOf(emptyMap<TrickplayCacheKey, TrickplayStoryboard?>())
-        }
-        val trickplayKey =
-            currentItem?.let { item ->
-                val serverId = item.serverId ?: return@let null
-                TrickplayCacheKey(
-                    serverId = serverId,
-                    itemId = item.id,
-                    mediaSourceId = item.activeVersion?.id ?: item.versionId ?: item.id,
-                )
-            }
-        LaunchedEffect(trickplayKey, currentItem?.trickplay) {
-            val key = trickplayKey ?: return@LaunchedEffect
-            val item = currentItem
-            if (item.trickplay != null || trickplayCache.containsKey(key)) return@LaunchedEffect
-            val server = remoteSubtitleRegistry.serverById(key.serverId) ?: return@LaunchedEffect
-            remoteSubtitleRepository
-                .trickplayInfo(server, key.itemId, key.mediaSourceId)
-                .onSuccess { info ->
-                    val storyboard =
-                        info?.let {
-                            TrickplayStoryboard(
-                                urlPattern =
-                                    it.urlPattern
-                                        ?: it.frames.firstOrNull()?.url
-                                        ?: EmbyStream.trickplayTilePattern(
-                                            baseUrl = server.baseUrl,
-                                            itemId = key.itemId,
-                                            mediaSourceId = key.mediaSourceId,
-                                            width = it.width,
-                                            token = server.accessToken,
-                                        ),
-                                width = it.width,
-                                height = it.height,
-                                tileColumns = it.tileColumns,
-                                tileRows = it.tileRows,
-                                intervalMs = it.intervalMs,
-                                thumbnailCount = it.thumbnailCount,
-                                urlIndexMultiplier = it.urlIndexMultiplier,
-                                frames =
-                                    it.frames.map { frame ->
-                                        TrickplayStoryboardFrame(frame.positionMs, frame.url)
-                                    },
-                            )
-                        }
-                    trickplayCache = trickplayCache.withTrickplayResult(key, storyboard)
-                }.onFailure { failure ->
-                    AppLog.warning(
-                        category = "player.trickplay",
-                        event = "lazy_load_failed",
-                        message = "Current episode storyboard could not be loaded",
-                        throwable = failure,
-                        attributes = mapOf("itemId" to key.itemId),
-                    )
-                }
-        }
-        val currentTrickplay = currentItem?.trickplay ?: trickplayKey?.let(trickplayCache::get)
+        val currentTrickplay =
+            rememberCurrentTrickplay(
+                currentItem = currentItem,
+                remoteSubtitleRepository = remoteSubtitleRepository,
+                remoteSubtitleRegistry = remoteSubtitleRegistry,
+            )
         // Selection is its own state, separate from position/buffering updates. Keying this on
         // the identifiers guarantees that a version-only change is handed back to the detail
         // page even when the replacement engine starts with a PlaybackState equal to the old one.
