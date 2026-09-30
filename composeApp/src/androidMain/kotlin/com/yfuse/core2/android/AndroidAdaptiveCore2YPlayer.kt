@@ -1653,12 +1653,7 @@ internal class AndroidAdaptiveCore2YPlayer(
 
             /** Moves on to the next Period once this one ended at its boundary; true when it queued that. */
             private fun queueNextPeriod(localChildState: YPlayerState): Boolean {
-                val nextPeriodPosition =
-                    attachedTarget?.periodEndGlobalMs?.takeIf { endMs ->
-                        localChildState.phase == YPlaybackPhase.Ended &&
-                            !isPrematurePlaybackEnd(localChildState.positionMs, localChildState.durationMs) &&
-                            attachedTarget.presentationDurationMs > endMs
-                    }
+                val nextPeriodPosition = attachedTarget?.nextPeriodStartMs(localChildState)
                 if (nextPeriodPosition != null && !recoveryQueued) {
                     recoveryQueued = true
                     commands.trySend(Command.AdaptiveTransition(next, nextPeriodPosition, null))
