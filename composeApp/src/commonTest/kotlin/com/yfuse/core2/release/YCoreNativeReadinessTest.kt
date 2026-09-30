@@ -94,7 +94,6 @@ class YCoreNativeReadinessTest {
                         drm = false,
                         dolbyVision = true,
                         dolbyVisionSupported = true,
-                        externalSubtitleSupported = true,
                     ),
                 )
 
@@ -116,7 +115,6 @@ class YCoreNativeReadinessTest {
                     disc = false,
                     drm = false,
                     dolbyVision = false,
-                    externalSubtitleSupported = true,
                 ),
             )
 

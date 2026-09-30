@@ -10,7 +10,6 @@ enum class Core2NativeBaselineBlock {
     Disc,
     Drm,
     DolbyVision,
-    ExternalSubtitle,
 }
 
 data class Core2NativeBaselineSource(
@@ -27,13 +26,13 @@ data class Core2NativeBaselineSource(
     val drmSupported: Boolean = false,
     val dolbyVision: Boolean,
     val dolbyVisionSupported: Boolean = false,
-    val externalSubtitleSupported: Boolean,
 )
 
 /**
  * Fail-closed preflight for the independently executable YCore lane. Audio is deliberately
  * absent: it is verified from demuxed tracks at runtime because queue metadata only carries a
  * display string and must not be treated as codec evidence.
+ * External subtitles are optional, independently loaded tracks and never block the video source.
  */
 fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeBaselineBlock? =
     when {
@@ -45,7 +44,6 @@ fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeB
         source.disc && !source.discSupported -> Core2NativeBaselineBlock.Disc
         source.drm && !source.drmSupported -> Core2NativeBaselineBlock.Drm
         source.dolbyVision && !source.dolbyVisionSupported -> Core2NativeBaselineBlock.DolbyVision
-        !source.externalSubtitleSupported -> Core2NativeBaselineBlock.ExternalSubtitle
         !source.adaptiveManifest &&
             !source.disc &&
             source.container.normalizedContainer() !in CORE2_NATIVE_BASELINE_CONTAINERS ->

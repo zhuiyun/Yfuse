@@ -16,5 +16,6 @@ class YTransportRetryPolicyTest {
     fun `authorization and invalid ranges are never replayed`() {
         assertNull(mediaRangeRetryDelayMs(0, YTransportFailureKind.Authorization))
         assertNull(mediaRangeRetryDelayMs(0, YTransportFailureKind.InvalidRange))
+        assertNull(mediaRangeRetryDelayMs(0, YTransportFailureKind.RedirectRejected))
     }
 }
