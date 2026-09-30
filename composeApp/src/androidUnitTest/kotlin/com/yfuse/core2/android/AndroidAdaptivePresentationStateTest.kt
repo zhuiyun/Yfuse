@@ -1,6 +1,7 @@
 package com.yfuse.core2.android
 
 import com.yfuse.core2.api.YOutputEvidenceResetReason
+import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlayerDiagnostics
 import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.invalidateOutputEvidence
@@ -11,6 +12,7 @@ import com.yfuse.core2.subtitle.YSubtitleTimeBase
 import com.yfuse.core2.subtitle.YSubtitleTimeline
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -188,5 +190,34 @@ class AndroidAdaptivePresentationStateTest {
         assertEquals(70_000L, mapAdaptivePresentationState(local, target).positionMs)
         assertEquals(70_000L, mapAdaptivePresentationState(local, target).durationMs)
         assertSame(local, mapAdaptivePresentationState(local, null))
+    }
+
+    @Test
+    fun `a Period played to its end continues the title at its boundary`() {
+        val first = YAdaptivePlaybackTarget("root", "period-one", 0L, 0L, 120_000L, 1L, 60_000L, 1L)
+        val ended = YPlayerState(phase = YPlaybackPhase.Ended, positionMs = 60_000L, durationMs = 60_000L)
+        assertEquals(60_000L, first.nextPeriodStartMs(ended))
+        // The child reports its own clock; a last frame a little before the Period's end still ends it.
+        assertEquals(60_000L, first.nextPeriodStartMs(ended.copy(positionMs = 58_000L)))
+        assertNull(first.nextPeriodStartMs(ended.copy(phase = YPlaybackPhase.Ready)))
+    }
+
+    @Test
+    fun `a Period that ended short is left to transport recovery`() {
+        val first = YAdaptivePlaybackTarget("root", "period-one", 0L, 0L, 120_000L, 1L, 60_000L, 1L)
+        // Crossing to the next Period from half-way would skip half a minute of this one.
+        val cut = YPlayerState(phase = YPlaybackPhase.Ended, positionMs = 30_000L, durationMs = 60_000L)
+        assertNull(first.nextPeriodStartMs(cut))
+    }
+
+    @Test
+    fun `the last Period and a title of unknown length end where they end`() {
+        val ended = YPlayerState(phase = YPlaybackPhase.Ended, positionMs = 60_000L, durationMs = 60_000L)
+        val last = YAdaptivePlaybackTarget("root", "period-two", 0L, 60_000L, 120_000L, 2L, 120_000L, 3L)
+        val unknownLength = YAdaptivePlaybackTarget("root", "period-one", 0L, 0L, 0L, 1L, 60_000L, 1L)
+        val singlePeriod = YAdaptivePlaybackTarget("root", "variant", 0L, 0L, 60_000L, 1L, null, 1L)
+        assertNull(last.nextPeriodStartMs(ended))
+        assertNull(unknownLength.nextPeriodStartMs(ended))
+        assertNull(singlePeriod.nextPeriodStartMs(ended))
     }
 }

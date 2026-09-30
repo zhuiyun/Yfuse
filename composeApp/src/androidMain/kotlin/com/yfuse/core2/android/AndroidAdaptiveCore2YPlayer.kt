@@ -548,6 +548,63 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
 
     private suspend fun runLoop() {
+        val loop = RouterLoop()
+        try {
+            for (command in commands) {
+                try {
+                    loop.handle(command)
+                } catch (failure: Throwable) {
+                    // Throwable on purpose, like the engine workers under this router (NativeDirect
+                    // hands every failure to fail()). This scope has no exception handler, so an Error
+                    // escaping here would end the app rather than one route, and such Errors do occur
+                    // on this path: R8 output failing verification when a class first loads (1.0.91
+                    // shipped one), a native artifact missing a JNI entry point, an allocation sized
+                    // from a malformed file. Cancellation still propagates.
+                    if (failure is CancellationException) throw failure
+                    if (released) break
+                    if (failure is AndroidProbeAbortedException && failure.reason == "superseded") continue
+                    val probeTimedOut = failure is AndroidProbeAbortedException
+                    logRouterFailure(failure, command, loop.keptRouteFailure)
+                    // The timeout text is only the fallback: a route that failed concretely
+                    // before this start ran out of time is what the user is told about.
+                    loop.publishUnavailable(
+                        reason = core2RouterFailureReason(failure),
+                        sourceFailure = failure.mediaSourceFailure(),
+                        probeTimedOut = probeTimedOut,
+                    )
+                }
+            }
+        } finally {
+            probes.invalidate("released")
+            loop.discardNextPreparation()
+            // A bounded, non-suspending drain, deliberately not `while (isActive)`: this runs in the
+            // worker's `finally`, where the scope is already cancelled, and skipping it would leak
+            // the sources of every preloaded route still sitting in the channel.
+            var pending = commands.tryReceive().getOrNull()
+            while (pending != null) {
+                if (pending is Command.NextItemPreloaded) pending.route.sources.close()
+                pending = commands.tryReceive().getOrNull()
+            }
+            try {
+                loop.stopChild(waitForRelease = false)
+            } finally {
+                routeEvaluator.closePreparedExtractor()
+                routeEvaluator.closePreparedEnhancedDemux()
+                loop.videoHandoff.close()
+            }
+        }
+    }
+
+    /**
+     * The command loop's state and the steps it takes on it: the current item and child, the
+     * caller's latest intent, the recovery counters and the next-item preparation. [runLoop] owns
+     * the one instance and hands it every command.
+     *
+     * Every member runs on the router dispatcher, so the loop and the child-state collector it
+     * launches interleave only at suspension points (see [scope]). Route construction is the one
+     * step that leaves for IO, and no collector is attached while it runs (see createChildOffRouter).
+     */
+    private inner class RouterLoop {
         var currentIndex by AndroidQueueCursor(request.items[request.startIndex].id) { queueItems }
         var child: YPlayer? = null
         var secondarySubtitleOffsetMs = 0L
@@ -565,6 +622,7 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         fun globalChildPosition(): Long =
             (child?.currentPositionMs() ?: 0L) + (adaptiveTarget?.presentationOffsetMs ?: 0L)
+
         var pendingPositionMs = request.startPositionMs
         var allowTunnel = true
         val runtimeTrackSelections =
@@ -601,6 +659,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             preloadedNextRoute?.sources?.close()
             preloadedNextRoute = null
         }
+
         val adaptiveFeedbackGeneration = AtomicLong(0L)
         val sameRouteRecoveryAttempts = mutableMapOf<RouteRecoveryKey, Int>()
         val codecResetCounts = mutableMapOf<Int, Int>()
@@ -1380,8 +1439,48 @@ internal class AndroidAdaptiveCore2YPlayer(
             val childSoftwareFallbackAttempted =
                 forceSoftwareFallback || (preferSoftwareDecode && queueItems[currentIndex].disc != null)
             activeChild = next
+            val attached =
+                AttachedChild(next, attachedTarget, attachedProbeBudget, childItemId, childSoftwareFallbackAttempted)
+            finalizeChildLearning = {
+                attached.recordLearning(next.state.value, terminal = false)
+            }
 
-            fun childIndex(): Int = queueItems.indexOfFirst { it.id == childItemId }.coerceAtLeast(0)
+            next.setSpeed(speed)
+            next.setAudioDelayMs(audioDelayMs)
+            // NativeDirect gets the caller's newest output rather than the command copy, which may
+            // still be queued behind this very start (see requestedVideoOutput): before prepare()
+            // it only records the Surface and then configures its decoder with it. The enhanced
+            // child starts a full prepare for any valid Surface, and the prepare() below would then
+            // open the source a second time, so it keeps receiving the output by command.
+            val attachedOutput = if (next is AndroidNativeDirectYPlayer) requestedVideoOutput else output
+            next.setVideoOutput(attachedOutput)
+            childVideoOutput = attachedOutput
+            childCollector =
+                scope.launch {
+                    next.state.collect { localChildState -> attached.onState(localChildState) }
+                }
+            next.setSecondarySubtitleOffsetMs(secondarySubtitleOffsetMs)
+            next.prepare()
+            if (pausedSeekPreviewRequested) {
+                pausedSeekPreviewRequested = false
+                next.seekTo(attachedTarget?.localPositionMs ?: pendingPositionMs)
+            }
+            if (requestedPlay) next.play()
+        }
+
+        /**
+         * One child from its attach until the next one replaces it, with what its states have told
+         * the router so far: the failure, success, learning and auto-next edges already taken, and
+         * whether a recovery of it is queued. The collector attachChild launches hands it every
+         * state, on the router dispatcher.
+         */
+        private inner class AttachedChild(
+            val next: YPlayer,
+            val attachedTarget: YAdaptivePlaybackTarget?,
+            val attachedProbeBudget: AndroidProbeBudget?,
+            val childItemId: String,
+            val childSoftwareFallbackAttempted: Boolean,
+        ) {
             val childFailureKey = pendingFailureKey
             val childVerifiedRoute = pendingVerifiedRoute
             val childInputHdrType = pendingInputHdrType ?: queueItems[currentIndex].hintedHdrType()
@@ -1399,6 +1498,8 @@ internal class AndroidAdaptiveCore2YPlayer(
             val learningStartPositionMs = next.currentPositionMs() + (attachedTarget?.presentationOffsetMs ?: 0L)
             val learningStartBatteryPermille = currentBatteryPermille()
             val learningStartThermalStatus = currentThermalStatus()
+
+            fun childIndex(): Int = queueItems.indexOfFirst { it.id == childItemId }.coerceAtLeast(0)
 
             fun recordLearning(
                 childState: YPlayerState,
@@ -1449,408 +1550,458 @@ internal class AndroidAdaptiveCore2YPlayer(
                 learningRecorded = true
             }
 
-            finalizeChildLearning = {
-                recordLearning(next.state.value, terminal = false)
+            fun onState(localChildState: YPlayerState) {
+                if (released || activeChild !== next) return
+                if (localChildState.diagnostics.videoOutputVerified ||
+                    localChildState.diagnostics.audioOutputVerified
+                ) {
+                    attachedProbeBudget?.let(probes::complete)
+                    // An in-place recovery of this child may run on a renewed deadline.
+                    activeProbeBudget?.let(probes::complete)
+                    keptRouteFailure = null
+                }
+                if (localChildState.diagnostics.videoOutputVerified) verifiedRouteSuspicion.onVideoOutput()
+                if (activeChild !== next) return
+                val reportedChildState = presentedChildState(next, localChildState, attachedTarget)
+                if (queueNextPeriod(localChildState)) return
+                reportAdaptiveFeedback(reportedChildState)
+                if (queueAdaptiveTransition(localChildState, reportedChildState)) return
+                val prematureEnd =
+                    reportedChildState.phase == YPlaybackPhase.Ended &&
+                        isPrematurePlaybackEnd(
+                            positionMs = reportedChildState.positionMs,
+                            durationMs = reportedChildState.durationMs,
+                        )
+                val prematureEndRecoveryKey =
+                    RouteRecoveryKey(
+                        itemIndex = childIndex(),
+                        route = reportedChildState.diagnostics.route,
+                        category = YPlaybackFailureCategory.Network,
+                    )
+                if (networkRecoveryWindow.observe(
+                        nowMs = System.nanoTime() / 1_000_000L,
+                        positionMs = reportedChildState.positionMs,
+                        playing = reportedChildState.playing && !reportedChildState.buffering,
+                        speed = speed,
+                    )
+                ) {
+                    sameRouteRecoveryAttempts.remove(prematureEndRecoveryKey)
+                }
+                discardNextPreparationIfUnaffordable(reportedChildState)
+                if (reopenAfterTransportFailure(reportedChildState, prematureEnd, prematureEndRecoveryKey)) return
+                val childState =
+                    if (prematureEnd) {
+                        reportedChildState.copy(
+                            phase = YPlaybackPhase.Failed,
+                            playing = false,
+                            playbackRequested = requestedPlay,
+                            buffering = false,
+                            error = "片源在声明时长前提前结束，已判定为网络传输中断",
+                            errorCategory = YPlaybackFailureCategory.Network,
+                            diagnostics =
+                                reportedChildState.diagnostics.copy(
+                                    reason = "Premature EOF remained after bounded transport recovery",
+                                ),
+                        )
+                    } else {
+                        reportedChildState
+                    }
+                if (childState.phase != YPlaybackPhase.Failed && recoveryQueued) {
+                    // An in-place retry keeps this collector. Give the recovered attempt a
+                    // fresh failure edge so a second terminal failure can advance to the
+                    // next recovery tier instead of being hidden by the first attempt.
+                    failureRecorded = false
+                    recoveryQueued = false
+                }
+                recordFailureEdge(childState, prematureEnd)
+                recordSuccessEdge(childState)
+                if (
+                    !childState.buffering &&
+                    childState.playing &&
+                    childState.phase == YPlaybackPhase.Ready
+                ) {
+                    scheduleNextItemPreload(childIndex())
+                }
+                if (queueRecovery(childState)) return
+                publish(childState)
+                // An audio route change held back during preparation applies now that
+                // the graph has reached a settled phase.
+                if (
+                    childState.phase != YPlaybackPhase.Preparing &&
+                    childState.phase != YPlaybackPhase.Idle &&
+                    deferredAudioRouteChange.compareAndSet(true, false)
+                ) {
+                    commands.trySend(Command.AudioRouteChanged)
+                }
+                logHandoffOutput(childState)
+                if (
+                    childState.phase == YPlaybackPhase.Ended &&
+                    !learningRecorded
+                ) {
+                    recordLearning(childState, terminal = true)
+                }
+                if (
+                    childState.phase == YPlaybackPhase.Ended &&
+                    request.autoNext &&
+                    !autoNextQueued &&
+                    childIndex() + 1 < queueItems.size
+                ) {
+                    autoNextQueued = true
+                    commands.trySend(Command.SelectItem(queueItems[childIndex() + 1].id))
+                }
             }
 
-            next.setSpeed(speed)
-            next.setAudioDelayMs(audioDelayMs)
-            // NativeDirect gets the caller's newest output rather than the command copy, which may
-            // still be queued behind this very start (see requestedVideoOutput): before prepare()
-            // it only records the Surface and then configures its decoder with it. The enhanced
-            // child starts a full prepare for any valid Surface, and the prepare() below would then
-            // open the source a second time, so it keeps receiving the output by command.
-            val attachedOutput = if (next is AndroidNativeDirectYPlayer) requestedVideoOutput else output
-            next.setVideoOutput(attachedOutput)
-            childVideoOutput = attachedOutput
-            childCollector =
-                scope.launch {
-                    next.state.collect { localChildState ->
-                        if (released || activeChild !== next) return@collect
-                        if (localChildState.diagnostics.videoOutputVerified ||
-                            localChildState.diagnostics.audioOutputVerified
-                        ) {
-                            attachedProbeBudget?.let(probes::complete)
-                            // An in-place recovery of this child may run on a renewed deadline.
-                            activeProbeBudget?.let(probes::complete)
-                            keptRouteFailure = null
-                        }
-                        if (localChildState.diagnostics.videoOutputVerified) verifiedRouteSuspicion.onVideoOutput()
-                        if (activeChild !== next) return@collect
-                        val reportedChildState = presentedChildState(next, localChildState, attachedTarget)
-                        val nextPeriodPosition =
-                            attachedTarget?.periodEndGlobalMs?.takeIf { endMs ->
-                                localChildState.phase == YPlaybackPhase.Ended &&
-                                    !isPrematurePlaybackEnd(localChildState.positionMs, localChildState.durationMs) &&
-                                    attachedTarget.presentationDurationMs > endMs
-                            }
-                        if (nextPeriodPosition != null && !recoveryQueued) {
-                            recoveryQueued = true
-                            commands.trySend(Command.AdaptiveTransition(next, nextPeriodPosition, null))
-                            return@collect
-                        }
-                        val reportedBufferedDurationMs =
-                            maxOf(
-                                reportedChildState.diagnostics.sourceBufferedMs,
-                                (reportedChildState.bufferedPositionMs - reportedChildState.positionMs)
-                                    .coerceAtLeast(0L),
+            /** Moves on to the next Period once this one ended at its boundary; true when it queued that. */
+            private fun queueNextPeriod(localChildState: YPlayerState): Boolean {
+                val nextPeriodPosition = attachedTarget?.nextPeriodStartMs(localChildState)
+                if (nextPeriodPosition != null && !recoveryQueued) {
+                    recoveryQueued = true
+                    commands.trySend(Command.AdaptiveTransition(next, nextPeriodPosition, null))
+                    return true
+                }
+                return false
+            }
+
+            /** Reports this child's buffer and play state to the adaptive source, which paces its reads by them. */
+            private fun reportAdaptiveFeedback(reportedChildState: YPlayerState) {
+                val reportedBufferedDurationMs =
+                    maxOf(
+                        reportedChildState.diagnostics.sourceBufferedMs,
+                        (reportedChildState.bufferedPositionMs - reportedChildState.positionMs)
+                            .coerceAtLeast(0L),
+                    )
+                adaptiveFeedbackSink?.updatePlaybackFeedback(
+                    YAdaptivePlaybackFeedback(
+                        bufferedDurationUs =
+                            reportedBufferedDurationMs * MICROSECONDS_PER_MILLISECOND,
+                        playing = reportedChildState.playing,
+                        speed = speed,
+                        generation = adaptiveFeedbackGeneration.get(),
+                    ),
+                )
+            }
+
+            /**
+             * Queues the rebuild the adaptive source asks for at this position, when the request answers
+             * this child's latest feedback; true when it queued that.
+             */
+            private fun queueAdaptiveTransition(
+                localChildState: YPlayerState,
+                reportedChildState: YPlayerState,
+            ): Boolean {
+                if (attachedTarget != null &&
+                    localChildState.phase == YPlaybackPhase.Ready &&
+                    !recoveryQueued
+                ) {
+                    val transition =
+                        adaptiveFeedbackSink?.pollPlaybackTransition(
+                            attachedTarget.rootUri,
+                            reportedChildState.positionMs,
+                        )
+                    if (transition != null &&
+                        transition.feedbackGeneration == adaptiveFeedbackGeneration.get()
+                    ) {
+                        recoveryQueued = true
+                        commands.trySend(
+                            Command.AdaptiveTransition(next, reportedChildState.positionMs, transition),
+                        )
+                        return true
+                    }
+                }
+                return false
+            }
+
+            /** Next-item preparation gives way while this child buffers or the network no longer allows it. */
+            private fun discardNextPreparationIfUnaffordable(reportedChildState: YPlayerState) {
+                if ((nextItemPreloadJob != null || preloadedNextRoute != null) &&
+                    (
+                        reportedChildState.buffering ||
+                            !nextItemNetworkGate.allowed(
+                                nextPreparationBoundary.get()?.allowMeteredNetwork == true,
                             )
-                        adaptiveFeedbackSink?.updatePlaybackFeedback(
-                            YAdaptivePlaybackFeedback(
-                                bufferedDurationUs =
-                                    reportedBufferedDurationMs * MICROSECONDS_PER_MILLISECOND,
-                                playing = reportedChildState.playing,
-                                speed = speed,
-                                generation = adaptiveFeedbackGeneration.get(),
+                    )
+                ) {
+                    discardNextPreparation()
+                }
+            }
+
+            /**
+             * Reopens the route in place after a premature end or a recoverable read failure, at most
+             * [MAX_CONSECUTIVE_NETWORK_RECOVERY_ATTEMPTS] times in a row; true when it queued that.
+             */
+            private fun reopenAfterTransportFailure(
+                reportedChildState: YPlayerState,
+                prematureEnd: Boolean,
+                prematureEndRecoveryKey: RouteRecoveryKey,
+            ): Boolean {
+                val transientNetworkFailure =
+                    reportedChildState.phase == YPlaybackPhase.Failed &&
+                        reportedChildState.errorCategory == YPlaybackFailureCategory.Network &&
+                        reportedChildState.diagnostics.recoverableNetworkFailure
+                if (
+                    (prematureEnd || transientNetworkFailure) &&
+                    !recoveryQueued &&
+                    (sameRouteRecoveryAttempts[prematureEndRecoveryKey] ?: 0) <
+                    MAX_CONSECUTIVE_NETWORK_RECOVERY_ATTEMPTS
+                ) {
+                    recoveryQueued = true
+                    sameRouteRecoveryAttempts[prematureEndRecoveryKey] =
+                        (sameRouteRecoveryAttempts[prematureEndRecoveryKey] ?: 0) + 1
+                    mutableState.value =
+                        reportedChildState.copy(
+                            phase = YPlaybackPhase.Preparing,
+                            playing = false,
+                            playbackRequested = requestedPlay,
+                            buffering = requestedPlay,
+                            diagnostics =
+                                reportedChildState.diagnostics.copy(
+                                    reason =
+                                        "Remote source ended early; " +
+                                            "reopening from verified output position",
+                                ),
+                        )
+                    AppLog.warning(
+                        category = "player.network",
+                        event = if (prematureEnd) "premature_eof_recovery" else "transport_read_recovery",
+                        message =
+                            "YCore rejected a premature EOF " +
+                                "and reopened the active route",
+                        attributes =
+                            mapOf(
+                                "route" to reportedChildState.diagnostics.route.name,
+                                "itemIndex" to childIndex().toString(),
+                                "positionMs" to reportedChildState.positionMs.toString(),
+                                "durationMs" to reportedChildState.durationMs.toString(),
+                                "attempt" to sameRouteRecoveryAttempts[prematureEndRecoveryKey].toString(),
+                            ),
+                    )
+                    commands.trySend(
+                        Command.RecoverSameRoute(
+                            index = childIndex(),
+                            positionMs = reportedChildState.positionMs,
+                            route = reportedChildState.diagnostics.route,
+                        ),
+                    )
+                    return true
+                }
+                return false
+            }
+
+            /**
+             * Takes this attempt's failure edge once: files the failure under the route that ran and notes
+             * what it tells the recovery decision.
+             */
+            private fun recordFailureEdge(
+                childState: YPlayerState,
+                prematureEnd: Boolean,
+            ) {
+                if (childState.phase == YPlaybackPhase.Failed && !failureRecorded) {
+                    failureRecorded = true
+                    val category = childState.errorCategory
+                    val executedRoute = childState.diagnostics.route
+                    // Filed under the route that ran, not the plan's label: 1.0.83 filed
+                    // a NativeEnhanced decoder failure under the SoftwareFallback plan
+                    // the Dolby guard had turned away.
+                    val executedFailureKey = childFailureKey?.forExecutedRoute(executedRoute)
+                    if (executedFailureKey != null && category != null) {
+                        failureLedger.recordFailure(executedFailureKey, category)
+                    }
+                    verifiedRouteSuspicion.onFailure(category)
+                    val reportedFailure =
+                        if (prematureEnd) null else (next as? YPlaybackFailureReporter)?.lastPlaybackFailure
+                    attemptDeterministic = (reportedFailure as? YPlaybackException)?.deterministic == true
+                    attemptRanOutOfTime =
+                        yCoreAttemptRanOutOfTime(
+                            reported = reportedFailure,
+                            category = category,
+                            attemptDeadlineStopped = activeProbeBudget?.hasStopped() == true,
+                        )
+                    if (!attemptRanOutOfTime) {
+                        yCoreRouteFailure(
+                            route = executedRoute,
+                            category = category,
+                            message = childState.error,
+                            reason = childState.diagnostics.reason,
+                            reported = reportedFailure,
+                        )?.takeIf { it.concrete }?.let { keptRouteFailure = it }
+                    }
+                    if (!prematureEnd) recordLearning(childState, terminal = true)
+                }
+            }
+
+            /**
+             * Takes the success edge once video, and audio when there is any, is verified: records the
+             * route's success and this media's verified route.
+             */
+            private fun recordSuccessEdge(childState: YPlayerState) {
+                if (
+                    !successRecorded &&
+                    childFailureKey != null &&
+                    childState.diagnostics.videoOutputVerified &&
+                    (childState.audioTracks.isEmpty() || childState.diagnostics.audioOutputVerified)
+                ) {
+                    successRecorded = true
+                    val executedFailureKey = childFailureKey.forExecutedRoute(childState.diagnostics.route)
+                    failureLedger.recordSuccess(executedFailureKey)
+                    // Failures an earlier build filed under the plan's label describe
+                    // this same route.
+                    if (executedFailureKey != childFailureKey) failureLedger.recordSuccess(childFailureKey)
+                    childVerifiedRoute?.let { (verifiedItem, probe) ->
+                        verifiedRouteMemory.recordVerified(verifiedItem, probe)
+                    }
+                }
+            }
+
+            /** Asks the recovery policy what follows this child's failure and queues it; true when it queued one. */
+            private fun queueRecovery(childState: YPlayerState): Boolean {
+                if (
+                    childState.phase == YPlaybackPhase.Failed &&
+                    failureRecorded &&
+                    !recoveryQueued
+                ) {
+                    recoveryQueued = true
+                    val recoveryKey =
+                        RouteRecoveryKey(
+                            itemIndex = childIndex(),
+                            route = childState.diagnostics.route,
+                            category = childState.errorCategory,
+                        )
+                    val failedItem = queueItems[childIndex()]
+                    val action =
+                        YPlaybackRecoveryPolicy.decide(
+                            YPlaybackRecoveryContext(
+                                route = childState.diagnostics.route,
+                                category = childState.errorCategory,
+                                sameRouteAttempts = sameRouteRecoveryAttempts[recoveryKey] ?: 0,
+                                protectedContent = failedItem.drmConfiguration != null,
+                                softwareFallbackAttempted = childSoftwareFallbackAttempted,
+                                deterministic = attemptDeterministic,
+                                softwareFallbackAvailable =
+                                    yCoreSoftwareRecoveryAvailable(
+                                        compatibilityRouteAvailable = fallbackRouteFactory != null,
+                                        discRouteAvailable =
+                                            failedItem.disc != null && discRouteFactory != null,
+                                        protectedContent = failedItem.drmConfiguration != null,
+                                        inputHdrType = childInputHdrType,
+                                    ),
                             ),
                         )
-                        if (attachedTarget != null &&
-                            localChildState.phase == YPlaybackPhase.Ready &&
-                            !recoveryQueued
-                        ) {
-                            val transition =
-                                adaptiveFeedbackSink?.pollPlaybackTransition(
-                                    attachedTarget.rootUri,
-                                    reportedChildState.positionMs,
-                                )
-                            if (transition != null &&
-                                transition.feedbackGeneration == adaptiveFeedbackGeneration.get()
-                            ) {
-                                recoveryQueued = true
-                                commands.trySend(
-                                    Command.AdaptiveTransition(next, reportedChildState.positionMs, transition),
-                                )
-                                return@collect
-                            }
-                        }
-                        val prematureEnd =
-                            reportedChildState.phase == YPlaybackPhase.Ended &&
-                                isPrematurePlaybackEnd(
-                                    positionMs = reportedChildState.positionMs,
-                                    durationMs = reportedChildState.durationMs,
-                                )
-                        val prematureEndRecoveryKey =
-                            RouteRecoveryKey(
-                                itemIndex = childIndex(),
-                                route = reportedChildState.diagnostics.route,
-                                category = YPlaybackFailureCategory.Network,
-                            )
-                        if (networkRecoveryWindow.observe(
-                                nowMs = System.nanoTime() / 1_000_000L,
-                                positionMs = reportedChildState.positionMs,
-                                playing = reportedChildState.playing && !reportedChildState.buffering,
-                                speed = speed,
-                            )
-                        ) {
-                            sameRouteRecoveryAttempts.remove(prematureEndRecoveryKey)
-                        }
-                        if ((nextItemPreloadJob != null || preloadedNextRoute != null) &&
-                            (
-                                reportedChildState.buffering ||
-                                    !nextItemNetworkGate.allowed(
-                                        nextPreparationBoundary.get()?.allowMeteredNetwork == true,
-                                    )
-                            )
-                        ) {
-                            discardNextPreparation()
-                        }
-                        val transientNetworkFailure =
-                            reportedChildState.phase == YPlaybackPhase.Failed &&
-                                reportedChildState.errorCategory == YPlaybackFailureCategory.Network &&
-                                reportedChildState.diagnostics.recoverableNetworkFailure
-                        if (
-                            (prematureEnd || transientNetworkFailure) &&
-                            !recoveryQueued &&
-                            (sameRouteRecoveryAttempts[prematureEndRecoveryKey] ?: 0) <
-                            MAX_CONSECUTIVE_NETWORK_RECOVERY_ATTEMPTS
-                        ) {
-                            recoveryQueued = true
-                            sameRouteRecoveryAttempts[prematureEndRecoveryKey] =
-                                (sameRouteRecoveryAttempts[prematureEndRecoveryKey] ?: 0) + 1
-                            mutableState.value =
-                                reportedChildState.copy(
-                                    phase = YPlaybackPhase.Preparing,
-                                    playing = false,
-                                    playbackRequested = requestedPlay,
-                                    buffering = requestedPlay,
-                                    diagnostics =
-                                        reportedChildState.diagnostics.copy(
-                                            reason =
-                                                "Remote source ended early; " +
-                                                    "reopening from verified output position",
-                                        ),
-                                )
-                            AppLog.warning(
-                                category = "player.network",
-                                event = if (prematureEnd) "premature_eof_recovery" else "transport_read_recovery",
-                                message =
-                                    "YCore rejected a premature EOF " +
-                                        "and reopened the active route",
-                                attributes =
-                                    mapOf(
-                                        "route" to reportedChildState.diagnostics.route.name,
-                                        "itemIndex" to childIndex().toString(),
-                                        "positionMs" to reportedChildState.positionMs.toString(),
-                                        "durationMs" to reportedChildState.durationMs.toString(),
-                                        "attempt" to sameRouteRecoveryAttempts[prematureEndRecoveryKey].toString(),
-                                    ),
-                            )
+                    if (verifiedRouteSuspicion.onRecovery(action)) {
+                        childVerifiedRoute?.first?.let(verifiedRouteMemory::forget)
+                    }
+                    // Every recovery attempt gets time to run, except after an attempt
+                    // that failed only because the start ran out of time.
+                    val renewProbeBudget = !attemptRanOutOfTime
+                    when (action) {
+                        YPlaybackRecoveryAction.RetrySameRoute -> {
+                            sameRouteRecoveryAttempts[recoveryKey] =
+                                (sameRouteRecoveryAttempts[recoveryKey] ?: 0) + 1
+                            codecResetCounts[childIndex()] = (codecResetCounts[childIndex()] ?: 0) + 1
                             commands.trySend(
                                 Command.RecoverSameRoute(
                                     index = childIndex(),
-                                    positionMs = reportedChildState.positionMs,
-                                    route = reportedChildState.diagnostics.route,
+                                    positionMs = childState.positionMs,
+                                    route = childState.diagnostics.route,
+                                    renewProbeBudget = renewProbeBudget,
                                 ),
                             )
-                            return@collect
+                            return true
                         }
-                        val childState =
-                            if (prematureEnd) {
-                                reportedChildState.copy(
-                                    phase = YPlaybackPhase.Failed,
-                                    playing = false,
-                                    playbackRequested = requestedPlay,
-                                    buffering = false,
-                                    error = "片源在声明时长前提前结束，已判定为网络传输中断",
-                                    errorCategory = YPlaybackFailureCategory.Network,
-                                    diagnostics =
-                                        reportedChildState.diagnostics.copy(
-                                            reason = "Premature EOF remained after bounded transport recovery",
-                                        ),
-                                )
-                            } else {
-                                reportedChildState
-                            }
-                        if (childState.phase != YPlaybackPhase.Failed && recoveryQueued) {
-                            // An in-place retry keeps this collector. Give the recovered attempt a
-                            // fresh failure edge so a second terminal failure can advance to the
-                            // next recovery tier instead of being hidden by the first attempt.
-                            failureRecorded = false
-                            recoveryQueued = false
-                        }
-                        if (childState.phase == YPlaybackPhase.Failed && !failureRecorded) {
-                            failureRecorded = true
-                            val category = childState.errorCategory
-                            val executedRoute = childState.diagnostics.route
-                            // Filed under the route that ran, not the plan's label: 1.0.83 filed
-                            // a NativeEnhanced decoder failure under the SoftwareFallback plan
-                            // the Dolby guard had turned away.
-                            val executedFailureKey = childFailureKey?.forExecutedRoute(executedRoute)
-                            if (executedFailureKey != null && category != null) {
-                                failureLedger.recordFailure(executedFailureKey, category)
-                            }
-                            verifiedRouteSuspicion.onFailure(category)
-                            val reportedFailure =
-                                if (prematureEnd) null else (next as? YPlaybackFailureReporter)?.lastPlaybackFailure
-                            attemptDeterministic = (reportedFailure as? YPlaybackException)?.deterministic == true
-                            attemptRanOutOfTime =
-                                yCoreAttemptRanOutOfTime(
-                                    reported = reportedFailure,
-                                    category = category,
-                                    attemptDeadlineStopped = activeProbeBudget?.hasStopped() == true,
-                                )
-                            if (!attemptRanOutOfTime) {
-                                yCoreRouteFailure(
-                                    route = executedRoute,
-                                    category = category,
-                                    message = childState.error,
-                                    reason = childState.diagnostics.reason,
-                                    reported = reportedFailure,
-                                )?.takeIf { it.concrete }?.let { keptRouteFailure = it }
-                            }
-                            if (!prematureEnd) recordLearning(childState, terminal = true)
-                        }
-                        if (
-                            !successRecorded &&
-                            childFailureKey != null &&
-                            childState.diagnostics.videoOutputVerified &&
-                            (childState.audioTracks.isEmpty() || childState.diagnostics.audioOutputVerified)
-                        ) {
-                            successRecorded = true
-                            val executedFailureKey = childFailureKey.forExecutedRoute(childState.diagnostics.route)
-                            failureLedger.recordSuccess(executedFailureKey)
-                            // Failures an earlier build filed under the plan's label describe
-                            // this same route.
-                            if (executedFailureKey != childFailureKey) failureLedger.recordSuccess(childFailureKey)
-                            childVerifiedRoute?.let { (verifiedItem, probe) ->
-                                verifiedRouteMemory.recordVerified(verifiedItem, probe)
-                            }
-                        }
-                        if (
-                            !childState.buffering &&
-                            childState.playing &&
-                            childState.phase == YPlaybackPhase.Ready
-                        ) {
-                            scheduleNextItemPreload(childIndex())
-                        }
-                        if (
-                            childState.phase == YPlaybackPhase.Failed &&
-                            failureRecorded &&
-                            !recoveryQueued
-                        ) {
-                            recoveryQueued = true
-                            val recoveryKey =
-                                RouteRecoveryKey(
-                                    itemIndex = childIndex(),
-                                    route = childState.diagnostics.route,
-                                    category = childState.errorCategory,
-                                )
-                            val failedItem = queueItems[childIndex()]
-                            val action =
-                                YPlaybackRecoveryPolicy.decide(
-                                    YPlaybackRecoveryContext(
-                                        route = childState.diagnostics.route,
-                                        category = childState.errorCategory,
-                                        sameRouteAttempts = sameRouteRecoveryAttempts[recoveryKey] ?: 0,
-                                        protectedContent = failedItem.drmConfiguration != null,
-                                        softwareFallbackAttempted = childSoftwareFallbackAttempted,
-                                        deterministic = attemptDeterministic,
-                                        softwareFallbackAvailable =
-                                            yCoreSoftwareRecoveryAvailable(
-                                                compatibilityRouteAvailable = fallbackRouteFactory != null,
-                                                discRouteAvailable =
-                                                    failedItem.disc != null && discRouteFactory != null,
-                                                protectedContent = failedItem.drmConfiguration != null,
-                                                inputHdrType = childInputHdrType,
-                                            ),
-                                    ),
-                                )
-                            if (verifiedRouteSuspicion.onRecovery(action)) {
-                                childVerifiedRoute?.first?.let(verifiedRouteMemory::forget)
-                            }
-                            // Every recovery attempt gets time to run, except after an attempt
-                            // that failed only because the start ran out of time.
-                            val renewProbeBudget = !attemptRanOutOfTime
-                            when (action) {
-                                YPlaybackRecoveryAction.RetrySameRoute -> {
-                                    sameRouteRecoveryAttempts[recoveryKey] =
-                                        (sameRouteRecoveryAttempts[recoveryKey] ?: 0) + 1
-                                    codecResetCounts[childIndex()] = (codecResetCounts[childIndex()] ?: 0) + 1
-                                    commands.trySend(
-                                        Command.RecoverSameRoute(
-                                            index = childIndex(),
-                                            positionMs = childState.positionMs,
-                                            route = childState.diagnostics.route,
-                                            renewProbeBudget = renewProbeBudget,
-                                        ),
-                                    )
-                                    return@collect
-                                }
-                                YPlaybackRecoveryAction.DisableTunnel -> {
-                                    commands.trySend(
-                                        Command.FallbackFromTunnel(
-                                            index = childIndex(),
-                                            positionMs = childState.positionMs,
-                                            renewProbeBudget = renewProbeBudget,
-                                        ),
-                                    )
-                                    return@collect
-                                }
-                                YPlaybackRecoveryAction.FallbackToEnhanced -> {
-                                    commands.trySend(
-                                        Command.FallbackToEnhanced(
-                                            index = childIndex(),
-                                            positionMs = childState.positionMs,
-                                            renewProbeBudget = renewProbeBudget,
-                                        ),
-                                    )
-                                    return@collect
-                                }
-                                YPlaybackRecoveryAction.FallbackToSoftware -> {
-                                    commands.trySend(
-                                        Command.FallbackToSoftware(
-                                            index = childIndex(),
-                                            positionMs = childState.positionMs,
-                                            renewProbeBudget = renewProbeBudget,
-                                        ),
-                                    )
-                                    return@collect
-                                }
-                                YPlaybackRecoveryAction.Stop -> Unit
-                            }
-                        }
-                        val naturalAutoNext =
-                            childState.phase == YPlaybackPhase.Ended &&
-                                request.autoNext &&
-                                childIndex() + 1 < queueItems.size
-                        if (childState.phase == YPlaybackPhase.Failed ||
-                            childState.phase == YPlaybackPhase.Ended &&
-                            !naturalAutoNext
-                        ) {
-                            requestedPlay = false
-                        }
-                        if (childState.phase == YPlaybackPhase.Ready) autoNextQueued = false
-                        val publishedChildState =
-                            if (nativeOnly) {
-                                childState.withStartFailure(attemptRanOutOfTime, keptRouteFailure)
-                            } else {
-                                childState
-                            }
-                        mutableState.value =
-                            publishedChildState.copy(
-                                currentIndex = childIndex(),
-                                itemCount = queueItems.size,
-                                playbackRequested = requestedPlay && childState.phase != YPlaybackPhase.Ended,
-                                diagnostics =
-                                    publishedChildState.diagnostics.copy(
-                                        codecResetCount =
-                                            childState.diagnostics.codecResetCount +
-                                                (codecResetCounts[childIndex()] ?: 0),
-                                    ),
+                        YPlaybackRecoveryAction.DisableTunnel -> {
+                            commands.trySend(
+                                Command.FallbackFromTunnel(
+                                    index = childIndex(),
+                                    positionMs = childState.positionMs,
+                                    renewProbeBudget = renewProbeBudget,
+                                ),
                             )
-                        // An audio route change held back during preparation applies now that
-                        // the graph has reached a settled phase.
-                        if (
-                            childState.phase != YPlaybackPhase.Preparing &&
-                            childState.phase != YPlaybackPhase.Idle &&
-                            deferredAudioRouteChange.compareAndSet(true, false)
-                        ) {
-                            commands.trySend(Command.AudioRouteChanged)
+                            return true
                         }
-                        handoffStartedNs?.takeIf { handoffItemId == childItemId }?.let { started ->
-                            val video = childState.diagnostics.videoOutputVerified
-                            val audio = childState.diagnostics.audioOutputVerified
-                            if ((!handoffVideoLogged && video) || (!handoffAudioLogged && audio)) {
-                                AppLog.info(
-                                    category = "player.core2",
-                                    event = "next_item_output_ready",
-                                    message = "Output confirmed after item selection",
-                                    attributes =
-                                        mapOf(
-                                            "elapsedMs" to ((System.nanoTime() - started) / 1_000_000L).toString(),
-                                            "video" to video.toString(),
-                                            "audio" to audio.toString(),
-                                            "itemIndex" to currentIndex.toString(),
-                                        ),
-                                )
-                                handoffVideoLogged = handoffVideoLogged || video
-                                handoffAudioLogged = handoffAudioLogged || audio
-                            }
+                        YPlaybackRecoveryAction.FallbackToEnhanced -> {
+                            commands.trySend(
+                                Command.FallbackToEnhanced(
+                                    index = childIndex(),
+                                    positionMs = childState.positionMs,
+                                    renewProbeBudget = renewProbeBudget,
+                                ),
+                            )
+                            return true
                         }
-                        if (
-                            childState.phase == YPlaybackPhase.Ended &&
-                            !learningRecorded
-                        ) {
-                            recordLearning(childState, terminal = true)
+                        YPlaybackRecoveryAction.FallbackToSoftware -> {
+                            commands.trySend(
+                                Command.FallbackToSoftware(
+                                    index = childIndex(),
+                                    positionMs = childState.positionMs,
+                                    renewProbeBudget = renewProbeBudget,
+                                ),
+                            )
+                            return true
                         }
-                        if (
-                            childState.phase == YPlaybackPhase.Ended &&
-                            request.autoNext &&
-                            !autoNextQueued &&
-                            childIndex() + 1 < queueItems.size
-                        ) {
-                            autoNextQueued = true
-                            commands.trySend(Command.SelectItem(queueItems[childIndex() + 1].id))
-                        }
+                        YPlaybackRecoveryAction.Stop -> Unit
                     }
                 }
-            next.setSecondarySubtitleOffsetMs(secondarySubtitleOffsetMs)
-            next.prepare()
-            if (pausedSeekPreviewRequested) {
-                pausedSeekPreviewRequested = false
-                next.seekTo(attachedTarget?.localPositionMs ?: pendingPositionMs)
+                return false
             }
-            if (requestedPlay) next.play()
+
+            /**
+             * Publishes [childState] as the router's state, placed in the whole queue and carrying the play
+             * intent it leaves behind.
+             */
+            private fun publish(childState: YPlayerState) {
+                val naturalAutoNext =
+                    childState.phase == YPlaybackPhase.Ended &&
+                        request.autoNext &&
+                        childIndex() + 1 < queueItems.size
+                if (childState.phase == YPlaybackPhase.Failed ||
+                    childState.phase == YPlaybackPhase.Ended &&
+                    !naturalAutoNext
+                ) {
+                    requestedPlay = false
+                }
+                if (childState.phase == YPlaybackPhase.Ready) autoNextQueued = false
+                val publishedChildState =
+                    if (nativeOnly) {
+                        childState.withStartFailure(attemptRanOutOfTime, keptRouteFailure)
+                    } else {
+                        childState
+                    }
+                mutableState.value =
+                    publishedChildState.copy(
+                        currentIndex = childIndex(),
+                        itemCount = queueItems.size,
+                        playbackRequested = requestedPlay && childState.phase != YPlaybackPhase.Ended,
+                        diagnostics =
+                            publishedChildState.diagnostics.copy(
+                                codecResetCount =
+                                    childState.diagnostics.codecResetCount +
+                                        (codecResetCounts[childIndex()] ?: 0),
+                            ),
+                    )
+            }
+
+            /** Logs how long after its selection this child's first video and audio output arrived. */
+            private fun logHandoffOutput(childState: YPlayerState) {
+                handoffStartedNs?.takeIf { handoffItemId == childItemId }?.let { started ->
+                    val video = childState.diagnostics.videoOutputVerified
+                    val audio = childState.diagnostics.audioOutputVerified
+                    if ((!handoffVideoLogged && video) || (!handoffAudioLogged && audio)) {
+                        AppLog.info(
+                            category = "player.core2",
+                            event = "next_item_output_ready",
+                            message = "Output confirmed after item selection",
+                            attributes =
+                                mapOf(
+                                    "elapsedMs" to ((System.nanoTime() - started) / 1_000_000L).toString(),
+                                    "video" to video.toString(),
+                                    "audio" to audio.toString(),
+                                    "itemIndex" to currentIndex.toString(),
+                                ),
+                        )
+                        handoffVideoLogged = handoffVideoLogged || video
+                        handoffAudioLogged = handoffAudioLogged || audio
+                    }
+                }
+            }
         }
 
         /**
@@ -1919,462 +2070,452 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
         }
 
-        try {
-            for (command in commands) {
-                try {
-                    when (command) {
-                        Command.Prepare -> {
-                            keptRouteFailure = null
-                            rebuild(pendingPositionMs)
-                        }
-                        Command.Play -> {
-                            requestedPlay = true
-                            val active = child
-                            if (active == null) rebuild(pendingPositionMs) else active.play()
-                        }
-                        Command.Pause -> {
-                            discardNextPreparation()
-                            requestedPlay = false
-                            child?.pause()
-                        }
-                        Command.SeekPending -> {
-                            seekCommandQueued.set(false)
-                            val positionMs = pendingSeekMs.getAndSet(NO_PENDING_SEEK_MS)
-                            if (positionMs >= 0L) {
-                                discardNextPreparation()
-                                nextPreloadRetryAfterMs = 0L
-                                val seekFeedbackGeneration = adaptiveFeedbackGeneration.incrementAndGet()
-                                adaptiveFeedbackSink?.updatePlaybackFeedback(
-                                    YAdaptivePlaybackFeedback(
-                                        bufferedDurationUs = 0L,
-                                        playing = false,
-                                        speed = speed,
-                                        generation = seekFeedbackGeneration,
-                                    ),
-                                )
-                                pendingPositionMs = positionMs
-                                if (adaptiveTarget != null) {
-                                    pausedSeekPreviewRequested = !requestedPlay
-                                    rebuild(positionMs)
-                                } else {
-                                    child?.seekTo(positionMs)
-                                }
-                            }
-                            if (pendingSeekMs.get() >= 0L) queuePendingSeek()
-                        }
-                        is Command.SetSpeed -> {
-                            speed = command.speed
-                            val active = child
-                            if (
-                                active
-                                    ?.state
-                                    ?.value
-                                    ?.diagnostics
-                                    ?.route == YPlaybackRoute.NativeTunnel &&
-                                kotlin.math.abs(speed - 1f) > TUNNEL_SPEED_EPSILON
-                            ) {
-                                allowTunnel = false
-                                pendingPositionMs = globalChildPosition()
-                                rebuild(pendingPositionMs)
-                            } else {
-                                active?.setSpeed(speed)
-                            }
-                        }
-                        is Command.SetAudioDelay -> {
-                            audioDelayMs = command.delayMs
-                            if (audioDelayMs != 0L &&
-                                child
-                                    ?.state
-                                    ?.value
-                                    ?.diagnostics
-                                    ?.route == YPlaybackRoute.NativeTunnel
-                            ) {
-                                allowTunnel = false
-                                pendingPositionMs = globalChildPosition()
-                                rebuild(pendingPositionMs)
-                            } else {
-                                child?.setAudioDelayMs(audioDelayMs)
-                            }
-                        }
-                        is Command.AdaptiveTransition -> {
-                            if (child === command.fromChild) {
-                                pendingAdaptiveTarget = command.target
-                                pendingPositionMs = command.globalPositionMs
-                                rebuild(pendingPositionMs)
-                            }
-                        }
-                        is Command.SecondarySubtitleOffset -> {
-                            secondarySubtitleOffsetMs = command.offsetMs
-                            child?.setSecondarySubtitleOffsetMs(command.offsetMs)
-                        }
-                        is Command.SelectSecondarySubtitle -> {
-                            child?.selectSecondarySubtitleTrack(command.id)
-                        }
-                        is Command.SelectTrack -> {
-                            val active = child
-                            val state = active?.state?.value ?: continue
-                            val skipReason = state.trackSelectionSkipReason(command.type, command.id)
-                            if (skipReason != null) {
-                                if (loggedTrackSkips.add("$currentIndex:${command.type}:$skipReason")) {
-                                    AppLog.info(
-                                        category = "player.core2",
-                                        event = "track_selection_skipped",
-                                        message = "Track selection does not require a playback change",
-                                        attributes = mapOf("type" to command.type.name, "reason" to skipReason),
-                                    )
-                                }
-                                continue
-                            }
-                            val tracks =
-                                if (command.type ==
-                                    YTrackType.Audio
-                                ) {
-                                    state.audioTracks
-                                } else {
-                                    state.subtitleTracks
-                                }
-                            val preference = tracks.firstOrNull { it.id == command.id }?.preferenceIn(tracks)
-                            val currentItem = queueItems[currentIndex]
-                            val previousSelection =
-                                runtimeTrackSelections[currentItem.id]
-                                    ?: currentItem.initialTrackSelection ?: YInitialTrackSelection()
-                            runtimeTrackSelections[currentItem.id] =
-                                if (command.type == YTrackType.Audio) {
-                                    previousSelection.copy(audio = preference)
-                                } else {
-                                    previousSelection.copy(
-                                        subtitle = preference,
-                                        subtitlesDisabled =
-                                            command.id == "off",
-                                    )
-                                }
-                            if (active
-                                    ?.state
-                                    ?.value
-                                    ?.diagnostics
-                                    ?.route == YPlaybackRoute.NativeTunnel
-                            ) {
-                                allowTunnel = false
-                                pendingPositionMs = globalChildPosition()
-                                AppLog.info(
-                                    category = "player.core2",
-                                    event = "track_selection_route_rebuild",
-                                    message = "Changing an active Tunnel track requires a new playback graph",
-                                    attributes = mapOf("type" to command.type.name, "reason" to "tunnel_track_change"),
-                                )
-                                rebuild(pendingPositionMs)
-                                // The new demux resolves the stable preference itself. Platform and
-                                // FFmpeg stream indexes need not agree, so never forward the old id.
-                                continue
-                            }
-                            child?.selectTrack(command.type, command.id)
-                        }
-                        is Command.SetVideoOutput -> {
-                            output = command.output
-                            val active = child
-                            if (active != null) {
-                                // The attach may already have handed this very output over.
-                                if (output != childVideoOutput) {
-                                    active.setVideoOutput(output)
-                                    childVideoOutput = output
-                                }
-                            } else if (
-                                output != null &&
-                                mutableState.value.phase != YPlaybackPhase.Idle &&
-                                mutableState.value.phase != YPlaybackPhase.Failed
-                            ) {
-                                rebuild(pendingPositionMs)
-                            }
-                        }
-                        is Command.SelectItem -> {
-                            val selectedIndex = queueItems.indexOfFirst { it.id == command.itemId }
-                            if (selectedIndex < 0) continue
-                            nextItemPreloadJob?.cancel()
-                            nextItemPreloadJob = null
-                            if (preloadedNextRoute?.index != selectedIndex) {
-                                preloadedNextRoute?.sources?.close()
-                                preloadedNextRoute = null
-                            }
-                            val preparedDecision = preloadedNextRoute?.decision
-                            if (selectedIndex == currentIndex + 1 &&
-                                preparedDecision?.nativeDirectExecutable == true &&
-                                preparedDecision.probe.playbackRequest.video.hdrType == YHdrType.Sdr &&
-                                preparedDecision.plan.audioPath == YAudioOutputPath.DecodePcm
-                            ) {
-                                (child as? AndroidNativeDirectYPlayer)?.prepareVideoHandoff()
-                            } else {
-                                videoHandoff.close()
-                            }
-                            handoffItemId = command.itemId
-                            handoffStartedNs = System.nanoTime()
-                            handoffVideoLogged = false
-                            handoffAudioLogged = false
-                            pendingPositionMs = 0L
-                            currentIndex = selectedIndex
-                            sameRouteRecoveryAttempts.keys.removeAll { it.itemIndex == currentIndex }
-                            codecResetCounts.remove(currentIndex)
-                            allowTunnel = true
-                            forceEnhancedFallback = false
-                            forceSoftwareFallback = false
-                            keptRouteFailure = null
-                            rebuild(0L)
-                        }
-                        Command.QueueUpdated -> {
-                            discardNextPreparation()
-                            nextPreloadRetryAfterMs = 0L
-                            sameRouteRecoveryAttempts.clear()
-                            codecResetCounts.clear()
-                            mutableState.updateState {
-                                it.copy(
-                                    currentIndex = currentIndex,
-                                    itemCount = queueItems.size,
-                                )
-                            }
-                            if (child?.state?.value?.phase ==
-                                YPlaybackPhase.Ready
-                            ) {
-                                scheduleNextItemPreload(currentIndex)
-                            }
-                        }
-                        Command.QueueExtended -> {
-                            mutableState.updateState { it.copy(itemCount = queueItems.size) }
-                            if (child?.state?.value?.phase == YPlaybackPhase.Ready) {
-                                scheduleNextItemPreload(currentIndex)
-                            }
-                        }
-                        Command.PreparationBoundaryChanged -> {
-                            discardNextPreparation()
-                            nextPreloadRetryAfterMs = 0L
-                            scheduleNextItemPreload(currentIndex)
-                        }
-                        is Command.NextItemPreloaded -> {
-                            val item = queueItems.getOrNull(command.route.index)
-                            if (command.revision != nextPreparationRevision.get() ||
-                                child !== command.fromChild ||
-                                item == null ||
-                                command.route.index != currentIndex + 1 ||
-                                !command.route.sourceItem.matchesPreparedSource(item)
-                            ) {
-                                command.route.sources.close()
-                                continue
-                            }
-                            nextItemPreloadJob = null
-                            preloadedNextRoute?.sources?.close()
-                            preloadedNextRoute = command.route
-                            AppLog.info(
-                                category = "player.core2",
-                                event = "next_item_preloaded",
-                                message = "YCore next-item route and expiring media sources prepared",
-                                attributes = mapOf("itemIndex" to command.route.index.toString()),
-                            )
-                        }
-                        Command.AudioRouteChanged -> {
-                            audioRouteChangeQueued.set(false)
-                            val phase = mutableState.value.phase
-                            when {
-                                phase == YPlaybackPhase.Ended || phase == YPlaybackPhase.Failed -> Unit
-                                child == null && phase == YPlaybackPhase.Idle -> Unit
-                                // A route change during startup is nearly always the system
-                                // settling the output around the AudioTrack this graph is in the
-                                // middle of creating. Rebuilding then discards a probe, a decoder
-                                // and an open byte range only to arrive at the same route - and
-                                // does it while the first frame is still pending. Hold it, and
-                                // apply it once the graph is actually up.
-                                phase == YPlaybackPhase.Preparing ->
-                                    deferredAudioRouteChange.set(true)
-                                else -> {
-                                    pendingPositionMs =
-                                        if (child != null) globalChildPosition() else mutableState.value.positionMs
-                                    forceEnhancedFallback = false
-                                    forceSoftwareFallback = false
-                                    rebuild(pendingPositionMs)
-                                }
-                            }
-                        }
-                        Command.ThermalPressure -> {
-                            if (mutableState.value.phase in setOf(YPlaybackPhase.Ended, YPlaybackPhase.Failed)) continue
-                            discardNextPreparation()
-                            val activeRoute =
-                                child
-                                    ?.state
-                                    ?.value
-                                    ?.diagnostics
-                                    ?.route
-                            if (
-                                activeRoute == YPlaybackRoute.GpuEnhanced ||
-                                activeRoute == YPlaybackRoute.SoftwareFallback
-                            ) {
-                                pendingPositionMs =
-                                    if (child != null) globalChildPosition() else mutableState.value.positionMs
-                                rebuild(pendingPositionMs)
-                            }
-                        }
-                        is Command.FallbackFromTunnel -> {
-                            if (
-                                command.index == currentIndex &&
-                                child
-                                    ?.state
-                                    ?.value
-                                    ?.diagnostics
-                                    ?.route == YPlaybackRoute.NativeTunnel
-                            ) {
-                                allowTunnel = false
-                                pendingPositionMs = command.positionMs
-                                if (command.renewProbeBudget) ensureRecoveryProbeBudget()
-                                rebuild(pendingPositionMs)
-                            }
-                        }
-                        is Command.RecoverSameRoute -> {
-                            val active = child
-                            val activeState = active?.state?.value
-                            if (
-                                command.index == currentIndex &&
-                                activeState != null &&
-                                activeState.phase in
-                                setOf(YPlaybackPhase.Failed, YPlaybackPhase.Ended) &&
-                                activeState.diagnostics.route == command.route
-                            ) {
-                                pendingPositionMs = command.positionMs
-                                if (command.renewProbeBudget) ensureRecoveryProbeBudget()
-                                if (canRetryCore2RouteInPlace(command.route, active is AndroidNativeEnhancedYPlayer)) {
-                                    // The child owns a serialized codec command queue. Reusing it
-                                    // guarantees releaseMedia() finishes before the same decoder is
-                                    // configured again; rebuilding here allowed the replacement
-                                    // child to race the outgoing MediaCodec release on OEM devices.
-                                    if (active is AndroidNativeEnhancedYPlayer) {
-                                        active.retryWithProbeBudget(activeProbeBudget)
-                                    } else {
-                                        checkNotNull(active).retry()
-                                    }
-                                    // Ended/failed children may have cleared their own play intent.
-                                    // Restore the router's latest user intent after serialized prepare.
-                                    if (requestedPlay) active.play() else active.pause()
-                                } else {
-                                    rebuild(pendingPositionMs)
-                                }
-                            }
-                        }
-                        is Command.FallbackToEnhanced -> {
-                            val activeRoute =
-                                child
-                                    ?.state
-                                    ?.value
-                                    ?.diagnostics
-                                    ?.route
-                            if (
-                                command.index == currentIndex &&
-                                activeRoute != null &&
-                                activeRoute !in
-                                setOf(
-                                    YPlaybackRoute.NativeEnhanced,
-                                    YPlaybackRoute.GpuEnhanced,
-                                    YPlaybackRoute.SoftwareFallback,
-                                )
-                            ) {
-                                allowTunnel = false
-                                forceEnhancedFallback = true
-                                forceSoftwareFallback = false
-                                pendingPositionMs = command.positionMs
-                                if (command.renewProbeBudget) ensureRecoveryProbeBudget()
-                                rebuild(pendingPositionMs)
-                            }
-                        }
-                        is Command.FallbackToSoftware -> {
-                            if (
-                                command.index == currentIndex &&
-                                child
-                                    ?.state
-                                    ?.value
-                                    ?.diagnostics
-                                    ?.route !=
-                                YPlaybackRoute.SoftwareFallback
-                            ) {
-                                allowTunnel = false
-                                forceEnhancedFallback = false
-                                forceSoftwareFallback = true
-                                pendingPositionMs = command.positionMs
-                                if (command.renewProbeBudget) ensureRecoveryProbeBudget()
-                                rebuild(pendingPositionMs)
-                            }
-                        }
-                        Command.Retry -> {
-                            sameRouteRecoveryAttempts.keys.removeAll { it.itemIndex == currentIndex }
-                            codecResetCounts.remove(currentIndex)
-                            allowTunnel = true
-                            forceEnhancedFallback = false
-                            forceSoftwareFallback = false
-                            bypassLearnedRouteMemoryOnce = true
-                            pendingFailureKey = null
-                            keptRouteFailure = null
-                            pendingPositionMs =
-                                mutableState.value
-                                    .takeIf { it.currentIndex == currentIndex }
-                                    ?.positionMs
-                                    ?.coerceAtLeast(0L)
-                                    ?: pendingPositionMs
-                            val active = child
-                            val activeState = active?.state?.value
-                            if (
-                                active != null &&
-                                activeState != null &&
-                                shouldRetryActiveNativeChildInPlace(
-                                    nativeOnly = nativeOnly,
-                                    phase = activeState.phase,
-                                    route = activeState.diagnostics.route,
-                                    enhancedChild = active is AndroidNativeEnhancedYPlayer,
-                                )
-                            ) {
-                                // Runtime silent-output recovery is not a route change. Keep the
-                                // active child and let its worker release, reopen and configure in
-                                // strict order instead of constructing a competing codec instance.
-                                if (active is AndroidNativeEnhancedYPlayer) {
-                                    active.retryWithProbeBudget(activeProbeBudget)
-                                } else {
-                                    active.retry()
-                                }
-                            } else {
-                                rebuild(pendingPositionMs)
-                            }
-                        }
+        /** Runs one command to completion. A failure it throws ends only this command (see [runLoop]). */
+        suspend fun handle(command: Command) {
+            when (command) {
+                Command.Prepare -> {
+                    keptRouteFailure = null
+                    rebuild(pendingPositionMs)
+                }
+                Command.Play -> {
+                    requestedPlay = true
+                    val active = child
+                    if (active == null) rebuild(pendingPositionMs) else active.play()
+                }
+                Command.Pause -> {
+                    discardNextPreparation()
+                    requestedPlay = false
+                    child?.pause()
+                }
+                Command.SeekPending -> seekToPending()
+                is Command.SetSpeed -> updateSpeed(command)
+                is Command.SetAudioDelay -> updateAudioDelay(command)
+                is Command.AdaptiveTransition -> {
+                    if (child === command.fromChild) {
+                        pendingAdaptiveTarget = command.target
+                        pendingPositionMs = command.globalPositionMs
+                        rebuild(pendingPositionMs)
                     }
-                } catch (failure: Throwable) {
-                    // Throwable on purpose, like the engine workers under this router (NativeDirect
-                    // hands every failure to fail()). This scope has no exception handler, so an Error
-                    // escaping here would end the app rather than one route, and such Errors do occur
-                    // on this path: R8 output failing verification when a class first loads (1.0.91
-                    // shipped one), a native artifact missing a JNI entry point, an allocation sized
-                    // from a malformed file. Cancellation still propagates.
-                    if (failure is CancellationException) throw failure
-                    if (released) break
-                    if (failure is AndroidProbeAbortedException && failure.reason == "superseded") continue
-                    val probeTimedOut = failure is AndroidProbeAbortedException
-                    logRouterFailure(failure, command, keptRouteFailure)
-                    // The timeout text is only the fallback: a route that failed concretely
-                    // before this start ran out of time is what the user is told about.
-                    publishUnavailable(
-                        reason = core2RouterFailureReason(failure),
-                        sourceFailure = failure.mediaSourceFailure(),
-                        probeTimedOut = probeTimedOut,
-                    )
+                }
+                is Command.SecondarySubtitleOffset -> {
+                    secondarySubtitleOffsetMs = command.offsetMs
+                    child?.setSecondarySubtitleOffsetMs(command.offsetMs)
+                }
+                is Command.SelectSecondarySubtitle -> {
+                    child?.selectSecondarySubtitleTrack(command.id)
+                }
+                is Command.SelectTrack -> changeTrack(command)
+                is Command.SetVideoOutput -> updateVideoOutput(command)
+                is Command.SelectItem -> switchToItem(command)
+                Command.QueueUpdated -> adoptUpdatedQueue()
+                Command.QueueExtended -> {
+                    mutableState.updateState { it.copy(itemCount = queueItems.size) }
+                    if (child?.state?.value?.phase == YPlaybackPhase.Ready) {
+                        scheduleNextItemPreload(currentIndex)
+                    }
+                }
+                Command.PreparationBoundaryChanged -> {
+                    discardNextPreparation()
+                    nextPreloadRetryAfterMs = 0L
+                    scheduleNextItemPreload(currentIndex)
+                }
+                is Command.NextItemPreloaded -> acceptPreloadedNextRoute(command)
+                Command.AudioRouteChanged -> followAudioRouteChange()
+                Command.ThermalPressure -> relieveThermalPressure()
+                is Command.FallbackFromTunnel -> fallBackFromTunnel(command)
+                is Command.RecoverSameRoute -> recoverSameRoute(command)
+                is Command.FallbackToEnhanced -> fallBackToEnhanced(command)
+                is Command.FallbackToSoftware -> fallBackToSoftware(command)
+                Command.Retry -> retryCurrentItem()
+            }
+        }
+
+        private suspend fun seekToPending() {
+            seekCommandQueued.set(false)
+            val positionMs = pendingSeekMs.getAndSet(NO_PENDING_SEEK_MS)
+            if (positionMs >= 0L) {
+                discardNextPreparation()
+                nextPreloadRetryAfterMs = 0L
+                val seekFeedbackGeneration = adaptiveFeedbackGeneration.incrementAndGet()
+                adaptiveFeedbackSink?.updatePlaybackFeedback(
+                    YAdaptivePlaybackFeedback(
+                        bufferedDurationUs = 0L,
+                        playing = false,
+                        speed = speed,
+                        generation = seekFeedbackGeneration,
+                    ),
+                )
+                pendingPositionMs = positionMs
+                if (adaptiveTarget != null) {
+                    pausedSeekPreviewRequested = !requestedPlay
+                    rebuild(positionMs)
+                } else {
+                    child?.seekTo(positionMs)
                 }
             }
-        } finally {
-            probes.invalidate("released")
-            discardNextPreparation()
-            // A bounded, non-suspending drain, deliberately not `while (isActive)`: this runs in the
-            // worker's `finally`, where the scope is already cancelled, and skipping it would leak
-            // the sources of every preloaded route still sitting in the channel.
-            var pending = commands.tryReceive().getOrNull()
-            while (pending != null) {
-                if (pending is Command.NextItemPreloaded) pending.route.sources.close()
-                pending = commands.tryReceive().getOrNull()
+            if (pendingSeekMs.get() >= 0L) queuePendingSeek()
+        }
+
+        private suspend fun updateSpeed(command: Command.SetSpeed) {
+            speed = command.speed
+            val active = child
+            if (
+                active
+                    ?.state
+                    ?.value
+                    ?.diagnostics
+                    ?.route == YPlaybackRoute.NativeTunnel &&
+                kotlin.math.abs(speed - 1f) > TUNNEL_SPEED_EPSILON
+            ) {
+                allowTunnel = false
+                pendingPositionMs = globalChildPosition()
+                rebuild(pendingPositionMs)
+            } else {
+                active?.setSpeed(speed)
             }
-            try {
-                stopChild(waitForRelease = false)
-            } finally {
-                routeEvaluator.closePreparedExtractor()
-                routeEvaluator.closePreparedEnhancedDemux()
+        }
+
+        private suspend fun updateAudioDelay(command: Command.SetAudioDelay) {
+            audioDelayMs = command.delayMs
+            if (audioDelayMs != 0L &&
+                child
+                    ?.state
+                    ?.value
+                    ?.diagnostics
+                    ?.route == YPlaybackRoute.NativeTunnel
+            ) {
+                allowTunnel = false
+                pendingPositionMs = globalChildPosition()
+                rebuild(pendingPositionMs)
+            } else {
+                child?.setAudioDelayMs(audioDelayMs)
+            }
+        }
+
+        private suspend fun changeTrack(command: Command.SelectTrack) {
+            val active = child
+            val state = active?.state?.value ?: return
+            val skipReason = state.trackSelectionSkipReason(command.type, command.id)
+            if (skipReason != null) {
+                if (loggedTrackSkips.add("$currentIndex:${command.type}:$skipReason")) {
+                    AppLog.info(
+                        category = "player.core2",
+                        event = "track_selection_skipped",
+                        message = "Track selection does not require a playback change",
+                        attributes = mapOf("type" to command.type.name, "reason" to skipReason),
+                    )
+                }
+                return
+            }
+            val tracks =
+                if (command.type ==
+                    YTrackType.Audio
+                ) {
+                    state.audioTracks
+                } else {
+                    state.subtitleTracks
+                }
+            val preference = tracks.firstOrNull { it.id == command.id }?.preferenceIn(tracks)
+            val currentItem = queueItems[currentIndex]
+            val previousSelection =
+                runtimeTrackSelections[currentItem.id]
+                    ?: currentItem.initialTrackSelection ?: YInitialTrackSelection()
+            runtimeTrackSelections[currentItem.id] =
+                if (command.type == YTrackType.Audio) {
+                    previousSelection.copy(audio = preference)
+                } else {
+                    previousSelection.copy(
+                        subtitle = preference,
+                        subtitlesDisabled =
+                            command.id == "off",
+                    )
+                }
+            if (active
+                    ?.state
+                    ?.value
+                    ?.diagnostics
+                    ?.route == YPlaybackRoute.NativeTunnel
+            ) {
+                allowTunnel = false
+                pendingPositionMs = globalChildPosition()
+                AppLog.info(
+                    category = "player.core2",
+                    event = "track_selection_route_rebuild",
+                    message = "Changing an active Tunnel track requires a new playback graph",
+                    attributes = mapOf("type" to command.type.name, "reason" to "tunnel_track_change"),
+                )
+                rebuild(pendingPositionMs)
+                // The new demux resolves the stable preference itself. Platform and
+                // FFmpeg stream indexes need not agree, so never forward the old id.
+                return
+            }
+            child?.selectTrack(command.type, command.id)
+        }
+
+        private suspend fun updateVideoOutput(command: Command.SetVideoOutput) {
+            output = command.output
+            val active = child
+            if (active != null) {
+                // The attach may already have handed this very output over.
+                if (output != childVideoOutput) {
+                    active.setVideoOutput(output)
+                    childVideoOutput = output
+                }
+            } else if (
+                output != null &&
+                mutableState.value.phase != YPlaybackPhase.Idle &&
+                mutableState.value.phase != YPlaybackPhase.Failed
+            ) {
+                rebuild(pendingPositionMs)
+            }
+        }
+
+        private suspend fun switchToItem(command: Command.SelectItem) {
+            val selectedIndex = queueItems.indexOfFirst { it.id == command.itemId }
+            if (selectedIndex < 0) return
+            nextItemPreloadJob?.cancel()
+            nextItemPreloadJob = null
+            if (preloadedNextRoute?.index != selectedIndex) {
+                preloadedNextRoute?.sources?.close()
+                preloadedNextRoute = null
+            }
+            val preparedDecision = preloadedNextRoute?.decision
+            if (selectedIndex == currentIndex + 1 &&
+                preparedDecision?.nativeDirectExecutable == true &&
+                preparedDecision.probe.playbackRequest.video.hdrType == YHdrType.Sdr &&
+                preparedDecision.plan.audioPath == YAudioOutputPath.DecodePcm
+            ) {
+                (child as? AndroidNativeDirectYPlayer)?.prepareVideoHandoff()
+            } else {
                 videoHandoff.close()
+            }
+            handoffItemId = command.itemId
+            handoffStartedNs = System.nanoTime()
+            handoffVideoLogged = false
+            handoffAudioLogged = false
+            pendingPositionMs = 0L
+            currentIndex = selectedIndex
+            sameRouteRecoveryAttempts.keys.removeAll { it.itemIndex == currentIndex }
+            codecResetCounts.remove(currentIndex)
+            allowTunnel = true
+            forceEnhancedFallback = false
+            forceSoftwareFallback = false
+            keptRouteFailure = null
+            rebuild(0L)
+        }
+
+        private fun adoptUpdatedQueue() {
+            discardNextPreparation()
+            nextPreloadRetryAfterMs = 0L
+            sameRouteRecoveryAttempts.clear()
+            codecResetCounts.clear()
+            mutableState.updateState {
+                it.copy(
+                    currentIndex = currentIndex,
+                    itemCount = queueItems.size,
+                )
+            }
+            if (child?.state?.value?.phase ==
+                YPlaybackPhase.Ready
+            ) {
+                scheduleNextItemPreload(currentIndex)
+            }
+        }
+
+        private fun acceptPreloadedNextRoute(command: Command.NextItemPreloaded) {
+            val item = queueItems.getOrNull(command.route.index)
+            if (command.revision != nextPreparationRevision.get() ||
+                child !== command.fromChild ||
+                item == null ||
+                command.route.index != currentIndex + 1 ||
+                !command.route.sourceItem.matchesPreparedSource(item)
+            ) {
+                command.route.sources.close()
+                return
+            }
+            nextItemPreloadJob = null
+            preloadedNextRoute?.sources?.close()
+            preloadedNextRoute = command.route
+            AppLog.info(
+                category = "player.core2",
+                event = "next_item_preloaded",
+                message = "YCore next-item route and expiring media sources prepared",
+                attributes = mapOf("itemIndex" to command.route.index.toString()),
+            )
+        }
+
+        private suspend fun followAudioRouteChange() {
+            audioRouteChangeQueued.set(false)
+            val phase = mutableState.value.phase
+            when {
+                phase == YPlaybackPhase.Ended || phase == YPlaybackPhase.Failed -> Unit
+                child == null && phase == YPlaybackPhase.Idle -> Unit
+                // A route change during startup is nearly always the system
+                // settling the output around the AudioTrack this graph is in the
+                // middle of creating. Rebuilding then discards a probe, a decoder
+                // and an open byte range only to arrive at the same route - and
+                // does it while the first frame is still pending. Hold it, and
+                // apply it once the graph is actually up.
+                phase == YPlaybackPhase.Preparing ->
+                    deferredAudioRouteChange.set(true)
+                else -> {
+                    pendingPositionMs =
+                        if (child != null) globalChildPosition() else mutableState.value.positionMs
+                    forceEnhancedFallback = false
+                    forceSoftwareFallback = false
+                    rebuild(pendingPositionMs)
+                }
+            }
+        }
+
+        private suspend fun relieveThermalPressure() {
+            if (mutableState.value.phase in setOf(YPlaybackPhase.Ended, YPlaybackPhase.Failed)) return
+            discardNextPreparation()
+            val activeRoute =
+                child
+                    ?.state
+                    ?.value
+                    ?.diagnostics
+                    ?.route
+            if (
+                activeRoute == YPlaybackRoute.GpuEnhanced ||
+                activeRoute == YPlaybackRoute.SoftwareFallback
+            ) {
+                pendingPositionMs =
+                    if (child != null) globalChildPosition() else mutableState.value.positionMs
+                rebuild(pendingPositionMs)
+            }
+        }
+
+        private suspend fun fallBackFromTunnel(command: Command.FallbackFromTunnel) {
+            if (
+                command.index == currentIndex &&
+                child
+                    ?.state
+                    ?.value
+                    ?.diagnostics
+                    ?.route == YPlaybackRoute.NativeTunnel
+            ) {
+                allowTunnel = false
+                pendingPositionMs = command.positionMs
+                if (command.renewProbeBudget) ensureRecoveryProbeBudget()
+                rebuild(pendingPositionMs)
+            }
+        }
+
+        private suspend fun recoverSameRoute(command: Command.RecoverSameRoute) {
+            val active = child
+            val activeState = active?.state?.value
+            if (
+                command.index == currentIndex &&
+                activeState != null &&
+                activeState.phase in
+                setOf(YPlaybackPhase.Failed, YPlaybackPhase.Ended) &&
+                activeState.diagnostics.route == command.route
+            ) {
+                pendingPositionMs = command.positionMs
+                if (command.renewProbeBudget) ensureRecoveryProbeBudget()
+                if (canRetryCore2RouteInPlace(command.route, active is AndroidNativeEnhancedYPlayer)) {
+                    // The child owns a serialized codec command queue. Reusing it
+                    // guarantees releaseMedia() finishes before the same decoder is
+                    // configured again; rebuilding here allowed the replacement
+                    // child to race the outgoing MediaCodec release on OEM devices.
+                    if (active is AndroidNativeEnhancedYPlayer) {
+                        active.retryWithProbeBudget(activeProbeBudget)
+                    } else {
+                        checkNotNull(active).retry()
+                    }
+                    // Ended/failed children may have cleared their own play intent.
+                    // Restore the router's latest user intent after serialized prepare.
+                    if (requestedPlay) active.play() else active.pause()
+                } else {
+                    rebuild(pendingPositionMs)
+                }
+            }
+        }
+
+        private suspend fun fallBackToEnhanced(command: Command.FallbackToEnhanced) {
+            val activeRoute =
+                child
+                    ?.state
+                    ?.value
+                    ?.diagnostics
+                    ?.route
+            if (
+                command.index == currentIndex &&
+                activeRoute != null &&
+                activeRoute !in
+                setOf(
+                    YPlaybackRoute.NativeEnhanced,
+                    YPlaybackRoute.GpuEnhanced,
+                    YPlaybackRoute.SoftwareFallback,
+                )
+            ) {
+                allowTunnel = false
+                forceEnhancedFallback = true
+                forceSoftwareFallback = false
+                pendingPositionMs = command.positionMs
+                if (command.renewProbeBudget) ensureRecoveryProbeBudget()
+                rebuild(pendingPositionMs)
+            }
+        }
+
+        private suspend fun fallBackToSoftware(command: Command.FallbackToSoftware) {
+            if (
+                command.index == currentIndex &&
+                child
+                    ?.state
+                    ?.value
+                    ?.diagnostics
+                    ?.route !=
+                YPlaybackRoute.SoftwareFallback
+            ) {
+                allowTunnel = false
+                forceEnhancedFallback = false
+                forceSoftwareFallback = true
+                pendingPositionMs = command.positionMs
+                if (command.renewProbeBudget) ensureRecoveryProbeBudget()
+                rebuild(pendingPositionMs)
+            }
+        }
+
+        private suspend fun retryCurrentItem() {
+            sameRouteRecoveryAttempts.keys.removeAll { it.itemIndex == currentIndex }
+            codecResetCounts.remove(currentIndex)
+            allowTunnel = true
+            forceEnhancedFallback = false
+            forceSoftwareFallback = false
+            bypassLearnedRouteMemoryOnce = true
+            pendingFailureKey = null
+            keptRouteFailure = null
+            pendingPositionMs =
+                mutableState.value
+                    .takeIf { it.currentIndex == currentIndex }
+                    ?.positionMs
+                    ?.coerceAtLeast(0L)
+                    ?: pendingPositionMs
+            val active = child
+            val activeState = active?.state?.value
+            if (
+                active != null &&
+                activeState != null &&
+                shouldRetryActiveNativeChildInPlace(
+                    nativeOnly = nativeOnly,
+                    phase = activeState.phase,
+                    route = activeState.diagnostics.route,
+                    enhancedChild = active is AndroidNativeEnhancedYPlayer,
+                )
+            ) {
+                // Runtime silent-output recovery is not a route change. Keep the
+                // active child and let its worker release, reopen and configure in
+                // strict order instead of constructing a competing codec instance.
+                if (active is AndroidNativeEnhancedYPlayer) {
+                    active.retryWithProbeBudget(activeProbeBudget)
+                } else {
+                    active.retry()
+                }
+            } else {
+                rebuild(pendingPositionMs)
             }
         }
     }
