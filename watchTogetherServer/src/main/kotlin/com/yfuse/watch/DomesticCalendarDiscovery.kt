@@ -3,7 +3,6 @@ package com.yfuse.watch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
@@ -82,33 +81,42 @@ internal object DomesticCandidateParser {
         val allowedCountries = config.originCountries.map(String::uppercase).toSet()
         val allowedLanguages = config.originalLanguages.map(String::lowercase).toSet()
         val requiredGenres = config.requiredGenreIds.toSet()
-        return results.mapNotNull { node ->
-            val item = node as? JsonObject ?: return@mapNotNull null
-            val countries = item.arrayStrings("origin_country").map(String::uppercase).toSet()
-            if (allowedCountries.isNotEmpty() && countries.intersect(allowedCountries).isEmpty()) return@mapNotNull null
-            val originalLanguage = item.string("original_language")?.lowercase()
-            if (allowedLanguages.isNotEmpty() && originalLanguage !in allowedLanguages) return@mapNotNull null
-            val genres = item.arrayInts("genre_ids").toSet()
-            if (requiredGenres.isNotEmpty() && genres.intersect(requiredGenres).isEmpty()) return@mapNotNull null
-            val id = item.int("id")?.takeIf { it > 0 } ?: return@mapNotNull null
-            val title = item.string("name")?.let(::cleanDomesticCandidateTitle) ?: return@mapNotNull null
-            if (!isPlausibleDomesticTitle(title)) return@mapNotNull null
-            val originalTitle = item.string("original_name")?.let(::cleanDomesticCandidateTitle)
-            val firstAirDate = item.string("first_air_date")?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-            val year = firstAirDate?.year ?: today.year
-            if (year !in 1900..(today.year + 1)) return@mapNotNull null
-            DomesticShowCandidate(
-                title = title,
-                year = year,
-                tmdbId = id,
-                posterPath = item.string("poster_path"),
-                aliases = listOfNotNull(title, originalTitle).distinctBy(::normalizeTitle),
-                discoveryWeight =
-                    ((item.double("popularity") ?: 0.0) * 10.0)
-                        .toInt()
-                        .coerceIn(0, 1_000),
-            )
-        }.distinctBy(DomesticShowCandidate::tmdbId)
+        return results
+            .mapNotNull { node ->
+                val item = node as? JsonObject ?: return@mapNotNull null
+                val countries = item.arrayStrings("origin_country").map(String::uppercase).toSet()
+                if (allowedCountries.isNotEmpty() &&
+                    countries.intersect(allowedCountries).isEmpty()
+                ) {
+                    return@mapNotNull null
+                }
+                val originalLanguage = item.string("original_language")?.lowercase()
+                if (allowedLanguages.isNotEmpty() && originalLanguage !in allowedLanguages) return@mapNotNull null
+                val genres = item.arrayInts("genre_ids").toSet()
+                if (requiredGenres.isNotEmpty() && genres.intersect(requiredGenres).isEmpty()) return@mapNotNull null
+                val id = item.int("id")?.takeIf { it > 0 } ?: return@mapNotNull null
+                val title = item.string("name")?.let(::cleanDomesticCandidateTitle) ?: return@mapNotNull null
+                if (!isPlausibleDomesticTitle(title)) return@mapNotNull null
+                val originalTitle = item.string("original_name")?.let(::cleanDomesticCandidateTitle)
+                val firstAirDate =
+                    item
+                        .string(
+                            "first_air_date",
+                        )?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                val year = firstAirDate?.year ?: today.year
+                if (year !in 1900..(today.year + 1)) return@mapNotNull null
+                DomesticShowCandidate(
+                    title = title,
+                    year = year,
+                    tmdbId = id,
+                    posterPath = item.string("poster_path"),
+                    aliases = listOfNotNull(title, originalTitle).distinctBy(::normalizeTitle),
+                    discoveryWeight =
+                        ((item.double("popularity") ?: 0.0) * 10.0)
+                            .toInt()
+                            .coerceIn(0, 1_000),
+                )
+            }.distinctBy(DomesticShowCandidate::tmdbId)
             .sortedWith(
                 compareByDescending<DomesticShowCandidate>(DomesticShowCandidate::discoveryWeight)
                     .thenBy(DomesticShowCandidate::title),
@@ -127,22 +135,28 @@ internal object DomesticCandidateParser {
             ?.forEach { match -> match.groupValues.getOrNull(1)?.let(titles::add) }
 
         PLATFORM_CATALOG_JSON_TITLE_REGEX.findAll(body).forEach { match ->
-            match.groupValues.getOrNull(1)?.decodePlatformEscapes()?.let(titles::add)
+            match.groupValues
+                .getOrNull(1)
+                ?.decodePlatformEscapes()
+                ?.let(titles::add)
         }
         PLATFORM_CATALOG_ANCHOR_REGEX.findAll(body).forEach { match ->
             val attributes = match.groupValues[1] + " " + match.groupValues[3]
-            PLATFORM_CATALOG_ATTRIBUTE_TITLE_REGEX.find(attributes)
+            PLATFORM_CATALOG_ATTRIBUTE_TITLE_REGEX
+                .find(attributes)
                 ?.groupValues
                 ?.getOrNull(1)
                 ?.let(titles::add)
-            PLATFORM_CATALOG_IMAGE_ALT_REGEX.find(match.groupValues[4])
+            PLATFORM_CATALOG_IMAGE_ALT_REGEX
+                .find(match.groupValues[4])
                 ?.groupValues
                 ?.getOrNull(1)
                 ?.let(titles::add)
             htmlToCatalogText(match.groupValues[4]).takeIf { it.length <= 80 }?.let(titles::add)
         }
 
-        return titles.asSequence()
+        return titles
+            .asSequence()
             .map(String::decodePlatformEscapes)
             .map(::cleanDomesticCandidateTitle)
             .filter(::isPlausibleDomesticTitle)
@@ -175,13 +189,19 @@ internal fun mergeDomesticCandidates(
                     matching.firstOrNull { it.tmdbId != null }
                         ?: matching.maxBy(DomesticShowCandidate::discoveryWeight)
                 preferred.copy(
-                    posterPath = preferred.posterPath ?: matching.firstNotNullOfOrNull(DomesticShowCandidate::posterPath),
+                    posterPath =
+                        preferred.posterPath ?: matching.firstNotNullOfOrNull(DomesticShowCandidate::posterPath),
                     aliases =
-                        matching.flatMap { it.aliases + it.title }
+                        matching
+                            .flatMap { it.aliases + it.title }
                             .filter(String::isNotBlank)
                             .distinctBy(::normalizeTitle),
                     platforms = matching.flatMap(DomesticShowCandidate::platforms).distinct(),
-                    accessTier = matching.firstOrNull { it.accessTier != "Unknown" }?.accessTier ?: preferred.accessTier,
+                    accessTier =
+                        matching
+                            .firstOrNull {
+                                it.accessTier != "Unknown"
+                            }?.accessTier ?: preferred.accessTier,
                     discoveryWeight = matching.maxOf(DomesticShowCandidate::discoveryWeight),
                 )
             }
@@ -199,7 +219,8 @@ internal fun mergeDomesticCandidates(
 private fun cleanDomesticCandidateTitle(value: String): String {
     val cleaned = htmlToCatalogText(value).replace(PLATFORM_CATALOG_STATUS_PREFIX, "")
     val withoutMetadata =
-        PLATFORM_CATALOG_METADATA_MARKER.find(cleaned)
+        PLATFORM_CATALOG_METADATA_MARKER
+            .find(cleaned)
             ?.let { cleaned.substring(0, it.range.first) }
             ?: cleaned
     return withoutMetadata
@@ -225,21 +246,30 @@ private fun htmlToCatalogText(value: String): String =
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
         .replace(Regex("""&#(\d+);""")) { match ->
-            match.groupValues[1].toIntOrNull()?.toChar()?.toString().orEmpty()
+            match.groupValues[1]
+                .toIntOrNull()
+                ?.toChar()
+                ?.toString()
+                .orEmpty()
         }.replace(Regex("\\s+"), " ")
         .trim()
 
 private fun String.decodePlatformEscapes(): String =
     replace("\\/", "/")
         .replace(Regex("\\\\u([0-9a-fA-F]{4})")) { match ->
-            match.groupValues[1].toInt(16).toChar().toString()
+            match.groupValues[1]
+                .toInt(16)
+                .toChar()
+                .toString()
         }
 
 private fun JsonObject.string(key: String): String? =
     this[key]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)
 
 private fun JsonObject.int(key: String): Int? = this[key]?.jsonPrimitive?.intOrNull
+
 private fun JsonObject.double(key: String): Double? = this[key]?.jsonPrimitive?.doubleOrNull
+
 private fun JsonObject.arrayStrings(key: String): List<String> =
     (this[key] as? JsonArray).orEmpty().mapNotNull { it.jsonPrimitive.contentOrNull }
 
@@ -259,7 +289,10 @@ private val PLATFORM_CATALOG_IMAGE_ALT_REGEX =
 private val PLATFORM_CATALOG_STATUS_PREFIX =
     Regex("^(?:(?:独播|VIP|会员|限免|热播|新上线|预告|预约|首播|HOT|NEW)\\s*)+", RegexOption.IGNORE_CASE)
 private val PLATFORM_CATALOG_STATUS_SUFFIX =
-    Regex("(?:独播|VIP|会员|限免|HOT|NEW|预告|预约|更新至?第?\\d{1,3}[集期话]?|\\d{1,3}[集期话]全|全\\d{1,3}[集期话])+$", RegexOption.IGNORE_CASE)
+    Regex(
+        "(?:独播|VIP|会员|限免|HOT|NEW|预告|预约|更新至?第?\\d{1,3}[集期话]?|\\d{1,3}[集期话]全|全\\d{1,3}[集期话])+$",
+        RegexOption.IGNORE_CASE,
+    )
 private val PLATFORM_CATALOG_METADATA_MARKER =
     Regex("(?:热度|评分|上线时间|更新状态|简介|演职员|主演|立即播放)[:：]?")
 private val PLATFORM_CATALOG_NAVIGATION_WORDS =

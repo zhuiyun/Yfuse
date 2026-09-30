@@ -88,7 +88,7 @@ internal class EmbyQuickConnectGateway(
                         return@gatewayCall QuickConnectPollResult.Expired
                     }
                     if (failure.response.status.isUnsupported()) {
-                        return@gatewayCall QuickConnectPollResult.Rejected(QuickConnectUnsupportedMessage)
+                        return@gatewayCall QuickConnectPollResult.Rejected(QUICK_CONNECT_UNSUPPORTED_MESSAGE)
                     }
                     throw failure
                 }

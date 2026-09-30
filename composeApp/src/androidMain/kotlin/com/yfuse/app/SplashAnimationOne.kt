@@ -21,24 +21,24 @@ internal object SplashOne : SplashChoreography {
         mark: ImageBitmap?,
     ) {
         mark ?: return
-        withSheen(span(nowMs, SheenStartMs, SheenMs)) {
-            drawStreak(easeOutExpo(span(nowMs, StreakStartMs, StreakMs)))
+        withSheen(span(nowMs, SHEEN_START_MS, SHEEN_MS)) {
+            drawStreak(easeOutExpo(span(nowMs, STREAK_START_MS, STREAK_MS)))
             drawUnfoldingMark(
                 mark = mark,
-                unfold = easeOutBack(span(nowMs, 0f, UnfoldMs)),
-                alpha = easeOutCubic(span(nowMs, 0f, FadeInMs)),
+                unfold = easeOutBack(span(nowMs, 0f, UNFOLD_MS)),
+                alpha = easeOutCubic(span(nowMs, 0f, FADE_IN_MS)),
             )
         }
     }
 
-    override fun wordmark(nowMs: Float) = easeOutCubic(span(nowMs, WordmarkStartMs, WordmarkMs))
+    override fun wordmark(nowMs: Float) = easeOutCubic(span(nowMs, WORDMARK_START_MS, WORDMARK_MS))
 }
 
-private const val FadeInMs = 170f
-private const val UnfoldMs = 680f
-private const val StreakStartMs = 210f
-private const val StreakMs = 310f
-private const val SheenStartMs = 620f
-private const val SheenMs = 520f
-private const val WordmarkStartMs = 575f
-private const val WordmarkMs = 365f
+private const val FADE_IN_MS = 170f
+private const val UNFOLD_MS = 680f
+private const val STREAK_START_MS = 210f
+private const val STREAK_MS = 310f
+private const val SHEEN_START_MS = 620f
+private const val SHEEN_MS = 520f
+private const val WORDMARK_START_MS = 575f
+private const val WORDMARK_MS = 365f

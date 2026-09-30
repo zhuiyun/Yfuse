@@ -11,7 +11,7 @@ class LoopingCarouselTest {
 
         assertEquals(0, loopingCarouselItemIndex(page, itemCount = 5))
         assertTrue(page > 5)
-        assertTrue(page < LoopingCarouselPageCount - 5)
+        assertTrue(page < LOOPING_CAROUSEL_PAGE_COUNT - 5)
     }
 
     @Test
