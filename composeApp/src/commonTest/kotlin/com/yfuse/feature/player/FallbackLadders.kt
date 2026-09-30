@@ -92,10 +92,11 @@ internal object ConvergedFallbackLadders : FallbackLadders {
         item: PlayerMediaItem?,
     ) = PlaybackFallbackLadder.progressiveStreamStep(sets.rung, item)
 
+    // ExoVideoEngine.advanceFallback is switchToTranscode() without a reason.
     override fun exoAfterTransportFailure(
         sets: StreamSets,
         item: PlayerMediaItem?,
-    ) = PlaybackFallbackLadder.exoStreamStepAfterTransportFailure(sets.rung, item)
+    ) = PlaybackFallbackLadder.nextExoStreamStep(sets.rung, item, reason = null)
 
     // mpv and MDK give up on a missing entry before they ask the ladder.
     override fun mpvNext(

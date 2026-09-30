@@ -1835,16 +1835,12 @@ class ExoVideoEngine(
         return true
     }
 
-    private fun advanceFallback(): Boolean {
-        val index = player.currentMediaItemIndex
-        val item = items.getOrNull(index)
-        return takeStreamStep(
-            index,
-            item,
-            reason = null,
-            PlaybackFallbackLadder.exoStreamStepAfterTransportFailure(streamRung(index), item),
-        )
-    }
+    /**
+     * After a transport failure Exo no longer retries: the next step of the ladder, like any other
+     * failure. It used to fall through to the MP4 when that step was refused, which asked a server
+     * that had not approved transcoding for a transcode it would refuse.
+     */
+    private fun advanceFallback(): Boolean = switchToTranscode()
 
     private fun scheduleRetry(
         index: Int,
