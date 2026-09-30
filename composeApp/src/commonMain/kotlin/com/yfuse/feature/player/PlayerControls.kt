@@ -1,12 +1,5 @@
 package com.yfuse.feature.player
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -37,7 +30,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
@@ -48,28 +40,22 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.DragAxis
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.LocalTips
-import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.rememberScreenReaderActive
 import com.yfuse.tv.player.TvPlayerChromeCommandType
 import com.yfuse.tv.player.TvPlayerChromeLayer
 import com.yfuse.tv.player.TvPlayerChromePanel
-import com.yfuse.tv.player.TvPlayerPrompt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
-import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Controls fade out after this long without interaction, while playing. */
-private const val MAX_ERROR_ALTERNATIVES = 3
 private const val AUTO_HIDE_MS = 5_000L
 private const val CHAT_PREVIEW_MS = 4_000L
 private const val GESTURE_HUD_MS = 1_600L
@@ -90,8 +76,6 @@ private const val MANUAL_SKIP_STANDALONE_MS = 6_000L
  * has already been answered by the time the sound changes.
  */
 private const val VOLUME_SLIDER_HIDE_MS = 1_600L
-
-private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
 
 /**
  * What a just-picked track is called, for the acknowledgement HUD.
@@ -183,7 +167,9 @@ internal fun PlayerControls(
     val skipActions = transportActions.skip
     val currentSystemGestureTop by rememberUpdatedState(picture.systemGestureTopPx)
     val latestExtras by rememberUpdatedState(host.extras)
-    val state by rememberPlayerControlSnapshot(playback)
+    // Held as State as well, for the layers below: they read it where the controls do.
+    val controlState = rememberPlayerControlSnapshot(playback)
+    val state by controlState
     // What the chrome has up and open; see [PlayerChromeState].
     val chrome = remember { PlayerChromeState() }
     var ambientChromeCount by remember { mutableIntStateOf(0) }
@@ -795,18 +781,20 @@ internal fun PlayerControls(
     // 片尾接管下一集: the credits draw the picture into a corner with the next episode beside it.
     // Not the guest's to take, not a cast's, not under the lock or an automatic skip's countdown.
     var creditsTakeoverDismissed by remember(state.currentIndex) { mutableStateOf(false) }
-    val creditsPhase by rememberCreditsTakeoverPhase(
-        playback = playback,
-        credits = skip.credits,
-        blocked =
-            creditsTakeoverDismissed ||
-                nextUpDismissed ||
-                watchLocked ||
-                cast.deviceId != null ||
-                chrome.locked ||
-                skip.countdownSeconds != null ||
-                gestureState.scanning,
-    )
+    val creditsPhaseState =
+        rememberCreditsTakeoverPhase(
+            playback = playback,
+            credits = skip.credits,
+            blocked =
+                creditsTakeoverDismissed ||
+                    nextUpDismissed ||
+                    watchLocked ||
+                    cast.deviceId != null ||
+                    chrome.locked ||
+                    skip.countdownSeconds != null ||
+                    gestureState.scanning,
+        )
+    val creditsPhase by creditsPhaseState
     val creditsTakeover = creditsPhase != CreditsTakeoverPhase.Off
     val latestOnCreditsTakeover by rememberUpdatedState(transportActions.onCreditsTakeover)
     LaunchedEffect(creditsTakeover) { latestOnCreditsTakeover(creditsTakeover) }
@@ -818,9 +806,10 @@ internal fun PlayerControls(
     // so OK over the picture plays the next episode and Back stays with the credits. Written through
     // the latest closures: the dismissals are remembered per episode, and a collector that outlives
     // one episode must not write the last one's.
-    val nextUpCardShowing by remember(playback, nextUpDismissed) {
-        derivedStateOf { nextUpCardVisible(playback.value, nextUpDismissed) }
-    }
+    val nextUpCardShowing =
+        remember(playback, nextUpDismissed) {
+            derivedStateOf { nextUpCardVisible(playback.value, nextUpDismissed) }
+        }
     val latestPlayNextFromRemote by rememberUpdatedState { transportActions.onNextItem() }
     val latestKeepCreditsFromRemote by rememberUpdatedState<() -> Unit> {
         if (creditsPhase == CreditsTakeoverPhase.Card) {
@@ -1199,154 +1188,37 @@ internal fun PlayerControls(
                 )
 
                 // Top-level actions (投屏/更多) live with the title; media navigation stays below.
-                ChromeVisibility(
-                    visible = chrome.visible,
-                    edge = ChromeEdge.Top,
-                    modifier = Modifier.align(Alignment.TopCenter),
-                ) {
-                    DisposableEffect(Unit) {
-                        ambientPresenceChanged(true)
-                        onDispose { ambientPresenceChanged(false) }
-                    }
-                    val readout by remember(playback, source.sourceLabel, source.containerLabel) {
-                        derivedStateOf { playback.value.readoutLine(source.sourceLabel, source.containerLabel) }
-                    }
-                    RefinedTopBar(
-                        title =
-                            transport.episodes
-                                .getOrNull(state.currentIndex)
-                                ?.title
-                                .orEmpty(),
-                        subtitle = readout,
-                        scaleMode = picture.scaleMode,
-                        dolbyVision = source.dolbyVision,
-                        dolbyAtmos = source.dolbyAtmos,
-                        onBack = host.onBack,
-                        onEnterPictureInPicture = host.onEnterPictureInPicture,
-                        onToggleFill = { stretch ->
-                            chrome.poke()
-                            pictureActions.onToggleFill(stretch)
-                        },
-                        onOpenCast = { chrome.openSettingsPanel(SettingsPanelKind.Cast) },
-                        onOpenMore = { chrome.openSettingsPanel(SettingsPanelKind.More) },
-                        ambientLight = picture.ambientLight,
-                        castActive = cast.active,
-                        watchConnected = watch.connected,
-                        unreadChat =
-                            watch.chatMessages.lastOrNull()?.id?.let { latest ->
-                                chrome.lastReadChatId?.let { latest > it } ?: true
-                            } ?: false,
-                        onOpenChat = { chrome.openWatchChat(watch.chatMessages) },
-                        extras = host.extras,
-                        onKeyActivity = chrome::poke,
-                    )
-                }
+                PlayerTopChrome(
+                    chrome = chrome,
+                    playback = playback,
+                    controlState = controlState,
+                    transport = transport,
+                    picture = picture,
+                    pictureActions = pictureActions,
+                    source = source,
+                    cast = cast,
+                    watch = watch,
+                    host = host,
+                    onAmbientPresence = ambientPresenceChanged,
+                )
 
-                ChromeVisibility(
-                    visible = chrome.visible,
-                    edge = ChromeEdge.Bottom,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                ) {
-                    DisposableEffect(Unit) {
-                        ambientPresenceChanged(true)
-                        onDispose {
-                            ambientPresenceChanged(false)
-                            // A rail taken away mid-drag reports no end of its own.
-                            gestureState.endScrub()
-                        }
-                    }
-                    PlaybackTimelineContent(playback) { timelineState ->
-                        val remoteSeek = remoteChromeState?.seekTargetMs?.takeIf { remoteChromeState.seeking }
-                        RefinedBottomBar(
-                            state =
-                                timelineState.transportState().let { transport ->
-                                    remoteSeek?.let { target ->
-                                        transport.copy(
-                                            positionMs =
-                                                if (transport.durationMs >
-                                                    0L
-                                                ) {
-                                                    target.coerceIn(0L, transport.durationMs)
-                                                } else {
-                                                    target.coerceAtLeast(0L)
-                                                },
-                                        )
-                                    } ?: transport
-                                },
-                            seekLocked = watchLocked,
-                            onPlayPause = {
-                                chrome.poke()
-                                transportActions.onPlayPause()
-                            },
-                            onPrevious = {
-                                chrome.poke()
-                                transportActions.onPreviousItem()
-                            },
-                            onNext = {
-                                chrome.poke()
-                                transportActions.onNextItem()
-                            },
-                            onSeek = {
-                                chrome.poke()
-                                transportActions.onSeek(it)
-                            },
-                            onScrub = {
-                                // Every touch sample lands here. `interactions` is read by this
-                                // whole control tree and keys two effects, so bumping it per sample
-                                // rebuilt ~2,300 lines of chrome each frame of a drag. The hide timer
-                                // already waits on `scrubbing`, and the release pokes it afresh.
-                                if (gestureState.scrub()) chrome.interactions++
-                            },
-                            onScrubEnd = {
-                                gestureState.endScrub()
-                                chrome.poke()
-                            },
-                            trickplay = transport.trickplay,
-                            progressMarkers =
-                                remember(
-                                    skip.introStartSeconds,
-                                    skip.introEndSeconds,
-                                    skip.creditsLeadSeconds,
-                                    state.durationMs,
-                                    transport.chapters,
-                                ) {
-                                    playbackProgressMarkers(
-                                        skip,
-                                        state.durationMs,
-                                        transport.chapters.asProgressChapters(),
-                                    )
-                                },
-                            hasEpisodes = state.itemCount > 1,
-                            onOpenEpisodes = {
-                                transportActions.onRefreshEpisodes()
-                                chrome.openEpisodeDrawer()
-                            },
-                            hasMultipleSources = source.sourceOptions.size > 1,
-                            onOpenSources = { chrome.openQuickPopup(QuickPopup.Source) },
-                            onOpenSubtitles = {
-                                chrome.openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Subtitle)
-                            },
-                            onOpenAudio = {
-                                chrome.openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Audio)
-                            },
-                            onOpenSpeed = { chrome.openQuickPopup(QuickPopup.Speed) },
-                            skipSettingsAvailable = skip.seriesName != null,
-                            onOpenSkipSettings = { chrome.openSettingsPanel(SettingsPanelKind.Skip) },
-                            danmakuEnabled = danmaku.panel.enabled,
-                            onToggleDanmaku = danmakuActions.onToggle,
-                            onOpenDanmaku = { chrome.openSettingsPanel(SettingsPanelKind.Danmaku) },
-                            // 进度条跟随作品取色: the series poster, or the episode still without one.
-                            artworkUrl =
-                                transport.episodes.getOrNull(state.currentIndex)?.let { it.posterUrl ?: it.stillUrl },
-                            artworkIdentity = state.currentIndex,
-                            ambientLight = picture.ambientLight,
-                            danmakuHeat = danmaku.heat,
-                            onSeekBackwardLongPress = { rewindMissedLine() },
-                            playKeyModifier =
-                                if (remoteChrome != null) Modifier.focusRequester(playKeyFocus) else Modifier,
-                        )
-                    }
-                }
+                PlayerBottomChrome(
+                    chrome = chrome,
+                    gestureState = gestureState,
+                    playback = playback,
+                    controlState = controlState,
+                    remoteChromeState = remoteChromeState,
+                    watchLocked = watchLocked,
+                    transport = transport,
+                    transportActions = transportActions,
+                    picture = picture,
+                    source = source,
+                    danmaku = danmaku,
+                    danmakuActions = danmakuActions,
+                    onMissedLine = { rewindMissedLine() },
+                    playKeyModifier = if (remoteChrome != null) Modifier.focusRequester(playKeyFocus) else Modifier,
+                    onAmbientPresence = ambientPresenceChanged,
+                )
 
                 // 锁定 without the trip into 更多: the left edge's key, up with the rest of the chrome.
                 // Touch screens only — a remote sends no stray touches for a lock to keep out.
@@ -1357,434 +1229,64 @@ internal fun PlayerControls(
                     PlayerLockKey(locked = false, onClick = chrome::lockScreen)
                 }
 
-                // 回到 12:34: a scan that ran past its mark is one tap from where it set out.
-                val lastScanUndo = remember { arrayOf("") }
-                gestureState.scanUndoMs?.let { lastScanUndo[0] = "回到 ${it.asClock()}" }
-                ChromeVisibility(
-                    visible = gestureState.scanUndoMs != null,
-                    edge = ChromeEdge.Bottom,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp),
-                ) {
-                    SkipPill(
-                        label = lastScanUndo[0],
-                        onClick = {
-                            gestureState.takeScanUndo()?.let { origin ->
-                                latestOnSeek(origin)
-                                chrome.poke()
-                            }
-                        },
-                    )
-                }
+                PlayerSkipPrompts(
+                    chrome = chrome,
+                    gestureState = gestureState,
+                    skip = skip,
+                    skipActions = skipActions,
+                    onSeek = { latestOnSeek(it) },
+                    hintProgress = hintProgress,
+                    remoteChrome = remoteChrome,
+                    segmentJustEntered = skipSegmentJustEntered,
+                    creditsTakeover = creditsTakeover,
+                    errorMessage = errorMessage,
+                    nextUpCardShowing = nextUpCardShowing,
+                    creditsPhase = creditsPhaseState,
+                )
 
-                // Auto-skip is a small floating status chip. It is intentionally outside BottomBar's
-                // Column so the progress rail never moves when the countdown appears or disappears.
-                val lastAutoSkip = remember { arrayOf("", "") }
-                skip.countdownSeconds?.let {
-                    lastAutoSkip[0] = skipCountdownLabel(skip.segmentLabel, it, remote = remoteChrome != null)
-                    lastAutoSkip[1] = skipCountdownAnnouncement(skip.segmentLabel)
-                }
-                ChromeVisibility(
-                    visible = skip.countdownSeconds != null,
-                    edge = ChromeEdge.Bottom,
-                    modifier =
-                        Modifier
-                            .align(Alignment.BottomEnd)
-                            .playerHintOffset(hintProgress, (-60).dp)
-                            .padding(end = 22.dp, bottom = 24.dp),
-                ) {
-                    CompactAutoSkipPill(
-                        label = lastAutoSkip[0],
-                        announcement = lastAutoSkip[1],
-                        onCancel = {
-                            if (skip.countdownSeconds != null) {
-                                chrome.poke()
-                                skipActions.onCancelAuto()
-                            }
-                        },
-                    )
-                }
-                val lastSkipLabel = remember { arrayOf("") }
-                skip.segmentLabel?.let { lastSkipLabel[0] = it }
-                val manualSkip =
-                    shouldShowManualSkipPill(
-                        segmentLabel = skip.segmentLabel,
-                        countdownSeconds = skip.countdownSeconds,
-                        controlsVisible = chrome.visible,
-                        segmentJustEntered = skipSegmentJustEntered,
-                    ) &&
-                        !creditsTakeover
-                ChromeVisibility(
-                    visible = manualSkip,
-                    edge = ChromeEdge.Bottom,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 92.dp),
-                ) {
-                    SkipPill(
-                        label = lastSkipLabel[0],
-                        onClick = {
-                            if (manualSkip) {
-                                chrome.poke()
-                                skipActions.onSkip()
-                            }
-                        },
-                    )
-                }
-                // A remote cannot reach the skip pills or the end-of-episode cards while the controls
-                // are down, so OK over the picture acts on whichever is showing (TvRemoteInputController
-                // reads this). A skip speaks first: it is the more urgent of the two.
-                val remotePrompt =
-                    when {
-                        chrome.locked || errorMessage != null -> null
-                        manualSkip || skip.countdownSeconds != null -> TvPlayerPrompt.Skip
-                        nextUpCardShowing || creditsPhase == CreditsTakeoverPhase.Card -> TvPlayerPrompt.NextUp
-                        else -> null
-                    }
-                DisposableEffect(remoteChrome, remotePrompt) {
-                    remoteChrome?.publishPrompt(remotePrompt)
-                    onDispose { remoteChrome?.publishPrompt(null) }
-                }
-                // Said beside the card, since nothing on it can take focus to say it.
-                ChromeVisibility(
-                    visible = remoteChrome != null && remotePrompt == TvPlayerPrompt.NextUp && !chrome.visible,
-                    edge = ChromeEdge.End,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 60.dp),
-                ) {
-                    Text(
-                        "按确定播放下一集 · 按返回看完片尾",
-                        style = AppTypography.caption.medium,
-                        color = Color.White.copy(alpha = 0.72f),
-                    )
-                }
+                PlayerSettingsLayers(
+                    chrome = chrome,
+                    playback = playback,
+                    controlState = controlState,
+                    gestureState = gestureState,
+                    watchLocked = watchLocked,
+                    transport = transport,
+                    transportActions = transportActions,
+                    picture = picture,
+                    pictureActions = pictureActions,
+                    tracks = tracks,
+                    trackActions = trackActions,
+                    source = source,
+                    sourceActions = sourceActions,
+                    panels = panels,
+                    panelActions = panelActions,
+                    cast = cast,
+                    castActions = castActions,
+                    danmaku = danmaku,
+                    danmakuActions = danmakuActions,
+                    watch = watch,
+                    reduceMotion = reduceMotion,
+                    onEndSubtitlePeek = { endSubtitlePeek(null) },
+                )
 
-                // Every playback function popup uses the same bottom-right anchor. Content may be
-                // shorter or taller, but switching buttons never makes the surface jump position.
-                val functionPopupModifier =
-                    Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 18.dp, bottom = 70.dp)
+                PlayerWatchLayers(
+                    chrome = chrome,
+                    watch = watch,
+                    room = room,
+                    closeWatchChat = closeWatchChat,
+                    hintProgress = hintProgress,
+                )
 
-                // The popovers and drawers below play their own way in and out; the presence only
-                // keeps them composed while they do.
-                PanelPresence(chrome.settingsPanelKind, modifier = Modifier.fillMaxSize()) { kind ->
-                    BackOverlay(
-                        onBack = { chrome.settingsPanelKind = null },
-                        enabled = chrome.settingsPanelKind != null,
-                    ) {
-                        SettingsPanel(
-                            modifier = functionPopupModifier,
-                            kind = kind,
-                            // The projection for everything the panel lists, and the live state
-                            // for the two pages that genuinely read a clock. Handing the whole
-                            // panel `playback.value` put twenty-five lines of diagnostics
-                            // formatting, and every list around them, on the position tick.
-                            state = state,
-                            playback = playback,
-                            containerLabel = source.containerLabel,
-                            engineOptions = source.engineOptions,
-                            transcodeLabel = source.transcodeLabel,
-                            transcodeActive = source.transcodeActive,
-                            castDevices = cast.devices,
-                            castingDeviceId = cast.deviceId,
-                            castDiscovering = cast.discovering,
-                            castError = cast.error,
-                            castStatus = cast.status,
-                            castPosition = cast.position,
-                            castPositionSource = cast.positionSource,
-                            castCapabilities = cast.capabilities,
-                            danmaku = danmaku.panel,
-                            danmakuActions = danmakuActions,
-                            onOpenDanmakuSearch = {
-                                chrome.settingsPanelKind = null
-                                danmakuActions.onOpenSearch()
-                                chrome.danmakuSearchOpen = true
-                            },
-                            onOpenDanmakuSend = {
-                                chrome.settingsPanelKind = null
-                                chrome.danmakuSendOpen = true
-                            },
-                            // Picking a track closes the panel, which used to be the only sign
-                            // anything had happened — and the picture behind it rarely says so
-                            // within the second. The HUD the gestures already use answers it.
-                            onSelectSubtitle = { id ->
-                                // A pick is the viewer's own: 没听清 steps aside without putting anything back.
-                                endSubtitlePeek(null)
-                                trackActions.onSelectSubtitle(id)
-                                gestureState.say("字幕 · ${trackLabel(state.subtitleTracks, id)}")
-                                chrome.settingsPanelKind = null
-                            },
-                            subtitleControls = tracks.subtitles,
-                            subtitleActions = trackActions.subtitles,
-                            bookmarks = panels.bookmarks,
-                            bookmarkActions =
-                                panelActions.bookmarks.copy(onSeek = { position ->
-                                    if (watchLocked) {
-                                        gestureState.say("房主控制播放")
-                                    } else {
-                                        transportActions.onSeek(
-                                            position.coerceIn(0L, state.durationMs.coerceAtLeast(0L)),
-                                        )
-                                        chrome.settingsPanelKind = null
-                                    }
-                                }),
-                            remoteSubtitles = tracks.remoteSubtitles,
-                            remoteSubtitleActions = trackActions.remoteSubtitles,
-                            audioControls = tracks.audio,
-                            audioActions = trackActions.audio,
-                            onSelectAudio = { id ->
-                                trackActions.onSelectAudio(id)
-                                gestureState.say("音轨 · ${trackLabel(state.audioTracks, id)}")
-                                chrome.settingsPanelKind = null
-                            },
-                            sleepTimer = panels.sleepTimer,
-                            sleepTimerActions = panelActions.sleepTimer,
-                            onSelectEngine = {
-                                sourceActions.onSelectEngine(it)
-                                chrome.settingsPanelKind = null
-                            },
-                            onTranscode = {
-                                sourceActions.onTranscode()
-                                chrome.settingsPanelKind = null
-                            },
-                            onResetAdaptiveLearning = {
-                                sourceActions.onResetAdaptiveLearning()
-                                chrome.settingsPanelKind = null
-                            },
-                            onNextDiscTitle = sourceActions.onNextDiscTitle,
-                            onNextDiscChapter = sourceActions.onNextDiscChapter,
-                            onShowDiscMenu = sourceActions.onShowDiscMenu,
-                            onExternalPlayer = sourceActions.onExternalPlayer,
-                            onDiscoverCast = castActions.onDiscover,
-                            onCastTo = castActions.onCastTo,
-                            onStopCast = castActions.onStop,
-                            onLock = chrome::lockScreen,
-                            onOpenGestureHelp = {
-                                chrome.settingsPanelKind = null
-                                chrome.gestureHelpOpen = true
-                            },
-                            watch = watch,
-                            onOpenWatchTogether = {
-                                chrome.settingsPanelKind = null
-                                chrome.watchDialogOpen = true
-                            },
-                            versions = source.versions,
-                            selectedVersionId = source.selectedVersionId,
-                            onSelectVersion = {
-                                sourceActions.onSelectVersion(it)
-                                chrome.settingsPanelKind = null
-                            },
-                            skip = skip,
-                            // The panel stays open: setting a boundary is something you check against
-                            // the picture behind it, and often two of the three in one visit.
-                            skipActions = skipActions,
-                            trackPanelMode = chrome.trackPanelMode,
-                            ambientLightEnabled = picture.ambientLightEnabled,
-                            onToggleAmbientLight = pictureActions.onToggleAmbientLight,
-                            onDismiss = { chrome.settingsPanelKind = null },
-                        )
-                    }
-                }
-
-                PanelPresence(chrome.quickPopup, modifier = Modifier.fillMaxSize()) { popup ->
-                    BackOverlay(onBack = { chrome.quickPopup = null }, enabled = chrome.quickPopup != null) {
-                        // 线路 and 倍速 share this anchor and this shell, so going from one to the
-                        // other is a change of contents rather than of surface: the panel stays
-                        // where it is and settles into the new list's height instead of being
-                        // replaced by a differently-sized one in a single frame.
-                        AnimatedContent(
-                            targetState = popup,
-                            contentKey = { it },
-                            transitionSpec = {
-                                val duration = if (reduceMotion) 0 else Motion.STATE_HANDOFF
-                                (
-                                    fadeIn(tween(duration, easing = Motion.Curve)) togetherWith
-                                        fadeOut(tween(duration, easing = Motion.Curve))
-                                ).using(
-                                    SizeTransform(clip = false) { _, _ ->
-                                        if (reduceMotion) snap() else Motion.settle()
-                                    },
-                                )
-                            },
-                            contentAlignment = Alignment.BottomEnd,
-                            modifier = functionPopupModifier,
-                            label = "player-quick-popup",
-                        ) { current ->
-                            when (current) {
-                                QuickPopup.Source ->
-                                    SourcePickerPopup(
-                                        options = source.sourceOptions,
-                                        selectedId = source.selectedSourceId,
-                                        onSelect = {
-                                            sourceActions.onSelectSource(it)
-                                            chrome.quickPopup = null
-                                        },
-                                        onDismiss = { chrome.quickPopup = null },
-                                    )
-
-                                QuickPopup.Speed ->
-                                    SpeedPickerPopup(
-                                        speeds = SPEEDS,
-                                        selectedSpeed = state.speed,
-                                        onSelect = {
-                                            transportActions.onSpeed(it)
-                                            chrome.quickPopup = null
-                                        },
-                                        onDismiss = { chrome.quickPopup = null },
-                                    )
-                            }
-                        }
-                    }
-                }
-
-                if (chrome.gestureHelpOpen) {
-                    PlayerGestureHelpOverlay(
-                        onDismiss = { chrome.gestureHelpOpen = false },
-                        gestures = picture.gestures,
-                    )
-                }
-
-                if (chrome.watchDialogOpen) {
-                    WatchTogetherDialog(
-                        endpoint = watch.endpoint,
-                        connecting = watch.connecting,
-                        connected = watch.connected,
-                        roomCode = watch.roomCode,
-                        isHost = watch.isHost,
-                        canControl = watch.canControl,
-                        controlMode = watch.controlMode,
-                        participantCount = watch.participantCount,
-                        participants = watch.participants,
-                        error = watch.error,
-                        controlRequested = watch.controlRequested,
-                        onCreate = room.onCreate,
-                        onJoin = room.onJoin,
-                        onLeave = {
-                            room.onLeave()
-                            chrome.watchDialogOpen = false
-                        },
-                        onRequestControl = room.onRequestControl,
-                        onSetControlMode = room.onSetControlMode,
-                        onSetModerator = room.onSetModerator,
-                        onKickParticipant = room.onKickParticipant,
-                        onDismiss = { chrome.watchDialogOpen = false },
-                    )
-                }
-
-                PanelPresence(
-                    Unit.takeIf { chrome.watchChatOpen && watch.connected },
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    BackOverlay(
-                        onBack = closeWatchChat,
-                        enabled = chrome.watchChatOpen,
-                    ) {
-                        WatchChatPanel(
-                            participants = watch.participants,
-                            messages = watch.chatMessages,
-                            error = watch.chatError,
-                            sendingEnabled = !watch.reconnecting,
-                            danmakuEnabled = watch.chatDanmakuEnabled,
-                            onSend = room.onSendChat,
-                            onRetry = room.onRetryChat,
-                            onClearError = room.onClearChatError,
-                            onToggleDanmaku = room.onToggleChatDanmaku,
-                            onDismiss = closeWatchChat,
-                            modifier = Modifier.align(Alignment.CenterEnd),
-                        )
-                    }
-                }
-
-                // The preview is what the panel replaces, so it is gated on the panel being shut
-                // rather than chained to it — an `else` here would have torn the preview down on the
-                // frame the panel started opening, before either had moved.
-                ChromeVisibility(
-                    visible = !chrome.watchChatOpen && chrome.chatPreviewVisible && watch.chatMessages.isNotEmpty(),
-                    edge = ChromeEdge.Top,
-                    modifier =
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .playerHintOffset(hintProgress, 52.dp)
-                            .padding(top = 18.dp, end = 22.dp),
-                ) {
-                    WatchChatPreview(
-                        messages = watch.chatMessages,
-                        onOpen = { chrome.openWatchChat(watch.chatMessages) },
-                    )
-                }
-
-                // Outside `watchDialogOpen` on purpose: a request arrives when the asker taps, not
-                // when the host happens to have the room dialog open, and an unanswered one leaves
-                // that person waiting on a prompt nobody ever sees.
-                watch.controlRequesterName?.let { requester ->
-                    ControlRequestDialog(
-                        requesterName = requester,
-                        onGrant = room.onGrantControl,
-                        // Dismissing is an answer too. Closing without one would leave the asker
-                        // waiting indefinitely, which is what `denyControl` exists to avoid.
-                        onDeny = room.onDenyControl,
-                    )
-                }
-
-                ChromeVisibility(
-                    visible = chrome.drawerOpen,
-                    edge = ChromeEdge.Bottom,
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    BackOverlay(
-                        enabled = chrome.drawerOpen,
-                        onBack = { chrome.drawerOpen = false },
-                    ) {
-                        EpisodeStrip(
-                            episodes = transport.episodes,
-                            currentIndex = state.currentIndex,
-                            onSelect =
-                                if (watchLocked) {
-                                    // Guests can still browse what's in the room's queue; picking is the
-                                    // host's move, so tapping explains itself instead of doing nothing.
-                                    { gestureState.say("房主控制播放") }
-                                } else {
-                                    {
-                                        transportActions.onSelectItem(it)
-                                        chrome.drawerOpen = false
-                                    }
-                                },
-                            onDismiss = { chrome.drawerOpen = false },
-                            modifier = Modifier.align(Alignment.BottomCenter),
-                        )
-                    }
-                }
-
-                PanelPresence(Unit.takeIf { chrome.danmakuSearchOpen }, modifier = Modifier.fillMaxSize()) {
-                    BackOverlay(
-                        enabled = chrome.danmakuSearchOpen,
-                        onBack = { chrome.danmakuSearchOpen = false },
-                    ) {
-                        DanmakuSearchPanel(
-                            state = danmaku.panel,
-                            // Picking closes the sheet: the choice is made, and the result of it is
-                            // the 弹幕 now running over the picture the sheet is covering.
-                            actions =
-                                danmakuActions.copy(
-                                    onPickEpisode = {
-                                        danmakuActions.onPickEpisode(it)
-                                        chrome.danmakuSearchOpen = false
-                                    },
-                                ),
-                            onDismiss = { chrome.danmakuSearchOpen = false },
-                            modifier = Modifier.align(Alignment.CenterEnd),
-                        )
-                    }
-                }
-
-                if (chrome.danmakuSendOpen) {
-                    DanmakuSendDialog(
-                        sending = danmaku.panel.sending,
-                        error = danmaku.panel.sendError,
-                        onSend = {
-                            danmakuActions.onSend(it)
-                            chrome.danmakuSendOpen = false
-                        },
-                        onDismiss = { chrome.danmakuSendOpen = false },
-                    )
-                }
+                PlayerSheetLayers(
+                    chrome = chrome,
+                    controlState = controlState,
+                    gestureState = gestureState,
+                    watchLocked = watchLocked,
+                    transport = transport,
+                    transportActions = transportActions,
+                    danmaku = danmaku,
+                    danmakuActions = danmakuActions,
+                )
 
                 ChromeVisibility(
                     visible = watch.connected && chrome.visible,
@@ -1799,239 +1301,55 @@ internal fun PlayerControls(
                     )
                 }
 
-                // Standing, like the paused key: the picture is on another screen whether or not the
-                // controls are up. It rides below the title bar while that is shown.
-                val lastCastStatus = remember { arrayOf("") }
-                cast.status?.let { lastCastStatus[0] = it }
-                ChromeVisibility(
-                    visible = cast.active && cast.status != null,
-                    edge = ChromeEdge.Top,
-                    modifier =
-                        Modifier
-                            .align(Alignment.TopStart)
-                            .playerHintOffset(hintProgress, 56.dp)
-                            .padding(start = 22.dp, top = 18.dp),
-                ) {
-                    CastSessionPill(
-                        status = lastCastStatus[0],
-                        onOpen = { chrome.openSettingsPanel(SettingsPanelKind.Cast) },
-                        onDisconnect = {
-                            chrome.poke()
-                            castActions.onStop()
-                        },
-                        announce = cast.error != null,
-                    )
-                }
+                PlayerCastPill(
+                    chrome = chrome,
+                    cast = cast,
+                    castActions = castActions,
+                    hintProgress = hintProgress,
+                )
 
-                val stoppedAtItemEnd by remember(playback) {
-                    derivedStateOf { playbackStoppedAtItemEnd(playback.value) }
-                }
-
-                /**
-                 * Paused, with one tap back into playback.
-                 *
-                 * A double tap in the middle of the frame pauses, and the controls it raised fade a
-                 * few seconds later — leaving a still frame with nothing on it to say the film is
-                 * paused rather than stalled, and no way back that does not start with a tap to bring
-                 * the controls round again. This outlives the control overlay for that reason.
-                 *
-                 * Not while buffering: `playing` is false throughout startup and every seek, and a
-                 * resume button over a frame that is already coming back is a lie. Not once the item
-                 * has ended or stopped at its end either — the ending's keys below own that moment,
-                 * and "paused" would be the wrong word for it.
-                 *
-                 * A guest whose room is driven by its host still needs to be told the film is paused,
-                 * so the key is drawn for them too — dimmed and inert, since the tap would only be
-                 * refused. That is the whole difference between the two states, which is why it is
-                 * one control and not two: the pair that used to cover this drew a 28dp 暂停 badge
-                 * underneath a translucent 64dp 播放 disc, so both were on screen at once and the
-                 * smaller one showed through the larger.
-                 */
-                val showPausedKey =
-                    !state.playing &&
-                        !state.buffering &&
-                        !state.ended &&
-                        state.error == null &&
-                        !stoppedAtItemEnd
-                // Beneath the 继续播放 key, so that key still resumes. Any other touch, and Back, bring
-                // the chrome up, which is what they were for; the layer leaves with the pause it needs.
-                PauseInfoLayer(
-                    shown = pauseInfoShown,
+                PlayerPictureStatus(
+                    chrome = chrome,
+                    gestureState = gestureState,
                     playback = playback,
-                    chapters = transport.chapters,
-                    onDismiss = chrome::poke,
-                    modifier = Modifier.align(Alignment.CenterStart).padding(start = 28.dp),
-                )
-                /**
-                 * The end of an item that did not roll on into the next one, where nothing used to be.
-                 *
-                 * A film, the last entry in a series, or an episode that stopped at its end because
-                 * 自动播放下一集 is off (or 取消 or the sleep timer said so). The picture stops on its
-                 * final frame with no controls, nothing saying the episode is over rather than
-                 * stalled, and no way on that does not start with a tap to summon the chrome. Keys at
-                 * the same size and in the same place as 继续播放, because it is the same question —
-                 * what happens if I touch this — asked one moment later; 下一集 leads when there is one.
-                 *
-                 * 重播 runs the ending's split backwards before its keys go, and they stay up for that.
-                 */
-                var endingFlowsBack by remember { mutableStateOf(false) }
-                val showEndedKeys = stoppedAtItemEnd || endingFlowsBack
-                PlayerCenterKeys(
-                    showPausedKey = showPausedKey,
-                    showEndedKeys = showEndedKeys,
+                    controlState = controlState,
+                    pulseItemStart = pulseItemStart,
+                    pauseInfoShown = pauseInfoShown,
                     watchLocked = watchLocked,
-                    hasNext = state.hasNext,
-                    onResume = {
-                        transportActions.onPlayPause()
-                        chrome.poke()
-                    },
-                    onNext = {
-                        chrome.poke()
-                        transportActions.onNextItem()
-                    },
-                    onReplay = {
-                        if (playback.value.ended) {
-                            // Back to the first frame, and playing again: the engine reports
-                            // the ended item as paused, so the seek alone would leave it
-                            // standing on frame one.
-                            latestOnSeek(0L)
-                            if (!playback.value.playing) transportActions.onPlayPause()
-                        } else {
-                            // Parked on the last frame instead of ended: resuming would run
-                            // into the next item before the seek landed, so the item is
-                            // started again from the top.
-                            transportActions.onSelectItem(state.currentIndex)
-                        }
-                        chrome.poke()
-                    },
-                    onBack = host.onBack,
-                    onHold = { endingFlowsBack = it },
-                )
-
-                // Taught once each, while their gesture is in reach; see [PlayerGestureTips].
-                PlayerGestureTips(
-                    chromeUp = chrome.visible && remoteChrome == null && !chrome.locked,
-                    seekable = state.durationMs > 0L && !watchLocked,
                     speedBoostable = !watch.connected && cast.deviceId == null,
-                    subtitlesAvailable = state.subtitleTracks.isNotEmpty(),
-                    danmakuShowing = danmaku.panel.enabled && danmaku.panel.count > 0,
-                    fineScrubArmed = gestureState.fineScrubArmed,
-                    gestures = picture.gestures,
+                    remoteChrome = remoteChrome,
+                    remoteChromeState = remoteChromeState,
+                    transport = transport,
+                    transportActions = transportActions,
+                    onSeek = { latestOnSeek(it) },
+                    onBack = host.onBack,
+                    picture = picture,
+                    pictureActions = pictureActions,
+                    danmaku = danmaku,
                 )
 
-                // Where the title bar sits — it has stepped aside for the hold — and clear of the
-                // subtitles at the bottom and the gesture HUD in the middle.
-                SpeedBoostPill(
-                    gear = gestureState.boostGear,
-                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
-                )
-
-                // 全程缩略图: the frame a swipe across the picture, or a held side, has got to — or,
-                // on a television, a held fast-forward or rewind on the remote.
-                PictureScrubPreview(
-                    storyboard = transport.trickplay,
-                    positionMs = { remoteChromeState?.holdPreviewMs ?: gestureState.previewMs },
-                    chapters = transport.chapters,
-                    modifier = Modifier.align(Alignment.Center),
-                )
-
-                // Suppressed while the resume button occupies the same spot: the double tap that
-                // pauses would otherwise stack "暂停" directly on top of it.
-                PlayerGestureHud(
-                    hud = { gestureState.hud },
-                    suppressed = showPausedKey || showEndedKeys,
-                    modifier = Modifier.align(Alignment.Center),
-                )
-
-                SeekBurstFeedback(
-                    gestureState.pulseRevision - pulseItemStart,
-                    gestureState.pulsePosition,
-                    state.currentIndex,
-                )
-                ChromeVisibility(
-                    visible = chrome.volumeSliderVisible,
-                    edge = ChromeEdge.End,
-                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 26.dp),
-                ) {
-                    VolumeSlider(
-                        volume = picture.volume,
-                        onVolume = { target ->
-                            chrome.volumeSliderTouches++
-                            pictureActions.onVolume(target)
-                        },
-                        modifier = Modifier,
-                    )
-                }
-
-                // Where the ordinary card appears, which takes over from this one for the last seconds.
-                ChromeVisibility(
-                    visible = creditsPhase == CreditsTakeoverPhase.Card,
-                    edge = ChromeEdge.End,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 96.dp),
-                ) {
-                    CreditsTakeoverCard(
-                        title =
-                            transport.episodes
-                                .getOrNull(state.currentIndex + 1)
-                                ?.title
-                                .orEmpty(),
-                        // The picture comes back and the credits play on; the ordinary card still
-                        // counts down at the very end.
-                        onWatchCredits = { creditsTakeoverDismissed = true },
-                        onPlayNext = {
-                            if (creditsPhase == CreditsTakeoverPhase.Card) {
-                                chrome.poke()
-                                transportActions.onNextItem()
-                            }
-                        },
-                    )
-                }
-
-                PlayerNextUpOverlay(
-                    playback,
-                    transport.episodes,
-                    nextUpDismissed,
-                    onPlayNow = {
-                        chrome.poke()
-                        transportActions.onNextItem()
-                    },
-                    onDismiss = {
-                        chrome.poke()
-                        nextUpDismissed = true
-                        transportActions.onDismissNextUp()
-                    },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 96.dp),
-                    autoAdvance = transport.autoNext,
+                PlayerEndOfItemCards(
+                    chrome = chrome,
+                    playback = playback,
+                    controlState = controlState,
+                    creditsPhase = creditsPhaseState,
+                    nextUpDismissed = nextUpDismissed,
+                    transport = transport,
+                    transportActions = transportActions,
+                    onWatchCredits = { creditsTakeoverDismissed = true },
+                    onNextUpDismissed = { nextUpDismissed = true },
                 )
             }
         }
 
         // Last in the box, so it covers the chrome on its way out rather than fading in under it.
-        var showProblem by remember { mutableStateOf(false) }
-        if (showProblem) PlaybackProblemDialog(playback = playback, onDismiss = { showProblem = false })
-        ChromeContent(errorMessage, modifier = Modifier.fillMaxSize(), coversScreen = true) { message ->
-            val otherVersions =
-                source.versions
-                    .filter { (id, _) -> id != source.selectedVersionId }
-                    .take(MAX_ERROR_ALTERNATIVES)
-                    .map { (id, label) -> "版本 · $label" to { sourceActions.onSelectVersion(id) } }
-            // One strategy on offer (a native-only package) is no alternative to itself, whichever
-            // row happens to be marked: reloading it replays the same path into the same failure.
-            val otherEngines =
-                source.engineOptions
-                    .takeIf { it.size > 1 }
-                    .orEmpty()
-                    .mapIndexedNotNull { index, (label, selected) ->
-                        if (selected) null else label to { sourceActions.onSelectEngine(index) }
-                    }.take(MAX_ERROR_ALTERNATIVES)
-            PlaybackErrorOverlay(
-                message = message,
-                onRetry = transportActions.onRetry,
-                onExternalPlayer = sourceActions.onExternalPlayer,
-                onBack = host.onBack,
-                alternatives = otherVersions + otherEngines,
-                onExplain = { showProblem = true },
-            )
-        }
+        PlayerErrorLayer(
+            errorMessage = errorMessage,
+            playback = playback,
+            source = source,
+            sourceActions = sourceActions,
+            onRetry = transportActions.onRetry,
+            onBack = host.onBack,
+        )
     }
 }
