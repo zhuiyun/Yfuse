@@ -168,12 +168,7 @@ internal fun PlaybackDiagnostics.withMdkPlaybackEvidence(evidence: MdkPlaybackEv
             evidence.audioDecoder.takeIf(String::isNotBlank)?.let {
                 "$it 已解码 · 音频输出链路未验证"
             } ?: "MDK 未提供可验证的音频输出状态",
-        videoReadiness =
-            if (evidence.firstVideoFrameRendered) {
-                PlaybackOutputReadiness.Rendering
-            } else {
-                PlaybackOutputReadiness.Waiting
-            },
+        videoReadiness = PlaybackRenderEvidence.readiness(evidence.firstVideoFrameRendered),
         audioReadiness = PlaybackOutputReadiness.Unknown,
         // A rendered Dolby source frame does not prove that the Android EGL/display chain
         // remained Dolby Vision rather than mapping it to another range.
@@ -186,24 +181,14 @@ internal fun PlaybackDiagnostics.withMdkPlaybackEvidence(evidence: MdkPlaybackEv
         avSyncMeasurement = "MDK 0.37 未提供可验证的渲染/音频时钟对",
         outputEvidence =
             outputEvidence.copy(
-                videoReadiness =
-                    if (evidence.firstVideoFrameRendered) {
-                        PlaybackOutputReadiness.Rendering
-                    } else {
-                        PlaybackOutputReadiness.Waiting
-                    },
+                videoReadiness = PlaybackRenderEvidence.readiness(evidence.firstVideoFrameRendered),
                 audioReadiness = PlaybackOutputReadiness.Unknown,
-                videoConfidence =
-                    if (evidence.firstVideoFrameRendered) {
-                        PlaybackEvidenceConfidence.Confirmed
-                    } else {
-                        PlaybackEvidenceConfidence.Requested
-                    },
+                videoConfidence = PlaybackRenderEvidence.confidence(evidence.firstVideoFrameRendered),
                 audioConfidence = PlaybackEvidenceConfidence.Unknown,
                 videoDecoder = evidence.videoDecoder,
                 audioDecoder = evidence.audioDecoder,
                 videoCodecProfile = codecLabel,
-                bitDepth = evidence.pixelFormat.mdkPixelFormatBitDepth(),
+                bitDepth = evidence.pixelFormat.pixelFormatBitDepth(),
                 inputDynamicRange = activeRange,
                 // MDK exposes source color and first-frame events, but not the negotiated EGL
                 // display colorspace; do not promote source range into output range.
@@ -224,19 +209,6 @@ internal fun String.mdkVersionLabel(): String {
     val encoded = toIntOrNull() ?: return ""
     return "${encoded ushr 16 and 0xff}.${encoded ushr 8 and 0xff}.${encoded and 0xff}"
 }
-
-private fun String.mdkPixelFormatBitDepth(): Int =
-    lowercase().let { format ->
-        when {
-            format.isBlank() -> 0
-            format.startsWith("p016") || "p16" in format || format in setOf("rgb48", "rgba64") -> 16
-            format.startsWith("p014") || "p14" in format -> 14
-            format.startsWith("p012") || "p12" in format -> 12
-            format.startsWith("p010") || "p10" in format -> 10
-            format.startsWith("p009") || "p9" in format -> 9
-            else -> 8
-        }
-    }
 
 /** Official libmdk Android facade adapted to Yfuse's engine-neutral player contract. */
 class MdkVideoEngine(
@@ -314,10 +286,9 @@ class MdkVideoEngine(
                         videoReadiness = PlaybackOutputReadiness.Waiting,
                         audioReadiness = PlaybackOutputReadiness.Unknown,
                         outputEvidence =
-                            PlaybackOutputEvidence(
-                                sessionRevision = 1L,
-                                videoConfidence = PlaybackEvidenceConfidence.Requested,
-                                renderApi = PlaybackVideoRenderApi.OpenGl,
+                            PlaybackOutputEvidence().nextLoadAttempt(
+                                PlaybackVideoRenderApi.OpenGl,
+                                audioObservable = false,
                             ),
                     ),
             ),
@@ -611,9 +582,9 @@ class MdkVideoEngine(
                         videoReadiness = PlaybackOutputReadiness.Waiting,
                         audioReadiness = PlaybackOutputReadiness.Unknown,
                         outputEvidence =
-                            it.diagnostics.outputEvidence.nextSession().copy(
-                                videoConfidence = PlaybackEvidenceConfidence.Requested,
-                                renderApi = PlaybackVideoRenderApi.OpenGl,
+                            it.diagnostics.outputEvidence.nextLoadAttempt(
+                                PlaybackVideoRenderApi.OpenGl,
+                                audioObservable = false,
                             ),
                     ),
             )
@@ -974,24 +945,28 @@ class MdkVideoEngine(
 
     /**
      * Steps the current entry down the chain: original file, then the server's HLS
-     * transcode, then its progressive MP4. Returns false once the chain is spent, which is
-     * what tells the caller to stop retrying and report the failure.
+     * transcode, then its progressive MP4, as [PlaybackFallbackLadder.nextStreamStep] decides.
+     * Returns false once the chain is spent, which is what tells the caller to stop retrying
+     * and report the failure.
      */
     @Synchronized
     override fun switchToTranscode(reason: String?): Boolean {
         if (released) return false
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return false
-        if (index !in transcodedIndices && !item.allowsServerTranscodeFallback(reason)) return false
+        val rung =
+            PlaybackFallbackLadder.streamRung(
+                transcoded = index in transcodedIndices,
+                progressive = index in progressiveIndices,
+                progressivePending = index in progressiveTransitionIndices,
+            )
         val progressive =
-            when {
-                index in progressiveIndices -> return false
-                index in progressiveTransitionIndices -> return true
-                index in transcodedIndices -> true
-                item.transcodeUrl.isEmpty() -> true
-                else -> false
+            when (PlaybackFallbackLadder.nextStreamStep(rung, item, reason)) {
+                PlaybackStreamStep.Exhausted -> return false
+                PlaybackStreamStep.InProgress -> return true
+                PlaybackStreamStep.Transcode -> false
+                PlaybackStreamStep.Progressive -> true
             }
-        if (progressive && item.fallbackTranscodeUrl.isEmpty()) return false
         transcodedIndices += index
         val epoch = loadStateGate.beginLoad()
         // Resume where the failure happened rather than from the top; a codec the device
@@ -1031,9 +1006,9 @@ class MdkVideoEngine(
                         videoReadiness = PlaybackOutputReadiness.Waiting,
                         audioReadiness = PlaybackOutputReadiness.Unknown,
                         outputEvidence =
-                            it.diagnostics.outputEvidence.nextSession().copy(
-                                videoConfidence = PlaybackEvidenceConfidence.Requested,
-                                renderApi = PlaybackVideoRenderApi.OpenGl,
+                            it.diagnostics.outputEvidence.nextLoadAttempt(
+                                PlaybackVideoRenderApi.OpenGl,
+                                audioObservable = false,
                             ),
                         fallbackReason =
                             reason ?: if (progressive) {
