@@ -112,6 +112,7 @@ import com.yfuse.core.util.isoShortDate
 import com.yfuse.core.util.isoWeekdayLabel
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.core.util.shiftIsoDate
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -150,9 +151,14 @@ fun CalendarScreen(component: CalendarComponent) {
     var dialogSeriesDays by remember { mutableStateOf<List<CalendarDay>?>(null) }
     var dialogRefreshing by remember { mutableStateOf(false) }
     val dialogScope = rememberCoroutineScope()
+    // The open sheet's 刷新. It answers for one show, so it goes when that sheet does: left to land
+    // later, it wrote its show's schedule under the next show's sheet, which found nothing of its
+    // own there and vanished.
+    var dialogRefresh by remember { mutableStateOf<Job?>(null) }
     var filtersExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(dialogEntry?.episode?.showTmdbId) {
+        dialogRefresh?.cancel()
         val entry = dialogEntry ?: return@LaunchedEffect
         dialogSeriesDays = null
         dialogRefreshing = true
@@ -406,15 +412,22 @@ fun CalendarScreen(component: CalendarComponent) {
                     component.setReminder(entry.episode.showTmdbId, mode, minutes)
                 },
                 onRefresh = {
-                    dialogScope.launch {
-                        dialogRefreshing = true
-                        component.seriesCalendar(entry, forceRefresh = true).onSuccess { loaded ->
-                            if (loaded.isNotEmpty()) dialogSeriesDays = loaded
+                    dialogRefresh?.cancel()
+                    dialogRefresh =
+                        dialogScope.launch {
+                            dialogRefreshing = true
+                            val refreshed = component.seriesCalendar(entry, forceRefresh = true)
+                            // Cancelled with its sheet, and checked as well: only that show's sheet
+                            // may take the answer, or put its spinner away.
+                            if (dialogEntry?.episode?.showTmdbId != entry.episode.showTmdbId) return@launch
+                            refreshed.onSuccess { loaded ->
+                                if (loaded.isNotEmpty()) dialogSeriesDays = loaded
+                            }
+                            dialogRefreshing = false
                         }
-                        dialogRefreshing = false
-                    }
                 },
                 onDismiss = {
+                    dialogRefresh?.cancel()
                     dialogEntry = null
                     dialogSeriesDays = null
                 },

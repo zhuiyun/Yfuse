@@ -23,10 +23,12 @@ actual fun SplashPreview(
     val choreography = remember(variant) { variant.choreography }
     val clock = remember(variant) { Animatable(0f) }
     val visible = LocalRouteVisible.current
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // Held wherever the launch it stands for is: under 减少动画, which carries the system's
+    // 移除动画 too, and under 静息.
+    val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
 
-    LaunchedEffect(variant, playing, visible, reduceMotion) {
-        if (!playing || !visible || reduceMotion) {
+    LaunchedEffect(variant, playing, visible, still) {
+        if (!playing || !visible || still) {
             // Park on the resolved mark rather than an empty frame.
             clock.snapTo(choreography.fadeStartMs)
             return@LaunchedEffect
@@ -45,7 +47,7 @@ actual fun SplashPreview(
     // The clock is read inside the draw lambda, so looping this in a settings list costs
     // recomposition nothing.
     val mark = variant.markResource()?.let { ImageBitmap.imageResource(it) }
-    val lightCount = rememberPhaseLightCount(playing && visible && !reduceMotion, enhancedOnly = true)
+    val lightCount = rememberPhaseLightCount(playing && visible && !still, enhancedOnly = true)
     Canvas(modifier) {
         with(choreography) { drawMark(clock.value, mark) }
         drawPhaseLight(
