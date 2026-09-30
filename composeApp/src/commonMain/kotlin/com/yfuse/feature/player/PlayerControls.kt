@@ -93,12 +93,6 @@ private const val VOLUME_SLIDER_HIDE_MS = 1_600L
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
 
-/** Single-purpose popups opened by their own playback-page buttons. */
-private enum class QuickPopup {
-    Source,
-    Speed,
-}
-
 /**
  * What a just-picked track is called, for the acknowledgement HUD.
  *
@@ -190,7 +184,8 @@ internal fun PlayerControls(
     val currentSystemGestureTop by rememberUpdatedState(picture.systemGestureTopPx)
     val latestExtras by rememberUpdatedState(host.extras)
     val state by rememberPlayerControlSnapshot(playback)
-    var visible by remember { mutableStateOf(true) }
+    // What the chrome has up and open; see [PlayerChromeState].
+    val chrome = remember { PlayerChromeState() }
     var ambientChromeCount by remember { mutableIntStateOf(0) }
     val latestAmbientVisibility by rememberUpdatedState(pictureActions.onAmbientChromeVisibleChange)
     val ambientPresenceChanged =
@@ -202,27 +197,7 @@ internal fun PlayerControls(
     DisposableEffect(Unit) {
         onDispose { latestAmbientVisibility(false) }
     }
-    val hintProgress = rememberPlayerHintProgress(visible)
-    var locked by remember { mutableStateOf(false) }
-    // The lock's own chrome — the circle and 长按解锁 — comes up for a moment after locking and after
-    // each touch on the picture, then leaves it alone. [lockedRevealRevision] restarts that moment.
-    var lockedControlsVisible by remember { mutableStateOf(false) }
-    var lockedRevealRevision by remember { mutableIntStateOf(0) }
-    // Someone has tried to act through the lock: the circle says how to undo it until it fades.
-    var lockedExplained by remember { mutableStateOf(false) }
-    var settingsPanelKind by remember { mutableStateOf<SettingsPanelKind?>(null) }
-    var trackPanelMode by remember { mutableStateOf(TrackPanelMode.Subtitle) }
-    var quickPopup by remember { mutableStateOf<QuickPopup?>(null) }
-    var drawerOpen by remember { mutableStateOf(false) }
-    var gestureHelpOpen by remember { mutableStateOf(false) }
-    var watchDialogOpen by remember { mutableStateOf(false) }
-    var watchChatOpen by remember { mutableStateOf(false) }
-    var chatPreviewVisible by remember { mutableStateOf(false) }
-    var previewRoomCode by remember { mutableStateOf<String?>(null) }
-    var lastPreviewedChatId by remember { mutableStateOf<Long?>(null) }
-    var lastReadChatId by remember { mutableStateOf<Long?>(null) }
-    var danmakuSearchOpen by remember { mutableStateOf(false) }
-    var danmakuSendOpen by remember { mutableStateOf(false) }
+    val hintProgress = rememberPlayerHintProgress(chrome.visible)
     // 键盘快捷键 on a phone, tablet or Chromebook; TV's remote has its own controller.
     val keyboardShortcuts = host.hardwareKeyboard && remoteChrome == null
     val keyboardAnchor = remember { FocusRequester() }
@@ -251,8 +226,6 @@ internal fun PlayerControls(
     // From Android 10 the recommended timeout only follows 操作时长, so TalkBack users still lost
     // the controls after five seconds — and a hidden chrome is not something a spoken cursor finds.
     val screenReaderActive = rememberScreenReaderActive()
-    // Bumped by every interaction so the auto-hide timer restarts.
-    var interactions by remember { mutableIntStateOf(0) }
     val latestPosition by remember(playback) { derivedStateOf { playback.value.positionMs } }
     val latestDuration by rememberUpdatedState(state.durationMs)
     val latestVolume by rememberUpdatedState(picture.volume)
@@ -284,8 +257,8 @@ internal fun PlayerControls(
 
     LaunchedEffect(watch.available) {
         if (!watch.available) {
-            watchDialogOpen = false
-            watchChatOpen = false
+            chrome.watchDialogOpen = false
+            chrome.watchChatOpen = false
         }
     }
 
@@ -320,21 +293,16 @@ internal fun PlayerControls(
             )
         }
 
-    fun poke() {
-        interactions++
-        visible = true
-    }
-
     /** Why a hold may not speed playback up at this moment; null when it may. */
     fun currentSpeedBoostRefusal(): SpeedBoostRefusal? =
         speedBoostRefusal(
             panelOpen =
-                watchChatOpen ||
-                    danmakuSendOpen ||
-                    danmakuSearchOpen ||
-                    quickPopup != null ||
-                    settingsPanelKind != null ||
-                    drawerOpen,
+                chrome.watchChatOpen ||
+                    chrome.danmakuSendOpen ||
+                    chrome.danmakuSearchOpen ||
+                    chrome.quickPopup != null ||
+                    chrome.settingsPanelKind != null ||
+                    chrome.drawerOpen,
             watchGuest = latestWatchLocked,
             watchRoom = latestWatchConnected,
             casting = latestCasting,
@@ -357,7 +325,7 @@ internal fun PlayerControls(
         }
         latestOnSpeedBoost(gestureState.startBoost(originX))
         // The point of holding is to watch: the chrome steps aside and only the pill stays up.
-        visible = false
+        chrome.visible = false
         haptics.play(HapticSignal.Confirm)
         tips?.markUsed(Tips.PLAYER_CENTER_HOLD)
         return true
@@ -399,7 +367,7 @@ internal fun PlayerControls(
         plan.peek?.takeIf { subtitlePeek == null }?.let(trackActions.onPeekSubtitle)
         subtitlePeek = plan.peek
         gestureState.say(plan.message)
-        poke()
+        chrome.poke()
     }
 
     /** The player as a key press finds it; read at the press, never kept. */
@@ -448,101 +416,31 @@ internal fun PlayerControls(
         }
     }
 
-    fun revealLock(explain: Boolean) {
-        if (explain) lockedExplained = true
-        lockedRevealRevision++
-    }
-
     // A double tap, a hold, a tap on 长按解锁 or the back gesture while locked: refused out loud,
     // and the way out shown instead of the thing asked for.
     fun refuseWhileLocked() {
         haptics.play(HapticSignal.Reject)
-        revealLock(explain = true)
-    }
-
-    fun openWatchChat() {
-        settingsPanelKind = null
-        quickPopup = null
-        drawerOpen = false
-        danmakuSearchOpen = false
-        danmakuSendOpen = false
-        watchDialogOpen = false
-        watchChatOpen = true
-        lastReadChatId = watch.chatMessages.lastOrNull()?.id
-        chatPreviewVisible = false
-        poke()
-    }
-
-    fun openSettingsPanel(
-        kind: SettingsPanelKind,
-        trackMode: TrackPanelMode = TrackPanelMode.Subtitle,
-    ) {
-        quickPopup = null
-        drawerOpen = false
-        watchChatOpen = false
-        danmakuSearchOpen = false
-        danmakuSendOpen = false
-        watchDialogOpen = false
-        trackPanelMode = trackMode
-        settingsPanelKind = kind
-        poke()
-    }
-
-    fun openQuickPopup(popup: QuickPopup) {
-        settingsPanelKind = null
-        drawerOpen = false
-        watchChatOpen = false
-        danmakuSearchOpen = false
-        danmakuSendOpen = false
-        watchDialogOpen = false
-        quickPopup = popup
-        poke()
-    }
-
-    fun openEpisodeDrawer() {
-        settingsPanelKind = null
-        quickPopup = null
-        watchChatOpen = false
-        danmakuSearchOpen = false
-        danmakuSendOpen = false
-        watchDialogOpen = false
-        drawerOpen = true
-        poke()
-    }
-
-    /** 锁定, from the left-edge key or from 更多: whatever was open closes under the lock. */
-    fun lockScreen() {
-        settingsPanelKind = null
-        quickPopup = null
-        drawerOpen = false
-        locked = true
-        visible = true
+        chrome.revealLock(explain = true)
     }
 
     // Also stable for the life of the panel, and for the same reason: read through the
     // transcript rather than closing over this frame's copy of it.
     val latestChatMessages by rememberUpdatedState(watch.chatMessages)
-    val closeWatchChat =
-        remember {
-            {
-                watchChatOpen = false
-                lastReadChatId = latestChatMessages.lastOrNull()?.id
-            }
-        }
+    val closeWatchChat = remember { { chrome.closeWatchChat(latestChatMessages) } }
 
     fun closeTopRemoteLayer() {
         when {
-            danmakuSendOpen -> danmakuSendOpen = false
-            danmakuSearchOpen -> danmakuSearchOpen = false
-            drawerOpen -> drawerOpen = false
+            chrome.danmakuSendOpen -> chrome.danmakuSendOpen = false
+            chrome.danmakuSearchOpen -> chrome.danmakuSearchOpen = false
+            chrome.drawerOpen -> chrome.drawerOpen = false
             watch.controlRequesterName != null -> room.onDenyControl()
-            watchChatOpen -> closeWatchChat()
-            watchDialogOpen -> watchDialogOpen = false
-            gestureHelpOpen -> gestureHelpOpen = false
-            quickPopup != null -> quickPopup = null
-            settingsPanelKind != null -> settingsPanelKind = null
-            locked -> locked = false
-            visible -> visible = false
+            chrome.watchChatOpen -> closeWatchChat()
+            chrome.watchDialogOpen -> chrome.watchDialogOpen = false
+            chrome.gestureHelpOpen -> chrome.gestureHelpOpen = false
+            chrome.quickPopup != null -> chrome.quickPopup = null
+            chrome.settingsPanelKind != null -> chrome.settingsPanelKind = null
+            chrome.locked -> chrome.locked = false
+            chrome.visible -> chrome.visible = false
         }
     }
 
@@ -551,44 +449,44 @@ internal fun PlayerControls(
             resumedFromMs = transport.resumedFromMs,
             itemIndex = state.currentIndex,
             ready = state.playing && !state.buffering && state.error == null,
-            controlsVisible = visible,
+            controlsVisible = chrome.visible,
             interrupted =
-                interactions > 0 ||
-                    locked ||
+                chrome.interactions > 0 ||
+                    chrome.locked ||
                     watchLocked ||
-                    settingsPanelKind != null ||
-                    quickPopup != null ||
-                    drawerOpen ||
-                    watchChatOpen ||
-                    danmakuSearchOpen ||
-                    danmakuSendOpen ||
-                    gestureHelpOpen ||
-                    watchDialogOpen ||
+                    chrome.settingsPanelKind != null ||
+                    chrome.quickPopup != null ||
+                    chrome.drawerOpen ||
+                    chrome.watchChatOpen ||
+                    chrome.danmakuSearchOpen ||
+                    chrome.danmakuSendOpen ||
+                    chrome.gestureHelpOpen ||
+                    chrome.watchDialogOpen ||
                     state.error != null,
         )
 
     val remotePanel =
         when {
-            danmakuSendOpen -> TvPlayerChromePanel.DanmakuSend
-            danmakuSearchOpen -> TvPlayerChromePanel.DanmakuSearch
-            drawerOpen -> TvPlayerChromePanel.Episodes
+            chrome.danmakuSendOpen -> TvPlayerChromePanel.DanmakuSend
+            chrome.danmakuSearchOpen -> TvPlayerChromePanel.DanmakuSearch
+            chrome.drawerOpen -> TvPlayerChromePanel.Episodes
             watch.controlRequesterName != null -> TvPlayerChromePanel.ControlRequest
-            watchChatOpen -> TvPlayerChromePanel.WatchChat
-            watchDialogOpen -> TvPlayerChromePanel.WatchTogether
-            gestureHelpOpen -> TvPlayerChromePanel.GestureHelp
-            quickPopup != null -> TvPlayerChromePanel.QuickPicker
-            settingsPanelKind != null -> TvPlayerChromePanel.Settings
+            chrome.watchChatOpen -> TvPlayerChromePanel.WatchChat
+            chrome.watchDialogOpen -> TvPlayerChromePanel.WatchTogether
+            chrome.gestureHelpOpen -> TvPlayerChromePanel.GestureHelp
+            chrome.quickPopup != null -> TvPlayerChromePanel.QuickPicker
+            chrome.settingsPanelKind != null -> TvPlayerChromePanel.Settings
             else -> null
         }
     val remoteLayer =
         when {
-            locked -> TvPlayerChromeLayer.Locked
+            chrome.locked -> TvPlayerChromeLayer.Locked
             remotePanel != null -> TvPlayerChromeLayer.Panel
-            visible -> TvPlayerChromeLayer.Controls
+            chrome.visible -> TvPlayerChromeLayer.Controls
             else -> TvPlayerChromeLayer.Hidden
         }
     val latestRemotePanel by rememberUpdatedState(remotePanel)
-    val latestRemoteLocked by rememberUpdatedState(locked)
+    val latestRemoteLocked by rememberUpdatedState(chrome.locked)
     val latestCloseTopRemoteLayer by rememberUpdatedState { closeTopRemoteLayer() }
     val latestSkip by rememberUpdatedState(skip)
     val latestSkipActions by rememberUpdatedState(skipActions)
@@ -596,13 +494,13 @@ internal fun PlayerControls(
     LaunchedEffect(remoteChrome) {
         remoteChrome?.commands?.collect { command ->
             when (command.type) {
-                TvPlayerChromeCommandType.ShowControls -> poke()
+                TvPlayerChromeCommandType.ShowControls -> chrome.poke()
                 TvPlayerChromeCommandType.HideControls -> {
-                    if (latestRemotePanel == null && !latestRemoteLocked) visible = false
+                    if (latestRemotePanel == null && !latestRemoteLocked) chrome.visible = false
                 }
                 TvPlayerChromeCommandType.CloseTop -> latestCloseTopRemoteLayer()
-                TvPlayerChromeCommandType.OpenTracks -> openSettingsPanel(SettingsPanelKind.Tracks)
-                TvPlayerChromeCommandType.OpenInfo -> openSettingsPanel(SettingsPanelKind.More)
+                TvPlayerChromeCommandType.OpenTracks -> chrome.openSettingsPanel(SettingsPanelKind.Tracks)
+                TvPlayerChromeCommandType.OpenInfo -> chrome.openSettingsPanel(SettingsPanelKind.More)
                 // What a tap on the pill does, without the tap's reveal: OK over the picture means
                 // "get on with the film", not "show me the controls".
                 TvPlayerChromeCommandType.ActivateSkipPrompt -> {
@@ -654,35 +552,35 @@ internal fun PlayerControls(
     }
 
     LaunchedEffect(
-        visible,
-        locked,
-        settingsPanelKind,
-        quickPopup,
-        drawerOpen,
-        danmakuSearchOpen,
-        danmakuSendOpen,
-        watchChatOpen,
+        chrome.visible,
+        chrome.locked,
+        chrome.settingsPanelKind,
+        chrome.quickPopup,
+        chrome.drawerOpen,
+        chrome.danmakuSearchOpen,
+        chrome.danmakuSendOpen,
+        chrome.watchChatOpen,
         state.playing || (state.buffering && state.positionMs > 0L),
-        interactions,
+        chrome.interactions,
         accessibilityManager,
         controlsHaveFocus,
         screenReaderActive,
         gestureState.scrubbing,
     ) {
         val overlayOpen =
-            gestureHelpOpen ||
-                settingsPanelKind != null ||
-                quickPopup != null ||
-                drawerOpen ||
-                danmakuSearchOpen ||
-                danmakuSendOpen ||
-                watchChatOpen
+            chrome.gestureHelpOpen ||
+                chrome.settingsPanelKind != null ||
+                chrome.quickPopup != null ||
+                chrome.drawerOpen ||
+                chrome.danmakuSearchOpen ||
+                chrome.danmakuSendOpen ||
+                chrome.watchChatOpen
         // Keep the hide timer stable across NativeDirect's playing <-> buffering handoff.
         // A remote Range stall is still an active playback request, not a user pause.
         // During initial startup we wait until playback has actually advanced or rendered.
         val playbackActive = state.playing || (state.buffering && state.positionMs > 0L)
         if (
-            !visible ||
+            !chrome.visible ||
             !playbackActive ||
             overlayOpen ||
             // Focus holds the controls up for a keyboard, which has no other way to keep them. A
@@ -703,7 +601,7 @@ internal fun PlayerControls(
             ) ?: AUTO_HIDE_MS
         if (timeout == Long.MAX_VALUE) return@LaunchedEffect
         delay(timeout)
-        visible = false
+        chrome.visible = false
     }
     // Watched from the coroutine rather than keyed: a drag rewrites the HUD on every move, and a key
     // read here would recompose this whole tree once a frame for as long as the finger moved. Each
@@ -726,38 +624,38 @@ internal fun PlayerControls(
     LaunchedEffect(
         watch.roomCode,
         watch.chatMessages.lastOrNull()?.id,
-        watchChatOpen,
+        chrome.watchChatOpen,
         watch.chatPreviewEnabled,
         accessibilityManager,
     ) {
         val latestId = watch.chatMessages.lastOrNull()?.id
-        if (previewRoomCode != watch.roomCode) {
-            previewRoomCode = watch.roomCode
-            lastPreviewedChatId = latestId
-            lastReadChatId = latestId
-            chatPreviewVisible = false
-            if (!watch.connected) watchChatOpen = false
+        if (chrome.previewRoomCode != watch.roomCode) {
+            chrome.previewRoomCode = watch.roomCode
+            chrome.lastPreviewedChatId = latestId
+            chrome.lastReadChatId = latestId
+            chrome.chatPreviewVisible = false
+            if (!watch.connected) chrome.watchChatOpen = false
             return@LaunchedEffect
         }
         if (!watch.connected) {
-            watchChatOpen = false
-            chatPreviewVisible = false
+            chrome.watchChatOpen = false
+            chrome.chatPreviewVisible = false
             return@LaunchedEffect
         }
         if (!watch.chatPreviewEnabled) {
-            lastPreviewedChatId = latestId
-            chatPreviewVisible = false
+            chrome.lastPreviewedChatId = latestId
+            chrome.chatPreviewVisible = false
             return@LaunchedEffect
         }
-        if (watchChatOpen) {
-            lastReadChatId = latestId
-            lastPreviewedChatId = latestId
-            chatPreviewVisible = false
+        if (chrome.watchChatOpen) {
+            chrome.lastReadChatId = latestId
+            chrome.lastPreviewedChatId = latestId
+            chrome.chatPreviewVisible = false
             return@LaunchedEffect
         }
-        if (watch.chatPreviewEnabled && latestId != null && latestId != lastPreviewedChatId) {
-            lastPreviewedChatId = latestId
-            chatPreviewVisible = true
+        if (watch.chatPreviewEnabled && latestId != null && latestId != chrome.lastPreviewedChatId) {
+            chrome.lastPreviewedChatId = latestId
+            chrome.chatPreviewVisible = true
             val timeout =
                 accessibilityManager?.calculateRecommendedTimeoutMillis(
                     originalTimeoutMillis = CHAT_PREVIEW_MS,
@@ -767,7 +665,7 @@ internal fun PlayerControls(
                 ) ?: CHAT_PREVIEW_MS
             if (timeout == Long.MAX_VALUE) return@LaunchedEffect
             delay(timeout)
-            chatPreviewVisible = false
+            chrome.chatPreviewVisible = false
         }
     }
     // A room or a cast that begins while the middle is held owns the rate from then on.
@@ -799,20 +697,20 @@ internal fun PlayerControls(
         )
     }
 
-    // The volume rocker raises the slider; touching the slider keeps it up. Counted
-    // separately from `interactions` so that tapping anywhere else on the picture doesn't
-    // silently extend an overlay the user is done with.
     // 取消 applies to this episode's credits only — the next one announces itself again.
     var nextUpDismissed by remember(state.currentIndex) { mutableStateOf(false) }
-    var volumeSliderTouches by remember { mutableIntStateOf(0) }
-    var volumeSliderVisible by remember { mutableStateOf(false) }
     LaunchedEffect(picture.volumeKeyPresses) {
         // Nothing has been pressed yet on first composition; don't flash the slider up.
         if (picture.volumeKeyPresses == 0L) return@LaunchedEffect
-        volumeSliderVisible = true
+        chrome.volumeSliderVisible = true
     }
-    LaunchedEffect(picture.volumeKeyPresses, volumeSliderTouches, volumeSliderVisible, accessibilityManager) {
-        if (!volumeSliderVisible) return@LaunchedEffect
+    LaunchedEffect(
+        picture.volumeKeyPresses,
+        chrome.volumeSliderTouches,
+        chrome.volumeSliderVisible,
+        accessibilityManager,
+    ) {
+        if (!chrome.volumeSliderVisible) return@LaunchedEffect
         val timeout =
             accessibilityManager?.calculateRecommendedTimeoutMillis(
                 originalTimeoutMillis = VOLUME_SLIDER_HIDE_MS,
@@ -822,10 +720,10 @@ internal fun PlayerControls(
             ) ?: VOLUME_SLIDER_HIDE_MS
         if (timeout == Long.MAX_VALUE) return@LaunchedEffect
         delay(timeout)
-        volumeSliderVisible = false
+        chrome.volumeSliderVisible = false
     }
     LaunchedEffect(host.wakeRequests) {
-        if (host.wakeRequests > 0) poke()
+        if (host.wakeRequests > 0) chrome.poke()
     }
     // The 回到 offer lasts a few seconds (longer under 操作时长), then the scan stands.
     LaunchedEffect(gestureState.scanUndoMs, accessibilityManager) {
@@ -859,13 +757,19 @@ internal fun PlayerControls(
         delay(timeout)
         skipSegmentJustEntered = false
     }
-    LaunchedEffect(locked, lockedRevealRevision, interactions, screenReaderActive, accessibilityManager) {
-        if (!locked) {
-            lockedControlsVisible = false
-            lockedExplained = false
+    LaunchedEffect(
+        chrome.locked,
+        chrome.lockedRevealRevision,
+        chrome.interactions,
+        screenReaderActive,
+        accessibilityManager,
+    ) {
+        if (!chrome.locked) {
+            chrome.lockedControlsVisible = false
+            chrome.lockedExplained = false
             return@LaunchedEffect
         }
-        lockedControlsVisible = true
+        chrome.lockedControlsVisible = true
         // A spoken cursor cannot find a pill that has faded, so under a screen reader it stays.
         if (screenReaderActive) return@LaunchedEffect
         val timeout =
@@ -877,13 +781,16 @@ internal fun PlayerControls(
             ) ?: LOCKED_CONTROLS_MS
         if (timeout == Long.MAX_VALUE) return@LaunchedEffect
         delay(timeout)
-        lockedControlsVisible = false
-        lockedExplained = false
+        chrome.lockedControlsVisible = false
+        chrome.lockedExplained = false
     }
     // A locked phone keeps the player: the edge swipe the lock is there to survive used to close it
     // outright. A television has no such swipe, and its Back unlocks through [closeTopRemoteLayer].
     // A failure takes the lock's place on screen, and Back is not held for a lock nobody can see.
-    PlatformBackHandler(enabled = locked && state.error == null && remoteChrome == null, onBack = ::refuseWhileLocked)
+    PlatformBackHandler(
+        enabled = chrome.locked && state.error == null && remoteChrome == null,
+        onBack = ::refuseWhileLocked,
+    )
 
     // 片尾接管下一集: the credits draw the picture into a corner with the next episode beside it.
     // Not the guest's to take, not a cast's, not under the lock or an automatic skip's countdown.
@@ -896,7 +803,7 @@ internal fun PlayerControls(
                 nextUpDismissed ||
                 watchLocked ||
                 cast.deviceId != null ||
-                locked ||
+                chrome.locked ||
                 skip.countdownSeconds != null ||
                 gestureState.scanning,
     )
@@ -942,9 +849,9 @@ internal fun PlayerControls(
             buffering = state.buffering,
             ended = state.ended,
             failed = state.error != null,
-            controlsVisible = visible,
+            controlsVisible = chrome.visible,
             overlayOpen = remotePanel != null || creditsTakeover,
-            locked = locked,
+            locked = chrome.locked,
         )
     LaunchedEffect(pauseInfoReady) {
         pauseInfoShown = false
@@ -964,7 +871,7 @@ internal fun PlayerControls(
                 }
                 // Bubbled up from whatever has focus, so a text field or the seek bar answers first.
                 keyboardShortcuts &&
-                    !locked &&
+                    !chrome.locked &&
                     remotePanel == null &&
                     state.error == null &&
                     keyboard.handle(
@@ -997,7 +904,7 @@ internal fun PlayerControls(
                 onFinished = room.onReactionFinished,
                 // Reactions rise up the bottom-right corner, which is where the chat panel
                 // opens. Left where they were they played out entirely behind it.
-                insetEnd = if (watchChatOpen) WatchChatPanelWidth + 20.dp else 26.dp,
+                insetEnd = if (chrome.watchChatOpen) WatchChatPanelWidth + 20.dp else 26.dp,
             )
         }
 
@@ -1010,7 +917,7 @@ internal fun PlayerControls(
                 .semantics {
                     contentDescription = "播放画面"
                     onClick(label = "显示播放控件") {
-                        poke()
+                        chrome.poke()
                         true
                     }
                 }
@@ -1043,7 +950,7 @@ internal fun PlayerControls(
                         onPress = {
                             // The engine follows merged held ticks; release only stops the producer.
                             tryAwaitRelease()
-                            if (gestureState.releaseScan()) poke()
+                            if (gestureState.releaseScan()) chrome.poke()
                             // 长按中间 goes back to how it found things, and leaves the chrome
                             // hidden: the hold was for watching.
                             endSpeedBoost()
@@ -1057,29 +964,29 @@ internal fun PlayerControls(
                                         allowsPlayerDrag(offset.y, currentSystemGestureTop)
                                 }
                             when {
-                                locked -> revealLock(explain = false)
-                                watchChatOpen -> watchChatOpen = false
-                                danmakuSendOpen -> danmakuSendOpen = false
-                                danmakuSearchOpen -> danmakuSearchOpen = false
-                                quickPopup != null -> quickPopup = null
-                                settingsPanelKind != null -> settingsPanelKind = null
-                                drawerOpen -> drawerOpen = false
+                                chrome.locked -> chrome.revealLock(explain = false)
+                                chrome.watchChatOpen -> chrome.watchChatOpen = false
+                                chrome.danmakuSendOpen -> chrome.danmakuSendOpen = false
+                                chrome.danmakuSearchOpen -> chrome.danmakuSearchOpen = false
+                                chrome.quickPopup != null -> chrome.quickPopup = null
+                                chrome.settingsPanelKind != null -> chrome.settingsPanelKind = null
+                                chrome.drawerOpen -> chrome.drawerOpen = false
                                 burstSide != null -> {
                                     burstSeek(burstSide, offset, taps = 1)
                                     haptics.play(HapticSignal.Confirm)
                                 }
                                 // 点弹幕 with the chrome up only: with it away, a tap always brings it up first.
-                                !locked && visible && latestExtras.onPictureTap(offset) -> {
+                                !chrome.locked && chrome.visible && latestExtras.onPictureTap(offset) -> {
                                     tips?.markUsed(Tips.PLAYER_DANMAKU_PICK)
                                 }
-                                visible -> visible = false
-                                else -> poke()
+                                chrome.visible -> chrome.visible = false
+                                else -> chrome.poke()
                             }
                         },
                         onDoubleTap = { offset ->
                             // The lock's own catcher takes the touch before it gets here; this is the
                             // floor under it, so no path through the lock can seek or pause.
-                            if (locked) {
+                            if (chrome.locked) {
                                 refuseWhileLocked()
                                 return@detectTapGestures
                             }
@@ -1105,10 +1012,10 @@ internal fun PlayerControls(
                                 }
                                 haptics.play(HapticSignal.Confirm)
                             }
-                            poke()
+                            chrome.poke()
                         },
                         onLongPress = { offset ->
-                            if (locked) {
+                            if (chrome.locked) {
                                 refuseWhileLocked()
                                 return@detectTapGestures
                             }
@@ -1148,14 +1055,14 @@ internal fun PlayerControls(
                                         }
                                     }
                             }
-                            poke()
+                            chrome.poke()
                         },
                     )
                 }.pointerInput(
                     state.currentIndex,
                 ) {
                     detectPlayerDragGestures(
-                        canStart = { origin -> !locked && allowsPlayerDrag(origin.y, currentSystemGestureTop) },
+                        canStart = { origin -> !chrome.locked && allowsPlayerDrag(origin.y, currentSystemGestureTop) },
                         onDragStart = { offset ->
                             gestureState.startDrag(offset.x, latestPosition, latestVolume(), latestBrightness())
                         },
@@ -1168,7 +1075,7 @@ internal fun PlayerControls(
                                     tips?.markUsed(Tips.PLAYER_SWIPE_SEEK)
                                 }
                                 if (gestureState.dragAxis == DragAxis.Vertical) tips?.markUsed(Tips.PLAYER_SIDE_DRAG)
-                                poke()
+                                chrome.poke()
                             }
                         },
                         onDragCancel = { gestureState.cancelDrag() },
@@ -1221,7 +1128,7 @@ internal fun PlayerControls(
                     // 捏合填充. Last on the picture on purpose: the main pass reaches it before the
                     // detectors above, so the changes it consumes are what cancel their gestures.
                     detectPinchFill(
-                        canPinch = { origin -> !locked && allowsPlayerDrag(origin.y, currentSystemGestureTop) },
+                        canPinch = { origin -> !chrome.locked && allowsPlayerDrag(origin.y, currentSystemGestureTop) },
                         filled = { latestFilled },
                         onSecondFinger = {
                             if (gestureState.secondFinger()) latestOnSpeedBoost(null)
@@ -1248,15 +1155,15 @@ internal fun PlayerControls(
         val errorMessage = state.error
 
         ChromeVisibility(
-            visible = locked && errorMessage == null,
+            visible = chrome.locked && errorMessage == null,
             modifier = Modifier.fillMaxSize(),
             coversScreen = true,
         ) {
             LockedOverlay(
-                controlsVisible = lockedControlsVisible,
+                controlsVisible = chrome.lockedControlsVisible,
                 message =
                     when {
-                        !lockedExplained -> "屏幕已锁定"
+                        !chrome.lockedExplained -> "屏幕已锁定"
                         remoteChrome != null -> "屏幕已锁定，按返回键解锁"
                         screenReaderActive -> "屏幕已锁定，请先解锁"
                         picture.gestures.unlockByLongPress -> "屏幕已锁定，长按左侧锁键解锁"
@@ -1264,18 +1171,18 @@ internal fun PlayerControls(
                     },
                 screenReaderActive = screenReaderActive,
                 unlockByLongPress = picture.gestures.unlockByLongPress,
-                onReveal = { revealLock(explain = false) },
+                onReveal = { chrome.revealLock(explain = false) },
                 onRefuse = ::refuseWhileLocked,
                 onUnlock = {
-                    if (locked) {
-                        locked = false
-                        poke()
+                    if (chrome.locked) {
+                        chrome.locked = false
+                        chrome.poke()
                     }
                 },
             )
         }
         ChromeVisibility(
-            visible = !locked && errorMessage == null,
+            visible = !chrome.locked && errorMessage == null,
             modifier = Modifier.fillMaxSize(),
             coversScreen = true,
         ) {
@@ -1293,7 +1200,7 @@ internal fun PlayerControls(
 
                 // Top-level actions (投屏/更多) live with the title; media navigation stays below.
                 ChromeVisibility(
-                    visible = visible,
+                    visible = chrome.visible,
                     edge = ChromeEdge.Top,
                     modifier = Modifier.align(Alignment.TopCenter),
                 ) {
@@ -1317,26 +1224,26 @@ internal fun PlayerControls(
                         onBack = host.onBack,
                         onEnterPictureInPicture = host.onEnterPictureInPicture,
                         onToggleFill = { stretch ->
-                            poke()
+                            chrome.poke()
                             pictureActions.onToggleFill(stretch)
                         },
-                        onOpenCast = { openSettingsPanel(SettingsPanelKind.Cast) },
-                        onOpenMore = { openSettingsPanel(SettingsPanelKind.More) },
+                        onOpenCast = { chrome.openSettingsPanel(SettingsPanelKind.Cast) },
+                        onOpenMore = { chrome.openSettingsPanel(SettingsPanelKind.More) },
                         ambientLight = picture.ambientLight,
                         castActive = cast.active,
                         watchConnected = watch.connected,
                         unreadChat =
                             watch.chatMessages.lastOrNull()?.id?.let { latest ->
-                                lastReadChatId?.let { latest > it } ?: true
+                                chrome.lastReadChatId?.let { latest > it } ?: true
                             } ?: false,
-                        onOpenChat = ::openWatchChat,
+                        onOpenChat = { chrome.openWatchChat(watch.chatMessages) },
                         extras = host.extras,
-                        onKeyActivity = ::poke,
+                        onKeyActivity = chrome::poke,
                     )
                 }
 
                 ChromeVisibility(
-                    visible = visible,
+                    visible = chrome.visible,
                     edge = ChromeEdge.Bottom,
                     modifier = Modifier.align(Alignment.BottomCenter),
                 ) {
@@ -1368,19 +1275,19 @@ internal fun PlayerControls(
                                 },
                             seekLocked = watchLocked,
                             onPlayPause = {
-                                poke()
+                                chrome.poke()
                                 transportActions.onPlayPause()
                             },
                             onPrevious = {
-                                poke()
+                                chrome.poke()
                                 transportActions.onPreviousItem()
                             },
                             onNext = {
-                                poke()
+                                chrome.poke()
                                 transportActions.onNextItem()
                             },
                             onSeek = {
-                                poke()
+                                chrome.poke()
                                 transportActions.onSeek(it)
                             },
                             onScrub = {
@@ -1388,11 +1295,11 @@ internal fun PlayerControls(
                                 // whole control tree and keys two effects, so bumping it per sample
                                 // rebuilt ~2,300 lines of chrome each frame of a drag. The hide timer
                                 // already waits on `scrubbing`, and the release pokes it afresh.
-                                if (gestureState.scrub()) interactions++
+                                if (gestureState.scrub()) chrome.interactions++
                             },
                             onScrubEnd = {
                                 gestureState.endScrub()
-                                poke()
+                                chrome.poke()
                             },
                             trickplay = transport.trickplay,
                             progressMarkers =
@@ -1412,22 +1319,22 @@ internal fun PlayerControls(
                             hasEpisodes = state.itemCount > 1,
                             onOpenEpisodes = {
                                 transportActions.onRefreshEpisodes()
-                                openEpisodeDrawer()
+                                chrome.openEpisodeDrawer()
                             },
                             hasMultipleSources = source.sourceOptions.size > 1,
-                            onOpenSources = { openQuickPopup(QuickPopup.Source) },
+                            onOpenSources = { chrome.openQuickPopup(QuickPopup.Source) },
                             onOpenSubtitles = {
-                                openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Subtitle)
+                                chrome.openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Subtitle)
                             },
                             onOpenAudio = {
-                                openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Audio)
+                                chrome.openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Audio)
                             },
-                            onOpenSpeed = { openQuickPopup(QuickPopup.Speed) },
+                            onOpenSpeed = { chrome.openQuickPopup(QuickPopup.Speed) },
                             skipSettingsAvailable = skip.seriesName != null,
-                            onOpenSkipSettings = { openSettingsPanel(SettingsPanelKind.Skip) },
+                            onOpenSkipSettings = { chrome.openSettingsPanel(SettingsPanelKind.Skip) },
                             danmakuEnabled = danmaku.panel.enabled,
                             onToggleDanmaku = danmakuActions.onToggle,
-                            onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
+                            onOpenDanmaku = { chrome.openSettingsPanel(SettingsPanelKind.Danmaku) },
                             // 进度条跟随作品取色: the series poster, or the episode still without one.
                             artworkUrl =
                                 transport.episodes.getOrNull(state.currentIndex)?.let { it.posterUrl ?: it.stillUrl },
@@ -1444,10 +1351,10 @@ internal fun PlayerControls(
                 // 锁定 without the trip into 更多: the left edge's key, up with the rest of the chrome.
                 // Touch screens only — a remote sends no stray touches for a lock to keep out.
                 ChromeVisibility(
-                    visible = visible && remoteChrome == null,
+                    visible = chrome.visible && remoteChrome == null,
                     modifier = Modifier.align(Alignment.CenterStart).padding(start = LockKeyEdgePadding),
                 ) {
-                    PlayerLockKey(locked = false, onClick = ::lockScreen)
+                    PlayerLockKey(locked = false, onClick = chrome::lockScreen)
                 }
 
                 // 回到 12:34: a scan that ran past its mark is one tap from where it set out.
@@ -1463,7 +1370,7 @@ internal fun PlayerControls(
                         onClick = {
                             gestureState.takeScanUndo()?.let { origin ->
                                 latestOnSeek(origin)
-                                poke()
+                                chrome.poke()
                             }
                         },
                     )
@@ -1490,7 +1397,7 @@ internal fun PlayerControls(
                         announcement = lastAutoSkip[1],
                         onCancel = {
                             if (skip.countdownSeconds != null) {
-                                poke()
+                                chrome.poke()
                                 skipActions.onCancelAuto()
                             }
                         },
@@ -1502,7 +1409,7 @@ internal fun PlayerControls(
                     shouldShowManualSkipPill(
                         segmentLabel = skip.segmentLabel,
                         countdownSeconds = skip.countdownSeconds,
-                        controlsVisible = visible,
+                        controlsVisible = chrome.visible,
                         segmentJustEntered = skipSegmentJustEntered,
                     ) &&
                         !creditsTakeover
@@ -1515,7 +1422,7 @@ internal fun PlayerControls(
                         label = lastSkipLabel[0],
                         onClick = {
                             if (manualSkip) {
-                                poke()
+                                chrome.poke()
                                 skipActions.onSkip()
                             }
                         },
@@ -1526,7 +1433,7 @@ internal fun PlayerControls(
                 // reads this). A skip speaks first: it is the more urgent of the two.
                 val remotePrompt =
                     when {
-                        locked || errorMessage != null -> null
+                        chrome.locked || errorMessage != null -> null
                         manualSkip || skip.countdownSeconds != null -> TvPlayerPrompt.Skip
                         nextUpCardShowing || creditsPhase == CreditsTakeoverPhase.Card -> TvPlayerPrompt.NextUp
                         else -> null
@@ -1537,7 +1444,7 @@ internal fun PlayerControls(
                 }
                 // Said beside the card, since nothing on it can take focus to say it.
                 ChromeVisibility(
-                    visible = remoteChrome != null && remotePrompt == TvPlayerPrompt.NextUp && !visible,
+                    visible = remoteChrome != null && remotePrompt == TvPlayerPrompt.NextUp && !chrome.visible,
                     edge = ChromeEdge.End,
                     modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 60.dp),
                 ) {
@@ -1557,10 +1464,10 @@ internal fun PlayerControls(
 
                 // The popovers and drawers below play their own way in and out; the presence only
                 // keeps them composed while they do.
-                PanelPresence(settingsPanelKind, modifier = Modifier.fillMaxSize()) { kind ->
+                PanelPresence(chrome.settingsPanelKind, modifier = Modifier.fillMaxSize()) { kind ->
                     BackOverlay(
-                        onBack = { settingsPanelKind = null },
-                        enabled = settingsPanelKind != null,
+                        onBack = { chrome.settingsPanelKind = null },
+                        enabled = chrome.settingsPanelKind != null,
                     ) {
                         SettingsPanel(
                             modifier = functionPopupModifier,
@@ -1586,13 +1493,13 @@ internal fun PlayerControls(
                             danmaku = danmaku.panel,
                             danmakuActions = danmakuActions,
                             onOpenDanmakuSearch = {
-                                settingsPanelKind = null
+                                chrome.settingsPanelKind = null
                                 danmakuActions.onOpenSearch()
-                                danmakuSearchOpen = true
+                                chrome.danmakuSearchOpen = true
                             },
                             onOpenDanmakuSend = {
-                                settingsPanelKind = null
-                                danmakuSendOpen = true
+                                chrome.settingsPanelKind = null
+                                chrome.danmakuSendOpen = true
                             },
                             // Picking a track closes the panel, which used to be the only sign
                             // anything had happened — and the picture behind it rarely says so
@@ -1602,7 +1509,7 @@ internal fun PlayerControls(
                                 endSubtitlePeek(null)
                                 trackActions.onSelectSubtitle(id)
                                 gestureState.say("字幕 · ${trackLabel(state.subtitleTracks, id)}")
-                                settingsPanelKind = null
+                                chrome.settingsPanelKind = null
                             },
                             subtitleControls = tracks.subtitles,
                             subtitleActions = trackActions.subtitles,
@@ -1615,7 +1522,7 @@ internal fun PlayerControls(
                                         transportActions.onSeek(
                                             position.coerceIn(0L, state.durationMs.coerceAtLeast(0L)),
                                         )
-                                        settingsPanelKind = null
+                                        chrome.settingsPanelKind = null
                                     }
                                 }),
                             remoteSubtitles = tracks.remoteSubtitles,
@@ -1625,21 +1532,21 @@ internal fun PlayerControls(
                             onSelectAudio = { id ->
                                 trackActions.onSelectAudio(id)
                                 gestureState.say("音轨 · ${trackLabel(state.audioTracks, id)}")
-                                settingsPanelKind = null
+                                chrome.settingsPanelKind = null
                             },
                             sleepTimer = panels.sleepTimer,
                             sleepTimerActions = panelActions.sleepTimer,
                             onSelectEngine = {
                                 sourceActions.onSelectEngine(it)
-                                settingsPanelKind = null
+                                chrome.settingsPanelKind = null
                             },
                             onTranscode = {
                                 sourceActions.onTranscode()
-                                settingsPanelKind = null
+                                chrome.settingsPanelKind = null
                             },
                             onResetAdaptiveLearning = {
                                 sourceActions.onResetAdaptiveLearning()
-                                settingsPanelKind = null
+                                chrome.settingsPanelKind = null
                             },
                             onNextDiscTitle = sourceActions.onNextDiscTitle,
                             onNextDiscChapter = sourceActions.onNextDiscChapter,
@@ -1648,36 +1555,36 @@ internal fun PlayerControls(
                             onDiscoverCast = castActions.onDiscover,
                             onCastTo = castActions.onCastTo,
                             onStopCast = castActions.onStop,
-                            onLock = ::lockScreen,
+                            onLock = chrome::lockScreen,
                             onOpenGestureHelp = {
-                                settingsPanelKind = null
-                                gestureHelpOpen = true
+                                chrome.settingsPanelKind = null
+                                chrome.gestureHelpOpen = true
                             },
                             watch = watch,
                             onOpenWatchTogether = {
-                                settingsPanelKind = null
-                                watchDialogOpen = true
+                                chrome.settingsPanelKind = null
+                                chrome.watchDialogOpen = true
                             },
                             versions = source.versions,
                             selectedVersionId = source.selectedVersionId,
                             onSelectVersion = {
                                 sourceActions.onSelectVersion(it)
-                                settingsPanelKind = null
+                                chrome.settingsPanelKind = null
                             },
                             skip = skip,
                             // The panel stays open: setting a boundary is something you check against
                             // the picture behind it, and often two of the three in one visit.
                             skipActions = skipActions,
-                            trackPanelMode = trackPanelMode,
+                            trackPanelMode = chrome.trackPanelMode,
                             ambientLightEnabled = picture.ambientLightEnabled,
                             onToggleAmbientLight = pictureActions.onToggleAmbientLight,
-                            onDismiss = { settingsPanelKind = null },
+                            onDismiss = { chrome.settingsPanelKind = null },
                         )
                     }
                 }
 
-                PanelPresence(quickPopup, modifier = Modifier.fillMaxSize()) { popup ->
-                    BackOverlay(onBack = { quickPopup = null }, enabled = quickPopup != null) {
+                PanelPresence(chrome.quickPopup, modifier = Modifier.fillMaxSize()) { popup ->
+                    BackOverlay(onBack = { chrome.quickPopup = null }, enabled = chrome.quickPopup != null) {
                         // 线路 and 倍速 share this anchor and this shell, so going from one to the
                         // other is a change of contents rather than of surface: the panel stays
                         // where it is and settles into the new list's height instead of being
@@ -1707,9 +1614,9 @@ internal fun PlayerControls(
                                         selectedId = source.selectedSourceId,
                                         onSelect = {
                                             sourceActions.onSelectSource(it)
-                                            quickPopup = null
+                                            chrome.quickPopup = null
                                         },
-                                        onDismiss = { quickPopup = null },
+                                        onDismiss = { chrome.quickPopup = null },
                                     )
 
                                 QuickPopup.Speed ->
@@ -1718,20 +1625,23 @@ internal fun PlayerControls(
                                         selectedSpeed = state.speed,
                                         onSelect = {
                                             transportActions.onSpeed(it)
-                                            quickPopup = null
+                                            chrome.quickPopup = null
                                         },
-                                        onDismiss = { quickPopup = null },
+                                        onDismiss = { chrome.quickPopup = null },
                                     )
                             }
                         }
                     }
                 }
 
-                if (gestureHelpOpen) {
-                    PlayerGestureHelpOverlay(onDismiss = { gestureHelpOpen = false }, gestures = picture.gestures)
+                if (chrome.gestureHelpOpen) {
+                    PlayerGestureHelpOverlay(
+                        onDismiss = { chrome.gestureHelpOpen = false },
+                        gestures = picture.gestures,
+                    )
                 }
 
-                if (watchDialogOpen) {
+                if (chrome.watchDialogOpen) {
                     WatchTogetherDialog(
                         endpoint = watch.endpoint,
                         connecting = watch.connecting,
@@ -1748,20 +1658,23 @@ internal fun PlayerControls(
                         onJoin = room.onJoin,
                         onLeave = {
                             room.onLeave()
-                            watchDialogOpen = false
+                            chrome.watchDialogOpen = false
                         },
                         onRequestControl = room.onRequestControl,
                         onSetControlMode = room.onSetControlMode,
                         onSetModerator = room.onSetModerator,
                         onKickParticipant = room.onKickParticipant,
-                        onDismiss = { watchDialogOpen = false },
+                        onDismiss = { chrome.watchDialogOpen = false },
                     )
                 }
 
-                PanelPresence(Unit.takeIf { watchChatOpen && watch.connected }, modifier = Modifier.fillMaxSize()) {
+                PanelPresence(
+                    Unit.takeIf { chrome.watchChatOpen && watch.connected },
+                    modifier = Modifier.fillMaxSize(),
+                ) {
                     BackOverlay(
                         onBack = closeWatchChat,
-                        enabled = watchChatOpen,
+                        enabled = chrome.watchChatOpen,
                     ) {
                         WatchChatPanel(
                             participants = watch.participants,
@@ -1783,7 +1696,7 @@ internal fun PlayerControls(
                 // rather than chained to it — an `else` here would have torn the preview down on the
                 // frame the panel started opening, before either had moved.
                 ChromeVisibility(
-                    visible = !watchChatOpen && chatPreviewVisible && watch.chatMessages.isNotEmpty(),
+                    visible = !chrome.watchChatOpen && chrome.chatPreviewVisible && watch.chatMessages.isNotEmpty(),
                     edge = ChromeEdge.Top,
                     modifier =
                         Modifier
@@ -1793,7 +1706,7 @@ internal fun PlayerControls(
                 ) {
                     WatchChatPreview(
                         messages = watch.chatMessages,
-                        onOpen = ::openWatchChat,
+                        onOpen = { chrome.openWatchChat(watch.chatMessages) },
                     )
                 }
 
@@ -1810,10 +1723,14 @@ internal fun PlayerControls(
                     )
                 }
 
-                ChromeVisibility(visible = drawerOpen, edge = ChromeEdge.Bottom, modifier = Modifier.fillMaxSize()) {
+                ChromeVisibility(
+                    visible = chrome.drawerOpen,
+                    edge = ChromeEdge.Bottom,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
                     BackOverlay(
-                        enabled = drawerOpen,
-                        onBack = { drawerOpen = false },
+                        enabled = chrome.drawerOpen,
+                        onBack = { chrome.drawerOpen = false },
                     ) {
                         EpisodeStrip(
                             episodes = transport.episodes,
@@ -1826,19 +1743,19 @@ internal fun PlayerControls(
                                 } else {
                                     {
                                         transportActions.onSelectItem(it)
-                                        drawerOpen = false
+                                        chrome.drawerOpen = false
                                     }
                                 },
-                            onDismiss = { drawerOpen = false },
+                            onDismiss = { chrome.drawerOpen = false },
                             modifier = Modifier.align(Alignment.BottomCenter),
                         )
                     }
                 }
 
-                PanelPresence(Unit.takeIf { danmakuSearchOpen }, modifier = Modifier.fillMaxSize()) {
+                PanelPresence(Unit.takeIf { chrome.danmakuSearchOpen }, modifier = Modifier.fillMaxSize()) {
                     BackOverlay(
-                        enabled = danmakuSearchOpen,
-                        onBack = { danmakuSearchOpen = false },
+                        enabled = chrome.danmakuSearchOpen,
+                        onBack = { chrome.danmakuSearchOpen = false },
                     ) {
                         DanmakuSearchPanel(
                             state = danmaku.panel,
@@ -1848,29 +1765,29 @@ internal fun PlayerControls(
                                 danmakuActions.copy(
                                     onPickEpisode = {
                                         danmakuActions.onPickEpisode(it)
-                                        danmakuSearchOpen = false
+                                        chrome.danmakuSearchOpen = false
                                     },
                                 ),
-                            onDismiss = { danmakuSearchOpen = false },
+                            onDismiss = { chrome.danmakuSearchOpen = false },
                             modifier = Modifier.align(Alignment.CenterEnd),
                         )
                     }
                 }
 
-                if (danmakuSendOpen) {
+                if (chrome.danmakuSendOpen) {
                     DanmakuSendDialog(
                         sending = danmaku.panel.sending,
                         error = danmaku.panel.sendError,
                         onSend = {
                             danmakuActions.onSend(it)
-                            danmakuSendOpen = false
+                            chrome.danmakuSendOpen = false
                         },
-                        onDismiss = { danmakuSendOpen = false },
+                        onDismiss = { chrome.danmakuSendOpen = false },
                     )
                 }
 
                 ChromeVisibility(
-                    visible = watch.connected && visible,
+                    visible = watch.connected && chrome.visible,
                     edge = ChromeEdge.Top,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 74.dp),
                 ) {
@@ -1878,7 +1795,7 @@ internal fun PlayerControls(
                         reconnecting = watch.reconnecting,
                         isHost = watch.isHost,
                         participantCount = watch.participantCount,
-                        onOpenChat = ::openWatchChat,
+                        onOpenChat = { chrome.openWatchChat(watch.chatMessages) },
                     )
                 }
 
@@ -1897,9 +1814,9 @@ internal fun PlayerControls(
                 ) {
                     CastSessionPill(
                         status = lastCastStatus[0],
-                        onOpen = { openSettingsPanel(SettingsPanelKind.Cast) },
+                        onOpen = { chrome.openSettingsPanel(SettingsPanelKind.Cast) },
                         onDisconnect = {
-                            poke()
+                            chrome.poke()
                             castActions.onStop()
                         },
                         announce = cast.error != null,
@@ -1942,7 +1859,7 @@ internal fun PlayerControls(
                     shown = pauseInfoShown,
                     playback = playback,
                     chapters = transport.chapters,
-                    onDismiss = ::poke,
+                    onDismiss = chrome::poke,
                     modifier = Modifier.align(Alignment.CenterStart).padding(start = 28.dp),
                 )
                 /**
@@ -1966,10 +1883,10 @@ internal fun PlayerControls(
                     hasNext = state.hasNext,
                     onResume = {
                         transportActions.onPlayPause()
-                        poke()
+                        chrome.poke()
                     },
                     onNext = {
-                        poke()
+                        chrome.poke()
                         transportActions.onNextItem()
                     },
                     onReplay = {
@@ -1985,7 +1902,7 @@ internal fun PlayerControls(
                             // started again from the top.
                             transportActions.onSelectItem(state.currentIndex)
                         }
-                        poke()
+                        chrome.poke()
                     },
                     onBack = host.onBack,
                     onHold = { endingFlowsBack = it },
@@ -1993,7 +1910,7 @@ internal fun PlayerControls(
 
                 // Taught once each, while their gesture is in reach; see [PlayerGestureTips].
                 PlayerGestureTips(
-                    chromeUp = visible && remoteChrome == null && !locked,
+                    chromeUp = chrome.visible && remoteChrome == null && !chrome.locked,
                     seekable = state.durationMs > 0L && !watchLocked,
                     speedBoostable = !watch.connected && cast.deviceId == null,
                     subtitlesAvailable = state.subtitleTracks.isNotEmpty(),
@@ -2032,14 +1949,14 @@ internal fun PlayerControls(
                     state.currentIndex,
                 )
                 ChromeVisibility(
-                    visible = volumeSliderVisible,
+                    visible = chrome.volumeSliderVisible,
                     edge = ChromeEdge.End,
                     modifier = Modifier.align(Alignment.CenterEnd).padding(end = 26.dp),
                 ) {
                     VolumeSlider(
                         volume = picture.volume,
                         onVolume = { target ->
-                            volumeSliderTouches++
+                            chrome.volumeSliderTouches++
                             pictureActions.onVolume(target)
                         },
                         modifier = Modifier,
@@ -2063,7 +1980,7 @@ internal fun PlayerControls(
                         onWatchCredits = { creditsTakeoverDismissed = true },
                         onPlayNext = {
                             if (creditsPhase == CreditsTakeoverPhase.Card) {
-                                poke()
+                                chrome.poke()
                                 transportActions.onNextItem()
                             }
                         },
@@ -2075,11 +1992,11 @@ internal fun PlayerControls(
                     transport.episodes,
                     nextUpDismissed,
                     onPlayNow = {
-                        poke()
+                        chrome.poke()
                         transportActions.onNextItem()
                     },
                     onDismiss = {
-                        poke()
+                        chrome.poke()
                         nextUpDismissed = true
                         transportActions.onDismissNextUp()
                     },

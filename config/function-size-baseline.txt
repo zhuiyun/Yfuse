@@ -1,3 +1,3 @@
 # Functions over the size gate, with the most lines each may have (scripts/check_function_size.py).
 # Lower a ceiling after a split; raise one only with a reason in the commit.
-composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt::PlayerControls 1955
+composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt::PlayerControls 1878
