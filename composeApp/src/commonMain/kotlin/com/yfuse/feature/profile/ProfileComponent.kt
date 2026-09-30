@@ -29,6 +29,10 @@ import com.yfuse.feature.personal.PersonalSync
 import com.yfuse.feature.trakt.TraktSettingsIntent
 import com.yfuse.feature.trakt.TraktSettingsState
 import com.yfuse.feature.trakt.TraktSettingsStoreFactory
+import com.yfuse.feature.watch.WatchRoom
+import com.yfuse.feature.watch.WatchTogetherSettingsIntent
+import com.yfuse.feature.watch.WatchTogetherSettingsState
+import com.yfuse.feature.watch.WatchTogetherSettingsStoreFactory
 import com.yfuse.core.util.imageCacheUsageBytes as currentImageCacheUsageBytes
 import com.yfuse.core.util.videoCacheUsageBytes as currentVideoCacheUsageBytes
 
@@ -146,6 +150,11 @@ class ProfileComponent(
         class Trakt(
             val store: Store<TraktSettingsIntent, TraktSettingsState, Nothing>,
         ) : Child
+
+        /** 一起看's settings, whose two dialogs [ProfileScreen] opens over the page. */
+        class WatchTogether(
+            val store: Store<WatchTogetherSettingsIntent, WatchTogetherSettingsState, Nothing>,
+        ) : Child
     }
 
     /** A page's store is made as the page opens and disposed as it closes, as its state was before. */
@@ -169,6 +178,12 @@ class ProfileComponent(
             ProfilePage.Trakt ->
                 Child.Trakt(
                     TraktSettingsStoreFactory(storeFactory, trakt, television = false).create().disposedWith(context),
+                )
+            ProfilePage.WatchTogether ->
+                Child.WatchTogether(
+                    WatchTogetherSettingsStoreFactory(storeFactory, WatchRoom(watchTogether), watchTogetherPreferences)
+                        .create()
+                        .disposedWith(context),
                 )
             else -> Child.Settings(page)
         }

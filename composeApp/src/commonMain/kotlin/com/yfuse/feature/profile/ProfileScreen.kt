@@ -111,6 +111,7 @@ import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.externalPlaybackItem
 import com.yfuse.feature.player.externalStreamTitle
+import com.yfuse.feature.watch.WatchTogetherSettingsIntent
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -297,13 +298,9 @@ fun ProfileScreen(component: ProfileComponent) {
     val anonymousQoeSharing by component.playbackPreferences.anonymousQoeSharing.collectAsState()
     val progressSyncEnabled by component.dependencies.serverSyncManager.syncProgress
         .collectAsState()
-    val watchTogether = component.watchTogether
-    val watchState by watchTogether.state.collectAsState()
-    val watchEndpoint by component.watchTogetherPreferences.endpoint.collectAsState()
+    // The root's 一起看 row; the page and its two dialogs read the page's own store.
+    val watchState by component.watchTogether.state.collectAsState()
     val watchNickname by component.watchTogetherPreferences.nickname.collectAsState()
-    val watchAvatarId by component.watchTogetherPreferences.avatarId.collectAsState()
-    val watchChatPreview by component.watchTogetherPreferences.chatPreviewEnabled.collectAsState()
-    val watchChatDanmaku by component.watchTogetherPreferences.chatDanmakuEnabled.collectAsState()
     val danmakuSources by component.danmakuPreferences.sources.collectAsState()
     val danmakuActiveSourceId by component.danmakuPreferences.activeSourceId.collectAsState()
     val danmakuBlocked by component.danmakuPreferences.blockedWords.collectAsState()
@@ -440,18 +437,25 @@ fun ProfileScreen(component: ProfileComponent) {
 
                 ProfilePage.WatchTogether ->
                     if (watchAvailable) {
-                        WatchTogetherSettingsScreen(
-                            onBack = component::closePage,
-                            connected = watchState.connected,
-                            roomCode = watchState.roomCode,
-                            nickname = watchNickname,
-                            chatDanmaku = watchChatDanmaku,
-                            chatPreview = watchChatPreview,
-                            onJoin = { sheet = Sheet.WatchTogether },
-                            onProfile = { sheet = Sheet.WatchProfile },
-                            onChatDanmaku = component.watchTogetherPreferences::setChatDanmakuEnabled,
-                            onChatPreview = component.watchTogetherPreferences::setChatPreviewEnabled,
-                        )
+                        (entry.instance as? ProfileComponent.Child.WatchTogether)?.let { watchPage ->
+                            val watch by watchPage.store.states.collectAsState(watchPage.store.state)
+                            WatchTogetherSettingsScreen(
+                                onBack = component::closePage,
+                                connected = watch.connected,
+                                roomCode = watch.roomCode,
+                                nickname = watch.nickname,
+                                chatDanmaku = watch.chatDanmaku,
+                                chatPreview = watch.chatPreview,
+                                onJoin = { sheet = Sheet.WatchTogether },
+                                onProfile = { sheet = Sheet.WatchProfile },
+                                onChatDanmaku = { enabled ->
+                                    watchPage.store.accept(WatchTogetherSettingsIntent.SetChatDanmaku(enabled))
+                                },
+                                onChatPreview = { enabled ->
+                                    watchPage.store.accept(WatchTogetherSettingsIntent.SetChatPreview(enabled))
+                                },
+                            )
+                        }
                     } else {
                         AccountSettingsScreen(
                             account = component.account,
@@ -871,6 +875,8 @@ fun ProfileScreen(component: ProfileComponent) {
             )
         }
 
+        // 一起看's two dialogs open from its page and work through that page's store.
+        val watchPage = pages.items.firstNotNullOfOrNull { it.instance as? ProfileComponent.Child.WatchTogether }
         when (sheet) {
             Sheet.MotionTheme ->
                 OptionSheet(
@@ -1105,57 +1111,58 @@ fun ProfileScreen(component: ProfileComponent) {
                     onDismiss = { sheet = null },
                 )
 
-            Sheet.WatchTogether -> {
-                var confirmLeaveRoom by remember { mutableStateOf(false) }
-                WatchJoinDialog(
-                    connected = watchState.connected,
-                    connecting = watchState.connecting,
-                    roomCode = watchState.roomCode,
-                    participantCount = watchState.participantCount,
-                    error = watchState.error ?: watchState.syncWarning,
-                    onJoin = { code -> watchTogether.joinRoom(watchEndpoint, code, mediaKey = "") },
-                    onEnter = component.onEnterWatchRoom,
-                    onLeave = { confirmLeaveRoom = true },
-                    onDismiss = { sheet = null },
-                )
-                // Leaving cannot be taken back from here, and a host leaves a room others are in:
-                // the relay keeps it for them and hands the host role to one of them shortly after.
-                if (confirmLeaveRoom) {
-                    ConfirmDialog(
-                        title = "退出一起看房间？",
-                        message =
-                            if (watchState.isHost) {
-                                "其他成员会留在房间里，房主身份稍后交给其中一人。你之后要用房间码重新加入。"
-                            } else {
-                                "退出后不再同步播放，之后仍可以用房间码重新加入。"
-                            },
-                        confirmLabel = "退出房间",
-                        dismissLabel = "留在房间",
-                        destructive = true,
-                        onConfirm = {
-                            confirmLeaveRoom = false
-                            watchTogether.leave()
-                            sheet = null
-                        },
-                        onDismiss = { confirmLeaveRoom = false },
+            Sheet.WatchTogether ->
+                watchPage?.let { page ->
+                    val watch by page.store.states.collectAsState(page.store.state)
+                    var confirmLeaveRoom by remember { mutableStateOf(false) }
+                    WatchJoinDialog(
+                        connected = watch.connected,
+                        connecting = watch.connecting,
+                        roomCode = watch.roomCode,
+                        participantCount = watch.participantCount,
+                        error = watch.problem,
+                        onJoin = { code -> page.store.accept(WatchTogetherSettingsIntent.Join(code)) },
+                        onEnter = component.onEnterWatchRoom,
+                        onLeave = { confirmLeaveRoom = true },
+                        onDismiss = { sheet = null },
                     )
+                    // Leaving cannot be taken back from here, and a host leaves a room others are in:
+                    // the relay keeps it for them and hands the host role to one of them shortly after.
+                    if (confirmLeaveRoom) {
+                        ConfirmDialog(
+                            title = "退出一起看房间？",
+                            message =
+                                if (watch.isHost) {
+                                    "其他成员会留在房间里，房主身份稍后交给其中一人。你之后要用房间码重新加入。"
+                                } else {
+                                    "退出后不再同步播放，之后仍可以用房间码重新加入。"
+                                },
+                            confirmLabel = "退出房间",
+                            dismissLabel = "留在房间",
+                            destructive = true,
+                            onConfirm = {
+                                confirmLeaveRoom = false
+                                page.store.accept(WatchTogetherSettingsIntent.Leave)
+                                sheet = null
+                            },
+                            onDismiss = { confirmLeaveRoom = false },
+                        )
+                    }
                 }
-            }
 
             Sheet.WatchProfile ->
-                WatchProfileDialog(
-                    currentName = watchNickname,
-                    currentAvatarId = watchAvatarId,
-                    onSave = { name, avatarId ->
-                        component.watchTogetherPreferences.setProfile(name, avatarId)
-                        watchTogether.updateProfile(
-                            component.watchTogetherPreferences.nickname.value,
-                            component.watchTogetherPreferences.avatarId.value,
-                        )
-                        sheet = null
-                    },
-                    onDismiss = { sheet = null },
-                )
+                watchPage?.let { page ->
+                    val watch by page.store.states.collectAsState(page.store.state)
+                    WatchProfileDialog(
+                        currentName = watch.nickname,
+                        currentAvatarId = watch.avatarId,
+                        onSave = { name, avatarId ->
+                            page.store.accept(WatchTogetherSettingsIntent.SaveProfile(name, avatarId))
+                            sheet = null
+                        },
+                        onDismiss = { sheet = null },
+                    )
+                }
 
             null -> Unit
         }
