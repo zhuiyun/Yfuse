@@ -118,10 +118,21 @@ class DomesticCalendarDiscoveryTest {
 
         assertEquals(1, shows.size)
         assertEquals(289761, shows.single().tmdbId)
-        assertEquals("https://weibo.com/1832974324/Wake2026A", shows.single().sources.single().url)
+        assertEquals(
+            "https://weibo.com/1832974324/Wake2026A",
+            shows
+                .single()
+                .sources
+                .single()
+                .url,
+        )
         assertEquals(
             listOf("https://wx1.sinaimg.cn/large/calendar.jpg"),
-            shows.single().sources.single().imageUrls,
+            shows
+                .single()
+                .sources
+                .single()
+                .imageUrls,
         )
     }
 

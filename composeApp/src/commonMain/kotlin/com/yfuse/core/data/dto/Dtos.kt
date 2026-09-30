@@ -106,8 +106,13 @@ data class MediaStreamDto(
     val IsForced: Boolean? = null,
     val IsDefault: Boolean? = null,
     val IsExternal: Boolean? = null,
-    /** Provider-owned sidecar address, already authenticated when the player needs URL auth. */
+    /**
+     * Sidecar address. Emby and Jellyfin send a path relative to the server
+     * (`/Videos/…/Subtitles/3/0/Stream.srt`); the Plex adapter builds an absolute one.
+     */
     val DeliveryUrl: String? = null,
+    /** True when [DeliveryUrl] is the sidecar's own path rather than the server's endpoint. */
+    val IsExternalUrl: Boolean? = null,
     val IsInterlaced: Boolean? = null,
     val BitRate: Int? = null,
     val SampleRate: Int? = null,
@@ -640,6 +645,7 @@ fun MediaSourceDto.toMediaVersion(
                         default = stream.IsDefault == true,
                         uri = stream.DeliveryUrl?.takeIf(String::isNotBlank),
                         title = stream.Title?.takeIf { it.isNotBlank() },
+                        uriIsSidecarPath = stream.IsExternalUrl == true,
                     )
                 },
         supportsDirectPlay = SupportsDirectPlay,

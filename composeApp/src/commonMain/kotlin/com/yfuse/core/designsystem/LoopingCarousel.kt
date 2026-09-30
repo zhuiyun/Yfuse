@@ -13,13 +13,13 @@ import androidx.compose.ui.semantics.stateDescription
  * gives both swipe directions enough room for the lifetime of the app while each page is
  * mapped back to a real item.
  */
-internal const val LoopingCarouselPageCount: Int = Int.MAX_VALUE
+internal const val LOOPING_CAROUSEL_PAGE_COUNT: Int = Int.MAX_VALUE
 
-internal fun loopingCarouselPageCount(itemCount: Int): Int = if (itemCount > 1) LoopingCarouselPageCount else 1
+internal fun loopingCarouselPageCount(itemCount: Int): Int = if (itemCount > 1) LOOPING_CAROUSEL_PAGE_COUNT else 1
 
 internal fun loopingCarouselStartPage(itemCount: Int): Int {
     if (itemCount <= 1) return 0
-    val middle = LoopingCarouselPageCount / 2
+    val middle = LOOPING_CAROUSEL_PAGE_COUNT / 2
     return middle - middle % itemCount
 }
 
@@ -73,5 +73,5 @@ internal fun loopingCarouselTargetPage(
     var delta = targetIndex.mod(itemCount) - currentIndex
     if (delta > itemCount / 2) delta -= itemCount
     if (delta < -itemCount / 2) delta += itemCount
-    return (currentPage + delta).coerceIn(0, LoopingCarouselPageCount - 1)
+    return (currentPage + delta).coerceIn(0, LOOPING_CAROUSEL_PAGE_COUNT - 1)
 }

@@ -32,7 +32,14 @@ class CalendarIngestionTest {
         assertEquals(1, shows.size)
         assertEquals("全新电视剧", shows.single().title)
         assertEquals(2026, shows.single().year)
-        assertEquals("https://www.youku.com/show/new-a", shows.single().sources.single().url)
+        assertEquals(
+            "https://www.youku.com/show/new-a",
+            shows
+                .single()
+                .sources
+                .single()
+                .url,
+        )
     }
 
     @Test
@@ -88,10 +95,21 @@ class CalendarIngestionTest {
 
         assertEquals(1, shows.size)
         assertEquals("问心2", shows.single().title)
-        assertEquals("https://weibo.com/3752699924/QmCalendar01", shows.single().sources.single().url)
+        assertEquals(
+            "https://weibo.com/3752699924/QmCalendar01",
+            shows
+                .single()
+                .sources
+                .single()
+                .url,
+        )
         assertEquals(
             listOf("https://wx1.sinaimg.cn/large/calendar.jpg"),
-            shows.single().sources.single().imageUrls,
+            shows
+                .single()
+                .sources
+                .single()
+                .imageUrls,
         )
     }
 
@@ -127,10 +145,21 @@ class CalendarIngestionTest {
             )
 
         assertEquals("逐玉", shows.single().title)
-        assertEquals("https://weibo.com/1832974324/Qiqiyi123", shows.single().sources.single().url)
+        assertEquals(
+            "https://weibo.com/1832974324/Qiqiyi123",
+            shows
+                .single()
+                .sources
+                .single()
+                .url,
+        )
         assertEquals(
             listOf("https://wx2.sinaimg.cn/large/zhuyu.png"),
-            shows.single().sources.single().imageUrls,
+            shows
+                .single()
+                .sources
+                .single()
+                .imageUrls,
         )
     }
 
@@ -352,7 +381,11 @@ class CalendarIngestionTest {
             buildMap {
                 listOf(1..4, 5..6, 7..8, 9..10, 11..12, 13..14, 15..16, 17..18, 19..19, 20..20, 21..21)
                     .forEachIndexed { dayOffset, episodes ->
-                        val date = java.time.LocalDate.of(2026, 8, 20).plusDays(dayOffset.toLong()).toString()
+                        val date =
+                            java.time.LocalDate
+                                .of(2026, 8, 20)
+                                .plusDays(dayOffset.toLong())
+                                .toString()
                         episodes.forEach { put(it, date) }
                     }
             }

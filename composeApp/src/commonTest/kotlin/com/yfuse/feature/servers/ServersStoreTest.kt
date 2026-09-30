@@ -691,7 +691,7 @@ class ServersStoreTest {
             store.accept(ServersIntent.StartQuickConnect)
 
             assertEquals(
-                QuickConnectUiState.Unsupported(QuickConnectUnsupportedMessage),
+                QuickConnectUiState.Unsupported(QUICK_CONNECT_UNSUPPORTED_MESSAGE),
                 store.state.quickConnect,
             )
             assertTrue(
