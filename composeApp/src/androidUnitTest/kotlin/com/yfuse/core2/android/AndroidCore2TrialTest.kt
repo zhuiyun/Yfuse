@@ -10,6 +10,7 @@ import com.yfuse.feature.player.PlayerMediaVersion
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AndroidCore2TrialTest {
@@ -151,14 +152,49 @@ class AndroidCore2TrialTest {
         assertTrue(listOf(drmItem).canUseCore2Trial(startIndex = 0))
         assertTrue(listOf(cmafHlsDrmItem).canUseCore2Trial(startIndex = 0))
         assertTrue(listOf(subtitleItem).canUseCore2Trial(startIndex = 0))
-        assertFalse(listOf(unsupportedSubtitleItem).canUseCore2Trial(startIndex = 0))
-        assertFalse(listOf(ttmlSubtitleItem).canUseCore2Trial(startIndex = 0))
+        assertTrue(listOf(unsupportedSubtitleItem).canUseCore2Trial(startIndex = 0))
+        assertTrue(listOf(ttmlSubtitleItem).canUseCore2Trial(startIndex = 0))
         assertTrue(listOf(providerSidecars).canUseCore2Trial(startIndex = 0))
         assertTrue(listOf(discItem).canUseCore2Trial(startIndex = 0))
         assertTrue(
             listOf(mediaItem("https://media/movie"), subtitleItem)
                 .canUseCore2Trial(startIndex = 0),
         )
+    }
+
+    @Test
+    fun unsupported_sidecars_do_not_block_native_video_or_change_track_ordinals() {
+        val version =
+            PlayerMediaVersion(
+                id = "direct",
+                label = "MKV",
+                detail = "H264 SDR AAC",
+                url = "https://media.example.test/movie.mkv",
+                transcodeUrl = "",
+                fallbackTranscodeUrl = "",
+                container = "mkv",
+                sourceVideoCodec = "h264",
+            )
+        val subtitles =
+            listOf(
+                PlayerExternalSubtitle("https://media.example.test/stream.sup", codec = "pgssub", default = true),
+                PlayerExternalSubtitle("ftp://media.example.test/movie.srt"),
+                PlayerExternalSubtitle("https://media.example.test/stream.subrip", codec = "subrip"),
+            )
+        val item =
+            mediaItem(version.url).copy(
+                versions = listOf(version),
+                versionId = version.id,
+                externalSubtitles = subtitles,
+            )
+        val queue = listOf(item)
+
+        assertNull(queue.core2NativeBaselineBlockReason(0))
+        assertTrue(queue.canUseCore2Trial(0))
+        assertTrue(listOf(mediaItem(version.url), item).canUseCore2Trial(0))
+        val mapped = queue.toCore2MediaItems("", appVersion = { "test" }).single()
+        assertEquals(subtitles.map { it.uri }, mapped.allExternalSubtitles.map { it.uri })
+        assertEquals(com.yfuse.core2.subtitle.YSubtitleFormat.Srt, mapped.allExternalSubtitles[2].format)
     }
 
     @Test

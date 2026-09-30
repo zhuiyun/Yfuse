@@ -9,9 +9,52 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AndroidExternalSubtitleSessionTest {
+    @Test
+    fun `failed default subtitle stays local to the track and another track still loads`() =
+        runTest {
+            val completions = mutableListOf<AndroidExternalSubtitleSession.Completion>()
+            val calls = mutableListOf<String>()
+            val session =
+                AndroidExternalSubtitleSession(
+                    this,
+                    load = { source, _, id ->
+                        calls += source.uri
+                        if (source.uri.endsWith(".sup")) error("unsupported bitmap sidecar")
+                        AndroidLoadedExternalSubtitle(YTrack(id, YTrackType.Subtitle, "字幕"), emptyList())
+                    },
+                    completed = completions::add,
+                    dispatcher = StandardTestDispatcher(testScheduler),
+                )
+            try {
+                session.reset(
+                    listOf(
+                        YExternalSubtitleSource("https://example.invalid/track.sup", default = true),
+                        YExternalSubtitleSource("https://example.invalid/track.srt"),
+                    ),
+                    emptyMap(),
+                )
+                session.request(session.defaultId)
+                runCurrent()
+                assertNull(completions.single().subtitle)
+                assertEquals("IllegalStateException", completions.single().errorType)
+                assertTrue(session.accept(completions.single()))
+                session.request(session.defaultId)
+                runCurrent()
+                assertEquals(1, calls.size, "A failed default must not be retried for every frame")
+                session.request(session.tracks[1].track.id)
+                runCurrent()
+                assertTrue(session.accept(completions.last()))
+                assertNull(completions.last().errorType)
+                assertEquals(2, calls.size)
+            } finally {
+                session.close()
+            }
+        }
+
     @Test
     fun `catalog preparation does not download and only requested subtitles are loaded`() =
         runTest {

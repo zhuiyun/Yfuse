@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
+internal const val UNAVAILABLE_VIDEO_ENGINE_LABEL = "Unavailable"
+
 /**
  * Terminal backend used when the selected native binary provably lacks a required feature.
  *
@@ -32,9 +34,9 @@ internal class MissingNativeCapabilityVideoEngine(
                 fallbacksExhausted = true,
                 diagnostics =
                     PlaybackDiagnostics(
-                        engine = "libmpv",
-                        decoder = "native capability missing",
-                        playMethod = "原盘直读不可用",
+                        engine = UNAVAILABLE_VIDEO_ENGINE_LABEL,
+                        decoder = "not started",
+                        playMethod = "播放尚未启动",
                         fallbackReason = failureMessage,
                     ),
             ),

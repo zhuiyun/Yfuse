@@ -1003,7 +1003,16 @@ internal class AndroidTransportMediaDataSource(
                         ),
                     "acceptedRangeStart" to (acceptedRangeStart?.toString() ?: "unavailable"),
                     "attemptCount" to (completedRetries + 1).toString(),
-                ),
+                ) +
+                    if (failure is AndroidMediaRedirectException) {
+                        mapOf(
+                            "redirectReason" to failure.reason.name,
+                            "redirectCount" to failure.redirectCount.toString(),
+                            "locationPresent" to failure.locationPresent.toString(),
+                        )
+                    } else {
+                        emptyMap()
+                    },
         )
     }
 
@@ -1654,6 +1663,7 @@ private fun Throwable.isTransportCancellation(): Boolean =
 
 private fun Int.toRangeFailureKind(): YTransportFailureKind =
     when (this) {
+        in 300..399 -> YTransportFailureKind.RedirectRejected
         401, 403 -> YTransportFailureKind.Authorization
         408, 425, 429 -> YTransportFailureKind.ServerBusy
         in 500..599 -> YTransportFailureKind.ServerBusy

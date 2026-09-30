@@ -257,9 +257,10 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
                 version.dolbyProfile != null &&
                 version.dolbyProfile !in CORE2_DOLBY_TRIAL_PROFILES
         val drmConfiguration = item.drmConfiguration ?: version?.drmConfiguration
+        // Sidecars are loaded on selection by AndroidExternalSubtitleSession. A bad or
+        // unsupported track must not veto this video's route, or any later queue item.
         !knownUnsupportedDolbyProfile &&
             (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
-            item.playbackExternalSubtitles().all { subtitle -> subtitle.uri.isCore2SubtitleSourceSupported() } &&
             item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
     }
 }
@@ -288,10 +289,6 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
                 version?.dolbyVision != true ||
                     version?.dolbyProfile == null ||
                     version?.dolbyProfile in CORE2_DOLBY_TRIAL_PROFILES,
-            externalSubtitleSupported =
-                item.playbackExternalSubtitles().all { subtitle ->
-                    subtitle.uri.isCore2SubtitleSourceSupported()
-                },
         )
     return evaluateCore2NativeBaseline(source)?.userMessage()
 }
@@ -308,7 +305,6 @@ private fun Core2NativeBaselineBlock.userMessage(): String =
         Core2NativeBaselineBlock.Disc -> "YCore Native 当前只支持可寻址的 Blu-ray / BDMV / Blu-ray ISO"
         Core2NativeBaselineBlock.Drm -> "YCore Native 当前只支持已验证容器中的 Widevine DRM"
         Core2NativeBaselineBlock.DolbyVision -> "YCore Native 尚未验证当前杜比视界 Profile"
-        Core2NativeBaselineBlock.ExternalSubtitle -> "YCore Native 不支持当前外挂字幕来源"
     }
 
 private fun String.isAdaptiveManifest(): Boolean {
@@ -512,12 +508,6 @@ private fun PlayerMediaItem.yCoreCacheIdentity(): YCacheIdentity? =
             )
         }
 
-private fun String?.isCore2SubtitleSourceSupported(): Boolean {
-    if (isNullOrBlank()) return true
-    if (substringBefore(':').lowercase() !in CORE2_SUBTITLE_SOURCE_SCHEMES) return false
-    return externalSubtitleFormatHint(this)?.let(CORE2_SUBTITLE_FORMATS::contains) != false
-}
-
 private fun PlaybackDiscKind.toCore2DiscKind(): YDiscKind =
     when (this) {
         PlaybackDiscKind.Iso -> YDiscKind.Iso
@@ -542,13 +532,4 @@ private val CORE2_SOURCE_SCHEMES =
         "yfusebd",
         "yfusebdmv",
     )
-private val CORE2_SUBTITLE_SOURCE_SCHEMES =
-    setOf(
-        "http",
-        "https",
-        "file",
-        "content",
-        "android.resource",
-    )
-private val CORE2_SUBTITLE_FORMATS = setOf("srt", "vtt", "webvtt", "ass", "ssa")
 private const val USER_AGENT_HEADER = "User-Agent"
