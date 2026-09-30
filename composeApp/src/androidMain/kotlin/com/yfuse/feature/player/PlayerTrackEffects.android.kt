@@ -15,7 +15,11 @@ internal fun PlayerTrackEffects(
     state: PlaybackState,
     currentItemId: String?,
     handoverItemId: String?,
-    requestedSpeed: Float,
+    /**
+     * Read here rather than by the caller: 长按中间 changes it with every shift of gear, and only
+     * these effects apply it, so a shift recomposes them and not the player root.
+     */
+    requestedSpeed: () -> Float,
     audioRestore: TrackRestorePreference?,
     subtitleRestore: TrackRestorePreference?,
     secondarySubtitleRestore: TrackRestorePreference?,
@@ -36,10 +40,11 @@ internal fun PlayerTrackEffects(
      */
     subtitlePeekActive: Boolean = false,
 ) {
+    val speed = requestedSpeed()
     // Keyed on the item too: an engine that resets speed when it loads the next file would
     // otherwise play it at 1x, since the requested speed itself had not changed.
-    LaunchedEffect(player, requestedSpeed, currentItemId) {
-        if (state.speed != requestedSpeed) player.setSpeed(requestedSpeed)
+    LaunchedEffect(player, speed, currentItemId) {
+        if (state.speed != speed) player.setSpeed(speed)
     }
     LaunchedEffect(player, currentItemId, state.audioTracks, audioRestore) {
         if (currentItemId != handoverItemId) return@LaunchedEffect
