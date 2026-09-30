@@ -376,7 +376,15 @@ jobs:
           emulator-boot-timeout: 600
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
-          script: ./gradlew :composeApp:connectedDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation --no-daemon
+          # An app that stops responding (the launcher does now and then, just after boot) puts a
+          # system dialog in front of every window. It keeps focus, answers rootInActiveWindow and
+          # takes injected touches, so every test that needs the app's own window fails behind it,
+          # as five did on one run. The first line has the system end such an app instead of asking;
+          # the second closes a dialog that came up before it.
+          script: |
+            adb shell settings put global hide_error_dialogs 1
+            adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS
+            ./gradlew :composeApp:connectedDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation --no-daemon
       # A run in which the device was skipped or no test executed must not read as a pass.
       - name: Summarise instrumented test results
         if: always()
