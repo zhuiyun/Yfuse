@@ -68,6 +68,22 @@ class PlaybackStreamLadderTest {
     }
 
     @Test
+    fun a_blank_stream_url_counts_as_missing() {
+        // The approval check counts a whitespace-only URL as missing; the step it allowed used to
+        // pick that URL anyway, which the engine could only fail to open.
+        val blankHls = ladderItem(hls = " ")
+        val blankMp4 = ladderItem(mp4 = " ")
+        assertEveryEngine(PlaybackStreamStep.Progressive, StreamSets.original, blankHls)
+        assertEveryEngine(PlaybackStreamStep.Exhausted, StreamSets.transcode, blankMp4)
+        assertEveryEngine(PlaybackStreamStep.Exhausted, StreamSets.original, ladderItem(hls = " ", mp4 = " "))
+        forEachFallbackLadder { ladder ->
+            assertEquals(PlaybackStreamStep.Progressive, ladder.exoAfterTransportFailure(StreamSets.original, blankHls))
+            assertEquals(PlaybackStreamStep.Exhausted, ladder.exoProgressive(StreamSets.original, blankMp4))
+            assertEquals(PlaybackStreamStep.Exhausted, ladder.exoProgressive(StreamSets.transcode, blankMp4))
+        }
+    }
+
+    @Test
     fun leaving_the_original_file_needs_the_servers_approval_leaving_the_hls_transcode_does_not() {
         val unapproved = ladderItem(approved = false)
         assertEveryEngine(PlaybackStreamStep.Exhausted, StreamSets.original, unapproved)

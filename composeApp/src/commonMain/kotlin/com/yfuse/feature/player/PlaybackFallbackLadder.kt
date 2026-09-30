@@ -117,7 +117,7 @@ internal object PlaybackFallbackLadder {
             PlaybackStreamRung.Original ->
                 when {
                     item == null || !item.allowsServerTranscodeFallback(reason) -> PlaybackStreamStep.Exhausted
-                    item.transcodeUrl.isNotEmpty() -> PlaybackStreamStep.Transcode
+                    item.transcodeUrl.isNotBlank() -> PlaybackStreamStep.Transcode
                     // No HLS stream: the MP4 is the next rung.
                     else -> item.progressiveOrExhausted()
                 }
@@ -214,8 +214,13 @@ internal object PlaybackFallbackLadder {
         lastRecoveryPositionMs: Long,
     ): Boolean = positionMs >= lastRecoveryPositionMs + BUDGET_RESTORING_PROGRESS_MS
 
+    /**
+     * The MP4 if the entry has one. A blank URL counts as none here and in the HLS step, as in
+     * [PlayerMediaItem.allowsServerTranscodeFallback]: a step must not pick a stream that check did
+     * not count.
+     */
     private fun PlayerMediaItem?.progressiveOrExhausted(): PlaybackStreamStep =
-        if (this == null || fallbackTranscodeUrl.isEmpty()) {
+        if (this == null || fallbackTranscodeUrl.isBlank()) {
             PlaybackStreamStep.Exhausted
         } else {
             PlaybackStreamStep.Progressive
