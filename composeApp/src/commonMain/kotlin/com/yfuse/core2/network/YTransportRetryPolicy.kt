@@ -6,6 +6,7 @@ enum class YTransportFailureKind {
     PrematureEof,
     Authorization,
     InvalidRange,
+    RedirectRejected,
 }
 
 /** Bounded retry schedule for validated, idempotent media byte-range reads only. */
@@ -16,7 +17,8 @@ fun mediaRangeRetryDelayMs(
     require(completedRetries >= 0)
     if (
         failureKind == YTransportFailureKind.Authorization ||
-        failureKind == YTransportFailureKind.InvalidRange
+        failureKind == YTransportFailureKind.InvalidRange ||
+        failureKind == YTransportFailureKind.RedirectRejected
     ) {
         return null
     }

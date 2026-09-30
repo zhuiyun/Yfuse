@@ -1,0 +1,15 @@
+{
+  "sourceCommit": "f9e4d87cc3b4c7ec22bdee3f70a61fa426e1795f",
+  "baselineWorkflowRun": 36603643853,
+  "baselineArtifact": 11052860389,
+  "baselineApk": {
+    "package": "com.yfuse",
+    "versionName": "1.0.94",
+    "versionCode": 256
+  },
+  "baselineApkSha256": "e6345102bdddbf1d3a14894a409158178f45424ead5b5533ad2f3204930c8de9",
+  "plannedVersionName": "1.0.95",
+  "plannedVersionCode": 257,
+  "kotlinTests": "not run: Gradle download blocked; Android SDK unavailable",
+  "apkBuild": "not run: requires cloud signing workflow"
+}

@@ -29,6 +29,17 @@ class PlayerRootEngineLabelTest {
     }
 
     @Test
+    fun a_rejected_start_does_not_claim_that_any_decoder_engine_was_attached() {
+        val engine = MissingNativeCapabilityVideoEngine("unsupported source", 0, 1, 0L)
+        assertEquals("Unavailable", engineAttachedLabel(engine, PlayerEngine.Exo))
+        assertEquals("Unavailable", engine.state.value.diagnostics.engine)
+        assertEquals(
+            "Unavailable",
+            engineBindingLabel(engine.state.value.diagnostics, PlayerEngine.Exo, nativeOnly = true),
+        )
+    }
+
+    @Test
     fun any_other_attached_engine_is_labelled_by_the_selected_kind() {
         // A concrete, non-YPlayerVideoEngineAdapter engine: only its *type* matters here (it
         // must not be PreparingVideoEngine), so a thin delegate stands in for a whole real
