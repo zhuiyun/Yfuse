@@ -55,6 +55,7 @@ import com.yfuse.feature.detail.episodeLiftMenu
 import com.yfuse.feature.detail.episodeStillUrl
 import com.yfuse.feature.detail.relatedLiftMenu
 import com.yfuse.feature.detail.rememberEpisodeRowActions
+import com.yfuse.feature.detail.seriesProgressConfirmMessage
 import com.yfuse.feature.extras.DetailThemeSong
 import com.yfuse.feature.extras.TrailerLaunchEffect
 import com.yfuse.feature.extras.rememberTrailerLauncher
@@ -75,6 +76,7 @@ internal fun TvDetailScreen(
     val playRequester = remember { FocusRequester() }
     val secondaryNavigationRequester = remember { FocusRequester() }
     var sheet by remember(component.itemId) { mutableStateOf<TvDetailSheet?>(null) }
+    var seriesPlayedConfirmOpen by remember(component.itemId) { mutableStateOf(false) }
     // 预告片 under the hero's keys and in its preview; 主题曲 plays itself, as on the phone.
     val trailers by component.trailers.collectAsState()
     val trailerLauncher = rememberTrailerLauncher()
@@ -90,6 +92,7 @@ internal fun TvDetailScreen(
             fallback = playRequester,
             contentGeneration = listOf(detail.id, state.selectedSeasonId, state.episodes.size, state.related.size),
             context = FocusContext(route, server.id, server.userId),
+            exitStableId = tvDetailBackId(detail.id),
         )
     }
 
@@ -157,6 +160,7 @@ internal fun TvDetailScreen(
             val seasonServer = state.playServer ?: server
             // What an episode card's 长按面板 does: the phone's own 单集 rows, over the same store.
             val episodeActions = rememberEpisodeRowActions(component, seasonServer.id)
+            // Picks an episode; the one already picked plays.
             val selectEpisode: (Episode) -> Unit = { episode ->
                 store.accept(
                     DetailIntent.SelectEpisode(
@@ -187,7 +191,15 @@ internal fun TvDetailScreen(
                             store.accept(DetailIntent.PlayFromStart)
                         },
                         onToggleFavorite = { store.accept(DetailIntent.ToggleFavorite) },
-                        onTogglePlayed = { store.accept(DetailIntent.TogglePlayed) },
+                        // A series is every episode's watched state and resume point in one press,
+                        // so it is asked first, as on the phone; a film or an episode changes at once.
+                        onTogglePlayed = {
+                            if (detail.type.equals("Series", ignoreCase = true)) {
+                                seriesPlayedConfirmOpen = true
+                            } else {
+                                store.accept(DetailIntent.TogglePlayed)
+                            }
+                        },
                         watchLater = state.watchLater,
                         watchLaterBusy = state.watchLaterBusy,
                         onToggleWatchLater = { store.accept(DetailIntent.ToggleWatchLater) },
@@ -500,6 +512,22 @@ internal fun TvDetailScreen(
                         onDismiss = { sheet = null },
                     )
             }
+
+            if (seriesPlayedConfirmOpen) {
+                val markPlayed = !detail.played
+                TvConfirmDialog(
+                    title = if (markPlayed) "整部剧标记为已看？" else "整部剧标记为未看？",
+                    message = seriesProgressConfirmMessage(detail.title, state.seasons.size, markPlayed),
+                    confirmLabel = if (markPlayed) "标记已看" else "标记未看",
+                    focusScope = "detail:series-played",
+                    focusMemory = focusMemory,
+                    onConfirm = {
+                        seriesPlayedConfirmOpen = false
+                        store.accept(DetailIntent.TogglePlayed)
+                    },
+                    onDismiss = { seriesPlayedConfirmOpen = false },
+                )
+            }
         }
     }
 }
@@ -583,7 +611,7 @@ private fun TvDetailHero(
         ) {
             TvActionButton(
                 label = "返回",
-                stableId = "detail:${detail.id}:back",
+                stableId = tvDetailBackId(detail.id),
                 focusScope = "detail:${detail.id}:hero",
                 focusMemory = focusMemory,
                 onClick = onBack,
@@ -776,9 +804,19 @@ private fun TvEpisodeRow(
     quickActions: (Episode) -> LiftMenu,
 ) {
     val episodeScope = "detail:${detail.id}:episodes"
-    val rowState = focusMemory.rowState(episodeScope)
+    // A server can list an episode twice, and a lazy row throws on a repeated key.
+    val shown = episodes.distinctBy(Episode::id)
+    // Kept for the way back from the player. Another season's list starts at the episode picked,
+    // or its first: the last season's position carried over opened a shorter season at its tail,
+    // and ↓ from the seasons landed on a late episode.
+    val rowState =
+        focusMemory.rowState(
+            section = episodeScope,
+            content = shown.firstOrNull()?.id.orEmpty(),
+            initialIndex = shown.indexOfFirst { it.id == selectedEpisodeId },
+        )
     val candidates =
-        episodes.mapIndexed { index, episode ->
+        shown.mapIndexed { index, episode ->
             val stableId = "server:$serverId:episode:${episode.id}"
             FocusCandidate(
                 targetId = focusMemory.targetId(episodeScope, stableId),
@@ -795,7 +833,7 @@ private fun TvEpisodeRow(
             focusMemory = focusMemory,
             saved = saved,
             candidates = candidates,
-            contentGeneration = episodes.map(Episode::id),
+            contentGeneration = shown.map(Episode::id),
             scrollToAnchor = { anchor ->
                 if (candidates.isNotEmpty()) {
                     rowState.revealForRestore(anchor.fallbackIndex.coerceIn(0, candidates.lastIndex))
@@ -815,7 +853,7 @@ private fun TvEpisodeRow(
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                itemsIndexed(episodes, key = { _, episode -> "episode:$serverId:${detail.id}:${episode.id}" }) {
+                itemsIndexed(shown, key = { _, episode -> "episode:$serverId:${detail.id}:${episode.id}" }) {
                         index,
                         episode,
                     ->
@@ -868,7 +906,7 @@ private fun TvEpisodeRow(
 
 private fun MediaItem.toRelatedCard(
     server: com.yfuse.core.model.SavedServer,
-    quickActions: (() -> LiftMenu)?,
+    quickActions: () -> LiftMenu,
     onClick: () -> Unit,
 ): TvMediaCardModel =
     TvMediaCardModel(
@@ -882,3 +920,6 @@ private fun MediaItem.toRelatedCard(
         quickActions = quickActions,
         onClick = onClick,
     )
+
+/** A detail page's own 返回 — see [TvRestoreRouteFocusEffect]'s `exitStableId`. */
+private fun tvDetailBackId(itemId: String): String = "detail:$itemId:back"

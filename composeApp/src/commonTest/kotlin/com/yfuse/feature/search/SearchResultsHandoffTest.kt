@@ -5,6 +5,7 @@ import com.yfuse.core.model.MediaItem
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SearchResultsHandoffTest {
@@ -99,17 +100,61 @@ class SearchResultsHandoffTest {
     }
 
     @Test
-    fun only_a_landing_from_the_skeleton_sweeps_the_page() {
+    fun only_a_landing_from_a_skeleton_that_was_shown_sweeps_the_page() {
         SearchResultsPhase.entries.forEach { before ->
             SearchResultsPhase.entries.forEach { after ->
-                val handoff = SearchResultsHandoff(before)
+                val handoff = SearchResultsHandoff(before, initialSkeleton = true)
                 assertEquals(
                     before == SearchResultsPhase.Loading && after == SearchResultsPhase.Results,
                     handoff.shouldSweep(after, moving = true),
                 )
                 assertFalse(handoff.shouldSweep(after, moving = false))
+                // An answer quick enough never to earn the skeleton has no band to finish.
+                assertFalse(SearchResultsHandoff(before).shouldSweep(after, moving = true))
             }
         }
+    }
+
+    @Test
+    fun the_skeleton_counts_for_the_sweep_only_once_it_was_on_screen() {
+        val handoff = SearchResultsHandoff(SearchResultsPhase.Idle)
+        handoff.committed(SearchResultsPhase.Loading)
+        assertFalse(handoff.shouldSweep(SearchResultsPhase.Results, moving = true))
+        handoff.committed(SearchResultsPhase.Loading, skeleton = true)
+        assertTrue(handoff.shouldSweep(SearchResultsPhase.Results, moving = true))
+        handoff.committed(SearchResultsPhase.Results)
+        assertFalse(handoff.shouldSweep(SearchResultsPhase.Results, moving = true))
+    }
+
+    @Test
+    fun calm_results_arrive_together_in_one_plain_fade() {
+        val batch = searchRevealBatch(startMs = 0f, rows = true, calm = true, sweepFrom = 0.4f)
+        assertFalse(batch.staggered)
+        assertFalse(batch.lift)
+        assertNull(batch.sweepFrom)
+        assertEquals(Motion.STANDARD.toFloat(), batch.endMs)
+        val schedule = SearchRevealSchedule()
+        schedule.open(batch, fresh = true)
+        val first = schedule.progress("first", 90f)
+        assertTrue(first > 0f && first < 1f)
+        for (index in 1..20) {
+            assertEquals(first, schedule.progress("row-$index", 90f))
+            assertFalse(schedule.lifts("row-$index"))
+        }
+        assertEquals(1f, schedule.progress("row-20", Motion.STANDARD.toFloat()))
+    }
+
+    @Test
+    fun classic_results_still_stagger_lift_and_carry_the_band_on() {
+        val batch = searchRevealBatch(startMs = 0f, rows = true, calm = false, sweepFrom = 0.4f)
+        assertTrue(batch.staggered)
+        assertTrue(batch.lift)
+        assertEquals(0.4f, batch.sweepFrom)
+        assertEquals(SEARCH_ROW_MS, batch.rowMs)
+        val message = searchRevealBatch(startMs = 0f, rows = false, calm = false)
+        assertFalse(message.staggered)
+        assertFalse(message.lift)
+        assertEquals(Motion.STATE_HANDOFF, message.rowMs)
     }
 
     @Test

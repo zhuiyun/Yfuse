@@ -1358,6 +1358,7 @@ internal fun PlayerRoot(
                 runtimeEnvironment.pressure != PlaybackResourcePressure.Normal ||
                     resolvedOptimization.mode == com.yfuse.core.playback.PlaybackOptimizationMode.PowerSaver,
             inPictureInPicture = inPictureInPicture,
+            rotationLocked = rotationLock?.locked == true,
             transition = transition,
             creditsTakeover = creditsTakeover,
             networkRecovery = networkRecovery,

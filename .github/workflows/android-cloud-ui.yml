@@ -35,7 +35,7 @@ on:
         required: true
         type: string
       layout_probe:
-        description: Run the targeted rotation, font and tablet layout probe instead of the full smoke
+        description: Run the targeted rotation, font and tablet layout probe after the full smoke
         required: true
         default: true
         type: boolean

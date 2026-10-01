@@ -524,13 +524,45 @@ class LiftMenuTest {
     }
 
     @Test
-    fun lettingGoOnTheCardAfterScrubbingStillOpensTheTitle() {
+    fun lettingGoOnTheCardAfterScrubbingOnlyPreviews() {
         val recorder = Recorder()
         val lift = scrubSession(FakeScrub(270), recorder)
         lift.steer(Offset(250f, 100f), slop = 8f)
+        assertTrue(lift.scrubFrame >= 0)
         lift.release()
+        assertTrue(recorder.events.isEmpty())
+        assertEquals(LiftExit.None, lift.exit)
+        assertFalse(lift.holding)
+        assertEquals(LiftHit.None, lift.hot)
+        assertEquals(-1, lift.scrubFrame)
+        // The menu stays up, and the card still opens the title when it is tapped.
+        lift.open()
         assertEquals(listOf("open"), recorder.events)
         assertEquals(LiftExit.FadeAway, lift.exit)
+    }
+
+    @Test
+    fun lettingGoOnAScrubbableCardWithoutScrubbingStillOpensTheTitle() {
+        val recorder = Recorder()
+        val lift = scrubSession(FakeScrub(270), recorder)
+        assertTrue(lift.steer(Offset(162f, 120f), slop = 8f))
+        assertEquals(LiftHit.Card, lift.hot)
+        lift.release()
+        assertEquals(listOf("open"), recorder.events)
+    }
+
+    @Test
+    fun aScrubThatWentOffTheCardAndBackStillOnlyPreviews() {
+        val recorder = Recorder()
+        val lift = scrubSession(FakeScrub(270), recorder)
+        lift.steer(Offset(250f, 100f), slop = 8f)
+        lift.steer(Offset(250f, 208f + 6f + 10f), slop = 8f)
+        assertEquals(LiftHit.Row(0), lift.hot)
+        lift.steer(Offset(120f, 150f), slop = 8f)
+        assertEquals(LiftHit.Card, lift.hot)
+        lift.release()
+        assertTrue(recorder.events.isEmpty())
+        assertEquals(LiftExit.None, lift.exit)
     }
 
     @Test
@@ -542,6 +574,28 @@ class LiftMenuTest {
         scrub.frames = 12
         assertTrue(lift.steer(Offset(210f, 100f), slop = 8f))
         assertEquals(7, lift.scrubFrame)
+    }
+
+    @Test
+    fun aPosterThatLeavesMidHoldTakesTheHighlightAndThePreviewWithIt() {
+        val recorder = Recorder()
+        val lift = session(recorder)
+        lift.steer(Offset(100f, 208f + 6f + 10f), slop = 8f)
+        assertEquals(LiftHit.Row(0), lift.hot)
+        lift.sourceDetached()
+        assertFalse(lift.holding)
+        assertEquals(LiftHit.None, lift.hot)
+        // The gesture's own clean-up finds nothing left to do, and nothing runs.
+        lift.stopHolding()
+        lift.release()
+        assertTrue(recorder.events.isEmpty())
+
+        val scrubbing = scrubSession(FakeScrub(270))
+        scrubbing.steer(Offset(200f, 100f), slop = 8f)
+        assertTrue(scrubbing.scrubFrame >= 0)
+        scrubbing.sourceDetached()
+        assertEquals(-1, scrubbing.scrubFrame)
+        assertEquals(LiftHit.None, scrubbing.hot)
     }
 
     @Test

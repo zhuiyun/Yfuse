@@ -15,7 +15,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import com.yfuse.MainActivity
+import com.yfuse.appEntryIntent
 import com.yfuse.core.data.isServerSessionRestoreFailure
 import com.yfuse.core.logging.AppLog
 import kotlinx.coroutines.CancellationException
@@ -44,20 +44,22 @@ private fun ensureOfflineNotificationChannel(context: Context) {
     )
 }
 
+private fun currentOfflineItems(): List<OfflineMedia>? =
+    runCatching { GlobalContext.get().get<OfflineMediaManager>() }.getOrNull()?.items?.value
+
 private fun offlineDownloadNotification(
     context: Context,
     title: String,
     downloaded: Long,
     total: Long,
+    items: List<OfflineMedia>? = currentOfflineItems(),
 ): Notification {
-    val manager = runCatching { GlobalContext.get().get<OfflineMediaManager>() }.getOrNull()
-    val items = manager?.items?.value
     val summary = items?.let(::summarizeDownloads)
     val contentIntent =
         PendingIntent.getActivity(
             context,
             2412,
-            Intent(context, MainActivity::class.java)
+            appEntryIntent(context)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 .putExtra(DownloadNotificationActions.EXTRA_OPEN_DOWNLOADS, true),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
@@ -117,13 +119,15 @@ internal fun silenceOfflineAttention() {
 }
 
 /** A separate non-foreground notification survives a paused or failed worker. */
-internal fun updateOfflineAttentionNotification(context: Context) {
-    val summary =
+internal fun updateOfflineAttentionNotification(
+    context: Context,
+    items: List<OfflineMedia> =
         GlobalContext
             .get()
             .get<OfflineMediaManager>()
-            .items.value
-            .let(::summarizeDownloads)
+            .items.value,
+) {
+    val summary = summarizeDownloads(items)
     val notifications = context.getSystemService(NotificationManager::class.java)
     if (summary.active > 0) offlineAttentionSilenced = false
     if (summary.active > 0 || !summary.visible || offlineAttentionSilenced) {
@@ -134,10 +138,27 @@ internal fun updateOfflineAttentionNotification(context: Context) {
         if (notifications.areNotificationsEnabled()) {
             notifications.notify(
                 OFFLINE_ATTENTION_NOTIFICATION_ID,
-                offlineDownloadNotification(context, summary.title, 0, 0),
+                offlineDownloadNotification(context, summary.title, 0, 0, items),
             )
         }
     }
+}
+
+/**
+ * Brings a paused or failed notification that is on screen up to date after the queue changed
+ * outside a download run: deleting the last failed download in 下载 left 「下载失败 · 1 项」 and
+ * its 继续 / 重试 behind. One that is not showing stays down, as the user may have dismissed it.
+ */
+internal fun refreshShownOfflineAttentionNotification(
+    context: Context,
+    items: List<OfflineMedia>,
+) {
+    val showing =
+        context
+            .getSystemService(NotificationManager::class.java)
+            .activeNotifications
+            .any { it.id == OFFLINE_ATTENTION_NOTIFICATION_ID }
+    if (showing) updateOfflineAttentionNotification(context, items)
 }
 
 private fun offlineForegroundInfo(context: Context): ForegroundInfo {
@@ -176,7 +197,7 @@ class OfflineDownloadWorker(
                 }
             }
         return try {
-            setForeground(offlineForegroundInfo(applicationContext))
+            val foreground = promoteToForeground()
             manager.refreshAutoDownloads()
             coroutineScope {
                 val updates =
@@ -205,6 +226,14 @@ class OfflineDownloadWorker(
                     manager.runPendingDownloads()
                 } finally {
                     updates.cancel()
+                    // WorkManager takes a foreground run's notification down with the run. A run
+                    // refused the foreground posted the same notification as an ordinary one,
+                    // which nothing else would ever remove.
+                    if (!foreground) {
+                        applicationContext
+                            .getSystemService(NotificationManager::class.java)
+                            .cancel(OFFLINE_WORK_NOTIFICATION_ID)
+                    }
                     updateOfflineAttentionNotification(applicationContext)
                 }
             }
@@ -222,18 +251,49 @@ class OfflineDownloadWorker(
                 message = "Offline worker failed outside an individual download",
                 throwable = error,
             )
-            if (runAttemptCount < 3) {
-                Result.retry()
-            } else {
-                manager.rebuildWakeSchedule(
-                    policy = ExistingWorkPolicy.APPEND_OR_REPLACE,
-                    cancelWhenEmpty = false,
-                )
-                Result.failure()
-            }
+            // Retried rather than failed, and with no follow-up wake of its own: enqueued from
+            // here, that wake would be appended to this still-running work and fail along with
+            // it, leaving the queue nothing to wake it. The retry is the wake, on WorkManager's
+            // backoff.
+            Result.retry()
         }
     }
+
+    /**
+     * Asks to run as a foreground service, and says whether that happened.
+     *
+     * From Android 12 an app in the background may not start one, and the background is where a
+     * scheduled wake or the six-hourly auto-sync starts: the refusal used to fail every such run
+     * before a byte was fetched. The run now goes ahead within its job's own execution window;
+     * when the system ends that, the transfer is interrupted like any other and the rescheduled
+     * job resumes it from the partial file.
+     */
+    private suspend fun promoteToForeground(): Boolean =
+        try {
+            setForeground(offlineForegroundInfo(applicationContext))
+            true
+        } catch (refused: IllegalStateException) {
+            if (!isForegroundServiceStartRefusal(refused)) throw refused
+            AppLog.warning(
+                category = "offline",
+                event = "worker_foreground_refused",
+                message = "Offline worker continues without a foreground service",
+                throwable = refused,
+            )
+            false
+        }
 }
+
+/**
+ * Android's refusal to start a foreground service from the background. Matched by name, since
+ * ForegroundServiceStartNotAllowedException only exists from API 31.
+ */
+internal fun isForegroundServiceStartRefusal(
+    error: Throwable,
+    sdkInt: Int = Build.VERSION.SDK_INT,
+): Boolean =
+    sdkInt >= Build.VERSION_CODES.S &&
+        error.javaClass.name == "android.app.ForegroundServiceStartNotAllowedException"
 
 class OfflineDownloadService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)

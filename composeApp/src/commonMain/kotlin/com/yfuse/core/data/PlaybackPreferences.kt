@@ -302,7 +302,6 @@ class PlaybackPreferences(
                     ),
                 centerHoldSpeedBoost = settings.getBoolean(KEY_CENTER_HOLD_SPEED_BOOST, true),
                 swapBrightnessVolume = settings.getBoolean(KEY_SWAP_BRIGHTNESS_VOLUME, false),
-                sideHoldScans = settings.getBoolean(KEY_SIDE_HOLD_SCANS, false),
                 doubleTapPausesAnywhere = settings.getBoolean(KEY_DOUBLE_TAP_PAUSES_ANYWHERE, false),
                 unlockByLongPress = settings.getBoolean(KEY_UNLOCK_BY_LONG_PRESS, false),
             ),
@@ -316,7 +315,6 @@ class PlaybackPreferences(
         settings.putInt(KEY_DOUBLE_TAP_SEEK_SECONDS, normalized.doubleTapSeekSeconds)
         settings.putBoolean(KEY_CENTER_HOLD_SPEED_BOOST, normalized.centerHoldSpeedBoost)
         settings.putBoolean(KEY_SWAP_BRIGHTNESS_VOLUME, normalized.swapBrightnessVolume)
-        settings.putBoolean(KEY_SIDE_HOLD_SCANS, normalized.sideHoldScans)
         settings.putBoolean(KEY_DOUBLE_TAP_PAUSES_ANYWHERE, normalized.doubleTapPausesAnywhere)
         settings.putBoolean(KEY_UNLOCK_BY_LONG_PRESS, normalized.unlockByLongPress)
     }
@@ -693,7 +691,6 @@ class PlaybackPreferences(
         const val KEY_DOUBLE_TAP_SEEK_SECONDS = "player.gesture.doubleTapSeekSeconds"
         const val KEY_CENTER_HOLD_SPEED_BOOST = "player.gesture.centerHoldSpeedBoost"
         const val KEY_SWAP_BRIGHTNESS_VOLUME = "player.gesture.swapBrightnessVolume"
-        const val KEY_SIDE_HOLD_SCANS = "player.gesture.sideHoldScans"
         const val KEY_DOUBLE_TAP_PAUSES_ANYWHERE = "player.gesture.doubleTapPausesAnywhere"
         const val KEY_UNLOCK_BY_LONG_PRESS = "player.gesture.unlockByLongPress"
         const val KEY_CORE2_NATIVE_ONLY_ENABLED = "player.ycore2.nativeOnlyEnabled"

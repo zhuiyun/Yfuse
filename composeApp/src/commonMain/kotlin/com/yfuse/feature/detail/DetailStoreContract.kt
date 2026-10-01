@@ -56,6 +56,11 @@ data class DetailState(
     val playPositionTicks: Long = 0L,
     val seasons: List<Season> = emptyList(),
     val selectedSeasonId: String? = null,
+    /**
+     * The season [episodes] belong to. It trails [selectedSeasonId] while a newly picked season
+     * loads, and is where a pick that fails goes back to.
+     */
+    val listedSeasonId: String? = null,
     val episodes: List<Episode> = emptyList(),
     val episodesLoading: Boolean = false,
     val progressManagerOpen: Boolean = false,
@@ -180,6 +185,16 @@ sealed interface DetailIntent {
         val serverId: String?,
         val itemId: String?,
         val versionId: String?,
+    ) : DetailIntent
+
+    /**
+     * Where [itemId] — 播放's target, unchanged — resumes now, from this device's own playback
+     * record. The player moves it while this page waits behind it without reloading anything.
+     */
+    data class SyncPlayPosition(
+        val serverId: String,
+        val itemId: String,
+        val positionTicks: Long,
     ) : DetailIntent
 }
 

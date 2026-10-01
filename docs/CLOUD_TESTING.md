@@ -16,8 +16,8 @@ installations are refused.
 
 A manual dispatch remains for looking at an already published package: it takes that
 package run's ID and exact source SHA, verifies the source version, artifact manifest
-SHA-256 and production signing certificate, and can run the layout probe below instead of
-the full smoke.
+SHA-256 and production signing certificate, and can add the layout probe below after the
+full smoke.
 
 Artifacts contain JSON case results, screenshots, accessibility trees, startup
 output, crash logs, exit info and diagnostic memory output. A passed page capture
@@ -32,9 +32,15 @@ must not contain account credentials or restored private media configurations.
 
 The `--layout-probe` mode (the manual dispatch's `layout_probe` input) samples 1/3/10
 seconds after rotation at font scales 1.0 and 1.3, captures the empty Library tab and an
-emulated tablet viewport, and skips the foreground/background smoke loop. Actual elapsed
-capture times and pixel dimensions are saved; these sampled frames do not establish exact
-blank-frame duration. A release's own smoke always runs the full loop.
+emulated tablet viewport. It runs after the full smoke (including the foreground/background
+loop) in the same session, once font scale, rotation and night mode are restored; the result
+reads `smoke_and_layout_probe_completed` when both finished. A release's own smoke runs
+without it. Actual elapsed capture times and pixel dimensions are saved; these sampled frames
+do not establish exact blank-frame duration.
+
+On a failure the script prints the failed case, the summary and the traceback, then the
+tails of the crash buffer and logcat, so the cause is readable from the job log without
+downloading artifacts.
 
 Local command (disposable emulator only):
 

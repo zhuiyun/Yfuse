@@ -56,6 +56,41 @@ class FloatingNavigationInsetsTest {
     }
 
     @Test
+    fun a_toast_rests_where_the_dock_clearance_ends_while_no_capsule_stands_on_the_dock() {
+        val systemInset = 30.dp
+
+        assertEquals(
+            floatingNavigationContentInset(systemInset),
+            floatingNavigationToastInset(systemNavigationInset = systemInset, capsule = 0.dp),
+        )
+    }
+
+    @Test
+    fun a_toast_rests_above_the_activity_capsule_while_it_shows() {
+        val systemInset = 30.dp
+        val capsule = 48.dp
+        val capsuleTop = systemInset + activityCapsuleOffset(Dimens.tabBarHeight) + capsule
+
+        val floor = floatingNavigationToastInset(systemNavigationInset = systemInset, capsule = capsule)
+
+        assertTrue(floor > capsuleTop, "a toast at $floor still overlaps a capsule reaching $capsuleTop")
+        assertTrue(floor > floatingNavigationContentInset(systemInset))
+    }
+
+    @Test
+    fun the_toast_floor_follows_a_capsule_that_grows_and_a_taller_dock() {
+        val systemInset = 30.dp
+        val oneLine = floatingNavigationToastInset(systemNavigationInset = systemInset, capsule = 48.dp)
+        val twoLines = floatingNavigationToastInset(systemNavigationInset = systemInset, capsule = 64.dp)
+        val tallDock = dockHeight(captionLine = 30.dp)
+        val underLargeType =
+            floatingNavigationToastInset(systemNavigationInset = systemInset, dock = tallDock, capsule = 48.dp)
+
+        assertEquals(16.dp, twoLines - oneLine)
+        assertEquals(tallDock - Dimens.tabBarHeight, underLargeType - oneLine)
+    }
+
+    @Test
     fun child_page_clearance_does_not_reserve_a_hidden_dock() {
         val systemInset = 30.dp
 

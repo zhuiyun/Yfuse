@@ -18,6 +18,7 @@ import com.yfuse.core.data.SkipTimes
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.security.TestSecureStore
 import com.yfuse.feature.json
@@ -132,6 +133,56 @@ class CloudSyncSnapshotTest {
             ).getOrThrow()
 
         assertEquals(ThemeMode.Dark, target.theme.mode.value)
+    }
+
+    @Test
+    fun motion_theme_round_trips_and_persists_on_the_receiving_device() {
+        // The television is an install of its own; the snapshot is how it hears 动效主题 at all.
+        val source = Fixture()
+        source.theme.setMotionTheme(MotionTheme.Calm)
+        val snapshot =
+            json.decodeFromString(
+                CloudSyncSnapshotV1.serializer(),
+                json.encodeToString(CloudSyncSnapshotV1.serializer(), source.capture()),
+            )
+        assertEquals(MotionTheme.Calm.name, snapshot.appearance.motionTheme)
+
+        val themeSettings = MapSettings()
+        val target = Fixture(themeSettings = themeSettings)
+        target.apply(snapshot).getOrThrow()
+
+        assertEquals(MotionTheme.Calm, target.theme.motionTheme.value)
+        assertEquals(MotionTheme.Calm, ThemePreferences(themeSettings).motionTheme.value)
+    }
+
+    @Test
+    fun snapshot_from_before_motion_theme_was_synced_keeps_the_local_choice() {
+        val snapshot =
+            json.decodeFromString(
+                CloudSyncSnapshotV1.serializer(),
+                """{"schemaVersion":1,"appearance":{"reduceMotion":true}}""",
+            )
+        val target = Fixture()
+        target.theme.setMotionTheme(MotionTheme.Calm)
+
+        target.apply(snapshot).getOrThrow()
+
+        assertEquals(MotionTheme.Calm, target.theme.motionTheme.value)
+        assertTrue(target.theme.reduceMotion.value)
+    }
+
+    @Test
+    fun unknown_motion_theme_is_ignored_and_a_known_one_still_applies() {
+        val target = Fixture()
+        target.theme.setMotionTheme(MotionTheme.Calm)
+
+        target.apply(CloudSyncSnapshotV1(appearance = CloudAppearanceSettings(motionTheme = "Aurora"))).getOrThrow()
+        assertEquals(MotionTheme.Calm, target.theme.motionTheme.value)
+
+        target
+            .apply(CloudSyncSnapshotV1(appearance = CloudAppearanceSettings(motionTheme = MotionTheme.Classic.name)))
+            .getOrThrow()
+        assertEquals(MotionTheme.Classic, target.theme.motionTheme.value)
     }
 
     @Test
@@ -263,9 +314,10 @@ class CloudSyncSnapshotTest {
 
 private class Fixture(
     val syncSettings: MapSettings = MapSettings(),
+    themeSettings: MapSettings = MapSettings(),
 ) {
     val registry = ServerRegistry(MapSettings(), TestSecureStore())
-    val theme = ThemePreferences(MapSettings())
+    val theme = ThemePreferences(themeSettings)
     val userAgent = UserAgentPreferences(MapSettings())
     val watch = WatchTogetherPreferences(MapSettings())
     val danmaku = DanmakuPreferences(MapSettings())

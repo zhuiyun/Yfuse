@@ -580,7 +580,7 @@ private val tvSettingsKeywords: Map<TvSettingsPage, String> =
         TvSettingsPage.Danmaku to "弹幕 字幕 屏蔽 过滤 字号 透明",
         TvSettingsPage.WatchTogether to "一起看 房间 聊天 昵称 头像",
         // 玻璃, 材质 and 布局 lead to the note on that page that says why they are not on a television.
-        TvSettingsPage.Appearance to "外观 背景 玻璃 材质 布局 弹窗 字体 大字 动效 动画 启动 无障碍 透明",
+        TvSettingsPage.Appearance to "外观 背景 玻璃 材质 布局 弹窗 字体 大字 动效主题 静息 经典 动画 启动 无障碍 透明",
         TvSettingsPage.Downloads to "下载 离线 队列 存储 空间 wifi",
         TvSettingsPage.ServerBackup to "备份 导出 导入 迁移 换机 口令",
         TvSettingsPage.PermissionHealth to "权限 通知 局域网 授权",

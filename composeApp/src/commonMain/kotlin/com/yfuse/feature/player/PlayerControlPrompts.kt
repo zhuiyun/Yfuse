@@ -17,18 +17,14 @@ import com.yfuse.tv.player.TvPlayerPrompt
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
- * The pills that offer the next move on the timeline — 回到 after a held scan, an automatic skip's
- * countdown, 跳过片头 / 跳过片尾 — and, for a remote, which prompt OK acts on while the controls are
- * down.
+ * The pills that offer the next move on the timeline — an automatic skip's countdown, 跳过片头 /
+ * 跳过片尾 — and, for a remote, which prompt OK acts on while the controls are down.
  */
 @Composable
 internal fun BoxScope.PlayerSkipPrompts(
     chrome: PlayerChromeState,
-    gestureState: PlayerGestureState,
     skip: SkipSegmentState,
     skipActions: SkipSegmentActions,
-    /** The caller's seek as it is when 回到 is tapped. */
-    onSeek: (Long) -> Unit,
     hintProgress: State<Float>,
     remoteChrome: TvPlayerChromeBridge?,
     /** Playback has just entered the segment: its pill is up on its own for a few seconds. */
@@ -38,25 +34,6 @@ internal fun BoxScope.PlayerSkipPrompts(
     nextUpCardShowing: State<Boolean>,
     creditsPhase: State<CreditsTakeoverPhase>,
 ) {
-    // 回到 12:34: a scan that ran past its mark is one tap from where it set out.
-    val lastScanUndo = remember { arrayOf("") }
-    gestureState.scanUndoMs?.let { lastScanUndo[0] = "回到 ${it.asClock()}" }
-    ChromeVisibility(
-        visible = gestureState.scanUndoMs != null,
-        edge = ChromeEdge.Bottom,
-        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp),
-    ) {
-        SkipPill(
-            label = lastScanUndo[0],
-            onClick = {
-                gestureState.takeScanUndo()?.let { origin ->
-                    onSeek(origin)
-                    chrome.poke()
-                }
-            },
-        )
-    }
-
     // Auto-skip is a small floating status chip. It is intentionally outside BottomBar's
     // Column so the progress rail never moves when the countdown appears or disappears.
     val lastAutoSkip = remember { arrayOf("", "") }

@@ -290,6 +290,221 @@ class LibraryGridStoreTest {
         }
 
     @Test
+    fun a_failed_unplayed_only_change_never_displays_items_from_the_previous_criteria() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            var unplayedAttempts = 0
+            val repo =
+                testRepo(dispatcher) { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/Genres") -> json("""{"Items":[]}""")
+                        request.url.parameters["IsPlayed"] == "false" -> {
+                            unplayedAttempts += 1
+                            if (unplayedAttempts == 1) {
+                                throw kotlinx.io.IOException("filtered request failed")
+                            }
+                            json(page(from = 0, count = 1, total = 1))
+                        }
+                        else -> json(page(from = 0, count = 2, total = 2))
+                    }
+                }
+            val store =
+                LibraryGridStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry(),
+                    "lib1",
+                    mainContext = dispatcher,
+                ).create()
+            advanceUntilIdle()
+            assertEquals(2, store.state.items.size)
+
+            store.accept(GridIntent.SetUnplayedOnly(true))
+            advanceUntilIdle()
+
+            // The chip reads 只看未看, so the watched titles from before may not stay under it.
+            val failed = store.state
+            assertTrue(failed.unplayedOnly)
+            assertTrue(failed.error != null)
+            assertTrue(failed.items.isEmpty())
+            assertEquals(0, failed.totalCount)
+            assertEquals(0, failed.nextStartIndex)
+
+            store.accept(GridIntent.Retry)
+            advanceUntilIdle()
+            val recovered = store.state
+            assertEquals(listOf("m0"), recovered.items.map { it.id })
+            assertTrue(recovered.unplayedOnly)
+            assertEquals(null, recovered.error)
+            assertEquals(2, unplayedAttempts)
+            store.dispose()
+            advanceUntilIdle()
+        }
+
+    @Test
+    fun unplayed_only_is_offered_on_a_plain_library_alone() {
+        assertTrue(GridState().unplayedFilterable)
+        // A collection's endpoint has no IsPlayed filter, so its grid has no chip that does nothing.
+        assertFalse(GridState(containerKind = MediaContainerKind.BoxSet).unplayedFilterable)
+        assertFalse(
+            GridState(containerKind = MediaContainerKind.Playlist, resolutionFilterable = false).unplayedFilterable,
+        )
+        assertFalse(GridState(resolutionFilterable = false).unplayedFilterable)
+    }
+
+    @Test
+    fun the_index_loads_the_rest_of_a_set_it_can_hold_whole() =
+        runTest {
+            val requests = mutableListOf<Pair<Int, Int?>>()
+            val repo =
+                testRepo { request ->
+                    if (request.url.encodedPath.endsWith("/Genres")) {
+                        json("""{"Items":[]}""")
+                    } else {
+                        val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
+                        val limit = request.url.parameters["Limit"]?.toInt()
+                        requests += start to limit
+                        json(page(from = start, count = minOf(limit ?: 0, 700 - start), total = 700))
+                    }
+                }
+            val store =
+                LibraryGridStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry(),
+                    "lib1",
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                ).create()
+            val first = store.states.first { !it.loading && it.items.isNotEmpty() }
+            assertEquals(60, first.items.size)
+            assertTrue(first.indexFillable)
+
+            store.accept(GridIntent.LoadIndex)
+
+            val whole = store.states.first { !it.loadingMore && !it.canLoadMore }
+            assertEquals(700, whole.items.size)
+            assertEquals(null, whole.loadMoreError)
+            // A few large pages rather than the dozen screenfuls scrolling would have asked for.
+            assertEquals(listOf<Pair<Int, Int?>>(0 to 60, 60 to 300, 360 to 300, 660 to 300), requests)
+            store.dispose()
+            runCurrent()
+        }
+
+    @Test
+    fun a_set_past_the_index_limit_is_left_to_paging() =
+        runTest {
+            val starts = mutableListOf<Int>()
+            val repo =
+                testRepo { request ->
+                    if (request.url.encodedPath.endsWith("/Genres")) {
+                        json("""{"Items":[]}""")
+                    } else {
+                        val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
+                        starts += start
+                        json(page(from = start, count = 60, total = GRID_INDEX_FILL_LIMIT + 1))
+                    }
+                }
+            val store =
+                LibraryGridStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry(),
+                    "lib1",
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                ).create()
+            val first = store.states.first { !it.loading && it.items.isNotEmpty() }
+            assertFalse(first.indexFillable)
+
+            store.accept(GridIntent.LoadIndex)
+            runCurrent()
+
+            assertEquals(listOf(0), starts)
+            assertEquals(60, store.state.items.size)
+            assertFalse(store.state.loadingMore)
+            store.dispose()
+            runCurrent()
+        }
+
+    @Test
+    fun a_failed_page_ends_the_index_fill_and_keeps_what_arrived() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
+                    val limit = request.url.parameters["Limit"]?.toInt() ?: 0
+                    when {
+                        request.url.encodedPath.endsWith("/Genres") -> json("""{"Items":[]}""")
+                        start == 360 -> throw kotlinx.io.IOException("network down")
+                        else -> json(page(from = start, count = minOf(limit, 700 - start), total = 700))
+                    }
+                }
+            val store =
+                LibraryGridStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry(),
+                    "lib1",
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                ).create()
+            store.states.first { !it.loading && it.items.isNotEmpty() }
+
+            store.accept(GridIntent.LoadIndex)
+
+            val stopped = store.states.first { it.loadMoreError != null }
+            assertEquals(360, stopped.items.size)
+            assertFalse(stopped.loadingMore)
+            assertTrue(stopped.canLoadMore)
+            // The footer's 重试 takes it from here; the grid itself has not failed.
+            assertEquals(null, stopped.error)
+            store.dispose()
+            runCurrent()
+        }
+
+    @Test
+    fun a_new_sort_ends_the_index_fill_for_the_old_order() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val releaseFill = CompletableDeferred<Unit>()
+            val requests = mutableListOf<Pair<String?, Int>>()
+            val repo =
+                testRepo(dispatcher) { request ->
+                    if (request.url.encodedPath.endsWith("/Genres")) {
+                        json("""{"Items":[]}""")
+                    } else {
+                        val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
+                        val limit = request.url.parameters["Limit"]?.toInt() ?: 0
+                        requests += request.url.parameters["SortBy"] to start
+                        if (start > 0) releaseFill.await()
+                        json(page(from = start, count = minOf(limit, 700 - start), total = 700))
+                    }
+                }
+            val store =
+                LibraryGridStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry(),
+                    "lib1",
+                    mainContext = dispatcher,
+                ).create()
+            advanceUntilIdle()
+            store.accept(GridIntent.LoadIndex)
+            runCurrent()
+            assertTrue(store.state.loadingMore)
+
+            store.accept(GridIntent.SetSort(LibrarySort.Name))
+            releaseFill.complete(Unit)
+            advanceUntilIdle()
+
+            val sorted = store.state
+            assertEquals(LibrarySort.Name, sorted.sort)
+            assertFalse(sorted.loading || sorted.loadingMore)
+            assertEquals(60, sorted.items.size)
+            assertEquals(listOf<Pair<String?, Int>>("DateCreated" to 0, "DateCreated" to 60, "SortName" to 0), requests)
+            store.dispose()
+            advanceUntilIdle()
+        }
+
+    @Test
     fun genres_fill_the_filter_row_and_a_selection_narrows_the_query() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)

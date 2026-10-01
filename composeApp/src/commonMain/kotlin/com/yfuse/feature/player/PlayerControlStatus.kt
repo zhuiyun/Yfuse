@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,6 +71,10 @@ internal fun BoxScope.PlayerPictureStatus(
     /** Where 双击's pulse count stood when this item started; see PlayerControls. */
     pulseItemStart: Int,
     pauseInfoShown: Boolean,
+    /** Stopped at the end of the item; see [playbackStoppedAtItemEnd]. */
+    stoppedAtItemEnd: Boolean,
+    /** The paused key is up; PlayerControls decides, since its hide timer and 暂停信息层 ask too. */
+    showPausedKey: Boolean,
     watchLocked: Boolean,
     /** Neither a room nor a cast owns the rate, so 长按中间 may hold a speed. */
     speedBoostable: Boolean,
@@ -88,36 +91,6 @@ internal fun BoxScope.PlayerPictureStatus(
     danmaku: PlayerDanmakuState,
 ) {
     val state by controlState
-    val stoppedAtItemEnd by remember(playback) {
-        derivedStateOf { playbackStoppedAtItemEnd(playback.value) }
-    }
-
-    /**
-     * Paused, with one tap back into playback.
-     *
-     * A double tap in the middle of the frame pauses, and the controls it raised fade a
-     * few seconds later — leaving a still frame with nothing on it to say the film is
-     * paused rather than stalled, and no way back that does not start with a tap to bring
-     * the controls round again. This outlives the control overlay for that reason.
-     *
-     * Not while buffering: `playing` is false throughout startup and every seek, and a
-     * resume button over a frame that is already coming back is a lie. Not once the item
-     * has ended or stopped at its end either — the ending's keys below own that moment,
-     * and "paused" would be the wrong word for it.
-     *
-     * A guest whose room is driven by its host still needs to be told the film is paused,
-     * so the key is drawn for them too — dimmed and inert, since the tap would only be
-     * refused. That is the whole difference between the two states, which is why it is
-     * one control and not two: the pair that used to cover this drew a 28dp 暂停 badge
-     * underneath a translucent 64dp 播放 disc, so both were on screen at once and the
-     * smaller one showed through the larger.
-     */
-    val showPausedKey =
-        !state.playing &&
-            !state.buffering &&
-            !state.ended &&
-            state.error == null &&
-            !stoppedAtItemEnd
     // Beneath the 继续播放 key, so that key still resumes. Any other touch, and Back, bring
     // the chrome up, which is what they were for; the layer leaves with the pause it needs.
     PauseInfoLayer(
@@ -192,8 +165,8 @@ internal fun BoxScope.PlayerPictureStatus(
         modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
     )
 
-    // 全程缩略图: the frame a swipe across the picture, or a held side, has got to — or,
-    // on a television, a held fast-forward or rewind on the remote.
+    // 全程缩略图: the frame a swipe across the picture has got to — or, on a television, a
+    // held fast-forward or rewind on the remote.
     PictureScrubPreview(
         storyboard = transport.trickplay,
         positionMs = { remoteChromeState?.holdPreviewMs ?: gestureState.previewMs },
@@ -201,11 +174,13 @@ internal fun BoxScope.PlayerPictureStatus(
         modifier = Modifier.align(Alignment.Center),
     )
 
-    // Suppressed while the resume button occupies the same spot: the double tap that
-    // pauses would otherwise stack "暂停" directly on top of it.
+    // Below the paused key or the ending's keys while they hold the middle, rather than hidden
+    // behind them: for a brightness or volume drag, a scrub's target, a key, a refusal or a picked
+    // track, this is the only readout there is. Only the 播放 and 暂停 those keys already say are left
+    // out ([gestureHudLine]).
     PlayerGestureHud(
         hud = { gestureState.hud },
-        suppressed = showPausedKey || showEndedKeys,
+        centreKeysShown = showPausedKey || showEndedKeys,
         modifier = Modifier.align(Alignment.Center),
     )
 

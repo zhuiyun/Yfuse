@@ -135,6 +135,8 @@ internal data class DialogMotionFrame(
     val insetY: Float = 0f,
     val offsetX: Float = 0f,
     val rotationZ: Float = 0f,
+    /** Only [calmDialogMotionFrame] fades the panel; every style arrives opaque. */
+    val alpha: Float = 1f,
 )
 
 private val RestingDialogMotionFrame = DialogMotionFrame()
@@ -142,6 +144,8 @@ private val RestingDialogMotionFrame = DialogMotionFrame()
 /** Layer properties and the reveal mask share one immutable geometry result for each progress. */
 internal class DialogMotionFrameCache(
     private val animation: DialogAnimation,
+    /** 静息: [calmDialogMotionFrame] in place of the style's own frame. */
+    private val calm: Boolean = false,
 ) {
     private var lastProgress = Float.NaN
     private var lastFrame = RestingDialogMotionFrame
@@ -150,10 +154,24 @@ internal class DialogMotionFrameCache(
         val p = progress.coerceIn(0f, 1f)
         if (p != lastProgress) {
             lastProgress = p
-            lastFrame = dialogMotionFrame(animation, p)
+            lastFrame = if (calm) calmDialogMotionFrame(p) else dialogMotionFrame(animation, p)
         }
         return lastFrame
     }
+}
+
+/** How far a 静息 dialog rises as it fades in, in dp: settling into place, not travelling. */
+private const val CALM_DIALOG_RISE = 8f
+
+/**
+ * 静息's dialog — see [MotionTheme.Calm]: a fade over a [CALM_DIALOG_RISE] rise, nothing scaled
+ * and nothing wiped. The theme hands dialogs [DialogAnimation.Lift], whose own frame grows the
+ * panel from 0.92 out of a slit at its centre.
+ */
+internal fun calmDialogMotionFrame(progress: Float): DialogMotionFrame {
+    val p = progress.coerceIn(0f, 1f)
+    if (p == 1f) return RestingDialogMotionFrame
+    return DialogMotionFrame(offsetY = CALM_DIALOG_RISE * (1f - p), alpha = p)
 }
 
 internal fun dialogMotionFrame(
@@ -264,7 +282,11 @@ internal fun Modifier.dialogMotion(
     val position = remember { DialogPanelPosition() }
     val glow = LocalAccentColors.current.accent
     val cache = remember(glow) { DialogDrawCache(glow) }
-    val frames = remember(animation) { DialogMotionFrameCache(animation) }
+    // 静息 hands every dialog 柔和浮起 (see [YfuseTheme]) and draws it as the fade and short rise
+    // the theme promises; any other style — one previewed in settings, a sheet's own entrance —
+    // is left be.
+    val calm = calmMotion() && animation == DialogAnimation.Lift
+    val frames = remember(animation, calm) { DialogMotionFrameCache(animation, calm) }
     val poster = remember { host.poster?.takeIf { animation == DialogAnimation.PosterMorph } }
     val posterLayer = if (animation == DialogAnimation.PosterMorph) rememberGraphicsLayer() else null
     val layerOnly = animation == DialogAnimation.Slide || animation == DialogAnimation.Touch
@@ -282,12 +304,13 @@ internal fun Modifier.dialogMotion(
                 val frame = if (flung) RestingDialogMotionFrame else frames.frame(entered)
                 // Binary endpoint visibility requires no translucent offscreen layer during motion.
                 // The flight is the exception: it is a fade, so that the panel is gone before the
-                // travel would have to be long enough to clear the screen on its own.
+                // travel would have to be long enough to clear the screen on its own. 静息's frame is
+                // the other, being a fade throughout.
                 alpha =
                     when {
                         flung -> entered
                         layerOnly && entered <= 0f -> 0f
-                        else -> 1f
+                        else -> frame.alpha
                     }
                 transformOrigin =
                     when {

@@ -47,6 +47,9 @@ class CalendarComponent(
     }
 
     fun toggleFollow(entry: CalendarEntry) {
+        // A show TMDB has not identified has no id to follow it by, and the store refuses one
+        // outright: a press on it crashed the page.
+        if (entry.episode.showTmdbId <= 0) return
         val current = followStore.followed.value.firstOrNull { it.tmdbId == entry.episode.showTmdbId }
         if (current == null) {
             followStore.follow(entry.toFollowedSeries())

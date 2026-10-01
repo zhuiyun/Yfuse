@@ -92,6 +92,7 @@ import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.YfFormField
+import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.overlayAction
@@ -1349,11 +1350,13 @@ private fun BrandAndSplashScreen(
 ) {
     val palette = LocalPalette.current
     val enabled by prefs.splashAnimation.collectAsState()
-    val variant = SplashAnimation.forMotion(LocalAccessibilityOptions.current.reduceMotion)
+    // The launch settles on its still frame under 静息 as well as under 减少动画 (the system's
+    // 移除动画 is folded into the latter), so the preview is picked the same way.
+    val variant = SplashAnimation.forMotion(LocalAccessibilityOptions.current.reduceMotion || calmMotion())
 
     SettingsPage(
         title = "Logo 与开屏动画",
-        subtitle = "返回桌面后更新图标，可能需要几秒刷新；开屏遵循减少动画设置",
+        subtitle = "返回桌面后更新图标，可能需要几秒刷新；开屏遵循减少动画与动效主题设置",
         onBack = onBack,
     ) {
         motionItem {

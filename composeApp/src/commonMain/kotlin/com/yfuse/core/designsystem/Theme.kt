@@ -317,6 +317,7 @@ fun YfuseTheme(
         LocalAccessibilityOptions provides accessibility,
         LocalGlassStyle provides glassStyle,
         LocalGlassMaterials provides glassMaterials,
+        // Under 静息 柔和浮起 draws as a fade and a short rise, not its own scale: see [dialogMotion].
         LocalDialogAnimation provides if (calm) DialogAnimation.Lift else dialogAnimation,
         LocalLoadingAnimation provides if (calm) CalmLoadingAnimation else loadingAnimation,
         LocalParticleLight provides if (calm) ParticleLight.Off else particleLight,

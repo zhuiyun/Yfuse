@@ -69,10 +69,7 @@ internal fun BoxScope.PlayerTopChrome(
             ambientLight = picture.ambientLight,
             castActive = cast.active,
             watchConnected = watch.connected,
-            unreadChat =
-                watch.chatMessages.lastOrNull()?.id?.let { latest ->
-                    chrome.lastReadChatId?.let { latest > it } ?: true
-                } ?: false,
+            unreadChat = hasUnreadChat(watch.chatMessages, chrome.lastReadChatId),
             onOpenChat = { chrome.openWatchChat(watch.chatMessages) },
             extras = host.extras,
             onKeyActivity = chrome::poke,

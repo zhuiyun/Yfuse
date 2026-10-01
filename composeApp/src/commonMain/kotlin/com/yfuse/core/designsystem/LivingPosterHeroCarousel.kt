@@ -63,6 +63,11 @@ fun rememberLivingPosterHeroState(itemIds: List<String>): LivingPosterHeroState 
 
 /** One page of the reel, as the screen's slide draws it. */
 class LivingPosterPage internal constructor(
+    /**
+     * The pager's own page. No two pages composed at once share it, where [index] repeats: a reel
+     * of two shows the same item on both sides of the one it rests on.
+     */
+    val page: Int,
     /** Which of the screen's items the page shows. */
     val index: Int,
     /** Whether the reel has come to rest on this page. */
@@ -192,6 +197,7 @@ fun LivingPosterHeroCarousel(
             ) { page ->
                 slide(
                     LivingPosterPage(
+                        page = page,
                         index = loopingCarouselItemIndex(page, pageCount),
                         settled = page == pagerState.settledPage,
                         offset = { (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction },

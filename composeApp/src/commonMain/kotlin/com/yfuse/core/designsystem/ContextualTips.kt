@@ -10,10 +10,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -31,9 +33,10 @@ import com.yfuse.core.designsystem.ThemeText as Text
  * 情境提示 — a new gesture explained once, where it can first be used, and never again.
  *
  * Modelled on Apple's TipKit: a tip shows only where its gesture applies, retires once it has been
- * on screen for [TIP_SEEN_MS] (or was answered with 知道了) or the gesture has been used — whichever
- * comes first — and no more than one tip is seen on any day, so a first run is not a tour. A tip that
- * flashed past because the controls under it went away has not been seen, and may come back.
+ * on screen for [TIP_SEEN_MS] (or was answered with 知道了, or left with its page) or the gesture has
+ * been used — whichever comes first — and no more than one tip is seen on any day, so a first run is
+ * not a tour. A tip that flashed past because the controls under it went away has not been seen, and
+ * may come back.
  *
  * One id per place: a swipe on a download does something else than a swipe on 观看记录, and seeing
  * one of those tips used to retire the other two unread.
@@ -107,15 +110,23 @@ class TipsState(
     var showing by mutableStateOf<String?>(null)
         private set
 
+    /** Where [showing] is shown: one place, the one that claimed it. */
+    private var holder by mutableStateOf<Any?>(null)
+
     /**
-     * Whether [id] may appear now. A tip already showing keeps its place; nothing else may appear
-     * while it is up, nor on a day that has already had its tip seen.
+     * Whether [id] may appear now at [place]. A tip already showing keeps its place; nothing else
+     * may appear while it is up — the same tip at another place included, which would show it
+     * twice — nor on a day that has already had its tip seen.
      */
-    fun claim(id: String): Boolean {
-        if (showing == id) return true
+    fun claim(
+        id: String,
+        place: Any,
+    ): Boolean {
+        if (showing == id) return holder == place
         if (showing != null || store.isRetired(id)) return false
         if (store.lastShownDay() == today()) return false
         showing = id
+        holder = place
         return true
     }
 
@@ -128,9 +139,32 @@ class TipsState(
         store.setLastShownDay(today())
     }
 
+    /** Whether [id] is the tip on screen, shown at [place]. */
+    fun isShowing(
+        id: String,
+        place: Any,
+    ): Boolean = showing == id && holder == place
+
+    /**
+     * [place] left the screen. A tip it was showing goes with it and frees the slot. One in front
+     * of the reader as the page went ([seen]) counts as seen, so it does not come back when the
+     * page does; one hidden under controls that had already gone away was not read, and may.
+     */
+    fun release(
+        id: String,
+        place: Any,
+        seen: Boolean = true,
+    ) {
+        if (!isShowing(id, place)) return
+        if (seen) markSeen(id)
+        dismiss(id)
+    }
+
     /** The tip was closed, or timed out. */
     fun dismiss(id: String) {
-        if (showing == id) showing = null
+        if (showing != id) return
+        showing = null
+        holder = null
     }
 
     /** The gesture a tip teaches was just used: it will never be shown, and leaves if it is up. */
@@ -163,10 +197,17 @@ fun ContextualTip(
 ) {
     val tips = LocalTips.current ?: return
     val accessibility = LocalAccessibilityManager.current
-    val shown = tips.showing == id
+    // This placement of the tip; the same id can sit on two pages at once, mid-transition.
+    val place = remember { Any() }
+    val shown = tips.isShowing(id, place)
     val latestActive by rememberUpdatedState(active)
     LaunchedEffect(active) {
-        if (active) tips.claim(id)
+        if (active) tips.claim(id, place)
+    }
+    // A page left before the tip timed out takes it along; it used to keep the slot for the rest
+    // of the process, blocking every other tip and showing again on the way back.
+    DisposableEffect(tips, id) {
+        onDispose { tips.release(id, place, seen = latestActive) }
     }
     // Seen once it has stayed up long enough to read, not the moment it appears.
     val onScreen = shown && active
@@ -223,6 +264,8 @@ fun ContextualTip(
                 color = palette.text,
                 modifier = Modifier.weight(1f, fill = false).padding(vertical = 8.dp),
             )
+            // The press washes the word and its padding, not the 48dp slot around them.
+            val dismissFocus = remember { TouchTargetFocusShape(AppShapes.control) }
             Text(
                 "知道了",
                 style = AppTypography.body.strong,
@@ -230,11 +273,12 @@ fun ContextualTip(
                 modifier =
                     Modifier
                         .pressable(
+                            focusShape = dismissFocus,
                             onClick = {
                                 tips.markSeen(id)
                                 tips.dismiss(id)
                             },
-                        ).touchTarget()
+                        ).touchTarget(focus = dismissFocus)
                         .padding(horizontal = 10.dp, vertical = 8.dp),
             )
         }

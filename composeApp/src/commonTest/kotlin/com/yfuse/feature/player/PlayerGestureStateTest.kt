@@ -2,11 +2,6 @@ package com.yfuse.feature.player
 
 import androidx.compose.ui.geometry.Offset
 import com.yfuse.core.designsystem.DragAxis
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.runCurrent
-import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -23,7 +18,7 @@ class PlayerGestureStateTest {
         taps: Int,
         positionMs: Long,
         at: Offset = Offset.Zero,
-    ): Long = gestures.burstSeek(direction, at, taps, stepMs = 10_000L, positionMs = positionMs, durationMs = hour)
+    ): Long? = gestures.burstSeek(direction, at, taps, stepMs = 10_000L, positionMs = positionMs, durationMs = hour)
 
     /** One move of a drag across a 1,000 × 500 px picture at density 1, the playhead at 1:00. */
     private fun drag(
@@ -46,17 +41,6 @@ class PlayerGestureStateTest {
         )
 
     private fun startDrag(x: Float) = gestures.startDrag(x, positionMs = 60_000L, volume = 0.5f, brightness = 0.5f)
-
-    /** A side held for one step of its scan, then the effect running it cancelled, as a release would. */
-    private fun TestScope.holdForOneStep(positionMs: Long) {
-        gestures.startScan(direction = 1, x = 500f, positionMs = positionMs)
-        val scan =
-            backgroundScope.launch {
-                gestures.runScan(1, stepPx = 44f, durationMs = { hour }, onShift = {}, onSeek = {})
-            }
-        runCurrent()
-        scan.cancel()
-    }
 
     @Test
     fun theHudSaysWhatItIsToldUntilCleared() {
@@ -95,111 +79,13 @@ class PlayerGestureStateTest {
     }
 
     @Test
-    fun aHeldSideRunsAtTenTimesThenThirtyOnceItHasBeenHeldThreeSeconds() =
-        runTest {
-            val seeks = mutableListOf<Long>()
-            var shifts = 0
-            gestures.startScan(direction = 1, x = 500f, positionMs = 60_000L)
-            assertTrue(gestures.scanning)
-            backgroundScope.launch {
-                gestures.runScan(
-                    direction = 1,
-                    stepPx = 44f,
-                    durationMs = { hour },
-                    onShift = { shifts++ },
-                    onSeek = { seeks += it },
-                )
-            }
-            runCurrent()
-            // The first step goes at once: 300 ms at 10×.
-            assertEquals(listOf(63_000L), seeks)
-            assertEquals("快进 ×10 · 1:03 / 60:00", gestures.hud)
-            assertEquals(63_000L, gestures.previewMs)
-
-            advanceTimeBy(HOLD_SEEK_RAMP_MS - HOLD_SEEK_TICK_MS)
-            runCurrent()
-            assertEquals(90_000L, seeks.last())
-            assertEquals(0, shifts)
-
-            advanceTimeBy(HOLD_SEEK_TICK_MS)
-            runCurrent()
-            assertEquals(1, shifts)
-            assertEquals(99_000L, seeks.last())
-            assertEquals("快进 ×30 · 1:39 / 60:00", gestures.hud)
-        }
-
-    @Test
-    fun aHeldSideStopsAtTheStartOfTheItem() =
-        runTest {
-            val seeks = mutableListOf<Long>()
-            gestures.startScan(direction = -1, x = 100f, positionMs = 1_000L)
-            backgroundScope.launch {
-                gestures.runScan(-1, stepPx = 44f, durationMs = { hour }, onShift = {}, onSeek = { seeks += it })
-            }
-            runCurrent()
-            assertEquals(listOf(0L), seeks)
-            assertEquals("快退 ×10 · 0:00 / 60:00", gestures.hud)
-        }
-
-    @Test
-    fun slidingBackStandsTheScanStillAndItIsNeverRampedAfterwards() =
-        runTest {
-            val seeks = mutableListOf<Long>()
-            var shifts = 0
-            gestures.startScan(direction = 1, x = 500f, positionMs = 60_000L)
-            // A step back against the scan's way stands it still, said at once rather than on the next tick.
-            assertTrue(gestures.followScan(x = 456f, stepPx = 44f, durationMs = hour))
-            assertEquals("快进 停住 · 1:00 / 60:00", gestures.hud)
-            assertFalse(gestures.followScan(x = 456f, stepPx = 44f, durationMs = hour))
-            backgroundScope.launch {
-                gestures.runScan(
-                    direction = 1,
-                    stepPx = 44f,
-                    durationMs = { hour },
-                    onShift = { shifts++ },
-                    onSeek = { seeks += it },
-                )
-            }
-            runCurrent()
-            advanceTimeBy(2 * HOLD_SEEK_RAMP_MS)
-            runCurrent()
-            assertEquals(emptyList(), seeks)
-            assertEquals(0, shifts)
-            // It never moved, so letting go has nowhere to offer to go back to.
-            assertTrue(gestures.releaseScan())
-            assertNull(gestures.scanUndoMs)
-        }
-
-    @Test
-    fun lettingGoOfAScanThatMovedOffersTheWayBackOnce() =
-        runTest {
-            holdForOneStep(positionMs = 60_000L)
-            assertTrue(gestures.releaseScan())
-            assertFalse(gestures.scanning)
-            assertFalse(gestures.releaseScan())
-            assertEquals(60_000L, gestures.scanUndoMs)
-
-            assertEquals(60_000L, gestures.takeScanUndo())
-            assertEquals("已回到 1:00", gestures.hud)
-            assertNull(gestures.scanUndoMs)
-            assertNull(gestures.takeScanUndo())
-        }
-
-    @Test
-    fun theWayBackGoesWhenItRunsOutOrAnotherHoldTakes() =
-        runTest {
-            holdForOneStep(positionMs = 60_000L)
-            gestures.releaseScan()
-            gestures.expireScanUndo()
-            assertNull(gestures.scanUndoMs)
-
-            holdForOneStep(positionMs = 60_000L)
-            gestures.releaseScan()
-            assertEquals(60_000L, gestures.scanUndoMs)
-            gestures.startScan(direction = -1, x = 100f, positionMs = 63_000L)
-            assertNull(gestures.scanUndoMs)
-            assertEquals(63_000L, gestures.previewMs)
-        }
+    fun aDoubleTapBeforeTheDurationIsKnownCountsNothingAndSaysNothing() {
+        // Opening at a resume point, the clamp could only have landed on 0:00.
+        assertNull(gestures.burstSeek(1, Offset.Zero, taps = 2, stepMs = 10_000L, positionMs = 0L, durationMs = 0L))
+        assertNull(gestures.hud)
+        assertEquals(0, gestures.pulseRevision)
+        assertFalse(gestures.burstContinues(1))
+    }
 
     @Test
     fun theHeldMiddleStartsAtTwiceAndASlideShiftsAGearAtATime() {
@@ -250,6 +136,29 @@ class PlayerGestureStateTest {
     }
 
     @Test
+    fun aSidewaysDragBeforeTheDurationIsKnownShowsNoTarget() {
+        startDrag(x = 500f)
+        val level =
+            gestures.drag(
+                dx = 40f,
+                dy = 0f,
+                dtMs = 16L,
+                width = 1_000,
+                height = 500,
+                density = 1f,
+                positionMs = 0L,
+                durationMs = 0L,
+                watchGuest = false,
+                swapBrightnessVolume = false,
+            )
+        assertNull(level)
+        assertEquals(DragAxis.Horizontal, gestures.dragAxis)
+        assertNull(gestures.pictureScrubMs)
+        assertNull(gestures.hud)
+        assertNull(gestures.endDrag(durationMs = 0L, watchGuest = false))
+    }
+
+    @Test
     fun anUprightDragSetsBrightnessOnTheLeftAndVolumeOnTheRightUnlessSwapped() {
         startDrag(x = 200f)
         // A quarter of the picture's height up.
@@ -284,13 +193,6 @@ class PlayerGestureStateTest {
         assertEquals(DragAxis.Undecided, gestures.dragAxis)
         assertNull(gestures.hud)
         gestures.endBoost()
-
-        // A held side owns the timeline, so a swipe under way lands nowhere either.
-        startDrag(x = 500f)
-        drag(dx = 40f, dy = 0f)
-        gestures.startScan(direction = 1, x = 540f, positionMs = 60_000L)
-        assertNull(drag(dx = 40f, dy = 0f))
-        assertNull(gestures.endDrag(durationMs = hour, watchGuest = false))
     }
 
     @Test
@@ -315,18 +217,6 @@ class PlayerGestureStateTest {
         assertTrue(gestures.fineScrubArmed)
         assertTrue(gestures.scrub())
     }
-
-    @Test
-    fun aSecondFingerStopsAHeldSideWhereItGotToWithoutTheWayBack() =
-        runTest {
-            holdForOneStep(positionMs = 60_000L)
-            assertTrue(gestures.scanning)
-            assertFalse(gestures.secondFinger())
-            assertFalse(gestures.scanning)
-            assertNull(gestures.scanUndoMs)
-            assertNull(gestures.hud)
-            assertNull(gestures.previewMs)
-        }
 
     @Test
     fun aSecondFingerLetsGoOfTheHeldMiddleAndASwipesPreview() {

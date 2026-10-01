@@ -276,7 +276,7 @@ class PublishJobSplitTest(unittest.TestCase):
                        '--expected-version-code "$EXPECTED_VERSION_CODE"',
                        '--expected-version-name "$EXPECTED_VERSION_NAME"'):
             self.assertIn(option, cloud)
-        # Only a manual run can trade the full smoke for the layout probe.
+        # Only a manual run adds the layout probe, after the full smoke.
         self.assertIn("LAYOUT_PROBE: ${{ inputs.layout_probe && '--layout-probe' || '' }}", cloud)
         self.assertNotIn("layout_probe", triggers.split("  workflow_dispatch:", 1)[0])
 
@@ -344,6 +344,9 @@ class SmokeIdentityTest(unittest.TestCase):
                     return properties[request[2]]
                 if request[:3] == ["shell", "settings", "get"]:
                     return "null"
+                # Read once on connecting, so the night mode the smoke switches can be put back.
+                if request == ["shell", "cmd", "uimode", "night"]:
+                    return "Night mode: no"
                 raise AssertionError(args)
             return command
 

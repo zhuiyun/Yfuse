@@ -39,11 +39,6 @@ internal fun pictureGestureHelpRows(gestures: PlayerGestureSettings): List<Pair<
             )
             add("双击中间" to "播放或暂停；也可使用底部播放按钮")
         }
-        if (gestures.sideHoldScans) {
-            add("长按左侧 / 右侧" to "连续快退 / 快进，左右滑动换挡；松手后 3 秒内可回到原处")
-        } else {
-            add("长按左侧 / 右侧" to "临时 2 倍速，左右滑动切换 1.5× / 2× / 3×，松手恢复")
-        }
         if (gestures.centerHoldSpeedBoost) {
             add("长按中间" to "临时 2 倍速，左右滑动切换 1.5× / 2× / 3×，松手恢复；也可使用播放速度按钮")
         }

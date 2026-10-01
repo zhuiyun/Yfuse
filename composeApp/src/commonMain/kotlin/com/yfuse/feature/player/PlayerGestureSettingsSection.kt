@@ -15,9 +15,6 @@ import com.yfuse.core.designsystem.ThemeText as Text
 /** 中间长按's two answers, in the order the panel lists them. */
 internal val CENTER_HOLD_CHOICES = listOf("临时倍速", "关闭")
 
-/** 两侧长按's two answers: play faster while held, or run along the timeline. */
-internal val SIDE_HOLD_CHOICES = listOf("临时倍速", "扫描")
-
 /** 双击's two readings of the picture: thirds, or one big play/pause key. */
 internal val DOUBLE_TAP_CHOICES = listOf("两侧快进快退", "全屏暂停")
 
@@ -60,17 +57,6 @@ internal fun PlayerGestureSettingsSection(preferences: PlaybackPreferences) {
         columns = CENTER_HOLD_CHOICES.size,
         onSelect = { index ->
             preferences.setGestureSettings(gestures.copy(centerHoldSpeedBoost = index == 0))
-        },
-    )
-    GestureSettingCaption(
-        if (gestures.sideHoldScans) "两侧长按 · 连续快退 / 快进，左右滑动换挡" else "两侧长按 · 按住时加速播放",
-    )
-    CompactChoiceGrid(
-        options = SIDE_HOLD_CHOICES,
-        selectedIndex = if (gestures.sideHoldScans) 1 else 0,
-        columns = SIDE_HOLD_CHOICES.size,
-        onSelect = { index ->
-            preferences.setGestureSettings(gestures.copy(sideHoldScans = index == 1))
         },
     )
     GestureSettingCaption("解锁方式 · 锁定后点按左侧锁键")

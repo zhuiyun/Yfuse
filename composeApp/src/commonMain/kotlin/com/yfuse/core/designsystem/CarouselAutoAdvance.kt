@@ -3,7 +3,10 @@ package com.yfuse.core.designsystem
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 
 /**
  * The hero reel's own clock: one page forward every [dwellMillis] while nothing holds it.
@@ -29,13 +32,38 @@ fun CarouselAutoAdvance(
     val screenReader = rememberScreenReaderActive()
     LaunchedEffect(pagerState, pageCount, held, restartKey, reduceMotion, routeVisible, screenReader) {
         if (held || !routeVisible || reduceMotion || screenReader || pageCount <= 1) return@LaunchedEffect
-        while (true) {
-            delay(dwellMillis.toLong())
-            if (pagerState.isScrollInProgress) continue
+        advanceCarousel(
+            dwellMillis = dwellMillis.toLong(),
+            scrolling = { pagerState.isScrollInProgress },
+        ) {
             pagerState.animateScrollToPage(
                 page = pagerState.currentPage + 1,
                 animationSpec = Motion.tween(Motion.CAROUSEL),
             )
+        }
+    }
+}
+
+/**
+ * The clock itself: [advance] every [dwellMillis], skipped while something else is [scrolling].
+ *
+ * Any other scroll of the pager cancels the turn under way — a finger, or the reel re-seated on a
+ * list that changed under it. That costs one turn, not the clock: none of this effect's keys
+ * change then, so a loop that let the interruption through stayed stopped until the reel was
+ * touched or shown again. Only the cancellation of the clock's own coroutine ends it.
+ */
+internal suspend fun advanceCarousel(
+    dwellMillis: Long,
+    scrolling: () -> Boolean,
+    advance: suspend () -> Unit,
+) {
+    while (true) {
+        delay(dwellMillis)
+        if (scrolling()) continue
+        try {
+            advance()
+        } catch (_: CancellationException) {
+            currentCoroutineContext().ensureActive()
         }
     }
 }

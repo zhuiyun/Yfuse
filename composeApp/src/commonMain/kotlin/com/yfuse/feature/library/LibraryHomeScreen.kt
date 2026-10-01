@@ -300,6 +300,12 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
 
     var serverMenuOpen by remember { mutableStateOf(false) }
     val listState = component.listState
+    // Opens a title from one of its copies on this page, and remembers which one: that copy alone
+    // then carries the detail page's key — see [libraryHomeSharedKey].
+    val openCopy: (place: String, item: MediaItem) -> Unit = { place, item ->
+        component.openedCopy = libraryHomeCopy(currentServerId, place, item.id)
+        component.onOpenItem(item.id)
+    }
     val density = LocalDensity.current
     val routeVisible = LocalRouteVisible.current
     // 「水火潮涌」: armed by a cold start that opens on 库, played once when content is first on screen.
@@ -459,11 +465,27 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                         accessToken = accessToken,
                                                     ),
                                                 )
+                                            // The settled slide is the reel's copy of its title. The
+                                            // pages beside it are copies of their own — of the same
+                                            // title, even, when the reel holds only two.
+                                            val heroPlace =
+                                                if (page.settled) {
+                                                    LIBRARY_HERO_PLACE
+                                                } else {
+                                                    "$LIBRARY_HERO_PLACE:${page.page}"
+                                                }
                                             HeroCarousel(
                                                 item = animatedItem,
                                                 urls = animatedUrls,
                                                 accent = accent,
-                                                serverId = state.currentServer?.id,
+                                                sharedKey =
+                                                    libraryHomeSharedKey(
+                                                        serverId = currentServerId,
+                                                        place = heroPlace,
+                                                        itemId = animatedItem.id,
+                                                        openedCopy = component.openedCopy,
+                                                    ),
+                                                detailKey = MediaSharedElementKey(currentServerId, animatedItem.id),
                                                 serverName = state.currentServer?.serverName.orEmpty(),
                                                 settled = page.settled,
                                                 pageOffset = page.offset,
@@ -477,7 +499,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                     page.modifier.refreshAction(enabled = !state.refreshing) {
                                                         store.accept(LibraryIntent.Retry)
                                                     },
-                                                onClick = { component.onOpenItem(animatedItem.id) },
+                                                onClick = { openCopy(heroPlace, animatedItem) },
                                                 onPlay = { component.onPlayItem(animatedItem.id) },
                                                 onToggleFavorite = {
                                                     store.accept(
@@ -531,8 +553,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             accessToken = accessToken,
                                             serverId = state.currentServer?.id,
                                             items = state.content.resume,
+                                            openedCopy = component.openedCopy,
                                             onResume = { component.onResumeItem(it, false) },
-                                            onOpen = { component.onOpenItem(it.id) },
+                                            onOpen = openCopy,
                                             liftMenu = historyLiftMenu,
                                         )
                                     }
@@ -612,7 +635,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             serverId = state.currentServer?.id,
                                             row = row,
                                             onSeeAll = { component.onSeeAll(row.libraryId, row.title) },
-                                            onItemClick = { component.onOpenItem(it.id) },
+                                            openedCopy = component.openedCopy,
+                                            onOpen = openCopy,
                                             liftMenu = itemLiftMenu,
                                         )
                                     }
@@ -759,7 +783,10 @@ private fun HeroCarousel(
     item: MediaItem,
     urls: List<String?>,
     accent: Color,
-    serverId: String?,
+    /** This slide's own key; the detail page's only while it is the copy last opened. */
+    sharedKey: MediaSharedElementKey,
+    /** The detail page's key, which a tap hands on before [onClick] makes this the opened copy. */
+    detailKey: MediaSharedElementKey,
     serverName: String,
     settled: Boolean,
     pageOffset: () -> Float,
@@ -773,8 +800,7 @@ private fun HeroCarousel(
     onToggleFavorite: () -> Unit,
     onToggleServerMenu: () -> Unit,
 ) {
-    val sharedKey = MediaSharedElementKey(serverId, item.id)
-    val openDetail = sharedMediaOnClick(sharedKey, onClick)
+    val openDetail = sharedMediaOnClick(detailKey, onClick)
     val captionProgress = rememberCarouselCaptionProgress(settled)
     var resolvedArtworkUrl by remember(item.id) { mutableStateOf<String?>(null) }
     val artworkPageColor =
@@ -1229,6 +1255,57 @@ internal fun libraryRefreshRevision(content: HomeContent): List<List<String>> =
         content.rows.forEach { row -> add(listOf(row.libraryId) + row.items.map { it.id }) }
     }
 
+/** Where on this page a copy of a title sits: the reel, 播放记录 or a shelf; see [libraryHomeCopy]. */
+private const val LIBRARY_HERO_PLACE = "hero"
+private const val LIBRARY_HISTORY_PLACE = "history"
+private const val LIBRARY_SHELF_PLACE = "shelf"
+
+/** One copy of a title on this page: the title, and the [place] it sits in. */
+internal fun libraryHomeCopy(
+    serverId: String?,
+    place: String,
+    itemId: String,
+): String = "${serverId.orEmpty()}|$place|$itemId"
+
+/**
+ * The place of the title at [index] in a [rail] of [itemIds]: the rail itself, so the copy last
+ * opened is still found when the rail is reordered under the detail page — a title just played
+ * moves to the front of 播放记录. Only a title repeated within the rail adds its index.
+ */
+internal fun libraryRailPlace(
+    rail: String,
+    itemIds: List<String>,
+    index: Int,
+): String {
+    val id = itemIds[index]
+    val repeated = (0 until index).any { itemIds[it] == id }
+    return if (repeated) "$rail:$index" else rail
+}
+
+/**
+ * The shared-element key of the copy of a title at [place] on this page.
+ *
+ * The same title is often in the reel, in 播放记录 and in a shelf at once, and a key has to be unique
+ * on a page: under one key every copy morphed towards the detail page, and 跟手返回, finding more than
+ * one poster to go back into, went into none and faded. So each copy is keyed by its place — except
+ * the copy last opened, [openedCopy], which carries the detail page's own key: the one its hero
+ * morphs from, and the one its pull-down looks for on the way back. A tap makes its copy that one
+ * before the page is pushed.
+ */
+internal fun libraryHomeSharedKey(
+    serverId: String?,
+    place: String,
+    itemId: String,
+    openedCopy: String?,
+): MediaSharedElementKey {
+    val detail = MediaSharedElementKey(serverId, itemId)
+    return if (openedCopy == libraryHomeCopy(serverId, place, itemId)) {
+        detail
+    } else {
+        detail.copy(kind = "${detail.kind}@$place")
+    }
+}
+
 /**
  * 播放记录 replaces the former category shortcut rail. The 190×114 landscape
  * artwork gives viewing history more visual weight and keeps progress readable.
@@ -1239,12 +1316,15 @@ private fun PlaybackHistory(
     accessToken: String,
     serverId: String?,
     items: List<MediaItem>,
+    /** The copy of a title last opened from this page; see [libraryHomeSharedKey]. */
+    openedCopy: String?,
     /** A tap: play from where it was left. */
     onResume: (MediaItem) -> Unit,
-    /** Letting go on the lifted card: the title's page. */
-    onOpen: (MediaItem) -> Unit,
+    /** Letting go on the lifted card: the title's page, opened from the copy at that place. */
+    onOpen: (place: String, item: MediaItem) -> Unit,
     liftMenu: (MediaItem) -> LiftMenu,
 ) {
+    val ids = remember(items) { items.map { it.id } }
     Column {
         // SectionHeader has no side inset of its own; this lines it up with the rail's padding below.
         SectionHeader("播放记录", Modifier.padding(horizontal = Dimens.pageHorizontal))
@@ -1257,14 +1337,16 @@ private fun PlaybackHistory(
                 key = { index, item ->
                     mediaLazyItemKey("library-history:${serverId.orEmpty()}", index, item.id)
                 },
-            ) { _, item ->
+            ) { index, item ->
+                val place = libraryRailPlace(LIBRARY_HISTORY_PLACE, ids, index)
                 PlaybackHistoryCard(
                     baseUrl = baseUrl,
                     accessToken = accessToken,
-                    serverId = serverId,
                     item = item,
+                    sharedKey = libraryHomeSharedKey(serverId, place, item.id, openedCopy),
+                    detailKey = MediaSharedElementKey(serverId, item.id),
                     onResume = { onResume(item) },
-                    onOpen = { onOpen(item) },
+                    onOpen = { onOpen(place, item) },
                     liftMenu = { liftMenu(item) },
                 )
             }
@@ -1281,8 +1363,11 @@ private fun PlaybackHistory(
 private fun PlaybackHistoryCard(
     baseUrl: String,
     accessToken: String,
-    serverId: String?,
     item: MediaItem,
+    /** This card's own key; the detail page's only while it is the copy last opened. */
+    sharedKey: MediaSharedElementKey,
+    /** The detail page's key, noted for 跟手返回 before [onOpen] makes this the opened copy. */
+    detailKey: MediaSharedElementKey,
     onResume: () -> Unit,
     onOpen: () -> Unit,
     liftMenu: () -> LiftMenu,
@@ -1295,11 +1380,11 @@ private fun PlaybackHistoryCard(
         remember(backdropUrl, posterUrl, primaryUrl) {
             listOfNotNull(backdropUrl, posterUrl, primaryUrl).filter(String::isNotBlank).distinct()
         }
-    // Scoped to this rail: a film that was just watched is also a film that was just added, so
-    // the same id is on screen twice — and the player, or 跟手返回, must come back to this copy.
-    val artworkKey = remember(serverId, item.id) { MediaSharedElementKey(serverId, item.id, kind = "history") }
-    val resume = playerArtworkOnClick(artworkKey, onResume)
-    val open = liftedCardOpen(artworkKey, onOpen)
+    // Keyed by its place (see [libraryHomeSharedKey]): a film that was just watched is also a film
+    // that was just added, so the same id is on screen twice — and the player, or 跟手返回, must
+    // come back to this copy.
+    val resume = playerArtworkOnClick(sharedKey, onResume)
+    val open = liftedCardOpen(detailKey, onOpen)
     val artwork = remember { LiftAnchor() }
     val resumable = (item.resumePositionTicks ?: 0L) > 0L && !item.played
     Column(
@@ -1318,7 +1403,7 @@ private fun PlaybackHistoryCard(
             progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
             blurHash = if (backdropUrl != null) item.backdropBlurHash else item.posterBlurHash,
             contentDescription = item.title,
-            sharedTransitionKey = artworkKey,
+            sharedTransitionKey = sharedKey,
             modifier =
                 Modifier
                     .fillMaxWidth()
@@ -1363,9 +1448,12 @@ private fun CategorySection(
     serverId: String?,
     row: HomeRow,
     onSeeAll: () -> Unit,
-    onItemClick: (MediaItem) -> Unit,
+    /** The copy of a title last opened from this page; see [libraryHomeSharedKey]. */
+    openedCopy: String?,
+    onOpen: (place: String, item: MediaItem) -> Unit,
     liftMenu: (MediaItem) -> LiftMenu,
 ) {
+    val ids = remember(row.items) { row.items.map { it.id } }
     Column {
         SectionHeader(
             row.title,
@@ -1394,7 +1482,8 @@ private fun CategorySection(
                         item.id,
                     )
                 },
-            ) { _, item ->
+            ) { index, item ->
+                val place = libraryRailPlace("$LIBRARY_SHELF_PLACE:${row.libraryId}", ids, index)
                 CaptionedPoster(
                     url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
                     blurHash = item.posterBlurHash,
@@ -1408,11 +1497,12 @@ private fun CategorySection(
                     // only one of the two copies was ever drawn: the other went blank
                     // until a route transition released the key, which is what made the
                     // poster flash into place for one frame on the way out. The library
-                    // id scopes the key to this rail; 首页 hit the same thing and answered
-                    // it by dropping the key entirely (see HomeScreen's shelves).
-                    onClick = { onItemClick(item) },
+                    // id scopes the key to this rail, and only the copy tapped takes the
+                    // detail page's own ([libraryHomeSharedKey]); 首页 hit the same thing
+                    // and answered it by dropping the key entirely (see HomeScreen's shelves).
+                    onClick = sharedMediaOnClick(MediaSharedElementKey(serverId, item.id)) { onOpen(place, item) },
                     liftMenu = { liftMenu(item) },
-                    sharedTransitionKey = MediaSharedElementKey(serverId, item.id),
+                    sharedTransitionKey = libraryHomeSharedKey(serverId, place, item.id, openedCopy),
                     modifier = Modifier.width(PosterWidth),
                 )
             }

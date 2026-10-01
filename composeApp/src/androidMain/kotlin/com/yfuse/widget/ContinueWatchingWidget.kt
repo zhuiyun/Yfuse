@@ -13,7 +13,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.yfuse.MainActivity
+import com.yfuse.appEntryIntent
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerRegistry
@@ -84,7 +84,7 @@ class ContinueWatchingWidgetWorker(
             positionMs: Long = 0L,
         ): PendingIntent {
             val intent =
-                Intent(context, MainActivity::class.java)
+                appEntryIntent(context)
                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     .setData(
                         Uri

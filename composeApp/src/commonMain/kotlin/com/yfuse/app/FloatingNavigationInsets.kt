@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.Dimens
 
 /**
@@ -28,6 +29,36 @@ internal fun floatingNavigationContentInset(
     systemNavigationInset: Dp,
     dock: Dp = Dimens.tabBarHeight,
 ): Dp = systemNavigationInset + Dimens.tabBarInset + dock + Dimens.sectionGap
+
+/**
+ * Where a toast rests while the dock is up: clear of the dock, and while the activity capsule
+ * stands on it — [capsule] tall, zero while it is away — clear of that too. The capsule is drawn
+ * over the page, so a toast left under it lost its 撤销 to the capsule's own tap.
+ */
+@Composable
+internal fun floatingNavigationToastInset(capsule: Dp): Dp =
+    floatingNavigationToastInset(
+        systemNavigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+        dock = dockHeight(),
+        capsule = capsule,
+    )
+
+internal fun floatingNavigationToastInset(
+    systemNavigationInset: Dp,
+    dock: Dp = Dimens.tabBarHeight,
+    capsule: Dp = 0.dp,
+): Dp {
+    val clearOfDock = floatingNavigationContentInset(systemNavigationInset, dock)
+    if (capsule <= 0.dp) return clearOfDock
+    val capsuleTop = systemNavigationInset + activityCapsuleOffset(dock) + capsule
+    return maxOf(clearOfDock, capsuleTop + Dimens.space.sm)
+}
+
+/**
+ * How far above the system navigation bar the activity capsule's slot begins: the dock's height,
+ * its margin below, and a step of air above it.
+ */
+internal fun activityCapsuleOffset(dock: Dp): Dp = dock + Dimens.tabBarInset + Dimens.space.sm
 
 /** Bottom space for full-screen child pages where the shell has already hidden its dock. */
 @Composable

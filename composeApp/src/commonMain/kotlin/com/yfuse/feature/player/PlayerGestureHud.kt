@@ -7,8 +7,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,8 +29,15 @@ import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
+ * Where the gesture HUD's centre sits while the paused key or the ending's keys are up: below their
+ * discs by half the HUD and a little air, the clearance the scrub preview keeps above the middle.
+ */
+private val GestureHudBelowCentreKeys = CenterKeySize / 2 + 32.dp
+
+/**
  * The readout the picture's gestures answer with in the middle of the frame: 快进 30 秒, 音量 40%,
- * where a scrub will land.
+ * where a scrub will land. While [centreKeysShown] it sits beneath those keys and leaves out what
+ * they already say ([gestureHudLine]).
  *
  * A composable of its own so that only it follows the text. A drag across the picture rewrites
  * the reading on every move; read by PlayerControls, that rebuilt the whole control tree once a
@@ -39,13 +48,17 @@ import com.yfuse.core.designsystem.ThemeText as Text
 @Composable
 internal fun PlayerGestureHud(
     hud: () -> String?,
-    suppressed: Boolean,
+    centreKeysShown: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val calm = calmMotion()
+    val hudLine = gestureHudLine(hud(), centreKeysShown)
+    // Kept while a line leaves, so it fades out where it was rather than jumping.
+    val hudBelowKeys = remember { booleanArrayOf(false) }
+    if (hudLine != null) hudBelowKeys[0] = centreKeysShown
     AnimatedContent(
-        targetState = hud()?.takeIf { !suppressed },
+        targetState = hudLine,
         contentKey = ::gestureHudMotionKey,
         transitionSpec = {
             val swap =
@@ -68,7 +81,7 @@ internal fun PlayerGestureHud(
             swap using Motion.sizeTransform(reduceMotion)
         },
         contentAlignment = Alignment.Center,
-        modifier = modifier,
+        modifier = modifier.offset(y = if (hudBelowKeys[0]) GestureHudBelowCentreKeys else 0.dp),
         label = "gesture-hud",
     ) { value ->
         if (value != null) {

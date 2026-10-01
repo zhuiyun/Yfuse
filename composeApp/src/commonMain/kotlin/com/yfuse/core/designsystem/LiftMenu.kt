@@ -77,8 +77,8 @@ class LiftMenu(
 /**
  * 按住拖看 — YouTube's thumbnail preview on a lifted card. While the finger that lifted it slides
  * sideways across the card, the card shows the frame for how far across it is: the left edge is
- * the start, the right edge the end. Letting go on the card still opens the title; sliding down
- * onto the rows still picks one.
+ * the start, the right edge the end. It is only a preview: letting go on the card after scrubbing
+ * opens nothing, and the menu stays up to be tapped. Sliding down onto the rows still picks one.
  *
  * The frames usually arrive after the lift — an episode's are fetched when its card is held — so
  * [frameCount] is snapshot state, read afresh on every move: 0 while they load, or when there are
@@ -531,6 +531,9 @@ internal class LiftSession(
     /** The lifting finger came up: run what it was over, or stay up to be tapped. */
     fun release() {
         if (!holding || abandoned) return
+        // A finger that scrubbed was looking, not choosing (按住拖看 only previews): the card goes
+        // back to its artwork and waits to be tapped, as after letting go over nothing.
+        if (scrubbing && hot == LiftHit.Card) return stopHolding()
         holding = false
         when (val target = hot) {
             LiftHit.Card -> open()
@@ -594,10 +597,14 @@ internal class LiftSession(
         exit = if (sourceAttached) LiftExit.SettleBack else LiftExit.FadeAway
     }
 
-    /** The pressed poster left the page — a refresh, a removal. Nothing to settle back into now. */
+    /**
+     * The pressed poster left the page — a refresh, a removal. Nothing to settle back into now,
+     * and its finger's stream went with it: the hold ends as a taken stream does, highlight and
+     * preview included.
+     */
     fun sourceDetached() {
         sourceAttached = false
-        holding = false
+        stopHolding()
     }
 
     /** Called by the host once the exit has played: the poster shows again, then the action runs. */

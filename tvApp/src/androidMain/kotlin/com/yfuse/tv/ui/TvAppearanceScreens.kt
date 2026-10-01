@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.LoadingAnimation
+import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.model.StartupTab
 import com.yfuse.feature.profile.ProfileComponent
@@ -30,6 +31,9 @@ internal fun TvAppearanceSettingsPage(
     val reduceMotion by prefs.reduceMotion.collectAsState()
     val startupTab by prefs.startupTab.collectAsState()
     val backgroundImage by prefs.backgroundImage.collectAsState()
+    val motionTheme by prefs.motionTheme.collectAsState()
+    // 静息 brings its own dialog entrance and loading study — see [YfuseTheme] — over the two below.
+    val calm = motionTheme == MotionTheme.Calm
     var status by remember { mutableStateOf<String?>(null) }
 
     TvSettingsPageScaffold(page = TvSettingsPage.Appearance, status = status) {
@@ -38,9 +42,27 @@ internal fun TvAppearanceSettingsPage(
         // (TvTokens), with the design's own glass kept for the few shared panels (TvApp), and the
         // server page is always three columns. The note says so, rather than leave a viewer
         // looking for them.
-        item(key = "appearance-section-theme") { TvSettingsSectionTitle("动画") }
+        item(key = "appearance-section-motion") { TvSettingsSectionTitle("动效") }
         item(key = "appearance-opaque-note") {
             TvSettingsNote("电视界面一律使用不透明面板，服务器页固定三列，因此没有玻璃材质与服务器列表布局选项。")
+        }
+        item(key = "appearance-motion-theme") {
+            // The television has followed this choice since the phone could make it, and had no
+            // row of its own to make it here.
+            TvChoiceRow(
+                title = "动效主题",
+                options = MotionTheme.entries,
+                selected = motionTheme,
+                label = { it.label },
+                stableId = "appearance:motion-theme",
+                focusMemory = focusMemory,
+                onSelect = prefs::setMotionTheme,
+                icon = AppIcons.Movie,
+                focusScope = focusScope,
+                subtitle = motionTheme.description,
+                focusRequester = firstRowRequester,
+                navigationRequester = navigationRequester,
+            )
         }
         item(key = "appearance-dialog-animation") {
             // Only the calm entrances — see [TvDialogAnimations]; forty-odd styles were offered
@@ -56,8 +78,7 @@ internal fun TvAppearanceSettingsPage(
                 onSelect = prefs::setDialogAnimation,
                 icon = AppIcons.Refresh,
                 focusScope = focusScope,
-                subtitle = shown.description,
-                focusRequester = firstRowRequester,
+                subtitle = if (calm) "静息主题下不生效" else shown.description,
                 navigationRequester = navigationRequester,
             )
         }
@@ -74,7 +95,7 @@ internal fun TvAppearanceSettingsPage(
                 onSelect = prefs::setLoadingAnimation,
                 icon = AppIcons.Refresh,
                 focusScope = focusScope,
-                subtitle = "播放器准备画面里的等待动画",
+                subtitle = if (calm) "播放器准备画面里的等待动画，静息主题下不生效" else "播放器准备画面里的等待动画",
                 navigationRequester = navigationRequester,
             )
         }

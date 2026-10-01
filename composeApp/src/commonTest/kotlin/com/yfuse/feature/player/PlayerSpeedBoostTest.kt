@@ -2,7 +2,9 @@ package com.yfuse.feature.player
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class PlayerSpeedBoostTest {
     private val step = 100f
@@ -84,6 +86,33 @@ class PlayerSpeedBoostTest {
         assertEquals(SpeedBoostRefusal.PanelOpen, refusal(panelOpen = true, watchGuest = true, casting = true))
     }
 
+    @Test
+    fun anEpisodeParkedOnItsLastFrameHasNothingLeftToBoost() {
+        // Stopped at the end of item 0 of 2 — 自动播放下一集 off, 取消 or 本集结束 — without ending:
+        // the boost's play would run straight on into the next episode.
+        val parked = episode(positionMs = 1_200_000L)
+        assertTrue(speedBoostFinished(parked))
+        assertEquals(SpeedBoostRefusal.NothingToPlay, refusal(finished = speedBoostFinished(parked)))
+    }
+
+    @Test
+    fun anOrdinaryPauseCanBeBoostedButAnEndingOrAFailureCannot() {
+        val midway = episode(positionMs = 600_000L)
+        assertFalse(speedBoostFinished(midway))
+        assertTrue(speedBoostFinished(midway.copy(ended = true)))
+        assertTrue(speedBoostFinished(midway.copy(error = "播放失败")))
+    }
+
+    private fun episode(positionMs: Long) =
+        PlaybackState(
+            playing = false,
+            buffering = false,
+            positionMs = positionMs,
+            durationMs = 1_200_000L,
+            currentIndex = 0,
+            itemCount = 2,
+        )
+
     private fun refusal(
         panelOpen: Boolean = false,
         watchGuest: Boolean = false,
@@ -100,99 +129,4 @@ class PlayerSpeedBoostTest {
             durationMs = durationMs,
             finished = finished,
         )
-
-    @Test
-    fun aHeldSideSpeedsUpByDefaultAndScansWhenChosen() {
-        assertEquals(
-            PictureHoldAction.SpeedBoost,
-            pictureHoldAction(
-                direction = 1,
-                centerHoldSpeedBoost = true,
-                sideHoldScans = false,
-                boostRefusal = null,
-            ),
-        )
-        assertEquals(
-            PictureHoldAction.SpeedBoost,
-            pictureHoldAction(
-                direction = -1,
-                centerHoldSpeedBoost = true,
-                sideHoldScans = false,
-                boostRefusal = null,
-            ),
-        )
-        assertEquals(
-            PictureHoldAction.Scan,
-            pictureHoldAction(
-                direction = 1,
-                centerHoldSpeedBoost = true,
-                sideHoldScans = true,
-                boostRefusal = null,
-            ),
-        )
-    }
-
-    @Test
-    fun aSideScansWhereTheRateIsNotThisDevicesToChange() {
-        // A cast or a shared room keeps its rate; the side still has a way through the timeline.
-        assertEquals(
-            PictureHoldAction.Scan,
-            pictureHoldAction(
-                direction = 1,
-                centerHoldSpeedBoost = true,
-                sideHoldScans = false,
-                boostRefusal = SpeedBoostRefusal.Casting,
-            ),
-        )
-        assertEquals(
-            PictureHoldAction.Scan,
-            pictureHoldAction(
-                direction = -1,
-                centerHoldSpeedBoost = true,
-                sideHoldScans = false,
-                boostRefusal = SpeedBoostRefusal.WatchRoom,
-            ),
-        )
-        // Other refusals are the boost's to explain, so the side does not quietly scan instead.
-        assertEquals(
-            PictureHoldAction.SpeedBoost,
-            pictureHoldAction(
-                direction = 1,
-                centerHoldSpeedBoost = true,
-                sideHoldScans = false,
-                boostRefusal = SpeedBoostRefusal.WatchGuest,
-            ),
-        )
-    }
-
-    @Test
-    fun theMiddleFollowsItsOwnSettingOnly() {
-        assertEquals(
-            PictureHoldAction.SpeedBoost,
-            pictureHoldAction(
-                direction = 0,
-                centerHoldSpeedBoost = true,
-                sideHoldScans = true,
-                boostRefusal = null,
-            ),
-        )
-        assertEquals(
-            PictureHoldAction.Nothing,
-            pictureHoldAction(
-                direction = 0,
-                centerHoldSpeedBoost = false,
-                sideHoldScans = false,
-                boostRefusal = null,
-            ),
-        )
-        assertEquals(
-            PictureHoldAction.SpeedBoost,
-            pictureHoldAction(
-                direction = 0,
-                centerHoldSpeedBoost = true,
-                sideHoldScans = false,
-                boostRefusal = SpeedBoostRefusal.Casting,
-            ),
-        )
-    }
 }

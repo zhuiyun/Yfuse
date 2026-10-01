@@ -43,6 +43,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -111,6 +112,7 @@ import com.yfuse.tv.focus.requestFocusWhenAttached
 import com.yfuse.tv.focus.tvFocusScope
 import com.yfuse.tv.focus.tvFocusTarget
 import com.yfuse.tv.focus.tvRemoteKeyHandler
+import kotlinx.coroutines.launch
 
 internal val TvSafeHorizontal = 48.dp
 internal val TvSafeVertical = 27.dp
@@ -188,6 +190,7 @@ internal class TvUiFocusMemory {
     val repository: FocusRepository = InMemoryFocusRepository()
     val requesterRegistry = TvFocusRequesterRegistry()
     private val rowStates = mutableMapOf<String, LazyListState>()
+    private val rowContents = mutableMapOf<String, Any>()
     private val gridStates = mutableMapOf<String, LazyGridState>()
 
     /**
@@ -275,6 +278,12 @@ internal class TvUiFocusMemory {
 
     fun restorePending(route: String): Boolean = route in pendingRestores
 
+    /** Whether the entry [route] is waiting on is [owner]'s. */
+    fun restoreOwnedBy(
+        route: String,
+        owner: Any,
+    ): Boolean = pendingRestores[route] === owner
+
     /**
      * Ends [route]'s entry restore. Focus landing on anything [remember] does not see — a text
      * field, a phone control embedded in the page — has to say so here, or a restore still
@@ -285,6 +294,22 @@ internal class TvUiFocusMemory {
     }
 
     fun rowState(section: String): LazyListState = rowStates.getOrPut(section) { LazyListState() }
+
+    /**
+     * [section]'s row state while it shows [content]. Other content — another season's episodes —
+     * starts the row again at [initialIndex]: the old position is kept for the way back into the
+     * page, and carried onto a shorter list it opened that list at its tail.
+     */
+    fun rowState(
+        section: String,
+        content: Any,
+        initialIndex: Int,
+    ): LazyListState {
+        val kept = rowStates[section]
+        if (kept != null && rowContents[section] == content) return kept
+        rowContents[section] = content
+        return LazyListState(firstVisibleItemIndex = initialIndex.coerceAtLeast(0)).also { rowStates[section] = it }
+    }
 
     fun gridState(route: String): LazyGridState = gridStates.getOrPut(route) { LazyGridState() }
 }
@@ -636,15 +661,20 @@ internal fun TvMediaCard(
     fallbackIndex: Int = 0,
 ) {
     val width = if (model.artworkShape == TvArtworkShape.Poster) 142.dp else 232.dp
+    val route = tvFocusRoute(focusScope)
     // 长按面板 — see [TvQuickActionsPanel]. The card keeps focus in its own window while the panel
     // is up, so closing it puts the remote back on this card with nothing to restore.
     var quickActions by remember { mutableStateOf<LiftMenu?>(null) }
     val openQuickActions = model.quickActions?.let { build -> { quickActions = build() } }
+    // The restore the panel leaves pending in case its change takes this card off its shelf.
+    val restoreOwner = remember { Any() }
+    val cardScope = rememberCoroutineScope()
     DialogPresence(quickActions) { menu ->
         TvQuickActionsPanel(
             menu = menu,
             focusMemory = focusMemory,
-            route = tvFocusRoute(focusScope),
+            route = route,
+            restoreOwner = restoreOwner,
             onDismiss = { quickActions = null },
         )
     }
@@ -658,7 +688,21 @@ internal fun TvMediaCard(
         focusScope = focusScope,
         focusMemory = focusMemory,
         onClick = model.onClick,
-        modifier = modifier.width(width),
+        modifier =
+            modifier.width(width).onFocusChanged { focus ->
+                // Focus moved on — to the rail, say — and the card stayed: that restore has nothing
+                // left to do, and left pending it pulled focus back here the next time the page
+                // restored. It ends a frame later, and only while the card is still on screen: a
+                // card taken off its shelf loses focus as it goes, and its restore has to stand.
+                if (!focus.isFocused && focusMemory.restoreOwnedBy(route, restoreOwner)) {
+                    cardScope.launch {
+                        withFrameNanos { }
+                        if (focusMemory.requesterRegistry.contains(focusMemory.targetId(focusScope, model.stableId))) {
+                            focusMemory.endRestore(route, restoreOwner)
+                        }
+                    }
+                }
+            },
         focusRequester = focusRequester,
         navigationRequester = navigationRequester,
         returnToNavigationOnLeft = returnToNavigationOnLeft,
@@ -766,6 +810,9 @@ internal fun TvMediaCard(
  * The saved context includes server/profile, so a card from another household profile cannot
  * receive focus after an account switch. [section] restores that section's own last focus rather
  * than the route's: 设置's root shares its route with every sub-page it opens.
+ *
+ * Focus left on [exitStableId], the page's own 返回, is not put back: the page was left through
+ * it, and one more 确定 on the way back in left again. The entry starts on [fallback] instead.
  */
 @Composable
 internal fun TvRestoreRouteFocusEffect(
@@ -777,6 +824,7 @@ internal fun TvRestoreRouteFocusEffect(
     candidates: List<FocusCandidate> = emptyList(),
     scrollToAnchor: suspend (FocusAnchor) -> Unit = {},
     section: String? = null,
+    exitStableId: String? = null,
 ) {
     // This page's own entry: the page it replaces may still be leaving under the same route.
     val entry = remember { Any() }
@@ -785,12 +833,13 @@ internal fun TvRestoreRouteFocusEffect(
         onDispose { focusMemory.endRestore(route, entry) }
     }
     val restoreContext = context?.let(focusMemory::activateContext) ?: focusMemory.contextForRoute(route)
-    val saved =
+    val lastFocus =
         if (section == null) {
             focusMemory.lastForRoute(route, restoreContext)
         } else {
             focusMemory.lastInSection(route, section, restoreContext)
         }
+    val saved = lastFocus?.takeUnless { it.itemStableId == exitStableId }
     TvPendingFocusRestore(
         route = route,
         focusMemory = focusMemory,
@@ -891,12 +940,16 @@ internal fun TvMediaRow(
     onSeeAll: (() -> Unit)? = null,
 ) {
     if (items.isEmpty()) return
+    // A server can list one title twice in a row — a playlist such as 稍后观看 holds whatever it
+    // is given — and a lazy row throws on a repeated key. The card's id is its focus identity as
+    // well, so the repeat is left out rather than given an id of its own.
+    val cards = items.distinctBy(TvMediaCardModel::stableId)
     val rowState = focusMemory.rowState(sectionKey)
     val route = tvFocusRoute(sectionKey)
     val saved = focusMemory.lastForRoute(route)
     if (saved != null && saved.sectionId == sectionKey) {
         val candidates =
-            items.mapIndexed { index, item ->
+            cards.mapIndexed { index, item ->
                 FocusCandidate(
                     targetId = focusMemory.targetId(sectionKey, item.stableId),
                     sectionId = sectionKey,
@@ -911,7 +964,7 @@ internal fun TvMediaRow(
                             targetId = focusMemory.targetId(sectionKey, stableId),
                             sectionId = sectionKey,
                             itemStableId = stableId,
-                            index = items.size,
+                            index = cards.size,
                         )
                     },
                 )
@@ -920,7 +973,7 @@ internal fun TvMediaRow(
             focusMemory = focusMemory,
             saved = saved,
             candidates = candidates,
-            contentGeneration = items.map(TvMediaCardModel::stableId),
+            contentGeneration = cards.map(TvMediaCardModel::stableId),
             scrollToAnchor = { anchor ->
                 if (anchor.sectionId == sectionKey) {
                     rowState.revealForRestore(
@@ -959,7 +1012,7 @@ internal fun TvMediaRow(
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                itemsIndexed(items, key = { _, item -> "$sectionKey:${item.stableId}" }) { index, item ->
+                itemsIndexed(cards, key = { _, item -> "$sectionKey:${item.stableId}" }) { index, item ->
                     TvMediaCard(
                         model = item,
                         focusScope = sectionKey,

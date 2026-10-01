@@ -59,6 +59,8 @@ internal fun PlayerRootSurface(
     playbackPreferences: PlaybackPreferences,
     ambientPowerLimited: Boolean,
     inPictureInPicture: Boolean,
+    /** 锁定方向 is on: a tabletop posture then leaves the layout alone. */
+    rotationLocked: Boolean,
     transition: PlayerTransitionState?,
     creditsTakeover: State<Boolean>,
     networkRecovery: PlaybackNetworkRecoveryState,
@@ -121,7 +123,11 @@ internal fun PlayerRootSurface(
     val pictureInPictureFadeMs = if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.QUICK
     // 折叠屏桌面模式: standing half-open, the picture keeps above the hinge and the controls below.
     var containerHeightPx by remember { mutableIntStateOf(0) }
-    val tabletopHinge = rememberTabletopHinge()
+    val tabletopHinge =
+        rememberTabletopHinge(
+            rotationLocked = rotationLocked,
+            inPictureInPicture = inPictureInPicture,
+        )
     val tabletop =
         tabletopHinge
             ?.takeUnless { inPictureInPicture }

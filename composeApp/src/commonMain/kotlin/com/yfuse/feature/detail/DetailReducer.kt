@@ -75,7 +75,9 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
             is DetailMsg.SeasonsLoaded -> copy(seasons = msg.seasons, selectedSeasonId = msg.selected)
             DetailMsg.EpisodesLoading -> copy(episodesLoading = true)
             DetailMsg.EpisodesLoadingFinished -> copy(episodesLoading = false)
-            is DetailMsg.EpisodesLoaded -> copy(episodesLoading = false, episodes = msg.episodes)
+            // Only ever sent for the season that is selected when they land.
+            is DetailMsg.EpisodesLoaded ->
+                copy(episodesLoading = false, episodes = msg.episodes, listedSeasonId = selectedSeasonId)
             DetailMsg.SourcesLoading -> copy(sourcesLoading = true, sourcesError = null)
             is DetailMsg.SourcesFailed -> copy(sourcesLoading = false, sourcesError = msg.message)
             is DetailMsg.SourcesLoaded -> {
@@ -113,6 +115,13 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                         playSourceDetail =
                             playSourceDetail?.let { source ->
                                 if (source.id == msg.itemId) source.copy(played = msg.value) else source
+                            },
+                        // An episode page lists its own episode too, and its card says the same.
+                        episodes =
+                            if (playServer?.id == msg.serverId) {
+                                episodesMarked(episodes, setOf(msg.itemId), msg.value)
+                            } else {
+                                episodes
                             },
                         // Either way the server drops the resume point, so 继续播放 goes too.
                         playPositionTicks = if (playTarget?.id == msg.itemId) 0L else playPositionTicks,
@@ -183,7 +192,11 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                     this
                 }
             is DetailMsg.ActionMessage -> copy(actionMessage = msg.value)
-            is DetailMsg.SourceFailure -> copy(sourceFailure = msg.value, selectionLoading = false)
+            // The failure is what the 提示 says next, so it is seen before a dismissal clears it; it
+            // used to wait behind whatever notice was up and then return after every later one.
+            DetailMsg.MessageDismissed -> copy(actionMessage = null, sourceFailure = null)
+            is DetailMsg.SourceFailure ->
+                copy(sourceFailure = msg.value, selectionLoading = false, actionMessage = null)
             is DetailMsg.AudioLanguageSelected ->
                 copy(
                     preferredAudioLanguage = msg.language,
@@ -254,6 +267,12 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                         ?: msg.target.versions
                             .firstOrNull()
                             ?.id
+                val seasonId =
+                    if (msg.seasons != null) {
+                        msg.selectedSeasonId
+                    } else {
+                        selectedSeasonId
+                    }
                 copy(
                     detail = resolvedSource,
                     server = msg.server,
@@ -265,12 +284,8 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                     selectedSourceItemId = msg.sourceDetail.id,
                     selectedEpisodeId = msg.target.id.takeIf { msg.target.type == "Episode" },
                     seasons = msg.seasons ?: seasons,
-                    selectedSeasonId =
-                        if (msg.seasons != null) {
-                            msg.selectedSeasonId
-                        } else {
-                            selectedSeasonId
-                        },
+                    selectedSeasonId = seasonId,
+                    listedSeasonId = if (msg.episodes != null) seasonId else listedSeasonId,
                     organizationContainers =
                         if (organizationSourceChanged) {
                             emptyList()
@@ -292,6 +307,28 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                     sourceFailure = null,
                 ).withSelectedVersion(versionId)
             }
+            is DetailMsg.PlayTargetRefreshed ->
+                if (playServer?.id == msg.serverId && playSourceDetail?.id == msg.sourceItemId) {
+                    val versionId =
+                        msg.preferredVersionId
+                            ?.takeIf { preferred -> msg.target.versions.any { it.id == preferred } }
+                            ?: msg.target.versions
+                                .firstOrNull()
+                                ?.id
+                    copy(
+                        playTarget = msg.target,
+                        playPositionTicks = msg.positionTicks,
+                        selectedEpisodeId = msg.target.id.takeIf { msg.target.type == "Episode" },
+                    ).withSelectedVersion(versionId)
+                } else {
+                    this
+                }
+            is DetailMsg.PlayPositionSynced ->
+                if (playServer?.id == msg.serverId && playTarget?.id == msg.itemId) {
+                    copy(playPositionTicks = msg.positionTicks.coerceAtLeast(0L))
+                } else {
+                    this
+                }
         }
 }
 
@@ -316,23 +353,23 @@ internal fun episodesMarked(
  * Marking an episode played or unplayed also drops its resume point on the server. The rail
  * shows that at once, and so does 播放 when it would open one of these episodes: 继续播放 and 从头
  * used to stay behind, offering to resume a position that no longer existed.
+ *
+ * On an episode page the title is one of those episodes, and 更多 offers what its card now says;
+ * it used to keep offering 标记已看 for an episode whose card had just been marked.
  */
 private fun DetailState.withEpisodeProgress(
     episodeIds: Set<String>,
     played: Boolean,
 ): DetailState =
     copy(
-        episodes =
-            episodes.map { episode ->
-                if (episode.id in episodeIds) {
-                    episode.copy(
-                        played = played,
-                        playedPercentage = null,
-                        resumePositionTicks = null,
-                    )
-                } else {
-                    episode
-                }
+        episodes = episodesMarked(episodes, episodeIds, played),
+        detail =
+            detail?.let { title ->
+                if (title.id in episodeIds && server?.id == playServer?.id) title.copy(played = played) else title
+            },
+        playSourceDetail =
+            playSourceDetail?.let { source ->
+                if (source.id in episodeIds) source.copy(played = played) else source
             },
         playPositionTicks = if (playTarget?.id?.let(episodeIds::contains) == true) 0L else playPositionTicks,
     )

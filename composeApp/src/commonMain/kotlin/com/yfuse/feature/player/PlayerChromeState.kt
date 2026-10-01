@@ -59,6 +59,11 @@ internal class PlayerChromeState {
     var danmakuSearchOpen by mutableStateOf(false)
     var danmakuSendOpen by mutableStateOf(false)
 
+    // 发送弹幕 waits for its answer: a send it asked for and has not heard back about, and whether it
+    // has asked since it opened — the error it shows is that send's, not one from an earlier visit.
+    var danmakuSendAwaited by mutableStateOf(false)
+    var danmakuSendTried by mutableStateOf(false)
+
     // The volume rocker raises the slider; touching the slider keeps it up. Counted
     // separately from `interactions` so that tapping anywhere else on the picture doesn't
     // silently extend an overlay the user is done with.
@@ -86,7 +91,7 @@ internal class PlayerChromeState {
         danmakuSendOpen = false
         watchDialogOpen = false
         watchChatOpen = true
-        lastReadChatId = transcript.lastOrNull()?.id
+        lastReadChatId = chatReadMark(transcript)
         chatPreviewVisible = false
         poke()
     }
@@ -94,7 +99,7 @@ internal class PlayerChromeState {
     /** Closes 聊天 with [transcript] read. */
     fun closeWatchChat(transcript: List<WatchChatMessage>) {
         watchChatOpen = false
-        lastReadChatId = transcript.lastOrNull()?.id
+        lastReadChatId = chatReadMark(transcript)
     }
 
     fun openSettingsPanel(

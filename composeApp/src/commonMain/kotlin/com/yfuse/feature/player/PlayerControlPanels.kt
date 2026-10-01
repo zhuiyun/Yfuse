@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.BackOverlay
+import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Motion
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
@@ -102,6 +103,8 @@ internal fun BoxScope.PlayerSettingsLayers(
                 },
                 onOpenDanmakuSend = {
                     chrome.settingsPanelKind = null
+                    chrome.danmakuSendAwaited = false
+                    chrome.danmakuSendTried = false
                     chrome.danmakuSendOpen = true
                 },
                 // Picking a track closes the panel, which used to be the only sign
@@ -406,13 +409,19 @@ internal fun BoxScope.PlayerSheetLayers(
         }
     }
 
-    if (chrome.danmakuSendOpen) {
+    // Held through its exit: it closes itself once its line has gone through (see PlayerControls).
+    DialogPresence(Unit.takeIf { chrome.danmakuSendOpen }) {
         DanmakuSendDialog(
             sending = danmaku.panel.sending,
-            error = danmaku.panel.sendError,
-            onSend = {
-                danmakuActions.onSend(it)
-                chrome.danmakuSendOpen = false
+            error = danmaku.panel.sendError.takeIf { chrome.danmakuSendTried },
+            onSend = { text ->
+                // One line at a time: the keyboard's send key does not wait out 发送中… the way the
+                // button does.
+                if (!chrome.danmakuSendAwaited && !danmaku.panel.sending) {
+                    chrome.danmakuSendAwaited = true
+                    chrome.danmakuSendTried = true
+                    danmakuActions.onSend(text)
+                }
             },
             onDismiss = { chrome.danmakuSendOpen = false },
         )

@@ -4,47 +4,60 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import com.yfuse.core.designsystem.DragAxis
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlin.math.abs
 
 /**
- * 长按快进/快退 — how fast the playhead runs while a press is held down.
- *
- * Holding used to jump to 2× playback, which is a different thing than it looks like:
- * the picture keeps playing and the finger has to stay down to keep it there, so
- * skipping a minute of credits meant holding for thirty seconds and watching them. A
- * held press now runs along the timeline instead, one step of its gear per
- * [HOLD_SEEK_TICK_MS] — 10× to start, 30× once the press has lasted [HOLD_SEEK_RAMP_MS]
- * without the finger shifting gear itself. A sideways slide shifts between standing still,
- * 10×, 30× and 60× ([holdScanGearFor]). This keeps short holds precise while still allowing
- * a long hold to cross an episode.
- *
- * The control proposes a seek every 300ms while held. The player-level latest-wins reducer merges
- * bursts before they reach a local engine or Cast receiver, while the HUD remains immediate.
+ * Which way a drag across the picture goes: sideways to seek, up and down for brightness or volume.
+ * Decided once, by the way the finger went to get past touch slop, and kept until it lets go
+ * ([lockedPlayerDragAxis]). Re-decided from the running totals on every sample, a brightness or
+ * volume drag that came back down with a little sideways drift turned into a seek on release, and a
+ * scrub that went there and back into brightness or volume.
  */
-internal const val HOLD_SEEK_TICK_MS = 300L
-internal const val HOLD_SEEK_RAMP_MS = 3_000L
+internal class PictureDragAxis {
+    /** The axis the drag is held to; [DragAxis.Undecided] until it has gone anywhere. */
+    var axis = DragAxis.Undecided
+        private set
+
+    /** True for a seek, false for brightness or volume; null until the drag has gone anywhere. */
+    val sideways: Boolean?
+        get() =
+            when (axis) {
+                DragAxis.Horizontal -> true
+                DragAxis.Vertical -> false
+                DragAxis.Undecided -> null
+            }
+
+    fun reset() {
+        axis = DragAxis.Undecided
+    }
+
+    /** The finger is [dx], [dy] from where it went down; the axis the drag is held to. */
+    fun follow(
+        dx: Float,
+        dy: Float,
+    ): Boolean {
+        axis = lockedPlayerDragAxis(axis, dx, dy)
+        return axis == DragAxis.Horizontal
+    }
+}
 
 /**
  * What the picture's gestures are in the middle of, and what the HUD says about them: a run of
- * 双击 taps, a held side's scan and its 回到, 长按中间's gear, a drag across the picture, a finger on
- * the progress rail, and 捏合填充's second finger taking over from all of them.
+ * 双击 taps, 长按中间's gear, a drag across the picture, a finger on the progress rail, and
+ * 捏合填充's second finger taking over from all of them.
  *
  * These were a dozen locals spread through PlayerControls. Held here and remembered once, they move
  * only through the methods below, which the pointer detectors and effects call, and PlayerControls
- * reads the holder instead. What changes on every sample — the HUD's text, where a swipe or a held
- * side has got to — is read only where it is drawn: [PlayerGestureHud] and [PictureScrubPreview].
+ * reads the holder instead. What changes on every sample — the HUD's text, where a swipe has got
+ * to — is read only where it is drawn: [PlayerGestureHud] and [PictureScrubPreview].
  *
  * Snapshot state where something composes from a value, plain fields where nothing does. All of it
- * is touched on the main thread: the pointer detectors, the hold's ticking loop and the effects.
+ * is touched on the main thread: the pointer detectors and the effects.
  */
 @Stable
 internal class PlayerGestureState(
@@ -75,7 +88,8 @@ internal class PlayerGestureState(
     /**
      * [taps] more taps going [direction], at [at], each worth [stepMs]. Taps in quick succession on
      * the same side add up, and the HUD reports the running total rather than "10 秒" each time.
-     * Returns where to seek: [positionMs] moved by these taps, inside the item.
+     * Returns where to seek: [positionMs] moved by these taps, inside the item. Null while the
+     * duration is unknown ([doubleTapSeekTarget]): then nothing is counted and nothing is said.
      */
     fun burstSeek(
         direction: Int,
@@ -84,122 +98,13 @@ internal class PlayerGestureState(
         stepMs: Long,
         positionMs: Long,
         durationMs: Long,
-    ): Long {
+    ): Long? {
+        if (doubleTapSeekTarget(positionMs, durationMs, 0L) == null) return null
         val moved = burst.add(direction, stepMs, taps)
         pulsePosition = at
         pulseRevision++
         hud = "${if (direction < 0) "快退" else "快进"} ${burst.totalMs / 1_000L} 秒"
-        return (positionMs + direction * moved).coerceIn(0L, durationMs)
-    }
-
-    // -------------------------------------------------------- 长按扫描
-
-    /** -1 while a held side rewinds, +1 while it fast-forwards, 0 when no side is held. */
-    var scanDirection by mutableIntStateOf(0)
-        private set
-
-    /** The newest position the held side has proposed to the playback coordinator. */
-    var scanTargetMs by mutableLongStateOf(0L)
-        private set
-
-    /**
-     * For a few seconds after a scan lets go, where it set out from — the 回到 offer: a hold that ran
-     * further than meant costs one tap, not a hunt along the rail. Null otherwise.
-     */
-    var scanUndoMs: Long? by mutableStateOf(null)
-        private set
-
-    val scanning: Boolean
-        get() = scanDirection != 0
-
-    // Where the current scan set out from.
-    private var scanOriginMs = 0L
-
-    // 长按扫描换挡: the held side's gear, followed by the pointer observer and the ticking loop.
-    private val gears = HoldScanGears()
-
-    /** A held side took hold going [direction], with the finger at [x] and the playhead at [positionMs]. */
-    fun startScan(
-        direction: Int,
-        x: Float,
-        positionMs: Long,
-    ) {
-        scanTargetMs = positionMs
-        scanOriginMs = positionMs
-        scanUndoMs = null
-        gears.start(x)
-        scanDirection = direction
-    }
-
-    /**
-     * Runs a side held going [direction] until cancelled — PlayerControls keys it on [scanDirection],
-     * so the release stops it: a step of the gear every [HOLD_SEEK_TICK_MS], each proposed through
-     * [onSeek]. Re-stamping the HUD every tick also keeps its auto-clear from taking it away mid-hold.
-     * [onShift] is told when the ramp changes gear on its own.
-     */
-    suspend fun runScan(
-        direction: Int,
-        stepPx: Float,
-        durationMs: () -> Long,
-        onShift: () -> Unit,
-        onSeek: (Long) -> Unit,
-    ) {
-        if (direction == 0) return
-        var heldMs = 0L
-        while (currentCoroutineContext().isActive) {
-            val span = durationMs().coerceAtLeast(1L)
-            // A finger that has not slid gets the ramp holds always had: three seconds at 10×, then 30×.
-            if (heldMs >= HOLD_SEEK_RAMP_MS && gears.ramp(direction, stepPx)) onShift()
-            val step = holdScanStepMs(gears.gear, HOLD_SEEK_TICK_MS)
-            // Standing still proposes nothing new: the last seek stands, and letting go lands there.
-            if (step > 0L) {
-                scanTargetMs = (scanTargetMs + direction * step).coerceIn(0L, span)
-                // Proposed seek while held; PlayerRoot merges closely-spaced commands latest-wins.
-                onSeek(scanTargetMs)
-            }
-            hud = holdScanLabel(direction, gears.gear, scanTargetMs, span)
-            delay(HOLD_SEEK_TICK_MS)
-            heldMs += HOLD_SEEK_TICK_MS
-        }
-    }
-
-    /**
-     * The finger holding a side is at [x]. A slide shifts gear, and the HUD says so now rather than
-     * on the next tick, which may be 300 ms off. True when it shifted.
-     */
-    fun followScan(
-        x: Float,
-        stepPx: Float,
-        durationMs: Long,
-    ): Boolean {
-        val direction = scanDirection
-        if (!gears.follow(x, direction, stepPx)) return false
-        hud = holdScanLabel(direction, gears.gear, scanTargetMs, durationMs.coerceAtLeast(1L))
-        return true
-    }
-
-    /**
-     * The held side let go. The engine already follows the ticks, so this only stops them, offering
-     * 回到 when the scan moved at all. True when a side was held.
-     */
-    fun releaseScan(): Boolean {
-        if (scanDirection == 0) return false
-        scanDirection = 0
-        scanUndoMs = scanOriginMs.takeIf { it != scanTargetMs }
-        return true
-    }
-
-    /** The 回到 offer ran out; the scan stands. */
-    fun expireScanUndo() {
-        scanUndoMs = null
-    }
-
-    /** 回到 was tapped: where to seek back to, said on the HUD — or null once the offer has gone. */
-    fun takeScanUndo(): Long? {
-        val origin = scanUndoMs ?: return null
-        scanUndoMs = null
-        hud = "已回到 ${origin.asClock()}"
-        return origin
+        return doubleTapSeekTarget(positionMs, durationMs, direction * moved)
     }
 
     // -------------------------------------------------------- 长按中间
@@ -251,8 +156,10 @@ internal class PlayerGestureState(
      * Decided on the first move and kept until the finger lifts: only a drag that began sideways
      * ever seeks, however far a volume drag's thumb wanders. A plain field: only the release reads it.
      */
-    var dragAxis = DragAxis.Undecided
-        private set
+    private val axis = PictureDragAxis()
+
+    val dragAxis: DragAxis
+        get() = axis.axis
 
     private var dragStartX = 0f
     private var dragTotalX = 0f
@@ -272,7 +179,7 @@ internal class PlayerGestureState(
         dragStartX = x
         dragTotalX = 0f
         dragTotalY = 0f
-        dragAxis = DragAxis.Undecided
+        axis.reset()
         pictureScrubMs = null
         dragSeekMs = positionMs
         swipePace.reset()
@@ -297,12 +204,12 @@ internal class PlayerGestureState(
         watchGuest: Boolean,
         swapBrightnessVolume: Boolean,
     ): PictureLevel? {
-        // A finger that drifts while held is still holding, not scrubbing: the hold owns the
-        // timeline until it lets go, and a slide during either hold changes gear instead.
-        if (scanning || boosting) return null
+        // A finger that drifts during 长按中间 is still holding, not scrubbing: a slide then
+        // changes gear instead.
+        if (boosting) return null
         dragTotalX += dx
         dragTotalY += dy
-        dragAxis = lockedPlayerDragAxis(dragAxis, dragTotalX, dragTotalY)
+        axis.follow(dragTotalX, dragTotalY)
         return when (dragAxis) {
             DragAxis.Horizontal -> {
                 // Brightness/volume drags stay available to guests; only the
@@ -311,6 +218,9 @@ internal class PlayerGestureState(
                     hud = "房主控制播放"
                     return null
                 }
+                // Nothing to scrub along before the duration is known, and the release
+                // would not seek: no target to show either.
+                if (durationMs <= 0L) return null
                 val span = durationMs.coerceAtLeast(1L)
                 val step = swipePace.step(dx, dtMs, width, density, span)
                 dragSeekMs = (dragSeekMs + step).coerceIn(0L, span)
@@ -340,14 +250,14 @@ internal class PlayerGestureState(
 
     /**
      * The drag let go, taking its preview with it. Returns where a sideways swipe lands, or null: not
-     * for an upright drag, under a held side, with nothing to seek in, or for a guest of the room.
+     * for an upright drag, with nothing to seek in, or for a guest of the room.
      */
     fun endDrag(
         durationMs: Long,
         watchGuest: Boolean,
     ): Long? {
         pictureScrubMs = null
-        return dragSeekMs.takeIf { !scanning && dragAxis == DragAxis.Horizontal && durationMs > 0 && !watchGuest }
+        return dragSeekMs.takeIf { dragAxis == DragAxis.Horizontal && durationMs > 0 && !watchGuest }
     }
 
     /** The drag was taken away rather than let go: nothing lands, and the HUD clears. */
@@ -356,9 +266,9 @@ internal class PlayerGestureState(
         pictureScrubMs = null
     }
 
-    /** The frame the picture's gestures have got to, for [PictureScrubPreview]: a held side's, else a swipe's. */
+    /** The frame a swipe across the picture has got to, for [PictureScrubPreview]. */
     val previewMs: Long?
-        get() = if (scanDirection != 0) scanTargetMs else pictureScrubMs
+        get() = pictureScrubMs
 
     // -------------------------------------------------------- 进度条
 
@@ -389,12 +299,10 @@ internal class PlayerGestureState(
     // -------------------------------------------------------- 捏合填充
 
     /**
-     * A second finger takes over: a held side stops where it got to, without 回到, a swipe's preview
-     * goes with the drag it belonged to, and the HUD clears. True when that let go of 长按中间, and
-     * the caller puts the rate back.
+     * A second finger takes over: 长按中间 lets go, a swipe's preview goes with the drag it belonged
+     * to, and the HUD clears. True when that let go of 长按中间, and the caller puts the rate back.
      */
     fun secondFinger(): Boolean {
-        scanDirection = 0
         val boostEnded = endBoost()
         pictureScrubMs = null
         hud = null

@@ -154,6 +154,19 @@ internal class PlayerTransitionState(
     private var capturing = false
     private var smallFrame: ImageBitmap? = null
 
+    /**
+     * Moved on by every gesture let go of, and by the way out. The film plays on after a cancelled
+     * gesture, so a frame read before then is not the picture a later way out starts from, and a
+     * read still under way when it moves on lands on nothing.
+     */
+    private var gesture = 0
+
+    /** The [gesture] [exitFrame] was read for. */
+    private var frameGesture = 0
+
+    /** [exitFrame] was read for the gesture now under the finger, and is the one to carry out. */
+    private val frameCurrent: Boolean get() = exitFrame != null && frameGesture == gesture
+
     val playerTime: Float get() = now - (lag ?: 0f)
 
     /**
@@ -200,6 +213,8 @@ internal class PlayerTransitionState(
             // frame ran it twice as fast on a 120 Hz panel.
             val step = frameMs.coerceIn(0f, BACK_CANCEL_MS) / BACK_CANCEL_MS
             backProgress = (backProgress - step).coerceAtLeast(0f)
+            // Settled back from a cancelled gesture: its frame has nothing left to draw.
+            if (backProgress <= 0f) dropFrame()
         }
         if (!settled && entered()) settled = true
         if (exitTime >= timing.exitFinish && !finished) finish()
@@ -281,6 +296,12 @@ internal class PlayerTransitionState(
 
     fun onBackCancel() {
         backActive = false
+        if (closing) return
+        // The frame this gesture read is still drawn while the page settles back (see [tick]), but
+        // never carried out: the next gesture, or the way out, reads the film as it is by then.
+        gesture++
+        capturing = false
+        if (backProgress <= 0f) dropFrame()
     }
 
     /**
@@ -296,8 +317,13 @@ internal class PlayerTransitionState(
         backAtCommit = backProgress
         backActive = false
         completeExit = action
+        // Only the gesture being committed has a frame to carry. Anything else — no gesture, one
+        // let go of earlier, a read of this one still under way — gives way to a read made now.
+        val held = exitFrame?.takeIf { frameCurrent }
+        gesture++
+        capturing = false
         scope.launch {
-            val frame = exitFrame ?: withTimeoutOrNull(SNAPSHOT_TIMEOUT_MS) { snapshotSource?.invoke() }
+            val frame = held ?: withTimeoutOrNull(SNAPSHOT_TIMEOUT_MS) { snapshotSource?.invoke() }
             exitFrame = frame
             smallFrame = frame?.let(::shrink)
             exitAt = launch.elapsedMs()
@@ -312,13 +338,25 @@ internal class PlayerTransitionState(
     }
 
     private fun captureFrame() {
-        if (exitFrame != null || capturing) return
+        if (frameCurrent || capturing) return
         val source = snapshotSource ?: return
+        val requested = gesture
         capturing = true
         scope.launch {
-            exitFrame = withTimeoutOrNull(SNAPSHOT_TIMEOUT_MS) { source() }
+            val frame = withTimeoutOrNull(SNAPSHOT_TIMEOUT_MS) { source() }
+            // Let go of while the surface was being read: that picture belongs to no gesture now.
+            if (requested != gesture) return@launch
+            // Replaces a frame left from a gesture let go of a moment ago, which stayed on the
+            // card until now rather than leaving it empty.
+            exitFrame = frame
+            frameGesture = requested
             capturing = false
         }
+    }
+
+    private fun dropFrame() {
+        exitFrame = null
+        smallFrame = null
     }
 
     private fun finish() {

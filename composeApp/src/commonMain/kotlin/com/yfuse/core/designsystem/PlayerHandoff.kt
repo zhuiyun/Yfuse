@@ -156,6 +156,14 @@ internal object PlayerHandoff {
         pressed = key to TimeSource.Monotonic.markNow()
     }
 
+    /**
+     * Any touch on the page, heard before a play key under it records its own press; see
+     * [PlayerArtworkOrigins.pageTouched].
+     */
+    fun forgetKey() {
+        pressed = null
+    }
+
     fun recentKey(): HandoffKey? =
         pressed
             ?.takeIf { it.second.elapsedNow().inWholeMilliseconds <= KEY_MEMORY_MS }

@@ -34,15 +34,10 @@ class PlayerGestureHelpTest {
     }
 
     @Test
-    fun held_sides_and_the_lock_key_follow_their_settings() {
-        val defaults = pictureGestureHelpRows(PlayerGestureSettings())
-        assertTrue(defaults.row("长按左侧 / 右侧")!!.startsWith("临时 2 倍速"))
-        assertTrue(defaults.row("左侧锁键")!!.contains("点按"))
-
-        val scanning =
-            pictureGestureHelpRows(PlayerGestureSettings(sideHoldScans = true, unlockByLongPress = true))
-        assertTrue(scanning.row("长按左侧 / 右侧")!!.startsWith("连续快退 / 快进"))
-        assertTrue(scanning.row("左侧锁键")!!.contains("长按锁键解锁"))
+    fun the_lock_key_follows_its_setting() {
+        assertTrue(pictureGestureHelpRows(PlayerGestureSettings()).row("左侧锁键")!!.contains("点按"))
+        val longPress = pictureGestureHelpRows(PlayerGestureSettings(unlockByLongPress = true))
+        assertTrue(longPress.row("左侧锁键")!!.contains("长按锁键解锁"))
     }
 
     @Test
@@ -58,6 +53,14 @@ class PlayerGestureHelpTest {
         assertEquals("开关弹幕 / 打开弹幕设置", rows.row("点按 / 长按弹幕键"))
         assertTrue(rows.row("点按 / 长按画面键")!!.contains("拉伸填满"))
         assertTrue(rows.row("长按后退 10 秒")!!.startsWith("没听清"))
+    }
+
+    @Test
+    fun only_the_middle_is_held_so_no_long_press_is_offered_on_the_sides() {
+        val holds = pictureGestureHelpRows(PlayerGestureSettings()).map { it.first }.filter { it.startsWith("长按") }
+        assertEquals(listOf("长按中间"), holds)
+        val boostOff = pictureGestureHelpRows(PlayerGestureSettings(centerHoldSpeedBoost = false))
+        assertTrue(boostOff.none { it.first.startsWith("长按") })
     }
 
     @Test

@@ -161,14 +161,19 @@ class SearchComponent(
         navigation.popTo(index = 0)
     }
 
-    /** Runs [query] on this tab's root page, leaving whatever detail or player was on top. */
+    /** Empties this tab's root page for another profile, leaving whatever detail or player was on top. */
     fun clearForProfileSwitch() {
         popToRoot()
         (
             stack.value.items
                 .firstOrNull()
                 ?.instance as? Child.Home
-        )?.component?.store?.accept(SearchIntent.Clear)
+        )?.component?.store?.let { store ->
+            store.accept(SearchIntent.Clear)
+            // ✕ leaves what 筛选 holds; the next profile does not inherit the last one's servers,
+            // libraries and watch state.
+            store.accept(SearchIntent.ClearFilters)
+        }
     }
 
     fun search(query: String) {

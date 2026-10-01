@@ -28,11 +28,10 @@ import com.yfuse.core.designsystem.ThemeText as Text
 /**
  * 长按中间 — the playback speed while a press on the middle third of the picture is held.
  *
- * The two outer thirds keep 长按快进 / 快退, which runs along the timeline; see the note on
- * [HOLD_SEEK_TICK_MS] in PlayerGestureState for why that replaced a held 2× there. The middle
- * third, where a double tap plays and pauses, held nothing. Holding it now plays faster the way
- * B 站 and YouTube do: 2× to start, a sideways slide shifts between the gears, and letting go
- * restores whatever speed was set before. The boost is never remembered as the series' speed.
+ * The middle third, where a double tap plays and pauses, held nothing. Holding it now plays faster
+ * the way B 站 and YouTube do: 2× to start, a sideways slide shifts between the gears, and letting
+ * go restores whatever speed was set before. The boost is never remembered as the series' speed.
+ * It is the only hold on the picture: the two outer thirds, where a double tap seeks, hold nothing.
  */
 internal val SPEED_BOOST_GEARS = listOf(1.5f, 2f, 3f)
 
@@ -104,31 +103,13 @@ internal enum class SpeedBoostRefusal(
     NothingToPlay(null),
 }
 
-/** What a long press on one third of the picture starts. */
-internal enum class PictureHoldAction { SpeedBoost, Scan, Nothing }
-
 /**
- * The held third's answer under 中间长按 and 两侧长按: [direction] is -1 for the left third, 0 for
- * the middle and 1 for the right.
- *
- * A held side plays faster by default, the habit every other Chinese player teaches; 两侧长按 ·
- * 扫描 runs it along the timeline instead. Where the rate is not this device's to change — a cast,
- * or a room whose rate everyone shares — a held side still has somewhere useful to go, so it scans
- * rather than being refused; the middle has no such second meaning and says why instead.
+ * Nothing left for a boost to play through: failed, ended, or parked on the last frame of a queue
+ * item — 自动播放下一集 off, 取消 on the next-up card, the sleep timer's 本集结束 — where the play
+ * the boost starts would run on into the next episode, at speed.
  */
-internal fun pictureHoldAction(
-    direction: Int,
-    centerHoldSpeedBoost: Boolean,
-    sideHoldScans: Boolean,
-    boostRefusal: SpeedBoostRefusal?,
-): PictureHoldAction =
-    when {
-        direction == 0 -> if (centerHoldSpeedBoost) PictureHoldAction.SpeedBoost else PictureHoldAction.Nothing
-        sideHoldScans -> PictureHoldAction.Scan
-        boostRefusal == SpeedBoostRefusal.Casting || boostRefusal == SpeedBoostRefusal.WatchRoom ->
-            PictureHoldAction.Scan
-        else -> PictureHoldAction.SpeedBoost
-    }
+internal fun speedBoostFinished(playback: PlaybackState): Boolean =
+    playback.error != null || playbackStoppedAtItemEnd(playback)
 
 internal fun speedBoostRefusal(
     panelOpen: Boolean,

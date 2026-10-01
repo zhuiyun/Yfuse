@@ -20,9 +20,20 @@ data class PosterShareCard(
     val rating: Double? = null,
     val posterUrl: String? = null,
     val tmdbId: String? = null,
-    /** TMDB's own `movie` / `tv`, or the server's `Movie` / `Series`; anything else counts as a film. */
+    /**
+     * TMDB's own `movie` / `tv`, or the server's `Movie` / `Series` / `Season` / `Episode`;
+     * anything else counts as a film.
+     */
     val mediaType: String? = null,
     val doubanId: String? = null,
+    /**
+     * For a season or an episode, its series' TMDB id. [tmdbId] is then the item's own, which no
+     * TMDB page is addressed by, so without this the card carries no TMDB link at all.
+     */
+    val seriesTmdbId: String? = null,
+    /** Where TMDB files a season or an episode under its series; the series page without them. */
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
 )
 
 /**
@@ -49,19 +60,42 @@ interface PosterCardSharer {
 @Composable
 expect fun rememberPosterCardSharer(): PosterCardSharer
 
-/** TMDB's page for the title; null without a numeric id, so nothing else can be passed off as one. */
+/**
+ * TMDB's page for the title; null without a numeric id, so nothing else can be passed off as one.
+ *
+ * A season or an episode is linked under its series — `/tv/<series>/season/<n>/episode/<m>` —
+ * and not at all without [seriesTmdbId]. Its own id is not a series id: `/tv/<episode id>` opened
+ * some unrelated show.
+ */
 fun tmdbTitleUrl(
     tmdbId: String?,
     mediaType: String?,
+    seriesTmdbId: String? = null,
+    seasonNumber: Int? = null,
+    episodeNumber: Int? = null,
 ): String? {
-    val id = tmdbId?.trim()?.takeIf(::isPublicId) ?: return null
-    val kind =
-        when (mediaType?.trim()?.lowercase()) {
-            "tv", "series", "season", "episode", "show" -> "tv"
-            else -> "movie"
+    val kind = mediaType?.trim()?.lowercase()
+    if (kind == "season" || kind == "episode") {
+        val series = seriesTmdbId?.trim()?.takeIf(::isPublicId) ?: return null
+        // Season 0 is where TMDB keeps the specials; episodes count from 1.
+        val season = seasonNumber?.takeIf { it in 0..MAX_TMDB_NUMBER }
+        val episode = episodeNumber?.takeIf { kind == "episode" && it in 1..MAX_TMDB_NUMBER }
+        return buildString {
+            append("https://www.themoviedb.org/tv/$series")
+            if (season != null) {
+                append("/season/$season")
+                if (episode != null) append("/episode/$episode")
+            }
         }
-    return "https://www.themoviedb.org/$kind/$id"
+    }
+    val id = tmdbId?.trim()?.takeIf(::isPublicId) ?: return null
+    return when (kind) {
+        "tv", "series", "show" -> "https://www.themoviedb.org/tv/$id"
+        else -> "https://www.themoviedb.org/movie/$id"
+    }
 }
+
+private const val MAX_TMDB_NUMBER = 9_999
 
 /** 豆瓣's page for the title; null without a numeric subject id. */
 fun doubanTitleUrl(doubanId: String?): String? =
@@ -95,7 +129,13 @@ fun posterCardCaption(card: PosterShareCard): String =
                 posterCardMeta(card.year, card.rating),
             ).joinToString(" "),
         )
-        tmdbTitleUrl(card.tmdbId, card.mediaType)?.let { add("TMDB：$it") }
+        tmdbTitleUrl(
+            tmdbId = card.tmdbId,
+            mediaType = card.mediaType,
+            seriesTmdbId = card.seriesTmdbId,
+            seasonNumber = card.seasonNumber,
+            episodeNumber = card.episodeNumber,
+        )?.let { add("TMDB：$it") }
         doubanTitleUrl(card.doubanId)?.let { add("豆瓣：$it") }
     }.joinToString("\n")
 

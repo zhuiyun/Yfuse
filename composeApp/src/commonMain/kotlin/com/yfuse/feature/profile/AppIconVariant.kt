@@ -2,7 +2,6 @@ package com.yfuse.feature.profile
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import com.yfuse.core.designsystem.SplashMark
 
 /**
  * Which launcher icon the app presents.
@@ -22,46 +21,13 @@ enum class AppIconVariant(
      *
      * Kept as a real choice rather than for nostalgia: people recognise their apps by the
      * icon, and an update that replaces it makes the app briefly disappear from a home screen
-     * its owner navigates by shape. This puts the old one back for anyone who wants it — and
-     * it brings that mark's own launch animations back with it.
+     * its owner navigates by shape. This puts the old one back for anyone who wants it — the
+     * icon only: every launch plays the water-fire ribbon, whichever icon is chosen.
      */
-    CloudPlayer("旧版云朵播放器", "旧版云朵播放器 Logo，配水滴砸云开屏"),
+    CloudPlayer("旧版云朵播放器", "旧版云朵播放器 Logo，浅色底"),
     AuroraDark("极光 · 深色", "青蓝紫渐变折带，深色底"),
     AuroraLight("极光 · 浅色", "青蓝紫渐变折带，浅色底"),
 }
-
-/**
- * Which mark this icon carries.
- *
- * The single join between the launcher and 开屏动画: choosing either end of a pair moves the
- * other, and nothing else in the app has to know which animation goes with which logo.
- */
-val AppIconVariant.splashMark: SplashMark
-    get() =
-        when (this) {
-            AppIconVariant.Default, AppIconVariant.Graphite -> SplashMark.WaterFire
-            AppIconVariant.CloudPlayer -> SplashMark.CloudPlayer
-            AppIconVariant.AuroraDark -> SplashMark.AuroraDark
-            AppIconVariant.AuroraLight -> SplashMark.AuroraLight
-        }
-
-/**
- * The icon this mark implies, given what the launcher is showing now.
- *
- * [current] is kept when it already carries this mark, so picking 水火交接 while the launcher
- * is on 石墨 does not quietly demote it to the light ground.
- */
-fun SplashMark.appIconFor(current: AppIconVariant): AppIconVariant =
-    if (current.splashMark == this) {
-        current
-    } else {
-        when (this) {
-            SplashMark.WaterFire -> AppIconVariant.Default
-            SplashMark.CloudPlayer -> AppIconVariant.CloudPlayer
-            SplashMark.AuroraDark -> AppIconVariant.AuroraDark
-            SplashMark.AuroraLight -> AppIconVariant.AuroraLight
-        }
-    }
 
 /** The variant the launcher is currently showing. */
 expect fun currentAppIconVariant(): AppIconVariant

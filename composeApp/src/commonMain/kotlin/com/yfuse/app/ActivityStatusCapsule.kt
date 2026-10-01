@@ -7,14 +7,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.CastPlaybackStatus
@@ -41,7 +46,12 @@ import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 import com.yfuse.core.designsystem.ThemeText as Text
 
-/** One compact entry for ongoing work. State comes from the owners; no polling or fake progress. */
+/**
+ * One compact entry for ongoing work. State comes from the owners; no polling or fake progress.
+ *
+ * [onHeightChanged] hears how tall it is while it is on screen, and zero once it has gone: it is
+ * drawn over the page, and the shell keeps toasts above it.
+ */
 @Composable
 internal fun ActivityStatusCapsule(
     root: RootComponent,
@@ -50,6 +60,7 @@ internal fun ActivityStatusCapsule(
     enter: EnterTransition,
     exit: ExitTransition,
     modifier: Modifier = Modifier,
+    onHeightChanged: (Dp) -> Unit = {},
 ) {
     val offline = root.dependencies.offlineMediaManager
     val items by offline.items.collectAsState()
@@ -133,9 +144,15 @@ internal fun ActivityStatusCapsule(
     } else if (labels.isNotEmpty()) {
         lastLabel = labels.joinToString("  ·  ")
     }
+    val reportHeight by rememberUpdatedState(onHeightChanged)
+    val density = LocalDensity.current
     AnimatedVisibility(visible = shown, modifier = modifier, enter = enter, exit = exit, label = "activityCapsule") {
+        // Zero once it has gone rather than as it starts to leave: sliding away, it is still over
+        // the page and still takes a tap.
+        DisposableEffect(Unit) { onDispose { reportHeight(0.dp) } }
         Column(
             Modifier
+                .onSizeChanged { reportHeight(with(density) { it.height.toDp() }) }
                 .fillMaxWidth()
                 .pressable(onClick = { expanded = true })
                 .touchTarget()

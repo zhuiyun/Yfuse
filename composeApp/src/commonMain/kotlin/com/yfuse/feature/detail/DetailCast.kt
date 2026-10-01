@@ -98,14 +98,15 @@ internal data class DetailCastRequest(
 /**
  * Whether [this] plays on the phone, or changes what 播放 would open — the intents that publish a
  * play of their own or drop one still queued. A 投屏 waiting on its 播放 gives way to any of them.
+ * Browsing to another season is not one: it leaves 播放's target alone, and a play waiting for it
+ * still goes ahead.
  */
 internal fun DetailIntent.supersedesCast(): Boolean =
     this == DetailIntent.Play ||
         this == DetailIntent.PlayFromStart ||
         this is DetailIntent.SelectEpisode ||
         this is DetailIntent.SelectSource ||
-        this is DetailIntent.SelectVersion ||
-        this is DetailIntent.SelectSeason
+        this is DetailIntent.SelectVersion
 
 /** How one cast from the detail page ended; [failure] is null once the receiver has the title. */
 internal data class DetailCastOutcome(

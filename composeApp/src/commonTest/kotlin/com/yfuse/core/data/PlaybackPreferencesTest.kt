@@ -48,18 +48,16 @@ class PlaybackPreferencesTest {
     }
 
     @Test
-    fun hold_double_tap_and_unlock_choices_survive_restart() {
+    fun double_tap_and_unlock_choices_survive_restart() {
         val settings = MapSettings()
         PlaybackPreferences(settings).setGestureSettings(
             PlayerGestureSettings(
-                sideHoldScans = true,
                 doubleTapPausesAnywhere = true,
                 unlockByLongPress = true,
             ),
         )
 
         val restored = PlaybackPreferences(settings).gestureSettings.value
-        assertTrue(restored.sideHoldScans)
         assertTrue(restored.doubleTapPausesAnywhere)
         assertTrue(restored.unlockByLongPress)
     }

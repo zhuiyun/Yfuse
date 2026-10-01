@@ -1,6 +1,9 @@
 package com.yfuse.feature.library
 
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
@@ -42,6 +45,13 @@ class LibraryHomeComponent(
 ) : ComponentContext by componentContext {
     /** The library route stays in the Decompose back stack while detail covers it. */
     internal val listState = LazyListState()
+
+    /**
+     * Which copy of a title the page last opened (see [libraryHomeCopy]). Held here for the same
+     * reason as [listState]: the page is composed again under a detail page's pull-down, and has
+     * to find that copy again to go back into it.
+     */
+    internal var openedCopy by mutableStateOf<String?>(null)
     val themePreferences = GlobalContext.get().get<com.yfuse.core.data.ThemePreferences>()
 
     /** Whether this profile may add a server itself; a child profile has to ask for one. */

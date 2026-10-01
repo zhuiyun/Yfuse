@@ -15,11 +15,9 @@ class PlayerGestureSettingsTest {
     }
 
     @Test
-    fun a_held_side_speeds_up_and_a_tap_unlocks_by_default() {
-        // The two defaults changed on purpose, to the habit of the other Chinese players.
-        val defaults = PlayerGestureSettings()
-        assertEquals(false, defaults.sideHoldScans)
-        assertEquals(false, defaults.unlockByLongPress)
+    fun a_tap_unlocks_by_default() {
+        // The default changed on purpose, to the habit of the other Chinese players.
+        assertEquals(false, PlayerGestureSettings().unlockByLongPress)
     }
 
     @Test

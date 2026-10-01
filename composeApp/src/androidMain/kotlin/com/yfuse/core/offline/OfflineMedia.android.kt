@@ -849,6 +849,7 @@ internal class AndroidOfflineMediaManager(
         if (requests.isEmpty()) return
         val snapshot = requests.toList()
         command { enqueueBatch(snapshot) }
+        refreshShownAttention()
     }
 
     private fun enqueueBatch(requests: List<OfflineDownloadRequest>) {
@@ -894,7 +895,10 @@ internal class AndroidOfflineMediaManager(
 
     override fun pause(id: String) = pauseMany(listOf(id))
 
-    override fun pauseMany(ids: List<String>) = commandEach(ids, ::pauseNow)
+    override fun pauseMany(ids: List<String>) {
+        commandEach(ids, ::pauseNow)
+        refreshShownAttention()
+    }
 
     private fun pauseNow(id: String) {
         update(id) {
@@ -922,7 +926,10 @@ internal class AndroidOfflineMediaManager(
         AppLog.info("offline", "download_paused", "Offline download paused")
     }
 
-    override fun pauseAll() = command(::pauseAllNow)
+    override fun pauseAll() {
+        command(::pauseAllNow)
+        refreshShownAttention()
+    }
 
     private fun pauseAllNow() {
         val nowMs = now()
@@ -957,7 +964,10 @@ internal class AndroidOfflineMediaManager(
 
     override fun resume(id: String) = resumeMany(listOf(id))
 
-    override fun resumeMany(ids: List<String>) = commandEach(ids, ::resumeNow)
+    override fun resumeMany(ids: List<String>) {
+        commandEach(ids, ::resumeNow)
+        refreshShownAttention()
+    }
 
     private fun resumeNow(id: String) {
         update(id) {
@@ -979,7 +989,10 @@ internal class AndroidOfflineMediaManager(
         kick()
     }
 
-    override fun resumeAll() = command(::resumeAllNow)
+    override fun resumeAll() {
+        command(::resumeAllNow)
+        refreshShownAttention()
+    }
 
     private fun resumeAllNow() {
         val nowMs = now()
@@ -1010,7 +1023,10 @@ internal class AndroidOfflineMediaManager(
 
     override fun remove(id: String) = removeMany(listOf(id))
 
-    override fun removeMany(ids: List<String>) = commandEach(ids, ::removeNow)
+    override fun removeMany(ids: List<String>) {
+        commandEach(ids, ::removeNow)
+        refreshShownAttention()
+    }
 
     private fun removeNow(id: String) {
         synchronized(indexLock) {
@@ -1150,7 +1166,10 @@ internal class AndroidOfflineMediaManager(
         if (!_policy.value.autoDeleteWatched) return@command
         _items.value
             .firstOrNull { it.serverId == serverId && it.itemId == itemId }
-            ?.let { removeNow(it.id) }
+            ?.let {
+                removeNow(it.id)
+                refreshShownAttentionNow()
+            }
     }
 
     internal suspend fun runPendingDownloads() =
@@ -1670,6 +1689,28 @@ internal class AndroidOfflineMediaManager(
 
     private fun kick() {
         rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
+    }
+
+    /**
+     * Queued behind a change the user made in the app. A paused or failed notification on screen
+     * otherwise waits for the next download run to catch up — and deleting the download it was
+     * about left it offering 继续 / 重试 for nothing. Once per selection, as Android drops a burst
+     * of notification updates.
+     */
+    private fun refreshShownAttention() {
+        commands.submit(::refreshShownAttentionNow)
+    }
+
+    private fun refreshShownAttentionNow() {
+        runCatching { refreshShownOfflineAttentionNotification(context, _items.value) }
+            .onFailure { error ->
+                AppLog.warning(
+                    category = "offline",
+                    event = "attention_refresh_failed",
+                    message = "Paused or failed download notification could not be refreshed",
+                    throwable = error,
+                )
+            }
     }
 
     internal fun rebuildWakeSchedule(

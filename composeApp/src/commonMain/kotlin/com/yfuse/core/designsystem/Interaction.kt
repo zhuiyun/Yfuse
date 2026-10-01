@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.grid.LazyGridItemScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -25,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
@@ -38,11 +40,15 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.floor
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
@@ -103,10 +109,16 @@ val MinTouchTarget: Dp = 48.dp
  * This does take real layout space, which is the honest cost of an adequate target: a 13dp
  * glyph that answers to a 44dp region has to own that region, or it steals taps from its
  * neighbours instead.
+ *
+ * @param focus the [pressable] `focusShape` to tell what the slot holds; see [TouchTargetFocusShape].
  */
-fun Modifier.touchTarget(minSize: Dp = MinTouchTarget): Modifier =
+fun Modifier.touchTarget(
+    minSize: Dp = MinTouchTarget,
+    focus: TouchTargetFocusShape? = null,
+): Modifier =
     layout { measurable, constraints ->
         val placeable = measurable.measure(constraints)
+        focus?.control = IntSize(placeable.width, placeable.height)
         val floor = minSize.roundToPx()
         val width = maxOf(placeable.width, floor)
         val height = maxOf(placeable.height, floor)
@@ -114,6 +126,59 @@ fun Modifier.touchTarget(minSize: Dp = MinTouchTarget): Modifier =
             placeable.place((width - placeable.width) / 2, (height - placeable.height) / 2)
         }
     }
+
+/**
+ * [shape] around the control a [touchTarget] slot holds, for [pressable]'s `focusShape`.
+ *
+ * [pressable] draws its state layer and focus ring over the next layout node to its right, and
+ * with `touchTarget()` there that is the slot: a chip or a small key lit up a block taller and
+ * wider than itself. Give the same object to both and the slot reports the size of what it
+ * centres, so the outline is [shape] at that size, where the slot places it:
+ *
+ * ```
+ * val focus = remember { TouchTargetFocusShape(AppShapes.chip) }
+ * Modifier.pressable(focusShape = focus, onClick = ::pick).touchTarget(focus = focus).glass(AppShapes.chip)
+ * ```
+ *
+ * A control of one fixed size can pass a plain shape of that size instead, as 关闭 in a dialog
+ * header does.
+ */
+@Stable
+class TouchTargetFocusShape(
+    private val shape: Shape,
+) : Shape {
+    /** The control's size in pixels, written by [touchTarget] as it measures; zero until then. */
+    internal var control by mutableStateOf(IntSize.Zero)
+
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density,
+    ): Outline {
+        // Not measured yet, or as large as the slot: the control is the slot.
+        val width = if (control.width > 0) minOf(control.width.toFloat(), size.width) else size.width
+        val height = if (control.height > 0) minOf(control.height.toFloat(), size.height) else size.height
+        val outline = shape.createOutline(Size(width, height), layoutDirection, density)
+        // Whole pixels, the way [touchTarget] places it.
+        val offset = Offset(floor((size.width - width) / 2f), floor((size.height - height) / 2f))
+        if (offset == Offset.Zero) return outline
+        return when (outline) {
+            is Outline.Rectangle -> Outline.Rectangle(outline.rect.translate(offset))
+            is Outline.Rounded -> {
+                val rect = outline.roundRect
+                Outline.Rounded(
+                    rect.copy(
+                        left = rect.left + offset.x,
+                        top = rect.top + offset.y,
+                        right = rect.right + offset.x,
+                        bottom = rect.bottom + offset.y,
+                    ),
+                )
+            }
+            is Outline.Generic -> Outline.Generic(Path().apply { addPath(outline.path, offset) })
+        }
+    }
+}
 
 /**
  * The pressed state as it should be drawn.
@@ -347,7 +412,9 @@ fun Modifier.pressable(
         }.then(
             if (decorated) {
                 Modifier.drawWithCache {
-                    var cachedOutline: Outline? = null
+                    // Only here while something is drawn, so the outline is built with the cache:
+                    // a shape that follows state (see [TouchTargetFocusShape]) then rebuilds it.
+                    val outline = focusShape.createOutline(size, layoutDirection, this)
                     var cachedClip: Path? = null
                     // Clip the outer half of each stroke, so the complete ring stays inside its hit
                     // target: a 2dp accent edge with a 1dp dark underlay that keeps it legible over
@@ -359,13 +426,9 @@ fun Modifier.pressable(
                         val ring = ringAlpha.value
                         val layer = layerAlpha.value
                         if (ring <= 0f && layer <= 0f) return@onDrawWithContent
-                        // Most touch-only controls never show a ring; build their geometry only on demand.
-                        val outline =
-                            cachedOutline ?: focusShape.createOutline(size, layoutDirection, this).also {
-                                cachedOutline = it
-                            }
                         if (layer > 0f) drawOutline(outline, ink.copy(alpha = ink.alpha * layer))
                         if (ring > 0f) {
+                            // Most touch-only controls never show a ring; build its clip only on demand.
                             val ringClip =
                                 cachedClip ?: when (outline) {
                                     is Outline.Generic -> outline.path

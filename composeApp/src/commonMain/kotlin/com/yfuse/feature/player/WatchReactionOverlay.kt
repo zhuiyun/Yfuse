@@ -24,6 +24,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
+import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.sync.WatchReactionBurst
 import kotlinx.coroutines.delay
@@ -80,6 +81,8 @@ private fun BoxScope.ReactionBubble(
     onFinished: (Long) -> Unit,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // 静息 keeps the fade and nothing else: no rise, no overshoot, no sway or tilt.
+    val calm = calmMotion()
     val rise = remember { Animatable(0f) }
     LaunchedEffect(burst.id, reduceMotion) {
         if (reduceMotion) {
@@ -98,13 +101,25 @@ private fun BoxScope.ReactionBubble(
             .padding(end = insetEnd, bottom = 150.dp)
             .graphicsLayer {
                 val progress = rise.value
-                val motion = reactionMotion(progress, burst.id)
-                translationY = -RiseDistance.toPx() * motion.riseFraction
-                translationX = motion.horizontalDp.dp.toPx()
-                scaleX = if (reduceMotion) 1f else motion.scale
-                scaleY = if (reduceMotion) 1f else motion.scale
-                rotationZ = if (reduceMotion) 0f else motion.rotationDegrees
-                alpha = if (reduceMotion) 1f else motion.alpha
+                when {
+                    reduceMotion -> Unit
+                    calm ->
+                        alpha =
+                            danmakuHeldAlpha(
+                                elapsedMs = (progress * Motion.WATCH_REACTION).toLong(),
+                                durationMs = Motion.WATCH_REACTION.toLong(),
+                                fadeMs = Motion.REDUCED_FADE.toLong(),
+                            )
+                    else -> {
+                        val motion = reactionMotion(progress, burst.id)
+                        translationY = -RiseDistance.toPx() * motion.riseFraction
+                        translationX = motion.horizontalDp.dp.toPx()
+                        scaleX = motion.scale
+                        scaleY = motion.scale
+                        rotationZ = motion.rotationDegrees
+                        alpha = motion.alpha
+                    }
+                }
             }.glass(
                 shape = GlassShapes.chip,
                 fill = PlayerTokens.nextUpFill,

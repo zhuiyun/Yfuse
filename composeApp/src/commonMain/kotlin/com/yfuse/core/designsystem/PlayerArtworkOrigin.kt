@@ -120,6 +120,17 @@ internal object PlayerArtworkOrigins {
     }
 
     /**
+     * The page was touched again (see [playerHandoffStage]). A tap that ended in a picker or an
+     * error instead of a player must not lend its artwork, or its key, to whatever launches next:
+     * a 浮起菜单's 播放 starts from a long press and never calls [begin], and the launch carries
+     * nothing to tell whose it is. A tap that does launch has begun after its own touch.
+     */
+    fun pageTouched() {
+        pending = null
+        PlayerHandoff.forgetKey()
+    }
+
+    /**
      * Turns the pending tap into a launch the player can claim with the returned token, and
      * starts the page's half of [style] at this moment — the one at which the player is really on
      * its way, rather than at the tap, which may still end in a version picker or an error.

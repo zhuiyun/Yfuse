@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -25,6 +26,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -71,8 +73,8 @@ import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
+import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.SkeletonHandoff
-import com.yfuse.core.designsystem.SkeletonPosterTile
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.YfChip
@@ -133,6 +135,9 @@ private const val PREFETCH_ITEMS = 18
 /** The phone grid; the skeleton's breathing wave only needs a plausible column count. */
 private const val SKELETON_GRID_COLUMNS = 3
 
+/** Placeholder rows: a phone's height of them at the densest the grid goes. */
+private const val SKELETON_GRID_ROWS = 8
+
 /** How far the old page steps back while the page for a new sort or filter is on its way. */
 private const val REFILTER_GRID_ALPHA = 0.6f
 
@@ -189,6 +194,8 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
     // 快速滚动索引: one stop per letter, year, month or score, labelled off the main thread —
     // the pinyin lookup is a collator walk per title.
     var indexSections by remember { mutableStateOf(emptyList<GridIndexSection>()) }
+    // How many posters [indexSections] was labelled from; it trails the grid while a label run is on.
+    var indexedCount by remember { mutableIntStateOf(0) }
     LaunchedEffect(state.items, state.sort, state.directoryKind, state.sortable) {
         val items = state.items
         val sort = state.sort
@@ -198,7 +205,19 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
             } else {
                 withContext(Dispatchers.Default) { gridIndexSections(items.map { gridIndexLabel(sort, it) }) }
             }
+        indexedCount = items.size
     }
+    // A set small enough to load whole is indexed whole: the rest of it is asked for as soon as
+    // the index would be offered, and the strip waits until every title is labelled. Built from the
+    // first pages alone, it showed the letters or months of the first sixty titles — often a single
+    // month, so no strip at all — and re-flowed under the finger as each further page landed. Past
+    // that size the index files what is loaded, as it always has.
+    val restOfIndex = !screenReader && state.indexFillable && state.canLoadMore && state.loadMoreError == null
+    val pageOnItsWay = state.loading || state.loadingMore
+    LaunchedEffect(restOfIndex, pageOnItsWay) {
+        if (restOfIndex && !pageOnItsWay) component.store.accept(GridIntent.LoadIndex)
+    }
+    val indexWaiting = restOfIndex || (state.indexFillable && indexedCount != state.items.size)
 
     // A new sort or filter keeps the old page on screen until the new one lands, so the grid
     // never blanks. On a slow server that read as a tap that had missed: the control that asked
@@ -363,17 +382,18 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                         refilterOrigin = GridRefilterOrigin.Specs
                         component.store.accept(GridIntent.SetResolution(it))
                     },
-                    onUnplayedOnly = {
-                        refilterOrigin = GridRefilterOrigin.Specs
-                        component.store.accept(GridIntent.SetUnplayedOnly(it))
-                    },
+                    onUnplayedOnly =
+                        { value: Boolean ->
+                            refilterOrigin = GridRefilterOrigin.Specs
+                            component.store.accept(GridIntent.SetUnplayedOnly(value))
+                        }.takeIf { state.unplayedFilterable },
                 )
             }
 
             SkeletonHandoff(
                 loading = state.loading && state.loadedCount == 0,
                 modifier = Modifier.fillMaxSize(),
-                skeleton = { SkeletonGrid(bottomContentInset = bottomContentInset) },
+                skeleton = { SkeletonGrid(bottomContentInset = bottomContentInset, columns = gridDensity.columns) },
             ) {
                 when {
                     state.error != null && state.loadedCount == 0 ->
@@ -568,7 +588,8 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                             if (indexSections.size >= 2 &&
                                 state.loadedCount >= INDEX_MIN_ITEMS &&
                                 !screenReader &&
-                                !gridDensity.zooming
+                                !gridDensity.zooming &&
+                                !indexWaiting
                             ) {
                                 GridIndexStrip(
                                     sections = indexSections,
@@ -731,7 +752,8 @@ private fun ResolutionFilterRow(
     /** The page for a specification chosen here is on its way. */
     pending: Boolean,
     onSelect: (LibraryResolution) -> Unit,
-    onUnplayedOnly: (Boolean) -> Unit,
+    /** Null where the grid has no 只看未看: a collection's endpoint cannot filter on it. */
+    onUnplayedOnly: ((Boolean) -> Unit)?,
 ) {
     LazyRow(
         modifier =
@@ -758,38 +780,74 @@ private fun ResolutionFilterRow(
                 onClickLabel = "选择规格 ${resolution.label}",
             )
         }
-        motionItem(key = "unplayed-only") {
-            YfChip(
-                label = "只看未看",
-                selected = unplayedOnly,
-                onClick = { onUnplayedOnly(!unplayedOnly) },
-            )
+        if (onUnplayedOnly != null) {
+            motionItem(key = "unplayed-only") {
+                YfChip(
+                    label = "只看未看",
+                    selected = unplayedOnly,
+                    onClick = { onUnplayedOnly(!unplayedOnly) },
+                )
+            }
         }
     }
 }
 
-/** Placeholder tiles in the grid's own geometry, so nothing shifts when the page lands. */
+/**
+ * Placeholder tiles in the grid's own geometry, so nothing shifts when the page lands: the columns
+ * the grid was left at ([columns], null for its adaptive layout), 2:3 posters, and a caption only
+ * where the grid shows titles.
+ */
 @Composable
-private fun SkeletonGrid(bottomContentInset: androidx.compose.ui.unit.Dp) {
+private fun SkeletonGrid(
+    bottomContentInset: androidx.compose.ui.unit.Dp,
+    columns: Int?,
+) {
+    val titles = columns?.let(::gridShowsTitles) ?: true
+    // Only needs to be plausible for the adaptive layout; a remembered density is the real count.
+    val waveColumns = columns ?: SKELETON_GRID_COLUMNS
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(PosterMinWidth),
+        columns = columns?.let { GridCells.Fixed(it) } ?: GridCells.Adaptive(PosterMinWidth),
         contentPadding =
             PaddingValues(
                 start = Dimens.pageHorizontal,
                 end = Dimens.pageHorizontal,
                 bottom = bottomContentInset,
             ),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(GridSpacing),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         userScrollEnabled = false,
         modifier = Modifier.fillMaxSize().skeletonSweep(),
     ) {
         // Phased along the diagonal the sweep travels, so the breath is one wave across
-        // the grid. Three columns is the phone case; a wider grid just repeats the wave.
-        motionItems(12) { index ->
-            val row = index / SKELETON_GRID_COLUMNS
-            val column = index % SKELETON_GRID_COLUMNS
-            SkeletonPosterTile(Modifier.fillMaxWidth(), phaseMs = (row + column) * SKELETON_PHASE_STEP_MS)
+        // the grid. Enough rows to fill a phone at five across; only those on screen compose.
+        motionItems(waveColumns * SKELETON_GRID_ROWS) { index ->
+            val row = index / waveColumns
+            val column = index % waveColumns
+            SkeletonGridTile(titles = titles, phaseMs = (row + column) * SKELETON_PHASE_STEP_MS)
+        }
+    }
+}
+
+/** One placeholder: the 2:3 poster, and the title and year lines under it where the grid has them. */
+@Composable
+private fun SkeletonGridTile(
+    titles: Boolean,
+    phaseMs: Int,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        SkeletonBlock(
+            Modifier.fillMaxWidth().aspectRatio(POSTER_RATIO),
+            shape = AppShapes.card,
+            phaseMs = phaseMs,
+        )
+        if (titles) {
+            // The caption's own height, so each row ends where the real one will.
+            Column(Modifier.height(CaptionEstimate)) {
+                Spacer(Modifier.height(7.dp))
+                SkeletonBlock(Modifier.fillMaxWidth().height(12.dp), shape = AppShapes.micro, phaseMs = phaseMs)
+                Spacer(Modifier.height(5.dp))
+                SkeletonBlock(Modifier.width(42.dp).height(9.dp), shape = AppShapes.micro, phaseMs = phaseMs)
+            }
         }
     }
 }

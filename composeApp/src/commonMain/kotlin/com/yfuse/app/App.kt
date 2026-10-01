@@ -53,6 +53,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -87,6 +88,7 @@ import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.account.canUseWatchTogether
+import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppBackdrop
@@ -208,35 +210,14 @@ private val searchKeyItem = TabItem(Tab.Search, "搜索", AppIcons.SearchTab)
 @Composable
 fun App(root: RootComponent) {
     BindBackgroundServices(root)
-    val mode by root.themePreferences.mode.collectAsState()
-    // 「移除动画」 on the device is the same request as our own 减弱动态效果, so the two are one
-    // effective value from here down; the user's own switch still travels separately, for the
-    // few places where motion is a gesture rather than a duration — see
-    // [AccessibilityOptions.reduceMotionByUser]. Built in one place for every window.
-    val accessibility = rememberAppAccessibilityOptions(root.themePreferences)
-    val motionOff = accessibility.reduceMotion
     val pulseSweep by root.themePreferences.pulseSweep.collectAsState()
     val navCollapseOnScroll by root.themePreferences.navCollapseOnScroll.collectAsState()
-    val particleLight by root.themePreferences.particleLight.collectAsState()
-    val dialogAnimation by root.themePreferences.dialogAnimation.collectAsState()
-    val glassStyle by root.themePreferences.glassStyle.collectAsState()
-    val loadingAnimation by root.themePreferences.loadingAnimation.collectAsState()
-    val glassMaterials by root.themePreferences.glassMaterials.collectAsState()
     val backgroundImage by root.themePreferences.backgroundImage.collectAsState()
     val backgroundDim by root.themePreferences.backgroundDim.collectAsState()
-    val motionTheme by root.themePreferences.motionTheme.collectAsState()
-    val dark = mode.resolveDark(isSystemInDarkTheme())
 
-    YfuseTheme(
-        dark = dark,
-        accessibility = accessibility,
-        glassStyle = effectiveGlassStyle(glassStyle, accessibility.reduceTransparency),
-        dialogAnimation = dialogAnimation,
-        loadingAnimation = loadingAnimation,
-        glassMaterials = glassMaterials,
-        particleLight = particleLight,
-        motionTheme = motionTheme,
-    ) {
+    AppTheme(root.themePreferences) {
+        val accessibility = LocalAccessibilityOptions.current
+        val motionOff = accessibility.reduceMotion
         BindProductServices(root)
         val savedServers by root.dependencies.serverRegistry.data
             .collectAsState()
@@ -372,6 +353,9 @@ fun App(root: RootComponent) {
         // and may capture a backdrop of its own, is otherwise not also recorded here.
         // Written from the dock's effect and read only inside the capture's draw.
         val dockOnScreen = remember { mutableStateOf(false) }
+        // How tall the activity capsule stands over the dock, and zero while it is away: a toast on
+        // a root page rests above it. Written from the capsule's layout, read by [ToastFloor] alone.
+        val activityCapsuleHeight = remember { mutableStateOf(0.dp) }
         // 浮起菜单: every content poster lifts into this one host, drawn over the dock below.
         val liftMenu = remember { LiftMenuState() }
         val tips = rememberAppTips()
@@ -398,14 +382,18 @@ fun App(root: RootComponent) {
                                 root.selectTab(tab)
                             }
                         }
+                        // On a root page, unless the tab has opened a page over its root — 我的's
+                        // settings pages, 首页's 查看全部 — which the dock steps aside for.
+                        val dockShown = showBottomBar && overlays?.coversShell != true
                         Box(
                             Modifier
                                 .fillMaxSize()
-                                // Only root pages with the bottom dock collapse it under a scroll, and
-                                // only while the setting asks for it. Pushed pages own the whole screen
-                                // and have no root navigation to collapse or expand.
+                                // Only a dock that is up collapses under a scroll, and only while the
+                                // setting asks for it. Pushed pages own the whole screen and have no
+                                // root navigation to collapse or expand; nor does a page opened over a
+                                // root, and scrolling one used to collapse the dock it had hidden.
                                 .then(
-                                    if (showBottomBar && navCollapseOnScroll) {
+                                    if (dockShown && navCollapseOnScroll) {
                                         Modifier.nestedScroll(navScroll)
                                     } else {
                                         Modifier
@@ -415,24 +403,17 @@ fun App(root: RootComponent) {
                             val previousRootTab = remember { arrayOf(active) }
                             val rootMotion = remember(active) { rootTabMotion(previousRootTab[0], active) }
                             SideEffect { previousRootTab[0] = active }
-                            // Toasts on a root page keep clear of the floating dock; everywhere else
-                            // they only need to clear the system bar.
-                            val toastFloor =
-                                if (showBottomBar && overlays?.coversShell != true) {
-                                    floatingNavigationContentInset()
-                                } else {
-                                    null
-                                }
                             // Top-level tabs are a real Navigation 3 back stack, while each tab's
                             // nested host continues to own its child routes. This host opts into
                             // equal-level root motion; nested stacks own their push/pop gestures.
-                            CompositionLocalProvider(LocalToastBottomInset provides toastFloor) {
+                            ToastFloor(dockShown, activityCapsuleHeight) {
                                 OfficialNavDisplay(
                                     backStack = topLevelBackStack(active, root.startTab),
                                     onBack = { root.selectTab(root.startTab) },
                                     contentKey = { "tab:${it.name}" },
                                     modifier = Modifier.fillMaxSize(),
                                     motion = rootMotion,
+                                    popMotion = rootPopMotion(active, root.startTab, rootMotion),
                                 ) { tab ->
                                     CompositionLocalProvider(LocalTabIdentity provides tab.name) {
                                         tabStates.SaveableStateProvider(tab.name) {
@@ -459,7 +440,7 @@ fun App(root: RootComponent) {
                         // still across the whole app was also the only thing that ever blinked.
                         // Whether the dock is *wanted* still follows [showBottomBar] alone, so
                         // nothing that reasons about the bar's presence is waiting on an animation.
-                        val dockShown = showBottomBar && overlays?.coversShell != true
+                        //
                         // The dock leaves when a route is pushed and comes back when one is popped,
                         // so those are its durations — they used to be the other way round, which
                         // made the bar linger after the page it belonged to had already gone.
@@ -513,6 +494,23 @@ fun App(root: RootComponent) {
                                 dockOnScreen.value = true
                                 onDispose { dockOnScreen.value = false }
                             }
+                            // A dock that comes back — from a pushed page, or from a page opened over the
+                            // root — arrives open, with 搜索 budding off it, however collapsed it left.
+                            // Reset once it has gone, so the next one is composed open and plays its
+                            // entrance; and when it is called back halfway out, which opens it in place.
+                            // Never while it stays up: collapsing then is the scroll's to decide.
+                            DisposableEffect(navCollapsed, navCollapseGuard) {
+                                onDispose {
+                                    navCollapsed.value = false
+                                    navCollapseGuard.reset()
+                                }
+                            }
+                            LaunchedEffect(dockShown) {
+                                if (dockShown) {
+                                    navCollapsed.value = false
+                                    navCollapseGuard.reset()
+                                }
+                            }
                             // Still composed while it slides away, but no longer the bar: a tap on the
                             // current tab in those 280ms popped the page that had just been pushed.
                             val dockWanted by rememberUpdatedState(dockShown)
@@ -546,7 +544,7 @@ fun App(root: RootComponent) {
                                 .padding(horizontal = Dimens.tabBarInset)
                                 // The dock's own height — it grows with the font scale — plus
                                 // its margin below and a step of air above it.
-                                .padding(bottom = dockHeight() + Dimens.tabBarInset + Dimens.space.sm)
+                                .padding(bottom = activityCapsuleOffset(dockHeight()))
                         // Video backgrounding is represented by Android PiP. The old long,
                         // music-like mini controller duplicated transport controls and only
                         // appeared at tab roots, so it is intentionally not rendered here.
@@ -561,6 +559,7 @@ fun App(root: RootComponent) {
                             visible = dockShown && !miniPlaybackActive,
                             enter = dockEnterTransition,
                             exit = dockExitTransition,
+                            onHeightChanged = { activityCapsuleHeight.value = it },
                         )
 
                         // Above the page, the dock and the capsule, so a lifted poster dims all of
@@ -659,6 +658,54 @@ fun App(root: RootComponent) {
 }
 
 /**
+ * The theme a window of the app draws in, built from the person's 外观 and 辅助 settings.
+ *
+ * [App] draws in it, and so does whatever is composed beside the app in its window — the update
+ * prompt at launch, which outside it came up as a light panel in dark mode and took no notice of
+ * 减少动画 or 大号文字. One per window: inside one, another is only its content, since a second
+ * would scale 大号文字 twice and keep an overlay count that the window's dialog backdrop never hears.
+ */
+@Composable
+internal fun AppTheme(
+    preferences: ThemePreferences,
+    content: @Composable () -> Unit,
+) {
+    if (LocalInAppTheme.current) {
+        content()
+        return
+    }
+    val mode by preferences.mode.collectAsState()
+    // 「移除动画」 on the device is the same request as our own 减弱动态效果, so the two are one
+    // effective value from here down; the user's own switch still travels separately, for the
+    // few places where motion is a gesture rather than a duration — see
+    // [AccessibilityOptions.reduceMotionByUser]. Built in one place for every window.
+    val accessibility = rememberAppAccessibilityOptions(preferences)
+    val particleLight by preferences.particleLight.collectAsState()
+    val dialogAnimation by preferences.dialogAnimation.collectAsState()
+    val glassStyle by preferences.glassStyle.collectAsState()
+    val loadingAnimation by preferences.loadingAnimation.collectAsState()
+    val glassMaterials by preferences.glassMaterials.collectAsState()
+    val motionTheme by preferences.motionTheme.collectAsState()
+    val dark = mode.resolveDark(isSystemInDarkTheme())
+
+    YfuseTheme(
+        dark = dark,
+        accessibility = accessibility,
+        glassStyle = effectiveGlassStyle(glassStyle, accessibility.reduceTransparency),
+        dialogAnimation = dialogAnimation,
+        loadingAnimation = loadingAnimation,
+        glassMaterials = glassMaterials,
+        particleLight = particleLight,
+        motionTheme = motionTheme,
+    ) {
+        CompositionLocalProvider(LocalInAppTheme provides true, content = content)
+    }
+}
+
+/** Whether an [AppTheme] already holds this part of the window. */
+private val LocalInAppTheme = staticCompositionLocalOf { false }
+
+/**
  * The tab the session started on, then the one showing when that is another: back from any other
  * tab returns to the start, and on the start itself back is the system's and leaves the app.
  */
@@ -676,6 +723,21 @@ internal fun topLevelBackStack(
 private fun BoxScope.ServerNoticeToast(servers: ServersTabComponent) {
     val notice by servers.notice.collectAsState()
     ActionToast(message = notice, onDismiss = servers::dismissNotice)
+}
+
+/**
+ * Where toasts rest while the dock is up — see [floatingNavigationToastInset]; everywhere else a
+ * toast only needs to clear the system bar. The capsule's height is read here, so its coming, going
+ * or growing recomposes the toasts and not the navigation host they are provided to.
+ */
+@Composable
+private fun ToastFloor(
+    dockShown: Boolean,
+    capsuleHeight: State<Dp>,
+    content: @Composable () -> Unit,
+) {
+    val floor = if (dockShown) floatingNavigationToastInset(capsule = capsuleHeight.value) else null
+    CompositionLocalProvider(LocalToastBottomInset provides floor, content = content)
 }
 
 /** The glyph box inside a tab cell, and the glyph inside it — see [LiquidGlassTabIcon]. */
@@ -708,7 +770,7 @@ internal fun dockHeight(): Dp {
 internal fun dockHeight(captionLine: Dp): Dp =
     maxOf(Dimens.tabBarHeight, DockIconBox + captionLine + DockVerticalPadding)
 
-/** How far a drag has to travel in one direction before the bar answers it. */
+/** How far the page has to scroll in one direction before the bar answers it. */
 private val NavCollapseThreshold = 42.dp
 
 /** Prevents leftover fling deltas from undoing an explicit tap on the collapsed dock. */
@@ -739,6 +801,10 @@ internal class NavigationCollapseGuard {
 /**
  * Collapses the bar while the user is reading down a page and brings it back on the way up.
  *
+ * Only the scroll the page actually made counts. The finger's own travel used to, so a swipe up a
+ * page too short to scroll — 服务器 with a server or two, an empty 库, 搜索 before anything is typed
+ * — collapsed the bar over a page that had not moved, and only a tap or a pull brought it back.
+ *
  * Accumulated rather than per-event: a single fling delivers dozens of small deltas, and
  * reacting to each one would flip the bar back and forth inside one gesture. The accumulator
  * resets on every direction change, so the threshold is "42dp of travel *this way*", not
@@ -754,59 +820,59 @@ private fun rememberNavCollapseConnection(
     guard: NavigationCollapseGuard,
 ): NestedScrollConnection {
     val threshold = with(LocalDensity.current) { NavCollapseThreshold.toPx() }
-    return remember(threshold, collapsed, guard) {
-        object : NestedScrollConnection {
-            private var travel = 0f
+    return remember(threshold, collapsed, guard) { NavigationCollapseConnection(threshold, collapsed, guard) }
+}
 
-            override fun onPreScroll(
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset {
-                if (!guard.acceptsScroll(source == NestedScrollSource.UserInput)) {
-                    travel = 0f
-                    return Offset.Zero
-                }
-                val delta = available.y
-                if (delta == 0f) return Offset.Zero
-                if (delta > 0f != travel > 0f) travel = 0f
-                travel += delta
-                val isCollapsed = collapsed.value
-                when {
-                    // Dragging up moves content down: the user is reading forward.
-                    travel <= -threshold && !isCollapsed -> {
-                        travel = 0f
-                        collapsed.value = true
-                    }
-                    travel >= threshold && isCollapsed -> {
-                        travel = 0f
-                        collapsed.value = false
-                    }
-                }
-                return Offset.Zero
-            }
+/** See [rememberNavCollapseConnection]; [threshold] is in pixels. */
+internal class NavigationCollapseConnection(
+    private val threshold: Float,
+    private val collapsed: MutableState<Boolean>,
+    private val guard: NavigationCollapseGuard,
+) : NestedScrollConnection {
+    private var travel = 0f
 
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset {
-                // Unconsumed downward scroll means the list is already at its top.
-                if (available.y > 0f && collapsed.value) {
-                    travel = 0f
-                    collapsed.value = false
-                }
-                return Offset.Zero
-            }
-
-            override suspend fun onPostFling(
-                consumed: Velocity,
-                available: Velocity,
-            ): Velocity {
+    override fun onPostScroll(
+        consumed: Offset,
+        available: Offset,
+        source: NestedScrollSource,
+    ): Offset {
+        val accepted = guard.acceptsScroll(source == NestedScrollSource.UserInput)
+        // Unconsumed downward scroll means the list is already at its top.
+        if (available.y > 0f && collapsed.value) {
+            travel = 0f
+            collapsed.value = false
+            return Offset.Zero
+        }
+        if (!accepted) {
+            travel = 0f
+            return Offset.Zero
+        }
+        val delta = consumed.y
+        if (delta == 0f) return Offset.Zero
+        if (delta > 0f != travel > 0f) travel = 0f
+        travel += delta
+        val isCollapsed = collapsed.value
+        when {
+            // The page moved on towards its end: the user is reading forward.
+            travel <= -threshold && !isCollapsed -> {
                 travel = 0f
-                guard.onFlingFinished()
-                return Velocity.Zero
+                collapsed.value = true
+            }
+            travel >= threshold && isCollapsed -> {
+                travel = 0f
+                collapsed.value = false
             }
         }
+        return Offset.Zero
+    }
+
+    override suspend fun onPostFling(
+        consumed: Velocity,
+        available: Velocity,
+    ): Velocity {
+        travel = 0f
+        guard.onFlingFinished()
+        return Velocity.Zero
     }
 }
 
@@ -1137,15 +1203,24 @@ private fun SearchButton(
             .graphicsLayer { alpha = if (dockLiquid?.drawing == true) 1f else (shown?.value ?: 1f) }
             .then(if (inKey) Modifier.clearAndSetSemantics {} else Modifier)
             .searchDockSource()
-            .pressable(
-                enabled = !inKey,
-                pressedScale = 0.96f,
-                haptic = HapticSignal.Select,
-                role = Role.Tab,
-                onClickLabel = "搜索",
-                onClick = {
-                    if (!selected) SearchDockOrigin.begin()
-                    onClick()
+            // Inside the key it has no press node at all, not a disabled one: that still took the
+            // finger, and the dock is over the page, so a tap or a drag that began where 搜索 had
+            // been never reached the page. It stays laid out, since the row and the liquid are
+            // measured against it.
+            .then(
+                if (inKey) {
+                    Modifier
+                } else {
+                    Modifier.pressable(
+                        pressedScale = 0.96f,
+                        haptic = HapticSignal.Select,
+                        role = Role.Tab,
+                        onClickLabel = "搜索",
+                        onClick = {
+                            if (!selected) SearchDockOrigin.begin()
+                            onClick()
+                        },
+                    )
                 },
             ).semantics(mergeDescendants = true) { this.selected = selected }
             .then(if (drawShell) Modifier.navigationGlass(backdrop, CircleShape) else Modifier)
@@ -1464,6 +1539,20 @@ internal fun rootTabMotion(
         previous == Tab.Search && current != Tab.Search -> OfficialNavMotion.SearchExit
         else -> OfficialNavMotion.RootTab
     }
+
+/**
+ * How going back looks from [active], which [arrival] brought up.
+ *
+ * A back gesture previews its pop before anything has changed, so while a tab other than the start
+ * is up, going back is that tab giving way to the start, whatever brought it up — 媒体库 reached
+ * from 搜索 used to go back with 搜索 closing. Once back has landed on the start, the pop being
+ * drawn is the move that just made it.
+ */
+internal fun rootPopMotion(
+    active: Tab,
+    start: Tab,
+    arrival: OfficialNavMotion,
+): OfficialNavMotion = if (active != start) rootTabMotion(active, start) else arrival
 
 private const val TAB_PILL_WIDTH_FRACTION = 0.82f
 private const val TAB_PILL_MIN_SCALE = 0.94f

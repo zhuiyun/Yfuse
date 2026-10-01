@@ -265,7 +265,8 @@ class DetailCastTest {
         assertTrue(DetailIntent.SelectEpisode("e1", 0L).supersedesCast())
         assertTrue(DetailIntent.SelectSource("s", "i").supersedesCast())
         assertTrue(DetailIntent.SelectVersion("v").supersedesCast())
-        assertTrue(DetailIntent.SelectSeason("s2").supersedesCast())
+        // Browsing seasons leaves 播放's target alone.
+        assertFalse(DetailIntent.SelectSeason("s2").supersedesCast())
         assertFalse(DetailIntent.ToggleFavorite.supersedesCast())
         assertFalse(DetailIntent.ShowMessage("已在「客厅电视」开始播放").supersedesCast())
         assertFalse(DetailIntent.SelectAudioLanguage("zh").supersedesCast())
