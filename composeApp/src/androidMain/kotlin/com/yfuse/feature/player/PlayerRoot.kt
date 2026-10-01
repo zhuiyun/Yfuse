@@ -1231,7 +1231,7 @@ internal fun PlayerRoot(
             Toast
                 .makeText(
                     context,
-                    "投屏连接已断开，已回到本机 ${decision.positionMs / 1000} 秒",
+                    "${decision.reason ?: "投屏连接已断开"}，已回到本机 ${decision.positionMs / 1000} 秒",
                     Toast.LENGTH_LONG,
                 ).show()
         }
@@ -3722,6 +3722,10 @@ internal fun PlayerRoot(
                                 "DV ${capabilities.dolbyVision.label} · " +
                                 "Atmos ${capabilities.dolbyAtmos.label}"
                         },
+                    castTransport =
+                        castState.activeDevice
+                            ?.takeIf { castState.relayed }
+                            ?.let { "经本机转发：投屏期间请保持手机连接同一 Wi-Fi" },
                     onDiscoverCast = requestCastDiscovery,
                     onCastTo = { deviceId ->
                         val item = activeItems.getOrNull(state.currentIndex) ?: return@PlayerControls

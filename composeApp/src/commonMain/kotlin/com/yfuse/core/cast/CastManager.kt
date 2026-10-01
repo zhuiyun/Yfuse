@@ -56,6 +56,11 @@ data class CastMediaProfile(
     val frameRate: Double? = null,
     val dolbyVision: Boolean = false,
     val dolbyAtmos: Boolean = false,
+    /** The server's container name ("mkv", or Jellyfin's "matroska,webm"), for a DLNA MIME type. */
+    val container: String? = null,
+    /** Size and length of the original file, for renderers that size their progress bar from DIDL. */
+    val sizeBytes: Long? = null,
+    val durationMs: Long? = null,
 )
 
 data class CastQueueEntry(
@@ -111,6 +116,8 @@ data class CastState(
     val outputEvidence: CastOutputEvidence = CastOutputEvidence(),
     /** Last confirmed transport intent, retained through buffering/disconnection. */
     val lastRemoteWasPlaying: Boolean = false,
+    /** The receiver reads the media through this phone, which therefore has to stay connected. */
+    val relayed: Boolean = false,
     val termination: CastTermination? = null,
     val error: String? = null,
 ) {
@@ -183,6 +190,7 @@ internal fun CastState.connectingTo(
         capabilities = CastCapabilities(),
         outputEvidence = CastOutputEvidence(sessionRevision = sessionRevision + 1L),
         lastRemoteWasPlaying = false,
+        relayed = false,
         termination = null,
         error = null,
     )
@@ -278,8 +286,19 @@ internal fun CastState.unexpectedDisconnect(message: String): CastState =
         capabilities = CastCapabilities(),
         tracks = emptyList(),
         outputEvidence = CastOutputEvidence(sessionRevision = sessionRevision),
+        relayed = false,
         termination = CastTermination.Unexpected,
         error = message,
+    )
+
+/**
+ * The receiver accepted the load but never played it. The viewer asked for playback, so it carries
+ * on here, from where this phone left off rather than from a receiver position that never moved.
+ */
+internal fun CastState.startFailed(message: String): CastState =
+    unexpectedDisconnect(message).copy(
+        positionConfirmed = false,
+        lastRemoteWasPlaying = true,
     )
 
 internal fun CastState.userStopped(): CastState =
@@ -292,6 +311,7 @@ internal fun CastState.userStopped(): CastState =
         currentQueueIndex = 0,
         tracks = emptyList(),
         outputEvidence = CastOutputEvidence(sessionRevision = sessionRevision),
+        relayed = false,
         termination = CastTermination.UserStop,
         error = null,
     )
@@ -299,6 +319,8 @@ internal fun CastState.userStopped(): CastState =
 data class CastRecoveryDecision(
     val positionMs: Long,
     val resumePlayback: Boolean,
+    /** What ended the cast, in words the viewer can act on; null leaves the generic notice. */
+    val reason: String? = null,
 )
 
 /** Pure policy used by PlayerActivity; an explicit Stop can never look like a disconnect. */
@@ -315,6 +337,7 @@ fun castRecoveryDecision(
                 fallbackPositionMs
             }.coerceAtLeast(0L),
         resumePlayback = state.lastRemoteWasPlaying,
+        reason = state.error?.takeIf(String::isNotBlank),
     )
 }
 

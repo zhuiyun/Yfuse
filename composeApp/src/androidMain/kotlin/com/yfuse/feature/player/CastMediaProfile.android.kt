@@ -14,6 +14,9 @@ internal fun PlayerMediaItem.castMediaProfile(): CastMediaProfile {
         frameRate = source?.sourceFrameRate,
         dolbyVision = source?.dolbyVision == true,
         dolbyAtmos = source?.dolbyAtmos == true,
+        container = source?.container,
+        sizeBytes = source?.sourceSizeBytes?.takeIf { it > 0L },
+        durationMs = durationMsHint.takeIf { it > 0L },
     )
 }
 

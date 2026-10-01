@@ -285,6 +285,8 @@ internal fun PlayerControls(
     castPosition: String? = null,
     castPositionSource: (() -> String?)? = null,
     castCapabilities: String? = null,
+    /** How the receiver gets the media when that asks something of this phone; null otherwise. */
+    castTransport: String? = null,
     onDiscoverCast: () -> Unit = {},
     onCastTo: (String) -> Unit = {},
     onStopCast: () -> Unit = {},
@@ -1677,6 +1679,7 @@ internal fun PlayerControls(
                             castPosition = castPosition,
                             castPositionSource = castPositionSource,
                             castCapabilities = castCapabilities,
+                            castTransport = castTransport,
                             danmaku = danmaku,
                             danmakuActions = danmakuActions,
                             onOpenDanmakuSearch = {

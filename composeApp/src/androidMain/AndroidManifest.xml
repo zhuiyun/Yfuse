@@ -28,6 +28,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- A relayed DLNA cast keeps the CPU and Wi-Fi awake while the television reads through the phone. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
@@ -200,6 +202,10 @@
             android:foregroundServiceType="dataSync" />
         <service
             android:name="com.yfuse.feature.player.PlaybackKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+        <service
+            android:name="com.yfuse.core.cast.CastRelayService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
     </application>

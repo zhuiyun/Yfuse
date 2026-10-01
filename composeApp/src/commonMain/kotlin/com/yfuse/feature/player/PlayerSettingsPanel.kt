@@ -136,6 +136,7 @@ internal fun SettingsPanel(
     /** The receiver's own clock, resolved inside 投屏 rather than by whoever opened the panel. */
     castPositionSource: (() -> String?)?,
     castCapabilities: String?,
+    castTransport: String?,
     danmaku: DanmakuPanelState,
     danmakuActions: DanmakuPanelActions,
     onOpenDanmakuSearch: () -> Unit,
@@ -1157,6 +1158,7 @@ internal fun SettingsPanel(
                         castStatus?.let { DiagnosticRow("状态", it) }
                         remotePosition?.let { DiagnosticRow("远端进度", it) }
                         castCapabilities?.let { DiagnosticRow("远端能力", it) }
+                        castTransport?.let { DiagnosticRow("传输", it) }
                         // A failed scan reports itself through [castError] below; this line only
                         // speaks for a list that is empty without one.
                         val emptyState =
