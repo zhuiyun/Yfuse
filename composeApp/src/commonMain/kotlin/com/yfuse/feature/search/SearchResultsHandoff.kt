@@ -28,6 +28,7 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPulseSweepEnabled
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.drawDiagonalSweep
 import com.yfuse.core.designsystem.rememberSkeletonSweepReader
 import com.yfuse.core.designsystem.skeletonSweepBand
@@ -85,9 +86,11 @@ internal fun SearchState.presentationKey(): List<Any?> =
 internal class SearchResultsHandoff(
     initialPhase: SearchResultsPhase,
     initialKey: Any? = null,
+    initialSkeleton: Boolean = false,
 ) {
     private var committedPhase = initialPhase
     private var committedKey = initialKey
+    private var committedSkeleton = initialSkeleton
 
     fun shouldReveal(
         next: SearchResultsPhase,
@@ -105,19 +108,27 @@ internal class SearchResultsHandoff(
     fun committed(
         phase: SearchResultsPhase,
         key: Any? = null,
+        skeleton: Boolean = false,
     ) {
         committedPhase = phase
         committedKey = key
+        committedSkeleton = skeleton
     }
 
     /**
-     * The page sweep belongs to a search landing from its skeleton.
-     * Later servers, more pages and filter changes add rows; they do not replay the landing.
+     * The page sweep belongs to a search landing from its skeleton: the skeleton's band finishes
+     * its crossing over the results. An answer quick enough never to earn the skeleton has no
+     * band to finish. Later servers, more pages and filter changes add rows; they do not replay
+     * the landing.
      */
     fun shouldSweep(
         next: SearchResultsPhase,
         moving: Boolean,
-    ): Boolean = moving && next == SearchResultsPhase.Results && committedPhase == SearchResultsPhase.Loading
+    ): Boolean =
+        moving &&
+            next == SearchResultsPhase.Results &&
+            committedPhase == SearchResultsPhase.Loading &&
+            committedSkeleton
 }
 
 /** One row's entry: wait for its slot in elapsed time, then ease over [rowMs]. */
@@ -129,6 +140,33 @@ internal fun searchRowProgress(
 ): Float {
     val delay = if (staggered) slot.coerceIn(0, SEARCH_STAGGER_LIMIT) * SEARCH_ROW_STAGGER_MS else 0
     return Motion.Curve.transform(((elapsedMs - delay) / rowMs).coerceIn(0f, 1f))
+}
+
+/**
+ * What one opening of the reveal plays. Results float up one after another; a message fades
+ * in, and so does everything under 静息, where lists arrive together in one short fade with no
+ * lift and no band of light.
+ */
+internal fun searchRevealBatch(
+    startMs: Float,
+    rows: Boolean,
+    calm: Boolean,
+    sweepFrom: Float? = null,
+): SearchRevealBatch {
+    val staggered = rows && !calm
+    return SearchRevealBatch(
+        startMs = startMs,
+        rowMs =
+            when {
+                staggered -> SEARCH_ROW_MS
+                // The length of every other arrival under 静息.
+                rows -> Motion.STANDARD
+                else -> Motion.STATE_HANDOFF
+            },
+        staggered = staggered,
+        lift = staggered,
+        sweepFrom = sweepFrom.takeIf { !calm },
+    )
 }
 
 /**
@@ -227,34 +265,35 @@ internal fun rememberSearchResultsHandoff(
     skeleton: Boolean = false,
 ): SearchRevealMotion {
     val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
+    // 静息 keeps the fades and nothing else, whatever 搜索与导航动效 says: rows arrive together,
+    // and no band crosses the page and nothing squashes or turns in the field.
+    val calm = calmMotion()
     val enhanced = moving && LocalPulseSweepEnabled.current
     val highlights = enhanced && !LocalAccessibilityOptions.current.reduceTransparency
     val accent = LocalAccentColors.current.accent
     val band = skeletonSweepBand()
     val skeletonSweep = rememberSkeletonSweepReader()
-    val handoff = remember { SearchResultsHandoff(phase, presentationKey) }
+    val handoff = remember { SearchResultsHandoff(phase, presentationKey, skeleton) }
     // Policy changes discard the schedule; returning to the route reveals nothing again.
-    val schedule = remember(moving) { SearchRevealSchedule() }
+    val schedule = remember(moving, calm) { SearchRevealSchedule() }
     val clock = remember(schedule) { Animatable(0f) }
     val sweep = remember(schedule) { Animatable(1f) }
     // One batch per presentation change. Rows already on the page keep their opacity, only the
     // rows the change adds enter, and only a landing from the skeleton sweeps the page. The
     // band continues from wherever the skeleton's band is, so the light never jumps.
     val batch =
-        remember(phase, presentationKey, moving) {
+        remember(phase, presentationKey, moving, calm) {
             if (!handoff.shouldReveal(phase, moving, presentationKey)) return@remember null
-            val rows = phase == SearchResultsPhase.Results
             val sweeping = enhanced && handoff.shouldSweep(phase, moving)
-            SearchRevealBatch(
+            searchRevealBatch(
                 startMs = Snapshot.withoutReadObservation { clock.value },
-                rowMs = if (rows) SEARCH_ROW_MS else Motion.STATE_HANDOFF,
-                staggered = rows,
-                lift = rows,
+                rows = phase == SearchResultsPhase.Results,
+                calm = calm,
                 sweepFrom = if (sweeping) skeletonSweep().coerceAtLeast(0f) else null,
             ).also { schedule.open(it, fresh = handoff.isFresh(phase)) }
         }
     // Update only after a successful composition, including completions while the route is hidden.
-    SideEffect { handoff.committed(phase, presentationKey) }
+    SideEffect { handoff.committed(phase, presentationKey, skeleton) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(batch) {
         batch ?: return@LaunchedEffect
@@ -273,12 +312,18 @@ internal fun rememberSearchResultsHandoff(
     val pulse = remember { Animatable(0f) }
     // Refreshing the same query retains Results; it still needs visible request feedback.
     val waiting = highlights && loading
-    val tension = animateFloatAsState(if (waiting) 1f else 0f, Motion.settle(!moving), label = "search-request-tension")
+    val tension =
+        animateFloatAsState(
+            if (waiting && !calm) 1f else 0f,
+            Motion.settle(!moving),
+            label = "search-request-tension",
+        )
     // One loader per request. While the skeleton stands in for the first results, the page
-    // bloom and the icon's beat were two more on top of it; the field keeps its own pulse.
+    // bloom and the icon's beat were two more on top of it; the field keeps its own pulse,
+    // and under 静息 that pulse is all there is.
     val ornament =
         animateFloatAsState(
-            if (waiting && !skeleton) 1f else 0f,
+            if (waiting && !skeleton && !calm) 1f else 0f,
             Motion.settle(!moving),
             label = "search-request-ornament",
         )
