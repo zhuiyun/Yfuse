@@ -13,18 +13,46 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
 
-/** Only numeric bounds are retained, never a view, context, image, or layout coordinates. */
-internal object SearchDockOrigin {
+/**
+ * Where the dock's 搜索 key is, and the one morph a tap on it grants the search field it opens.
+ *
+ * Only numeric bounds are retained, never a view, context, image, or layout coordinates.
+ */
+internal class SearchMorphOrigin(
+    private val timeSource: TimeSource = TimeSource.Monotonic,
+) {
     var bounds: Rect? = null
     private var pending: Rect? = null
+    private var grantedAt: TimeMark? = null
 
     fun begin() {
         pending = bounds
+        grantedAt = timeSource.markNow()
     }
 
-    fun consume(): Rect? = pending.also { pending = null }
+    /**
+     * The tap's origin, once, and only for [SEARCH_MORPH_GRANT] after it. A tap that landed on a
+     * page with no field — a detail left open on 搜索's stack — used to leave its origin waiting,
+     * and whichever field appeared next, however much later and wherever, flew in from the dock.
+     */
+    fun consume(): Rect? {
+        val origin = pending
+        val fresh = grantedAt?.let { it.elapsedNow() <= SEARCH_MORPH_GRANT } == true
+        pending = null
+        grantedAt = null
+        return origin?.takeIf { fresh }
+    }
 }
+
+/** The dock's: written by [searchDockSource], granted by a tap on 搜索, taken by [searchFieldArrival]. */
+internal val SearchDockOrigin = SearchMorphOrigin()
+
+/** Long enough for the search page to compose after the tap; nothing later is that tap's arrival. */
+private val SEARCH_MORPH_GRANT = 1.seconds
 
 internal fun Modifier.searchDockSource(): Modifier =
     onGloballyPositioned { SearchDockOrigin.bounds = it.boundsInWindow() }

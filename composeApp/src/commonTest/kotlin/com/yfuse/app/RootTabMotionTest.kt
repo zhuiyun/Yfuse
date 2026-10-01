@@ -39,6 +39,29 @@ class RootTabMotionTest {
     }
 
     @Test
+    fun going_back_from_a_tab_reached_from_search_is_a_tab_switch_not_search_closing() {
+        val arrival = rootTabMotion(Tab.Search, Tab.Browse)
+
+        assertEquals(OfficialNavMotion.RootTab, rootPopMotion(Tab.Browse, start = Tab.Home, arrival = arrival))
+    }
+
+    @Test
+    fun going_back_from_search_closes_search_however_it_was_opened() {
+        listOf(OfficialNavMotion.SearchEnter, OfficialNavMotion.RootTab).forEach { arrival ->
+            assertEquals(OfficialNavMotion.SearchExit, rootPopMotion(Tab.Search, start = Tab.Browse, arrival = arrival))
+        }
+    }
+
+    @Test
+    fun a_back_that_has_landed_on_the_start_is_drawn_as_the_move_that_made_it() {
+        val fromSearch = rootTabMotion(Tab.Search, Tab.Home)
+        val fromLibrary = rootTabMotion(Tab.Browse, Tab.Home)
+
+        assertEquals(OfficialNavMotion.SearchExit, rootPopMotion(Tab.Home, start = Tab.Home, arrival = fromSearch))
+        assertEquals(OfficialNavMotion.RootTab, rootPopMotion(Tab.Home, start = Tab.Home, arrival = fromLibrary))
+    }
+
+    @Test
     fun indicator_stretch_is_capped_and_kept_inside_bar() {
         val stretched = tabIndicatorBounds(rawLeft = 0.09f, rawRight = 3.91f, tabCount = 4)
 
