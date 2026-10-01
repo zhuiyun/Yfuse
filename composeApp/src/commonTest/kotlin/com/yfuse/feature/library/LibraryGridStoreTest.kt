@@ -385,7 +385,7 @@ class LibraryGridStoreTest {
             assertEquals(700, whole.items.size)
             assertEquals(null, whole.loadMoreError)
             // A few large pages rather than the dozen screenfuls scrolling would have asked for.
-            assertEquals(listOf(0 to 60, 60 to 300, 360 to 300, 660 to 300), requests)
+            assertEquals(listOf<Pair<Int, Int?>>(0 to 60, 60 to 300, 360 to 300, 660 to 300), requests)
             store.dispose()
             runCurrent()
         }
@@ -499,7 +499,7 @@ class LibraryGridStoreTest {
             assertEquals(LibrarySort.Name, sorted.sort)
             assertFalse(sorted.loading || sorted.loadingMore)
             assertEquals(60, sorted.items.size)
-            assertEquals(listOf("DateCreated" to 0, "DateCreated" to 60, "SortName" to 0), requests)
+            assertEquals(listOf<Pair<String?, Int>>("DateCreated" to 0, "DateCreated" to 60, "SortName" to 0), requests)
             store.dispose()
             advanceUntilIdle()
         }
