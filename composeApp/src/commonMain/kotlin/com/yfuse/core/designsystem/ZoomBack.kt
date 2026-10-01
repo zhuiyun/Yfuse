@@ -115,6 +115,10 @@ internal class ZoomBackController(
 
     val idle: Boolean get() = phase == ZoomBackPhase.Idle
 
+    /** Let go past the point of no return: the page is flying or fading away, or already gone. */
+    val leaving: Boolean
+        get() = phase == ZoomBackPhase.Flying || phase == ZoomBackPhase.Fading || phase == ZoomBackPhase.Done
+
     val pullFollowing: Boolean get() = phase == ZoomBackPhase.Following && !side
 
     val sideFollowing: Boolean get() = phase == ZoomBackPhase.Following && side

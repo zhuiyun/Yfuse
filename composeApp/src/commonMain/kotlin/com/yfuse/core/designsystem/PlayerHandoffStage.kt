@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -62,13 +63,25 @@ import kotlin.time.TimeSource
  * back it hands over from the same frame and the page plays its way in. Touches are held while the
  * page is leaving, so a second tap cannot start a second launch under the first; on the way back
  * the page is already the page again, and holding them there kept it out of reach for most of a
- * second after 关闭. Idle, this is the modifier it was applied to and nothing else.
+ * second after 关闭. Idle, it only listens for the next touch, which retires the last tap's claim
+ * on a launch (see [PlayerArtworkOrigins.pageTouched]).
  */
 @Composable
 internal fun Modifier.playerHandoffStage(): Modifier {
+    // On the initial pass, so a play key under the finger records its press after this has run,
+    // and never consumed.
+    val listening =
+        pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    if (event.changes.any { it.changedToDownIgnoreConsumed() }) PlayerArtworkOrigins.pageTouched()
+                }
+            }
+        }
     val phase = PlayerHandoff.phase
     val launch = PlayerHandoff.launch
-    if (phase == HandoffPhase.Idle || launch == null) return this
+    if (phase == HandoffPhase.Idle || launch == null) return listening
 
     val clock = remember(launch) { StageClock() }
     val screen = rememberScreenGeometrySource()
@@ -104,7 +117,7 @@ internal fun Modifier.playerHandoffStage(): Modifier {
     scene.field = framePainter ?: field
     scene.leaveField = field
     scene.play = play
-    return this
+    return listening
         .pointerInput(launch) {
             awaitPointerEventScope {
                 while (true) {
