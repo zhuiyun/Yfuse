@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import com.yfuse.core.data.DanmakuBinding
 import com.yfuse.core.data.DanmakuComment
 import com.yfuse.core.data.DanmakuDisplayArea
@@ -19,10 +20,14 @@ import com.yfuse.core.data.DanmakuMedia
 import com.yfuse.core.data.DanmakuOpacity
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
+import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.DanmakuSpeed
 import com.yfuse.core.data.MAX_DANMAKU_SYNC_BLOCKED_WORDS
 import com.yfuse.core.data.activeOr
 import com.yfuse.core.data.danmakuBindingKey
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 /**
@@ -78,7 +83,14 @@ internal fun rememberPlayerDanmakuController(
     var sending by remember { mutableStateOf(false) }
     var sendError by remember { mutableStateOf<String?>(null) }
     var reloads by remember { mutableIntStateOf(0) }
+    // Asks the loaded episode for its comments again, behind what is on screen, once a line is sent.
+    var refreshes by remember { mutableIntStateOf(0) }
     var episodeId by remember { mutableStateOf<String?>(null) }
+    // The source that episode is on: a pinned match need not be on the active one.
+    var episodeSource by remember { mutableStateOf<DanmakuSource?>(null) }
+    // Lines sent from here to that episode, shown as soon as the server takes them and kept over a
+    // refetch that does not carry them yet.
+    var sent by remember { mutableStateOf(emptyList<DanmakuComment>()) }
     val source = sources.activeOr(activeSourceId)
 
     // Keyed on the show and its coordinate rather than the library's item id, so a match
@@ -100,9 +112,12 @@ internal fun rememberPlayerDanmakuController(
 
     LaunchedEffect(currentItem?.id, source, binding, enabled, reloads) {
         comments = emptyList()
+        sent = emptyList()
         error = null
+        sendError = null
         match = null
         episodeId = null
+        episodeSource = null
         loading = false
         val item = currentItem ?: return@LaunchedEffect
         if (!enabled) return@LaunchedEffect
@@ -123,6 +138,7 @@ internal fun rememberPlayerDanmakuController(
                     match = binding.label
                     episodeId = binding.episodeId
                     val pinned = sources.first { it.id == binding.sourceId }
+                    episodeSource = pinned
                     repository.loadEpisode(pinned, binding.episodeId)
                 }
 
@@ -145,6 +161,7 @@ internal fun rememberPlayerDanmakuController(
                                 } else {
                                     match = episode.label
                                     episodeId = episode.episodeId
+                                    episodeSource = activeSource
                                     repository.loadEpisode(activeSource, episode.episodeId)
                                 }
                             },
@@ -156,11 +173,25 @@ internal fun rememberPlayerDanmakuController(
             onFailure = { error = it.message ?: "弹幕加载失败" },
         )
         loading = false
+        val loadedSource = episodeSource ?: return@LaunchedEffect
+        val loadedEpisode = episodeId ?: return@LaunchedEffect
+        // A line that went through asks for the episode again. The comments on screen keep running
+        // until the answer replaces them in one step, and a refetch that fails leaves them be.
+        snapshotFlow { refreshes }.drop(1).collectLatest {
+            repository.loadEpisode(loadedSource, loadedEpisode).onSuccess { refreshed ->
+                comments = refreshed
+                error = null
+            }
+        }
     }
 
     val visibleComments =
-        remember(comments, mergeDuplicates, blockedWords) {
-            DanmakuFilter.apply(comments, mergeDuplicates, blockedWords)
+        remember(comments, sent, mergeDuplicates, blockedWords) {
+            // A line sent from here stands on its own rather than being folded into a 合并重复 run,
+            // where it would never be seen to arrive.
+            DanmakuFilter
+                .apply(comments.withoutEchoesOf(sent), mergeDuplicates, blockedWords)
+                .withSentLines(DanmakuFilter.apply(sent, merge = false, blockedWords = blockedWords))
         }
     // Counted from what is shown — blocked words left out, a merged line counting for all it
     // stands for — once per load rather than per frame; the reader stays one instance, so the
@@ -282,29 +313,47 @@ internal fun rememberPlayerDanmakuController(
             onToggleMerge = { preferences.setMergeDuplicates(!mergeDuplicates) },
             onRetry = { reloads++ },
             onSend = { text ->
-                val activeSource = source
-                val activeEpisodeId = episodeId
-                if (activeSource != null && activeEpisodeId != null) {
-                    val capturedPosition = positionMs()
-                    sending = true
-                    sendError = null
-                    scope.launch {
-                        repository
-                            .send(
-                                source = activeSource,
-                                episodeId = activeEpisodeId,
-                                text = text,
-                                positionMs = capturedPosition,
-                            ).fold(
-                                onSuccess = {
-                                    sending = false
-                                    reloads++
-                                },
-                                onFailure = {
-                                    sending = false
-                                    sendError = it.message ?: "发送失败"
-                                },
-                            )
+                val target = episodeSource
+                val targetEpisode = episodeId
+                when {
+                    // One line at a time: a second press while one is on its way is not a second line.
+                    sending -> Unit
+
+                    // Said rather than ignored: 发送弹幕 stays up until it hears how the send went.
+                    target == null || targetEpisode == null -> sendError = "弹幕源未就绪，暂时无法发送"
+
+                    else -> {
+                        val capturedPosition = positionMs()
+                        sending = true
+                        sendError = null
+                        scope.launch {
+                            try {
+                                repository
+                                    .send(
+                                        source = target,
+                                        episodeId = targetEpisode,
+                                        text = text,
+                                        positionMs = capturedPosition,
+                                    ).fold(
+                                        onSuccess = {
+                                            // Onto the episode it went to only; the player may have
+                                            // moved on while it was being sent.
+                                            if (episodeId == targetEpisode && episodeSource == target) {
+                                                val line = DanmakuComment(capturedPosition, text.trim())
+                                                sent = sent.withSentLines(listOf(line))
+                                                refreshes++
+                                            }
+                                        },
+                                        onFailure = { sendError = it.message ?: "发送失败" },
+                                    )
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                sendError = "发送失败"
+                            } finally {
+                                sending = false
+                            }
+                        }
                     }
                 }
             },
@@ -344,7 +393,7 @@ internal fun rememberPlayerDanmakuController(
                 matchLabel = match,
                 matchPinned = binding != null,
                 mergeDuplicates = mergeDuplicates,
-                canSend = source?.supportsSearch == true && episodeId != null,
+                canSend = episodeSource?.supportsSearch == true && episodeId != null,
                 sending = sending,
                 sendError = sendError,
                 areaOptions = DanmakuDisplayArea.entries.map { it.label to (it == area) },
@@ -355,4 +404,40 @@ internal fun rememberPlayerDanmakuController(
             ),
         actions = actions,
     )
+}
+
+/** How far apart a line sent from here and the server's copy of it can be and still be one line. */
+private const val SENT_ECHO_WINDOW_MS = 1_000L
+
+/**
+ * The time-sorted [this] without the server's copies of [sent]. The line already on screen stays
+ * the one drawn: the copy comes back with its time rounded, as a comment starting over elsewhere.
+ */
+internal fun List<DanmakuComment>.withoutEchoesOf(sent: List<DanmakuComment>): List<DanmakuComment> {
+    if (sent.isEmpty() || isEmpty()) return this
+    val echoes = HashSet<Int>()
+    sent.forEach { line ->
+        var index = lowerBoundDanmaku(this, line.timeMs - SENT_ECHO_WINDOW_MS)
+        while (index < size && this[index].timeMs <= line.timeMs + SENT_ECHO_WINDOW_MS) {
+            if (index !in echoes && this[index].text == line.text) {
+                echoes += index
+                break
+            }
+            index++
+        }
+    }
+    return if (echoes.isEmpty()) this else filterIndexed { index, _ -> index !in echoes }
+}
+
+/** The time-sorted [lines] slotted into the time-sorted [this], each after what shares its moment. */
+internal fun List<DanmakuComment>.withSentLines(lines: List<DanmakuComment>): List<DanmakuComment> {
+    if (lines.isEmpty()) return this
+    val merged = ArrayList<DanmakuComment>(size + lines.size)
+    var next = 0
+    lines.forEach { line ->
+        while (next < size && this[next].timeMs <= line.timeMs) merged += this[next++]
+        merged += line
+    }
+    while (next < size) merged += this[next++]
+    return merged
 }

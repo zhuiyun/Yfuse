@@ -85,7 +85,8 @@ internal fun WatchTogetherDialog(
     onSetControlMode: (WatchControlMode) -> Unit,
     onSetModerator: (String, Boolean) -> Unit,
     onKickParticipant: (String) -> Unit,
-    onPlaylistPlay: (String) -> Unit,
+    /** The player on screen, which says which entries it can start and starts them; null offers none. */
+    playlistTarget: WatchPlaylistTarget?,
     onDismiss: () -> Unit,
 ) {
     var roomDraft by remember { mutableStateOf("") }
@@ -272,6 +273,9 @@ internal fun WatchTogetherDialog(
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         playlist.entries.forEachIndexed { index, entry ->
                             val active = entry.mediaKey == liveRoom.mediaKey
+                            // Only what this device's queue holds can be started from here; the
+                            // rest says so instead of offering a 播放 that could do nothing.
+                            val queueIndex = playlistTarget?.indexOf(entry.mediaKey)
                             Row(
                                 Modifier
                                     .fillMaxWidth()
@@ -294,11 +298,17 @@ internal fun WatchTogetherDialog(
                                             style = AppTypography.caption.medium,
                                             color = accent.accent,
                                         )
+                                    } else if (canControl && queueIndex == null) {
+                                        Text(
+                                            "不在本机播放队列中",
+                                            style = AppTypography.caption.medium,
+                                            color = palette.sub2,
+                                        )
                                     }
                                 }
-                                if (canControl && !active) {
+                                if (canControl && !active && queueIndex != null) {
                                     PlaylistAction("播放", enabled = !playlist.mutationPending) {
-                                        onPlaylistPlay(entry.mediaKey)
+                                        playlistTarget?.play(queueIndex)
                                     }
                                 }
                                 if (canEditPlaylist) {

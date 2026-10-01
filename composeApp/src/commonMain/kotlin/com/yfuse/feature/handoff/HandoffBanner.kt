@@ -184,13 +184,13 @@ class HandoffBannerState internal constructor(
 
     /**
      * 忽略 is a request to the account service, so the banner steps aside at once and comes back,
-     * with the reason, only if the service did not take it.
+     * with the reason, only if the service did not take it. The last reason is kept meanwhile, as
+     * the television's prompt keeps it: a second refusal can read exactly like the first.
      */
     internal fun reject(request: HandoffRequest) {
         if (rejecting != null) return
         val state = controller.state.value
         errorBeforeReject = state.error
-        rejectFailure = null
         rejecting = request.id
         // Refused from that device, what it plays is not offered straight back as 在此继续.
         closed =
@@ -243,12 +243,15 @@ fun rememberHandoffBanner(
     LaunchedEffect(banner.rejecting) {
         val id = banner.rejecting ?: return@LaunchedEffect
         // A confirmed reject takes the request away; a failed one writes the controller's error.
+        // The same error twice in a row is no change the state can show, hence the time limit,
+        // after which a request still on offer comes back with the reason it last failed for.
         val answer =
             withTimeoutOrNull(BANNER_REJECT_ANSWER_MS) {
                 controller.state.first { it.incoming?.id != id || it.error != banner.errorBeforeReject }
             }
-        if (answer != null && answer.incoming?.id == id) {
-            banner.rejectFailure = id to (answer.error ?: "未能拒绝请求，请重试")
+        if ((answer ?: controller.state.value).incoming?.id == id) {
+            val last = banner.rejectFailure?.takeIf { it.first == id }?.second
+            banner.rejectFailure = id to (answer?.error ?: last ?: "未能拒绝请求，请重试")
         }
         banner.rejecting = null
     }
@@ -366,6 +369,12 @@ private fun HandoffBannerCard(
     // Follows the finger up; downwards it only gives a little, on the rubber band.
     var raw by remember(shown.key) { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
+    // A swipe that commits leaves the banner where the finger let go for its exit. Called back
+    // before that is over, as a 忽略 that failed at once is, it returns in place, not pushed up
+    // and faded.
+    LaunchedEffect(banner.visibility.targetState) {
+        if (banner.visibility.targetState) raw = 0f
+    }
     val extent = with(LocalDensity.current) { BannerDismissDistance.toPx() }
     val offset by animateFloatAsState(
         if (raw < 0f) raw else rubberBand(raw, extent),

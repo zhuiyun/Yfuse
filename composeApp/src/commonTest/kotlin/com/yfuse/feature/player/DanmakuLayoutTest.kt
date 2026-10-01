@@ -74,6 +74,52 @@ class DanmakuLayoutTest {
     }
 
     @Test
+    fun a_comment_keeps_its_lane_when_the_list_around_it_changes() {
+        val cache = HashMap<DanmakuKey, Int>()
+        val first = cache.allocate(3, line(0, 0L, "甲"), line(1, 100L, "乙"), line(2, 200L, "丙"))
+        assertEquals(listOf(0, 1, 2), first.map { it.lane })
+        // 屏蔽 takes 甲 out and moves everything after it up an index; 乙 and 丙 stay where they fly.
+        val blocked = cache.allocate(3, line(0, 100L, "乙"), line(1, 200L, "丙"))
+        assertEquals(listOf("乙" to 1, "丙" to 2), blocked.map { it.input.comment.text to it.lane })
+    }
+
+    @Test
+    fun a_comment_dropped_for_want_of_room_stays_dropped_when_room_opens_up() {
+        val cache = HashMap<DanmakuKey, Int>()
+        val first = cache.allocate(1, line(0, 0L, "甲"), line(1, 100L, "乙"))
+        assertEquals(listOf("甲"), first.map { it.input.comment.text })
+        // With 甲 blocked its lane is free, but 乙 would appear halfway across the screen.
+        assertEquals(emptyList(), cache.allocate(1, line(0, 100L, "乙")))
+    }
+
+    @Test
+    fun a_comment_let_in_among_placed_ones_keeps_clear_of_the_next_one_in_its_lane() {
+        val cache = HashMap<DanmakuKey, Int>()
+        val placed = cache.allocate(2, line(0, 0L, "甲"), line(1, 1_000L, "丙"))
+        assertEquals(listOf(0, 0), placed.map { it.lane })
+        // 乙 clears 甲, but 丙 would run into it: it takes the other lane, and 丙 stays put.
+        val admitted = cache.allocate(2, line(0, 0L, "甲"), line(1, 800L, "乙"), line(2, 1_000L, "丙"))
+        assertEquals(listOf("甲" to 0, "乙" to 1, "丙" to 0), admitted.map { it.input.comment.text to it.lane })
+    }
+
+    @Test
+    fun identical_lines_at_one_moment_are_told_apart_and_found_again() {
+        val comments =
+            listOf(
+                DanmakuComment(0L, "嗯"),
+                DanmakuComment(500L, "哈"),
+                DanmakuComment(500L, "哈"),
+                DanmakuComment(500L, "嗯"),
+            )
+        assertEquals(listOf(0, 0, 1, 0), danmakuKeysIn(comments, 0, comments.size).map { it.ordinal })
+        // A window that starts partway through a moment counts from the moment's first comment.
+        val second = danmakuKeysIn(comments, 2, 3).single()
+        assertEquals(1, second.ordinal)
+        assertTrue(comments.containsDanmaku(second))
+        assertFalse(listOf(DanmakuComment(500L, "哈"), DanmakuComment(500L, "嗯")).containsDanmaku(second))
+    }
+
+    @Test
     fun recovery_fence_stays_armed_on_the_pre_retry_position_sample() {
         val armed = armDanmakuRecoveryFence(renderedPositionMs = 20_000L, reportedPositionMs = 20_000L)
 
@@ -169,5 +215,24 @@ class DanmakuLayoutTest {
         index = index,
         comment = DanmakuComment(timeMs, "弹幕 $index", kind = kind),
         width = 100f,
+    )
+
+    /** A comment that stays itself whatever index a rebuilt list gives it. */
+    private fun line(
+        index: Int,
+        timeMs: Long,
+        text: String,
+    ) = DanmakuLayoutInput(index = index, comment = DanmakuComment(timeMs, text), width = 100f)
+
+    /** One window's allocation on a 1000-wide screen with 8 s scrolls, remembering lanes in this cache. */
+    private fun HashMap<DanmakuKey, Int>.allocate(
+        laneCount: Int,
+        vararg lines: DanmakuLayoutInput,
+    ) = allocateDanmakuLanes(
+        inputs = lines.toList(),
+        laneCount = laneCount,
+        viewportWidth = 1_000f,
+        scrollDurationMs = 8_000L,
+        laneCache = this,
     )
 }

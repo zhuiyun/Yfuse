@@ -157,6 +157,37 @@ class WatchPlaybackPolicyTest {
         assertEquals("房间在播放你的媒体库里没有的内容，无法同步进度", warning)
     }
 
+    /**
+     * The room playlist asks about every entry it lists, to offer 播放 only where this queue can
+     * start one: the matcher's three ways of saying yes, without its counting towards a warning.
+     */
+    @Test
+    fun the_playlist_lookup_answers_as_the_matcher_does_without_counting_a_miss() {
+        var warning: String? = null
+        val matcher = WatchMediaMatcher { warning = it }
+        val items =
+            listOf(
+                PlayerMediaItem("film", "direct", "transcode", "黑客帝国", watchKey = "tmdb:603"),
+                PlayerMediaItem(
+                    "e5",
+                    "direct",
+                    "transcode",
+                    "第 5 集",
+                    seasonNumber = 2,
+                    episodeNumber = 5,
+                    watchKey = "tvdb:121361/s2e5",
+                    matchKeys = listOf("tvdb:121361/s2e5", "imdb:tt0944947"),
+                ),
+            )
+
+        listOf("tmdb:603", "imdb:tt0944947", "tmdb:1399/s2e5").forEach { key ->
+            assertEquals(matcher.resolve(items, key), watchQueueIndexOf(items, key))
+        }
+        assertEquals(1, watchQueueIndexOf(items, "tmdb:1399/s2e5"))
+        repeat(3) { assertNull(watchQueueIndexOf(items, "tmdb:550")) }
+        assertNull(warning)
+    }
+
     /** The fallback is a coordinate within one show, not a licence to match anything. */
     @Test
     fun a_coordinate_the_queue_does_not_hold_still_warns() {

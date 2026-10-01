@@ -94,7 +94,9 @@ internal fun WatchChatPanel(
     val accent = rememberAccentColorsForSurface(dark = true)
     var showJumpToLatest by remember { mutableStateOf(false) }
 
-    LaunchedEffect(messages.lastOrNull()?.id, reduceMotion) {
+    // Keyed like the rows below: the server's copy of a line you sent replacing the pending one is
+    // not a new message.
+    LaunchedEffect(messages.lastOrNull()?.animationKey(), reduceMotion) {
         if (messages.isEmpty()) {
             showJumpToLatest = false
             return@LaunchedEffect
@@ -293,7 +295,9 @@ internal fun WatchChatPanel(
                         state = listState,
                         verticalArrangement = Arrangement.spacedBy(9.dp),
                     ) {
-                        motionItems(messages, key = { it.id }) { message ->
+                        // By the identity a pending line shares with the server's copy that replaces
+                        // it under a new id, so sending does not fade your own row out and back in.
+                        motionItems(messages, key = { it.rowKey() }) { message ->
                             // Someone else's message arriving mid-film should not be a jump cut.
                             WatchChatBubble(message, onRetry, Modifier)
                         }
@@ -413,6 +417,16 @@ internal fun WatchChatPanel(
         }
     }
 }
+
+/**
+ * [animationKey] as a transcript row key, which Android must be able to keep in a Bundle. Opaque
+ * ids never hold a space, so the parts cannot run into one another.
+ */
+internal fun WatchChatMessage.rowKey(): String =
+    when (val key = animationKey()) {
+        is WatchChatAnimationKey.ClientMessage -> "client ${key.clientId} ${key.clientMessageId}"
+        is WatchChatAnimationKey.ServerMessage -> "server ${key.id}"
+    }
 
 @Composable
 private fun WatchChatBubble(

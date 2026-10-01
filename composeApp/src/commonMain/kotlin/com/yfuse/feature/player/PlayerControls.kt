@@ -960,14 +960,16 @@ internal fun PlayerControls(
             gestureHud = null
         }
     }
+    // The preview answers someone else's line, as 有新消息 does: your own, sent from the chat
+    // you have just closed, is nothing new to you.
     LaunchedEffect(
         watch.roomCode,
-        watch.chatMessages.lastOrNull()?.id,
+        chatReadMark(watch.chatMessages),
         watchChatOpen,
         watch.chatPreviewEnabled,
         accessibilityManager,
     ) {
-        val latestId = watch.chatMessages.lastOrNull()?.id
+        val latestId = chatReadMark(watch.chatMessages)
         if (previewRoomCode != watch.roomCode) {
             previewRoomCode = watch.roomCode
             lastPreviewedChatId = latestId
