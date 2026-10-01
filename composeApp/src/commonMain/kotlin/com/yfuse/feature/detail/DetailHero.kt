@@ -336,6 +336,7 @@ internal fun DetailTopBar(
     onBack: () -> Unit,
     onPlay: () -> Unit,
     onMore: () -> Unit,
+    modifier: Modifier = Modifier,
     /** What holding 更多 lifts for the finger to slide through; null keeps it a plain button. */
     moreMenu: (() -> LiftMenu)? = null,
     /** 服务器收藏 beside 更多操作; null when the title has no server favourite to switch. */
@@ -350,7 +351,7 @@ internal fun DetailTopBar(
     // is actually under the plate, the fill can go back to being a fill — this bar was the
     // last chrome in the app still compensating for a missing material with alpha.
     val plateFill = surfaceColor.copy(alpha = 0.72f)
-    Box(Modifier.fillMaxWidth()) {
+    Box(modifier.fillMaxWidth()) {
         Box(
             Modifier
                 .matchParentSize()

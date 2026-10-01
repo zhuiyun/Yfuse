@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.account.canUseWatchTogether
@@ -608,9 +609,14 @@ fun DetailScreen(component: DetailComponent) {
                 // The only opaque ground on the page. Hero, sheet and tail all reveal this exact colour.
                 Box(Modifier.fillMaxSize().background(detailSurface))
 
+                // Still composed under 全部剧集, where a screen reader would walk on through the page
+                // and its top bar. Given back once that layer starts to leave, which the reader no
+                // longer finds.
+                val underAllEpisodes = if (allEpisodesOpen) Modifier.clearAndSetSemantics {} else Modifier
+
                 SkeletonHandoff(
                     loading = detail == null && state.error == null,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().then(underAllEpisodes),
                     skeleton = { DetailSkeleton(heroHeight) },
                 ) {
                     when {
@@ -953,6 +959,7 @@ fun DetailScreen(component: DetailComponent) {
                         onBack = component.onBack,
                         onPlay = playerArtworkOnClick(sharedHeroKey) { component.store.accept(DetailIntent.Play) },
                         onMore = { moreSheetOpen = true },
+                        modifier = underAllEpisodes,
                         moreMenu =
                             detail?.let { shown ->
                                 {
