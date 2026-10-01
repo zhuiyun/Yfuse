@@ -80,10 +80,24 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <!--
+          The app's own way in. Launcher shortcuts, the widget, notifications and invite links
+          all name this alias instead of MainActivity, because choosing another launcher icon
+          disables MainActivity and anything aimed at it stops opening. This alias is never
+          switched off, and it has no LAUNCHER filter, so it never adds a second drawer entry.
+        -->
+        <activity-alias
+            android:name="com.yfuse.AppEntry"
+            android:targetActivity="com.yfuse.MainActivity"
+            android:exported="true">
             <!--
               一起看邀请深链：yfuse://watch/<房间码>?k=<mediaKey>&t=<标题>
               A custom scheme rather than an Android App Link because the relay is reached
               by bare IP — there's no domain to host the assetlinks.json an App Link needs.
+              Declared here only: the same filter on MainActivity as well would make Android
+              ask which of the two should open the link.
             -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
@@ -91,7 +105,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="yfuse" android:host="watch" />
             </intent-filter>
-        </activity>
+        </activity-alias>
 
         <!--
           Alternate launcher icons.
@@ -162,7 +176,7 @@
             android:launchMode="singleTop"
             android:screenOrientation="sensorLandscape"
             android:supportsPictureInPicture="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|density|uiMode"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode"
             android:theme="@style/Theme.Yfuse.Player"
             tools:ignore="LockedOrientationActivity" />
         <activity

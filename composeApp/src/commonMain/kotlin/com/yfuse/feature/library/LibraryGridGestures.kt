@@ -30,13 +30,20 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -280,9 +287,13 @@ private fun GridDensityButton(
     val palette = LocalPalette.current
     Box(
         Modifier
-            .pressable(enabled = enabled, onClickLabel = label, onClick = onClick)
-            .touchTarget()
-            .size(30.dp)
+            .pressable(
+                enabled = enabled,
+                focusShape = DensityKeyFocusShape,
+                onClickLabel = label,
+                onClick = onClick,
+            ).touchTarget()
+            .size(DensityKeySize)
             .glass(CircleShape)
             .graphicsLayer { alpha = if (enabled) 1f else DISABLED_ALPHA },
         contentAlignment = Alignment.Center,
@@ -292,6 +303,28 @@ private fun GridDensityButton(
 }
 
 private const val DISABLED_ALPHA = 0.4f
+
+/** The − / + key's visible circle; its touch slot around it is the full 48dp. */
+private val DensityKeySize = 30.dp
+
+/**
+ * The key's circle, centred in its 48dp slot: the press tint and the focus ring outline what is
+ * seen, not the slot around it.
+ */
+private object DensityKeyFocusShape : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density,
+    ): Outline {
+        val diameter = minOf(with(density) { DensityKeySize.toPx() }, size.width, size.height)
+        val left = (size.width - diameter) / 2f
+        val top = (size.height - diameter) / 2f
+        return Outline.Rounded(
+            RoundRect(left, top, left + diameter, top + diameter, CornerRadius(diameter / 2f)),
+        )
+    }
+}
 
 /**
  * 快速滚动索引: the grid's sections down its right edge — letters for 名称, years, months added,
@@ -312,6 +345,10 @@ internal fun BoxScope.GridIndexStrip(
     val latestJump by rememberUpdatedState(onJump)
     var active by remember { mutableStateOf<Int?>(null) }
     var fingerY by remember { mutableFloatStateOf(0f) }
+    // The stops as the finger found them. A page landing mid-drag adds sections; laid out again
+    // under the finger, every label moved and the one it was on was no longer there.
+    var held by remember { mutableStateOf<List<GridIndexSection>?>(null) }
+    val shown = held ?: sections
     BoxWithConstraints(
         modifier
             .align(Alignment.CenterEnd)
@@ -320,7 +357,7 @@ internal fun BoxScope.GridIndexStrip(
             .clearAndSetSemantics { },
     ) {
         val slots = max(1, (maxHeight / IndexStripRow).toInt())
-        val stops = remember(sections.size, slots) { indexStripStops(sections.size, slots) }
+        val stops = remember(shown.size, slots) { indexStripStops(shown.size, slots) }
         Column(
             Modifier
                 .fillMaxSize()
@@ -328,24 +365,30 @@ internal fun BoxScope.GridIndexStrip(
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         down.consume()
+                        val frozen = latestSections
+                        held = frozen
                         var pointer = down.id
                         var y = down.position.y
-                        while (true) {
-                            val index = indexSectionAt(y / size.height, latestSections.size)
-                            fingerY = y
-                            if (index >= 0 && index != active) {
-                                active = index
-                                haptics.play(HapticSignal.FrequentTick)
-                                latestJump(latestSections[index].firstIndex)
+                        try {
+                            while (true) {
+                                val index = indexSectionAt(y / size.height, frozen.size)
+                                fingerY = y
+                                if (index >= 0 && index != active) {
+                                    active = index
+                                    haptics.play(HapticSignal.FrequentTick)
+                                    latestJump(frozen[index].firstIndex)
+                                }
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == pointer } ?: break
+                                if (!change.pressed) break
+                                change.consume()
+                                pointer = change.id
+                                y = change.position.y
                             }
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == pointer } ?: break
-                            if (!change.pressed) break
-                            change.consume()
-                            pointer = change.id
-                            y = change.position.y
+                        } finally {
+                            active = null
+                            held = null
                         }
-                        active = null
                     }
                 },
             verticalArrangement = Arrangement.SpaceEvenly,
@@ -353,7 +396,7 @@ internal fun BoxScope.GridIndexStrip(
         ) {
             stops.forEach { stop ->
                 Text(
-                    sections[stop].label.short,
+                    shown[stop].label.short,
                     style = AppTypography.caption.strong,
                     color = if (active == stop) accent else palette.sub2,
                     maxLines = 1,
@@ -362,7 +405,7 @@ internal fun BoxScope.GridIndexStrip(
         }
     }
     active?.let { index ->
-        sections.getOrNull(index)?.let { section ->
+        shown.getOrNull(index)?.let { section ->
             Box(
                 Modifier
                     .align(Alignment.TopEnd)

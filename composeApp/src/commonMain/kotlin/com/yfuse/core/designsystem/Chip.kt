@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -45,6 +46,8 @@ fun YfChip(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val ink = selectionColor(if (selected) accent.accent else palette.body)
+    // The pill is about 34dp tall in a 48dp slot: the press and the focus ring follow the pill.
+    val focusShape = remember { TouchTargetFocusShape(AppShapes.chip) }
     Row(
         modifier =
             modifier
@@ -52,7 +55,7 @@ fun YfChip(
                     enabled = enabled,
                     haptic = HapticSignal.Select,
                     role = role,
-                    focusShape = AppShapes.chip,
+                    focusShape = focusShape,
                     onClickLabel = onClickLabel,
                     onClick = onClick,
                 ).semantics {
@@ -61,7 +64,7 @@ fun YfChip(
                     } else {
                         this.selected = selected
                     }
-                }.touchTarget()
+                }.touchTarget(focus = focusShape)
                 .glass(
                     shape = AppShapes.chip,
                     fill = selectionColor(if (selected) accent.container else palette.card2),

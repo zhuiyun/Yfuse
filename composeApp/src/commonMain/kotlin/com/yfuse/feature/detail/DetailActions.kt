@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -33,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
@@ -40,6 +42,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -90,8 +94,9 @@ internal fun formatResumePosition(playPositionTicks: Long): String? {
  * The play key, and 从头 beside it while there is progress to resume.
  *
  * They are two keys of one material. While 从头 grows out of the play key, or flows back into it,
- * they are one liquid body drawn behind the row (see [DetailKeyLiquid]); each key keeps its own
- * place to be tapped the whole time, and draws its own body again once the liquid comes to rest.
+ * they are one liquid body drawn behind the row (see [DetailKeyLiquid]); each key keeps its place in
+ * the row the whole time, and draws its own body again once the liquid comes to rest. Until 从头's
+ * label is in focus its place is the end of the one key on screen, and plays.
  */
 @Composable
 internal fun DetailActionDock(
@@ -126,40 +131,61 @@ internal fun DetailActionDock(
     val routeVisible = rememberRouteVisibility()
     val latestLiquidMotion by rememberUpdatedState(liquidMotion)
     val hadProgress = remember { booleanArrayOf(canPlayFromStart) }
+    // Moves run on arm and runTo, which a change of mind interrupts where the move has got to: the
+    // next one runs the same move back from there, as the dock does. A split cut short by the
+    // progress going used to jump to a whole merge, and a merge cut short to a whole key.
     LaunchedEffect(canPlayFromStart) {
         val appeared = canPlayFromStart && !hadProgress[0]
         val cleared = !canPlayFromStart && hadProgress[0]
         hadProgress[0] = canPlayFromStart
+        val clock = liquid.clock
         when {
             appeared -> {
                 twoKeys = true
-                if (latestLiquidMotion) {
-                    liquid.clock.arm(DetailKeyMove.Split)
-                    snapshotFlow { routeVisible.value }.first { it }
-                    // Back from the player: once the label has turned into 继续播放.
-                    delay(Motion.STATE_HANDOFF.toLong())
-                    arrivalPlayed = true
-                    liquid.clock.play(DetailKeyMove.Split, DetailKeyMove.Split.durationMs)
+                when {
+                    !latestLiquidMotion -> clock.rest()
+                    // Back before 从头 had flowed in: out again the way it came.
+                    clock.move == DetailKeyMove.Merge -> clock.runTo(0f)
+                    clock.move == DetailKeyMove.Split -> clock.runTo(DetailKeyMove.Split.durationMs.toFloat())
+                    else -> {
+                        clock.arm(DetailKeyMove.Split)
+                        snapshotFlow { routeVisible.value }.first { it }
+                        // Back from the player: once the label has turned into 继续播放.
+                        delay(Motion.STATE_HANDOFF.toLong())
+                        arrivalPlayed = true
+                        clock.runTo(DetailKeyMove.Split.durationMs.toFloat())
+                    }
                 }
             }
             cleared -> {
-                val splitNotStarted = liquid.clock.move == DetailKeyMove.Split && liquid.clock.elapsed == 0f
+                val move = clock.move
                 when {
-                    splitNotStarted -> liquid.clock.rest()
-                    latestLiquidMotion && twoKeys ->
-                        liquid.clock.play(DetailKeyMove.Merge, DetailKeyMove.Merge.durationMs)
+                    // Without the liquid, or armed and not yet begun, there is nothing to run back.
+                    !latestLiquidMotion || (move == DetailKeyMove.Split && clock.elapsed == 0f) -> clock.rest()
+                    // Gone before 从头 had come out: back in the way it came.
+                    move == DetailKeyMove.Split -> clock.runTo(0f)
+                    move == DetailKeyMove.Merge -> clock.runTo(DetailKeyMove.Merge.durationMs.toFloat())
+                    twoKeys -> {
+                        clock.arm(DetailKeyMove.Merge)
+                        clock.runTo(DetailKeyMove.Merge.durationMs.toFloat())
+                    }
                 }
                 twoKeys = false
             }
             // Opened with progress already there: the key arrives whole, and splits once the page is in.
-            liquid.clock.move == DetailKeyMove.Split -> {
+            clock.move == DetailKeyMove.Split -> {
                 snapshotFlow { routeVisible.value }.first { it }
                 delay(DETAIL_SPLIT_ARRIVAL_MS)
                 arrivalPlayed = true
-                liquid.clock.play(DetailKeyMove.Split, DetailKeyMove.Split.durationMs)
+                clock.runTo(DetailKeyMove.Split.durationMs.toFloat())
             }
         }
     }
+    // Until 从头 is a key the liquid draws one key across the row, and the end of it answers as that
+    // key: a tap on the resume time there used to start over and throw the resume point away. Read
+    // through derivedStateOf, so only the flip recomposes.
+    val fromStartKey by remember(liquid) { derivedStateOf { fromStartIsKey(liquid.frame()) } }
+    val oneKey = twoKeys && !fromStartKey
     val drawing = liquid.drawing
     val layoutDensity = LocalDensity.current
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
@@ -189,7 +215,14 @@ internal fun DetailActionDock(
             Modifier
                 .fillMaxWidth()
                 .height(DetailPlayButtonHeight)
-                .onSizeChanged { liquid.metrics = DetailKeyMetrics(it.width / layoutDensity.density) }
+                // One key on screen, so 玻璃舱 and 开幕 start from all of it when its end is pressed.
+                .then(
+                    if (oneKey) {
+                        Modifier.playerHandoffKey(corner = DETAIL_KEY_CORNER.dp, tint = accent, ink = actionInk)
+                    } else {
+                        Modifier
+                    },
+                ).onSizeChanged { liquid.metrics = DetailKeyMetrics(it.width / layoutDensity.density) }
                 // While 从头 grows out or flows back, the two keys are one body drawn here.
                 .drawBehind {
                     val frame = liquid.frame() ?: return@drawBehind
@@ -296,7 +329,7 @@ internal fun DetailActionDock(
                             maxLines = 1,
                             modifier =
                                 Modifier
-                                    .graphicsLayer { alpha = liquid.frame()?.resume ?: 1f }
+                                    .graphicsLayer { alpha = liquid.resumeAlpha(progress = canPlayFromStart) }
                                     .padding(start = 8.dp, end = 5.dp)
                                     .clip(AppShapes.thumb)
                                     .background(actionInk.copy(alpha = 0.16f))
@@ -312,14 +345,23 @@ internal fun DetailActionDock(
                 }
             }
             if (twoKeys) {
-                val fromStartEnabled = !resolving && canPlayFromStart
+                // While the row is one key this is that key's end, and plays as the rest of it does.
+                val fromStartEnabled = !resolving && (canPlayFromStart || oneKey)
                 Column(
                     Modifier
                         .width(DETAIL_FROM_START_WIDTH.dp)
                         .height(DetailPlayButtonHeight)
-                        // A key of its own now, so 玻璃舱 and 开幕 start from it when it is the one pressed.
-                        .playerHandoffKey(corner = DETAIL_KEY_CORNER.dp, tint = accent, ink = actionInk)
-                        .softActionSurface(fromStartInteractions, enabled = fromStartEnabled)
+                        .then(
+                            if (oneKey) {
+                                // Not a key yet: nothing for a screen reader or a focus move to land on.
+                                Modifier
+                                    .semantics { hideFromAccessibility() }
+                                    .focusProperties { canFocus = false }
+                            } else {
+                                // A key of its own now, so 玻璃舱 and 开幕 start from it when it is the one pressed.
+                                Modifier.playerHandoffKey(corner = DETAIL_KEY_CORNER.dp, tint = accent, ink = actionInk)
+                            },
+                        ).softActionSurface(fromStartInteractions, enabled = fromStartEnabled)
                         .then(keyBody)
                         .softSelectionSurface(
                             interactionSource = fromStartInteractions,
@@ -333,7 +375,7 @@ internal fun DetailActionDock(
                             interactionSource = fromStartInteractions,
                             stateLayer = false,
                             onClickLabel = "从头播放",
-                            onClick = onPlayFromStart,
+                            onClick = if (oneKey) onPlay else onPlayFromStart,
                         )
                         // Shape first, content after: the label comes into focus once the drop has squared up.
                         .graphicsLayer {

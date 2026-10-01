@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YTrackType
@@ -38,8 +39,12 @@ internal fun PlayerTrackEffects(
 ) {
     // Keyed on the item too: an engine that resets speed when it loads the next file would
     // otherwise play it at 1x, since the requested speed itself had not changed.
+    val sentSpeed = remember(player) { arrayOfNulls<Float>(1) }
     LaunchedEffect(player, requestedSpeed, currentItemId) {
-        if (state.speed != requestedSpeed) player.setSpeed(requestedSpeed)
+        if (playbackSpeedNeedsSending(requestedSpeed, reported = state.speed, lastSent = sentSpeed[0])) {
+            player.setSpeed(requestedSpeed)
+            sentSpeed[0] = requestedSpeed
+        }
     }
     LaunchedEffect(player, currentItemId, state.audioTracks, audioRestore) {
         if (currentItemId != handoverItemId) return@LaunchedEffect
@@ -221,3 +226,15 @@ private fun requestMpvIfAllowed(
 ) {
     if (engineKind != PlayerEngine.Mpv && automaticEngineSelection) onRequestMpv()
 }
+
+/**
+ * Whether [requested] still has to go to the engine. What it reports trails what it was sent — mpv
+ * answers asynchronously — so a 2× hold let go before 2× had been reported compared 1× with 1× and
+ * left the engine settling at 2×; what was last sent ([lastSent], null before anything was) counts
+ * as well as what is [reported].
+ */
+internal fun playbackSpeedNeedsSending(
+    requested: Float,
+    reported: Float,
+    lastSent: Float?,
+): Boolean = reported != requested || (lastSent != null && lastSent != requested)

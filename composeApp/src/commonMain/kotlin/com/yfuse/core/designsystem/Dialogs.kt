@@ -782,6 +782,9 @@ fun ConfirmDialog(
 ) {
     val palette = LocalPalette.current
     GlassDialog(onDismiss = onDismiss, liquidButtons = liquidButtons) {
+        // Named for TalkBack the way [OverlayHeader] names its dialog; confirmations opened untitled.
+        val paneTitle = LocalDialogPaneTitle.current
+        if (paneTitle != null) SideEffect { paneTitle.value = title }
         Text(title, style = AppTypography.section.strong, color = palette.text)
         Spacer(Modifier.height(Dimens.space.sm))
         Text(

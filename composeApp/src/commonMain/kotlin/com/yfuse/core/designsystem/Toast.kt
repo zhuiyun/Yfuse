@@ -1,8 +1,6 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -38,6 +36,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -63,6 +62,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import kotlin.math.abs
+import kotlin.time.TimeSource
 import com.yfuse.core.designsystem.ThemeText as Text
 
 private const val TOAST_MS = 2_600L
@@ -92,8 +92,8 @@ val LocalToastBottomInset = compositionLocalOf<Dp?> { null }
  *
  * A toast with an action is how 先做，给 5 秒撤销 looks: the screen has already changed, the
  * server has not yet been told, and [onAction] puts things back. The producer commits when the
- * toast leaves — timed out, swiped away, or the app sent to the background — which is exactly
- * when `onDismiss` runs; that is the only signal it needs.
+ * toast leaves — timed out, swiped away, the app sent to the background, or the page it is on
+ * left — which is exactly when `onDismiss` runs; that is the only signal it needs.
  */
 @Immutable
 class ToastAction(
@@ -106,6 +106,39 @@ class ToastAction(
  * says how long is left, and a window that moved with the wording could not be learned.
  */
 const val TOAST_UNDO_WINDOW_MS = 5_000L
+
+/**
+ * How long a notice has been up, in wall-clock milliseconds, less the time a finger held it.
+ *
+ * Not an animation: Compose scales animations by the system's animator duration, so an undo
+ * counted down by one closed — and committed — on its first frame with animations off, and ran
+ * 50 s at 10×. A drag pauses it rather than starting it over, so holding a toast and letting it
+ * go cannot put the commit off indefinitely.
+ */
+internal class ToastTimer {
+    private var spent = 0L
+    private var since = -1L
+
+    /** Counts on from [now]; nothing if it already is. */
+    fun resume(now: Long) {
+        if (since < 0L) since = now
+    }
+
+    /** Stops at [now], keeping what has run. */
+    fun pause(now: Long) {
+        if (since < 0L) return
+        spent += (now - since).coerceAtLeast(0L)
+        since = -1L
+    }
+
+    fun elapsed(now: Long): Long = spent + if (since < 0L) 0L else (now - since).coerceAtLeast(0L)
+}
+
+/** What is left of an undo's [window], 1 to 0, once [elapsed] of it has run: the ring's sweep. */
+internal fun toastRemaining(
+    elapsed: Long,
+    window: Long,
+): Float = if (window <= 0L) 0f else (1f - elapsed.toFloat() / window).coerceIn(0f, 1f)
 
 internal class ToastEntry(
     val message: String,
@@ -150,6 +183,18 @@ internal class ToastQueue {
         entry.visible = false
         return wasVisible && latest === entry && entry in entries
     }
+
+    /**
+     * Closes every undo still on offer the way its timeout would, for a toast that has to go
+     * early. Returns the latest notice if it was among them: its producer is waiting to hear.
+     */
+    fun closeUndos(): ToastEntry? {
+        var closedLatest: ToastEntry? = null
+        entries.filter { it.visible && it.action != null }.forEach { entry ->
+            if (dismiss(entry)) closedLatest = entry
+        }
+        return closedLatest
+    }
 }
 
 /**
@@ -157,7 +202,8 @@ internal class ToastQueue {
  *
  * With an [action], the toast carries a button and a ring counting down [TOAST_UNDO_WINDOW_MS];
  * it stays up for the whole window (longer if the accessibility service asks for it), and it is
- * closed at once if the app leaves the foreground, so a deferred commit never hangs in the air.
+ * closed at once if the app leaves the foreground or its page is left, so a deferred commit never
+ * hangs in the air.
  */
 @Composable
 fun BoxScope.ActionToast(
@@ -178,20 +224,29 @@ fun BoxScope.ActionToast(
     val systemBar = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val floor = LocalToastBottomInset.current ?: (systemBar + Dimens.sectionGap)
     LaunchedEffect(message) { queue.post(message, accent, latestAction) }
+
+    // An undo cut short goes the way its timeout would send it, so the producer commits.
+    fun closeUndos() {
+        queue.closeUndos()?.let { if (latestMessage == it.message) latestDismiss() }
+    }
     // Leaving the app commits what the undo was holding back: an action left pending while the
     // process sits in the background could be lost with it, or undone hours later by accident.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, queue) {
         val observer =
             LifecycleEventObserver { _, event ->
-                if (event == Lifecycle.Event.ON_STOP) {
-                    queue.entries.filter { it.visible && it.action != null }.forEach { entry ->
-                        if (queue.dismiss(entry) && latestMessage == entry.message) latestDismiss()
-                    }
-                }
+                if (event == Lifecycle.Event.ON_STOP) closeUndos()
             }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    // So does leaving its page: a tab switched or a route pushed inside the window took the toast
+    // away with the change still held, and the page offered a fresh 撤销 for it on return. A toast
+    // its page replaces while still in front — the next delete's — is not closed here: that page
+    // has already committed the change it displaced, and closing would send the new one too.
+    val routeVisible = rememberRouteVisibility()
+    DisposableEffect(queue) {
+        onDispose { if (!routeVisible.value) closeUndos() }
     }
     Column(
         modifier
@@ -234,7 +289,12 @@ private fun ActionToastEntry(
     val currentExitLight by rememberUpdatedState(exitLight)
     var offset by remember { mutableFloatStateOf(0f) }
     // What is left of an undo's window, 1 to 0; read only while drawing the ring.
-    val remaining = remember(entry) { Animatable(1f) }
+    var remaining by remember(entry) { mutableFloatStateOf(1f) }
+    val timer = remember(entry) { ToastTimer() }
+    val clock = remember(entry) { TimeSource.Monotonic.markNow() }
+    val latestDuration by rememberUpdatedState(duration)
+    // A one-line notice is shorter than its 48dp slot; the press answers on the pill itself.
+    val bodyFocus = remember(entry) { TouchTargetFocusShape(AppShapes.chip) }
     val animatedOffset =
         animateFloatAsState(
             offset,
@@ -248,34 +308,41 @@ private fun ActionToastEntry(
             label = "toast-drag",
         )
     val threshold = with(LocalDensity.current) { 80.dp.toPx() }
-    LaunchedEffect(entry.visible, dragging, accessibility, duration) {
-        if (entry.visible) {
-            if (!dragging) {
-                val base = if (entry.action != null) TOAST_UNDO_WINDOW_MS else toastDurationMillis(entry.message)
-                val recommended =
-                    accessibility?.calculateRecommendedTimeoutMillis(
-                        base,
-                        containsText = true,
-                        containsControls = true,
-                    ) ?: base
-                val window = maxOf(base, recommended)
-                // A service that asks for no timeout at all gets none: the notice waits to be closed.
-                if (window == Long.MAX_VALUE) return@LaunchedEffect
-                if (entry.action != null) {
-                    remaining.snapTo(1f)
-                    remaining.animateTo(
-                        0f,
-                        Motion.tween(window.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), easing = LinearEasing),
-                    )
-                } else {
-                    delay(window)
+    // A drag pauses the window and letting go resumes it (see [ToastTimer]). [duration] is no key:
+    // it follows the route's visibility, and a push or a pop used to start the window over.
+    LaunchedEffect(entry.visible, dragging, accessibility) {
+        if (!entry.visible || dragging) return@LaunchedEffect
+        val base = if (entry.action != null) TOAST_UNDO_WINDOW_MS else toastDurationMillis(entry.message)
+        val recommended =
+            accessibility?.calculateRecommendedTimeoutMillis(
+                base,
+                containsText = true,
+                containsControls = true,
+            ) ?: base
+        val window = maxOf(base, recommended)
+        // A service that asks for no timeout at all gets none: the notice waits to be closed.
+        if (window == Long.MAX_VALUE) return@LaunchedEffect
+        val now = { clock.elapsedNow().inWholeMilliseconds }
+        timer.resume(now())
+        try {
+            if (entry.action != null) {
+                while (timer.elapsed(now()) < window) {
+                    remaining = toastRemaining(timer.elapsed(now()), window)
+                    withFrameMillis { }
                 }
-                latestClose()
+                remaining = 0f
+            } else {
+                delay(window - timer.elapsed(now()))
             }
-        } else {
-            delay(duration.toLong())
-            latestGone()
+        } finally {
+            timer.pause(now())
         }
+        latestClose()
+    }
+    LaunchedEffect(entry.visible) {
+        if (entry.visible) return@LaunchedEffect
+        delay(latestDuration.toLong())
+        latestGone()
     }
     val thrown = entry.thrown
     val action = entry.action
@@ -320,8 +387,8 @@ private fun ActionToastEntry(
                             },
                         )
                 }
-            }.pressable(enabled = entry.visible, onClickLabel = "关闭提示", onClick = onClose)
-            .touchTarget()
+            }.pressable(enabled = entry.visible, focusShape = bodyFocus, onClickLabel = "关闭提示", onClick = onClose)
+            .touchTarget(focus = bodyFocus)
             .shadow(Shadows.tabBar, AppShapes.chip)
             .solidGlass(AppShapes.chip, colors.container, colors.border)
     AnimatedVisibility(
@@ -359,7 +426,7 @@ private fun ActionToastEntry(
                 ToastActionButton(
                     label = action.label,
                     color = colors.accent,
-                    remaining = { remaining.value },
+                    remaining = { remaining },
                     onClick = {
                         // Undo first, then close: the producer commits on close, and by then there is
                         // nothing left pending to commit.
@@ -380,10 +447,12 @@ private fun ToastActionButton(
     remaining: () -> Float,
     onClick: () -> Unit,
 ) {
+    // The press and the focus ring hug the ring and the word, not the 48dp slot around them.
+    val focusShape = remember { TouchTargetFocusShape(AppShapes.control) }
     Row(
         Modifier
-            .pressable(onClick = onClick)
-            .touchTarget()
+            .pressable(focusShape = focusShape, onClick = onClick)
+            .touchTarget(focus = focusShape)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,

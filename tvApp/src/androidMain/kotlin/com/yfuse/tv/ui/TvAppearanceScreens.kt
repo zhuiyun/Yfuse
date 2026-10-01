@@ -10,6 +10,7 @@ import androidx.compose.ui.focus.FocusRequester
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LoadingAnimation
+import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.StartupTab
@@ -35,6 +36,9 @@ internal fun TvAppearanceSettingsPage(
     val serverLayout by prefs.serverLayout.collectAsState()
     val startupTab by prefs.startupTab.collectAsState()
     val backgroundImage by prefs.backgroundImage.collectAsState()
+    val motionTheme by prefs.motionTheme.collectAsState()
+    // 静息 brings its own dialog entrance and loading study — see [YfuseTheme] — over the two below.
+    val calm = motionTheme == MotionTheme.Calm
     var status by remember { mutableStateOf<String?>(null) }
 
     TvSettingsPageScaffold(page = TvSettingsPage.Appearance, status = status) {
@@ -69,6 +73,39 @@ internal fun TvAppearanceSettingsPage(
                 navigationRequester = navigationRequester,
             )
         }
+        item(key = "appearance-server-layout") {
+            TvChoiceRow(
+                title = "服务器列表布局",
+                options = ServerLayout.entries,
+                selected = serverLayout,
+                label = { it.label },
+                stableId = "appearance:server-layout",
+                focusMemory = focusMemory,
+                onSelect = prefs::setServerLayout,
+                icon = AppIcons.TabServers,
+                focusScope = focusScope,
+                navigationRequester = navigationRequester,
+            )
+        }
+
+        item(key = "appearance-section-motion") { TvSettingsSectionTitle("动效") }
+        item(key = "appearance-motion-theme") {
+            // The television has followed this choice since the phone could make it, and had no
+            // row of its own to make it here.
+            TvChoiceRow(
+                title = "动效主题",
+                options = MotionTheme.entries,
+                selected = motionTheme,
+                label = { it.label },
+                stableId = "appearance:motion-theme",
+                focusMemory = focusMemory,
+                onSelect = prefs::setMotionTheme,
+                icon = AppIcons.Movie,
+                focusScope = focusScope,
+                subtitle = motionTheme.description,
+                navigationRequester = navigationRequester,
+            )
+        }
         item(key = "appearance-dialog-animation") {
             // Only the calm entrances — see [TvDialogAnimations]; forty-odd styles were offered
             // here, most of them work a set-top box does every frame of every dialog.
@@ -83,7 +120,7 @@ internal fun TvAppearanceSettingsPage(
                 onSelect = prefs::setDialogAnimation,
                 icon = AppIcons.Refresh,
                 focusScope = focusScope,
-                subtitle = shown.description,
+                subtitle = if (calm) "静息主题下不生效" else shown.description,
                 navigationRequester = navigationRequester,
             )
         }
@@ -100,21 +137,7 @@ internal fun TvAppearanceSettingsPage(
                 onSelect = prefs::setLoadingAnimation,
                 icon = AppIcons.Refresh,
                 focusScope = focusScope,
-                subtitle = "播放器准备画面里的等待动画",
-                navigationRequester = navigationRequester,
-            )
-        }
-        item(key = "appearance-server-layout") {
-            TvChoiceRow(
-                title = "服务器列表布局",
-                options = ServerLayout.entries,
-                selected = serverLayout,
-                label = { it.label },
-                stableId = "appearance:server-layout",
-                focusMemory = focusMemory,
-                onSelect = prefs::setServerLayout,
-                icon = AppIcons.TabServers,
-                focusScope = focusScope,
+                subtitle = if (calm) "播放器准备画面里的等待动画，静息主题下不生效" else "播放器准备画面里的等待动画",
                 navigationRequester = navigationRequester,
             )
         }

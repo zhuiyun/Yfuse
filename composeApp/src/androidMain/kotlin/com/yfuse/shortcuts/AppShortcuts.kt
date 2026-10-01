@@ -10,7 +10,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.yfuse.MainActivity
+import com.yfuse.appEntryIntent
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.offline.DownloadNotificationActions
@@ -116,9 +116,13 @@ class AppShortcutsWorker(
         return Result.success()
     }
 
-    /** A launcher shortcut needs an action; the extras say where to go, as the widget's do. */
+    /**
+     * A launcher shortcut needs an action; the extras say where to go, as the widget's do.
+     * No target activity is set on the shortcut itself, so Android files it under whichever
+     * launcher icon is enabled when it is published.
+     */
     private fun launch(context: Context): Intent =
-        Intent(context, MainActivity::class.java)
+        appEntryIntent(context)
             .setAction(Intent.ACTION_VIEW)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
 }

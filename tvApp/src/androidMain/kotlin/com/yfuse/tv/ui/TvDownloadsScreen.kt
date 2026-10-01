@@ -130,22 +130,12 @@ internal fun TvDownloadsPage(
                             Modifier.fillMaxWidth().padding(start = 56.dp, top = 8.dp, bottom = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            if (media.playable) {
-                                TvActionButton(
-                                    label = "播放",
-                                    stableId = "downloads:play:${media.id}",
-                                    focusScope = focusScope,
-                                    focusMemory = focusMemory,
-                                    onClick = { offlineToPlay = media },
-                                    primary = true,
-                                    navigationRequester = navigationRequester,
-                                )
-                            }
                             // One button in one place whose words follow the state. 暂停 and 继续 were
                             // two buttons, so pressing one removed the node that had focus and left
-                            // the remote pointing at nothing.
+                            // the remote pointing at nothing; so did a download finishing under 暂停,
+                            // when 播放 arrived as a button of its own. It reads 播放 once the file is in.
                             val stopped = media.status == DownloadStatus.Paused || media.status == DownloadStatus.Failed
-                            val transfer =
+                            val action =
                                 when (media.status) {
                                     DownloadStatus.Downloading,
                                     DownloadStatus.Queued,
@@ -153,15 +143,22 @@ internal fun TvDownloadsPage(
                                     -> "暂停"
                                     DownloadStatus.Paused -> "继续"
                                     DownloadStatus.Failed -> "重试"
-                                    DownloadStatus.Completed -> null
+                                    DownloadStatus.Completed -> if (media.playable) "播放" else null
                                 }
-                            if (transfer != null) {
+                            if (action != null) {
                                 TvActionButton(
-                                    label = transfer,
-                                    stableId = "downloads:transfer:${media.id}",
+                                    label = action,
+                                    stableId = "downloads:action:${media.id}",
                                     focusScope = focusScope,
                                     focusMemory = focusMemory,
-                                    onClick = { if (stopped) manager.resume(media.id) else manager.pause(media.id) },
+                                    onClick = {
+                                        when {
+                                            media.playable -> offlineToPlay = media
+                                            stopped -> manager.resume(media.id)
+                                            else -> manager.pause(media.id)
+                                        }
+                                    },
+                                    primary = media.playable,
                                     navigationRequester = navigationRequester,
                                 )
                             }

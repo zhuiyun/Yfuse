@@ -47,7 +47,6 @@ class WatchGatedPlayback(
     private val onLocked: () -> Unit = {},
 ) {
     private var observedIndex: Int? = null
-    private val playlistMatcher = WatchMediaMatcher(onWarning = {})
 
     /** Read from YPlayer directly so gating never depends on a separately mirrored UI state. */
     private val state get() = player()?.state?.value
@@ -105,21 +104,9 @@ class WatchGatedPlayback(
     /**
      * Re-anchors the room on the entry the player moved to on its own. Backends advance through the
      * queue internally when auto-next is on, so an episode ending is the one timeline change no
-     * control surface can report.
-     *
-     * This callback already runs on every observed player-state tick. It also consumes the room
-     * dialog's one-shot playlist request here, which keeps playlist transport on the same gate as
-     * every other episode change without making PlayerControls own protocol state.
+     * control surface can report. It runs on every observed player-state tick.
      */
     fun onPlaybackIndexChanged(index: Int) {
-        WatchPlaylistPlaybackRequest.consume()?.let { mediaKey ->
-            val requestedIndex = playlistMatcher.resolve(items(), mediaKey)
-            if (requestedIndex != null && requestedIndex != (state?.currentIndex ?: index)) {
-                selectItem(requestedIndex)
-                return
-            }
-        }
-
         val previous = observedIndex
         observedIndex = index
         if (previous == null || previous == index || locked) return
@@ -222,45 +209,10 @@ class WatchMediaMatcher(
         items: List<PlayerMediaItem>,
         mediaKey: String?,
     ): Int? {
-        if (mediaKey == null) {
-            reset()
-            return null
-        }
-        // Against every name the entry answers to, not just the one it would publish: the room's
-        // key was chosen from the other library's metadata, and two libraries rarely hold the same
-        // subset of Tmdb/Tvdb/Imdb for one title.
-        val index = items.indexOfFirst { it.watchKey == mediaKey || mediaKey in it.matchKeys }
-        if (index >= 0) {
+        val index = mediaKey?.let { watchQueueIndexOf(items, it) }
+        if (mediaKey == null || index != null) {
             reset()
             return index
-        }
-        // Same episode, different spelling — or no spelling the two sides share at all.
-        //
-        // A queue is one show, reached by resolving this room's media or by the user opening the show
-        // the room is on, so "the room is on s2e5" identifies an entry in it without the show's name
-        // having to match. That covers two libraries holding different provider ids for the show,
-        // and the case where one of them holds none: the published key is then `emby:<id>/s2e5`, half
-        // of which is meaningless to anyone else and the other half of which is all this needs.
-        //
-        // Refused only when the two sides both name a show and name different ones — the one case
-        // where a matching coordinate is provably a different episode.
-        parseEpisodeWatchKey(mediaKey)?.let { coordinate ->
-            val roomShow = coordinate.seriesKey.takeUnless { it.startsWith(LOCAL_KEY_PREFIX) }
-            val byCoordinate =
-                items.indexOfFirst { item ->
-                    item.episodeNumber == coordinate.episodeNumber &&
-                        (item.seasonNumber ?: 0) == coordinate.seasonNumber &&
-                        item.knownSeriesKeys().let { known ->
-                            known.isEmpty() ||
-                                roomShow == null ||
-                                roomShow in known ||
-                                known.none { it.providerName() == roomShow.providerName() }
-                        }
-                }
-            if (byCoordinate >= 0) {
-                reset()
-                return byCoordinate
-            }
         }
         missedTicks++
         if (missedTicks == MISMATCH_GRACE_TICKS) {
@@ -273,6 +225,44 @@ class WatchMediaMatcher(
         if (missedTicks >= MISMATCH_GRACE_TICKS) onWarning(null)
         missedTicks = 0
     }
+}
+
+/**
+ * Where [items] hold the media a room names as [mediaKey], or null: [WatchMediaMatcher]'s three ways
+ * of saying yes without its counting, so the room playlist can ask about every entry it lists.
+ */
+internal fun watchQueueIndexOf(
+    items: List<PlayerMediaItem>,
+    mediaKey: String,
+): Int? {
+    // Against every name the entry answers to, not just the one it would publish: the room's
+    // key was chosen from the other library's metadata, and two libraries rarely hold the same
+    // subset of Tmdb/Tvdb/Imdb for one title.
+    val index = items.indexOfFirst { it.watchKey == mediaKey || mediaKey in it.matchKeys }
+    if (index >= 0) return index
+    // Same episode, different spelling — or no spelling the two sides share at all.
+    //
+    // A queue is one show, reached by resolving this room's media or by the user opening the show
+    // the room is on, so "the room is on s2e5" identifies an entry in it without the show's name
+    // having to match. That covers two libraries holding different provider ids for the show,
+    // and the case where one of them holds none: the published key is then `emby:<id>/s2e5`, half
+    // of which is meaningless to anyone else and the other half of which is all this needs.
+    //
+    // Refused only when the two sides both name a show and name different ones — the one case
+    // where a matching coordinate is provably a different episode.
+    val coordinate = parseEpisodeWatchKey(mediaKey) ?: return null
+    val roomShow = coordinate.seriesKey.takeUnless { it.startsWith(LOCAL_KEY_PREFIX) }
+    return items
+        .indexOfFirst { item ->
+            item.episodeNumber == coordinate.episodeNumber &&
+                (item.seasonNumber ?: 0) == coordinate.seasonNumber &&
+                item.knownSeriesKeys().let { known ->
+                    known.isEmpty() ||
+                        roomShow == null ||
+                        roomShow in known ||
+                        known.none { it.providerName() == roomShow.providerName() }
+                }
+        }.takeIf { it >= 0 }
 }
 
 /** Keys that only mean anything on the server that issued them. */

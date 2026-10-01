@@ -1,0 +1,30 @@
+{
+  "sourceBranch": "ccr-413ccca2-jd1ckj",
+  "baseCommit": "a2a7deda07abe028c776b58987acbceaa8e76bbb",
+  "baselineWorkflowRun": 36695042729,
+  "baselineArtifact": 11088482418,
+  "baselineApk": {
+    "package": "com.yfuse",
+    "versionName": "1.0.96",
+    "versionCode": 258,
+    "fileName": "Yfuse-258-1.0.96.apk",
+    "sizeBytes": 29818151,
+    "sha256": "58f64f00ea4c5332c549b9a68bac032b080fad65c76f875d299992c6105ae02e",
+    "productionSigned": true,
+    "published": false
+  },
+  "baselineEvidence": "Log of packaging run #139: APK file name, version, size, SHA-256 and PUBLISH_UPDATE=false, with the APK metadata and signing-certificate step passing; the artifact is not downloadable from this workspace",
+  "plannedVersionName": "1.0.97",
+  "plannedVersionCode": 259,
+  "releaseMetadata": "release_metadata.py and 4 test_release_metadata.py tests passed",
+  "tvQualityGates": {
+    "failedThenFixed": 36822196168,
+    "passed": [
+      36822667249,
+      36824017261
+    ]
+  },
+  "ktlint": "1.3.1: no new violations in changed files",
+  "apkBuild": "pending phone quality gates and production signing on the merge commit",
+  "mdkPackageOnlyConfirmation": "release owner confirmed this version at 2026-10-01T19:55:18+08:00"
+}

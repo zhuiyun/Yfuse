@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.ItemAction
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.network.TmdbImages
@@ -51,6 +53,7 @@ internal fun TvTmdbInfoScreen(
     val following by component.following.collectAsState()
     val item = state.detail.item
     val backRequester = remember { FocusRequester() }
+    val backStableId = "tmdb-info:${item.id}:back"
     // A page opened to be watched starts on 播放, not on the way back out of it.
     val playRequester = remember { FocusRequester() }
     TvRestoreRouteFocusEffect(
@@ -58,6 +61,7 @@ internal fun TvTmdbInfoScreen(
         focusMemory = focusMemory,
         fallback = playRequester,
         contentGeneration = listOf(item.id, state.loading, state.playable, state.sources.size),
+        exitStableId = backStableId,
     )
 
     LazyColumn(
@@ -105,7 +109,7 @@ internal fun TvTmdbInfoScreen(
                 ) {
                     TvActionButton(
                         label = "返回",
-                        stableId = "tmdb-info:${item.id}:back",
+                        stableId = backStableId,
                         focusScope = "tmdb-info:${item.id}:hero",
                         focusMemory = focusMemory,
                         onClick = component.onBack,
@@ -372,16 +376,20 @@ internal fun TvCalendarScreen(
     }
 }
 
+/**
+ * A calendar card's id: its episode's. It used to be what the card opens, which for an episode the
+ * library does not have yet is the show, so two such episodes of one show on one day shared it and
+ * their row threw on the repeated key. An episode also keeps its id, and so its focus, once the
+ * library gets it.
+ */
+internal fun tvCalendarCardId(entry: CalendarEntry): String = entry.episode.mediaKey
+
 private fun CalendarEntry.toCalendarTvCard(component: CalendarComponent): TvMediaCardModel {
     val target = openItemId
-    val stableProviderId =
-        if (target != null && serverId != null) {
-            "server:$serverId:$target"
-        } else {
-            "tmdb:${episode.showTmdbId}:s${episode.seasonNumber}e${episode.episodeNumber}"
-        }
+    // The follow store throws on a show TMDB has not identified yet, so pressing one crashed.
+    val followable = episode.showTmdbId > 0
     return TvMediaCardModel(
-        stableId = stableProviderId,
+        stableId = tvCalendarCardId(this),
         title = episode.showTitle,
         subtitle = episode.episodeLabel,
         imageUrl = posterUrls.firstOrNull() ?: TmdbImages.poster(episode.posterPath),
@@ -396,12 +404,38 @@ private fun CalendarEntry.toCalendarTvCard(component: CalendarComponent): TvMedi
                 LibraryStatus.Watched -> "已看"
                 LibraryStatus.Unknown -> if (followed) "已追剧" else "发现"
             },
+        quickActions = { tvQuickActions(component) }.takeIf { target != null || followable },
         onClick = {
             if (target != null) {
                 component.onOpenItem(serverId, target)
-            } else {
+            } else if (followable) {
                 component.toggleFollow(this)
             }
         },
+    )
+}
+
+/**
+ * 长按面板 on a calendar card: 追剧 or 取消追剧 for the show, and 查看详情 once the library has it —
+ * the episode when it has arrived, else the show. The phone leaves 取消追剧 to 追剧管理 and its
+ * 撤销; here a press on a card the library lacks already toggles it.
+ */
+private fun CalendarEntry.tvQuickActions(component: CalendarComponent): LiftMenu {
+    val following = component.followStore.isFollowing(episode.showTmdbId)
+    return LiftMenu(
+        title = episode.showTitle,
+        meta = episode.episodeLabel,
+        onOpen = openItemId?.let { itemId -> { component.onOpenItem(serverId, itemId) } },
+        sections =
+            listOf(
+                listOfNotNull(
+                    ItemAction(
+                        label = if (following) "取消追剧" else "追剧",
+                        icon = AppIcons.Bell,
+                        destructive = following,
+                        onSelect = { component.toggleFollow(this) },
+                    ).takeIf { episode.showTmdbId > 0 },
+                ),
+            ),
     )
 }

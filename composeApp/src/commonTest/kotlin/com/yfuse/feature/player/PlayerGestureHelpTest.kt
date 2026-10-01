@@ -34,6 +34,14 @@ class PlayerGestureHelpTest {
     }
 
     @Test
+    fun only_the_middle_is_held_so_no_long_press_is_offered_on_the_sides() {
+        val holds = pictureGestureHelpRows(PlayerGestureSettings()).map { it.first }.filter { it.startsWith("长按") }
+        assertEquals(listOf("长按中间"), holds)
+        val boostOff = pictureGestureHelpRows(PlayerGestureSettings(centerHoldSpeedBoost = false))
+        assertTrue(boostOff.none { it.first.startsWith("长按") })
+    }
+
+    @Test
     fun keyboard_rows_share_the_double_tap_step() {
         val rows = keyboardHelpRows(PlayerGestureSettings(doubleTapSeekSeconds = 15))
         assertEquals("快退 / 快进 15 秒，与双击步长相同", rows.row("J / L"))

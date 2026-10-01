@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import android.annotation.SuppressLint
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -244,5 +245,22 @@ internal fun PlayerWatchSyncEffects(
         if (watchState.connected && !watchState.reconnecting && watchState.isHost) {
             playbackGate.publishCurrent()
         }
+    }
+
+    // The room playlist's 播放 starts its entry here the moment it is tapped, through the gate like
+    // any other episode change; the dialog asks this queue which entries it can offer it for.
+    DisposableEffect(playbackGate) {
+        val target =
+            WatchPlaylistTarget(
+                indexOf = { mediaKey -> watchQueueIndexOf(latestItems, mediaKey) },
+                play = { index ->
+                    if (index != latestPlaybackState.currentIndex) {
+                        latestPlaybackRequestChanged()
+                        playbackGate.selectItem(index)
+                    }
+                },
+            )
+        WatchPlaylistTarget.bind(target)
+        onDispose { WatchPlaylistTarget.unbind(target) }
     }
 }

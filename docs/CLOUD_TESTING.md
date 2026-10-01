@@ -21,12 +21,15 @@ media-server requests, playback, downloads, live update UI and real-device
 performance remain separate pending tests. Artifacts on this public repository
 must not contain account credentials or restored private media configurations.
 
-The follow-up `--layout-probe` mode samples 1/3/10 seconds after rotation at
-font scales 1.0 and 1.3, captures the empty Library tab and an emulated tablet
-viewport. It skips the already completed foreground/background smoke loop.
-Actual elapsed capture times and pixel dimensions are saved; these sampled
-frames do not establish exact blank-frame duration. The current workflow runs
-this targeted mode to investigate observations from run `36351030665`.
+The `--layout-probe` mode samples 1/3/10 seconds after rotation at font scales
+1.0 and 1.3, captures the empty Library tab and an emulated tablet viewport. It
+runs after the full smoke (including the foreground/background loop) in the same
+session, once font scale, rotation and night mode are restored; the result reads
+`smoke_and_layout_probe_completed` when both finished. Actual elapsed capture
+times and pixel dimensions are saved; these sampled frames do not establish
+exact blank-frame duration. On a failure the script prints the failed case, the
+summary and the traceback, then the tails of the crash buffer and logcat, so the
+cause is readable from the job log without downloading artifacts.
 
 Local command (disposable emulator only):
 

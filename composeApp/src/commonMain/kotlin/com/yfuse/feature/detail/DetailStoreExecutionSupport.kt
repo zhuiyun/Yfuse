@@ -186,6 +186,9 @@ internal sealed interface DetailMsg {
         val value: String?,
     ) : DetailMsg
 
+    /** The 提示 has gone: the notice, and the failed 资源切换 it may have been saying, are both over. */
+    data object MessageDismissed : DetailMsg
+
     data class SourceFailure(
         val value: SourceSelectionFailure?,
     ) : DetailMsg
@@ -199,6 +202,25 @@ internal sealed interface DetailMsg {
         val selectedSeasonId: String? = null,
         val episodes: List<Episode>? = null,
         val preferredVersionId: String? = null,
+    ) : DetailMsg
+
+    /**
+     * 播放's target resolved again after marks. The target, its position and its file change;
+     * nothing the page lists does.
+     */
+    data class PlayTargetRefreshed(
+        val serverId: String,
+        val sourceItemId: String,
+        val target: MediaDetail,
+        val positionTicks: Long,
+        val preferredVersionId: String? = null,
+    ) : DetailMsg
+
+    /** [DetailIntent.SyncPlayPosition]: a resume point for the target it was read for, and no other. */
+    data class PlayPositionSynced(
+        val serverId: String,
+        val itemId: String,
+        val positionTicks: Long,
     ) : DetailMsg
 
     data class AudioLanguageSelected(

@@ -39,7 +39,7 @@ internal fun downloadLiveUpdate(
     val progress = downloadLiveProgress(batch) ?: return null
     val summary = summarizeDownloads(items)
     val running = summary.active > 0
-    val current = progress.downloading.firstOrNull()
+    val sizeUnknown = progress.sizeUnknown
     val title =
         when {
             progress.total == 1 -> batch.single().title
@@ -47,12 +47,7 @@ internal fun downloadLiveUpdate(
             summary.failed > 0 && summary.paused == 0 -> summary.title
             else -> "已暂停 · ${progress.done} / ${progress.total}"
         }
-    val text =
-        when {
-            current != null && progress.total == 1 -> "${(current.progress * 100).toInt()}%"
-            current != null -> "${current.title} · ${(current.progress * 100).toInt()}%"
-            else -> summary.detail
-        }
+    val text = downloadLiveText(progress, summary)
     val style =
         Notification
             .ProgressStyle()
@@ -63,6 +58,7 @@ internal fun downloadLiveUpdate(
                     }
                 },
             ).setProgress(progress.progress)
+            .setProgressIndeterminate(sizeUnknown)
     val builder =
         Notification
             .Builder(context, channelId)
@@ -73,12 +69,11 @@ internal fun downloadLiveUpdate(
             .setCategory(Notification.CATEGORY_PROGRESS)
             .setOnlyAlertOnce(true)
             .setOngoing(running)
-            .setProgress(100, progress.percent, progress.downloading.any { it.totalBytes <= 0L })
+            .setProgress(100, progress.percent, sizeUnknown)
             .setStyle(style)
     if (running) {
-        builder
-            .setShortCriticalText("${progress.percent}%")
-            .requestPromotedOngoing()
+        if (!sizeUnknown) builder.setShortCriticalText("${progress.percent}%")
+        builder.requestPromotedOngoing()
         builder.addAction(downloadAction(context, DownloadNotificationActions.ACTION_PAUSE, "暂停", 2413))
         builder.addAction(downloadAction(context, DownloadNotificationActions.ACTION_STOP, "停止", 2416))
     } else if (summary.paused + summary.failed > 0) {
@@ -86,6 +81,25 @@ internal fun downloadLiveUpdate(
         builder.addAction(downloadAction(context, DownloadNotificationActions.ACTION_RESUME, label, 2414))
     }
     return builder.build()
+}
+
+/**
+ * True while a download in the batch has no size to measure against — no Content-Length, as
+ * with a transcode — which lasts its whole transfer. The bar then runs indeterminate and no
+ * percentage is shown, as on the notification before Android 16, rather than 0% throughout.
+ */
+internal val DownloadLiveProgress.sizeUnknown: Boolean
+    get() = downloading.any { it.totalBytes <= 0L }
+
+/** The line under the live update's title: the download under way and how far it has got. */
+internal fun downloadLiveText(
+    progress: DownloadLiveProgress,
+    summary: DownloadSummary,
+): String {
+    val current = progress.downloading.firstOrNull() ?: return summary.detail
+    val done =
+        if (current.totalBytes > 0L) "${(current.progress * 100).toInt()}%" else "正在读取文件大小"
+    return if (progress.total == 1) done else "${current.title} · $done"
 }
 
 private fun downloadAction(

@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
@@ -275,6 +276,7 @@ private fun HomeContent(
             onOpenCalendarEntry = component::openCalendarEntry,
             shelfLayout = shelfLayout,
             onEditShelves = editShelves.takeIf { shelves != null },
+            editingShelves = editingShelves && shelves != null,
         )
     }
     if (editingShelves && shelves != null) {
@@ -311,6 +313,11 @@ internal fun HomeContentBody(
     shelfLayout: HomeShelfLayout = HomeShelfLayout(),
     /** Opens 编辑首页; null where the page cannot be edited. */
     onEditShelves: (() -> Unit)? = null,
+    /**
+     * 编辑首页 is open over the page. The reel holds still under it as under any menu: each turn
+     * re-tinted the accent, and with it every switch in the sheet.
+     */
+    editingShelves: Boolean = false,
 ) {
     val calendarItems = remember(calendarState.days, state) { homeCalendarPreviews(calendarState.days, state) }
     val showSmartPlaylists =
@@ -320,16 +327,25 @@ internal fun HomeContentBody(
     val themeAccent = LocalAccentColors.current.accent
     val sharer = rememberPosterCardSharer()
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
-    // Each TMDB shelf is where its 查看全部 page is pulled back into; the page keeps its shelf while
-    // it leaves, so the anchor is held apart from [expandedRow].
+    // Each shelf is where its 查看全部 page is pulled back into, keyed by the shelf's id; the page
+    // keeps its shelf while it leaves, so the anchor is held apart from the page's own state.
     val shelfAnchors = remember { mutableMapOf<String, ZoomBackAnchor>() }
     var expandedSource by remember { mutableStateOf<ZoomBackAnchor?>(null) }
 
-    fun shelfAnchor(title: String): ZoomBackAnchor = shelfAnchors.getOrPut(title) { ZoomBackAnchor() }
+    fun shelfAnchor(id: String): ZoomBackAnchor = shelfAnchors.getOrPut(id) { ZoomBackAnchor() }
     val liftMenu = LocalLiftMenu.current
     // A library shelf opened out by its 全部. Held by kind, and its entries read live, so a card
     // marked watched from inside the page leaves it as it leaves the shelf.
     var expandedShelf by remember { mutableStateOf<HomeLibraryShelf?>(null) }
+    var expandedShelfSource by remember { mutableStateOf<ZoomBackAnchor?>(null) }
+
+    fun openShelf(
+        shelf: HomeLibraryShelf,
+        id: String,
+    ) {
+        expandedShelfSource = shelfAnchor(id)
+        expandedShelf = shelf
+    }
     val upNext = remember(state.nextUp, state.resume) { homeNextUpShelf(state.nextUp, state.resume) }
 
     fun shelfEntries(shelf: HomeLibraryShelf): List<HomeResumeEntry> =
@@ -401,8 +417,12 @@ internal fun HomeContentBody(
 
         val scrolledPastHero by rememberScrolledPastHero(listState, heroHeight)
         val heroVisible = !scrolledPastHero
-        // A folded header has no artwork under the status bar, so the icons follow the page.
-        StatusBarIconStyle(darkIcons = (heroFolded || !heroVisible) && !palette.isDark)
+        val rowPageOpen = expandedRow != null || expandedShelf != null
+        // A folded header has no artwork under the status bar, so the icons follow the page; so do
+        // they under a 查看全部 page, which covers the reel with the page ground. They are set here
+        // rather than by that page: nothing puts the reel's white back when a page leaves, so the
+        // one call has to know both.
+        StatusBarIconStyle(darkIcons = (heroFolded || !heroVisible || rowPageOpen) && !palette.isDark)
         // Reading `listState.isScrollInProgress` directly in the item's content recomposed the
         // hero every time a scroll started or stopped (LibraryHomeScreen's carouselVisible
         // already takes this shape); derivedStateOf collapses that to one flip per visibility
@@ -430,7 +450,8 @@ internal fun HomeContentBody(
             onRefresh = refreshPage,
             state = pullState,
             indicator = { RefreshIndicator(pullState, state.refreshing, Modifier.align(Alignment.TopCenter)) },
-            modifier = Modifier.fillMaxSize(),
+            // Still composed under a 查看全部 page, where a screen reader would walk on through it.
+            modifier = Modifier.fillMaxSize().then(if (rowPageOpen) Modifier.clearAndSetSemantics {} else Modifier),
         ) {
             SkeletonArrivalScope(state.loading && state.content.isEmpty) {
                 LazyColumn(
@@ -466,7 +487,7 @@ internal fun HomeContentBody(
                                     height = heroHeight,
                                     showSidePreview = showSidePreview,
                                     visible = heroCarouselVisible,
-                                    held = liftMenu?.isOpen == true || expandedRow != null || expandedShelf != null,
+                                    held = liftMenu?.isOpen == true || rowPageOpen || editingShelves,
                                     refreshing = state.refreshing,
                                     onRefresh = refreshPage,
                                     onOpenProfile = onOpenProfile,
@@ -563,18 +584,20 @@ internal fun HomeContentBody(
                             HOME_SHELF_CONTINUE -> {
                                 if (state.resume.isNotEmpty()) {
                                     motionItem(key = "continue-watching") {
-                                        ContinueWatching(
-                                            items = state.resume,
-                                            onSeeAll = { expandedShelf = HomeLibraryShelf.ContinueWatching },
-                                            onClick = openEntry,
-                                            liftMenu = { entry ->
-                                                entry.homeLiftMenu(
-                                                    onIntent,
-                                                    inResume = true,
-                                                    onShare = { sharer.sharePosterCard(entry.shareCard()) },
-                                                )
-                                            },
-                                        )
+                                        Box(Modifier.zoomBackAnchor(shelfAnchor(shelf))) {
+                                            ContinueWatching(
+                                                items = state.resume,
+                                                onSeeAll = { openShelf(HomeLibraryShelf.ContinueWatching, shelf) },
+                                                onClick = openEntry,
+                                                liftMenu = { entry ->
+                                                    entry.homeLiftMenu(
+                                                        onIntent,
+                                                        inResume = true,
+                                                        onShare = { sharer.sharePosterCard(entry.shareCard()) },
+                                                    )
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -582,18 +605,20 @@ internal fun HomeContentBody(
                             HOME_SHELF_NEXT_UP -> {
                                 if (upNext.isNotEmpty()) {
                                     motionItem(key = "next-up") {
-                                        ContinueWatching(
-                                            title = HomeLibraryShelf.NextUp.title,
-                                            items = upNext,
-                                            onSeeAll = { expandedShelf = HomeLibraryShelf.NextUp },
-                                            onClick = openEntry,
-                                            liftMenu = { entry ->
-                                                entry.homeLiftMenu(
-                                                    onIntent,
-                                                    onShare = { sharer.sharePosterCard(entry.shareCard()) },
-                                                )
-                                            },
-                                        )
+                                        Box(Modifier.zoomBackAnchor(shelfAnchor(shelf))) {
+                                            ContinueWatching(
+                                                title = HomeLibraryShelf.NextUp.title,
+                                                items = upNext,
+                                                onSeeAll = { openShelf(HomeLibraryShelf.NextUp, shelf) },
+                                                onClick = openEntry,
+                                                liftMenu = { entry ->
+                                                    entry.homeLiftMenu(
+                                                        onIntent,
+                                                        onShare = { sharer.sharePosterCard(entry.shareCard()) },
+                                                    )
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -601,18 +626,20 @@ internal fun HomeContentBody(
                             HOME_SHELF_FAVORITES -> {
                                 if (state.favorites.isNotEmpty()) {
                                     motionItem(key = "favorites") {
-                                        LibraryMediaShelf(
-                                            title = "我的收藏",
-                                            items = state.favorites,
-                                            onSeeAll = { expandedShelf = HomeLibraryShelf.Favorites },
-                                            onClick = openEntry,
-                                            liftMenu = { entry ->
-                                                entry.homeLiftMenu(
-                                                    onIntent,
-                                                    onShare = { sharer.sharePosterCard(entry.shareCard()) },
-                                                )
-                                            },
-                                        )
+                                        Box(Modifier.zoomBackAnchor(shelfAnchor(shelf))) {
+                                            LibraryMediaShelf(
+                                                title = "我的收藏",
+                                                items = state.favorites,
+                                                onSeeAll = { openShelf(HomeLibraryShelf.Favorites, shelf) },
+                                                onClick = openEntry,
+                                                liftMenu = { entry ->
+                                                    entry.homeLiftMenu(
+                                                        onIntent,
+                                                        onShare = { sharer.sharePosterCard(entry.shareCard()) },
+                                                    )
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -665,7 +692,7 @@ internal fun HomeContentBody(
                                     ?.takeIf { it.items.isNotEmpty() }
                                     ?.let { row ->
                                         motionItem(key = "tmdb-${row.title}") {
-                                            Box(Modifier.zoomBackAnchor(shelfAnchor(row.title))) {
+                                            Box(Modifier.zoomBackAnchor(shelfAnchor(shelf))) {
                                                 Recommended(
                                                     title = row.title,
                                                     items = row.items,
@@ -675,7 +702,7 @@ internal fun HomeContentBody(
                                                     // most are not in the library at all, so the old destination
                                                     // showed none of what the chip had just offered.
                                                     onSeeAll = {
-                                                        expandedSource = shelfAnchor(row.title)
+                                                        expandedSource = shelfAnchor(shelf)
                                                         expandedRow = row
                                                     },
                                                     onClick = { onIntent(HomeIntent.Open(it)) },
@@ -702,28 +729,18 @@ internal fun HomeContentBody(
             }
         }
 
-        // Floats over the page rather than sitting in it: as a list item this pushed the
-        // whole feed down and then let it snap back, and it never cleared itself.
-        ActionToast(
-            message = state.actionMessage,
-            onDismiss = { onIntent(HomeIntent.DismissMessage) },
-            action =
-                state.resumeUndoKey?.let { key ->
-                    ToastAction("撤销") { onIntent(HomeIntent.UndoRemoveFromResume(key)) }
-                },
-        )
-
-        // Once there are posters to hold. Retires on its own the first time one is lifted.
+        // Once there are posters to hold. Retires on its own the first time one is lifted. It is
+        // about this page's posters, so it waits while a 查看全部 page or 编辑首页 covers them,
+        // and stays under a page opening over it.
         ContextualTip(
             id = Tips.LIFT,
             text = "按住海报可以浮起菜单，滑到选项松手即可",
-            active = state.resume.isNotEmpty() || state.content.rows.any { it.items.isNotEmpty() },
+            active =
+                (state.resume.isNotEmpty() || state.content.rows.any { it.items.isNotEmpty() }) &&
+                    !rowPageOpen &&
+                    !editingShelves,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomContentInset + 8.dp),
         )
-
-        if (state.resolving) {
-            OrbProgress(modifier = Modifier.align(Alignment.Center), size = OrbProgressDefaults.Page)
-        }
 
         // Pushed and popped like a route rather than cut in and out; the reel above holds still
         // while it is up (see HomeHeroCarousel's `held`).
@@ -747,7 +764,7 @@ internal fun HomeContentBody(
             )
         }
 
-        OverlayPage(value = expandedShelf, onBack = { expandedShelf = null }) { shelf ->
+        OverlayPage(value = expandedShelf, onBack = { expandedShelf = null }, source = expandedShelfSource) { shelf ->
             val entries = shelfEntries(shelf)
             LibraryRowPage(
                 title = shelf.title,
@@ -772,6 +789,24 @@ internal fun HomeContentBody(
                 onDismiss = { expandedShelf = null },
             )
         }
+
+        // After the 查看全部 pages, which paint the whole screen: what a lift action inside one
+        // does — the lookup behind a TMDB 收藏, a 移除 and its 撤销 — shows over the page, not
+        // under it, where a 移除 committed unseen once its toast ran out.
+        if (state.resolving) {
+            OrbProgress(modifier = Modifier.align(Alignment.Center), size = OrbProgressDefaults.Page)
+        }
+
+        // Floats over the page rather than sitting in it: as a list item this pushed the
+        // whole feed down and then let it snap back, and it never cleared itself.
+        ActionToast(
+            message = state.actionMessage,
+            onDismiss = { onIntent(HomeIntent.DismissMessage) },
+            action =
+                state.resumeUndoKey?.let { key ->
+                    ToastAction("撤销") { onIntent(HomeIntent.UndoRemoveFromResume(key)) }
+                },
+        )
     }
 }
 
@@ -849,7 +884,7 @@ private fun HomeHeroCarousel(
     height: androidx.compose.ui.unit.Dp,
     showSidePreview: Boolean,
     visible: Boolean,
-    /** Something is open over the reel — a menu, 查看全部 — so it must not turn under it. */
+    /** Something is open over the reel — a menu, 查看全部, 编辑首页 — so it must not turn under it. */
     held: Boolean,
     refreshing: Boolean,
     onRefresh: () -> Unit,

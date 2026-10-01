@@ -169,40 +169,46 @@ fun AnimatedSplashApp(
     ) {
         val parentRouteVisible = LocalRouteVisible.current
         val launched = remember { derivedStateOf { !splashVisible } }
-        CompositionLocalProvider(
-            LocalRouteVisible provides (parentRouteVisible && !splashVisible),
-            LocalRouteVisibilityState provides launched,
-        ) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    // Composed and laid out behind the splash but not drawn: nothing in it may be
-                    // found by a screen reader either.
-                    .then(if (splashVisible) Modifier.clearAndSetSemantics { } else Modifier)
-                    .graphicsLayer {
-                        // Both halves of the arrival live here. While the splash is still up the
-                        // layer is fully transparent, which is also the cheapest possible frame:
-                        // the app composes and lays out, and nothing it draws is composited.
-                        val entered = arrival.value
-                        alpha = entered
-                        if (!waveHandoff) {
-                            scaleX = SPLASH_HANDOFF_SCALE_FROM + (1f - SPLASH_HANDOFF_SCALE_FROM) * entered
-                            scaleY = scaleX
-                        }
-                    }.drawWithContent {
-                        // The splash background stays opaque through its final frame. Keep data and layout
-                        // preparation active, but do not record wallpaper, posters and glass underneath it.
-                        if (!splashVisible) drawContent()
-                    },
+        // The app and what is composed beside it draw in one theme. The update prompt sat outside
+        // the app's, and came up light in dark mode and ignored 减少动画 and 大号文字; a theme of its
+        // own would be worse, since its full-screen host is laid over the app and would take every
+        // touch. App finds this one already there. The splash stays outside it, as it always was.
+        AppTheme(root.themePreferences) {
+            CompositionLocalProvider(
+                LocalRouteVisible provides (parentRouteVisible && !splashVisible),
+                LocalRouteVisibilityState provides launched,
             ) {
-                App(root)
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        // Composed and laid out behind the splash but not drawn: nothing in it may be
+                        // found by a screen reader either.
+                        .then(if (splashVisible) Modifier.clearAndSetSemantics { } else Modifier)
+                        .graphicsLayer {
+                            // Both halves of the arrival live here. While the splash is still up the
+                            // layer is fully transparent, which is also the cheapest possible frame:
+                            // the app composes and lays out, and nothing it draws is composited.
+                            val entered = arrival.value
+                            alpha = entered
+                            if (!waveHandoff) {
+                                scaleX = SPLASH_HANDOFF_SCALE_FROM + (1f - SPLASH_HANDOFF_SCALE_FROM) * entered
+                                scaleY = scaleX
+                            }
+                        }.drawWithContent {
+                            // The splash background stays opaque through its final frame. Keep data and layout
+                            // preparation active, but do not record wallpaper, posters and glass underneath it.
+                            if (!splashVisible) drawContent()
+                        },
+                ) {
+                    App(root)
+                }
             }
-        }
 
-        // Dialog-based overlays use their own window and can otherwise appear above the
-        // Compose splash. Do not compose them until the splash has fully finished.
-        if (!splashVisible) {
-            overlay()
+            // Dialog-based overlays use their own window and can otherwise appear above the
+            // Compose splash. Do not compose them until the splash has fully finished.
+            if (!splashVisible) {
+                overlay()
+            }
         }
 
         if (splashVisible) {

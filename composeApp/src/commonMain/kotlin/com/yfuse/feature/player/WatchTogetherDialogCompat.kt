@@ -6,8 +6,9 @@ import com.yfuse.core.sync.WatchParticipant
 
 /**
  * Keeps the existing player-chrome call site source-compatible while the room playlist is
- * introduced independently. Playlist jumps are handed to the active gated player through a
- * one-shot media-key request, so the 100k-line-ish chrome file does not need a mechanical rewrite.
+ * introduced independently. Playlist entries are checked against, and started on, the player on
+ * screen through [WatchPlaylistTarget], so the 100k-line-ish chrome file does not need a mechanical
+ * rewrite.
  */
 @Composable
 internal fun WatchTogetherDialog(
@@ -46,15 +47,12 @@ internal fun WatchTogetherDialog(
         currentMediaTitle = ActivePlayback.state.value.title,
         onCreate = onCreate,
         onJoin = onJoin,
-        onLeave = {
-            WatchPlaylistPlaybackRequest.clear()
-            onLeave()
-        },
+        onLeave = onLeave,
         onRequestControl = onRequestControl,
         onSetControlMode = onSetControlMode,
         onSetModerator = onSetModerator,
         onKickParticipant = onKickParticipant,
-        onPlaylistPlay = WatchPlaylistPlaybackRequest::request,
+        playlistTarget = WatchPlaylistTarget.current,
         onDismiss = onDismiss,
     )
 }

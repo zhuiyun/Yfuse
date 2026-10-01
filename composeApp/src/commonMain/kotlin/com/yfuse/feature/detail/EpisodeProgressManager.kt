@@ -479,9 +479,6 @@ private fun ProgressManagerActions(
             ProgressAction("标记未看", enabled, accent, Modifier.weight(1f)) {
                 onApply(EpisodeProgressAction.MarkUnwatched)
             }
-            ProgressAction("重置", enabled, accent, Modifier.weight(1f)) {
-                onApply(EpisodeProgressAction.Reset)
-            }
             onDownload?.let { download ->
                 ProgressAction("下载", enabled, accent, Modifier.weight(1f), onClick = download)
             }

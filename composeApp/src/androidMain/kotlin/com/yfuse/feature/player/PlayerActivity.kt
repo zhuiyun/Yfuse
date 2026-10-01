@@ -29,6 +29,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.annotation.RequiresApi
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
@@ -59,6 +60,7 @@ import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassMaterials
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LoadingAnimation
+import com.yfuse.core.designsystem.LocalPulseSweepEnabled
 import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.ParticleStyle
@@ -510,6 +512,7 @@ class PlayerActivity : ComponentActivity() {
             val particleLight = preferences?.particleLight?.collectAsState()?.value ?: ParticleLight.Gentle
             val particleStyle = preferences?.particleStyle?.collectAsState()?.value ?: ParticleStyle.Stardust
             val motionTheme = preferences?.motionTheme?.collectAsState()?.value ?: MotionTheme.Classic
+            val pulseSweep = preferences?.pulseSweep?.collectAsState()?.value ?: true
             YfuseTheme(
                 dark = true,
                 dialogAnimation = dialogAnimation,
@@ -523,27 +526,31 @@ class PlayerActivity : ComponentActivity() {
                 particleActive = false,
                 motionTheme = motionTheme,
             ) {
-                val leavePreparation = {
-                    val drawn =
-                        transition?.requestExit {
-                            transitionClosing = true
-                            finish()
-                        }
-                    if (drawn != true) finish()
+                // 搜索与导航动效 reaches the app shell's own pages only; this window provides it itself,
+                // as the player's does below.
+                CompositionLocalProvider(LocalPulseSweepEnabled provides pulseSweep) {
+                    val leavePreparation = {
+                        val drawn =
+                            transition?.requestExit {
+                                transitionClosing = true
+                                finish()
+                            }
+                        if (drawn != true) finish()
+                    }
+                    // The system back gesture leaves on the transition too, not only the button.
+                    PlatformPredictiveBackHandler(
+                        enabled = transition != null,
+                        onProgress = { transition?.onBackProgress(it) },
+                        onBack = leavePreparation,
+                        onCancel = { transition?.onBackCancel() },
+                    )
+                    PlayerPreparationContent(
+                        state = state,
+                        onRetry = { pending.store.accept(PlayerIntent.Retry) },
+                        onBack = leavePreparation,
+                    )
+                    PlayerTransitionLayer(transition, ready = state.error != null, inPictureInPicture = false)
                 }
-                // The system back gesture leaves on the transition too, not only the button.
-                PlatformPredictiveBackHandler(
-                    enabled = transition != null,
-                    onProgress = { transition?.onBackProgress(it) },
-                    onBack = leavePreparation,
-                    onCancel = { transition?.onBackCancel() },
-                )
-                PlayerPreparationContent(
-                    state = state,
-                    onRetry = { pending.store.accept(PlayerIntent.Retry) },
-                    onBack = leavePreparation,
-                )
-                PlayerTransitionLayer(transition, ready = state.error != null, inPictureInPicture = false)
             }
         }
         lifecycleScope.launch {
@@ -803,6 +810,9 @@ class PlayerActivity : ComponentActivity() {
             val particleLight = preferences?.particleLight?.collectAsState()?.value ?: ParticleLight.Gentle
             val particleStyle = preferences?.particleStyle?.collectAsState()?.value ?: ParticleStyle.Stardust
             val motionTheme = preferences?.motionTheme?.collectAsState()?.value ?: MotionTheme.Classic
+            // The app shell provides 搜索与导航动效 to its pages, and this window is not one of them:
+            // without it here the ending's liquid split whatever the switch said.
+            val pulseSweep = preferences?.pulseSweep?.collectAsState()?.value ?: true
             YfuseTheme(
                 dark = true,
                 dialogAnimation = dialogAnimation,
@@ -816,122 +826,124 @@ class PlayerActivity : ComponentActivity() {
                 particleActive = !inPictureInPicture,
                 motionTheme = motionTheme,
             ) {
-                ProvideAppTips {
-                    PlayerRoot(
-                        transition = transition,
-                        items = liveItems,
-                        startIndex = initialStartIndex,
-                        startPositionMs = initialStartPositionMs,
-                        refreshedResume = refreshedResume,
-                        queueRevision = refreshedRevision,
-                        initialEngine = initialEngine,
-                        decoderMode = decoderMode,
-                        autoNext = autoNext,
-                        playbackPreferences = playbackPreferences,
-                        inPictureInPicture = inPictureInPicture,
-                        playbackSinkFor = playbackSinkFor,
-                        danmakuPreferences = danmakuPreferences,
-                        skipSegmentPreferences = skipSegmentPreferences,
-                        volumeKeyPresses = volumeKeyPresses,
-                        danmakuRepository = danmakuRepository,
-                        customUserAgent = customUserAgent,
-                        videoCacheBytes = videoCacheBytes,
-                        yCoreBufferTargetUs = yCoreBufferTargetUs,
-                        watchTogether = watchTogether,
-                        accountTokens = accountTokens,
-                        watchTogetherPreferences = watchTogetherPreferences,
-                        playbackGate = playbackController,
-                        onPlayerAttached = { player, appendItems, updateQueue ->
-                            activePlayer = player
-                            activeQueueAppender = appendItems
-                            activeQueueUpdater = updateQueue
-                            applyPendingEnrichment()
-                        },
-                        onPlayerDetached = { player ->
-                            if (activePlayer === player) {
-                                activePlayer = null
-                                activeQueueAppender = null
-                                activeQueueUpdater = null
-                            }
-                        },
-                        // Presentation changes only (transport, index, error, geometry): everything
-                        // here talks to the system — notification, media session, PiP params, the
-                        // foreground service — and must not run on the 500 ms position tick.
-                        onPlaybackState = { state, item ->
-                            activeState = state
-                            applyScreenOnPolicy()
-                            if (state.ended && item?.serverId != null) {
-                                val completedKey = "${item.serverId}#${item.id}"
-                                if (completedOfflineKey != completedKey) {
-                                    completedOfflineKey = completedKey
-                                    offlineMediaManager.onPlaybackCompleted(item.serverId, item.id)
+                CompositionLocalProvider(LocalPulseSweepEnabled provides pulseSweep) {
+                    ProvideAppTips {
+                        PlayerRoot(
+                            transition = transition,
+                            items = liveItems,
+                            startIndex = initialStartIndex,
+                            startPositionMs = initialStartPositionMs,
+                            refreshedResume = refreshedResume,
+                            queueRevision = refreshedRevision,
+                            initialEngine = initialEngine,
+                            decoderMode = decoderMode,
+                            autoNext = autoNext,
+                            playbackPreferences = playbackPreferences,
+                            inPictureInPicture = inPictureInPicture,
+                            playbackSinkFor = playbackSinkFor,
+                            danmakuPreferences = danmakuPreferences,
+                            skipSegmentPreferences = skipSegmentPreferences,
+                            volumeKeyPresses = volumeKeyPresses,
+                            danmakuRepository = danmakuRepository,
+                            customUserAgent = customUserAgent,
+                            videoCacheBytes = videoCacheBytes,
+                            yCoreBufferTargetUs = yCoreBufferTargetUs,
+                            watchTogether = watchTogether,
+                            accountTokens = accountTokens,
+                            watchTogetherPreferences = watchTogetherPreferences,
+                            playbackGate = playbackController,
+                            onPlayerAttached = { player, appendItems, updateQueue ->
+                                activePlayer = player
+                                activeQueueAppender = appendItems
+                                activeQueueUpdater = updateQueue
+                                applyPendingEnrichment()
+                            },
+                            onPlayerDetached = { player ->
+                                if (activePlayer === player) {
+                                    activePlayer = null
+                                    activeQueueAppender = null
+                                    activeQueueUpdater = null
                                 }
-                            } else if (!state.ended) {
-                                completedOfflineKey = null
-                            }
-                            if (item != null && state.currentIndex in sessionTitles.indices) {
-                                sessionTitles = playbackItems.value.map { it.title }
-                            }
-                            updateMediaSession(state)
-                            updatePictureInPictureParams()
-                            if (
-                                (state.playing || state.buffering) &&
-                                (
-                                    !isScreenInteractive() ||
-                                        activityHasStarted &&
-                                        !activityStarted &&
-                                        !isInPictureInPictureMode
-                                )
-                            ) {
-                                pausePlaybackForLifecycle("state_resumed_while_hidden")
-                            } else if (state.playing) {
-                                startPlaybackKeepAliveService()
-                            }
-                        },
-                        // Every tick: in-process position consumers, plus a ten-second (or post-seek)
-                        // media-session position refresh that does not rebuild the notification.
-                        onPlaybackProgress = { state, item ->
-                            activeState = state
-                            applyPendingEnrichment()
-                            if (
-                                state.playing &&
-                                state.hasNext &&
-                                state.remainingMs in 1L..EPISODE_REFRESH_NEAR_END_MS
-                            ) {
-                                refreshEpisodes()
-                            }
-                            if (
-                                playerLaunchGeneration == launchGeneration &&
-                                state.currentIndex in playbackItems.value.indices
-                            ) {
-                                launchViewModel.resume = state.currentIndex to state.positionMs.coerceAtLeast(0L)
-                            }
-                            ActivePlayback.update(
-                                item?.title.orEmpty(),
-                                state,
-                            )
-                            val now = SystemClock.elapsedRealtime()
-                            if (mediaSessionPositionSync.shouldPublish(state, now)) {
-                                publishMediaSessionState(state, now)
-                            }
-                        },
-                        onVideoBounds = { bounds ->
-                            // Layout reports this on every pass - every frame of a transition - and each
-                            // params update builds three PendingIntents and makes a system call. Only a
-                            // moved rect changes the hint.
-                            if (bounds != videoBounds) {
-                                videoBounds = bounds
+                            },
+                            // Presentation changes only (transport, index, error, geometry): everything
+                            // here talks to the system — notification, media session, PiP params, the
+                            // foreground service — and must not run on the 500 ms position tick.
+                            onPlaybackState = { state, item ->
+                                activeState = state
+                                applyScreenOnPolicy()
+                                if (state.ended && item?.serverId != null) {
+                                    val completedKey = "${item.serverId}#${item.id}"
+                                    if (completedOfflineKey != completedKey) {
+                                        completedOfflineKey = completedKey
+                                        offlineMediaManager.onPlaybackCompleted(item.serverId, item.id)
+                                    }
+                                } else if (!state.ended) {
+                                    completedOfflineKey = null
+                                }
+                                if (item != null && state.currentIndex in sessionTitles.indices) {
+                                    sessionTitles = playbackItems.value.map { it.title }
+                                }
+                                updateMediaSession(state)
                                 updatePictureInPictureParams()
-                            }
-                        },
-                        onBack = ::closePlayerAndReturn,
-                        onEnterPictureInPicture = ::enterPlayerPictureInPicture,
-                        onRefreshEpisodes = { refreshEpisodes(force = true) },
-                        onRemotePlayRequested = ::ensureAudioFocus,
-                        remoteChrome = tvChromeController.takeIf { televisionDevice },
-                        launchStartedElapsedMs = launchViewModel.launchStartedElapsedMs,
-                        startPlaybackRequested = startPlaybackRequested,
-                    )
+                                if (
+                                    (state.playing || state.buffering) &&
+                                    (
+                                        !isScreenInteractive() ||
+                                            activityHasStarted &&
+                                            !activityStarted &&
+                                            !isInPictureInPictureMode
+                                    )
+                                ) {
+                                    pausePlaybackForLifecycle("state_resumed_while_hidden")
+                                } else if (state.playing) {
+                                    startPlaybackKeepAliveService()
+                                }
+                            },
+                            // Every tick: in-process position consumers, plus a ten-second (or post-seek)
+                            // media-session position refresh that does not rebuild the notification.
+                            onPlaybackProgress = { state, item ->
+                                activeState = state
+                                applyPendingEnrichment()
+                                if (
+                                    state.playing &&
+                                    state.hasNext &&
+                                    state.remainingMs in 1L..EPISODE_REFRESH_NEAR_END_MS
+                                ) {
+                                    refreshEpisodes()
+                                }
+                                if (
+                                    playerLaunchGeneration == launchGeneration &&
+                                    state.currentIndex in playbackItems.value.indices
+                                ) {
+                                    launchViewModel.resume = state.currentIndex to state.positionMs.coerceAtLeast(0L)
+                                }
+                                ActivePlayback.update(
+                                    item?.title.orEmpty(),
+                                    state,
+                                )
+                                val now = SystemClock.elapsedRealtime()
+                                if (mediaSessionPositionSync.shouldPublish(state, now)) {
+                                    publishMediaSessionState(state, now)
+                                }
+                            },
+                            onVideoBounds = { bounds ->
+                                // Layout reports this on every pass - every frame of a transition - and each
+                                // params update builds three PendingIntents and makes a system call. Only a
+                                // moved rect changes the hint.
+                                if (bounds != videoBounds) {
+                                    videoBounds = bounds
+                                    updatePictureInPictureParams()
+                                }
+                            },
+                            onBack = ::closePlayerAndReturn,
+                            onEnterPictureInPicture = ::enterPlayerPictureInPicture,
+                            onRefreshEpisodes = { refreshEpisodes(force = true) },
+                            onRemotePlayRequested = ::ensureAudioFocus,
+                            remoteChrome = tvChromeController.takeIf { televisionDevice },
+                            launchStartedElapsedMs = launchViewModel.launchStartedElapsedMs,
+                            startPlaybackRequested = startPlaybackRequested,
+                        )
+                    }
                 }
             }
         }
@@ -1117,7 +1129,9 @@ class PlayerActivity : ComponentActivity() {
         stopPlaybackKeepAliveService()
         abandonAudioFocus()
         if (::notificationController.isInitialized) {
-            notificationController.cancel()
+            // The television plays on after the player closes, so a cast's live update stays with the
+            // app until the session ends. A recreate hands nothing over: the new player takes it.
+            notificationController.cancel(handOverCast = !isChangingConfigurations)
         }
         if (mediaReceiverRegistered) {
             runCatching { unregisterReceiver(mediaActionReceiver) }

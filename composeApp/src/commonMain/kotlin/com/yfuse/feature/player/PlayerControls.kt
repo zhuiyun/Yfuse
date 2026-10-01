@@ -47,7 +47,6 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalAccessibilityManager
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -62,6 +61,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.DarkPalette
+import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LightEffect
@@ -75,20 +75,21 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.rememberScreenReaderActive
 import com.yfuse.core.model.PlaybackChapter
+import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.tv.player.TvPlayerChromeBridge
 import com.yfuse.tv.player.TvPlayerChromeCommandType
 import com.yfuse.tv.player.TvPlayerChromeLayer
 import com.yfuse.tv.player.TvPlayerChromePanel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.isActive
 import kotlin.math.abs
 import kotlin.time.TimeSource
 import com.yfuse.core.designsystem.ThemeText as Text
 
-/** Controls fade out after this long without interaction, while playing. */
 private const val MAX_ERROR_ALTERNATIVES = 3
 private const val DOUBLE_TAP_BURST_WINDOW_MS = 900L
+
+/** Controls fade out after this long without interaction, while playing or settled in a pause. */
 private const val AUTO_HIDE_MS = 5_000L
 private const val CHAT_PREVIEW_MS = 4_000L
 private const val GESTURE_HUD_MS = 1_600L
@@ -167,22 +168,96 @@ internal fun shouldShowManualSkipPill(
 ): Boolean = segmentLabel != null && countdownSeconds == null && (controlsVisible || segmentJustEntered)
 
 /**
- * 长按快进/快退 — how fast the playhead runs while a press is held down.
- *
- * Holding used to jump to 2× playback, which is a different thing than it looks like:
- * the picture keeps playing and the finger has to stay down to keep it there, so
- * skipping a minute of credits meant holding for thirty seconds and watching them. A
- * held press now runs along the timeline instead, one step of its gear per
- * [HOLD_SEEK_TICK_MS] — 10× to start, 30× once the press has lasted [HOLD_SEEK_RAMP_MS]
- * without the finger shifting gear itself. A sideways slide shifts between standing still,
- * 10×, 30× and 60× ([holdScanGearFor]). This keeps short holds precise while still allowing
- * a long hold to cross an episode.
- *
- * The control proposes a seek every 300ms while held. The player-level latest-wins reducer merges
- * bursts before they reach a local engine or Cast receiver, while the HUD remains immediate.
+ * Where a double tap on a side of the picture lands, [deltaMs] from [positionMs]. Null while the
+ * duration is unknown — a file still opening, the next episode loading, a live stream — where the
+ * clamp could only land on 0:00 and restart the episode over the resume point it was opening at.
  */
-private const val HOLD_SEEK_TICK_MS = 300L
-private const val HOLD_SEEK_RAMP_MS = 3_000L
+internal fun doubleTapSeekTarget(
+    positionMs: Long,
+    durationMs: Long,
+    deltaMs: Long,
+): Long? = if (durationMs <= 0L) null else (positionMs + deltaMs).coerceIn(0L, durationMs)
+
+/** What the gesture HUD says as a gesture or a key starts playback, and as one pauses it. */
+private const val HUD_PLAY = "播放"
+private const val HUD_PAUSE = "暂停"
+
+/**
+ * The gesture HUD's line while [centreKeysShown] — the paused key or the ending's keys — hold the
+ * middle of the frame. Everything is still said, beneath them, except 播放 and 暂停: the keys say
+ * that already, and the double tap that pauses would only stack the word on the key it brought up.
+ */
+internal fun gestureHudLine(
+    message: String?,
+    centreKeysShown: Boolean,
+): String? = message?.takeUnless { centreKeysShown && (it == HUD_PLAY || it == HUD_PAUSE) }
+
+/**
+ * Where the gesture HUD's centre sits while the paused key or the ending's keys are up: below their
+ * discs by half the HUD and a little air, the clearance the scrub preview keeps above the middle.
+ */
+private val GestureHudBelowCentreKeys = CenterKeySize / 2 + 32.dp
+
+/**
+ * Which way a drag across the picture goes: sideways to seek, up and down for brightness or volume.
+ * Decided once, by the way the finger went to get past touch slop, and kept until it lets go.
+ * Re-decided from the running totals on every sample, a brightness or volume drag that came back
+ * down with a little sideways drift turned into a seek on release, and a scrub that went there and
+ * back into brightness or volume.
+ */
+internal class PictureDragAxis {
+    /** True for a seek, false for brightness or volume; null until the drag has gone anywhere. */
+    var sideways: Boolean? = null
+        private set
+
+    fun reset() {
+        sideways = null
+    }
+
+    /** The finger is [dx], [dy] from where it went down; the axis the drag is held to. */
+    fun follow(
+        dx: Float,
+        dy: Float,
+    ): Boolean = sideways ?: (abs(dx) > abs(dy)).also { sideways = it }
+}
+
+/** How a send that 发送弹幕 asked for stands, as the player's 弹幕 state tells it. */
+internal enum class DanmakuSendProgress {
+    InFlight,
+    Sent,
+    Failed,
+}
+
+/**
+ * Read once a send has been asked for. The source marks the send as under way before the request
+ * returns, so not sending with no error means it has gone through already — however soon after the
+ * press that was.
+ */
+internal fun danmakuSendProgress(
+    sending: Boolean,
+    error: String?,
+): DanmakuSendProgress =
+    when {
+        sending -> DanmakuSendProgress.InFlight
+        error != null -> DanmakuSendProgress.Failed
+        else -> DanmakuSendProgress.Sent
+    }
+
+/**
+ * Where 有新消息 is measured from: the newest line someone else wrote. Your own never count — a
+ * pending one carries a negative local id and the server's echo of it a new one, and either used to
+ * light the dot for a sticker you had just sent.
+ */
+internal fun chatReadMark(messages: List<WatchChatMessage>): Long? = messages.lastOrNull { !it.isMine }?.id
+
+/** 有新消息: someone else has written since [readMark], or at all while nothing has been read. */
+internal fun hasUnreadChat(
+    messages: List<WatchChatMessage>,
+    readMark: Long?,
+): Boolean {
+    val latest = chatReadMark(messages) ?: return false
+    return readMark == null || latest > readMark
+}
 
 /**
  * Settings use one consistent floating panel and one consistent chip family.
@@ -366,6 +441,10 @@ internal fun PlayerControls(
     var lastReadChatId by remember { mutableStateOf<Long?>(null) }
     var danmakuSearchOpen by remember { mutableStateOf(false) }
     var danmakuSendOpen by remember { mutableStateOf(false) }
+    // 发送弹幕 waits for its answer: a send it asked for and has not heard back about, and whether it
+    // has asked since it opened — the error it shows is that send's, not one from an earlier visit.
+    var danmakuSendAwaited by remember { mutableStateOf(false) }
+    var danmakuSendTried by remember { mutableStateOf(false) }
     var gestureHud by remember { mutableStateOf<String?>(null) }
     // 键盘快捷键 on a phone, tablet or Chromebook; TV's remote has its own controller.
     val keyboardShortcuts = hardwareKeyboard && remoteChrome == null
@@ -377,20 +456,13 @@ internal fun PlayerControls(
     var focusInside by remember { mutableStateOf(false) }
     val anchorFocused = keyboardShortcuts && keyboardAnchorFocused
     val controlsHaveFocus = focusInside && !anchorFocused
-    // -1 while a held press is rewinding, +1 while it is fast-forwarding, 0 when no press
-    // is held. [holdSeekTarget] is the newest position proposed to the playback coordinator.
-    var holdSeekDirection by remember { mutableIntStateOf(0) }
     var seekPulseRevision by remember(state.currentIndex) { mutableIntStateOf(0) }
     var seekPulsePosition by remember { mutableStateOf(Offset.Zero) }
     var seekBurstDirection by remember { mutableIntStateOf(0) }
     var seekBurstMs by remember { mutableLongStateOf(0L) }
     var seekBurstMark by remember { mutableStateOf<TimeSource.Monotonic.ValueTimeMark?>(null) }
-    var holdSeekTarget by remember { mutableLongStateOf(0L) }
-    // 长按扫描换挡: the held side's gear, followed by the pointer observer and the ticking loop.
-    val holdScan = remember { HoldScanGears() }
     // Where a sideways swipe across the picture would land, for the card over the HUD; null otherwise.
     var pictureScrubMs by remember { mutableStateOf<Long?>(null) }
-    val holdScanStepPx = with(LocalDensity.current) { HoldScanGearStep.toPx() }
     // 长按中间: the gear while the middle third is held, null otherwise, and where the hold began.
     var speedBoostGear by remember { mutableStateOf<Int?>(null) }
     var speedBoostOriginX by remember { mutableFloatStateOf(0f) }
@@ -500,7 +572,7 @@ internal fun PlayerControls(
                 watchRoom = latestWatchConnected,
                 casting = latestCasting,
                 durationMs = latestDuration,
-                finished = state.ended || state.error != null,
+                finished = speedBoostFinished(playback.value),
             )
         if (refusal != null) {
             refusal.message?.let { message ->
@@ -583,7 +655,7 @@ internal fun PlayerControls(
     fun performKeyAction(action: PlayerKeyAction) {
         when (action) {
             PlayerKeyAction.TogglePlay -> {
-                gestureHud = if (playback.value.playing) "暂停" else "播放"
+                gestureHud = if (playback.value.playing) HUD_PAUSE else HUD_PLAY
                 latestOnPlayPause()
             }
             is PlayerKeyAction.Seek -> {
@@ -626,7 +698,7 @@ internal fun PlayerControls(
         danmakuSendOpen = false
         watchDialogOpen = false
         watchChatOpen = true
-        lastReadChatId = watch.chatMessages.lastOrNull()?.id
+        lastReadChatId = chatReadMark(watch.chatMessages)
         chatPreviewVisible = false
         poke()
     }
@@ -675,7 +747,7 @@ internal fun PlayerControls(
         remember {
             {
                 watchChatOpen = false
-                lastReadChatId = latestChatMessages.lastOrNull()?.id
+                lastReadChatId = chatReadMark(latestChatMessages)
             }
         }
 
@@ -798,38 +870,62 @@ internal fun PlayerControls(
         runCatching { playKeyFocus.requestFocus() }
     }
 
+    val stoppedAtItemEnd by remember(playback) {
+        derivedStateOf { playbackStoppedAtItemEnd(playback.value) }
+    }
+
+    /**
+     * Paused, with one tap back into playback.
+     *
+     * A double tap in the middle of the frame pauses, and the controls it raised fade a
+     * few seconds later — leaving a still frame with nothing on it to say the film is
+     * paused rather than stalled, and no way back that does not start with a tap to bring
+     * the controls round again. This outlives the control overlay for that reason.
+     *
+     * Not while buffering: `playing` is false throughout startup and every seek, and a
+     * resume button over a frame that is already coming back is a lie. Not once the item
+     * has ended or stopped at its end either — the ending's keys below own that moment,
+     * and "paused" would be the wrong word for it.
+     *
+     * A guest whose room is driven by its host still needs to be told the film is paused,
+     * so the key is drawn for them too — dimmed and inert, since the tap would only be
+     * refused. That is the whole difference between the two states, which is why it is
+     * one control and not two: the pair that used to cover this drew a 28dp 暂停 badge
+     * underneath a translucent 64dp 播放 disc, so both were on screen at once and the
+     * smaller one showed through the larger.
+     */
+    val showPausedKey =
+        !state.playing &&
+            !state.buffering &&
+            !state.ended &&
+            state.error == null &&
+            !stoppedAtItemEnd
+
     LaunchedEffect(
         visible,
         locked,
-        settingsPanelKind,
-        quickPopup,
-        drawerOpen,
-        danmakuSearchOpen,
-        danmakuSendOpen,
-        watchChatOpen,
+        remotePanel,
         state.playing || (state.buffering && state.positionMs > 0L),
+        showPausedKey,
         interactions,
         accessibilityManager,
         controlsHaveFocus,
         screenReaderActive,
         scrubbing,
     ) {
-        val overlayOpen =
-            gestureHelpOpen ||
-                settingsPanelKind != null ||
-                quickPopup != null ||
-                drawerOpen ||
-                danmakuSearchOpen ||
-                danmakuSendOpen ||
-                watchChatOpen
         // Keep the hide timer stable across NativeDirect's playing <-> buffering handoff.
         // A remote Range stall is still an active playback request, not a user pause.
         // During initial startup we wait until playback has actually advanced or rendered.
         val playbackActive = state.playing || (state.buffering && state.positionMs > 0L)
+        // A settled pause lets the controls go too, once nothing has touched them for as long: the
+        // paused key outlives them, and 暂停信息层 waits for them to be gone. Not at the end of an
+        // item, whose keys own that moment, and not under the lock.
+        val pausedAtRest = showPausedKey && !locked
         if (
             !visible ||
-            !playbackActive ||
-            overlayOpen ||
+            !(playbackActive || pausedAtRest) ||
+            // Never out from under a panel, a popup, the drawer or a dialog open over them.
+            remotePanel != null ||
             // Focus holds the controls up for a keyboard, which has no other way to keep them. A
             // remote restarts this timer with every key it sends (ShowControls pokes), so there a
             // focused key alone must not park the controls over the picture for good.
@@ -864,18 +960,20 @@ internal fun PlayerControls(
             gestureHud = null
         }
     }
+    // The preview answers someone else's line, as 有新消息 does: your own, sent from the chat
+    // you have just closed, is nothing new to you.
     LaunchedEffect(
         watch.roomCode,
-        watch.chatMessages.lastOrNull()?.id,
+        chatReadMark(watch.chatMessages),
         watchChatOpen,
         watch.chatPreviewEnabled,
         accessibilityManager,
     ) {
-        val latestId = watch.chatMessages.lastOrNull()?.id
+        val latestId = chatReadMark(watch.chatMessages)
         if (previewRoomCode != watch.roomCode) {
             previewRoomCode = watch.roomCode
             lastPreviewedChatId = latestId
-            lastReadChatId = latestId
+            lastReadChatId = chatReadMark(watch.chatMessages)
             chatPreviewVisible = false
             if (!watch.connected) watchChatOpen = false
             return@LaunchedEffect
@@ -891,7 +989,7 @@ internal fun PlayerControls(
             return@LaunchedEffect
         }
         if (watchChatOpen) {
-            lastReadChatId = latestId
+            lastReadChatId = chatReadMark(watch.chatMessages)
             lastPreviewedChatId = latestId
             chatPreviewVisible = false
             return@LaunchedEffect
@@ -911,6 +1009,20 @@ internal fun PlayerControls(
             chatPreviewVisible = false
         }
     }
+    // 发送弹幕 used to close as 发送 was pressed, before the send had gone anywhere, so a failure was
+    // never seen and the line was lost with the dialog. It closes once the send has gone through, and
+    // a failure leaves it up with the draft and the reason.
+    LaunchedEffect(danmakuSendAwaited, danmaku.sending, danmaku.sendError) {
+        if (!danmakuSendAwaited) return@LaunchedEffect
+        when (danmakuSendProgress(danmaku.sending, danmaku.sendError)) {
+            DanmakuSendProgress.InFlight -> Unit
+            DanmakuSendProgress.Failed -> danmakuSendAwaited = false
+            DanmakuSendProgress.Sent -> {
+                danmakuSendAwaited = false
+                danmakuSendOpen = false
+            }
+        }
+    }
     // A room or a cast that begins while the middle is held owns the rate from then on.
     LaunchedEffect(watch.connected, castingDeviceId) {
         if (watch.connected || castingDeviceId != null) endSpeedBoost()
@@ -928,31 +1040,6 @@ internal fun PlayerControls(
     )
     // The next item and a cast bring their own subtitles: the replay's is dropped, not put back.
     LaunchedEffect(state.currentIndex, castingDeviceId) { endSubtitlePeek(null) }
-    // Runs for as long as the press is held; cancelled by the release setting the
-    // direction back to 0. Re-stamping the HUD every tick also keeps the 850ms
-    // auto-clear above from taking it away mid-hold.
-    LaunchedEffect(holdSeekDirection) {
-        val direction = holdSeekDirection
-        if (direction == 0) return@LaunchedEffect
-        var heldMs = 0L
-        while (isActive) {
-            val span = latestDuration.coerceAtLeast(1L)
-            // A finger that has not slid gets the ramp holds always had: three seconds at 10×, then 30×.
-            if (heldMs >= HOLD_SEEK_RAMP_MS && holdScan.ramp(direction, holdScanStepPx)) {
-                haptics.play(HapticSignal.Tick)
-            }
-            val step = holdScanStepMs(holdScan.gear, HOLD_SEEK_TICK_MS)
-            // Standing still proposes nothing new: the last seek stands, and letting go lands there.
-            if (step > 0L) {
-                holdSeekTarget = (holdSeekTarget + direction * step).coerceIn(0L, span)
-                // Proposed seek while held; PlayerRoot merges closely-spaced commands latest-wins.
-                latestOnSeek(holdSeekTarget)
-            }
-            gestureHud = holdScanLabel(direction, holdScan.gear, holdSeekTarget, span)
-            delay(HOLD_SEEK_TICK_MS)
-            heldMs += HOLD_SEEK_TICK_MS
-        }
-    }
 
     // The volume rocker raises the slider; touching the slider keeps it up. Counted
     // separately from `interactions` so that tapping anywhere else on the picture doesn't
@@ -1025,6 +1112,15 @@ internal fun PlayerControls(
     // outright. A television has no such swipe, and its Back unlocks through [closeTopRemoteLayer].
     // A failure takes the lock's place on screen, and Back is not held for a lock nobody can see.
     PlatformBackHandler(enabled = locked && state.error == null && remoteChrome == null, onBack = ::refuseWhileLocked)
+    // A television's Back closes one layer at a time. Before Android 13 it arrives as a key, which
+    // TvRemoteInputController answers before this sees it; from 13 the predictive-back opt-in hands it
+    // to the window's back dispatcher and no key is delivered, so the player used to close with the
+    // controls, the lock or a control request still up. Registered before any panel or drawer opens,
+    // so the ones with their own handler still close themselves first.
+    PlatformBackHandler(
+        enabled = remoteChrome != null && remoteLayer != TvPlayerChromeLayer.Hidden,
+        onBack = ::closeTopRemoteLayer,
+    )
 
     // 片尾接管下一集: the credits draw the picture into a corner with the next episode beside it.
     // Not the guest's to take, not a cast's, not under the lock or an automatic skip's countdown.
@@ -1038,8 +1134,7 @@ internal fun PlayerControls(
                 watchLocked ||
                 castingDeviceId != null ||
                 locked ||
-                skip.countdownSeconds != null ||
-                holdSeekDirection != 0,
+                skip.countdownSeconds != null,
     )
     val creditsTakeover = creditsPhase != CreditsTakeoverPhase.Off
     val latestOnCreditsTakeover by rememberUpdatedState(onCreditsTakeover)
@@ -1055,7 +1150,8 @@ internal fun PlayerControls(
         pauseInfoEligible(
             playing = state.playing,
             buffering = state.buffering,
-            ended = state.ended,
+            // Parked on the last frame is the end of the episode, not a pause in the middle of it.
+            ended = state.ended || stoppedAtItemEnd,
             failed = state.error != null,
             controlsVisible = visible,
             overlayOpen = remotePanel != null || creditsTakeover,
@@ -1132,24 +1228,24 @@ internal fun PlayerControls(
                 // Keyed on nothing: `settingsPanelKind`, `drawerOpen` and `visible` are read
                 // through their state delegates below, so the detector already sees the
                 // current values without being torn down. Keying on them meant any of
-                // them changing restarted the gesture stream mid-press — which the hold
-                // to fast-forward cannot survive, since it is the release that lands the
-                // seek and `poke()` flips `visible` the moment the hold starts.
+                // them changing restarted the gesture stream mid-press — which 长按中间
+                // cannot survive, since it is the release that ends the boost and the boost
+                // hides the chrome the moment it starts.
+                //
+                // Every picture gesture stands down while playback has failed. The failure
+                // surface takes no touches of its own, and a double tap or a swipe used to reach
+                // the failed engine through it, moving the position a 重试 then resumed from.
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onPress = {
-                            // The engine follows merged held ticks; release only stops the producer.
                             tryAwaitRelease()
-                            if (holdSeekDirection != 0) {
-                                holdSeekDirection = 0
-                                poke()
-                            }
                             // 长按中间 goes back to how it found things, and leaves the chrome
                             // hidden: the hold was for watching.
                             endSpeedBoost()
                         },
                         onTap = { offset ->
                             when {
+                                state.error != null -> Unit
                                 locked -> revealLock(explain = false)
                                 watchChatOpen -> watchChatOpen = false
                                 danmakuSendOpen -> danmakuSendOpen = false
@@ -1164,6 +1260,7 @@ internal fun PlayerControls(
                             }
                         },
                         onDoubleTap = { offset ->
+                            if (state.error != null) return@detectTapGestures
                             // The lock's own catcher takes the touch before it gets here; this is the
                             // floor under it, so no path through the lock can seek or pause.
                             if (locked) {
@@ -1180,6 +1277,10 @@ internal fun PlayerControls(
                                 fun burstSeek(direction: Int) {
                                     // 双击步长, as 播放设置 last left it.
                                     val step = latestGestures.doubleTapSeekMs
+                                    // With no duration yet there is nothing to move along: no seek,
+                                    // no running total and no HUD, only the controls coming up.
+                                    val target =
+                                        doubleTapSeekTarget(latestPosition, latestDuration, direction * step) ?: return
                                     val continuing =
                                         seekBurstDirection == direction &&
                                             seekBurstMark?.let {
@@ -1190,66 +1291,37 @@ internal fun PlayerControls(
                                     seekPulseRevision++
                                     seekBurstDirection = direction
                                     seekBurstMark = TimeSource.Monotonic.markNow()
-                                    latestOnSeek(
-                                        (latestPosition + direction * step)
-                                            .coerceIn(0L, latestDuration),
-                                    )
+                                    latestOnSeek(target)
                                     val verb = if (direction < 0) "快退" else "快进"
                                     gestureHud = "$verb ${seekBurstMs / 1_000L} 秒"
+                                    haptics.play(HapticSignal.Confirm)
                                 }
                                 when {
                                     offset.x < size.width / 3f -> burstSeek(-1)
                                     offset.x > size.width * 2f / 3f -> burstSeek(1)
                                     else -> {
                                         latestOnPlayPause()
-                                        gestureHud = if (state.playing) "暂停" else "播放"
+                                        gestureHud = if (state.playing) HUD_PAUSE else HUD_PLAY
+                                        haptics.play(HapticSignal.Confirm)
                                     }
                                 }
-                                haptics.play(HapticSignal.Confirm)
                             }
                             poke()
                         },
                         onLongPress = { offset ->
+                            if (state.error != null) return@detectTapGestures
                             if (locked) {
                                 refuseWhileLocked()
                                 return@detectTapGestures
                             }
                             if (!allowsPlayerDrag(offset.y, currentSystemGestureTop)) return@detectTapGestures
-                            // Thirds, exactly as the double tap divides the picture: left
-                            // rewinds, right fast-forwards, and the middle — where the double
-                            // tap plays and pauses rather than seeking — plays faster for as
-                            // long as it is held. The hold used to split the frame in halves,
-                            // so the same spot on the picture meant 播放 to one gesture and 快进
-                            // to the other.
-                            val direction =
-                                when {
-                                    offset.x < size.width / 3f -> -1
-                                    offset.x > size.width * 2f / 3f -> 1
-                                    else -> 0
-                                }
-                            // 中间长按 · 关闭 in 播放设置 leaves the held middle to do nothing, as it once did.
-                            if (
-                                direction == 0 &&
-                                latestGestures.centerHoldSpeedBoost &&
-                                startSpeedBoost(offset.x)
-                            ) {
+                            // Only the middle third holds anything: where the double tap plays and
+                            // pauses, a hold plays faster for as long as it lasts. The two sides,
+                            // where the double tap seeks, hold nothing on purpose, and neither does
+                            // the middle with 中间长按 · 关闭 in 播放设置.
+                            val middle = offset.x >= size.width / 3f && offset.x <= size.width * 2f / 3f
+                            if (middle && latestGestures.centerHoldSpeedBoost && startSpeedBoost(offset.x)) {
                                 return@detectTapGestures
-                            }
-                            when {
-                                direction == 0 -> Unit
-                                latestWatchLocked -> {
-                                    gestureHud = "房主控制播放"
-                                    haptics.play(HapticSignal.Reject)
-                                }
-                                latestDuration <= 0L -> Unit
-                                else -> {
-                                    holdSeekTarget = latestPosition
-                                    holdScan.start(offset.x)
-                                    holdSeekDirection = direction
-                                    // A hold that has taken hold — the same signal a long
-                                    // press gets everywhere else in the app.
-                                    haptics.play(HapticSignal.Confirm)
-                                }
                             }
                             poke()
                         },
@@ -1260,15 +1332,21 @@ internal fun PlayerControls(
                     var totalX = 0f
                     var totalY = 0f
                     var startX = 0f
+                    var startY = 0f
                     var seekTarget = latestPosition
                     var volumeAtDragStart = latestVolume()
                     var brightnessAtDragStart = latestBrightness()
+                    val axis = PictureDragAxis()
                     detectPlayerDragGestures(
-                        canStart = { origin -> !locked && allowsPlayerDrag(origin.y, currentSystemGestureTop) },
+                        canStart = { origin ->
+                            !locked && state.error == null && allowsPlayerDrag(origin.y, currentSystemGestureTop)
+                        },
                         onDragStart = { offset ->
                             startX = offset.x
+                            startY = offset.y
                             totalX = 0f
                             totalY = 0f
+                            axis.reset()
                             pictureScrubMs = null
                             seekTarget = latestPosition
                             volumeAtDragStart = latestVolume()
@@ -1279,10 +1357,10 @@ internal fun PlayerControls(
                             // 长按中间 ends in its own release, with the chrome left hidden.
                             if (speedBoostGear == null) {
                                 if (
-                                    holdSeekDirection == 0 &&
-                                    abs(totalX) > abs(totalY) &&
+                                    axis.sideways == true &&
                                     latestDuration > 0 &&
-                                    !latestWatchLocked
+                                    !latestWatchLocked &&
+                                    state.error == null
                                 ) {
                                     latestOnSeek(seekTarget)
                                 }
@@ -1295,19 +1373,21 @@ internal fun PlayerControls(
                         },
                     ) { change, amount ->
                         change.consume()
-                        // A finger that drifts while held is still holding, not scrubbing:
-                        // the hold owns the timeline until it lets go, and a slide during
-                        // either hold changes gear below instead.
-                        if (holdSeekDirection != 0 || speedBoostGear != null) return@detectPlayerDragGestures
+                        // A finger that drifts during 长按中间 is still holding, not scrubbing: a
+                        // slide then changes gear below instead. A failure ends a drag's say too.
+                        if (speedBoostGear != null || state.error != null) return@detectPlayerDragGestures
                         totalX += amount.x
                         totalY += amount.y
-                        if (abs(totalX) > abs(totalY)) {
+                        if (axis.follow(change.position.x - startX, change.position.y - startY)) {
                             // Brightness/volume drags stay available to guests; only the
                             // horizontal scrub is the host's to make.
                             if (latestWatchLocked) {
                                 gestureHud = "房主控制播放"
                                 return@detectPlayerDragGestures
                             }
+                            // Nothing to scrub along before the duration is known, and the release
+                            // would not seek: no target to show either.
+                            if (latestDuration <= 0L) return@detectPlayerDragGestures
                             val span = latestDuration.coerceAtLeast(1L)
                             seekTarget =
                                 (
@@ -1333,30 +1413,14 @@ internal fun PlayerControls(
                         }
                     }
                 }.pointerInput(Unit) {
-                    // The sideways slide between gears, for 长按中间 and for 长按扫描 alike. Neither
-                    // detector above can follow it: once a long press has fired, the tap detector
-                    // consumes every move until release, and the drag detector abandons a gesture
-                    // on the first consumed move it sees before its slop. This one only watches,
-                    // and only while a hold is on — it consumes nothing and decides nothing else.
+                    // The sideways slide between 长按中间's gears. Neither detector above can follow
+                    // it: once a long press has fired, the tap detector consumes every move until
+                    // release, and the drag detector abandons a gesture on the first consumed move
+                    // it sees before its slop. This one only watches, and only while the boost is
+                    // held — it consumes nothing and decides nothing else.
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent()
-                            val scanDirection = holdSeekDirection
-                            if (scanDirection != 0) {
-                                val finger = event.changes.firstOrNull { it.pressed } ?: continue
-                                if (holdScan.follow(finger.position.x, scanDirection, HoldScanGearStep.toPx())) {
-                                    haptics.play(HapticSignal.Tick)
-                                    // Said now rather than on the next tick, which may be 300 ms off.
-                                    gestureHud =
-                                        holdScanLabel(
-                                            scanDirection,
-                                            holdScan.gear,
-                                            holdSeekTarget,
-                                            latestDuration.coerceAtLeast(1L),
-                                        )
-                                }
-                                continue
-                            }
                             val gear = speedBoostGear ?: continue
                             val finger = event.changes.firstOrNull { it.pressed } ?: continue
                             val next =
@@ -1376,12 +1440,13 @@ internal fun PlayerControls(
                     // 捏合填充. Last on the picture on purpose: the main pass reaches it before the
                     // detectors above, so the changes it consumes are what cancel their gestures.
                     detectPinchFill(
-                        canPinch = { origin -> !locked && allowsPlayerDrag(origin.y, currentSystemGestureTop) },
+                        canPinch = { origin ->
+                            !locked && state.error == null && allowsPlayerDrag(origin.y, currentSystemGestureTop)
+                        },
                         filled = { latestFilled },
                         onSecondFinger = {
-                            // The second finger takes over: a hold stops where it got to, and a
-                            // scrub's preview goes with the drag it belonged to.
-                            holdSeekDirection = 0
+                            // The second finger takes over: 长按中间 lets go, and a scrub's preview
+                            // goes with the drag it belonged to.
                             endSpeedBoost()
                             pictureScrubMs = null
                             gestureHud = null
@@ -1403,7 +1468,8 @@ internal fun PlayerControls(
         // animate now — the chrome leaves through the same [ChromeVisibility] it arrives
         // through, and the error surface enters through [ChromeContent] below, which also keeps
         // the message on screen for the length of its own exit. Neither is composed at all once
-        // its exit has finished, so nothing behind an error is live or reachable.
+        // its exit has finished, so none of the chrome behind an error is live or reachable. The
+        // picture's gestures above sit under the error surface too, and stand down on their own.
         val errorMessage = state.error
 
         ChromeVisibility(
@@ -1477,10 +1543,7 @@ internal fun PlayerControls(
                         ambientLight = ambientLight,
                         castActive = castActive,
                         watchConnected = watch.connected,
-                        unreadChat =
-                            watch.chatMessages.lastOrNull()?.id?.let { latest ->
-                                lastReadChatId?.let { latest > it } ?: true
-                            } ?: false,
+                        unreadChat = hasUnreadChat(watch.chatMessages, lastReadChatId),
                         onOpenChat = ::openWatchChat,
                         extras = extras,
                         onKeyActivity = ::poke,
@@ -1686,6 +1749,8 @@ internal fun PlayerControls(
                             },
                             onOpenDanmakuSend = {
                                 settingsPanelKind = null
+                                danmakuSendAwaited = false
+                                danmakuSendTried = false
                                 danmakuSendOpen = true
                             },
                             // Picking a track closes the panel, which used to be the only sign
@@ -1953,13 +2018,19 @@ internal fun PlayerControls(
                     }
                 }
 
-                if (danmakuSendOpen) {
+                // Held through its exit: it closes itself once its line has gone through.
+                DialogPresence(Unit.takeIf { danmakuSendOpen }) {
                     DanmakuSendDialog(
                         sending = danmaku.sending,
-                        error = danmaku.sendError,
-                        onSend = {
-                            danmakuActions.onSend(it)
-                            danmakuSendOpen = false
+                        error = danmaku.sendError.takeIf { danmakuSendTried },
+                        onSend = { text ->
+                            // One line at a time: the keyboard's send key does not wait out 发送中…
+                            // the way the button does.
+                            if (!danmakuSendAwaited && !danmaku.sending) {
+                                danmakuSendAwaited = true
+                                danmakuSendTried = true
+                                danmakuActions.onSend(text)
+                            }
                         },
                         onDismiss = { danmakuSendOpen = false },
                     )
@@ -2030,36 +2101,6 @@ internal fun PlayerControls(
                     )
                 }
 
-                val stoppedAtItemEnd by remember(playback) {
-                    derivedStateOf { playbackStoppedAtItemEnd(playback.value) }
-                }
-
-                /**
-                 * Paused, with one tap back into playback.
-                 *
-                 * A double tap in the middle of the frame pauses, and the controls it raised fade a
-                 * few seconds later — leaving a still frame with nothing on it to say the film is
-                 * paused rather than stalled, and no way back that does not start with a tap to bring
-                 * the controls round again. This outlives the control overlay for that reason.
-                 *
-                 * Not while buffering: `playing` is false throughout startup and every seek, and a
-                 * resume button over a frame that is already coming back is a lie. Not once the item
-                 * has ended or stopped at its end either — the ending's keys below own that moment,
-                 * and "paused" would be the wrong word for it.
-                 *
-                 * A guest whose room is driven by its host still needs to be told the film is paused,
-                 * so the key is drawn for them too — dimmed and inert, since the tap would only be
-                 * refused. That is the whole difference between the two states, which is why it is
-                 * one control and not two: the pair that used to cover this drew a 28dp 暂停 badge
-                 * underneath a translucent 64dp 播放 disc, so both were on screen at once and the
-                 * smaller one showed through the larger.
-                 */
-                val showPausedKey =
-                    !state.playing &&
-                        !state.buffering &&
-                        !state.ended &&
-                        state.error == null &&
-                        !stoppedAtItemEnd
                 // Beneath the 继续播放 key, so that key still resumes; any other touch only puts it away.
                 PauseInfoLayer(
                     shown = pauseInfoShown,
@@ -2171,22 +2212,26 @@ internal fun PlayerControls(
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
                 )
 
-                // 全程缩略图: the frame a swipe across the picture, or a held side, has got to — or,
-                // on a television, a held fast-forward or rewind on the remote.
+                // 全程缩略图: the frame a swipe across the picture has got to — or, on a television, a
+                // held fast-forward or rewind on the remote.
                 PictureScrubPreview(
                     storyboard = trickplay,
-                    positionMs = {
-                        remoteChromeState?.holdPreviewMs
-                            ?: if (holdSeekDirection != 0) holdSeekTarget else pictureScrubMs
-                    },
+                    positionMs = { remoteChromeState?.holdPreviewMs ?: pictureScrubMs },
                     chapters = chapters,
                     modifier = Modifier.align(Alignment.Center),
                 )
 
-                // Suppressed while the resume button occupies the same spot: the double tap that
-                // pauses would otherwise stack "暂停" directly on top of it.
+                // Below the paused key or the ending's keys while they hold the middle, rather than
+                // hidden behind them: for a brightness or volume drag, a scrub's target, a key, a
+                // refusal or a picked track, this is the only readout there is. Only the 播放 and 暂停
+                // those keys already say are left out ([gestureHudLine]).
+                val centreKeysShown = showPausedKey || showEndedKeys
+                val hudLine = gestureHudLine(gestureHud, centreKeysShown)
+                // Kept while a line leaves, so it fades out where it was rather than jumping.
+                val hudBelowKeys = remember { booleanArrayOf(false) }
+                if (hudLine != null) hudBelowKeys[0] = centreKeysShown
                 AnimatedContent(
-                    targetState = gestureHud?.takeIf { !showPausedKey && !showEndedKeys },
+                    targetState = hudLine,
                     contentKey = ::gestureHudMotionKey,
                     transitionSpec = {
                         val swap =
@@ -2208,7 +2253,10 @@ internal fun PlayerControls(
                         swap using Motion.sizeTransform(reduceMotion)
                     },
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier.align(Alignment.Center),
+                    modifier =
+                        Modifier
+                            .align(Alignment.Center)
+                            .offset(y = if (hudBelowKeys[0]) GestureHudBelowCentreKeys else 0.dp),
                     label = "gesture-hud",
                 ) { value ->
                     if (value != null) {

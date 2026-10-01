@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,9 +16,12 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.LongState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -37,8 +41,8 @@ import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalRouteVisible
-import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
+import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
@@ -53,8 +57,17 @@ import kotlin.math.cos
 import kotlin.math.sin
 import com.yfuse.core.designsystem.ThemeText as Text
 
-/** One clock for every visible preset in the tray; standalone sent stickers may own one. */
-private val LocalStickerClock = compositionLocalOf<State<Float>?> { null }
+/** One clock, in frame milliseconds, for every visible preset in the tray; standalone sent stickers may own one. */
+private val LocalStickerClock = compositionLocalOf<LongState?> { null }
+
+/**
+ * 0f..1f through a [periodMs] cycle at [clockMs] on a clock that only ever counts up, so each preset
+ * wraps where its own cycle ends and nowhere else.
+ */
+internal fun stickerMotionPhase(
+    clockMs: Long,
+    periodMs: Int,
+): Float = clockMs.mod(periodMs.toLong()).toFloat() / periodMs
 
 /**
  * One sticker, moving.
@@ -64,8 +77,9 @@ private val LocalStickerClock = compositionLocalOf<State<Float>?> { null }
  * That matters more here than anywhere else in the app — a transcript can hold a dozen of
  * these at once, over a playing film, inside a list somebody is scrolling.
  *
- * 减弱动态效果 stops the motion outright rather than slowing it. A sticker that has stopped
- * moving is still the sticker that was sent; there is nothing to convey by keeping it going.
+ * 减弱动态效果 stops the motion outright rather than slowing it, and so does 静息, which keeps no
+ * bounce, squash or spin. A sticker that has stopped moving is still the sticker that was sent;
+ * there is nothing to convey by keeping it going.
  */
 @Composable
 fun WatchStickerGlyph(
@@ -75,9 +89,9 @@ fun WatchStickerGlyph(
     /** Set false where a still glyph is wanted regardless of the preset — a dense list. */
     animated: Boolean = true,
 ) {
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     val visible = LocalRouteVisible.current
-    val motion = if (animated && visible && !reduceMotion) sticker.motion else WatchStickerMotion.Still
+    val motion = if (animated && visible && !still) sticker.motion else WatchStickerMotion.Still
     val sharedClock = LocalStickerClock.current
     val phase =
         when {
@@ -85,9 +99,7 @@ fun WatchStickerGlyph(
             sharedClock == null -> rememberMotionPhase(motion)
             else ->
                 remember(motion, sharedClock) {
-                    derivedStateOf {
-                        ((sharedClock.value * Motion.STICKER_CLOCK) % motion.periodMs) / motion.periodMs
-                    }
+                    derivedStateOf { stickerMotionPhase(sharedClock.longValue, motion.periodMs) }
                 }
         }
 
@@ -115,6 +127,21 @@ fun WatchStickerGlyph(
                     },
                 ),
     )
+}
+
+/**
+ * The tray's shared clock: frame time, counted rather than looped. A loop of its own length wrapped
+ * every glyph at once, and only the presets whose periods divide it came round to where they were.
+ */
+@Composable
+private fun rememberStickerClock(): LongState {
+    val clock = remember { mutableLongStateOf(0L) }
+    LaunchedEffect(clock) {
+        while (true) {
+            withInfiniteAnimationFrameMillis { clock.longValue = it }
+        }
+    }
+    return clock
 }
 
 /** 0f..1f, once per [WatchStickerMotion.periodMs], forever. */
@@ -225,23 +252,10 @@ internal fun WatchStickerTray(
     modifier: Modifier = Modifier,
 ) {
     val selectedCategory = remember { mutableStateOf(WatchStickerCategory.Reaction) }
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     val visible = LocalRouteVisible.current
     val accent = LocalAccentColors.current
-    val sharedClock =
-        if (reduceMotion || !visible) {
-            null
-        } else {
-            rememberInfiniteTransition(label = "sticker-tray-clock").animateFloat(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec =
-                    infiniteRepeatable(
-                        animation = tween(Motion.STICKER_CLOCK, easing = LinearEasing),
-                    ),
-                label = "sticker-tray-phase",
-            )
-        }
+    val sharedClock = if (still || !visible) null else rememberStickerClock()
     CompositionLocalProvider(LocalStickerClock provides sharedClock) {
         Column(
             modifier = modifier,

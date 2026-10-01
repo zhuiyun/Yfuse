@@ -160,7 +160,36 @@ internal class DetailKeyLiquid(
         val metrics = metrics ?: return null
         return detailKeyFrame(move, clock.elapsed, metrics)
     }
+
+    /** The resume time's opacity now; [progress] is whether there is still a position to resume. */
+    fun resumeAlpha(progress: Boolean): Float {
+        val move = clock.move ?: return 1f
+        val metrics = metrics ?: return 1f
+        return detailResumeAlpha(move, detailKeyFrame(move, clock.elapsed, metrics), metrics, progress)
+    }
 }
+
+/**
+ * Whether 「↻ 从头」 is a key of its own in [frame]: once its label is half in focus. Before that the
+ * row shows one key, and its end plays rather than starting over. No frame is the keys at rest.
+ */
+internal fun fromStartIsKey(frame: DetailKeyFrame?): Boolean = (frame?.label ?: 1f) >= 0.5f
+
+/**
+ * The resume time's opacity in [frame]. A split running back because the progress went takes the
+ * time away as the play key's end comes back out over it; it used to stay to the end and vanish.
+ */
+internal fun detailResumeAlpha(
+    move: DetailKeyMove,
+    frame: DetailKeyFrame,
+    metrics: DetailKeyMetrics,
+    progress: Boolean,
+): Float =
+    if (move == DetailKeyMove.Split && !progress) {
+        ((metrics.width - frame.keyEdge) / (metrics.width - metrics.splitEdge)).coerceIn(0f, 1f)
+    } else {
+        frame.resume
+    }
 
 /**
  * The two keys' bodies along [paths]: the key's lift under the whole outline, then each piece in the

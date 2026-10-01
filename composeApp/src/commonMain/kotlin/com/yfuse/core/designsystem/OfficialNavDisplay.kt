@@ -61,6 +61,12 @@ fun <T : Any> OfficialNavDisplay(
     modifier: Modifier = Modifier,
     motion: OfficialNavMotion = OfficialNavMotion.Stack,
     /**
+     * How going back looks, a back gesture's preview included. That preview starts before
+     * anything has changed, while [motion] still names how the page on top arrived — and at the
+     * root the two differ: back from a tab reached from 搜索 is a tab switch, not 搜索 closing.
+     */
+    popMotion: OfficialNavMotion = motion,
+    /**
      * Routes that only hand off to somewhere else — the player route, which starts the player
      * Activity and pops itself. They are composed so their effects run, but never shown: pushing
      * one used to fade the page out and straight back in under the player's own transition.
@@ -211,10 +217,10 @@ fun <T : Any> OfficialNavDisplay(
                         if (zoom?.suppressPopTransition == true) {
                             zoomBackRouteTransform()
                         } else if (calm && !reduceMotion) {
-                            calmContentTransform(motion, calmTravelPx, popping = true)
+                            calmContentTransform(popMotion, calmTravelPx, popping = true)
                         } else {
                             rootContentTransform(
-                                motion,
+                                popMotion,
                                 reduceMotion,
                                 searchTravelPx,
                                 pushTravelPx,
@@ -227,10 +233,10 @@ fun <T : Any> OfficialNavDisplay(
                         if (zoom?.suppressPopTransition == true) {
                             zoomBackRouteTransform()
                         } else if (calm && !reduceMotion) {
-                            calmContentTransform(motion, calmTravelPx, popping = true, predictive = true)
+                            calmContentTransform(popMotion, calmTravelPx, popping = true, predictive = true)
                         } else {
                             rootContentTransform(
-                                motion,
+                                popMotion,
                                 reduceMotion,
                                 searchTravelPx,
                                 pushTravelPx,
@@ -254,7 +260,8 @@ fun <T : Any> OfficialNavDisplay(
 
 /**
  * 静息 — see [MotionTheme.Calm]: opacity and a few dp of travel, nothing scales. A push fades the
- * new page in over [CALM_PUSH_MS] as it slides [CalmTravel]; going back, and every switch between
+ * new page in over [CALM_PUSH_MS] as it slides [CalmTravel], and the page it covers out over the
+ * same span, so the two are never both under half strength; going back, and every switch between
  * tabs or into 搜索, is a [CALM_SWAP_MS] crossfade.
  */
 private fun calmContentTransform(
@@ -275,7 +282,7 @@ private fun calmContentTransform(
                 (
                     fadeIn(tween(CALM_PUSH_MS, easing = easing)) +
                         slideInHorizontally(tween(CALM_PUSH_MS, easing = easing)) { travelPx }
-                ) togetherWith fadeOut(swap)
+                ) togetherWith fadeOut(tween(CALM_PUSH_MS, easing = easing))
         }
     return ContentTransform(
         targetContentEnter = transform.targetContentEnter,
@@ -307,9 +314,6 @@ private fun rootContentTransform(
     // A gesture's progress is the animation's progress. On the front-loaded house curve a 30%
     // swipe showed about 80% of the way back; linear keeps the page under the finger.
     val easing = if (predictive) LinearEasing else Motion.Curve
-    // Going back from 搜索 is the search closing, whatever motion opened it: the root motion is
-    // worked out from the tab being left, and at the search root that was still SearchEnter.
-    val shown = if (popping && motion == OfficialNavMotion.SearchEnter) OfficialNavMotion.SearchExit else motion
 
     val tabEnter =
         fadeIn(tween(Motion.TAB, easing = easing)) +
@@ -328,7 +332,7 @@ private fun rootContentTransform(
             )
 
     val transform =
-        when (shown) {
+        when (motion) {
             OfficialNavMotion.Stack -> stackContentTransform(popping, pushTravelPx, popTravelPx)
             OfficialNavMotion.RootTab -> tabEnter togetherWith tabExit
             OfficialNavMotion.SearchEnter ->
@@ -346,7 +350,9 @@ private fun rootContentTransform(
             OfficialNavMotion.SearchExit ->
                 tabEnter togetherWith
                     (
-                        fadeOut(tween(Motion.QUICK, easing = easing)) +
+                        // It shrinks away over QUICK but fades over the returning tab's span, by the
+                        // rule above: a QUICK fade left both pages under half strength for a moment.
+                        fadeOut(tween(Motion.TAB, easing = easing)) +
                             scaleOut(
                                 animationSpec = tween(Motion.QUICK, easing = easing),
                                 targetScale = SEARCH_SCALE_FROM,
@@ -417,9 +423,10 @@ private fun stackContentTransform(
                     pushTravelPx
                 }
         ) togetherWith (
-            // Long enough that the page being covered is still there while the new one gains
-            // substance: at 120ms both were below half strength about 40ms in.
-            fadeOut(tween(Motion.STANDARD, easing = Motion.Curve)) +
+            // Over the same span as the new page's fade-in, on the same curve, so the two always add
+            // up to one. Shorter, the page being covered went under half strength before the new
+            // one had reached it — at 120ms about 40ms in, and still for 29–45ms at 180ms.
+            fadeOut(tween(Motion.PUSH, easing = Motion.Curve)) +
                 slideOutHorizontally(tween(Motion.PUSH, easing = Motion.Curve)) { -pushTravelPx / 2 }
         )
     }

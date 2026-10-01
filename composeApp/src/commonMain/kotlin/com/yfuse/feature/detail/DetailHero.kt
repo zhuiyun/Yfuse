@@ -30,15 +30,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -58,6 +64,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
@@ -77,6 +84,7 @@ import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PressFeedback
 import com.yfuse.core.designsystem.backdropBlur
+import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.heroTopScrim
@@ -225,15 +233,19 @@ internal fun Hero(
 ) {
     // 详情页顶图 1.08 → 1, §3.1. The parallax below has always been here; the entrance
     // it belongs to was not, so the artwork simply appeared at rest.
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    //
+    // A scale, so 静息 leaves it out as 减弱动态效果 does. Saveable, so it plays once per arrival:
+    // coming back from a pushed page, and showing as the underlay of a pull-down, compose the
+    // hero again, and it used to grow in again each time.
+    val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
     val sharedEntrance = isSharedMediaArtworkActive(sharedKey)
-    var entered by remember(animationKey) { mutableStateOf(sharedEntrance) }
+    var entered by rememberSaveable(animationKey) { mutableStateOf(sharedEntrance || still) }
     LaunchedEffect(animationKey) { entered = true }
     val entrance by animateFloatAsState(
         targetValue = if (entered) 1f else 0f,
         animationSpec =
             tween(
-                durationMillis = if (reduceMotion) 0 else Motion.EXPAND,
+                durationMillis = if (still) 0 else Motion.EXPAND,
                 easing = Motion.Curve,
             ),
         label = "heroEntrance",
@@ -324,6 +336,7 @@ internal fun DetailTopBar(
     onBack: () -> Unit,
     onPlay: () -> Unit,
     onMore: () -> Unit,
+    modifier: Modifier = Modifier,
     /** What holding 更多 lifts for the finger to slide through; null keeps it a plain button. */
     moreMenu: (() -> LiftMenu)? = null,
     /** 服务器收藏 beside 更多操作; null when the title has no server favourite to switch. */
@@ -338,7 +351,7 @@ internal fun DetailTopBar(
     // is actually under the plate, the fill can go back to being a fill — this bar was the
     // last chrome in the app still compensating for a missing material with alpha.
     val plateFill = surfaceColor.copy(alpha = 0.72f)
-    Box(Modifier.fillMaxWidth()) {
+    Box(modifier.fillMaxWidth()) {
         Box(
             Modifier
                 .matchParentSize()
@@ -463,9 +476,10 @@ private fun DetailTopBarIcon(
             .pressable(
                 haptic = HapticSignal.Confirm.takeIf { checked != null },
                 role = if (checked == null) Role.Button else Role.Checkbox,
+                focusShape = TopBarKeyFocusShape,
                 onClick = onClick,
             ).touchTarget()
-            .size(38.dp)
+            .size(TopBarKeySize)
             .liquidGlass(
                 shape = CircleShape,
                 fill = { lerp(Color(0xFF11151F).copy(alpha = 0.28f), palette.card2, progress.value) },
@@ -482,6 +496,27 @@ private fun DetailTopBarIcon(
         with(painter) {
             draw(size, colorFilter = ColorFilter.tint(lerp(Color.White, palette.text, progress.value)))
         }
+    }
+}
+
+private val TopBarKeySize = 38.dp
+
+/**
+ * The top bar key's visible circle, centred in its 48dp target: the focus ring and the press tint
+ * outline what is seen, where they drew the control rectangle around the whole target.
+ */
+private object TopBarKeyFocusShape : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density,
+    ): Outline {
+        val diameter = minOf(with(density) { TopBarKeySize.toPx() }, size.width, size.height)
+        val left = (size.width - diameter) / 2f
+        val top = (size.height - diameter) / 2f
+        return Outline.Rounded(
+            RoundRect(left, top, left + diameter, top + diameter, CornerRadius(diameter / 2f)),
+        )
     }
 }
 

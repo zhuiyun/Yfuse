@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -142,6 +143,27 @@ private class DownloadRemoval(
     val message: String,
 )
 
+/**
+ * The deletes already handed to the manager that the list has to go on hiding. [leaving] maps each
+ * id to the error its row carried when it went.
+ *
+ * The manager deletes on a queue of its own, a row at a time, and marks each row 已暂停 while its
+ * files go, so a row stays hidden until it has left [items]: showing it again with the toast gone
+ * brought a whole selection back as 已暂停, to vanish again one by one. A row still there with an
+ * error it did not have is a delete that failed, and is let go so that it can say so.
+ */
+internal fun downloadsStillLeaving(
+    leaving: Map<String, String?>,
+    items: List<OfflineMedia>,
+): Map<String, String?> {
+    if (leaving.isEmpty()) return leaving
+    val rows = items.associateBy(OfflineMedia::id)
+    return leaving.filter { (id, error) ->
+        val row = rows[id] ?: return@filter false
+        row.error == null || row.error == error
+    }
+}
+
 @Composable
 internal fun DownloadsScreen(
     onBack: () -> Unit,
@@ -163,10 +185,13 @@ internal fun DownloadsScreen(
     // are hidden from the list — and from every count — while it waits.
     val removals = remember { UndoWindow<DownloadRemoval>() }
     var removal by remember { mutableStateOf<DownloadRemoval?>(null) }
+    // The deletes past their toast, hidden until the manager is done with them; see
+    // [downloadsStillLeaving].
+    var leaving by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
     // A fresh toast for every delete: two deletes can read alike, and a toast only re-posts on a
     // new message.
     var removalToast by remember { mutableIntStateOf(0) }
-    val hidden = removal?.ids.orEmpty()
+    val hidden = removal?.ids.orEmpty() + leaving.keys
     val items =
         remember(allItems, access, hidden) {
             allItems.filter { access.allowsServer(it.serverId) && it.id !in hidden }
@@ -198,7 +223,13 @@ internal fun DownloadsScreen(
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
 
-    fun commit(change: DownloadRemoval) = manager.removeMany(change.ids.toList())
+    // However it is committed — its toast gone, or a newer delete taking its place — a delete's rows
+    // stay hidden past this point, until the manager has dropped them.
+    fun commit(change: DownloadRemoval) {
+        val rows = manager.items.value.filter { it.id in change.ids }
+        leaving = leaving + rows.associate { it.id to it.error }
+        manager.removeMany(change.ids.toList())
+    }
 
     // Every delete on this page — a swipe, the row's ×, the batch bar — goes through here.
     fun remove(
@@ -225,6 +256,12 @@ internal fun DownloadsScreen(
     // Leaving the page is the toast leaving too; nothing may stay held behind a closed page.
     DisposableEffect(removals) {
         onDispose { removals.release()?.let(::commit) }
+    }
+    LaunchedEffect(allItems) { leaving = downloadsStillLeaving(leaving, allItems) }
+    // A delete the manager could not carry out at all says so here rather than on its rows, and
+    // they come back instead of staying hidden over files still on disk.
+    LaunchedEffect(operationError) {
+        if (operationError != null) leaving = emptyMap()
     }
     var confirmClearRules by remember { mutableStateOf(false) }
 

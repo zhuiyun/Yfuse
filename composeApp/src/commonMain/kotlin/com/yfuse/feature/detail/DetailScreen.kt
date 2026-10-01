@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -32,6 +31,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.account.canUseWatchTogether
@@ -262,9 +262,7 @@ fun DetailScreen(component: DetailComponent) {
     val seasonPickerAnchor = remember { SeasonPickerAnchor() }
     // The season whose episodes the rail is showing. It trails the selection while a newly picked
     // season loads: the header already names that season, the cards are still the last one's.
-    val listedSeason = remember { arrayOf(state.selectedSeasonId) }
-    val listedSeasonId = if (state.episodesLoading) listedSeason[0] else state.selectedSeasonId
-    SideEffect { listedSeason[0] = listedSeasonId }
+    val listedSeasonId = state.listedSeasonId
     var overviewExpanded by remember { mutableStateOf(false) }
     // Hoisted out of the list: the hero badges what this copy is, and 媒体信息 at the foot
     // of the page spells the same file out — one answer to "which file", read twice.
@@ -363,6 +361,24 @@ fun DetailScreen(component: DetailComponent) {
     var moreSheetOpen by remember { mutableStateOf(false) }
     var metadataEditorOpen by remember { mutableStateOf(false) }
     var downloadSheetOpen by remember { mutableStateOf(false) }
+    // A series is every episode's history and resume point in one tap, so it is asked first wherever
+    // it is offered. The held 更多 used to mark the whole series the moment the finger let go.
+    val togglePlayed: (MediaDetail) -> Unit = { shown ->
+        if (shown.type.equals("Series", ignoreCase = true)) {
+            seriesPlayedConfirmOpen = true
+        } else {
+            component.store.accept(DetailIntent.TogglePlayed)
+        }
+    }
+    // 下载 is for the file 播放 would open. Tapped before that file is known, the tap used to be
+    // kept, and the sheet opened by itself whenever the file arrived.
+    val openDownload: () -> Unit = {
+        if (state.playTarget != null) {
+            downloadSheetOpen = true
+        } else {
+            component.store.accept(DetailIntent.ShowMessage("播放信息还没准备好，请稍后再下载"))
+        }
+    }
     val sharer = rememberPosterCardSharer()
     // The episode rows' 浮起菜单, swipes and 长按拖选, and what of the season is downloaded.
     val episodeRowActions = rememberEpisodeRowActions(component, state.playServer?.id)
@@ -593,9 +609,14 @@ fun DetailScreen(component: DetailComponent) {
                 // The only opaque ground on the page. Hero, sheet and tail all reveal this exact colour.
                 Box(Modifier.fillMaxSize().background(detailSurface))
 
+                // Still composed under 全部剧集, where a screen reader would walk on through the page
+                // and its top bar. Given back once that layer starts to leave, which the reader no
+                // longer finds.
+                val underAllEpisodes = if (allEpisodesOpen) Modifier.clearAndSetSemantics {} else Modifier
+
                 SkeletonHandoff(
                     loading = detail == null && state.error == null,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().then(underAllEpisodes),
                     skeleton = { DetailSkeleton(heroHeight) },
                 ) {
                     when {
@@ -938,6 +959,7 @@ fun DetailScreen(component: DetailComponent) {
                         onBack = component.onBack,
                         onPlay = playerArtworkOnClick(sharedHeroKey) { component.store.accept(DetailIntent.Play) },
                         onMore = { moreSheetOpen = true },
+                        modifier = underAllEpisodes,
                         moreMenu =
                             detail?.let { shown ->
                                 {
@@ -951,10 +973,10 @@ fun DetailScreen(component: DetailComponent) {
                                                 ?.favorites != false,
                                         favorite = shown.isFavorite,
                                         watchLater = state.watchLater,
-                                        onTogglePlayed = { component.store.accept(DetailIntent.TogglePlayed) },
+                                        onTogglePlayed = { togglePlayed(shown) },
                                         onToggleFavorite = { component.store.accept(DetailIntent.ToggleFavorite) },
                                         onToggleWatchLater = { component.store.accept(DetailIntent.ToggleWatchLater) },
-                                        onDownload = { downloadSheetOpen = true },
+                                        onDownload = openDownload,
                                         onWatchTogether =
                                             if (watchAvailable && watchState.roomCode == null) {
                                                 {
@@ -1024,7 +1046,7 @@ fun DetailScreen(component: DetailComponent) {
                         onToggleServerWatchLater = { component.store.accept(DetailIntent.ToggleWatchLater) },
                         onDownload = {
                             moreSheetOpen = false
-                            downloadSheetOpen = true
+                            openDownload()
                         },
                         onCalendar = {
                             moreSheetOpen = false
@@ -1047,12 +1069,7 @@ fun DetailScreen(component: DetailComponent) {
                         },
                         onTogglePlayed = {
                             moreSheetOpen = false
-                            // A series is every episode's history and resume point in one tap.
-                            if (detail.type.equals("Series", ignoreCase = true)) {
-                                seriesPlayedConfirmOpen = true
-                            } else {
-                                component.store.accept(DetailIntent.TogglePlayed)
-                            }
+                            togglePlayed(detail)
                         },
                         onOrganization = {
                             moreSheetOpen = false

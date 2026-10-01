@@ -5,6 +5,7 @@ import com.yfuse.core.designsystem.liquidOutline
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -70,5 +71,31 @@ class DetailKeyLiquidTest {
     fun the_resume_time_waits_for_the_drop_to_start_flowing_back() {
         assertEquals(1f, detailMergeFrame(MERGE_LABEL_DELAY_MS.toFloat(), metrics).resume)
         assertTrue(detailMergeFrame(300f, metrics).resume < 1f)
+    }
+
+    @Test
+    fun from_start_is_a_key_only_once_its_label_is_in_focus() {
+        // Armed, and on through the pinch, the row is one key whose end must not start over.
+        assertFalse(fromStartIsKey(detailSplitFrame(0f, metrics)))
+        assertFalse(fromStartIsKey(detailSplitFrame(DETAIL_SPLIT_PINCH_MS + 150f, metrics)))
+        assertTrue(fromStartIsKey(detailSplitFrame(DETAIL_SPLIT_MS.toFloat(), metrics)))
+        // Flowing back in, it stops being one as its label leaves.
+        assertTrue(fromStartIsKey(detailMergeFrame(0f, metrics)))
+        assertFalse(fromStartIsKey(detailMergeFrame(90f, metrics)))
+        // At rest there is no frame, and the keys are what they look like.
+        assertTrue(fromStartIsKey(null))
+    }
+
+    @Test
+    fun a_split_running_back_takes_the_resume_time_away_with_the_keys_end() {
+        val late = detailSplitFrame(500f, metrics)
+        assertEquals(1f, detailResumeAlpha(DetailKeyMove.Split, late, metrics, progress = true))
+        // Back at the start of the split the key is whole again, and the time has gone with it.
+        assertTrue(detailResumeAlpha(DetailKeyMove.Split, late, metrics, progress = false) > 0.9f)
+        val start = detailSplitFrame(0f, metrics)
+        assertEquals(0f, detailResumeAlpha(DetailKeyMove.Split, start, metrics, progress = false))
+        // A merge keeps its own timing.
+        val merging = detailMergeFrame(300f, metrics)
+        assertEquals(merging.resume, detailResumeAlpha(DetailKeyMove.Merge, merging, metrics, progress = false))
     }
 }
