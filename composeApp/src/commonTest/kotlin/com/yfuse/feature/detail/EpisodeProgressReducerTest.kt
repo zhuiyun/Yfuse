@@ -4,6 +4,7 @@ import com.yfuse.core.data.dto.BaseItemDto
 import com.yfuse.core.data.dto.toMediaDetail
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.Season
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -63,9 +64,18 @@ class EpisodeProgressReducerTest {
     }
 
     @Test
-    fun a_swiped_episode_changes_without_closing_the_sheet_or_touching_its_selection() {
+    fun a_swiped_episode_and_the_target_it_moves_leave_the_sheet_and_the_season_where_they_were() {
         val original =
             DetailState(
+                detail = series,
+                server = server,
+                playServer = server,
+                playSourceDetail = series,
+                playTarget = BaseItemDto(Id = "e1", Type = "Episode", ParentIndexNumber = 1).toMediaDetail(),
+                playPositionTicks = 100L,
+                seasons = listOf(Season("season1", "第 1 季", 1, null), Season("season2", "第 2 季", 2, null)),
+                selectedSeasonId = "season1",
+                listedSeasonId = "season1",
                 episodes =
                     listOf(
                         episode("e1", played = false, position = 100L),
@@ -81,9 +91,69 @@ class EpisodeProgressReducerTest {
 
         assertTrue(marked.episodes.first().played)
         assertEquals(null, marked.episodes.first().resumePositionTicks)
+        assertEquals(0L, marked.playPositionTicks)
         assertTrue(marked.progressManagerOpen)
         assertEquals(setOf("e2"), marked.progressSelection)
         assertEquals(null, marked.actionMessage)
+
+        // Next-up has moved to another season's episode. Only 播放 follows it: the rail and the open
+        // sheet stay on the season they show, and the sheet's selection still names its rows.
+        val nextUp = BaseItemDto(Id = "e9", Type = "Episode", ParentIndexNumber = 2).toMediaDetail()
+        val refreshed =
+            with(DetailReducer) {
+                marked.reduce(DetailMsg.PlayTargetRefreshed("one", "s1", nextUp, positionTicks = 0L))
+            }
+
+        assertEquals("e9", refreshed.playTarget?.id)
+        assertEquals("e9", refreshed.selectedEpisodeId)
+        assertEquals("season1", refreshed.selectedSeasonId)
+        assertEquals("season1", refreshed.listedSeasonId)
+        assertEquals(marked.episodes, refreshed.episodes)
+        assertTrue(refreshed.progressManagerOpen)
+        assertEquals(setOf("e2"), refreshed.progressSelection)
+
+        val otherServer =
+            with(DetailReducer) {
+                marked.reduce(DetailMsg.PlayTargetRefreshed("two", "s1", nextUp, positionTicks = 0L))
+            }
+        assertEquals(marked, otherServer)
+    }
+
+    @Test
+    fun on_an_episode_page_the_title_and_its_own_card_are_marked_together() {
+        val page = BaseItemDto(Id = "e1", Name = "第一集", Type = "Episode", SeriesId = "s1").toMediaDetail()
+        val watching =
+            DetailState(
+                detail = page,
+                server = server,
+                playServer = server,
+                playSourceDetail = page,
+                playTarget = page,
+                playPositionTicks = 100L,
+                episodes = listOf(episode("e1", played = false, position = 100L), episode("e2", played = false)),
+            )
+
+        // 更多 → 标记已看: the episode's card says so too, and loses its progress.
+        val fromMore = with(DetailReducer) { watching.reduce(DetailMsg.PlayedChanged("one", "e1", true)) }
+        assertTrue(fromMore.episodes[0].played)
+        assertEquals(null, fromMore.episodes[0].resumePositionTicks)
+        assertFalse(fromMore.episodes[1].played)
+
+        // Marked on its card: 更多 now offers 标记未看, and 播放 has nothing left to resume.
+        val fromCard =
+            with(DetailReducer) { watching.reduce(DetailMsg.EpisodesPlayedChanged(setOf("e1"), played = true)) }
+        assertTrue(fromCard.detail?.played == true)
+        assertTrue(fromCard.playSourceDetail?.played == true)
+        assertEquals(0L, fromCard.playPositionTicks)
+        val unmarked =
+            with(DetailReducer) { fromCard.reduce(DetailMsg.EpisodesPlayedChanged(setOf("e1"), played = false)) }
+        assertFalse(unmarked.detail?.played == true)
+
+        // Another episode's card leaves the title as it is.
+        val other =
+            with(DetailReducer) { watching.reduce(DetailMsg.EpisodesPlayedChanged(setOf("e2"), played = true)) }
+        assertFalse(other.detail?.played == true)
+        assertEquals(100L, other.playPositionTicks)
     }
 
     private val server = SavedServer("one", "http://one", "Server", "u", "User", "token")

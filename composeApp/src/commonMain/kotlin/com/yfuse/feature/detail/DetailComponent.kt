@@ -393,9 +393,13 @@ class DetailComponent(
             preloadStore = null
         }
 
+        // Set by the first launch and kept: the player route pops itself while the player is still
+        // starting, so the page can come back once before the player has played anything.
+        var playbackLaunched = false
         store.labels
             .onEach {
                 if (it is DetailLabel.Play) {
+                    playbackLaunched = true
                     val fromStart = explicitFromStartPending
                     if (fromStart) {
                         mirrorRestarted(store.state)
@@ -425,6 +429,7 @@ class DetailComponent(
             object : Lifecycle.Callbacks {
                 override fun onResume() {
                     pageVisible.value = true
+                    if (playbackLaunched) syncPlayPosition()
                 }
 
                 override fun onPause() {
@@ -579,6 +584,22 @@ class DetailComponent(
                 serverId = identity.serverId,
             ) ?: return fallbackTicks
         return syncedMs.coerceAtMost(Long.MAX_VALUE / TICKS_PER_MILLISECOND) * TICKS_PER_MILLISECOND
+    }
+
+    /**
+     * Back in front after a launch, 播放 says where it would resume now. The page waited behind the
+     * player without reloading its target, so 继续播放, the resume time and 从头 still described the
+     * position from before playing, while the key itself resumed from the new one. A title played to
+     * the end reads as 0: 播放 again, with nothing for 从头 to rewind.
+     */
+    private fun syncPlayPosition() {
+        val state = store.state
+        val server = state.playServer ?: return
+        val target = state.playTarget ?: return
+        val ticks = syncedStartPositionTicks(state, state.playPositionTicks)
+        if (ticks != state.playPositionTicks) {
+            store.accept(DetailIntent.SyncPlayPosition(server.id, target.id, ticks))
+        }
     }
 
     private fun playbackIdentity(state: DetailState): PlaybackIdentity? {

@@ -140,7 +140,7 @@ internal class DetailExecutor(
                     )
                 }
             }
-            DetailIntent.DismissMessage -> dispatch(DetailMsg.ActionMessage(null))
+            DetailIntent.DismissMessage -> dispatch(DetailMsg.MessageDismissed)
             is DetailIntent.ShowMessage -> dispatch(DetailMsg.ActionMessage(intent.message))
             DetailIntent.Play -> play(fromStart = false)
             DetailIntent.PlayFromStart -> play(fromStart = true)
@@ -187,10 +187,8 @@ internal class DetailExecutor(
                     dispatch(DetailMsg.VersionSelected(intent.versionId))
                 }
             }
-            is DetailIntent.SelectSeason -> {
-                clearQueuedPlay()
-                selectSeason(intent.seasonId)
-            }
+            // Browsing leaves 播放's target alone, so a play already waiting for it still goes ahead.
+            is DetailIntent.SelectSeason -> selectSeason(intent.seasonId)
             is DetailIntent.SelectAudioLanguage ->
                 dispatch(DetailMsg.AudioLanguageSelected(intent.language, intent.ordinal))
             is DetailIntent.SelectSubtitleLanguage ->
@@ -270,6 +268,8 @@ internal class DetailExecutor(
                     dispatch(DetailMsg.VersionSelected(versionId))
                 }
             }
+            is DetailIntent.SyncPlayPosition ->
+                dispatch(DetailMsg.PlayPositionSynced(intent.serverId, intent.itemId, intent.positionTicks))
         }
     }
 
@@ -1025,6 +1025,9 @@ internal class DetailExecutor(
         val server = current.playServer ?: return
         val sourceDetail = current.playSourceDetail ?: return
         val previousEpisodeId = current.selectedEpisodeId
+        // Only an episode from a season that is not listed brings its season's episodes along. Read
+        // now rather than when it lands: a season browsed to meanwhile stays on show.
+        val listedSeasonNumber = current.seasons.firstOrNull { it.id == current.listedSeasonId }?.indexNumber
         // The comparison list is loaded independently from the concrete playback
         // selection. Its selected ids may legitimately move from null to the current
         // source while this request is in flight, so they cannot be used as the
@@ -1059,15 +1062,10 @@ internal class DetailExecutor(
                                 repo.itemDetail(server, episodeId, includeInheritedPeople = false).fold(
                                     onSuccess = { target ->
                                         cancellableResult {
-                                            val currentSeasonNumber =
-                                                state()
-                                                    .seasons
-                                                    .firstOrNull { it.id == state().selectedSeasonId }
-                                                    ?.indexNumber
                                             val catalog =
                                                 if (
                                                     target.type == "Episode" &&
-                                                    target.seasonNumber != currentSeasonNumber
+                                                    target.seasonNumber != listedSeasonNumber
                                                 ) {
                                                     seriesIdOf(sourceDetail)?.let { seriesId ->
                                                         loadSeriesCatalog(
@@ -1133,23 +1131,23 @@ internal class DetailExecutor(
             }
     }
 
+    /**
+     * Lists [seasonId]'s episodes, and that is all it does: 播放 keeps the episode it would open,
+     * next-up's 继续播放 included, until an episode is picked. It used to pick the season's first
+     * episode, so a swipe through 全部剧集 and back left 播放 on 第 1 集.
+     */
     private fun selectSeason(seasonId: String) {
         val current = state()
         val sourceDetail = current.playSourceDetail ?: return
         val server = current.playServer ?: return
         val seriesId = seriesIdOf(sourceDetail) ?: return
-        episodeSelectionOperation++
-        episodeSelectionJob?.cancel()
-        episodeSelectionJob = null
         cancelInitialCatalogLoad()
         val playServerId = server.id
         val playSourceItemId = sourceDetail.id
-        val previousSeasonId = current.selectedSeasonId
         // Loading first: no state may name the new season over the old season's episodes
         // without also saying they are being replaced.
         dispatch(DetailMsg.EpisodesLoading)
         dispatch(DetailMsg.SeasonsLoaded(current.seasons, seasonId))
-        dispatch(DetailMsg.SelectionLoading(true))
         scope.launch {
             retryTransientDetailRequest(
                 event = "season_episodes_retry",
@@ -1180,15 +1178,6 @@ internal class DetailExecutor(
                     return@onSuccess
                 }
                 dispatch(DetailMsg.EpisodesLoaded(episodes))
-                val selected =
-                    episodes.firstOrNull { it.id == state().selectedEpisodeId }
-                        ?: episodes.firstOrNull()
-                        ?: run {
-                            clearQueuedPlay()
-                            dispatch(DetailMsg.SelectionLoading(false))
-                            return@onSuccess
-                        }
-                selectEpisode(selected.id, selected.resumePositionTicks ?: 0L)
             }.onFailure {
                 if (
                     state().selectedSeasonId != seasonId ||
@@ -1197,11 +1186,10 @@ internal class DetailExecutor(
                 ) {
                     return@onFailure
                 }
-                dispatch(DetailMsg.SeasonsLoaded(state().seasons, previousSeasonId))
+                // Back to the season whose episodes are still listed. The season picked just before
+                // this one may never have loaded, and naming it put its title over other episodes.
+                dispatch(DetailMsg.SeasonsLoaded(state().seasons, state().listedSeasonId))
                 dispatch(DetailMsg.EpisodesLoadingFinished)
-                dispatch(DetailMsg.SelectionLoading(false))
-                restoreCommittedEpisodeSelection()
-                clearQueuedPlay()
                 dispatch(DetailMsg.ActionMessage(it.toUserMessage("剧集加载失败，请重试")))
             }
         }
@@ -1659,12 +1647,67 @@ internal class DetailExecutor(
         }
     }
 
-    /** 播放's episode again, from the page's own server, as the page first resolved it. */
+    private var playTargetRefreshJob: Job? = null
+
+    /**
+     * 播放's episode again once marks have been written, as the page first resolved it: marks move
+     * which episode a series continues with. Only the target, its position and its file change.
+     * The listed season and its episodes, an open 管理进度 sheet and the 资源 comparison stay as they
+     * are; reloading them for the next episode's season moved the rail and the sheet to another
+     * season under the finger, on every swipe.
+     */
     private fun refreshPlayTarget() {
         val page = state()
-        val server = page.server ?: return
-        val detail = page.detail ?: return
-        loadPlaybackSelection(server, detail)
+        val server = page.playServer ?: return
+        val source = page.playSourceDetail ?: return
+        // Any other page plays the item it already did, and the marks have cleared its resume point
+        // where they reached it. An episode page used to snap back to its own episode here.
+        if (source.type != "Series") return
+        if (page.playTarget == null || playbackSelectionLoadJob?.isActive == true) {
+            // Nothing is listed before the first answer lands, and that answer may predate the
+            // marks: resolve the page from the start.
+            loadPlaybackSelection(server, source)
+            return
+        }
+        // An episode being picked, or a server being switched to, decides the target instead.
+        if (page.selectionLoading || pendingSourceServerId != null) return
+        val generation = detailLoadGeneration
+        val episodeOperation = episodeSelectionOperation
+        playTargetRefreshJob?.cancel()
+        playTargetRefreshJob =
+            scope.launch {
+                val selection =
+                    withTimeoutOrNull(playbackResolutionTimeoutMs) {
+                        resolveInitialPlaybackSelection(server, source)
+                    }?.getOrNull() ?: return@launch
+                val current = state()
+                if (
+                    generation != detailLoadGeneration ||
+                    episodeOperation != episodeSelectionOperation ||
+                    pendingSourceServerId != null ||
+                    current.selectionLoading ||
+                    current.playServer?.id != server.id ||
+                    current.playSourceDetail?.id != source.id
+                ) {
+                    return@launch
+                }
+                val versionId =
+                    current.selectedVersionId?.takeIf { current.playTarget?.id == selection.target.id }
+                        ?: selection.target.versions
+                            .preferredVersion(
+                                playbackPreferences?.mediaVersionPreference?.value
+                                    ?: MediaVersionPreference.HdrFirst,
+                            )?.id
+                dispatch(
+                    DetailMsg.PlayTargetRefreshed(
+                        serverId = server.id,
+                        sourceItemId = source.id,
+                        target = selection.target,
+                        positionTicks = selection.positionTicks,
+                        preferredVersionId = versionId,
+                    ),
+                )
+            }
     }
 
     private fun isVisibleSource(
