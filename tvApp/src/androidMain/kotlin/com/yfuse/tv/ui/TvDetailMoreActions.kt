@@ -432,16 +432,20 @@ internal fun TvEpisodeProgressDialog(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                EpisodeProgressAction.entries.forEach { action ->
-                    TvActionButton(
-                        label = action.tvLabel(),
-                        stableId = "progress:action:${action.name}",
-                        focusScope = focusScope,
-                        focusMemory = focusMemory,
-                        onClick = { store.accept(DetailIntent.ApplyEpisodeProgress(action)) },
-                        primary = action == EpisodeProgressAction.MarkWatched,
-                    )
-                }
+                // No 清除进度: nothing clears a resume point and keeps 已看, so it did exactly what
+                // 标记未看 does under a name that promised something gentler. The phone dropped it too.
+                EpisodeProgressAction.entries
+                    .filterNot { it == EpisodeProgressAction.Reset }
+                    .forEach { action ->
+                        TvActionButton(
+                            label = action.tvLabel(),
+                            stableId = "progress:action:${action.name}",
+                            focusScope = focusScope,
+                            focusMemory = focusMemory,
+                            onClick = { store.accept(DetailIntent.ApplyEpisodeProgress(action)) },
+                            primary = action == EpisodeProgressAction.MarkWatched,
+                        )
+                    }
                 TvActionButton(
                     label = "关闭",
                     stableId = "progress:close",

@@ -53,6 +53,7 @@ import com.yfuse.feature.detail.describing
 import com.yfuse.feature.detail.episodeLiftMenu
 import com.yfuse.feature.detail.relatedLiftMenu
 import com.yfuse.feature.detail.rememberEpisodeRowActions
+import com.yfuse.feature.detail.seriesProgressConfirmMessage
 import com.yfuse.feature.personal.PersonalMediaActions
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
@@ -70,6 +71,7 @@ internal fun TvDetailScreen(
     val playRequester = remember { FocusRequester() }
     val secondaryNavigationRequester = remember { FocusRequester() }
     var sheet by remember(component.itemId) { mutableStateOf<TvDetailSheet?>(null) }
+    var seriesPlayedConfirmOpen by remember(component.itemId) { mutableStateOf(false) }
     if (detail != null && server != null) {
         // One route per title, so returning from a related title restores this page's own focus.
         val route = tvDetailRoute(detail.id)
@@ -171,7 +173,15 @@ internal fun TvDetailScreen(
                         onPlay = { store.accept(DetailIntent.Play) },
                         onPlayFromStart = { store.accept(DetailIntent.PlayFromStart) },
                         onToggleFavorite = { store.accept(DetailIntent.ToggleFavorite) },
-                        onTogglePlayed = { store.accept(DetailIntent.TogglePlayed) },
+                        // A series is every episode's watched state and resume point in one press,
+                        // so it is asked first, as on the phone; a film or an episode changes at once.
+                        onTogglePlayed = {
+                            if (detail.type.equals("Series", ignoreCase = true)) {
+                                seriesPlayedConfirmOpen = true
+                            } else {
+                                store.accept(DetailIntent.TogglePlayed)
+                            }
+                        },
                         watchLater = state.watchLater,
                         watchLaterBusy = state.watchLaterBusy,
                         onToggleWatchLater = { store.accept(DetailIntent.ToggleWatchLater) },
@@ -451,6 +461,22 @@ internal fun TvDetailScreen(
                         focusMemory = focusMemory,
                         onDismiss = { sheet = null },
                     )
+            }
+
+            if (seriesPlayedConfirmOpen) {
+                val markPlayed = !detail.played
+                TvConfirmDialog(
+                    title = if (markPlayed) "整部剧标记为已看？" else "整部剧标记为未看？",
+                    message = seriesProgressConfirmMessage(detail.title, state.seasons.size, markPlayed),
+                    confirmLabel = if (markPlayed) "标记已看" else "标记未看",
+                    focusScope = "detail:series-played",
+                    focusMemory = focusMemory,
+                    onConfirm = {
+                        seriesPlayedConfirmOpen = false
+                        store.accept(DetailIntent.TogglePlayed)
+                    },
+                    onDismiss = { seriesPlayedConfirmOpen = false },
+                )
             }
         }
     }
