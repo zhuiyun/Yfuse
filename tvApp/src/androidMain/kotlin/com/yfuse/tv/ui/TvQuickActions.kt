@@ -80,15 +80,18 @@ internal fun tvQuickActionSections(menu: LiftMenu): List<List<ItemAction>> {
  *
  * An action that takes the screen — 播放, 查看详情 — goes at once while the panel leaves. One that
  * changes the title in place waits until the panel has gone and the card has focus again, so the
- * change lands where the person is looking; if it takes the card off its shelf (a title marked
- * watched leaves 继续观看), a restore is left pending on the card's [route] and the shelf puts
- * focus on the nearest card instead of dropping it.
+ * change lands where the person is looking. In case it takes the card off its shelf (a title
+ * marked watched leaves 继续观看), a restore is left pending on the card's [route], and the shelf
+ * puts focus on the nearest card instead of dropping it. It is the card's own restore
+ * ([restoreOwner]), because most changes leave the card where it is: the card ends it once focus
+ * moves on — see [TvMediaCard]. One nobody could end pulled focus back off the rail long after.
  */
 @Composable
 internal fun TvQuickActionsPanel(
     menu: LiftMenu,
     focusMemory: TvUiFocusMemory,
     route: String,
+    restoreOwner: Any,
     onDismiss: () -> Unit,
 ) {
     val sections = remember(menu) { tvQuickActionSections(menu) }
@@ -145,6 +148,7 @@ internal fun TvQuickActionsPanel(
                             action = action,
                             focusMemory = focusMemory,
                             route = route,
+                            restoreOwner = restoreOwner,
                             onDismiss = onDismiss,
                             focusRequester = if (sectionIndex == 0 && index == 0) firstRequester else null,
                         )
@@ -198,6 +202,7 @@ private fun TvQuickActionRow(
     action: ItemAction,
     focusMemory: TvUiFocusMemory,
     route: String,
+    restoreOwner: Any,
     onDismiss: () -> Unit,
     focusRequester: FocusRequester?,
 ) {
@@ -211,7 +216,7 @@ private fun TvQuickActionRow(
         } else {
             overlayAction {
                 onDismiss()
-                focusMemory.beginRestore(route, owner = Any())
+                focusMemory.beginRestore(route, owner = restoreOwner)
                 action.onSelect()
             }
         }

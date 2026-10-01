@@ -53,6 +53,7 @@ import com.yfuse.feature.servers.rememberServerConnectionIntent
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.requestFocusWhenAttached
 import com.yfuse.tv.focus.tvFocusScope
+import com.yfuse.tv.focus.tvIgnoreOpeningHold
 
 @Composable
 internal fun TvServersScreen(
@@ -324,6 +325,9 @@ private fun TvServerDialog(
         Column(
             Modifier
                 .fillMaxWidth()
+                // Holding 确定 on a server card opens this to edit it, and the rest of that hold —
+                // its repeats and its release — reached the address field and raised the keyboard.
+                .tvIgnoreOpeningHold()
                 .tvFocusScope(trapFocus = true),
             verticalArrangement = Arrangement.spacedBy(15.dp),
         ) {

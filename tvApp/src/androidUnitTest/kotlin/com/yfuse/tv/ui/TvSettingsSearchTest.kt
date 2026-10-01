@@ -54,6 +54,14 @@ class TvSettingsSearchTest {
     }
 
     @Test
+    fun `the motion theme is found on the page that sets it`() {
+        assertEquals(listOf(TvSettingsPage.Appearance), searchTvSettings("动效"))
+        assertEquals(listOf(TvSettingsPage.Appearance), searchTvSettings("动效主题"))
+        assertEquals(listOf(TvSettingsPage.Appearance), searchTvSettings("静息"))
+        assertTrue(TvSettingsPage.Appearance in searchTvSettings("动画"))
+    }
+
+    @Test
     fun `matching ignores case for latin keywords`() {
         assertEquals(
             searchTvSettings("YCORE"),

@@ -37,6 +37,7 @@ import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.rankServerSources
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
@@ -49,6 +50,9 @@ import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.detail.DetailIntent
 import com.yfuse.feature.detail.bestSourcesFirst
 import com.yfuse.feature.detail.describing
+import com.yfuse.feature.detail.episodeLiftMenu
+import com.yfuse.feature.detail.relatedLiftMenu
+import com.yfuse.feature.detail.rememberEpisodeRowActions
 import com.yfuse.feature.personal.PersonalMediaActions
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
@@ -75,6 +79,7 @@ internal fun TvDetailScreen(
             fallback = playRequester,
             contentGeneration = listOf(detail.id, state.selectedSeasonId, state.episodes.size, state.related.size),
             context = FocusContext(route, server.id, server.userId),
+            exitStableId = tvDetailBackId(detail.id),
         )
     }
 
@@ -139,6 +144,17 @@ internal fun TvDetailScreen(
                     DownloadStatus.Paused -> "已暂停"
                     else -> "下载中"
                 }
+            // Picks an episode; the one already picked plays.
+            val pickEpisode: (Episode) -> Unit = { episode ->
+                store.accept(
+                    DetailIntent.SelectEpisode(
+                        episodeId = episode.id,
+                        startPositionTicks = episode.resumePositionTicks ?: 0L,
+                    ),
+                )
+            }
+            // What holding 确定 on an episode offers: the phone's episode actions, on the same store.
+            val episodeActions = rememberEpisodeRowActions(component, (state.playServer ?: server).id)
             LazyColumn(
                 modifier = Modifier.fillMaxSize().then(arrival),
                 contentPadding = PaddingValues(bottom = TvSafeVertical + 38.dp),
@@ -234,13 +250,23 @@ internal fun TvDetailScreen(
                             baseUrl = (state.playServer ?: server).baseUrl,
                             accessToken = (state.playServer ?: server).accessToken,
                             focusMemory = focusMemory,
-                            onEpisode = { episode ->
-                                store.accept(
-                                    DetailIntent.SelectEpisode(
-                                        episodeId = episode.id,
-                                        startPositionTicks = episode.resumePositionTicks ?: 0L,
-                                    ),
-                                )
+                            onEpisode = pickEpisode,
+                            quickActions = { episode ->
+                                episodeLiftMenu(
+                                    episode = episode,
+                                    episodes = state.episodes,
+                                    artworkUrl = null,
+                                    downloaded = episodeActions.downloads.containsKey(episode.id),
+                                    onOpen = { pickEpisode(episode) },
+                                    onPlay = { episodeActions.play(episode, pickEpisode) },
+                                    onMark = episodeActions::mark,
+                                    onDownload = { episodeActions.download(listOf(episode)) },
+                                    // 剧集进度管理 is where a run of episodes is marked on a television.
+                                    onSelectFrom = {
+                                        episodeActions.startSelection(episode)
+                                        sheet = TvDetailSheet.EpisodeProgress
+                                    },
+                                ).withoutOpen()
                             },
                         )
                     }
@@ -362,7 +388,12 @@ internal fun TvDetailScreen(
                             sectionKey = "detail:${detail.id}:related",
                             items =
                                 state.related.map { related ->
-                                    related.toRelatedCard(server) {
+                                    related.toRelatedCard(
+                                        server = server,
+                                        quickActions = {
+                                            component.relatedLiftMenu(server.id, related, backdropUrl = null)
+                                        },
+                                    ) {
                                         component.onOpenRelated(server.id, related.id)
                                     }
                                 },
@@ -482,7 +513,7 @@ private fun TvDetailHero(
         ) {
             TvActionButton(
                 label = "返回",
-                stableId = "detail:${detail.id}:back",
+                stableId = tvDetailBackId(detail.id),
                 focusScope = "detail:${detail.id}:hero",
                 focusMemory = focusMemory,
                 onClick = onBack,
@@ -653,11 +684,22 @@ private fun TvEpisodeRow(
     accessToken: String,
     focusMemory: TvUiFocusMemory,
     onEpisode: (Episode) -> Unit,
+    quickActions: (Episode) -> LiftMenu,
 ) {
     val episodeScope = "detail:${detail.id}:episodes"
-    val rowState = focusMemory.rowState(episodeScope)
+    // A server can list an episode twice, and a lazy row throws on a repeated key.
+    val shown = episodes.distinctBy(Episode::id)
+    // Kept for the way back from the player. Another season's list starts at the episode picked,
+    // or its first: the last season's position carried over opened a shorter season at its tail,
+    // and ↓ from the seasons landed on a late episode.
+    val rowState =
+        focusMemory.rowState(
+            section = episodeScope,
+            content = shown.firstOrNull()?.id.orEmpty(),
+            initialIndex = shown.indexOfFirst { it.id == selectedEpisodeId },
+        )
     val candidates =
-        episodes.mapIndexed { index, episode ->
+        shown.mapIndexed { index, episode ->
             val stableId = "server:$serverId:episode:${episode.id}"
             FocusCandidate(
                 targetId = focusMemory.targetId(episodeScope, stableId),
@@ -674,7 +716,7 @@ private fun TvEpisodeRow(
             focusMemory = focusMemory,
             saved = saved,
             candidates = candidates,
-            contentGeneration = episodes.map(Episode::id),
+            contentGeneration = shown.map(Episode::id),
             scrollToAnchor = { anchor ->
                 if (candidates.isNotEmpty()) {
                     rowState.revealForRestore(anchor.fallbackIndex.coerceIn(0, candidates.lastIndex))
@@ -692,7 +734,7 @@ private fun TvEpisodeRow(
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            itemsIndexed(episodes, key = { _, episode -> "episode:$serverId:${detail.id}:${episode.id}" }) {
+            itemsIndexed(shown, key = { _, episode -> "episode:$serverId:${detail.id}:${episode.id}" }) {
                     index,
                     episode,
                 ->
@@ -724,6 +766,7 @@ private fun TvEpisodeRow(
                             artworkShape = TvArtworkShape.Landscape,
                             selected = episode.id == selectedEpisodeId,
                             selectable = true,
+                            quickActions = { quickActions(episode) },
                             onClick = { onEpisode(episode) },
                         ),
                     focusScope = episodeScope,
@@ -743,6 +786,7 @@ private fun TvEpisodeRow(
 
 private fun MediaItem.toRelatedCard(
     server: com.yfuse.core.model.SavedServer,
+    quickActions: () -> LiftMenu,
     onClick: () -> Unit,
 ): TvMediaCardModel =
     TvMediaCardModel(
@@ -753,5 +797,22 @@ private fun MediaItem.toRelatedCard(
         serverId = server.id,
         profileId = server.userId,
         badge = communityRating?.let { "%.1f".format(it) },
+        quickActions = quickActions,
         onClick = onClick,
+    )
+
+/** A detail page's own 返回 — see [TvRestoreRouteFocusEffect]'s `exitStableId`. */
+private fun tvDetailBackId(itemId: String): String = "detail:$itemId:back"
+
+/**
+ * This menu without the 查看详情 the panel builds from [LiftMenu.onOpen]: an episode has no page of
+ * its own to open here, and pressing its card already picks it.
+ */
+private fun LiftMenu.withoutOpen(): LiftMenu =
+    LiftMenu(
+        title = title,
+        meta = meta,
+        progress = progress,
+        progressLabel = progressLabel,
+        sections = sections,
     )
