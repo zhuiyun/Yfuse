@@ -138,7 +138,8 @@ private fun userHasLeft(context: Context): Boolean {
     val ownEntries = AppIconVariant.entries.map { it.componentClass() } + APP_ENTRY_ALIAS
     return runCatching {
         context.getSystemService(ActivityManager::class.java)?.appTasks.orEmpty().all { task ->
-            val top = task.taskInfo.topActivity
+            // Null for a task that has just gone, which leaves nothing on top to close.
+            val top = task.taskInfo?.topActivity
             top == null || (top.packageName == context.packageName && top.className in ownEntries)
         }
     }.getOrDefault(false)
