@@ -308,7 +308,8 @@ internal fun WatchTogetherDialog(
                                 }
                                 if (canControl && !active && queueIndex != null) {
                                     PlaylistAction("播放", enabled = !playlist.mutationPending) {
-                                        playlistTarget?.play(queueIndex)
+                                        // A queue index came from this target, so it is there.
+                                        playlistTarget.play(queueIndex)
                                     }
                                 }
                                 if (canEditPlaylist) {
