@@ -145,6 +145,9 @@ private fun LiftLayer(
         }
     }
     val exit = session.exit
+    // On its way out the layer lets go of the page: the scrim, the card and the rows drop their
+    // handlers, or they would swallow every tap until the settle spring had finished.
+    val leaving = exit != LiftExit.None
     LaunchedEffect(exit) {
         if (exit == LiftExit.None) return@LaunchedEffect
         if (exit == LiftExit.SettleBack && !still) {
@@ -246,7 +249,13 @@ private fun LiftLayer(
                         Modifier
                     },
                 ).background(palette.scrim.copy(alpha = scrimAlpha))
-                .pointerInput(session) { detectTapGestures { session.dismiss() } },
+                .then(
+                    if (leaving) {
+                        Modifier
+                    } else {
+                        Modifier.pointerInput(session) { detectTapGestures { session.dismiss() } }
+                    },
+                ),
         )
 
         // An anchored menu's card is the button itself, which never left the page.
@@ -271,8 +280,13 @@ private fun LiftLayer(
                     alpha = presence.value * ((elapsed - LIFT_PANEL_DELAY_MS) / Motion.DISCLOSURE).coerceIn(0f, 1f)
                 }.clip(AppShapes.card)
                 .glass(shape = AppShapes.card, fill = palette.glassStrong, border = palette.border)
-                .then(if (placement.menuScrolls) Modifier.verticalScroll(rememberScrollState()) else Modifier)
-                .padding(vertical = LiftMenuPadding),
+                .then(
+                    if (placement.menuScrolls) {
+                        Modifier.verticalScroll(rememberScrollState(), enabled = !leaving)
+                    } else {
+                        Modifier
+                    },
+                ).padding(vertical = LiftMenuPadding),
         ) {
             var index = 0
             menu.sections.forEachIndexed { section, actions ->
@@ -282,6 +296,7 @@ private fun LiftLayer(
                     LiftRow(
                         action = action,
                         highlighted = session.hot == LiftHit.Row(row),
+                        enabled = !leaving,
                         appear = {
                             val start = LIFT_ROW_DELAY_MS + LIFT_ROW_STAGGER_MS * row
                             val local = ((reveal.value * revealMs - start) / Motion.STANDARD).coerceIn(0f, 1f)
@@ -333,7 +348,7 @@ private fun LiftCard(
             .clip(AppShapes.card)
             .background(skeletonFill())
             .then(
-                if (session.canOpen) {
+                if (session.canOpen && session.exit == LiftExit.None) {
                     Modifier.pressable(onClickLabel = "打开", onClick = session::open)
                 } else {
                     Modifier
@@ -501,6 +516,8 @@ private fun LiftScrubLayer(
 private fun LiftRow(
     action: ItemAction,
     highlighted: Boolean,
+    /** False once the menu is leaving: the row stops taking touches meant for the page. */
+    enabled: Boolean,
     appear: () -> Float,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -518,8 +535,13 @@ private fun LiftRow(
                 alpha = shown
                 translationY = (shown - 1f) * travel
             }.then(if (highlighted) Modifier.background(palette.text.copy(alpha = LIFT_HOT_ALPHA)) else Modifier)
-            .pressable(pressedScale = 1f, tintOnPress = true, onClick = onClick)
-            .padding(horizontal = 16.dp),
+            .then(
+                if (enabled) {
+                    Modifier.pressable(pressedScale = 1f, tintOnPress = true, onClick = onClick)
+                } else {
+                    Modifier
+                },
+            ).padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

@@ -59,11 +59,13 @@ internal fun Modifier.softActionSurface(
     enabled: Boolean,
 ): Modifier {
     val pressed by interactionSource.collectVisiblePressAsState()
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current
+    // 静息 answers with the surface's own wash ([softSelectionSurface]) alone, as [pressable] does:
+    // no squeeze, and no spring to release it.
+    val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion() || !LocalRouteVisible.current
     val scale =
         animateFloatAsState(
-            pressScaleTarget(reduceMotion, pressed && enabled, false, PressFeedback.PRIMARY),
-            Motion.pressSpec(pressed && enabled, reduceMotion),
+            pressScaleTarget(still, pressed && enabled, false, PressFeedback.PRIMARY),
+            Motion.pressSpec(pressed && enabled, still),
             label = "primarySurfacePressure",
         )
     return graphicsLayer {

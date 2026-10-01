@@ -58,6 +58,29 @@ class DialogAnimationTest {
     }
 
     @Test
+    fun calm_fades_in_over_a_short_rise_without_scaling_or_wiping() {
+        for (step in 0..100) {
+            val progress = step / 100f
+            val frame = calmDialogMotionFrame(progress)
+            assertEquals(1f, frame.scaleX)
+            assertEquals(1f, frame.scaleY)
+            assertEquals(0f, frame.insetX)
+            assertEquals(0f, frame.insetY)
+            assertTrue(frame.offsetY in 0f..8f)
+            assertEquals(progress, frame.alpha, 0.0001f)
+        }
+        assertEquals(DialogMotionFrame(), calmDialogMotionFrame(1f))
+        // Lift's own frame is what 静息 replaces: it scales and wipes, and never fades.
+        val lift = dialogMotionFrame(DialogAnimation.Lift, 0.5f)
+        assertTrue(lift.scaleX < 1f && lift.insetY > 0f)
+        assertEquals(1f, lift.alpha)
+        val calm = DialogMotionFrameCache(DialogAnimation.Lift, calm = true)
+        assertEquals(calmDialogMotionFrame(0.3f), calm.frame(0.3f))
+        val classic = DialogMotionFrameCache(DialogAnimation.Lift)
+        assertEquals(dialogMotionFrame(DialogAnimation.Lift, 0.3f), classic.frame(0.3f))
+    }
+
+    @Test
     fun portal_reaches_every_corner_even_when_trigger_is_outside_the_panel() {
         for (origin in listOf(Offset(0f, 0f), Offset(160f, 100f), Offset(400f, -80f))) {
             val radius = dialogPortalRadius(320f, 200f, origin)

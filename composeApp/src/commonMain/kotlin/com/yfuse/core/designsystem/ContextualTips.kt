@@ -10,10 +10,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -76,25 +78,52 @@ class TipsState(
     var showing by mutableStateOf<String?>(null)
         private set
 
+    /** Where [showing] is shown: one place, the one that claimed it. */
+    private var holder by mutableStateOf<Any?>(null)
+
     /**
-     * Whether [id] may appear now, taking the day's one slot if so. A tip already showing keeps
-     * its slot; nothing else may take one while it is up.
+     * Whether [id] may appear now at [place], taking the day's one slot if so. A tip already
+     * showing keeps its slot; nothing else may take one while it is up — the same tip at another
+     * place included, which would show it twice.
      */
-    fun claim(id: String): Boolean {
-        if (showing == id) return true
+    fun claim(
+        id: String,
+        place: Any,
+    ): Boolean {
+        if (showing == id) return holder == place
         if (showing != null || store.isRetired(id)) return false
         val day = today()
         if (store.lastShownDay() == day) return false
         showing = id
+        holder = place
         // Shown once is shown enough: it retires now, not when it is dismissed.
         store.retire(id)
         store.setLastShownDay(day)
         return true
     }
 
+    /** Whether [id] is the tip on screen, shown at [place]. */
+    fun isShowing(
+        id: String,
+        place: Any,
+    ): Boolean = showing == id && holder == place
+
+    /**
+     * [place] left the screen. A tip it was showing goes with it and frees the slot; it is retired
+     * already, so it does not come back when the page does.
+     */
+    fun release(
+        id: String,
+        place: Any,
+    ) {
+        if (isShowing(id, place)) dismiss(id)
+    }
+
     /** The tip was read, closed, or timed out. */
     fun dismiss(id: String) {
-        if (showing == id) showing = null
+        if (showing != id) return
+        showing = null
+        holder = null
     }
 
     /** The gesture a tip teaches was just used: it will never be shown, and leaves if it is up. */
@@ -124,10 +153,17 @@ fun ContextualTip(
 ) {
     val tips = LocalTips.current ?: return
     val accessibility = LocalAccessibilityManager.current
-    val shown = tips.showing == id
+    // This placement of the tip; the same id can sit on two pages at once, mid-transition.
+    val place = remember { Any() }
+    val shown = tips.isShowing(id, place)
     val latestActive by rememberUpdatedState(active)
     LaunchedEffect(active) {
-        if (active) tips.claim(id)
+        if (active) tips.claim(id, place)
+    }
+    // A page left before the tip timed out takes it along; it used to keep the slot for the rest
+    // of the process, blocking every other tip and showing again on the way back.
+    DisposableEffect(tips, id) {
+        onDispose { tips.release(id, place) }
     }
     LaunchedEffect(shown, accessibility) {
         if (!shown) return@LaunchedEffect
@@ -165,14 +201,16 @@ fun ContextualTip(
                 color = palette.text,
                 modifier = Modifier.weight(1f, fill = false).padding(vertical = 8.dp),
             )
+            // The press washes the word and its padding, not the 48dp slot around them.
+            val dismissFocus = remember { TouchTargetFocusShape(AppShapes.control) }
             Text(
                 "知道了",
                 style = AppTypography.body.strong,
                 color = LocalAccentColors.current.accent,
                 modifier =
                     Modifier
-                        .pressable(onClick = { tips.dismiss(id) })
-                        .touchTarget()
+                        .pressable(focusShape = dismissFocus, onClick = { tips.dismiss(id) })
+                        .touchTarget(focus = dismissFocus)
                         .padding(horizontal = 10.dp, vertical = 8.dp),
             )
         }
