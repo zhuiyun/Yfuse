@@ -1,0 +1,239 @@
+name: Firebase Test Lab
+
+on:
+  workflow_run:
+    workflows: [Publish Android update]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful production-signed package run
+        required: true
+        type: string
+      source_sha:
+        description: Exact source commit used by that package run
+        required: true
+        type: string
+      tests:
+        description: Which tests to run on real devices
+        type: choice
+        options: [both, robo, instrumentation]
+        default: both
+      devices:
+        description: Optional devices, model=ID,version=API separated by ';' (default picks one phone)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: firebase-test-lab-${{ github.event.workflow_run.head_sha || inputs.source_sha }}
+  cancel-in-progress: false
+
+env:
+  PACKAGE_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+  SOURCE_SHA: ${{ github.event.workflow_run.head_sha || inputs.source_sha }}
+  RESULTS_BUCKET: ${{ vars.FIREBASE_TEST_LAB_RESULTS_BUCKET }}
+  CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
+
+jobs:
+  prepare:
+    name: Choose real devices
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      configured: ${{ steps.config.outputs.configured }}
+      devices: ${{ steps.devices.outputs.devices }}
+    steps:
+      - name: Check out Test Lab helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check Firebase configuration
+        id: config
+        shell: bash
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_TEST_LAB_SERVICE_ACCOUNT }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$SERVICE_ACCOUNT" ]]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          elif [[ "$EVENT" == workflow_dispatch ]]; then
+            echo '::error::Add the FIREBASE_TEST_LAB_SERVICE_ACCOUNT repository secret first; see docs/CLOUD_TESTING.md.'
+            exit 1
+          else
+            # Packaging must not turn red before anyone has set up a Firebase project.
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::Firebase Test Lab is not configured; real-device tests were skipped.'
+            echo 'Firebase Test Lab is not configured (no FIREBASE_TEST_LAB_SERVICE_ACCOUNT secret), so real-device tests were skipped.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Sign in to Firebase
+        if: steps.config.outputs.configured == 'true'
+        env:
+          FIREBASE_TEST_LAB_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_TEST_LAB_SERVICE_ACCOUNT }}
+          FIREBASE_TEST_LAB_PROJECT_ID: ${{ vars.FIREBASE_TEST_LAB_PROJECT_ID }}
+        run: python3 scripts/firebase_test_lab.py auth
+      - name: Choose physical phones
+        id: devices
+        if: steps.config.outputs.configured == 'true'
+        shell: bash
+        env:
+          REQUESTED: ${{ inputs.devices || vars.FIREBASE_TEST_LAB_DEVICES }}
+        run: |
+          set -euo pipefail
+          gcloud firebase test android models list --format=json > "$RUNNER_TEMP/models.json"
+          gcloud firebase test android locales list --format=json > "$RUNNER_TEMP/locales.json"
+          python3 scripts/firebase_test_lab.py pick-devices \
+            --catalog "$RUNNER_TEMP/models.json" \
+            --locales "$RUNNER_TEMP/locales.json" \
+            --requested "$REQUESTED" \
+            --github-output "$GITHUB_OUTPUT" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+  robo:
+    name: Robo crawl of the signed APK
+    needs: prepare
+    if: needs.prepare.outputs.configured == 'true' && (inputs.tests || 'both') != 'instrumentation'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out Test Lab helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download production-signed APK
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: Yfuse-*
+          merge-multiple: true
+          run-id: ${{ env.PACKAGE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: artifacts/package
+      - name: Check the APK against its update manifest
+        id: package
+        run: python3 scripts/firebase_test_lab.py package --directory artifacts/package --github-output "$GITHUB_OUTPUT"
+      - name: Sign in to Firebase
+        env:
+          FIREBASE_TEST_LAB_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_TEST_LAB_SERVICE_ACCOUNT }}
+          FIREBASE_TEST_LAB_PROJECT_ID: ${{ vars.FIREBASE_TEST_LAB_PROJECT_ID }}
+        run: python3 scripts/firebase_test_lab.py auth
+      - name: Run Robo on real devices
+        shell: bash
+        env:
+          APK: ${{ steps.package.outputs.apk }}
+          VERSION_NAME: ${{ steps.package.outputs.version_name }}
+          DEVICES: ${{ needs.prepare.outputs.devices }}
+        run: |
+          set -euo pipefail
+          python3 scripts/firebase_test_lab.py run \
+            --type robo \
+            --app "$APK" \
+            --devices "$DEVICES" \
+            --timeout 8m \
+            --history "Yfuse signed APK (Robo)" \
+            --results-dir "yfuse/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/robo" \
+            --bucket "$RESULTS_BUCKET" \
+            --label "Yfuse $VERSION_NAME Robo" \
+            --title "Robo crawl of Yfuse $VERSION_NAME" \
+            --artifact "test-lab-robo-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --output artifacts/test-lab \
+            --summary "$GITHUB_STEP_SUMMARY"
+      - name: Save the Test Lab log, logcat, video and screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: test-lab-robo-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/test-lab/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  instrumentation:
+    name: Instrumented tests on real devices
+    needs: prepare
+    if: needs.prepare.outputs.configured == 'true' && (inputs.tests || 'both') != 'robo'
+    runs-on: ubuntu-24.04
+    # Cold pinned native dependency bootstrap can take as long as the dedicated native build.
+    timeout-minutes: 300
+    steps:
+      - name: Check out the packaged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      # The packaged commit may predate the helper, so it comes from this workflow's own commit,
+      # into an ignored directory that leaves the build's clean-checkout diagnostics alone.
+      - name: Check out Test Lab helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: artifacts/test-lab-helper
+          persist-credentials: false
+          sparse-checkout: scripts/firebase_test_lab.py
+          sparse-checkout-cone-mode: false
+      - name: Set up Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - name: Install Android 37.0 and native build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then sdkmanager="$(find "$android_sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"; fi
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
+      - name: Download player engines
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+          test -f composeApp/libs/libmpv-release.aar
+          test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+      - name: Build and install current YCore runtime
+        uses: ./.github/actions/build-current-ycore
+      - name: Build the debug app and its instrumented tests
+        # GITHUB_SHA is this workflow's commit; the diagnostics must name the packaged one.
+        run: ./gradlew :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest -PyfuseBuildRevision="$SOURCE_SHA" --no-daemon
+      - name: Sign in to Firebase
+        env:
+          FIREBASE_TEST_LAB_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_TEST_LAB_SERVICE_ACCOUNT }}
+          FIREBASE_TEST_LAB_PROJECT_ID: ${{ vars.FIREBASE_TEST_LAB_PROJECT_ID }}
+        run: python3 artifacts/test-lab-helper/scripts/firebase_test_lab.py auth
+      - name: Run instrumented tests on real devices
+        shell: bash
+        env:
+          DEVICES: ${{ needs.prepare.outputs.devices }}
+        run: |
+          set -euo pipefail
+          python3 artifacts/test-lab-helper/scripts/firebase_test_lab.py run \
+            --type instrumentation \
+            --app composeApp/build/outputs/apk/debug \
+            --test composeApp/build/outputs/apk/androidTest/debug \
+            --devices "$DEVICES" \
+            --timeout 30m \
+            --history "Yfuse instrumented tests" \
+            --results-dir "yfuse/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/instrumentation" \
+            --bucket "$RESULTS_BUCKET" \
+            --label "Yfuse ${SOURCE_SHA:0:12} instrumented" \
+            --title "Instrumented tests at ${SOURCE_SHA:0:12}" \
+            --artifact "test-lab-instrumentation-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --output artifacts/test-lab \
+            --summary "$GITHUB_STEP_SUMMARY"
+      - name: Save the Test Lab log, logcat, video and test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: test-lab-instrumentation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/test-lab/
+          if-no-files-found: ignore
+          retention-days: 7
