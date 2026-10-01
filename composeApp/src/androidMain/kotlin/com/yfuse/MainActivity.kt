@@ -1,6 +1,7 @@
 package com.yfuse
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
@@ -44,7 +45,7 @@ import com.yfuse.core.sync.WatchInvite
 import com.yfuse.feature.calendar.scheduleCalendarReminderWork
 import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.feature.player.PlayerForegroundRegistry
-import com.yfuse.feature.profile.applyPendingAppIconVariant
+import com.yfuse.feature.profile.watchForAppIconSwitch
 import com.yfuse.update.AppUpdateManager
 import com.yfuse.update.AppUpdateOverlay
 import com.yfuse.update.LocalAppUpdateManager
@@ -69,8 +70,22 @@ class MainActivity : ComponentActivity() {
     private var exitBackCallback: OnBackPressedCallback? = null
     private var exitConfirmationToast: Toast? = null
 
+    /** Whether [getIntent] has been acted on, here or by the instance this one replaces. */
+    private var launchIntentHandled = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A chosen launcher icon waits until the whole app has been left, which only a
+        // process-wide view of the started activities can tell.
+        watchForAppIconSwitch(application)
+        // Reopened from Recents after Android killed the backgrounded process, or with the task
+        // rebuilt from history, this activity is handed the intent that first launched it. The
+        // widget tap, link or notification in it was acted on back then; acting on it again
+        // restarted playback or reopened a sheet the user had long finished with.
+        launchIntentHandled =
+            savedInstanceState?.getBoolean(STATE_LAUNCH_INTENT_HANDLED) == true ||
+            (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+
         // Registered before Decompose and Compose create their route callbacks, so those later
         // callbacks keep priority. This fallback only runs when every visible navigation stack
         // is already at the point where Android would otherwise finish the launcher activity.
@@ -215,10 +230,7 @@ class MainActivity : ComponentActivity() {
                 }.getOrNull()
 
         // A cold start from a shared link arrives here rather than in onNewIntent.
-        consumeInviteIntent(intent)
-        consumeCalendarIntent(intent)
-        consumeDownloadIntent(intent)
-        consumeWidgetIntent(intent)
+        if (!launchIntentHandled) consumeIntent(intent)
         // Built after a deferred restore, the activity may already be started: onStart skipped
         // the foreground wiring then because none of this existed yet.
         if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) startForegroundWork()
@@ -285,15 +297,31 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (rootComponent == null) return
+        if (rootComponent == null) {
+            // showApp has yet to run and will act on this one, even in an activity rebuilt from
+            // Recents whose replayed launch intent it was going to skip.
+            launchIntentHandled = false
+            return
+        }
+        consumeIntent(intent)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_LAUNCH_INTENT_HANDLED, launchIntentHandled)
+    }
+
+    private fun consumeIntent(intent: Intent) {
         consumeInviteIntent(intent)
         consumeCalendarIntent(intent)
         consumeDownloadIntent(intent)
         consumeWidgetIntent(intent)
+        launchIntentHandled = true
     }
 
     private companion object {
         const val EXIT_CONFIRMATION_WINDOW_MS = 2_000L
+        const val STATE_LAUNCH_INTENT_HANDLED = "yfuse.launch_intent_handled"
         const val EXTRA_CALENDAR_SERVER_ID = "calendar_server_id"
         const val EXTRA_CALENDAR_SERIES_ITEM_ID = "calendar_series_item_id"
         const val CALENDAR_NOTIFICATION_PERMISSION_REQUEST = 4103
@@ -419,14 +447,6 @@ class MainActivity : ComponentActivity() {
             }
     }
 
-    /**
-     * Launcher-icon switches are applied here rather than where they are chosen.
-     *
-     * Enabling one LAUNCHER component and disabling the others takes this activity's own
-     * component with it, and Android answers that by removing the task — so doing it on the
-     * tap closed the app on a user who was still in settings. Backgrounded is the moment it
-     * costs nothing; see [com.yfuse.feature.profile.applyPendingAppIconVariant].
-     */
     override fun onStop() {
         // A second press must belong to the same foreground interaction. Opening the player,
         // switching apps, or locking the phone must not arm an immediate exit on return.
@@ -440,6 +460,18 @@ class MainActivity : ComponentActivity() {
         if (::serverHealthMonitor.isInitialized) serverHealthMonitor.setAppForeground(false)
         if (::serverSyncManager.isInitialized) serverSyncManager.setAppForeground(false)
         super.onStop()
-        applyPendingAppIconVariant()
     }
 }
+
+/**
+ * Opens the app from outside it: notifications, the widget, launcher shortcuts, reminders.
+ *
+ * Names the `com.yfuse.AppEntry` alias rather than [MainActivity]. Choosing another launcher
+ * icon disables MainActivity's own component, and an intent aimed at a disabled component
+ * opens nothing; the alias is never disabled. It still reaches the running MainActivity
+ * through onNewIntent, since an alias shares its target's instance and task.
+ */
+fun appEntryIntent(context: Context): Intent = Intent().setClassName(context, APP_ENTRY_ALIAS)
+
+/** The `activity-alias` in the manifest that is never disabled. */
+internal const val APP_ENTRY_ALIAS = "com.yfuse.AppEntry"

@@ -20,6 +20,7 @@ import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.russhwolf.settings.Settings
+import com.yfuse.appEntryIntent
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.CalendarReminderMode
@@ -291,24 +292,23 @@ class CalendarReminderWorker(
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "追剧更新", NotificationManager.IMPORTANCE_DEFAULT),
         )
+        // The entry alias rather than the launch intent, which names whichever launcher icon is
+        // enabled right now: a reminder still unread when the user picks another icon would
+        // otherwise open nothing.
         val launch =
-            applicationContext.packageManager
-                .getLaunchIntentForPackage(applicationContext.packageName)
-                ?.apply {
-                    followed?.seriesItemId?.let {
-                        putExtra("calendar_series_item_id", it)
-                        putExtra("calendar_server_id", followed.serverId)
-                    }
+            appEntryIntent(applicationContext).apply {
+                followed?.seriesItemId?.let {
+                    putExtra("calendar_series_item_id", it)
+                    putExtra("calendar_server_id", followed.serverId)
                 }
-        val pending =
-            launch?.let {
-                PendingIntent.getActivity(
-                    applicationContext,
-                    key.hashCode(),
-                    it,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                )
             }
+        val pending =
+            PendingIntent.getActivity(
+                applicationContext,
+                key.hashCode(),
+                launch,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
         manager.notify(
             key.hashCode(),
             NotificationCompat
