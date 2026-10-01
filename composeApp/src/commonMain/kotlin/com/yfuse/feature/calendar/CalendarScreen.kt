@@ -369,7 +369,7 @@ fun CalendarScreen(component: CalendarComponent) {
                                                     { component.onOpenItem(entry.serverId, itemId) }
                                                 },
                                             onFollow =
-                                                if (entry.followed) {
+                                                if (entry.followed || entry.episode.showTmdbId <= 0) {
                                                     null
                                                 } else {
                                                     { component.toggleFollow(entry) }
