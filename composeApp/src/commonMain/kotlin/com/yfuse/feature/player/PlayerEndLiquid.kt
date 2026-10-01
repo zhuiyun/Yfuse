@@ -42,6 +42,8 @@ import com.yfuse.core.designsystem.LiquidPaths
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.liquidMotionEnabled
 import com.yfuse.core.designsystem.liquidOutline
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -53,7 +55,7 @@ import kotlin.math.abs
  * empty from the centre outwards into the hairline rings of 重播 and 返回, and each glyph comes into
  * focus once its key has formed. With nothing to play next, only 返回 splits off to the right while
  * 重播 stays solid and steps left, so the pair stays centred. 重播 runs it backwards: the rings
- * fill, the side drops are drawn back in, and the last one shrinks away as the item starts again.
+ * fill, the side drops are drawn back in, and the last one shrinks away before the item starts again.
  *
  * Geometry is in dp along the row's axis, measured from the row's centre.
  */
@@ -185,7 +187,7 @@ internal fun playerEndSplitFrame(
 /**
  * [ms] after 重播: the rings fill from the outside in over 90 ms as the glyphs go, a bridge forms
  * and the side drops shrink as they are drawn back to the middle, then the last drop shrinks to 0.8
- * and fades while the item starts again.
+ * and fades; the item starts again once it has gone.
  */
 internal fun playerEndMergeFrame(
     ms: Float,
@@ -308,6 +310,53 @@ internal class PlayerEndLiquid(
 }
 
 /**
+ * 重播, taken once per ending.
+ *
+ * With the liquid on, the keys flow back into one circle and only then does the item start again.
+ * However the flow-back ends — run to its last frame, or cut short when the keys are taken off
+ * screen — the item starts again, and only once. A second tap before the keys have gone is ignored:
+ * the first has already set the film going, and toggling it again would pause it on frame one.
+ */
+internal class PlayerEndReplay {
+    private var taken = false
+
+    /** Starts the item again at once, for keys drawn without the liquid. */
+    fun now(onReplay: () -> Unit) {
+        if (take()) onReplay()
+    }
+
+    /** Runs [flowBack] in [scope] with the keys held up through [onHold], then starts the item again. */
+    fun after(
+        scope: CoroutineScope,
+        onHold: (Boolean) -> Unit,
+        onReplay: () -> Unit,
+        flowBack: suspend () -> Unit,
+    ) {
+        if (!take()) return
+        onHold(true)
+        // Undispatched: the flow-back is under way before the tap returns, so the keys stop taking
+        // presses from the next frame, and a coroutine that has started always reaches its finally.
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                flowBack()
+            } finally {
+                try {
+                    onReplay()
+                } finally {
+                    onHold(false)
+                }
+            }
+        }
+    }
+
+    private fun take(): Boolean {
+        if (taken) return false
+        taken = true
+        return true
+    }
+}
+
+/**
  * The keys at the end of an item that did not roll on — 下一集 when there is one, 重播 and 返回 —
  * and the liquid they form out of.
  *
@@ -351,6 +400,8 @@ internal fun EndedKeys(
     }
     val scope = rememberCoroutineScope()
     val latestOnHold by rememberUpdatedState(onHold)
+    val latestOnReplay by rememberUpdatedState(onReplay)
+    val replay = remember { PlayerEndReplay() }
     val drawing = liquid.drawing
     val merging = liquid.merging
 
@@ -413,21 +464,17 @@ internal fun EndedKeys(
             filled = !hasNext,
             onClick = {
                 if (liquidMotion) {
-                    latestOnHold(true)
-                    scope.launch {
-                        try {
-                            // It ends with nothing left to show: the keys must not take their discs back.
-                            liquid.clock.play(
-                                PlayerEndMove.Merge,
-                                PlayerEndMove.Merge.durationMs,
-                                holdLastFrame = true,
-                            )
-                        } finally {
-                            latestOnHold(false)
-                        }
+                    replay.after(scope, onHold = { latestOnHold(it) }, onReplay = { latestOnReplay() }) {
+                        // It ends with nothing left to show: the keys must not take their discs back.
+                        liquid.clock.play(
+                            PlayerEndMove.Merge,
+                            PlayerEndMove.Merge.durationMs,
+                            holdLastFrame = true,
+                        )
                     }
+                } else {
+                    replay.now(onReplay)
                 }
-                onReplay()
             },
             bodyVisible = !drawing,
             glyphModifier = glyph(if (hasNext) 1 else 0, hollowing = hasNext),

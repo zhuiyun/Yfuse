@@ -50,6 +50,9 @@ internal class PlayerNotificationController(
     private var lastChapterStarts: List<Long> = emptyList()
     private var castRefresh: Job? = null
     private var stopReceiverRegistered = false
+
+    /** Set once the player has gone: a late state must not post for it, or take back a handed-over cast. */
+    private var closed = false
     private val stopCastReceiver =
         object : BroadcastReceiver() {
             override fun onReceive(
@@ -73,7 +76,12 @@ internal class PlayerNotificationController(
         )
     }
 
-    fun cancel() {
+    /**
+     * Takes the player's notification down. With [handOverCast], a cast's live update is passed to
+     * [CastLiveUpdateKeeper] rather than going with it: the television plays on after the player closes.
+     */
+    fun cancel(handOverCast: Boolean = false) {
+        closed = true
         castRefresh?.cancel()
         castRefresh = null
         if (stopReceiverRegistered) {
@@ -81,6 +89,21 @@ internal class PlayerNotificationController(
             stopReceiverRegistered = false
         }
         manager.cancel(PlayerActivity.NOTIFICATION_ID)
+        val cast = castManager
+        if (handOverCast && Build.VERSION.SDK_INT >= 36 && cast != null && cast.state.value.hasActiveSession) {
+            CastLiveUpdateKeeper.adopt(
+                activity,
+                cast,
+                CastLiveHandover(
+                    titles = lastTitles,
+                    index = lastState.currentIndex,
+                    positionMs = lastState.positionMs,
+                    durationMs = lastState.durationMs,
+                    segments = lastSegments,
+                    chapterStartsMs = lastChapterStarts,
+                ),
+            )
+        }
     }
 
     /**
@@ -94,15 +117,36 @@ internal class PlayerNotificationController(
         segments: List<PlaybackSegment> = emptyList(),
         chapterStartsMs: List<Long> = emptyList(),
     ) {
+        if (closed) return
         lastState = state
         lastTitles = titles
         lastSegments = segments
         lastChapterStarts = chapterStartsMs
+        // A player that is open owns the cast's live update; one kept since the last player closed goes.
+        CastLiveUpdateKeeper.release()
         if (Build.VERSION.SDK_INT >= 36) {
             val cast = castManager?.state?.value
             if (cast != null && cast.hasActiveSession) {
                 registerStopReceiver()
-                val live = castLiveUpdate(state, titles, segments, chapterStartsMs, cast)
+                val playPause = mediaPendingIntent(PlayerActivity.ACTION_PLAY_PAUSE, 2)
+                val live =
+                    castLiveUpdate(
+                        activity,
+                        CastLiveContent(
+                            title = titles.getOrNull(state.currentIndex).orEmpty(),
+                            positionMs = state.positionMs,
+                            durationMs = state.durationMs,
+                            segments = segments,
+                            chapterStartsMs = chapterStartsMs,
+                        ),
+                        cast,
+                        CastLiveIntents(
+                            open = openPlayerIntent(),
+                            pause = playPause,
+                            resume = playPause,
+                            stop = mediaPendingIntent(ACTION_STOP_CAST, 4),
+                        ),
+                    )
                 runCatching { manager.notify(PlayerActivity.NOTIFICATION_ID, live) }
                 followCast()
                 return
@@ -168,95 +212,6 @@ internal class PlayerNotificationController(
         runCatching { manager.notify(PlayerActivity.NOTIFICATION_ID, notification) }
     }
 
-    /**
-     * 实况通知 while casting: the title's bar with its chapter points, the time left counting down in
-     * the status bar chip, and 暂停 / 停止投屏. It takes the transport notification's place rather
-     * than sitting beside it: the phone plays nothing while the television does.
-     */
-    @RequiresApi(36)
-    private fun castLiveUpdate(
-        state: PlaybackState,
-        titles: List<String>,
-        segments: List<PlaybackSegment>,
-        chapterStartsMs: List<Long>,
-        cast: CastState,
-    ): Notification {
-        val title = titles.getOrNull(state.currentIndex).orEmpty().ifBlank { "Yfuse" }
-        val device = cast.activeDevice?.name
-        val playing = cast.status == CastPlaybackStatus.Playing
-        val waiting = cast.status == CastPlaybackStatus.Buffering || cast.status == CastPlaybackStatus.Connecting
-        val positionMs = if (cast.positionConfirmed) cast.positionMs else state.positionMs
-        val durationMs = cast.durationMs.takeIf { it > 0L } ?: state.durationMs
-        val progress = castLiveProgress(positionMs, durationMs, segments, chapterStartsMs)
-        val style = Notification.ProgressStyle()
-        if (progress == null) {
-            style.setProgressIndeterminate(true)
-        } else {
-            style
-                .setProgressSegments(listOf(Notification.ProgressStyle.Segment(progress.max)))
-                .setProgressPoints(
-                    progress.points.map { Notification.ProgressStyle.Point(it).setColor(LiveUpdateColors.CHAPTER) },
-                ).setProgress(progress.progress)
-        }
-        val remaining = progress?.remainingMs
-        val text =
-            listOfNotNull(
-                progress?.section,
-                when {
-                    waiting -> "正在缓冲"
-                    !playing -> "已暂停"
-                    else -> null
-                },
-                remaining?.let {
-                    // Paused, the exact figure holds; playing, the countdown beside the title is exact
-                    // and this line only has to be right to the minute until the next redraw.
-                    if (playing) "剩余约 ${(it + 59_999L) / 60_000L} 分钟" else "剩余 ${castLiveClock(it)}"
-                },
-            ).joinToString(" · ")
-        val playPauseIcon = if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
-        val builder =
-            Notification
-                .Builder(activity, PlayerActivity.NOTIFICATION_CHANNEL)
-                .setSmallIcon(playPauseIcon)
-                .setContentTitle(listOfNotNull(title, device).joinToString(" · "))
-                .setContentText(text)
-                .setContentIntent(openPlayerIntent())
-                .setOnlyAlertOnce(true)
-                .setOngoing(true)
-                .setVisibility(Notification.VISIBILITY_PUBLIC)
-                .setCategory(Notification.CATEGORY_TRANSPORT)
-                .setStyle(style)
-                .requestPromotedOngoing()
-                .addAction(
-                    Notification.Action
-                        .Builder(
-                            Icon.createWithResource(activity, playPauseIcon),
-                            if (playing) "暂停" else "继续",
-                            mediaPendingIntent(PlayerActivity.ACTION_PLAY_PAUSE, 2),
-                        ).build(),
-                ).addAction(
-                    Notification.Action
-                        .Builder(
-                            Icon.createWithResource(activity, android.R.drawable.ic_menu_close_clear_cancel),
-                            "停止投屏",
-                            mediaPendingIntent(ACTION_STOP_CAST, 4),
-                        ).build(),
-                )
-        if (playing && remaining != null) {
-            // The chip and the header count down to the end by themselves between redraws.
-            builder
-                .setWhen(System.currentTimeMillis() + remaining)
-                .setShowWhen(true)
-                .setUsesChronometer(true)
-                .setChronometerCountDown(true)
-        } else {
-            builder
-                .setShowWhen(false)
-                .setShortCriticalText(if (waiting) "缓冲中" else "已暂停")
-        }
-        return builder.build()
-    }
-
     /** Keeps the live update moving between the player's own presentation changes. */
     private fun followCast() {
         if (castRefresh?.isActive == true) return
@@ -264,15 +219,8 @@ internal class PlayerNotificationController(
         castRefresh =
             activity.lifecycleScope.launch {
                 cast.state
-                    .map { state ->
-                        listOf(
-                            state.hasActiveSession,
-                            state.status,
-                            state.positionMs / CAST_LIVE_REFRESH_MS,
-                            state.durationMs,
-                            state.activeDevice?.name,
-                        )
-                    }.distinctUntilChanged()
+                    .map { it.liveUpdateKey() }
+                    .distinctUntilChanged()
                     .drop(1)
                     .collect { update(lastState, lastTitles, lastSegments, lastChapterStarts) }
             }
@@ -323,4 +271,126 @@ internal class PlayerNotificationController(
             Intent(action).setPackage(activity.packageName),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+}
+
+/** What a cast's live update says about the title on the television. */
+internal class CastLiveContent(
+    val title: String,
+    /** The phone's own position and length, for as long as the receiver has not confirmed its own. */
+    val positionMs: Long,
+    val durationMs: Long,
+    /** 片头 / 片尾, drawn as points when the file has no named chapters. */
+    val segments: List<PlaybackSegment>,
+    /** Where the file's named chapters begin; they win over [segments]. */
+    val chapterStartsMs: List<Long>,
+)
+
+/** Where a cast's live update sends its taps: to the player while it is open, to the app once it has closed. */
+internal class CastLiveIntents(
+    val open: PendingIntent?,
+    val pause: PendingIntent,
+    val resume: PendingIntent,
+    val stop: PendingIntent,
+)
+
+/**
+ * What a cast's live update is drawn from, coarse enough that a playing cast redraws it only every
+ * [CAST_LIVE_REFRESH_MS]; the countdown runs by itself in between.
+ */
+internal fun CastState.liveUpdateKey(): List<Any?> =
+    listOf(
+        hasActiveSession,
+        status,
+        positionMs / CAST_LIVE_REFRESH_MS,
+        durationMs,
+        activeDevice?.name,
+        currentQueueIndex,
+    )
+
+/**
+ * 实况通知 while casting: the title's bar with its chapter points, the time left counting down in
+ * the status bar chip, and 暂停 / 停止投屏. It takes the transport notification's place rather
+ * than sitting beside it: the phone plays nothing while the television does.
+ */
+@RequiresApi(36)
+internal fun castLiveUpdate(
+    context: Context,
+    content: CastLiveContent,
+    cast: CastState,
+    intents: CastLiveIntents,
+): Notification {
+    val title = content.title.ifBlank { "Yfuse" }
+    val device = cast.activeDevice?.name
+    val playing = cast.status == CastPlaybackStatus.Playing
+    val waiting = cast.status == CastPlaybackStatus.Buffering || cast.status == CastPlaybackStatus.Connecting
+    val positionMs = if (cast.positionConfirmed) cast.positionMs else content.positionMs
+    val durationMs = cast.durationMs.takeIf { it > 0L } ?: content.durationMs
+    val progress = castLiveProgress(positionMs, durationMs, content.segments, content.chapterStartsMs)
+    val style = Notification.ProgressStyle()
+    if (progress == null) {
+        style.setProgressIndeterminate(true)
+    } else {
+        style
+            .setProgressSegments(listOf(Notification.ProgressStyle.Segment(progress.max)))
+            .setProgressPoints(
+                progress.points.map { Notification.ProgressStyle.Point(it).setColor(LiveUpdateColors.CHAPTER) },
+            ).setProgress(progress.progress)
+    }
+    val remaining = progress?.remainingMs
+    val text =
+        listOfNotNull(
+            progress?.section,
+            when {
+                waiting -> "正在缓冲"
+                !playing -> "已暂停"
+                else -> null
+            },
+            remaining?.let {
+                // Paused, the exact figure holds; playing, the countdown beside the title is exact
+                // and this line only has to be right to the minute until the next redraw.
+                if (playing) "剩余约 ${(it + 59_999L) / 60_000L} 分钟" else "剩余 ${castLiveClock(it)}"
+            },
+        ).joinToString(" · ")
+    val playPauseIcon = if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+    val builder =
+        Notification
+            .Builder(context, PlayerActivity.NOTIFICATION_CHANNEL)
+            .setSmallIcon(playPauseIcon)
+            .setContentTitle(listOfNotNull(title, device).joinToString(" · "))
+            .setContentText(text)
+            .setContentIntent(intents.open)
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setCategory(Notification.CATEGORY_TRANSPORT)
+            .setStyle(style)
+            .requestPromotedOngoing()
+            .addAction(
+                Notification.Action
+                    .Builder(
+                        Icon.createWithResource(context, playPauseIcon),
+                        if (playing) "暂停" else "继续",
+                        if (playing) intents.pause else intents.resume,
+                    ).build(),
+            ).addAction(
+                Notification.Action
+                    .Builder(
+                        Icon.createWithResource(context, android.R.drawable.ic_menu_close_clear_cancel),
+                        "停止投屏",
+                        intents.stop,
+                    ).build(),
+            )
+    if (playing && remaining != null) {
+        // The chip and the header count down to the end by themselves between redraws.
+        builder
+            .setWhen(System.currentTimeMillis() + remaining)
+            .setShowWhen(true)
+            .setUsesChronometer(true)
+            .setChronometerCountDown(true)
+    } else {
+        builder
+            .setShowWhen(false)
+            .setShortCriticalText(if (waiting) "缓冲中" else "已暂停")
+    }
+    return builder.build()
 }
