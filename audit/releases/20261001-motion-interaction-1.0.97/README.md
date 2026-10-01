@@ -46,10 +46,13 @@ build.
   - the cloud UI script tests.
 - Local Android execution is unavailable: this workspace has no Android SDK and `dl.google.com` is
   blocked.
+- On October 1 at 19:55 (Asia/Shanghai) the release owner explicitly confirmed use and
+  distribution of the existing MDK SDK for this package-only 1.0.97 (259) delivery, and agreed to
+  merging into `master` as `[artifact only]`. `.github/mdk-distribution-approval.json` records it
+  without changing the SDK checksum or the approval scope.
 - Pending:
   - the phone Android quality gates (unit tests, lint, R8 size budget) on the pull request and on
     the merge commit;
-  - the release owner's MDK confirmation for this package-only version;
   - production signing.
 
 Package-only delivery is intended. Do not publish an application update as part of this build.
