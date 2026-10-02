@@ -13,6 +13,13 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 import java.io.File
 
@@ -25,34 +32,46 @@ import java.io.File
  * `http(s)` link shared as text — turns it into an entry with no server identity
  * ([externalPlaybackItem]) and hands that to the player through [PlayerActivity.intent], the way
  * the library does. Nothing else of the incoming intent travels on: no extras, no flags, and for a
- * `content://` video only the read grant its sender gave. It never draws and finishes at once.
+ * `content://` video only the read grant its sender gave. Optional provider metadata has a bounded
+ * background lookup; this activity keeps the incoming grant alive until the player takes it.
  *
  * Every check here runs on the intent itself, not on the manifest filter, because an explicit
  * intent reaches an exported activity without passing any filter.
  */
 class ExternalPlaybackActivity : Activity() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val metadata = ExternalMetadataLookup()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val refusal =
-            try {
-                open(intent)
-            } catch (error: RuntimeException) {
-                // The class name only: a platform message about a URI grant quotes the URI.
-                AppLog.warning(
-                    category = "feature.player",
-                    event = "external_playback_failed",
-                    message = "An outside video could not be handed to the player",
-                    attributes = mapOf("exception" to error.javaClass.simpleName),
-                )
-                "无法打开这个视频"
-            }
-        // The application context: this activity is gone before the toast has finished showing.
-        refusal?.let { Toast.makeText(applicationContext, it, Toast.LENGTH_SHORT).show() }
-        finish()
+        scope.launch {
+            val refusal =
+                try {
+                    open(intent)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: RuntimeException) {
+                    // The class name only: a platform message about a URI grant quotes the URI.
+                    AppLog.warning(
+                        category = "feature.player",
+                        event = "external_playback_failed",
+                        message = "An outside video could not be handed to the player",
+                        attributes = mapOf("exception" to error.javaClass.simpleName),
+                    )
+                    "无法打开这个视频"
+                }
+            refusal?.let { Toast.makeText(applicationContext, it, Toast.LENGTH_SHORT).show() }
+            finish()
+        }
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
     }
 
     /** Hands [incoming] to the player. Returns why it could not, for the viewer, or null. */
-    private fun open(incoming: Intent?): String? {
+    private suspend fun open(incoming: Intent?): String? {
         if (incoming == null) return UNSUPPORTED_MESSAGE
         val action = incoming.action
         val target =
@@ -75,7 +94,8 @@ class ExternalPlaybackActivity : Activity() {
                         logRefusal(action, target.uri, reason = "own_provider")
                         return UNSUPPORTED_MESSAGE
                     }
-                    externalPlaybackTitle(offeredTitle, externalFileTitle(contentDisplayName(uri)))
+                    val documentName = if (offeredTitle.isNullOrBlank()) contentDisplayName(uri) else null
+                    externalPlaybackTitle(offeredTitle, externalFileTitle(documentName))
                 }
                 ExternalPlaybackSource.File -> {
                     if (!uri.isReadableOutsideFile()) {
@@ -87,6 +107,8 @@ class ExternalPlaybackActivity : Activity() {
                 ExternalPlaybackSource.Web -> externalPlaybackTitle(offeredTitle, externalStreamTitle(target.uri))
             }
         val preferences = runCatching { GlobalContext.get().get<ThemePreferences>() }.getOrNull()
+        scope.ensureActive()
+        if (isFinishing || isDestroyed) return null
         // A new task: the player joins Yfuse's own, where a live player is reused rather than
         // doubled, instead of the sender's task this activity is about to leave.
         val launch =
@@ -149,26 +171,28 @@ class ExternalPlaybackActivity : Activity() {
      * shared storage needs a permission Yfuse does not hold — and never inside the app's private
      * directories, which an outside app must not be able to aim the player at.
      */
-    private fun Uri.isReadableOutsideFile(): Boolean {
+    private suspend fun Uri.isReadableOutsideFile(): Boolean {
         val file = path?.let(::File)?.takeIf(File::isAbsolute) ?: return false
-        val canonical = runCatching { file.canonicalFile }.getOrNull() ?: return false
-        val privateRoots =
-            listOfNotNull(applicationInfo.dataDir, applicationInfo.deviceProtectedDataDir)
-                .mapNotNull { root -> runCatching { File(root).canonicalFile }.getOrNull() }
-        if (privateRoots.any { root -> canonical.startsWith(root) }) return false
-        return canonical.isFile && canonical.canRead()
+        val privatePaths = listOfNotNull(applicationInfo.dataDir, applicationInfo.deviceProtectedDataDir)
+        return metadata.read {
+            val canonical = file.canonicalFile
+            val privateRoots = privatePaths.map { File(it).canonicalFile }
+            privateRoots.none { canonical.startsWith(it) } && canonical.isFile && canonical.canRead()
+        } == true
     }
 
     /** The document's own name, for the title; the provider may refuse, and then there is none. */
-    private fun contentDisplayName(uri: Uri): String? =
-        runCatching {
-            contentResolver
+    private suspend fun contentDisplayName(uri: Uri): String? {
+        val resolver = applicationContext.contentResolver
+        return metadata.read {
+            resolver
                 .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                 ?.use { cursor ->
                     val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                     if (column >= 0 && cursor.moveToFirst()) cursor.getString(column) else null
                 }
-        }.getOrNull()
+        }
+    }
 
     /** Scheme and route only: the address itself, and anything derived from it, stays out of logs. */
     private fun logRefusal(
