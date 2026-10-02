@@ -125,11 +125,11 @@ class TmdbRoutingTest {
     @Test
     fun redirects_to_another_origin_do_not_forward_either_credential() =
         runTest {
-            for (signedIn in listOf(true, false)) {
+            for ((signedIn, token) in listOf(true to BUILT_IN, true to "", false to BUILT_IN)) {
                 session.value = signedIn
                 sent.value = emptyList()
                 val destination = "https://other.example/movie/1"
-                client { request ->
+                client(builtInToken = token) { request ->
                     if (request.url.host == "other.example") {
                         json("{}")
                     } else {
@@ -138,10 +138,19 @@ class TmdbRoutingTest {
                 }.use { it.get("$TMDB_BASE/movie/1").bodyAsText() }
                 val expectedOrigin = if (signedIn) PROXY else TMDB_BASE
                 val expectedToken = if (signedIn) "account-1" else BUILT_IN
-                assertEquals(
-                    listOf("$expectedOrigin/movie/1" to "Bearer $expectedToken", destination to null),
-                    sent.value,
-                )
+                assertEquals("$expectedOrigin/movie/1" to "Bearer $expectedToken", sent.value.first())
+                assertEquals(destination to null, sent.value.last())
+                // A proxy redirect may first use the existing direct fallback. Each credential
+                // must still stay on its own origin, with or without that fallback available.
+                sent.value.forEach { (url, bearer) ->
+                    val expected =
+                        when {
+                            url.startsWith(PROXY) -> "Bearer account-1"
+                            url.startsWith(TMDB_BASE) -> "Bearer $token"
+                            else -> null
+                        }
+                    assertEquals(expected, bearer, url)
+                }
             }
         }
 
