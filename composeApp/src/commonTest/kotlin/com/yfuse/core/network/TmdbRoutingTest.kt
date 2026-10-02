@@ -123,6 +123,29 @@ class TmdbRoutingTest {
         }
 
     @Test
+    fun redirects_to_another_origin_do_not_forward_either_credential() =
+        runTest {
+            for (signedIn in listOf(true, false)) {
+                session.value = signedIn
+                sent.value = emptyList()
+                val destination = "https://other.example/movie/1"
+                client { request ->
+                    if (request.url.host == "other.example") {
+                        json("{}")
+                    } else {
+                        respond("", HttpStatusCode.Found, headersOf(HttpHeaders.Location, destination))
+                    }
+                }.use { it.get("$TMDB_BASE/movie/1").bodyAsText() }
+                val expectedOrigin = if (signedIn) PROXY else TMDB_BASE
+                val expectedToken = if (signedIn) "account-1" else BUILT_IN
+                assertEquals(
+                    listOf("$expectedOrigin/movie/1" to "Bearer $expectedToken", destination to null),
+                    sent.value,
+                )
+            }
+        }
+
+    @Test
     fun with_neither_route_tmdb_fails_the_way_an_unreachable_tmdb_does() =
         runTest {
             session.value = false
