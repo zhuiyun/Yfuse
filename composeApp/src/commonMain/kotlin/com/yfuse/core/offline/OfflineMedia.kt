@@ -271,8 +271,8 @@ internal fun planOfflineRetry(
     nowMs: Long,
 ): OfflineRetryPlan? {
     if (failureKind !in setOf(DownloadFailureKind.Network, DownloadFailureKind.Server)) return null
+    if (currentRetryCount >= MAX_OFFLINE_RETRY_COUNT) return null
     val nextCount = currentRetryCount.coerceAtLeast(0) + 1
-    if (nextCount > MAX_OFFLINE_RETRY_COUNT) return null
     val exponent = (nextCount - 1).coerceIn(0, 30)
     val delay =
         (OFFLINE_RETRY_BASE_DELAY_MS shl exponent)
