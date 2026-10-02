@@ -164,7 +164,11 @@ class TraktRepositoryTest {
             val pending = fixture.repository.state.value.pending
             assertTrue(pending in 1..127)
             assertTrue(largestWrite <= SECURE_STORE_MAX_VALUE_BYTES)
-            assertTrue(fixture.repository.state.value.error.orEmpty().contains("存储已满"))
+            assertTrue(
+                fixture.repository.state.value.error
+                    .orEmpty()
+                    .contains("存储已满"),
+            )
             assertTrue(fixture.repository.state.value.connected)
             fixture.repository.close()
         }
@@ -198,7 +202,11 @@ class TraktRepositoryTest {
             stored.failWrites = true
             fixture.record(TraktPlaybackAction.Stop)
             assertEquals(0, fixture.repository.state.value.pending)
-            assertTrue(fixture.repository.state.value.error.orEmpty().contains("安全保存"))
+            assertTrue(
+                fixture.repository.state.value.error
+                    .orEmpty()
+                    .contains("安全保存"),
+            )
             assertTrue(fixture.repository.state.value.connected)
             fixture.repository.close()
         }
