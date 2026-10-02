@@ -44,6 +44,14 @@ class OfflineRetryPolicyTest {
     }
 
     @Test
+    fun anOversizedPersistedCounterCannotOverflowIntoAnotherRetry() {
+        for (count in listOf(MAX_OFFLINE_RETRY_COUNT, MAX_OFFLINE_RETRY_COUNT + 1, Int.MAX_VALUE)) {
+            assertNull(planOfflineRetry(DownloadFailureKind.Network, count, nowMs = 1_000L))
+        }
+        assertEquals(1, planOfflineRetry(DownloadFailureKind.Network, Int.MIN_VALUE, nowMs = 1_000L)?.retryCount)
+    }
+
+    @Test
     fun terminalFailuresNeverScheduleAutomaticRetry() {
         val terminalKinds =
             DownloadFailureKind.entries -
