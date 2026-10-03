@@ -30,13 +30,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -131,12 +136,13 @@ import com.yfuse.core.designsystem.ThemeText as Text
 internal fun RefinedTopBar(
     title: String,
     subtitle: String,
-    filled: Boolean,
+    scaleMode: VideoScaleMode,
     dolbyVision: Boolean,
     dolbyAtmos: Boolean,
     onBack: () -> Unit,
-    onEnterPictureInPicture: () -> Unit,
-    onToggleFill: () -> Unit,
+    onEnterPictureInPicture: (() -> Unit)?,
+    /** A tap on 画面 (false) or a held press, which asks for 拉伸填满 (true). */
+    onToggleFill: (stretch: Boolean) -> Unit,
     onOpenCast: () -> Unit,
     onOpenMore: () -> Unit,
     watchConnected: Boolean,
@@ -160,6 +166,8 @@ internal fun RefinedTopBar(
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val haptics = LocalHaptics.current
+    // The scrim runs edge to edge; the keys keep clear of a notch or a punch-hole.
+    val cutout = WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
     Row(
         modifier
             .fillMaxWidth()
@@ -171,7 +179,8 @@ internal fun RefinedTopBar(
                         1f to Color.Transparent,
                     ),
                 )
-            }.padding(horizontal = if (compact) 14.dp else 22.dp, vertical = 14.dp),
+            }.windowInsetsPadding(cutout)
+            .padding(horizontal = if (compact) 14.dp else 22.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
@@ -280,40 +289,32 @@ internal fun RefinedTopBar(
                 }
             }
             if (!compact) {
-                CircleControl(
-                    AppIcons.PictureInPicture,
-                    "小窗播放",
-                    28.dp,
-                    12.dp,
-                    onClick = onEnterPictureInPicture,
-                )
-                // One key with two readings, so the glyph dissolves into the other one. The key keeps
-                // its size through the swap, which is the whole reason there is no size transform.
-                AnimatedContent(
-                    targetState = filled,
-                    contentKey = { it },
-                    transitionSpec = { barSwapTransform(reduceMotion) },
-                    label = "player-aspect-mode",
-                ) { fill ->
+                onEnterPictureInPicture?.let { enter ->
                     CircleControl(
-                        icon = if (fill) AppIcons.AspectFill else AppIcons.AspectFit,
-                        description = if (fill) "画面比例：填充" else "画面比例：适应",
-                        size = 28.dp,
-                        iconSize = 12.dp,
-                        onClick = onToggleFill,
+                        AppIcons.PictureInPicture,
+                        "小窗播放",
+                        28.dp,
+                        12.dp,
+                        onClick = enter,
                     )
                 }
+                // One key with two readings, so the glyph dissolves into the other one inside the key,
+                // which keeps its size and, once pressed, a keyboard's or a screen reader's focus. It
+                // names the mode it is in: 拉伸填满 used to be read out as 填充.
+                CircleControl(
+                    icon = if (scaleMode == VideoScaleMode.Fit) AppIcons.AspectFit else AppIcons.AspectFill,
+                    description = "画面比例：${scaleMode.label}",
+                    size = 28.dp,
+                    iconSize = 12.dp,
+                    crossfadeIcon = true,
+                    onClick = { onToggleFill(false) },
+                    onLongClick = { onToggleFill(true) },
+                    onLongClickLabel = if (scaleMode == VideoScaleMode.Stretch) "恢复适应" else "拉伸填满",
+                )
             }
             extras.rotationLock?.let { lock ->
-                // 旋转锁 swaps its glyph the way 画面比例 beside it does.
-                AnimatedContent(
-                    targetState = lock.locked,
-                    contentKey = { it },
-                    transitionSpec = { barSwapTransform(reduceMotion) },
-                    label = "player-rotation-lock",
-                ) { locked ->
-                    RotationLockKey(lock, locked, onKeyActivity)
-                }
+                // 旋转锁 changes its glyph in place the way 画面比例 beside it does.
+                RotationLockKey(lock, lock.locked, onKeyActivity)
             }
             // 按住拖送: held, the key drops its recent devices underneath; tapped, it opens 投屏 as before.
             CircleControl(
@@ -367,6 +368,9 @@ internal fun RefinedBottomBar(
     skipSettingsAvailable: Boolean,
     onOpenSkipSettings: () -> Unit,
     danmakuEnabled: Boolean,
+    /** A tap on 弹幕: comments on or off where they are. */
+    onToggleDanmaku: () -> Unit,
+    /** A held 弹幕: the panel, for what shows and where it comes from. */
     onOpenDanmaku: () -> Unit,
     artworkUrl: String?,
     artworkIdentity: Any?,
@@ -414,6 +418,7 @@ internal fun RefinedBottomBar(
         skipSettingsAvailable = skipSettingsAvailable,
         onOpenSkipSettings = onOpenSkipSettings,
         danmakuEnabled = danmakuEnabled,
+        onToggleDanmaku = onToggleDanmaku,
         onOpenDanmaku = onOpenDanmaku,
         artworkUrl = artworkUrl,
         artworkIdentity = stableArtworkIdentity,
@@ -451,6 +456,9 @@ private fun RefinedBottomBarContent(
     skipSettingsAvailable: Boolean,
     onOpenSkipSettings: () -> Unit,
     danmakuEnabled: Boolean,
+    /** A tap on 弹幕: comments on or off where they are. */
+    onToggleDanmaku: () -> Unit,
+    /** A held 弹幕: the panel, for what shows and where it comes from. */
     onOpenDanmaku: () -> Unit,
     artworkUrl: String?,
     artworkIdentity: Any?,
@@ -462,6 +470,7 @@ private fun RefinedBottomBarContent(
     compact: Boolean = false,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val tips = LocalTips.current
     // Where the finger left the thumb. Read from derived state only, never from composition:
     // under a drag it changes sixty times a second.
     val scrubbed = remember { mutableStateOf<Float?>(null) }
@@ -538,6 +547,8 @@ private fun RefinedBottomBarContent(
             { ambientSeekAccent(ambientLight?.value, artworkAccent.value) }
         }
 
+    // As the title bar: the scrim runs edge to edge, the keys and the rail keep clear of a cutout.
+    val cutout = WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
     Column(
         modifier
             .fillMaxWidth()
@@ -549,7 +560,8 @@ private fun RefinedBottomBarContent(
                         1f to Color.Transparent,
                     ),
                 )
-            }.padding(start = 22.dp, end = 22.dp, top = 10.dp, bottom = 16.dp),
+            }.windowInsetsPadding(cutout)
+            .padding(start = 22.dp, end = 22.dp, top = 10.dp, bottom = 16.dp),
     ) {
         Row(
             verticalAlignment = Alignment.Bottom,
@@ -764,13 +776,20 @@ private fun RefinedBottomBarContent(
             if (compact) episodesKey()
             CircleControl(AppIcons.Subtitle, "字幕", 26.dp, 12.dp, onClick = onOpenSubtitles)
             CircleControl(AppIcons.AudioTrack, "音轨", 26.dp, 12.dp, onClick = onOpenAudio)
+            // 弹幕 is switched far more often than it is set up, so a tap switches it and the
+            // panel waits behind a held press.
             CircleControl(
                 icon = AppIcons.Danmaku,
                 description = if (danmakuEnabled) "弹幕，已开启" else "弹幕，已关闭",
                 size = 26.dp,
                 iconSize = 12.dp,
                 active = danmakuEnabled,
-                onClick = onOpenDanmaku,
+                onClick = onToggleDanmaku,
+                onLongClick = {
+                    tips?.markUsed(Tips.PLAYER_DANMAKU_KEY)
+                    onOpenDanmaku()
+                },
+                onLongClickLabel = "弹幕设置",
             )
             RefinedSpeedControl(speed, onOpenSpeed)
             // Which of these three exist is decided by the item, and the item changes under
@@ -978,6 +997,8 @@ private fun RefinedSpeedControl(
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val figure = if (speed % 1f == 0f) "${speed.toInt()}" else "$speed"
     val label = "$figure×"
+    // The same ring as its neighbours: 26 dp in reach of a thumb, larger across a room.
+    val ring = chromeKeySize(26.dp)
     Box(
         Modifier
             // Named for what it sets, with the rate as its state: read out, 「1.25×」 alone was a
@@ -985,12 +1006,12 @@ private fun RefinedSpeedControl(
             .pressable(label = "播放速度", onClick = onClick)
             .touchTarget()
             .semantics { stateDescription = "$figure 倍" }
-            .size(40.dp),
+            .size(ring + ControlTouchPadding * 2),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
-                .size(26.dp)
+                .size(ring)
                 .border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {

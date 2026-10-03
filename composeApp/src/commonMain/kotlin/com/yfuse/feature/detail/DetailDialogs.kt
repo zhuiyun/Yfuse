@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
@@ -32,10 +33,13 @@ import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.model.MediaServerKind
+import com.yfuse.core.model.Season
 import com.yfuse.core.offline.OfflineBatchMode
 import com.yfuse.core.offline.OfflineDownloadQuality
 import com.yfuse.core.offline.OfflineDownloadSelection
 import com.yfuse.core.offline.estimateOfflineDownloadBytes
+import com.yfuse.core.offline.offlineSeasonLabel
 import com.yfuse.feature.profile.formatDownloadBytes
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -53,22 +57,28 @@ internal fun OfflineDownloadDialog(
     episodes: List<Episode>,
     selectedVersionId: String?,
     allowedQualities: List<OfflineDownloadQuality> = OfflineDownloadQuality.entries,
+    /** [episodes]' season by name — see [listedSeasonLabel]; null keeps the generic 整季. */
+    seasonLabel: String? = null,
+    /** The range it opens on: 下载第 2 季（10 集）… in 更多 opens it on the season. */
+    initialBatchMode: OfflineBatchMode = OfflineBatchMode.Current,
     onConfirm: (OfflineDownloadSelection) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val versions = detail.versions
+    val episode = detail.seriesId != null
+    val batchModes = offlineBatchModes(episode, episodes.size)
     var versionId by remember(detail.id, selectedVersionId) {
         mutableStateOf(selectedVersionId ?: versions.firstOrNull()?.id)
     }
     var quality by remember(detail.id) { mutableStateOf(OfflineDownloadQuality.Original) }
     var subtitleIndex by remember(detail.id) { mutableStateOf<Int?>(null) }
-    var batchMode by remember(detail.id) { mutableStateOf(OfflineBatchMode.Current) }
+    var batchMode by remember(detail.id) {
+        mutableStateOf(initialBatchMode.takeIf { it in batchModes } ?: OfflineBatchMode.Current)
+    }
     var autoDownloadNewEpisodes by remember(detail.id) { mutableStateOf(false) }
     val selectedVersion = versions.firstOrNull { it.id == versionId } ?: versions.firstOrNull()
     val selectedSubtitle = selectedVersion?.subtitleTracks?.firstOrNull { it.index == subtitleIndex }
-    val episode = detail.seriesId != null
-    val batchModes = offlineBatchModes(episode, episodes.size)
     val batchCount =
         when (batchMode) {
             OfflineBatchMode.Current -> 1
@@ -110,7 +120,14 @@ internal fun OfflineDownloadDialog(
         )
 
         Text("范围", style = AppTypography.caption.strong, color = palette.sub2)
-        OfflineChoiceRow(batchModes, batchMode, { offlineBatchModeLabel(it, episode) }) { batchMode = it }
+        // Rows rather than the chips 画质 uses: 第 12 季（24 集） does not fit a chip's width.
+        batchModes.forEach { mode ->
+            OverlayOptionRow(
+                label = offlineBatchModeLabel(mode, episode, seasonLabel),
+                selected = mode == batchMode,
+                onClick = { batchMode = mode },
+            )
+        }
 
         if (versions.size > 1) {
             Text("版本", style = AppTypography.caption.strong, color = palette.sub2)
@@ -192,6 +209,63 @@ internal fun OfflineDownloadDialog(
     }
 }
 
+/**
+ * The 下载 sheet for what 播放 opens, on [range]: it queues through [DetailComponent.download] and
+ * says what was queued. Nothing is drawn until that target has resolved.
+ */
+@Composable
+internal fun DetailDownloadSheet(
+    component: DetailComponent,
+    state: DetailState,
+    range: OfflineBatchMode,
+    onClose: () -> Unit,
+) {
+    val target = state.playTarget ?: return
+    OfflineDownloadDialog(
+        detail = target,
+        episodes = state.episodes,
+        selectedVersionId = state.selectedVersionId,
+        allowedQualities =
+            if (state.playServer?.kind == MediaServerKind.Plex) {
+                listOf(OfflineDownloadQuality.Original)
+            } else {
+                OfflineDownloadQuality.entries
+            },
+        seasonLabel = listedSeasonLabel(state.episodes, state.seasons),
+        initialBatchMode = range,
+        onConfirm = { selection ->
+            onClose()
+            component.download(selection)?.let { result ->
+                val message = offlineEnqueueMessage(result, episode = target.seriesId != null)
+                component.store.accept(DetailIntent.ShowMessage(message))
+            }
+        },
+        onDismiss = onClose,
+    )
+}
+
+/**
+ * 整部剧标记为已看 / 未看 — every episode's history and resume point in one tap, so it is asked
+ * first, whether it came from the key under 播放 or from 更多.
+ */
+@Composable
+internal fun SeriesPlayedConfirmDialog(
+    detail: MediaDetail,
+    seasonCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val markPlayed = !detail.played
+    ConfirmDialog(
+        title = if (markPlayed) "整部剧标记为已看？" else "整部剧标记为未看？",
+        message = seriesProgressConfirmMessage(detail.title, seasonCount, markPlayed),
+        confirmLabel = if (markPlayed) "标记已看" else "标记未看",
+        destructive = true,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+    )
+}
+
 /** Only an episode has a season to widen to; a film is offered 本片 and nothing else. */
 internal fun offlineBatchModes(
     episode: Boolean,
@@ -206,12 +280,33 @@ internal fun offlineBatchModes(
 internal fun offlineBatchModeLabel(
     mode: OfflineBatchMode,
     episode: Boolean,
+    /** What 整季 takes, by name; see [listedSeasonLabel]. */
+    seasonLabel: String? = null,
 ): String =
     when {
+        mode == OfflineBatchMode.Season -> seasonLabel ?: mode.label
         mode != OfflineBatchMode.Current -> mode.label
         episode -> "本集"
         else -> "本片"
     }
+
+/**
+ * The season a whole-season download takes, named from the episodes it would take — while a newly
+ * picked season loads, the list is still the last one's — with the server's name for that season to
+ * fall back on. Null when nothing is listed, and so there is no season to take.
+ */
+internal fun listedSeasonLabel(
+    episodes: List<Episode>,
+    seasons: List<Season>,
+): String? {
+    val first = episodes.firstOrNull() ?: return null
+    val season = seasons.firstOrNull { it.id == first.seasonId }
+    return offlineSeasonLabel(
+        seasonNumber = first.seasonNumber ?: season?.indexNumber,
+        episodeCount = episodes.size,
+        seasonName = season?.name,
+    )
+}
 
 /** What one 加入下载 queued. [skipped] episodes had no file resembling the chosen version. */
 data class OfflineEnqueueResult(

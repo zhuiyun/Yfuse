@@ -15,14 +15,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -39,11 +42,17 @@ import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -58,6 +67,7 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PressFeedback
+import com.yfuse.core.designsystem.glassButtonAlpha
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.liquidMotionEnabled
 import com.yfuse.core.designsystem.liquidOutline
@@ -91,7 +101,8 @@ internal fun formatResumePosition(playPositionTicks: Long): String? {
 }
 
 /**
- * The play key, and 从头 beside it while there is progress to resume.
+ * The play key, and 从头 beside it while there is progress to resume; under them, the row of icon
+ * keys ([DetailActionKeyRow]).
  *
  * They are two keys of one material. While 从头 grows out of the play key, or flows back into it,
  * they are one liquid body drawn behind the row (see [DetailKeyLiquid]); each key keeps its place in
@@ -111,6 +122,16 @@ internal fun DetailActionDock(
     canPlayFromStart: Boolean,
     onPlay: () -> Unit,
     onPlayFromStart: () -> Unit,
+    /**
+     * The icon keys under the play key, in the order given. Another action joins the row by being
+     * one more entry — `keys = detailPageActionKeys(...) + trailerKey` — and nothing else changes.
+     */
+    keys: List<DetailActionKey> = emptyList(),
+    /**
+     * The keys' accent: the settled one, where [accent] blends in over 500ms. The play key follows
+     * that blend in this scope; the keys need not repaint with it on every frame.
+     */
+    keyAccent: Color = accent,
 ) {
     val actionInk = primaryActionContentColor(accent)
     // One source per key: each key presses and washes on its own.
@@ -404,6 +425,8 @@ internal fun DetailActionDock(
                 }
             }
         }
+        // Below the liquid's row rather than in it: the split and the merge are the play key's own.
+        DetailActionKeyRow(keys, keyAccent)
     }
 }
 
@@ -501,6 +524,145 @@ internal fun GlassActionButton(
         )
     }
 }
+
+/**
+ * One key of [DetailActionKeyRow]: an icon over a short label.
+ *
+ * The row draws what it is handed, in order, so a key from elsewhere — 预告片 — joins it as one more
+ * entry and nothing else changes.
+ */
+@Immutable
+internal data class DetailActionKey(
+    /** Stable within the row: what the row keys its tiles by, and what a test finds a key by. */
+    val id: String,
+    val icon: ImageVector,
+    /** Under the icon. Short: five of these share a phone's width. */
+    val label: String,
+    val onClick: () -> Unit,
+    /** What a screen reader calls the key, where that is more than [label] says. */
+    val description: String = label,
+    /** A switch, on or off in place: drawn in the accent while on, and felt when it changes. */
+    val checked: Boolean? = null,
+    /** Read after the name — 已收藏 / 未收藏, 已下载 — so the state is heard as well as seen. */
+    val stateDescription: String? = null,
+    /** The icon while [checked]; null keeps [icon]. */
+    val checkedIcon: ImageVector? = null,
+    /** A write is on its way: the key waits and takes no second tap. */
+    val busy: Boolean = false,
+    /** There but not usable yet — 下载 while 播放's file resolves. */
+    val enabled: Boolean = true,
+)
+
+/**
+ * 收藏, 稍后看, 已看 and 下载 under the play key: the actions people reach for most, which were up at
+ * the top right or two taps into 更多. A row of equal tiles in [GlassActionButton]'s glass, each an
+ * icon over its label, so a key joining or leaving reflows the row and never the page. It starts where
+ * the artwork has all but dissolved into the page, so the palette's inks on the tiles' own glass read
+ * in either theme; the title block above it is the part that sits on the picture.
+ */
+@Composable
+internal fun DetailActionKeyRow(
+    keys: List<DetailActionKey>,
+    accent: Color,
+    modifier: Modifier = Modifier,
+) {
+    if (keys.isEmpty()) return
+    Row(
+        modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(DETAIL_KEY_GAP.dp),
+    ) {
+        keys.forEach { action ->
+            key(action.id) { DetailActionKeyTile(action, accent, Modifier.weight(1f)) }
+        }
+    }
+}
+
+@Composable
+private fun DetailActionKeyTile(
+    action: DetailActionKey,
+    accent: Color,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalPalette.current
+    val stateColors = detailStateColors(accent, palette.background, palette.isDark)
+    val on = action.checked == true
+    // GlassActionButton's body and edge, so the row reads as the same family of keys.
+    val fill =
+        when {
+            on -> stateColors.surface
+            palette.isDark -> Color.White.copy(alpha = 0.075f)
+            else -> Color.White.copy(alpha = 0.20f)
+        }
+    val edge =
+        when {
+            on -> stateColors.border
+            palette.isDark -> Color.White.copy(alpha = 0.14f)
+            else -> Color.White.copy(alpha = 0.22f)
+        }
+    val ink = if (on) stateColors.foreground else palette.body
+    Column(
+        modifier
+            .heightIn(min = DetailActionKeyHeight)
+            .graphicsLayer { alpha = glassButtonAlpha(action.enabled) }
+            .pressable(
+                enabled = action.enabled && !action.busy,
+                pressedScale = PressFeedback.QUIET,
+                lightFeedback = false,
+                // A switch changes in place and navigates nowhere, so the tap is felt as well as seen.
+                haptic = HapticSignal.Confirm.takeIf { action.checked != null },
+                role = if (action.checked == null) Role.Button else Role.Checkbox,
+                label = action.description,
+                onClick = action.onClick,
+            ).semantics {
+                action.checked?.let { toggleableState = ToggleableState(it) }
+                action.stateDescription?.let { stateDescription = it }
+            }.shadow(GlassLift.control, AppShapes.card)
+            .liquidGlass(shape = AppShapes.card, fill = fill, border = edge, sheen = 0.72f)
+            .waitingPulse(active = action.busy, shape = AppShapes.card, color = if (on) ink else accent)
+            .padding(horizontal = 4.dp, vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+    ) {
+        Box(
+            Modifier
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(
+                    if (on) {
+                        stateColors.iconSurface
+                    } else {
+                        palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.045f)
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (action.checked == null) {
+                Icon(action.icon, contentDescription = null, tint = ink, modifier = Modifier.size(15.dp))
+            } else {
+                BurstIcon(
+                    icon = if (on) action.checkedIcon ?: action.icon else action.icon,
+                    active = on,
+                    contentDescription = null,
+                    tint = ink,
+                    burstColor = accent,
+                    iconSize = 15.dp,
+                )
+            }
+        }
+        Text(
+            action.label,
+            style = if (on) AppTypography.caption.strong else AppTypography.caption.medium,
+            color = if (on) stateColors.foreground else palette.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            // The key already carries its name; the label is not read out a second time.
+            modifier = Modifier.clearAndSetSemantics {},
+        )
+    }
+}
+
+/** The icon well, the label and their padding — and never under the 48dp a finger needs. */
+private val DetailActionKeyHeight = 58.dp
 
 // ---------------------------------------------------------------- sections
 

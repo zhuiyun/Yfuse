@@ -15,7 +15,7 @@ sealed interface QuickConnectStartResult {
     ) : QuickConnectStartResult
 
     data class Unsupported(
-        val reason: String = QuickConnectUnsupportedMessage,
+        val reason: String = QUICK_CONNECT_UNSUPPORTED_MESSAGE,
     ) : QuickConnectStartResult
 }
 
@@ -61,7 +61,8 @@ object UnsupportedQuickConnectGateway : QuickConnectGateway {
     override suspend fun poll(
         baseUrl: String,
         sessionId: String,
-    ): Result<QuickConnectPollResult> = Result.success(QuickConnectPollResult.Rejected(QuickConnectUnsupportedMessage))
+    ): Result<QuickConnectPollResult> =
+        Result.success(QuickConnectPollResult.Rejected(QUICK_CONNECT_UNSUPPORTED_MESSAGE))
 
     override suspend fun cancel(
         baseUrl: String,
@@ -69,5 +70,5 @@ object UnsupportedQuickConnectGateway : QuickConnectGateway {
     ): Result<Unit> = Result.success(Unit)
 }
 
-const val QuickConnectUnsupportedMessage =
+const val QUICK_CONNECT_UNSUPPORTED_MESSAGE =
     "此服务器未启用或不支持 Quick Connect，请使用用户名和密码登录"

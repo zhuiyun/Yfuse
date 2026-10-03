@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -53,10 +54,6 @@ import coil3.request.ImageRequest
 import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
-
-/** Large artwork may resolve cinematically, but should never hold the image soft for 550ms. */
-private val ArtworkRevealBlur = 6.dp
-private const val ARTWORK_REVEAL_SCALE_FROM = 1.025f
 
 /**
  * How much narrower than its frame an upright picture may be before it is fitted rather than
@@ -142,8 +139,8 @@ fun FallbackImage(
      * avatars and category tiles used to fall through to the 400ms hero timing by omission.
      */
     revealDurationMillis: Int = if (alphaOnly) Motion.POSTER_FADE else Motion.ARTWORK_REVEAL,
-    revealBlur: Dp = ArtworkRevealBlur,
-    revealScaleFrom: Float = ARTWORK_REVEAL_SCALE_FROM,
+    revealBlur: Dp = ImageRevealMotion.ResolveBlur,
+    revealScaleFrom: Float = ImageRevealMotion.RESOLVE_SCALE_FROM,
     /** Reports the fallback candidate whose drawable actually reached the screen. */
     onResolvedUrl: (String) -> Unit = {},
     /**
@@ -152,12 +149,26 @@ fun FallbackImage(
      * a frame that is not itself a portrait's: an avatar's circle would fit a portrait too.
      */
     fitNarrow: Boolean = false,
+    /**
+     * Jellyfin's BlurHash for the first of [urls]: the picture's colours and shapes, shown until
+     * it arrives. Without one, a colour already worked out for the same artwork stands in when
+     * there is one; see [rememberArtworkPlaceholder].
+     */
+    blurHash: String? = null,
 ) {
     val candidates = remember(urls) { urls.filterNotNull().filter { it.isNotBlank() }.distinct() }
     var frameAspect by remember { mutableFloatStateOf(0f) }
     var candidateIndex by remember(candidates) { mutableIntStateOf(0) }
     var loaded by remember(candidates, candidateIndex) { mutableStateOf(false) }
     var exhausted by remember(candidates) { mutableStateOf(candidates.isEmpty()) }
+    val placeholder = rememberArtworkPlaceholder(blurHash, candidates)
+    // 静息 keeps the hand-off from the placeholder, not the resolve; see [ImageRevealMotion].
+    val reveal =
+        ImageRevealMotion.reveal(
+            large = progressive && !alphaOnly,
+            calm = calmMotion(),
+            durationMillis = revealDurationMillis,
+        )
 
     /**
      * Whether this particular picture is allowed the entrance.
@@ -177,7 +188,7 @@ fun FallbackImage(
         loaded = loaded,
         instant = instant,
         enabled = true,
-        durationMillis = revealDurationMillis,
+        durationMillis = reveal.durationMillis,
     )
     Box(
         if (fitNarrow) {
@@ -190,6 +201,18 @@ fun FallbackImage(
             FailedImagePlaceholder(contentDescription)
         }
         if (!exhausted) {
+            placeholder?.let { standIn ->
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .graphicsLayer {
+                            // Hidden rather than composed away once the picture has taken over,
+                            // where it would only be overdraw: the reveal's every frame changes a
+                            // layer property here, not the page's drawing.
+                            alpha = if (loaded && settle >= 1f) 0f else 1f
+                        }.drawBehind { drawArtworkPlaceholder(standIn.value) },
+                )
+            }
             candidates.getOrNull(candidateIndex)?.let { candidate ->
                 val requestIndex = candidateIndex
                 // The candidate list resets loaded/exhausted above. Recreate the painter in
@@ -205,10 +228,10 @@ fun FallbackImage(
                         contentScale = if (fitted) ContentScale.Fit else contentScale,
                         modifier =
                             Modifier.fillMaxSize().graphicsLayer {
-                                // The placeholder underneath is the caller's — [Poster] tints its
-                                // own well — because artwork colour is unknown before arrival.
+                                // Underneath is the artwork's own placeholder when there is one,
+                                // otherwise the caller's — [Poster] tints its own well.
                                 val remaining = 1f - settle
-                                val resolves = progressive && !alphaOnly
+                                val resolves = reveal.resolves
                                 val scale =
                                     if (!resolves) {
                                         1f
@@ -344,6 +367,8 @@ fun Poster(
     rating: Double? = null,
     /** 0f..1f — draws the 3px `#5B7FD1` resume bar along the bottom edge. */
     progress: Float? = null,
+    /** Jellyfin's BlurHash for [url]'s picture, shown until it arrives; see [FallbackImage]. */
+    blurHash: String? = null,
     contentDescription: String? = title,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
@@ -431,6 +456,7 @@ fun Poster(
             // Dense rails and grids only need a quick opacity hand-off from their placeholder.
             revealDurationMillis = Motion.POSTER_FADE,
             fitNarrow = fitNarrow,
+            blurHash = blurHash,
         )
 
         overlay()
@@ -562,6 +588,8 @@ fun CaptionedPoster(
     posterModifier: Modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
     rating: Double? = null,
     progress: Float? = null,
+    /** As on [Poster]: Jellyfin's BlurHash for [url]'s picture. */
+    blurHash: String? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     /** As on [Poster]: the whole tile takes the press, and the artwork is what lifts. */
@@ -608,6 +636,7 @@ fun CaptionedPoster(
             fallbackUrls = fallbackUrls,
             rating = rating,
             progress = progress,
+            blurHash = blurHash,
             contentDescription = title,
             modifier = posterModifier.liftAnchor(artwork.takeIf { lift != null }),
             sharedTransitionKey = sharedTransitionKey,
@@ -650,3 +679,21 @@ internal fun mediaRatingLabel(rating: Double?): String? {
 
 /** How much denser the placeholder is at the foot of a tile than at its head. */
 private const val PLACEHOLDER_FALL = 1.35f
+
+/**
+ * What letting go on a lifted card does, for a card whose tap does something else — a 继续观看 card
+ * resumes: open the title's page, noting the artwork as the place 跟手返回 goes back into, without
+ * the shared-element morph. The artwork is hidden under the lifted card, so a morph would fly a
+ * second copy of it out of the shelf while the card fades.
+ */
+@Composable
+internal fun liftedCardOpen(
+    key: MediaSharedElementKey?,
+    onOpen: () -> Unit,
+): () -> Unit {
+    val controller = LocalSharedMediaTransitionController.current
+    return {
+        if (key != null) controller?.noteOrigin(key)
+        onOpen()
+    }
+}

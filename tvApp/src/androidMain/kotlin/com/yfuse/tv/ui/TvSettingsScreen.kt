@@ -27,7 +27,6 @@ import com.yfuse.core.account.AccountState
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
-import com.yfuse.feature.profile.GlassMaterialSettingsScreen
 import com.yfuse.feature.profile.ProfileComponent
 import com.yfuse.feature.profile.ProfileIntent
 import com.yfuse.tv.focus.requestFocusWhenAttached
@@ -56,7 +55,7 @@ internal fun TvSettingsScreen(
     val travel = with(LocalDensity.current) { TvPageMotion.travel.roundToPx() }
 
     BackHandler(enabled = page != TvSettingsPage.Root) {
-        page = if (page == TvSettingsPage.GlassMaterial) TvSettingsPage.Appearance else TvSettingsPage.Root
+        page = TvSettingsPage.Root
     }
 
     AnimatedContent(
@@ -95,7 +94,7 @@ private val TvSettingsPage.depth: Int
     get() =
         when (this) {
             TvSettingsPage.Root -> 0
-            TvSettingsPage.AccountSessions, TvSettingsPage.GlassMaterial -> 2
+            TvSettingsPage.AccountSessions -> 2
             else -> 1
         }
 
@@ -131,6 +130,12 @@ private fun TvSettingsPageContent(
                 navigationRequester = navigationRequester,
                 firstRowRequester = pageRequester,
                 onBack = { onOpen(TvSettingsPage.Root) },
+            )
+        TvSettingsPage.PhoneRemote ->
+            TvPhoneRemoteSettingsPage(
+                focusMemory = focusMemory,
+                navigationRequester = navigationRequester,
+                firstRowRequester = pageRequester,
             )
         TvSettingsPage.Account ->
             TvAccountSettingsPage(
@@ -181,17 +186,7 @@ private fun TvSettingsPageContent(
                 focusMemory = focusMemory,
                 navigationRequester = navigationRequester,
                 firstRowRequester = pageRequester,
-                onGlassMaterial = { onOpen(TvSettingsPage.GlassMaterial) },
             )
-        TvSettingsPage.GlassMaterial -> {
-            val materials by component.themePreferences.glassMaterials.collectAsState()
-            GlassMaterialSettingsScreen(
-                materials = materials,
-                onChange = component.themePreferences::setGlassMaterial,
-                onBack = { onOpen(TvSettingsPage.Appearance) },
-                firstControlRequester = pageRequester,
-            )
-        }
         TvSettingsPage.ServerBackup ->
             TvServerBackupPage(
                 component = component,
@@ -235,11 +230,13 @@ private fun TvSettingsRootPage(
     val reduceMotion by component.themePreferences.reduceMotion.collectAsState()
     val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
     val autoNext by component.themePreferences.autoNext.collectAsState()
+    val detailThemeSong by component.playbackPreferences.detailThemeSong.collectAsState()
     val account by component.account.state.collectAsState()
     val personal by component.personal.state.collectAsState()
     val danmakuEnabled by component.danmakuPreferences.enabled.collectAsState()
     val downloads by component.offlineMedia.items.collectAsState()
     val downloadCount = downloads.size
+    val phoneRemoteSummary = rememberTvPhoneRemoteSummary()
     val scope = "settings"
     var query by rememberSaveable { mutableStateOf("") }
 
@@ -314,16 +311,27 @@ private fun TvSettingsRootPage(
             TvSettingsPage.Family,
             TvSettingsPage.SyncStatus,
             TvSettingsPage.Handoff,
+            TvSettingsPage.PhoneRemote,
             TvSettingsPage.Trakt,
         ).forEach { target ->
             item(key = "settings-product:${target.name}") {
                 TvSettingRow(
                     title = target.title,
-                    value = if (target == TvSettingsPage.Family) personal.activeProfile.name else "",
+                    value =
+                        when (target) {
+                            TvSettingsPage.Family -> personal.activeProfile.name
+                            TvSettingsPage.PhoneRemote -> phoneRemoteSummary
+                            else -> ""
+                        },
                     stableId = "settings:product:${target.name}",
                     focusMemory = focusMemory,
                     onClick = { onOpen(target) },
-                    icon = if (target == TvSettingsPage.Personal) AppIcons.Heart else AppIcons.User,
+                    icon =
+                        when (target) {
+                            TvSettingsPage.Personal -> AppIcons.Heart
+                            TvSettingsPage.PhoneRemote -> AppIcons.Cast
+                            else -> AppIcons.User
+                        },
                     focusScope = scope,
                     subtitle = target.subtitle,
                     focusRequester = contentRequester.takeIf { target == TvSettingsPage.Personal },
@@ -394,6 +402,19 @@ private fun TvSettingsRootPage(
                 onToggle = component.themePreferences::setAutoNext,
                 icon = AppIcons.Next,
                 focusScope = scope,
+                navigationRequester = navigationRequester,
+            )
+        }
+        item(key = "settings-detail-theme-song") {
+            TvToggleRow(
+                title = "详情页主题曲",
+                checked = detailThemeSong,
+                stableId = "settings:detail-theme-song",
+                focusMemory = focusMemory,
+                onToggle = component.playbackPreferences::setDetailThemeSong,
+                icon = AppIcons.Volume,
+                focusScope = scope,
+                subtitle = "服务器有主题曲时，在详情页轻声播放",
                 navigationRequester = navigationRequester,
             )
         }
@@ -550,6 +571,7 @@ private val tvSettingsKeywords: Map<TvSettingsPage, String> =
         TvSettingsPage.Family to "家庭 用户 儿童 资料 新建 家长 PIN 隔离",
         TvSettingsPage.SyncStatus to "同步 状态 重试 合并 冲突 恢复",
         TvSettingsPage.Handoff to "接力 设备 手机 平板 电视 转移",
+        TvSettingsPage.PhoneRemote to "手机 遥控 遥控器 允许 信任 断开 配对",
         TvSettingsPage.Trakt to "trakt 历史 想看 授权 导入 上报",
         TvSettingsPage.Account to "登录 注册 同步 云端 密码 会话",
         TvSettingsPage.AccountSessions to "设备 退出 撤销 登录记录",
@@ -557,8 +579,8 @@ private val tvSettingsKeywords: Map<TvSettingsPage, String> =
         TvSettingsPage.AdvancedPlayback to "内核 解码 缓冲 缓存 帧率 直通 音频 硬解 软解 ycore",
         TvSettingsPage.Danmaku to "弹幕 字幕 屏蔽 过滤 字号 透明",
         TvSettingsPage.WatchTogether to "一起看 房间 聊天 昵称 头像",
-        TvSettingsPage.Appearance to "外观 背景 玻璃 弹窗 字体 大字 动效主题 静息 经典 动画 启动 无障碍",
-        TvSettingsPage.GlassMaterial to "玻璃 材质 底色 透明度 遮罩 预览",
+        // 玻璃, 材质 and 布局 lead to the note on that page that says why they are not on a television.
+        TvSettingsPage.Appearance to "外观 背景 玻璃 材质 布局 弹窗 字体 大字 动效主题 静息 经典 动画 启动 无障碍 透明",
         TvSettingsPage.Downloads to "下载 离线 队列 存储 空间 wifi",
         TvSettingsPage.ServerBackup to "备份 导出 导入 迁移 换机 口令",
         TvSettingsPage.PermissionHealth to "权限 通知 局域网 授权",

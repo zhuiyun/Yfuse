@@ -49,9 +49,9 @@ class MpvOutputStateTest {
 
     @Test
     fun mpv_pixel_formats_report_output_bit_depth_without_claiming_unknown_formats() {
-        assertEquals(10, "p010".mpvPixelFormatBitDepth())
-        assertEquals(12, "yuv420p12le".mpvPixelFormatBitDepth())
-        assertEquals(8, "nv12".mpvPixelFormatBitDepth())
-        assertEquals(0, "".mpvPixelFormatBitDepth())
+        assertEquals(10, "p010".pixelFormatBitDepth())
+        assertEquals(12, "yuv420p12le".pixelFormatBitDepth())
+        assertEquals(8, "nv12".pixelFormatBitDepth())
+        assertEquals(0, "".pixelFormatBitDepth())
     }
 }

@@ -11,6 +11,13 @@ class PlayerGestureSettingsTest {
         assertEquals(10_000L, defaults.doubleTapSeekMs)
         assertEquals(true, defaults.centerHoldSpeedBoost)
         assertEquals(false, defaults.swapBrightnessVolume)
+        assertEquals(false, defaults.doubleTapPausesAnywhere)
+    }
+
+    @Test
+    fun a_tap_unlocks_by_default() {
+        // The default changed on purpose, to the habit of the other Chinese players.
+        assertEquals(false, PlayerGestureSettings().unlockByLongPress)
     }
 
     @Test

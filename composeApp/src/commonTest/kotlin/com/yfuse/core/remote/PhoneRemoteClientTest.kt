@@ -21,6 +21,13 @@ class PhoneRemoteClientTest {
             participantCount = 1,
         )
 
+    /** A relay that passes the television's answer on, joining a phone to a television that asks. */
+    private val asking =
+        joined.copy(
+            capabilities = listOf(WatchProtocol.CAPABILITY_REMOTE_CONTROL, WatchProtocol.CAPABILITY_REMOTE_PAIRING),
+            ready = false,
+        )
+
     @Test
     fun joins_then_sends_keys_and_only_the_settled_text() =
         runTest {
@@ -32,6 +39,9 @@ class PhoneRemoteClientTest {
             val join = socket.sent.receive()
             assertEquals("remoteJoin", join.type)
             assertEquals("tv-session", join.remoteSessionId)
+            // It says which phone it is, so the television can ask about it by name.
+            assertEquals("phone-a", join.remoteDeviceId)
+            assertEquals("测试手机", join.name)
             assertFalse(client.sendKey(RemoteControlKey.Up), "nothing is sent before the relay has paired")
             socket.push(joined)
             client.state.first { it == PhoneRemoteState.Connected }
@@ -118,9 +128,89 @@ class PhoneRemoteClientTest {
             assertEquals(3, relay.connects)
         }
 
+    @Test
+    fun a_phone_waits_while_the_television_asks_and_sends_nothing_until_let_in() =
+        runTest {
+            val relay = FakeRelay()
+            val client = client(relay, backgroundScope)
+            client.connect("tv-session")
+            val socket = relay.sessions.receive()
+            socket.sent.receive()
+            socket.push(asking)
+            client.state.first { it == PhoneRemoteState.Waiting }
+            assertFalse(client.sendKey(RemoteControlKey.Up), "the television would drop it")
+            client.updateText("星际")
+            advanceTimeBy(REMOTE_TEXT_DEBOUNCE_MS * 2)
+            runCurrent()
+            assertTrue(socket.sent.tryReceive().isFailure, "nothing is sent while the television asks")
+
+            socket.push(WatchWireMessage(type = "remoteAdmitted"))
+            client.state.first { it == PhoneRemoteState.Connected }
+            assertTrue(client.sendKey(RemoteControlKey.Left))
+            assertEquals("left", socket.sent.receive().remoteKey)
+            // What was typed while waiting follows, once.
+            advanceTimeBy(REMOTE_TEXT_DEBOUNCE_MS + 1)
+            runCurrent()
+            assertEquals(WatchWireMessage(type = "remoteText", text = "星际"), socket.sent.receive())
+        }
+
+    @Test
+    fun a_refused_phone_stops_waiting_and_says_so() =
+        runTest {
+            val relay = FakeRelay()
+            val client = client(relay, backgroundScope)
+            client.connect("tv-session")
+            val socket = relay.sessions.receive()
+            socket.sent.receive()
+            socket.push(asking)
+            client.state.first { it == PhoneRemoteState.Waiting }
+            socket.push(
+                WatchWireMessage(
+                    type = "remoteDisconnected",
+                    message = "电视拒绝了这部手机的遥控",
+                    errorCode = WatchProtocol.REMOTE_REFUSED_CODE,
+                ),
+            )
+            runCurrent()
+            assertEquals(PhoneRemoteState.Failed("电视拒绝了这部手机的遥控", retryable = true), client.state.value)
+        }
+
+    @Test
+    fun a_phone_never_waits_on_a_relay_that_cannot_tell_it_it_was_let_in() =
+        runTest {
+            val relay = FakeRelay()
+            val client = client(relay, backgroundScope)
+            client.connect("tv-session")
+            val socket = relay.sessions.receive()
+            socket.sent.receive()
+            // Whatever it sets, a relay without pairing never passes the television's answer on.
+            socket.push(joined.copy(ready = false))
+            client.state.first { it == PhoneRemoteState.Connected }
+            assertTrue(client.sendKey(RemoteControlKey.Center))
+        }
+
+    @Test
+    fun a_phone_that_cannot_say_who_it_is_still_joins_unnamed() =
+        runTest {
+            val relay = FakeRelay()
+            val broken = client(relay, backgroundScope, identity = { error("no install id yet") })
+            broken.connect("tv-session")
+            val unnamed = relay.sessions.receive()
+            val join = unnamed.sent.receive()
+            assertEquals("remoteJoin", join.type)
+            assertEquals(null, join.remoteDeviceId)
+
+            // Nor does it name itself with an id the relay would refuse the whole join over.
+            val impostor = client(relay, backgroundScope, identity = { RemotePhoneIdentity("~made-up", null) })
+            impostor.connect("tv-session")
+            val madeUp = relay.sessions.receive()
+            assertEquals(null, madeUp.sent.receive().remoteDeviceId)
+        }
+
     private fun client(
         relay: FakeRelay,
         scope: CoroutineScope,
+        identity: () -> RemotePhoneIdentity? = { RemotePhoneIdentity("phone-a", "测试手机") },
     ) = PhoneRemoteClient(
         accessToken = { "token" },
         refreshAccessToken = { null },
@@ -128,6 +218,7 @@ class PhoneRemoteClientTest {
         connector = relay,
         retryDelayMs = { RETRY_MS },
         scope = scope,
+        identity = identity,
     )
 
     private companion object {

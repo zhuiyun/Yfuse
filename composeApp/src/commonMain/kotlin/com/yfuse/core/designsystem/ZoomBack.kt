@@ -49,6 +49,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.max
+import kotlin.time.TimeSource
 
 /**
  * 跟手返回 — a page entered from a poster goes back into that poster.
@@ -56,7 +57,8 @@ import kotlin.math.max
  * One of these follows one gesture at a time on one host: the pull-down at the top of the page or
  * the system's side swipe. Both end in the same [ZoomCard] geometry (see ZoomBackGeometry.kt), so a
  * release either flies the card into the poster it came from, springs it home, or — with no poster
- * to go to, or under 减弱动态效果 — lets it fade the ordinary way.
+ * to go to, or under 减弱动态效果 — lets it fade the ordinary way. Either flight starts at the
+ * speed the card had, and a finger can catch the card again anywhere along it (see [catchAt]).
  *
  * The host decides what "going back" means (a navigation pop, an overlay closing) through
  * [onStarted], [onFinished] and [resolveTarget], and draws the card with [zoomBackLayers].
@@ -110,8 +112,24 @@ internal class ZoomBackController(
     private val settle = Animatable(0f)
     private var job: Job? = null
 
+    // The system's side swipe reports only how far it has got, never how fast. The card's own
+    // edges are timed here instead — it mostly shrinks, so its centre alone says little — and the
+    // flight it is let go into starts at the speed it had (MO5): commit and cancel used to fly off
+    // a standing start.
+    private val sideTopLeft = VelocityTracker()
+    private val sideBottomRight = VelocityTracker()
+    private var sideClock: TimeSource.Monotonic.ValueTimeMark? = null
+    private var sideSampleMs = -1L
+
+    /** The card as a finger caught it in flight (see [catchAt]); it follows that finger as it was. */
+    private var caught: ZoomCard? = null
+    private var caughtUnder = 0f
+
     /** Anything under way, including a finished page still waiting for its host to remove it. */
     val active: Boolean get() = phase != ZoomBackPhase.Idle
+
+    /** Flying into its poster or home again: a finger can take hold of the card (see [catchAt]). */
+    val catchable: Boolean get() = !still && (phase == ZoomBackPhase.Flying || phase == ZoomBackPhase.Returning)
 
     val idle: Boolean get() = phase == ZoomBackPhase.Idle
 
@@ -129,6 +147,7 @@ internal class ZoomBackController(
     fun startPull(pivot: Offset): Boolean {
         if (!idle || page.width <= 0f || page.height <= 0f) return false
         side = false
+        caught = null
         this.pivot = pivot
         drag = Offset.Zero
         progress = 0f
@@ -138,26 +157,61 @@ internal class ZoomBackController(
         return true
     }
 
+    /**
+     * A finger came down at [position] while the card flies (MO5). On the card, it stops there and
+     * follows that finger as it was caught — its size, its corners, how much of the page and of the
+     * poster it shows — until the finger lets go and the release decides again, from the speed it
+     * lets go at and from how far back the page underneath had already come. True when caught.
+     */
+    fun catchAt(position: Offset): Boolean {
+        if (!catchable) return false
+        val now = card()
+        if (!now.bounds.contains(position)) return false
+        val under = underlay()
+        job?.cancel()
+        job = null
+        caught = now
+        caughtUnder = under
+        side = false
+        pivot = position
+        drag = Offset.Zero
+        progress = under
+        armed = under >= ZOOM_BACK_COMMIT
+        phase = ZoomBackPhase.Following
+        return true
+    }
+
     fun movePull(position: Offset) {
         if (!pullFollowing) return
         drag = position - pivot
-        follow(zoomBackPullProgress(drag.y, page.height))
+        follow(
+            if (caught != null) {
+                zoomBackCaughtProgress(caughtUnder, drag.y, ZOOM_BACK_PULL_EXTENT * page.height)
+            } else {
+                zoomBackPullProgress(drag.y, page.height)
+            },
+        )
     }
 
     /** The finger let go, moving at [velocity] pixels a second. */
     fun releasePull(velocity: Offset) {
         if (!pullFollowing) return
-        if (zoomBackCommits(drag.y, velocity.y, ZOOM_BACK_PULL_EXTENT * page.height)) {
+        val extent = ZOOM_BACK_PULL_EXTENT * page.height
+        // A caught card is judged from where the page underneath had got to, not from rest.
+        val travelled = if (caught != null) caughtUnder * extent + drag.y else drag.y
+        // The finger carries the card as one piece: its speed is the card's.
+        val speed = { start: Rect, end: Rect -> zoomBackFlightVelocity(velocity, start, end) }
+        if (zoomBackCommits(travelled, velocity.y, extent)) {
             tips?.markUsed(Tips.ZOOM_BACK)
-            commit(velocity)
+            commit(speed)
         } else {
-            cancel(velocity)
+            cancel(speed)
         }
     }
 
     /** A second finger, or the stream taken away: the page goes home. */
     fun interruptPull() {
-        if (pullFollowing) cancel(Offset.Zero)
+        if (pullFollowing) cancel { _, _ -> 0f }
     }
 
     /** The system's side swipe began; [toward] is +1 for a swipe from the left edge, −1 from the right. */
@@ -168,6 +222,7 @@ internal class ZoomBackController(
     ): Boolean {
         if (!idle || page.width <= 0f || page.height <= 0f) return false
         side = true
+        caught = null
         this.toward = toward
         sideStartY = touchY
         lift = 0f
@@ -175,6 +230,11 @@ internal class ZoomBackController(
         armed = false
         phase = ZoomBackPhase.Following
         follow(progress)
+        sideTopLeft.resetTracking()
+        sideBottomRight.resetTracking()
+        sideClock = TimeSource.Monotonic.markNow()
+        sideSampleMs = -1L
+        trackSide()
         onStarted()
         return true
     }
@@ -186,15 +246,38 @@ internal class ZoomBackController(
         if (!sideFollowing) return
         lift = touchY - sideStartY
         follow(progress)
+        trackSide()
     }
 
     /** The system decided to go back: the platform's own commit rule, not ours. */
     fun commitSide() {
-        if (sideFollowing) commit(Offset.Zero)
+        if (sideFollowing) commit(sideReleaseSpeed())
     }
 
     fun cancelSide() {
-        if (sideFollowing) cancel(Offset.Zero)
+        if (sideFollowing) cancel(sideReleaseSpeed())
+    }
+
+    /** Where the card's edges are now, and when, for [sideReleaseSpeed]. */
+    private fun trackSide() {
+        val clock = sideClock ?: return
+        val now = clock.elapsedNow().inWholeMilliseconds
+        if (now <= sideSampleMs) return
+        sideSampleMs = now
+        val bounds = card().bounds
+        sideTopLeft.addPosition(now, bounds.topLeft)
+        sideBottomRight.addPosition(now, bounds.bottomRight)
+    }
+
+    /**
+     * The flight speed of a card let go by the system, from how fast its edges were moving. Sampled
+     * once more at the release, so a swipe held still before it ends counts as having stopped.
+     */
+    private fun sideReleaseSpeed(): (Rect, Rect) -> Float {
+        trackSide()
+        val topLeft = sideTopLeft.calculateVelocity().let { Offset(it.x, it.y) }
+        val bottomRight = sideBottomRight.calculateVelocity().let { Offset(it.x, it.y) }
+        return { start, end -> zoomBackEdgeFlightVelocity(topLeft, bottomRight, start, end) }
     }
 
     /** The card as it should be drawn now. */
@@ -202,17 +285,20 @@ internal class ZoomBackController(
         when (phase) {
             ZoomBackPhase.Idle -> ZoomCard.resting(page)
             ZoomBackPhase.Following ->
-                if (side) {
-                    zoomBackSideCard(page, progress, toward, lift, sideShiftPx, cornerAtFullPx)
-                } else {
-                    zoomBackPullCard(page, pivot, drag, progress, cornerAtFullPx)
-                }
+                caught?.let { it.copy(bounds = it.bounds.translate(drag)) }
+                    ?: if (side) {
+                        zoomBackSideCard(page, progress, toward, lift, sideShiftPx, cornerAtFullPx)
+                    } else {
+                        zoomBackPullCard(page, pivot, drag, progress, cornerAtFullPx)
+                    }
             ZoomBackPhase.Flying ->
                 landing?.let { target ->
                     zoomBackFlightCard(from, target.bounds, page, settle.value, landingCornerPx, landing = true)
+                        .continuingFrom(from, settle.value, landing = true)
                 } ?: from
             ZoomBackPhase.Returning ->
                 zoomBackFlightCard(from, Rect(Offset.Zero, page), page, settle.value, 0f, landing = false)
+                    .continuingFrom(from, settle.value, landing = false)
             ZoomBackPhase.Fading -> zoomBackFadeCard(from, settle.value, shrink = !still)
             ZoomBackPhase.Done -> from.copy(contentAlpha = 0f, artAlpha = 0f)
         }
@@ -233,6 +319,7 @@ internal class ZoomBackController(
         job = null
         landing?.art?.hidden = false
         landing = null
+        caught = null
         progress = 0f
         drag = Offset.Zero
         lift = 0f
@@ -249,12 +336,17 @@ internal class ZoomBackController(
         }
     }
 
-    private fun commit(velocity: Offset) {
+    /** [speed] turns how the card was moving into flights a second along the way it is sent. */
+    private fun commit(speed: (Rect, Rect) -> Float) {
         val start = card()
         val target = if (still) null else resolveTarget()
         from = start
         releasedUnder = underlay()
+        // A card caught on its way into one poster lets that poster show again if it now goes
+        // elsewhere; the same poster stays hidden, or it would show twice for a frame.
+        if (landing?.art !== target?.art) landing?.art?.hidden = false
         landing = target
+        caught = null
         artRecordedFrom = null
         phase = if (target != null) ZoomBackPhase.Flying else ZoomBackPhase.Fading
         job?.cancel()
@@ -265,8 +357,10 @@ internal class ZoomBackController(
                     target.art?.hidden = true
                     settle.animateTo(
                         targetValue = 1f,
-                        animationSpec = Motion.zoomBack(),
-                        initialVelocity = zoomBackFlightVelocity(velocity, start.bounds, target.bounds),
+                        // To the pixel: the card vanishes on landing, and a last stretch skipped in
+                        // one frame showed as a jump onto the poster.
+                        animationSpec = Motion.oneTake(Motion.ONE_TAKE_PROGRESS_THRESHOLD),
+                        initialVelocity = speed(start.bounds, target.bounds),
                     )
                 } else {
                     settle.animateTo(1f, Motion.tween(if (still) Motion.REDUCED_FADE else Motion.POP))
@@ -282,11 +376,15 @@ internal class ZoomBackController(
             }
     }
 
-    private fun cancel(velocity: Offset) {
+    private fun cancel(speed: (Rect, Rect) -> Float) {
         val start = card()
         from = start
         releasedUnder = underlay()
-        landing = null
+        // A card caught mid-landing already shows some of the poster: that art fades back out
+        // over it on the way home, while the poster itself shows again in its place.
+        landing?.art?.hidden = false
+        if (start.artAlpha <= 0f) landing = null
+        caught = null
         phase = ZoomBackPhase.Returning
         job?.cancel()
         job =
@@ -297,14 +395,66 @@ internal class ZoomBackController(
                 } else {
                     settle.animateTo(
                         targetValue = 1f,
-                        animationSpec = Motion.zoomBack(),
-                        initialVelocity = zoomBackFlightVelocity(velocity, start.bounds, Rect(Offset.Zero, page)),
+                        animationSpec = Motion.oneTake(Motion.ONE_TAKE_PROGRESS_THRESHOLD),
+                        initialVelocity = speed(start.bounds, Rect(Offset.Zero, page)),
                     )
                 }
                 reset()
                 onFinished(false)
             }
     }
+}
+
+/**
+ * A card let go of again after a finger caught it mid-landing keeps what it already showed. Flying
+ * on into a poster, the poster's art goes on from where it was instead of starting over; flying
+ * home, that art fades back out as the page's own content comes back whole. A card that was never
+ * caught — the page whole, no art — is left exactly as it was.
+ */
+internal fun ZoomCard.continuingFrom(
+    from: ZoomCard,
+    fraction: Float,
+    landing: Boolean,
+): ZoomCard {
+    if (landing) return copy(artAlpha = maxOf(artAlpha, from.artAlpha))
+    val fade = (fraction / ZOOM_BACK_CONTENT_FADE).coerceIn(0f, 1f)
+    return copy(
+        contentAlpha = from.contentAlpha + (1f - from.contentAlpha) * fade,
+        artAlpha = from.artAlpha * (1f - fade),
+    )
+}
+
+/**
+ * How far back the page underneath has come while a finger holds a caught card: where it had got to
+ * when the card was caught, [under], and [dy] of pull since then over the [extent] a pull spans.
+ */
+internal fun zoomBackCaughtProgress(
+    under: Float,
+    dy: Float,
+    extent: Float,
+): Float = if (extent > 0f) (under + dy / extent).coerceAtLeast(0f) else under
+
+/**
+ * The flight's starting speed, in flights a second, for a card whose top-left and bottom-right
+ * corners were moving at [topLeft] and [bottomRight] pixels a second as it left [from] for [to]:
+ * the card's motion along the way it is sent. Unlike [zoomBackFlightVelocity] this sees a card that
+ * is shrinking, not only one that is moving — the system's side swipe mostly shrinks the page.
+ */
+internal fun zoomBackEdgeFlightVelocity(
+    topLeft: Offset,
+    bottomRight: Offset,
+    from: Rect,
+    to: Rect,
+): Float {
+    val left = to.left - from.left
+    val top = to.top - from.top
+    val right = to.right - from.right
+    val bottom = to.bottom - from.bottom
+    val squared = left * left + top * top + right * right + bottom * bottom
+    val moving = listOf(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y)
+    if (squared < 1f || moving.any { !it.isFinite() }) return 0f
+    val along = (topLeft.x * left + topLeft.y * top + bottomRight.x * right + bottomRight.y * bottom) / squared
+    return along.coerceIn(-ZOOM_BACK_MAX_FLIGHT_VELOCITY, ZOOM_BACK_MAX_FLIGHT_VELOCITY)
 }
 
 internal enum class ZoomBackPhase { Idle, Following, Flying, Fading, Returning, Done }
@@ -425,9 +575,10 @@ private data class ZoomCardShape(
 
 /**
  * The pull-down: watches the finger from outside the page and takes over when the page's own
- * scrolling has nothing left to give — the list is at its top — and the drag has been decided
- * vertical (|dy| > 0.8 |dx| after 8 dp). A horizontal drag belongs to whatever shelf it began on;
- * a second finger sends a pull home. Until [canStart] says yes and [onStart] starts it, this only
+ * scrolling has nothing left to give — the list is at its top, and has not scrolled since the finger
+ * came down — and the drag has been decided vertical (|dy| > 0.8 |dx| after 8 dp). A finger landing
+ * on a card still in flight catches it. A horizontal drag belongs to whatever shelf it began on; a
+ * second finger sends a pull home. Until [canStart] says yes and [onStart] starts it, this only
  * listens. With [swallowLeftover] a downward drag the page cannot scroll goes no further up, so a
  * page drawn over another never pulls the one beneath it.
  */
@@ -456,9 +607,13 @@ internal fun Modifier.zoomBackPull(
                     source: NestedScrollSource,
                 ): Offset {
                     if (tracker.pulled && controller.pullFollowing) return available
+                    // I-19: a list that has scrolled in this gesture keeps the gesture to the end.
+                    // Only a drag that began with the list already at its top becomes a pull; one
+                    // that reached the top on the way used to turn into a pull mid-scroll.
+                    if (source == NestedScrollSource.UserInput && consumed.y != 0f) tracker.listMoved = true
                     if (source != NestedScrollSource.UserInput || available.y <= 0f) return Offset.Zero
                     val leftover = if (latestSwallow) Offset(0f, available.y) else Offset.Zero
-                    if (!tracker.pressed || tracker.multiTouch || tracker.pulled) return leftover
+                    if (!tracker.pressed || tracker.multiTouch || tracker.pulled || tracker.listMoved) return leftover
                     if (tracker.axisNow() != DragAxis.Vertical || !latestCanStart()) return leftover
                     latestOnStart(tracker.current)
                     if (!controller.pullFollowing) return leftover
@@ -477,9 +632,17 @@ internal fun Modifier.zoomBackPull(
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 tracker.start(down.position, down.uptimeMillis)
+                // A card in flight is caught by the finger that lands on it (MO5), and the whole
+                // gesture is the card's: nothing under it scrolls or takes a tap meanwhile.
+                val caught = controller.catchAt(down.position)
+                if (caught) {
+                    tracker.pulled = true
+                    down.consume()
+                }
                 try {
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (caught) event.changes.forEach { it.consume() }
                         if (!tracker.multiTouch && event.changes.count { it.pressed } > 1) {
                             tracker.multiTouch = true
                             controller.interruptPull()
@@ -514,6 +677,9 @@ private class PullTracker {
 
     /** This gesture became a pull; its release and its fling are the pull's. */
     var pulled = false
+
+    /** The page's own list has scrolled in this gesture, so the gesture stays the list's (I-19). */
+    var listMoved = false
     val velocity = VelocityTracker()
 
     fun start(
@@ -526,6 +692,7 @@ private class PullTracker {
         multiTouch = false
         axis = DragAxis.Undecided
         pulled = false
+        listMoved = false
         velocity.resetTracking()
         velocity.addPosition(timeMillis, position)
     }

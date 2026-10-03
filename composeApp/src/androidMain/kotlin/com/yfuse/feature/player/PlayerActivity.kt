@@ -23,6 +23,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Rational
 import android.view.KeyEvent
+import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -39,7 +40,6 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.extensions.coroutines.states
-import com.yfuse.app.ProvideAppTips
 import com.yfuse.app.effectiveGlassStyle
 import com.yfuse.app.rememberAppAccessibilityOptions
 import com.yfuse.core.account.AccountAccessTokenSource
@@ -68,6 +68,8 @@ import com.yfuse.core.designsystem.ParticleStyle
 import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
 import com.yfuse.core.designsystem.PlayerHandoff
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.core.filesource.FileSourceProgressRecorder
+import com.yfuse.core.filesource.FileSourceProgressStore
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
@@ -76,6 +78,7 @@ import com.yfuse.core.model.episodeTitle
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.offline.OfflineMediaManager
+import com.yfuse.core.performance.AppJankMonitor
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.security.ServerSessionRecovery
 import com.yfuse.core.sync.WatchTogetherClient
@@ -83,6 +86,7 @@ import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core2.api.YPlayer
+import com.yfuse.feature.filesource.FileSourcePlaybackProgress
 import com.yfuse.tv.integration.CastConnectReceiverBridge
 import com.yfuse.tv.player.TvMediaSessionActions
 import com.yfuse.tv.player.TvMediaSessionAdapter
@@ -216,9 +220,20 @@ class PlayerActivity :
     private lateinit var audioManager: AudioManager
     private lateinit var audioFocusController: PlayerAudioFocusController
     private var remoteCastManager: CastManager? = null
+
+    /** Resume points for 文件来源 files, which have no server to remember them. */
+    private var fileSourceProgress: FileSourcePlaybackProgress? = null
     private var sessionTitles: List<String> = emptyList()
     private val mediaSessionPositionSync = MediaSessionPositionSync()
     private val pictureInPicture = MutableStateFlow(false)
+
+    /**
+     * Android Go phones and some televisions ship without picture-in-picture, and there every PiP
+     * call - setting the params included - throws IllegalStateException.
+     */
+    private val pictureInPictureSupported: Boolean by lazy {
+        packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    }
     private lateinit var mediaSessionAdapter: TvMediaSessionAdapter
     private lateinit var notificationController: PlayerNotificationController
     private val tvChromeController = TvPlayerChromeController()
@@ -457,6 +472,9 @@ class PlayerActivity :
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.systemBars())
         }
+        keepEdgeSwipesInThePicture(window.decorView)
+        // Frame overruns in the player go into the diagnostics like the shell's, by state.
+        AppJankMonitor.attach(this)
 
         if (launchViewModel.request == null) {
             val retainedPending = launchViewModel.pending
@@ -747,6 +765,10 @@ class PlayerActivity :
         val skipSegmentPreferences = koin.get<SkipSegmentPreferences>()
         val danmakuRepository = koin.get<DanmakuRepository>()
         val offlineMediaManager = koin.get<OfflineMediaManager>()
+        fileSourceProgress =
+            koin.getOrNull<FileSourceProgressStore>()?.let { store ->
+                FileSourcePlaybackProgress(FileSourceProgressRecorder(store, SystemClock::elapsedRealtime))
+            }
         playbackPreferences = koin.get()
         val videoCacheBytes = playbackPreferences.videoCacheSize.value.bytes
         val yCoreBufferTargetUs = playbackPreferences.yCoreBufferDuration.value.targetDurationUs
@@ -792,11 +814,15 @@ class PlayerActivity :
             runCatching {
                 val registry = koin.get<ServerRegistry>()
                 val coordinator = koin.get<PlaybackReportingCoordinator>()
+                // An address opened from outside the libraries belongs to no server. The legacy
+                // default-server fallback for server-less web entries must not adopt it.
+                val externalLaunch = launchRequest.items.any { it.isExternalPlayback }
                 val resolver: (PlaybackReportingTarget) -> PlaybackEventSink? = { target ->
                     when (target) {
                         is PlaybackReportingTarget.SavedServer ->
                             target.id.takeIf { registry.serverById(it) != null }
-                        PlaybackReportingTarget.DefaultServer -> registry.defaultServer?.id
+                        PlaybackReportingTarget.DefaultServer ->
+                            registry.defaultServer?.id?.takeUnless { externalLaunch }
                         PlaybackReportingTarget.Disabled -> null
                     }?.let(coordinator::sinkFor)
                 }
@@ -843,7 +869,7 @@ class PlayerActivity :
                 motionTheme = motionTheme,
             ) {
                 CompositionLocalProvider(LocalPulseSweepEnabled provides pulseSweep) {
-                    ProvideAppTips {
+                    ProvidePlayerChrome(television = televisionDevice) {
                         PlayerRoot(
                             transition = transition,
                             items = liveItems,
@@ -897,6 +923,7 @@ class PlayerActivity :
                                 } else if (!state.ended) {
                                     completedOfflineKey = null
                                 }
+                                fileSourceProgress?.onState(item, state)
                                 if (item != null && state.currentIndex in sessionTitles.indices) {
                                     sessionTitles = playbackItems.value.map { it.title }
                                 }
@@ -942,6 +969,7 @@ class PlayerActivity :
                                     item?.title.orEmpty(),
                                     state,
                                 )
+                                fileSourceProgress?.onProgress(item, state)
                                 val now = SystemClock.elapsedRealtime()
                                 if (mediaSessionPositionSync.shouldPublish(state, now)) {
                                     publishMediaSessionState(state, now)
@@ -957,7 +985,13 @@ class PlayerActivity :
                                 }
                             },
                             onBack = ::closePlayerAndReturn,
-                            onEnterPictureInPicture = ::enterPlayerPictureInPicture,
+                            // No 小窗 key on a television: a remote has no second app to keep it company.
+                            onEnterPictureInPicture =
+                                if (pictureInPictureSupported && !televisionDevice) {
+                                    ::enterPlayerPictureInPicture
+                                } else {
+                                    null
+                                },
                             onRefreshEpisodes = { refreshEpisodes(force = true) },
                             onRemotePlayRequested = ::ensureAudioFocus,
                             remoteChrome = tvChromeController.takeIf { televisionDevice },
@@ -1063,7 +1097,7 @@ class PlayerActivity :
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (activeState.playing && !isFinishing && !stopRequested) {
+        if (pictureInPictureSupported && activeState.playing && !isFinishing && !stopRequested) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 // Auto-enter is already configured; remove controls before Android captures the transition.
                 pictureInPicture.value = true
@@ -1110,6 +1144,7 @@ class PlayerActivity :
             return
         }
         activityStarted = false
+        fileSourceProgress?.flush()
         // A picture-in-picture player is still on screen and still streaming, whether or not this
         // callback ran for it. Keeping the flag set is what stops MainActivity - restarted
         // underneath the PiP window - from resuming health probes and sync over the same link.
@@ -1143,6 +1178,7 @@ class PlayerActivity :
         }
         runCatching { unregisterReceiver(pictureInPictureReceiver) }
         PlayerForegroundRegistry.setVisible(false)
+        fileSourceProgress?.flush()
         episodeRefreshJob?.cancel()
         capabilityMonitorJob?.cancel()
         outputRenegotiationJob?.cancel()
@@ -1221,8 +1257,30 @@ class PlayerActivity :
         }
     }
 
+    /**
+     * The lower part of both side edges belongs to the picture. A sideways seek, or a brightness or
+     * volume drag, that started a thumb's width from the edge was Android's back gesture and left the
+     * player mid-film; the upper part of the edges, and 返回 in the title bar, still go back. Android
+     * honours at most 200 dp of exclusion per edge, and only inside its own gesture zone.
+     */
+    private fun keepEdgeSwipesInThePicture(root: View) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        root.addOnLayoutChangeListener { view, left, top, right, bottom, _, _, _, _ ->
+            val density = resources.displayMetrics.density
+            val width = right - left
+            val height = bottom - top
+            val band = minOf(height / 2, (EDGE_SWIPE_EXCLUSION_MAX_DP * density).toInt())
+            val edge = (EDGE_SWIPE_EXCLUSION_WIDTH_DP * density).toInt()
+            view.systemGestureExclusionRects =
+                listOf(
+                    Rect(0, height - band, edge, height),
+                    Rect(width - edge, height - band, width, height),
+                )
+        }
+    }
+
     private fun enterPlayerPictureInPicture() {
-        if (isFinishing || stopRequested || isInPictureInPictureMode) return
+        if (!pictureInPictureSupported || isFinishing || stopRequested || isInPictureInPictureMode) return
         val previousVisibility = pictureInPicture.value
         pictureInPicture.value = true
         var entered = false
@@ -1238,6 +1296,14 @@ class PlayerActivity :
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setSeamlessResizeEnabled(true)
                         }.build(),
                 )
+        } catch (error: IllegalStateException) {
+            // The feature flag can be present while multi-window is off; the window stays as it is.
+            AppLog.warning(
+                category = "player.pip",
+                event = "enter_refused",
+                message = "The system refused picture-in-picture",
+                throwable = error,
+            )
         } finally {
             if (!entered) pictureInPicture.value = previousVisibility
         }
@@ -1618,12 +1684,15 @@ class PlayerActivity :
                 addAction(ACTION_PLAY_PAUSE)
                 addAction(ACTION_NEXT)
             }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(mediaActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(mediaActionReceiver, filter)
-        }
+        // Below Android 13 the plain overload exported this receiver, so any app could pause or skip
+        // playback. Only this app's own notification actions send these; ContextCompat keeps it
+        // private on every version, as for the screen state receiver above.
+        ContextCompat.registerReceiver(
+            this,
+            mediaActionReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         mediaReceiverRegistered = true
     }
 
@@ -1640,6 +1709,7 @@ class PlayerActivity :
     }
 
     private fun updatePictureInPictureParams() {
+        if (!pictureInPictureSupported) return
         val params =
             PictureInPictureParams
                 .Builder()
@@ -2053,6 +2123,12 @@ private fun Long.toEmbyTicks(): Long =
     coerceIn(0L, Long.MAX_VALUE / EMBY_TICKS_PER_MILLISECOND) * EMBY_TICKS_PER_MILLISECOND
 
 private const val TABLET_MIN_SMALLEST_WIDTH_DP = 600
+
+/** Android's per-edge cap on gesture exclusion. */
+private const val EDGE_SWIPE_EXCLUSION_MAX_DP = 200
+
+/** Wide enough for the back gesture's zone at its most sensitive setting. */
+private const val EDGE_SWIPE_EXCLUSION_WIDTH_DP = 48
 private const val ACTION_PIP_CONTROL = "com.yfuse.player.PIP_CONTROL"
 private const val EXTRA_PIP_COMMAND = "command"
 private const val PIP_COMMAND_PLAY = "play"

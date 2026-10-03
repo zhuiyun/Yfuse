@@ -57,9 +57,8 @@ dependencies, regenerate them with:
   --write-locks
 ```
 
-`ktlintCheck` uses committed per-module baselines. Existing debt is tolerated, while
-new violations fail CI. Baselines must only be regenerated in an explicit formatting
-debt cleanup review.
+`ktlintCheck` has no baseline: any violation fails CI. `./gradlew ktlintFormat` fixes
+most of them; naming and line-length violations need a hand edit.
 
 Run the client and relay unit tests with:
 

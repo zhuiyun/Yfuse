@@ -27,9 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +41,9 @@ import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.overlayActionBeforeExit
 import com.yfuse.core.designsystem.overlayDismiss
+import com.yfuse.tv.focus.AndroidRemoteKeyMapper
+import com.yfuse.tv.focus.RemoteIntent
+import com.yfuse.tv.focus.RemotePhysicalKey
 import com.yfuse.tv.focus.requestFocusWhenAttached
 import com.yfuse.tv.focus.tvFocusScope
 import com.yfuse.tv.focus.tvIgnoreOpeningHold
@@ -74,9 +75,36 @@ internal fun tvQuickActionSections(menu: LiftMenu): List<List<ItemAction>> {
 }
 
 /**
- * 长按面板 — holding 确定 on a content card for [com.yfuse.tv.focus.REMOTE_LONG_PRESS_MILLIS]: that
- * title's [ItemAction]s, the rows the phone's 浮起菜单 offers, in a panel at the right edge of the
- * screen. The first row takes focus; 返回, or left towards the card, puts it away.
+ * What opens a card's panel: holding 确定, or the remote's 菜单 key — the one key a television
+ * remote has for "more about this", and on many of them the only way to a card's actions that
+ * does not depend on how long a press was held.
+ */
+internal fun RemoteIntent.opensTvQuickActions(): Boolean =
+    this is RemoteIntent.OpenContextMenu || this is RemoteIntent.Menu
+
+/**
+ * This menu without its 查看详情, for a card whose own press already does what opening the title
+ * would — an episode's picks it. The phone's 按住拖看 frames go too: a remote has nothing to scrub
+ * them with.
+ */
+internal fun LiftMenu.withoutOpening(): LiftMenu =
+    LiftMenu(
+        title = title,
+        meta = meta,
+        artworkUrls = artworkUrls,
+        backdropUrls = backdropUrls,
+        progress = progress,
+        progressLabel = progressLabel,
+        onOpen = null,
+        anchored = anchored,
+        sections = sections,
+    )
+
+/**
+ * 长按面板 — holding 确定 on a content card for [com.yfuse.tv.focus.REMOTE_LONG_PRESS_MILLIS], or
+ * pressing 菜单 on it: that title's [ItemAction]s, the rows the phone's 浮起菜单 offers, in a panel at
+ * the right edge of the screen. The first row takes focus; 返回, left towards the card, or 菜单
+ * again puts it away.
  *
  * An action that takes the screen — 播放, 查看详情 — goes at once while the panel leaves. One that
  * changes the title in place waits until the panel has gone and the card has focus again, so the
@@ -118,7 +146,13 @@ internal fun TvQuickActionsPanel(
                 .fillMaxWidth()
                 .tvIgnoreOpeningHold()
                 .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                    val native = event.nativeKeyEvent
+                    val key = AndroidRemoteKeyMapper.physicalKey(native.keyCode)
+                    // 菜单 only on a fresh press: a held 菜单 that opened the panel repeats into it.
+                    val closes =
+                        key == RemotePhysicalKey.DirectionLeft ||
+                            (key == RemotePhysicalKey.Menu && native.repeatCount == 0)
+                    if (event.type == KeyEventType.KeyDown && closes) {
                         dismiss()
                         true
                     } else {

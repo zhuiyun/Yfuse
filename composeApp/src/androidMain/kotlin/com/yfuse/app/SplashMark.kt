@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import kotlin.math.roundToInt
 
-/**
+/*
  * The mark, and the pieces the splash moves independently of it.
  *
  * The artwork is a shaded folded ribbon, so the splash draws the raster rather than
@@ -26,13 +26,13 @@ import kotlin.math.roundToInt
  */
 
 /** Mark width as a fraction of the row: 168 of 240. */
-private const val MarkFraction = 0.70f
+private const val MARK_FRACTION = 0.70f
 
 /** Right edge of the streak column: the row's first 54 of 240. */
-private const val StreakRight = 0.225f
+private const val STREAK_RIGHT = 0.225f
 
-private const val StreakHeight = 0.033f
-private const val StreakGap = 0.042f
+private const val STREAK_HEIGHT = 0.033f
+private const val STREAK_GAP = 0.042f
 
 /** 54 / 34 / 22 of 240, with B's own three colours — two fire, one water. */
 private val StreakBars =
@@ -58,7 +58,7 @@ internal fun DrawScope.drawUnfoldingMark(
 ) {
     if (alpha <= 0.001f) return
     val row = size.width
-    val markSide = row * MarkFraction
+    val markSide = row * MARK_FRACTION
     val left = row - markSide
     val top = (size.height - markSide) / 2f
     // cos(-78°) = 0.208 — the shape starts as a near-edge-on sliver, as in the design.
@@ -86,8 +86,8 @@ internal fun DrawScope.drawStreak(progress: Float) {
     val eased = progress.coerceIn(0f, 1f)
     if (eased <= 0.001f) return
     val row = size.width
-    val height = row * StreakHeight
-    val gap = row * StreakGap
+    val height = row * STREAK_HEIGHT
+    val gap = row * STREAK_GAP
     val block = StreakBars.size * height + (StreakBars.size - 1) * gap
     var y = (size.height - block) / 2f
     // Charges in from the left and compresses as it arrives — `yfStreak`.
@@ -95,7 +95,7 @@ internal fun DrawScope.drawStreak(progress: Float) {
     val stretch = lerp(0.3f, 1f, eased)
     StreakBars.forEach { (widthFraction, colour) ->
         val width = row * widthFraction * stretch
-        val right = row * StreakRight + slide
+        val right = row * STREAK_RIGHT + slide
         drawRoundRect(
             color = colour,
             topLeft = Offset(right - width, y),
@@ -176,7 +176,7 @@ internal fun DrawScope.drawWaterFireBloom(strength: Float) {
 internal fun DrawScope.drawSeam(progress: Float) {
     if (progress <= 0.001f || progress >= 0.999f) return
     val row = size.width
-    val markSide = row * MarkFraction
+    val markSide = row * MARK_FRACTION
     val left = row - markSide
     val y = size.height / 2f
     // Enters and leaves the shape, without running off across the whole screen.

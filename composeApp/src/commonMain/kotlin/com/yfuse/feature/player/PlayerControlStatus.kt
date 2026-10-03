@@ -1,0 +1,272 @@
+package com.yfuse.feature.player
+
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.liveStatus
+import com.yfuse.tv.player.TvPlayerChromeBridge
+import com.yfuse.tv.player.TvPlayerChromeState
+import com.yfuse.core.designsystem.ThemeText as Text
+
+private const val MAX_ERROR_ALTERNATIVES = 3
+
+/*
+ * What PlayerControls shows over the picture besides its bars and panels. [controlState] is the
+ * controls' snapshot of the playback, read through the same delegate and in the same places the
+ * controls read it, so these recompose on what they did before and a tap still sees the moment it
+ * lands in.
+ */
+
+/**
+ * Standing, like the paused key: the picture is on another screen whether or not the
+ * controls are up. It rides below the title bar while that is shown.
+ */
+@Composable
+internal fun BoxScope.PlayerCastPill(
+    chrome: PlayerChromeState,
+    cast: PlayerCastState,
+    castActions: PlayerCastActions,
+    hintProgress: State<Float>,
+) {
+    val lastCastStatus = remember { arrayOf("") }
+    cast.status?.let { lastCastStatus[0] = it }
+    ChromeVisibility(
+        visible = cast.active && cast.status != null,
+        edge = ChromeEdge.Top,
+        modifier =
+            Modifier
+                .align(Alignment.TopStart)
+                .playerHintOffset(hintProgress, 56.dp)
+                .padding(start = 22.dp, top = 18.dp),
+    ) {
+        CastSessionPill(
+            status = lastCastStatus[0],
+            onOpen = { chrome.openSettingsPanel(SettingsPanelKind.Cast) },
+            onDisconnect = {
+                chrome.poke()
+                castActions.onStop()
+            },
+            announce = cast.error != null,
+        )
+    }
+}
+
+/**
+ * What stands on the picture itself: 暂停信息层, 继续播放 and the ending's keys, the gesture tips,
+ * 长按中间's pill, the scrub preview, the gesture HUD, 双击's pulse and the volume slider.
+ */
+@Composable
+internal fun BoxScope.PlayerPictureStatus(
+    chrome: PlayerChromeState,
+    gestureState: PlayerGestureState,
+    playback: State<PlaybackState>,
+    controlState: State<PlaybackState>,
+    /** Where 双击's pulse count stood when this item started; see PlayerControls. */
+    pulseItemStart: Int,
+    pauseInfoShown: Boolean,
+    /** Stopped at the end of the item; see [playbackStoppedAtItemEnd]. */
+    stoppedAtItemEnd: Boolean,
+    /** The paused key is up; PlayerControls decides, since its hide timer and 暂停信息层 ask too. */
+    showPausedKey: Boolean,
+    watchLocked: Boolean,
+    /** Neither a room nor a cast owns the rate, so 长按中间 may hold a speed. */
+    speedBoostable: Boolean,
+    remoteChrome: TvPlayerChromeBridge?,
+    /** A remote's held fast-forward or rewind, whose frame the scrub preview shows. */
+    remoteChromeState: TvPlayerChromeState?,
+    transport: PlayerTransportState,
+    transportActions: PlayerTransportActions,
+    /** The caller's seek as it is when 重播 is tapped. */
+    onSeek: (Long) -> Unit,
+    onBack: () -> Unit,
+    picture: PlayerPictureState,
+    pictureActions: PlayerPictureActions,
+    danmaku: PlayerDanmakuState,
+    /** An upright 短剧 this viewer can flick through; its tip is taught with the others. */
+    episodeSwipe: Boolean = false,
+    /** 还在看吗 stopped this episode at its end after this many unattended episodes; null otherwise. */
+    stillWatchingEpisodes: Int? = null,
+) {
+    val state by controlState
+    // Beneath the 继续播放 key, so that key still resumes. Any other touch, and Back, bring
+    // the chrome up, which is what they were for; the layer leaves with the pause it needs.
+    PauseInfoLayer(
+        shown = pauseInfoShown,
+        playback = playback,
+        chapters = transport.chapters,
+        onDismiss = chrome::poke,
+        modifier = Modifier.align(Alignment.CenterStart).padding(start = 28.dp),
+    )
+
+    /**
+     * The end of an item that did not roll on into the next one, where nothing used to be.
+     *
+     * A film, the last entry in a series, or an episode that stopped at its end because
+     * 自动播放下一集 is off (or 取消 or the sleep timer said so). The picture stops on its
+     * final frame with no controls, nothing saying the episode is over rather than
+     * stalled, and no way on that does not start with a tap to summon the chrome. Keys at
+     * the same size and in the same place as 继续播放, because it is the same question —
+     * what happens if I touch this — asked one moment later; 下一集 leads when there is one.
+     *
+     * 重播 runs the ending's split backwards before its keys go, and they stay up for that.
+     */
+    var endingFlowsBack by remember { mutableStateOf(false) }
+    val showEndedKeys = stoppedAtItemEnd || endingFlowsBack
+    PlayerCenterKeys(
+        showPausedKey = showPausedKey,
+        showEndedKeys = showEndedKeys,
+        watchLocked = watchLocked,
+        hasNext = state.hasNext,
+        onResume = {
+            transportActions.onPlayPause()
+            chrome.poke()
+        },
+        onNext = {
+            chrome.poke()
+            transportActions.onNextItem()
+        },
+        onReplay = {
+            if (playback.value.ended) {
+                // Back to the first frame, and playing again: the engine reports
+                // the ended item as paused, so the seek alone would leave it
+                // standing on frame one.
+                onSeek(0L)
+                if (!playback.value.playing) transportActions.onPlayPause()
+            } else {
+                // Parked on the last frame instead of ended: resuming would run
+                // into the next item before the seek landed, so the item is
+                // started again from the top.
+                transportActions.onSelectItem(state.currentIndex)
+            }
+            chrome.poke()
+        },
+        onBack = onBack,
+        onHold = { endingFlowsBack = it },
+    )
+
+    // Why this episode stopped at its end rather than running into the next one.
+    val lastStillWatching = remember { intArrayOf(0) }
+    stillWatchingEpisodes?.let { lastStillWatching[0] = it }
+    ChromeVisibility(
+        visible = stillWatchingEpisodes != null && showEndedKeys,
+        modifier = Modifier.align(Alignment.Center).offset(y = -(CenterKeySize / 2 + 44.dp)),
+    ) {
+        Text(
+            "还在看吗？已连续播放 ${lastStillWatching[0]} 集",
+            style = AppTypography.body.strong,
+            color = Color.White,
+            modifier = Modifier.liveStatus(),
+        )
+    }
+
+    // Taught once each, while their gesture is in reach; see [PlayerGestureTips].
+    PlayerGestureTips(
+        chromeUp = chrome.visible && remoteChrome == null && !chrome.locked,
+        seekable = state.durationMs > 0L && !watchLocked,
+        speedBoostable = speedBoostable,
+        subtitlesAvailable = state.subtitleTracks.isNotEmpty(),
+        danmakuShowing = danmaku.panel.enabled && danmaku.panel.count > 0,
+        fineScrubArmed = gestureState.fineScrubArmed,
+        gestures = picture.gestures,
+        episodeSwipe = episodeSwipe,
+    )
+
+    // Where the title bar sits — it has stepped aside for the hold — and clear of the
+    // subtitles at the bottom and the gesture HUD in the middle.
+    SpeedBoostPill(
+        gear = gestureState.boostGear,
+        modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
+    )
+
+    // 全程缩略图: the frame a swipe across the picture has got to — or, on a television, a
+    // held fast-forward or rewind on the remote.
+    PictureScrubPreview(
+        storyboard = transport.trickplay,
+        positionMs = { remoteChromeState?.holdPreviewMs ?: gestureState.previewMs },
+        chapters = transport.chapters,
+        modifier = Modifier.align(Alignment.Center),
+    )
+
+    // Below the paused key or the ending's keys while they hold the middle, rather than hidden
+    // behind them: for a brightness or volume drag, a scrub's target, a key, a refusal or a picked
+    // track, this is the only readout there is. Only the 播放 and 暂停 those keys already say are left
+    // out ([gestureHudLine]).
+    PlayerGestureHud(
+        hud = { gestureState.hud },
+        centreKeysShown = showPausedKey || showEndedKeys,
+        modifier = Modifier.align(Alignment.Center),
+    )
+
+    SeekBurstFeedback(
+        gestureState.pulseRevision - pulseItemStart,
+        gestureState.pulsePosition,
+        state.currentIndex,
+    )
+    ChromeVisibility(
+        visible = chrome.volumeSliderVisible,
+        edge = ChromeEdge.End,
+        modifier = Modifier.align(Alignment.CenterEnd).padding(end = 26.dp),
+    ) {
+        VolumeSlider(
+            volume = picture.volume,
+            onVolume = { target ->
+                chrome.volumeSliderTouches++
+                pictureActions.onVolume(target)
+            },
+            modifier = Modifier,
+        )
+    }
+}
+
+/**
+ * The failure surface: the message, 重试 and the ways around it — another version, another engine,
+ * an external player — and 查看原因与导出日志 behind it.
+ */
+@Composable
+internal fun PlayerErrorLayer(
+    errorMessage: String?,
+    playback: State<PlaybackState>,
+    source: PlayerSourceState,
+    sourceActions: PlayerSourceActions,
+    onRetry: () -> Unit,
+    onBack: () -> Unit,
+) {
+    var showProblem by remember { mutableStateOf(false) }
+    if (showProblem) PlaybackProblemDialog(playback = playback, onDismiss = { showProblem = false })
+    ChromeContent(errorMessage, modifier = Modifier.fillMaxSize(), coversScreen = true) { message ->
+        val otherVersions =
+            source.versions
+                .filter { (id, _) -> id != source.selectedVersionId }
+                .take(MAX_ERROR_ALTERNATIVES)
+                .map { (id, label) -> "版本 · $label" to { sourceActions.onSelectVersion(id) } }
+        // One strategy on offer (a native-only package) is no alternative to itself, whichever
+        // row happens to be marked: reloading it replays the same path into the same failure.
+        val otherEngines =
+            source.engineOptions
+                .takeIf { it.size > 1 }
+                .orEmpty()
+                .mapIndexedNotNull { index, (label, selected) ->
+                    if (selected) null else label to { sourceActions.onSelectEngine(index) }
+                }.take(MAX_ERROR_ALTERNATIVES)
+        PlaybackErrorOverlay(
+            message = message,
+            onRetry = onRetry,
+            onExternalPlayer = sourceActions.onExternalPlayer,
+            onBack = onBack,
+            alternatives = otherVersions + otherEngines,
+            onExplain = { showProblem = true },
+        )
+    }
+}

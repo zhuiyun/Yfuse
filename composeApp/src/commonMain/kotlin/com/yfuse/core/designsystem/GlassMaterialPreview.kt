@@ -30,7 +30,7 @@ fun GlassMaterialPreview(
     height: Dp = 232.dp,
 ) {
     val material = materials.forTheme(dark)
-    val opaqueGlass = LocalAccessibilityOptions.current.reduceTransparency || !supportsBackdropBlur
+    val opaqueGlass = LocalAccessibilityOptions.current.reduceTransparency || !backdropBlurAvailable()
     val palette = material.contentPalette(if (dark) DarkPalette else LightPalette, opaqueGlass)
     val backdrop = rememberBackdropState()
     Box(

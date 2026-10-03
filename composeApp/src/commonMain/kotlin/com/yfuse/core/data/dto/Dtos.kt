@@ -324,7 +324,19 @@ data class BaseItemDto(
     val PlaylistItemId: String? = null,
     /** Present for folders such as BoxSet/Playlist when requested through Fields. */
     val ChildCount: Int? = null,
+    /**
+     * Jellyfin only: image type → image tag → BlurHash, for every tag this item carries —
+     * inherited series and parent tags included. No `Fields` entry asks for it; the server fills it
+     * alongside the tags themselves.
+     */
+    val ImageBlurHashes: Map<String, Map<String, String?>?>? = null,
 )
+
+/** The BlurHash Jellyfin sent for the [type] image behind [tag], if any. */
+internal fun BaseItemDto.imageBlurHash(
+    type: String,
+    tag: String?,
+): String? = tag?.let { ImageBlurHashes?.get(type)?.get(it) }?.takeIf(String::isNotBlank)
 
 @Serializable
 data class TrickplayInfoDto(
@@ -379,6 +391,8 @@ fun BaseItemDto.toMediaItem(): MediaItem {
     val useSeriesPoster = isEpisode && SeriesId != null
     val ownBackdrop = BackdropImageTags?.firstOrNull()
     val inheritedBackdrop = ParentBackdropImageTags?.firstOrNull()
+    val posterTag = if (useSeriesPoster) SeriesPrimaryImageTag else ImageTags?.get("Primary")
+    val backdropTag = ownBackdrop ?: inheritedBackdrop
 
     val title = if (isEpisode) (SeriesName ?: Name ?: "") else (Name ?: "")
     val subtitle =
@@ -400,9 +414,9 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         subtitle = subtitle,
         type = Type ?: "",
         posterItemId = if (useSeriesPoster) SeriesId else Id,
-        posterTag = if (useSeriesPoster) SeriesPrimaryImageTag else ImageTags?.get("Primary"),
+        posterTag = posterTag,
         backdropItemId = if (ownBackdrop != null) Id else ParentBackdropItemId ?: SeriesId ?: Id,
-        backdropTag = ownBackdrop ?: inheritedBackdrop,
+        backdropTag = backdropTag,
         stillTag = if (isEpisode) ImageTags?.get("Primary") else null,
         playedPercentage = UserData?.PlayedPercentage,
         resumePositionTicks = UserData?.PlaybackPositionTicks,
@@ -416,6 +430,8 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         played = UserData?.Played == true,
         playlistItemId = PlaylistItemId,
         dateCreated = DateCreated?.take(10)?.takeIf { it.length == 10 },
+        posterBlurHash = imageBlurHash("Primary", posterTag),
+        backdropBlurHash = imageBlurHash("Backdrop", backdropTag),
     )
 }
 

@@ -20,6 +20,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yfuse.MainActivity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -57,29 +58,14 @@ class ImageRevealInstrumentedTest {
             install(scenario, input, counters)
             assertFirstDraw(counters, 0, 0f)
 
-            fun loadNextRequest(key: String) {
-                val pending = change(scenario, input) { it.copy(requestKey = key, loaded = false) }
-                assertFirstDraw(counters, pending, 0f)
-                val loading = change(scenario, input) { it.copy(loaded = true) }
-                waitUntil("Request $key did not start animating") { counters.hasIntermediate(loading) }
-            }
-
-            loadNextRequest("hidden-policy")
-            val hidden = change(scenario, input) { it.copy(visible = false) }
-            assertFirstDraw(counters, hidden, 1f)
-            assertStaysVisible(counters, hidden)
-            val returned = change(scenario, input) { it.copy(visible = true) }
-            assertFirstDraw(counters, returned, 1f)
-            assertStaysVisible(counters, returned)
-
-            loadNextRequest("reduced-policy")
+            loadNextRequest(scenario, input, counters, "reduced-policy")
             val reduced = change(scenario, input) { it.copy(reduced = true) }
             assertFirstDraw(counters, reduced, 1f)
             val motionRestored = change(scenario, input) { it.copy(reduced = false) }
             assertFirstDraw(counters, motionRestored, 1f)
             assertStaysVisible(counters, motionRestored)
 
-            loadNextRequest("instant-policy")
+            loadNextRequest(scenario, input, counters, "instant-policy")
             val instant = change(scenario, input) { it.copy(instant = true) }
             assertFirstDraw(counters, instant, 1f)
             val instantCleared = change(scenario, input) { it.copy(instant = false) }
@@ -89,6 +75,59 @@ class ImageRevealInstrumentedTest {
             val disabled = change(scenario, input) { it.copy(enabled = false, loaded = false, requestKey = "disabled") }
             assertFirstDraw(counters, disabled, 1f)
         }
+    }
+
+    /**
+     * Route visibility is not one of the policies above. rememberImageRevealProgress asks whether
+     * the page is on screen when the picture arrives instead of observing it, because observing it
+     * recomposed every image on both pages of each route flip. Covering the page therefore leaves a
+     * running fade to finish; a picture that arrives on a covered page skips its fade; and neither
+     * plays again once the page is shown.
+     */
+    @Test
+    fun route_visibility_is_asked_when_a_picture_arrives_and_loaded_images_do_not_replay() {
+        val input = mutableStateOf(RevealInput())
+        val counters = RevealCounters()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            install(scenario, input, counters)
+            assertFirstDraw(counters, 0, 0f)
+
+            val fading = loadNextRequest(scenario, input, counters, "covered-while-fading")
+            val covered = change(scenario, input) { it.copy(visible = false) }
+            waitUntil("A fade under a covered page did not finish") { counters.hasValue(covered, 1f) }
+            val fade = counters.draws.filter { it.version == fading || it.version == covered }.map { it.value }
+            assertTrue(
+                "Covering the page started the fade over: $fade",
+                fade.zipWithNext().all { (earlier, later) -> later >= earlier },
+            )
+            val uncovered = change(scenario, input) { it.copy(visible = true) }
+            assertFirstDraw(counters, uncovered, 1f)
+            assertStaysVisible(counters, uncovered)
+
+            val pending =
+                change(scenario, input) { it.copy(requestKey = "arrives-covered", loaded = false, visible = false) }
+            assertFirstDraw(counters, pending, 0f)
+            val arrived = change(scenario, input) { it.copy(loaded = true) }
+            waitUntil("A picture that arrived on a covered page never showed") { counters.hasValue(arrived, 1f) }
+            assertFalse("A picture that arrived on a covered page faded in", counters.hasIntermediate(arrived))
+            val shown = change(scenario, input) { it.copy(visible = true) }
+            assertFirstDraw(counters, shown, 1f)
+            assertStaysVisible(counters, shown)
+        }
+    }
+
+    /** Starts a new request and lets its picture arrive; returns once the fade is under way. */
+    private fun loadNextRequest(
+        scenario: ActivityScenario<MainActivity>,
+        input: MutableState<RevealInput>,
+        counters: RevealCounters,
+        key: String,
+    ): Int {
+        val pending = change(scenario, input) { it.copy(requestKey = key, loaded = false) }
+        assertFirstDraw(counters, pending, 0f)
+        val loading = change(scenario, input) { it.copy(loaded = true) }
+        waitUntil("Request $key did not start animating") { counters.hasIntermediate(loading) }
+        return loading
     }
 
     private fun install(

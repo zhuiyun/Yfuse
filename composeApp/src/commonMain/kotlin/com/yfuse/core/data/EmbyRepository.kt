@@ -3,6 +3,7 @@ package com.yfuse.core.data
 import com.yfuse.core.data.dto.PlaybackInfoResponseDto
 import com.yfuse.core.data.dto.PublicUserDto
 import com.yfuse.core.data.dto.RemoteSubtitleInfoDto
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.LibraryCounts
@@ -16,19 +17,25 @@ import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.MediaServerKind
+import com.yfuse.core.model.MediaTrailer
 import com.yfuse.core.model.Person
+import com.yfuse.core.model.PersonProfile
 import com.yfuse.core.model.PlayTarget
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.model.ServerSource
+import com.yfuse.core.model.ThemeSong
 import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.model.capabilities
+import com.yfuse.core.network.EmbyError
+import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.sync.SyncedUserItem
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.ResponseException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -257,6 +264,7 @@ class EmbyRepository(
             sourceService = EmbySourceService(client, detailService),
             subtitleService = EmbySubtitleService(client),
             userDataService = EmbyUserDataService(client),
+            extrasService = EmbyExtrasService(client),
         )
     private val plexCloud = PlexCloudAccountService(client)
     private val plex = PlexAdapter(PlexMediaServerAdapter(client, progressProjection), plexCloud)
@@ -723,6 +731,85 @@ class EmbyRepository(
         personId: String,
         limit: Int = PERSON_ITEMS_LIMIT,
     ): Result<List<MediaItem>> = adapterFor(server).itemsByPerson(server, personId, limit)
+
+    /**
+     * 预告片 for one title: the files the server keeps, then the links it scraped.
+     *
+     * The two halves are separate requests, and a server that cannot answer one — a version without
+     * the route, say — only loses that half. Like [searchPeople], a failure is logged under a fixed
+     * label and the part it would have filled stays hidden.
+     */
+    suspend fun trailers(
+        server: SavedServer,
+        itemId: String,
+    ): List<MediaTrailer> =
+        coroutineScope {
+            val files = async { localTrailers(server, itemId) }
+            val links = async { remoteTrailers(server, itemId) }
+            files.await() + links.await()
+        }
+
+    /** Only what the app can play itself — the television's hero previews nothing else. */
+    suspend fun localTrailers(
+        server: SavedServer,
+        itemId: String,
+    ): List<MediaTrailer.Local> =
+        adapterFor(server)
+            .localTrailers(server, itemId)
+            .orHidden(server, "trailers_unavailable", "Local trailers are unavailable; they stay hidden")
+
+    private suspend fun remoteTrailers(
+        server: SavedServer,
+        itemId: String,
+    ): List<MediaTrailer.Remote> =
+        adapterFor(server)
+            .remoteTrailers(server, itemId)
+            .orHidden(server, "remote_trailers_unavailable", "Trailer links are unavailable; they stay hidden")
+
+    /** 主题曲 for a title; an empty list both when there is none and when the server cannot say. */
+    suspend fun themeSongs(
+        server: SavedServer,
+        itemId: String,
+    ): List<ThemeSong> =
+        adapterFor(server)
+            .themeSongs(server, itemId)
+            .orHidden(server, "theme_songs_unavailable", "Theme songs are unavailable; the detail page stays silent")
+
+    /** The person's own record for 演员页, or null when the server keeps none or cannot answer. */
+    suspend fun person(
+        server: SavedServer,
+        personId: String,
+    ): PersonProfile? =
+        adapterFor(server)
+            .person(server, personId)
+            .onFailure { error ->
+                logHidden(server, "person_detail_unavailable", "No person details; 演员页 shows the name only", error)
+            }.getOrNull()
+
+    private fun <T> Result<List<T>>.orHidden(
+        server: SavedServer,
+        event: String,
+        message: String,
+    ): List<T> = onFailure { logHidden(server, event, message, it) }.getOrDefault(emptyList())
+
+    private fun logHidden(
+        server: SavedServer,
+        event: String,
+        message: String,
+        error: Throwable,
+    ) {
+        AppLog.warning(
+            category = "emby",
+            event = event,
+            message = message,
+            throwable = error.withoutResponseBody(),
+            attributes = mapOf("serverId" to server.id, "serverKind" to server.kind.name),
+        )
+    }
+
+    /** A response exception's text can be a proxy's whole HTML page; its status is enough for a log. */
+    private fun Throwable.withoutResponseBody(): Throwable =
+        if (this is ResponseException) EmbyErrorException(EmbyError.Unknown("HTTP ${response.status.value}")) else this
 
     /** Complete paged user-state snapshot used by the multi-server sync coordinator. */
     suspend fun userLibrarySnapshot(

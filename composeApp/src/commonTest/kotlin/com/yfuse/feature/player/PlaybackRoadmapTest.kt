@@ -324,10 +324,15 @@ class PlaybackRoadmapTest {
     }
 
     @Test
-    fun pictureModeCyclesThroughFitCropAndStretch() {
-        assertEquals(VideoScaleMode.Fill, VideoScaleMode.Fit.next())
-        assertEquals(VideoScaleMode.Stretch, VideoScaleMode.Fill.next())
-        assertEquals(VideoScaleMode.Fit, VideoScaleMode.Stretch.next())
+    fun pictureKeyTapsBetweenFitAndCropAndHoldsForStretch() {
+        // A tap only ever lands on 适应 or 裁剪填满; 拉伸填满 takes a held press, and a tap or a
+        // second hold leaves it for 适应.
+        assertEquals(VideoScaleMode.Fill, VideoScaleMode.Fit.toggled(stretch = false))
+        assertEquals(VideoScaleMode.Fit, VideoScaleMode.Fill.toggled(stretch = false))
+        assertEquals(VideoScaleMode.Fit, VideoScaleMode.Stretch.toggled(stretch = false))
+        assertEquals(VideoScaleMode.Stretch, VideoScaleMode.Fit.toggled(stretch = true))
+        assertEquals(VideoScaleMode.Stretch, VideoScaleMode.Fill.toggled(stretch = true))
+        assertEquals(VideoScaleMode.Fit, VideoScaleMode.Stretch.toggled(stretch = true))
     }
 
     @Test

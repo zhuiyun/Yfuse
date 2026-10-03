@@ -17,9 +17,9 @@ plugins {
  * Applied to every subproject from here so a new module is covered the day it is created —
  * the one thing a per-module `apply` reliably gets wrong.
  *
- * Existing debt is recorded in config/ktlint/<module>-baseline.xml. Checks therefore fail
- * only when a change introduces a new violation; `ktlintGenerateBaseline` is an explicit
- * debt-reset operation and must never run automatically in CI.
+ * There is no baseline: the recorded debt was cleared, and every violation fails the check.
+ * The old per-module baselines matched on file, line, column and rule, so an entry left
+ * behind by a fixed violation silently excused a new one that landed on the same spot.
  */
 val ktlintVersion = libs.versions.ktlint.asProvider()
 
@@ -45,8 +45,35 @@ val sharedComposeSourceRoot =
         .toAbsolutePath()
         .normalize()
 
+/**
+ * Compose stability, configured once for every module that compiles composables.
+ *
+ * config/compose-stability.conf names the immutable library types composables may treat as
+ * stable; the file itself says what may and may not go in it. Compiler reports and metrics
+ * (build/compose-compiler/ in each module: `*-classes.txt` for class stability, `*-composables.txt`
+ * for skippability) are opt-in with `-PyfuseComposeReports=true`: writing them changes every
+ * Compose compile's arguments, so ordinary and CI builds keep their cache hits.
+ */
+val composeStabilityConfiguration = layout.projectDirectory.file("config/compose-stability.conf")
+val composeReportsRequested =
+    providers
+        .gradleProperty("yfuseComposeReports")
+        .orNull
+        ?.trim()
+        ?.lowercase() in setOf("", "true")
+
 subprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
+
+    plugins.withId("org.jetbrains.kotlin.plugin.compose") {
+        extensions.configure<org.jetbrains.kotlin.compose.compiler.gradle.ComposeCompilerGradlePluginExtension> {
+            stabilityConfigurationFiles.add(composeStabilityConfiguration)
+            if (composeReportsRequested) {
+                reportsDestination.set(layout.buildDirectory.dir("compose-compiler/reports"))
+                metricsDestination.set(layout.buildDirectory.dir("compose-compiler/metrics"))
+            }
+        }
+    }
 
     configurations.configureEach {
         resolutionStrategy.eachDependency {
@@ -88,12 +115,11 @@ subprojects {
     extensions.configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
         version.set(ktlintVersion)
         ignoreFailures.set(false)
-        baseline.set(rootProject.layout.projectDirectory.file("config/ktlint/$name-baseline.xml"))
         filter {
             // Generated sources are nobody's to format.
             exclude { it.file.path.contains("/build/") }
             // tvShared also compiles the phone KMP trees. phoneShared owns their ktlint
-            // tasks and relocated baseline; only TV-specific sources are checked here.
+            // tasks; only TV-specific sources are checked here.
             if (project.name == "tvShared") {
                 exclude { element ->
                     element.file

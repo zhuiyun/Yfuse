@@ -14,10 +14,8 @@ internal fun PlaybackState.withRemoteCast(
             receipt.sessionRevision == cast.sessionRevision &&
             receipt.receiverConfirmed &&
             receipt.playbackConfirmed
-    val outputReadiness =
-        if (outputConfirmed) PlaybackOutputReadiness.Rendering else PlaybackOutputReadiness.Waiting
-    val confidence =
-        if (outputConfirmed) PlaybackEvidenceConfidence.Confirmed else PlaybackEvidenceConfidence.Requested
+    val outputReadiness = PlaybackRenderEvidence.readiness(outputConfirmed)
+    val confidence = PlaybackRenderEvidence.confidence(outputConfirmed)
     return copy(
         playing =
             when (cast.status) {

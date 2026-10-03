@@ -95,6 +95,7 @@ import com.yfuse.core.designsystem.AppBackdrop
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackdropState
+import com.yfuse.core.designsystem.CALM_DURATION_SCALE
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.HapticSignal
@@ -157,6 +158,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -442,22 +444,39 @@ fun App(root: RootComponent) {
                         // The dock leaves when a route is pushed and comes back when one is popped,
                         // so those are its durations — they used to be the other way round, which
                         // made the bar linger after the page it belonged to had already gone.
-                        val dockEnter = if (motionOff) 0 else Motion.POP
-                        val dockExit = if (motionOff) 0 else Motion.PUSH
+                        // Under 静息 those pages fade over a few dp, so the dock, and the status
+                        // capsule riding these same transitions, does too, at 静息's shorter length.
+                        val calmDock = !motionOff && calmMotion()
+                        val dockEnter =
+                            when {
+                                motionOff -> 0
+                                calmDock -> (Motion.POP * CALM_DURATION_SCALE).roundToInt()
+                                else -> Motion.POP
+                            }
+                        val dockExit =
+                            when {
+                                motionOff -> 0
+                                calmDock -> (Motion.PUSH * CALM_DURATION_SCALE).roundToInt()
+                                else -> Motion.PUSH
+                            }
+                        val calmDockTravelPx = with(LocalDensity.current) { CalmDockTravel.roundToPx() }
+                        // Half its own height, not all of it: the bar is furniture settling back
+                        // into place, and a full-height slide reads as a separate object flying in
+                        // from off-screen.
+                        val dockTravel: (Int) -> Int = { height ->
+                            if (calmDock) minOf(height / 2, calmDockTravelPx) else height / 2
+                        }
                         val dockEnterTransition =
                             fadeIn(tween(dockEnter, easing = Motion.Curve)) +
                                 slideInVertically(
                                     animationSpec = tween(dockEnter, easing = Motion.Curve),
-                                    // Half its own height, not all of it: the bar is furniture
-                                    // settling back into place, and a full-height slide reads as
-                                    // a separate object flying in from off-screen.
-                                    initialOffsetY = { it / 2 },
+                                    initialOffsetY = dockTravel,
                                 )
                         val dockExitTransition =
                             fadeOut(tween(dockExit, easing = Motion.Curve)) +
                                 slideOutVertically(
                                     animationSpec = tween(dockExit, easing = Motion.Curve),
-                                    targetOffsetY = { it / 2 },
+                                    targetOffsetY = dockTravel,
                                 )
                         AnimatedVisibility(
                             visible = dockShown,
@@ -727,6 +746,9 @@ private val DockIconGlyph = 25.dp
 
 /** What is left of [Dimens.tabBarHeight] around the glyph box and one caption line at 1× type. */
 private val DockVerticalPadding = 13.dp
+
+/** 静息's dock travel: the few dp its pages move, enough to say where the bar went. */
+private val CalmDockTravel = 8.dp
 
 /**
  * The dock's height: [Dimens.tabBarHeight], or as tall as the glyph and its caption need.

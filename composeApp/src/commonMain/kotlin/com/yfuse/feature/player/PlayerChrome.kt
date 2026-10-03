@@ -1,18 +1,14 @@
 package com.yfuse.feature.player
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,14 +21,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,6 +59,7 @@ import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -67,6 +69,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
@@ -298,6 +301,8 @@ internal fun TransportRow(
     }
     val showsPause = transportShowsPause(state.playing, state.buffering, settledPlaying)
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    // The ring [CircleControl] will draw, which a television enlarges; the stall ring follows it.
+    val keySize = chromeKeySize(TransportKeySize)
 
     Row(
         modifier.graphicsLayer { alpha = if (locked) 0.45f else 1f },
@@ -324,48 +329,31 @@ internal fun TransportRow(
         )
         // Buffering never takes the key away: a stalled film can still be paused, and a spoken
         // cursor resting on the key does not lose it. The stall is a ring round the key instead.
-        Box(Modifier.size(TransportKeySize + ControlTouchPadding * 2), contentAlignment = Alignment.Center) {
-            AnimatedContent(
-                targetState = showsPause,
-                transitionSpec = {
-                    val swap =
-                        if (reduceMotion) {
-                            fadeIn(snap()) togetherWith fadeOut(snap())
-                        } else {
-                            (
-                                fadeIn(Motion.tween(Motion.QUICK)) +
-                                    scaleIn(
-                                        animationSpec = Motion.settle(),
-                                        initialScale = ICON_SWAP_SCALE_IN,
-                                    )
-                            ) togetherWith
-                                (
-                                    fadeOut(Motion.tween(Motion.QUICK)) +
-                                        scaleOut(
-                                            Motion.tween(Motion.QUICK),
-                                            targetScale = ICON_SWAP_SCALE_OUT,
-                                        )
-                                )
-                        }
-                    swap using Motion.sizeTransform(reduceMotion)
+        // Nor does pressing it: the glyph turns into the other one inside the same key, so focus
+        // stays put and a screen reader hears the new state rather than nothing.
+        Box(Modifier.size(keySize + ControlTouchPadding * 2), contentAlignment = Alignment.Center) {
+            CircleControl(
+                if (showsPause) AppIcons.Pause else AppIcons.Play,
+                if (showsPause) "暂停" else "播放",
+                TransportKeySize,
+                TransportIconSize,
+                enabled = !locked,
+                onClick = {
+                    // Nothing will report the answer until the stall ends; the key gives it now.
+                    if (state.buffering) settledPlaying = !showsPause
+                    onPlayPause()
                 },
-                contentAlignment = Alignment.Center,
-                label = "transport-state",
-            ) { pause ->
-                CircleControl(
-                    if (pause) AppIcons.Pause else AppIcons.Play,
-                    if (pause) "暂停" else "播放",
-                    TransportKeySize,
-                    TransportIconSize,
-                    enabled = !locked,
-                    onClick = {
-                        // Nothing will report the answer until the stall ends; the key gives it now.
-                        if (state.buffering) settledPlaying = !pause
-                        onPlayPause()
+                modifier =
+                    playKeyModifier.semantics {
+                        stateDescription =
+                            when {
+                                bufferingIndicatorVisible -> "缓冲中"
+                                showsPause -> "正在播放"
+                                else -> "已暂停"
+                            }
                     },
-                    modifier = playKeyModifier.semantics { if (bufferingIndicatorVisible) stateDescription = "缓冲中" },
-                )
-            }
+                glyph = rememberPlayPauseGlyph(showsPause),
+            )
             // Drawn over the key but never hit: a tap on the ring is a tap on the key. Qualified,
             // because inside this Box the Row's `RowScope.AnimatedVisibility` would be chosen and
             // the layout-scope DSL rule forbids reaching it from here.
@@ -375,7 +363,7 @@ internal fun TransportRow(
                 exit = fadeOut(Motion.tween(if (reduceMotion) 0 else Motion.QUICK)),
                 label = "transport-buffering",
             ) {
-                BufferingRing(Modifier.size(TransportKeySize + BufferingRingGap * 2))
+                BufferingRing(Modifier.size(keySize + BufferingRingGap * 2))
             }
         }
 
@@ -854,12 +842,24 @@ internal fun CircleControl(
     onLongClick: (() -> Unit)? = null,
     /** What a screen reader calls [onLongClick]. */
     onLongClickLabel: String? = null,
+    /** Drawn in place of [icon], for a glyph that changes shape inside the key. */
+    glyph: Painter? = null,
+    /**
+     * A new [icon] dissolves into the key instead of arriving at once. A key whose glyph says its
+     * state changes glyph in place rather than being swapped for its twin: the swap took focus with
+     * it on every press.
+     */
+    crossfadeIcon: Boolean = false,
     /** False while something else draws the disc or ring — the ending's liquid, as it forms. */
     bodyVisible: Boolean = true,
     /** Applied to the glyph, for callers that move or focus it while [bodyVisible] is false. */
     glyphModifier: Modifier = Modifier,
 ) {
     val interactions = remember { MutableInteractionSource() }
+    // Across a room the phone's ring is a speck: a television draws it no smaller than 40 dp, and
+    // the glyph grows with it.
+    val ring = chromeKeySize(size)
+    val glyphSize = iconSize * (ring / size)
     // The ring is what you see; the touch target is bigger than the ring. Sizing them
     // together is what made these controls big enough to cover a face — a 48dp disc over
     // the middle of the picture is 48dp of picture you cannot see.
@@ -884,12 +884,12 @@ internal fun CircleControl(
                 } else {
                     it.touchTarget()
                 }
-            }.size(size + ControlTouchPadding * 2),
+            }.size(ring + ControlTouchPadding * 2),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             ringModifier
-                .size(size)
+                .size(ring)
                 // A filled key gets no ring. Outlined siblings are drawn *by* their hairline;
                 // putting the same hairline around a solid disc gave the play key two edges
                 // and made it read as a third kind of object wedged between two rings rather
@@ -910,12 +910,29 @@ internal fun CircleControl(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                icon,
-                contentDescription = description,
-                tint = if (filled) PlayerTokens.onPlay else Color.White,
-                modifier = Modifier.size(iconSize).then(glyphModifier),
-            )
+            val tint = if (filled) PlayerTokens.onPlay else Color.White
+            val glyphBox = Modifier.size(glyphSize).then(glyphModifier)
+            when {
+                glyph != null -> {
+                    Icon(glyph, contentDescription = description, tint = tint, modifier = glyphBox)
+                }
+                crossfadeIcon -> {
+                    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+                    // The name belongs to the key, not to either glyph, so a screen reader never
+                    // hears both halves of the dissolve.
+                    Crossfade(
+                        targetState = icon,
+                        modifier = glyphBox.semantics { contentDescription = description },
+                        animationSpec = Motion.tween(if (reduceMotion) 0 else Motion.QUICK),
+                        label = "circle-control-glyph",
+                    ) { shown ->
+                        Icon(shown, contentDescription = null, tint = tint, modifier = Modifier.size(glyphSize))
+                    }
+                }
+                else -> {
+                    Icon(icon, contentDescription = description, tint = tint, modifier = glyphBox)
+                }
+            }
         }
     }
 }
@@ -948,22 +965,58 @@ private const val SEEK_STEP_MS = 10_000L
 /** Slack around a control's ring, so a small ring still has a thumb-sized target. */
 internal val ControlTouchPadding = 7.dp
 
+/** From the left edge, where the left thumb rests on a phone held sideways. */
+internal val LockKeyEdgePadding = 16.dp
+
+/** A 34dp ring; with the shared touch padding the target is 48dp. */
+private val LockKeyRingSize = 34.dp
+
+private val LockKeyIconSize = 16.dp
+
 /**
- * Lock screen — a 52px circle over `屏幕已锁定` at `gap:14px`, with the
- * `长按解锁` pill at `right:22px; bottom:40px`.
+ * 锁定 on the left edge, halfway down: the key other Chinese players keep there, one tap from the
+ * picture instead of 更多 → 播放设置's eleventh row. It stays in the same spot once locked
+ * ([LockedOverlay]), so the thumb that locked the screen is the one that opens it.
+ */
+@Composable
+internal fun PlayerLockKey(
+    locked: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
+) {
+    CircleControl(
+        icon = if (locked) AppIcons.Lock else AppIcons.Unlock,
+        description = if (locked) "解锁屏幕" else "锁定屏幕",
+        size = LockKeyRingSize,
+        iconSize = LockKeyIconSize,
+        active = locked,
+        onClick = onClick,
+        onLongClick = onLongClick,
+        onLongClickLabel = "解锁屏幕".takeIf { onLongClick != null },
+        // On the left edge in landscape, which is where a phone's notch or punch-hole may be.
+        modifier = modifier.windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Start)),
+    )
+}
+
+/**
+ * Lock screen — a 52px circle over `屏幕已锁定` at `gap:14px`, with the lock key back on the left
+ * edge where it was pressed.
  *
  * The lock refuses the whole picture, not only the drag. A catcher under the lock's own chrome
  * takes every touch before the gesture layer beneath it can read one as a double tap or a hold: a
- * tap brings the circle and the pill back for a moment ([controlsVisible]), a double tap or a hold
- * is refused ([onRefuse]). Unlocking takes a long press, so the pocket or the child the lock is
- * there for cannot undo it with a stray tap — except under a screen reader, whose double tap is
- * the only press it has.
+ * tap brings the circle and the key back for a moment ([controlsVisible]), a double tap or a hold
+ * is refused ([onRefuse]). The key opens with a tap — a stray one only brings it up, so it takes
+ * two deliberate taps — or, with 解锁方式 · 长按 ([unlockByLongPress]), only under a held press, for
+ * the child the lock is there for. A screen reader's double tap always opens it: it is the only
+ * press that reader has.
  */
 @Composable
 internal fun LockedOverlay(
     controlsVisible: Boolean,
     message: String,
     screenReaderActive: Boolean,
+    unlockByLongPress: Boolean,
     onReveal: () -> Unit,
     onRefuse: () -> Unit,
     onUnlock: () -> Unit,
@@ -1009,27 +1062,13 @@ internal fun LockedOverlay(
         }
         ChromeVisibility(
             visible = controlsVisible,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 40.dp),
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = LockKeyEdgePadding),
         ) {
-            Text(
-                if (screenReaderActive) "解锁" else "长按解锁",
-                style = AppTypography.body.medium,
-                color = Color.White,
-                modifier =
-                    Modifier
-                        .glass(
-                            shape = AppShapes.pill,
-                            fill = Color.White.copy(alpha = 0.10f),
-                            border = Color.White.copy(alpha = 0.28f),
-                        ).pressable(
-                            onClickLabel = "解锁".takeIf { screenReaderActive },
-                            onLongClick = onUnlock,
-                            onLongClickLabel = "解锁",
-                            // A tap is the stray touch the lock is there to survive, so it only
-                            // says how to unlock — unless it is a screen reader's double tap.
-                            onClick = if (screenReaderActive) onUnlock else onRefuse,
-                        ).touchTarget()
-                        .padding(horizontal = 18.dp, vertical = 9.dp),
+            PlayerLockKey(
+                locked = true,
+                // With 长按 chosen, a tap only says how to unlock — unless it is a screen reader's.
+                onClick = if (unlockByLongPress && !screenReaderActive) onRefuse else onUnlock,
+                onLongClick = onUnlock,
             )
         }
     }

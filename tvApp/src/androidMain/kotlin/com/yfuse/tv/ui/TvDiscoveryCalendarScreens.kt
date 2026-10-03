@@ -72,6 +72,8 @@ internal fun TvTmdbInfoScreen(
         item(key = "tmdb-info:hero:${item.mediaType}:${item.id}") {
             Box(
                 Modifier
+                    // Whole while focus is on 播放, 追剧 or 返回 — see TvFocusPivot.
+                    .tvKeepWholeInView()
                     .fillMaxWidth()
                     .height(455.dp)
                     .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
@@ -388,6 +390,14 @@ private fun CalendarEntry.toCalendarTvCard(component: CalendarComponent): TvMedi
     val target = openItemId
     // The follow store throws on a show TMDB has not identified yet, so pressing one crashed.
     val followable = episode.showTmdbId > 0
+    val entry = this
+    val openInLibrary: (() -> Unit)? = target?.let { itemId -> { component.onOpenItem(serverId, itemId) } }
+    val follow: (() -> Unit)? =
+        if (followable) {
+            { component.toggleFollow(entry) }
+        } else {
+            null
+        }
     return TvMediaCardModel(
         stableId = tvCalendarCardId(this),
         title = episode.showTitle,
@@ -405,7 +415,21 @@ private fun CalendarEntry.toCalendarTvCard(component: CalendarComponent): TvMedi
                 LibraryStatus.Watched -> "已看"
                 LibraryStatus.Unknown -> if (followed) "已追剧" else "发现"
             },
-        quickActions = { tvQuickActions(component) }.takeIf { target != null || followable },
+        quickActions =
+            if (openInLibrary == null && follow == null) {
+                null
+            } else {
+                {
+                    tvCalendarQuickActions(
+                        title = episode.showTitle,
+                        meta = episode.episodeLabel,
+                        onOpenInLibrary = openInLibrary,
+                        onFollow = follow,
+                        // Asked as the panel opens: a press on the card may have toggled it since.
+                        following = component.followStore.isFollowing(episode.showTmdbId),
+                    )
+                }
+            },
         onClick = {
             if (target != null) {
                 component.onOpenItem(serverId, target)
@@ -417,26 +441,38 @@ private fun CalendarEntry.toCalendarTvCard(component: CalendarComponent): TvMedi
 }
 
 /**
- * 长按面板 on a calendar card: 追剧 or 取消追剧 for the show, and 查看详情 once the library has it —
- * the episode when it has arrived, else the show. The phone leaves 取消追剧 to 追剧管理 and its
- * 撤销; here a press on a card the library lacks already toggles it.
+ * 长按面板 on a 追剧 card: the phone's 追剧中心 menu as far as the television has the pages for it —
+ * 在媒体库打开 once the library has the episode, else the show it belongs to, and 追剧, or 取消追剧
+ * for a show already [following]. The phone leaves 取消追剧 to 追剧管理 and its 撤销; here a press on
+ * a card the library lacks already toggles it. 播出日历 is a sheet only the phone has. The caller
+ * offers no panel at all when neither row applies.
  */
-private fun CalendarEntry.tvQuickActions(component: CalendarComponent): LiftMenu {
-    val following = component.followStore.isFollowing(episode.showTmdbId)
-    return LiftMenu(
-        title = episode.showTitle,
-        meta = episode.episodeLabel,
-        onOpen = openItemId?.let { itemId -> { component.onOpenItem(serverId, itemId) } },
+internal fun tvCalendarQuickActions(
+    title: String,
+    meta: String?,
+    onOpenInLibrary: (() -> Unit)?,
+    onFollow: (() -> Unit)?,
+    following: Boolean = false,
+): LiftMenu =
+    LiftMenu(
+        title = title,
+        meta = meta,
         sections =
             listOf(
                 listOfNotNull(
-                    ItemAction(
-                        label = if (following) "取消追剧" else "追剧",
-                        icon = AppIcons.Bell,
-                        destructive = following,
-                        onSelect = { component.toggleFollow(this) },
-                    ).takeIf { episode.showTmdbId > 0 },
+                    onOpenInLibrary?.let {
+                        ItemAction(label = "在媒体库打开", icon = AppIcons.Play, leavesPage = true, onSelect = it)
+                    },
+                ),
+                listOfNotNull(
+                    onFollow?.let {
+                        ItemAction(
+                            label = if (following) "取消追剧" else "追剧",
+                            icon = AppIcons.Bell,
+                            destructive = following,
+                            onSelect = it,
+                        )
+                    },
                 ),
             ),
     )
-}
