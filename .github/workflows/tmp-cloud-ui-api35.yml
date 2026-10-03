@@ -1,0 +1,69 @@
+name: Temporary Android 15 smoke investigation
+
+# Temporary: runs the release gate's smoke on the 1.0.99 (261) signed APK of run 37128629545
+# under several Android 15 emulator configurations. Nothing is built, signed or published.
+on:
+  push:
+    branches:
+      - ccr-afc1c9d3-phenca
+    paths:
+      - .github/workflows/tmp-cloud-ui-api35.yml
+      - .github/tmp-cloud-ui-probe.sh
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  probe:
+    name: Android 15 ${{ matrix.label }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: baseline-a, gpu: swiftshader_indirect, extra: "", ram: 4096M, cores: 2 }
+          - { label: baseline-b, gpu: swiftshader_indirect, extra: "", ram: 4096M, cores: 2 }
+          - { label: no-guest-vulkan, gpu: swiftshader_indirect, extra: "-feature -Vulkan", ram: 4096M, cores: 2 }
+          - { label: swangle, gpu: swangle_indirect, extra: "", ram: 4096M, cores: 2 }
+          - { label: guest-gpu, gpu: guest, extra: "", ram: 4096M, cores: 2 }
+          - { label: ram-6g, gpu: swiftshader_indirect, extra: "", ram: 6144M, cores: 2 }
+          - { label: cores-4, gpu: swiftshader_indirect, extra: "", ram: 4096M, cores: 4 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Download the signed 1.0.99 APK
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: android-release-signed-1
+          run-id: 37128629545
+          github-token: ${{ github.token }}
+          path: artifacts/cloud-input
+      - name: Enable hardware acceleration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo rm -rf "${ANDROID_HOME:?}/cmdline-tools"
+          free -m
+          nproc
+      - name: Run the gate's smoke with evidence
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: "35"
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          cores: ${{ matrix.cores }}
+          ram-size: ${{ matrix.ram }}
+          heap-size: 512M
+          disk-size: 4096M
+          emulator-boot-timeout: 600
+          disable-animations: false
+          emulator-options: -no-window -gpu ${{ matrix.gpu }} -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on ${{ matrix.extra }}
+          script: bash .github/tmp-cloud-ui-probe.sh
