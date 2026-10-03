@@ -56,9 +56,22 @@ jobs:
       - name: ktlint
         continue-on-error: true
         run: ./gradlew :composeApp:ktlintCheck :tvShared:ktlintCheck --no-daemon --continue
-      - name: Build the R8 release packages
+      # As in the quality gates: :phoneShared and :tvShared each compile the whole shared tree, and
+      # side by side they outgrow the 4 GB Kotlin daemon (GC overhead limit exceeded), so they compile
+      # in this one-shot process first. R8 then runs once per package, as the phone and TV gates do.
+      - name: Compile the shared code
         run: >-
-          ./gradlew :composeApp:assembleRelease :tvApp:assembleRelease -PallowDebugSigning=true
+          ./gradlew :composeApp:compileDebugKotlin :tvApp:compileDebugKotlin
+          -Pkotlin.compiler.execution.strategy=in-process
+          "-Dorg.gradle.jvmargs=-Xmx8g -Dfile.encoding=UTF-8"
+          --no-daemon
+      - name: Build the phone R8 release package
+        run: >-
+          ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true
+          "-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8" --no-daemon
+      - name: Build the TV R8 release package
+        run: >-
+          ./gradlew :tvApp:assembleRelease -PallowDebugSigning=true
           "-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8" --no-daemon
       - name: Keep the phone package for the emulator
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
