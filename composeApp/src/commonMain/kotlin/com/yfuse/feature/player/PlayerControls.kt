@@ -76,6 +76,7 @@ import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.rememberScreenReaderActive
 import com.yfuse.core.model.PlaybackChapter
+import com.yfuse.core.model.ShortDramaMode
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.tv.player.TvPlayerChromeBridge
 import com.yfuse.tv.player.TvPlayerChromeCommandType
@@ -305,6 +306,9 @@ internal fun PlayerControls(
     autoNext: Boolean = true,
     /** The player's own 自动播放下一集 switch; the setting in 我的 is the same one. */
     onToggleAutoNext: () -> Unit = {},
+    /** This series' 短剧模式, where choosing one changes something: a series on a phone. */
+    shortDramaMode: ShortDramaMode? = null,
+    onSelectShortDramaMode: (ShortDramaMode) -> Unit = {},
     onRefreshEpisodes: () -> Unit,
     onSelectAudio: (String) -> Unit,
     audioControls: AudioControlState = AudioControlState(),
@@ -1965,6 +1969,8 @@ internal fun PlayerControls(
                             onToggleAmbientLight = onToggleAmbientLight,
                             autoNextEnabled = autoNext,
                             onToggleAutoNext = onToggleAutoNext,
+                            shortDramaMode = shortDramaMode,
+                            onSelectShortDramaMode = onSelectShortDramaMode,
                             onDismiss = { settingsPanelKind = null },
                         )
                     }

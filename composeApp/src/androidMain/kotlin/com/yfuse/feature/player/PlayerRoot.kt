@@ -76,6 +76,7 @@ import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.model.ShortDramaMode
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.network.playbackNetworkClasses
@@ -1462,6 +1463,18 @@ internal fun PlayerRoot(
                 seriesId = currentItem?.seriesId,
                 itemId = currentItem?.id,
                 transform = transform,
+            )
+        }
+
+        // 短剧模式 is kept with the series' other playback choices; a phone turns to it at once.
+        val entryOrientationHost = rememberEntryOrientationHost()
+        var shortDramaMode by remember(currentItem?.serverId, currentItem?.seriesId, currentItem?.id) {
+            mutableStateOf(
+                ShortDramaMode.fromStorage(
+                    playbackPreferences
+                        .rememberedSeriesPlayback(currentItem?.serverId, currentItem?.seriesId, currentItem?.id)
+                        ?.shortDrama,
+                ),
             )
         }
 
@@ -3136,6 +3149,15 @@ internal fun PlayerRoot(
                     onCreditsTakeover = { creditsTakeover = it },
                     autoNext = autoNextSetting,
                     onToggleAutoNext = { themePreferences.setAutoNext(!autoNextSetting) },
+                    shortDramaMode =
+                        shortDramaMode.takeIf {
+                            entryOrientationHost != null && currentItem?.seriesId != null
+                        },
+                    onSelectShortDramaMode = { mode ->
+                        rememberSeriesPlayback { it.copy(shortDrama = mode.name) }
+                        shortDramaMode = mode
+                        entryOrientationHost?.reorientForCurrentEntry()
+                    },
                     onNextItem = {
                         sourceSwitchCoordinator.invalidate()
                         val next = state.currentIndex + 1

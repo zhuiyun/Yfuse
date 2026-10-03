@@ -97,6 +97,18 @@ internal interface PlayerOrientationHost {
     fun reorientForCurrentEntry()
 }
 
+/**
+ * The phone player's Activity, which turns to each entry; null on a tablet or a television, where
+ * 短剧模式 has no orientation to change.
+ */
+@Composable
+internal fun rememberEntryOrientationHost(): PlayerOrientationHost? {
+    val context = LocalContext.current
+    return remember(context) {
+        (context.findActivity() as? PlayerOrientationHost)?.takeIf { it.unlockedOrientation() != null }
+    }
+}
+
 private tailrec fun Context.findActivity(): Activity? =
     when (this) {
         is Activity -> this
