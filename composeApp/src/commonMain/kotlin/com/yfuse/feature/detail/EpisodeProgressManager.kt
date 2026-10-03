@@ -67,6 +67,7 @@ import com.yfuse.core.designsystem.rememberDragSelectState
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.Episode
+import com.yfuse.core.model.episodeTitle
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -417,7 +418,7 @@ private fun ProgressEpisodeRow(
         }
         Column(Modifier.weight(1f)) {
             Text(
-                listOfNotNull(episode.indexNumber?.let { "第 $it 集" }, episode.name).joinToString(" · "),
+                episodeTitle(episode.indexNumber, episode.name) { "第 $it 集" },
                 style = AppTypography.body.strong,
                 color = palette.text,
                 maxLines = 1,

@@ -70,6 +70,7 @@ import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.model.episodeTitle
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.offline.OfflineMediaManager
@@ -1397,11 +1398,7 @@ class PlayerActivity : ComponentActivity() {
                 val existing = playbackItems.value.associateBy(PlayerMediaItem::id)
                 val refreshedFromServer =
                     episodes.map { episode ->
-                        val title =
-                            listOfNotNull(
-                                episode.indexNumber?.let { "第 $it 集" },
-                                episode.name.takeIf { it.isNotBlank() },
-                            ).joinToString("  ")
+                        val title = episodeTitle(episode.indexNumber, episode.name, separator = "  ") { "第 $it 集" }
                         val stillUrl =
                             EmbyImages.primary(
                                 server.baseUrl,

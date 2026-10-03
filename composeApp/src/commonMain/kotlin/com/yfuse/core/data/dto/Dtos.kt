@@ -14,6 +14,7 @@ import com.yfuse.core.model.SourceInfo
 import com.yfuse.core.model.SubtitleTrackInfo
 import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.model.VideoStreamInfo
+import com.yfuse.core.model.episodeOwnName
 import com.yfuse.core.model.languageDisplayName
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import kotlinx.serialization.Serializable
@@ -376,11 +377,13 @@ fun BaseItemDto.toMediaItem(): MediaItem {
     val title = if (isEpisode) (SeriesName ?: Name ?: "") else (Name ?: "")
     val subtitle =
         when {
-            isEpisode ->
-                buildString {
-                    if (ParentIndexNumber != null && IndexNumber != null) append("S${ParentIndexNumber}E$IndexNumber ")
-                    append(Name ?: "")
-                }.trim().ifBlank { null }
+            isEpisode -> {
+                val coordinate =
+                    if (ParentIndexNumber != null && IndexNumber != null) "S${ParentIndexNumber}E$IndexNumber" else null
+                // 「S1E1 第1集」 said the number twice; a name that only repeats it is dropped.
+                val name = if (coordinate != null) episodeOwnName(Name, IndexNumber) else Name?.trim()
+                listOfNotNull(coordinate, name).joinToString(" ").trim().ifBlank { null }
+            }
             ProductionYear != null -> ProductionYear.toString()
             else -> null
         }

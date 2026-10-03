@@ -137,7 +137,12 @@ class PlaybackSyncStoreServerDatesTest {
     fun an_item_older_than_everything_a_full_store_keeps_is_not_imported() {
         val recent =
             (1..512).map { index ->
-                PlaybackSyncStore.ServerProgressInput("recent-$index", 0L, true, lastPlayedAtEpochMs = 5_000_000L + index)
+                PlaybackSyncStore.ServerProgressInput(
+                    itemId = "recent-$index",
+                    positionMs = 0L,
+                    played = true,
+                    lastPlayedAtEpochMs = 5_000_000L + index,
+                )
             }
         store.absorbServerProgressBatch("server", recent, store.scopeToken)
 

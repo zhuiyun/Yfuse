@@ -89,6 +89,8 @@ import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.Episode
+import com.yfuse.core.model.episodeRuntimeLabel
+import com.yfuse.core.model.episodeTitle
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineDownloadSelection
@@ -697,8 +699,7 @@ private fun EpisodeCard(
         }
         Column {
             Text(
-                listOfNotNull(episode.indexNumber?.let { "第${it}集" }, episode.name)
-                    .joinToString(" · "),
+                episodeTitle(episode.indexNumber, episode.name),
                 style = AppTypography.body.strong,
                 color = palette.text,
                 maxLines = 1,
@@ -722,7 +723,7 @@ private fun EpisodeCard(
                     } else if (watching) {
                         append("正在观看")
                     }
-                    val runtime = episode.runtimeMinutes?.let { "$it 分钟" }
+                    val runtime = episodeRuntimeLabel(episode.runtimeTicks, episode.runtimeMinutes)
                     if ((selected || watching) && runtime != null) append(" · ")
                     if (runtime != null) append(runtime)
                     episodeDownloadLabel(download?.status)?.let { label ->
@@ -744,12 +745,15 @@ private fun EpisodeCard(
     }
 }
 
-/** The episode's own still, as the rail and the 管理进度 sheet draw it. */
+/**
+ * The episode's own still, as the rail and the 管理进度 sheet draw it. The rail's still is 108dp
+ * tall, 324px on a 3x screen; 240px came back blurred once scaled up to it.
+ */
 internal fun episodeStillUrl(
     baseUrl: String,
     accessToken: String,
     episode: Episode,
-): String? = EmbyImages.primary(baseUrl, episode.id, episode.primaryTag, maxHeight = 240, accessToken = accessToken)
+): String? = EmbyImages.primary(baseUrl, episode.id, episode.primaryTag, maxHeight = 360, accessToken = accessToken)
 
 /**
  * What an episode can have done to it beyond the tap that picks it: 标记已看 from a swipe or the
@@ -875,7 +879,7 @@ internal fun episodeLiftMenu(
 ): LiftMenu {
     val earlier = unwatchedBefore(episodes, episode.id)
     return LiftMenu(
-        title = listOfNotNull(episode.indexNumber?.let { "第${it}集" }, episode.name).joinToString(" · "),
+        title = episodeTitle(episode.indexNumber, episode.name),
         meta = episodeLiftMeta(episode),
         artworkUrls = listOfNotNull(artworkUrl),
         backdropUrls = listOfNotNull(artworkUrl),

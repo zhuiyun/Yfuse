@@ -42,6 +42,8 @@ import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.episodeRuntimeLabel
+import com.yfuse.core.model.episodeTitle
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.DownloadStatus
@@ -768,10 +770,10 @@ private fun TvEpisodeRow(
                     model =
                         TvMediaCardModel(
                             stableId = "server:$serverId:episode:${episode.id}",
-                            title = episode.indexNumber?.let { "第 $it 集 · ${episode.name}" } ?: episode.name,
+                            title = episodeTitle(episode.indexNumber, episode.name) { "第 $it 集" },
                             subtitle =
                                 listOfNotNull(
-                                    episode.runtimeMinutes?.let { "$it 分钟" },
+                                    episodeRuntimeLabel(episode.runtimeTicks, episode.runtimeMinutes),
                                     when {
                                         episode.played -> "已看"
                                         (episode.playedPercentage ?: 0.0) > 0.0 -> "继续观看"

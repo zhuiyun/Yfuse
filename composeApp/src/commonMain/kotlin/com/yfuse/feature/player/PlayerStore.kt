@@ -22,6 +22,7 @@ import com.yfuse.core.model.PlaybackChapter
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.SubtitleTrackInfo
+import com.yfuse.core.model.episodeTitle
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.EmbyImages
@@ -1416,10 +1417,7 @@ class PlayerStoreFactory(
                                     episodes.map { ep ->
                                         itemOf(
                                             ep.id,
-                                            listOfNotNull(
-                                                ep.indexNumber?.let { "第 $it 集" },
-                                                ep.name,
-                                            ).joinToString("  "),
+                                            episodeTitle(ep.indexNumber, ep.name, separator = "  ") { "第 $it 集" },
                                             ep.playbackSegments,
                                             ep.providerIds,
                                             ep.seasonNumber,
