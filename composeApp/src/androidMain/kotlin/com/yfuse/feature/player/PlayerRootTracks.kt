@@ -68,7 +68,8 @@ internal fun PlayerSeriesRestoreEffects(
         choices.restoreSubtitlesOff = initialTracks?.subtitlesDisabled == true
         // A series' own speed, or 默认倍速: the stored 1× is also what a series that never chose
         // one reads, so it gives way to the default.
-        choices.requestedPlaybackSpeed = remembered?.speed?.takeIf { it != 1f } ?: playbackPreferences.defaultSpeed.value
+        choices.requestedPlaybackSpeed =
+            remembered?.speed?.takeIf { it != 1f } ?: playbackPreferences.defaultSpeed.value
         choices.audioControls =
             choices.audioControls.copy(
                 delayMs =
