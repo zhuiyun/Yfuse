@@ -61,6 +61,12 @@ interface YPlayer {
     fun selectItem(index: Int)
 
     /**
+     * While enabled, the current entry ends where it is instead of advancing to the next one:
+     * 取消 on the next-up card, or 睡眠定时's 本集结束. The caller clears it when the entry changes.
+     */
+    fun setPauseAtEndOfCurrentItem(enabled: Boolean) = Unit
+
+    /**
      * UI-resolved credits boundary; null uses natural duration. This never initiates a skip.
      *
      * [allowMeteredNetwork] lets the next item prepare on mobile data (never under Data Saver).

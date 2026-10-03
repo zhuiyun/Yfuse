@@ -334,6 +334,18 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
     }
 
+    /**
+     * 取消 on the next-up card and 睡眠定时's 本集结束: the entry that ends next stops there instead
+     * of opening the next one. Written on the caller's thread, read where the router decides on a
+     * natural advance; the caller clears it once the entry changes.
+     */
+    @Volatile
+    private var pauseAtEndOfCurrentItem = false
+
+    override fun setPauseAtEndOfCurrentItem(enabled: Boolean) {
+        pauseAtEndOfCurrentItem = enabled
+    }
+
     override fun selectItem(index: Int) {
         if (released || index !in queueItems.indices) return
         invalidateProbe("superseded")
@@ -1760,6 +1772,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         val naturalAutoNext =
                             childState.phase == YPlaybackPhase.Ended &&
                                 request.autoNext &&
+                                !pauseAtEndOfCurrentItem &&
                                 childIndex() + 1 < queueItems.size
                         if (childState.phase == YPlaybackPhase.Failed ||
                             childState.phase == YPlaybackPhase.Ended &&
@@ -1821,12 +1834,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                         ) {
                             recordLearning(childState, terminal = true)
                         }
-                        if (
-                            childState.phase == YPlaybackPhase.Ended &&
-                            request.autoNext &&
-                            !autoNextQueued &&
-                            childIndex() + 1 < queueItems.size
-                        ) {
+                        // The same decision that kept playback requested above, read once, so a
+                        // 取消 landing between the two reads cannot park and advance at once.
+                        if (naturalAutoNext && !autoNextQueued) {
                             autoNextQueued = true
                             commands.trySend(Command.SelectItem(queueItems[childIndex() + 1].id))
                         }
