@@ -61,7 +61,7 @@ class LocalHistoryWindowTest {
                     trigger = PlaybackSyncTrigger.Periodic,
                 )
             }
-            watch("other")
+            watch("other1")
             (1..20).forEach { watch("drama$it") }
             val repo =
                 testRepo(progressProjection = PlaybackProgressProjection(progressStore) { true }) { request ->
@@ -75,7 +75,7 @@ class LocalHistoryWindowTest {
 
             val resume = repo.homeContent(server).getOrThrow().resume
 
-            assertEquals(listOf("drama20", "other"), resume.map { it.id })
+            assertEquals(listOf("drama20", "other1"), resume.map { it.id })
         }
 
     @Test

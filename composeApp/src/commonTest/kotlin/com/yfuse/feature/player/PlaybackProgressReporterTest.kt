@@ -506,7 +506,8 @@ class PlaybackProgressReporterTest {
                             PlayerMediaItem("e2", "direct-2", "transcode-2", "第2集"),
                         ),
                     sink = RecordingSink(events),
-                    scope = this,
+                    // The actor outlives the test body; no close() here, so it must not hold runTest.
+                    scope = backgroundScope,
                 )
 
             fun first(positionMs: Long) =
@@ -556,7 +557,8 @@ class PlaybackProgressReporterTest {
                             PlayerMediaItem("e3", "direct-3", "transcode-3", "第3集"),
                         ),
                     sink = RecordingSink(events),
-                    scope = this,
+                    // The actor outlives the test body; no close() here, so it must not hold runTest.
+                    scope = backgroundScope,
                 )
 
             reporter.update(PlaybackState(playing = true, positionMs = 30_000L, currentIndex = 0, itemCount = 3))
