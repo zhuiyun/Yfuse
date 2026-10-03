@@ -569,7 +569,10 @@ class LibraryGridStoreTest {
                         request.url.encodedPath.endsWith("/Genres") ->
                             json("""{"Items":[{"Id":"g1","Name":"爱情"}]}""")
                         request.url.encodedPath.endsWith("/Tags") ->
-                            json("""{"Items":[{"Name":"短剧"},{"Name":" 竖屏 "},{"Name":"短剧"}]}""")
+                            json(
+                                """{"Items":[{"Id":"t1","Name":"短剧"},{"Id":"t2","Name":" 竖屏 "},""" +
+                                    """{"Id":"t3","Name":"短剧"}]}""",
+                            )
                         else -> {
                             queries += request.url.parameters["Genres"] to request.url.parameters["Tags"]
                             json(page(from = 0, count = 1, total = 1))
