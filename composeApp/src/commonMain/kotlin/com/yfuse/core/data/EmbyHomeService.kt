@@ -295,6 +295,8 @@ internal class EmbyHomeService(
     }
 
     private suspend fun fetchResume(server: SavedServer): List<MediaItem> {
+        // Read a wider window than the shelf shows, then keep one entry per series: the limit
+        // used to count episodes, so one binge took every slot before the per-series merge.
         val ids =
             progress
                 .localStates(server)
@@ -302,7 +304,7 @@ internal class EmbyHomeService(
                 .filter { !it.played && it.positionMs > 0L }
                 .mapNotNull { it.serverItemId }
                 .distinct()
-                .take(12)
+                .take(RESUME_HISTORY_SCAN)
                 .toList()
         if (ids.isEmpty()) return emptyList()
         val localItems: ItemsResponseDto =
@@ -320,7 +322,9 @@ internal class EmbyHomeService(
                     parameter("Limit", ids.size)
                 }.body()
         val byId = localItems.Items.associateBy(BaseItemDto::Id)
-        return ids.mapNotNull(byId::get).map { progress.project(server, it).toMediaItem() }
+        return newestPerWork(ids, RESUME_SHELF_LIMIT) { id -> byId[id]?.let { it.SeriesId ?: it.Id } }
+            .mapNotNull(byId::get)
+            .map { progress.project(server, it).toMediaItem() }
     }
 
     private suspend fun fetchLatest(
@@ -353,6 +357,10 @@ internal class EmbyHomeService(
 }
 
 private const val LIBRARY_COUNT_TTL_MS = 10 * 60_000L
+
+/** Unfinished entries read for 继续观看; one per series survives, up to [RESUME_SHELF_LIMIT]. */
+private const val RESUME_HISTORY_SCAN = 48
+private const val RESUME_SHELF_LIMIT = 12
 private const val MAX_CACHED_LIBRARY_COUNTS = 256
 private const val HOME_VIEWS_TIMEOUT_MS = 15_000L
 private const val HOME_SECTION_TIMEOUT_MS = 15_000L

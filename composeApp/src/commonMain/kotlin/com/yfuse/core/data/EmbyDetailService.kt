@@ -272,24 +272,21 @@ internal class EmbyDetailService(
         server: SavedServer,
         limit: Int,
     ): List<MediaItem> {
-        val recentStates = progress.localStates(server).take(MAX_LOCAL_NEXT_UP_HISTORY)
-        val ids = recentStates.mapNotNull { it.serverItemId }.distinct()
+        val scannedStates = progress.localStates(server).take(MAX_LOCAL_NEXT_UP_SCAN)
+        val ids = scannedStates.mapNotNull { it.serverItemId }.distinct()
         if (ids.isEmpty()) return emptyList()
-        val cards: ItemsResponseDto =
-            client
-                .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
-                    header("X-Emby-Token", server.accessToken)
-                    parameter("Ids", ids.joinToString(","))
-                    parameter(
-                        "Fields",
-                        "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags," +
-                            "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks,UserData",
-                    )
-                    parameter("EnableImageTypes", "Primary,Backdrop")
-                    parameter("ImageTypeLimit", 2)
-                    parameter("Limit", ids.size)
-                }.body()
-        val cardsById = cards.Items.associateBy(BaseItemDto::Id)
+        val cardsById = fetchNextUpCards(server, ids)
+        // History is per episode: count series, not episodes. One binge used to fill the whole
+        // window, so every show watched before it vanished from 下一集. A series' newest entry
+        // also names its next episode on its own; older entries could only offer an earlier one.
+        val recentStates =
+            newestPerWork(scannedStates, MAX_LOCAL_NEXT_UP_HISTORY) { state ->
+                state.serverItemId
+                    ?.takeIf { state.played || state.positionMs > 0L }
+                    ?.let(cardsById::get)
+                    ?.takeIf { it.Type == "Episode" }
+                    ?.let { it.SeriesId ?: it.Id }
+            }
         // Every finished episode needs its series directory to name the one after it. Those
         // used to be fetched one at a time as the loop reached them — up to 36 serial round
         // trips before the shelf could show. Read the distinct series up front, a few at a
@@ -336,6 +333,37 @@ internal class EmbyDetailService(
         return result.take(limit).map { progress.project(server, it).toMediaItem() }
     }
 
+    /** Cards for the scanned history, a few short requests at once so no URL grows unbounded. */
+    private suspend fun fetchNextUpCards(
+        server: SavedServer,
+        ids: List<String>,
+    ): Map<String, BaseItemDto> =
+        coroutineScope {
+            ids
+                .chunked(NEXT_UP_CARD_REQUEST_IDS)
+                .map { chunk ->
+                    async {
+                        client
+                            .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
+                                header("X-Emby-Token", server.accessToken)
+                                parameter("Ids", chunk.joinToString(","))
+                                parameter(
+                                    "Fields",
+                                    "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags," +
+                                        "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag," +
+                                        "RunTimeTicks,UserData",
+                                )
+                                parameter("EnableImageTypes", "Primary,Backdrop")
+                                parameter("ImageTypeLimit", 2)
+                                parameter("Limit", chunk.size)
+                            }.body<ItemsResponseDto>()
+                            .Items
+                    }
+                }.awaitAll()
+                .flatten()
+                .associateBy(BaseItemDto::Id)
+        }
+
     private suspend fun fetchSeriesEpisodes(
         server: SavedServer,
         seriesId: String,
@@ -358,6 +386,10 @@ internal class EmbyDetailService(
 
     private companion object {
         const val MAX_LOCAL_NEXT_UP_HISTORY = 36
+
+        /** Entries read to find [MAX_LOCAL_NEXT_UP_HISTORY] distinct series. */
+        const val MAX_LOCAL_NEXT_UP_SCAN = 120
+        const val NEXT_UP_CARD_REQUEST_IDS = 40
         const val NEXT_UP_SERIES_CONCURRENCY = 4
         const val EMBY_THUMBNAIL_WIDTH = 320
         const val TICKS_PER_MILLISECOND = 10_000L
