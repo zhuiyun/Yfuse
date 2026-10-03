@@ -409,7 +409,7 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         lastPlayedDate = UserData?.LastPlayedDate,
         overview = Overview,
         year = ProductionYear,
-        runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },
+        runtimeMinutes = runtimeMinutesOf(RunTimeTicks),
         communityRating = CommunityRating,
         providerIds = ProviderIds.orEmpty(),
         isFavorite = UserData?.IsFavorite == true,
@@ -443,7 +443,7 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         overview = Overview,
         year = ProductionYear,
         genres = Genres ?: emptyList(),
-        runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },
+        runtimeMinutes = runtimeMinutesOf(RunTimeTicks),
         officialRating = OfficialRating,
         communityRating = CommunityRating,
         posterItemId = posterId,
@@ -671,7 +671,7 @@ fun BaseItemDto.toEpisode() =
         seasonNumber = ParentIndexNumber,
         seasonId = SeasonId,
         overview = Overview,
-        runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },
+        runtimeMinutes = runtimeMinutesOf(RunTimeTicks),
         primaryTag = ImageTags?.get("Primary"),
         playedPercentage = UserData?.PlayedPercentage,
         played = UserData?.Played == true,
@@ -811,6 +811,16 @@ fun List<MediaSegmentDto>.toPlaybackSegments(): List<PlaybackSegment> =
     }.sortedBy { it.startMs }
 
 private const val TICKS_PER_MS = 10_000L
+
+/**
+ * Whole minutes of a server runtime, and at least one for any runtime the server gave: a
+ * 40-second 短剧 episode used to floor to none, which hid its length and left a transcoded
+ * download of it unsized.
+ */
+internal fun runtimeMinutesOf(ticks: Long?): Int? =
+    ticks?.takeIf { it > 0L }?.let { (it / TICKS_PER_MINUTE).toInt().coerceAtLeast(1) }
+
+private const val TICKS_PER_MINUTE = 600_000_000L
 
 /** Jellyfin's /Items/Filters: the facets a library's items carry. */
 @Serializable
