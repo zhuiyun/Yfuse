@@ -427,9 +427,13 @@ mkdir -p build/r8-dump
 JAVA_TOOL_OPTIONS=-Dcom.android.tools.r8.dumpinputtodirectory=$PWD/build/r8-dump \
   ./gradlew :composeApp:minifyReleaseWithR8 --rerun -PallowDebugSigning=true --no-daemon
 curl -fsSLo r8.jar https://storage.googleapis.com/r8-releases/raw/<version>/r8lib.jar
-python3 scripts/diagnostics/replay_r8_dump.py --dump build/r8-dump/<dump>.zip --r8 r8.jar --output out.zip
-scripts/verify-release-dex.sh out.zip
+python3 scripts/diagnostics/replay_r8_dump.py --dump build/r8-dump/<dump>.zip --r8 r8.jar --output-dir out
+scripts/verify-release-dex.sh out/*.zip
 ```
+
+The replay writes `out/base.zip` and one `out/feature-N.zip` per feature split. Replay with the
+R8 release AGP used first: its output must have the APK's classes and findings, or the replay is
+not faithful.
 
 `scripts/diagnostics/art_verify_on_emulator.sh <output-dir> <apk>...` installs each APK on a
 running emulator and lets ART verify every class from scratch; it fails when dex2oat rejects a
