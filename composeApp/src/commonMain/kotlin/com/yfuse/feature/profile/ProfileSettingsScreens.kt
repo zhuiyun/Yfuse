@@ -9,6 +9,7 @@ import com.yfuse.core.data.MediaVersionPreference
 import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.data.PortraitVideoOrientation
 import com.yfuse.core.data.SourcePreheatMode
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.YCoreBufferDuration
@@ -188,6 +189,7 @@ internal fun PlaybackSettingsScreen(
     videoCacheSize: VideoCacheSize,
     sourcePreheat: SourcePreheatMode,
     skipSegments: String,
+    portraitVideo: PortraitVideoOrientation,
     onPlaybackMode: () -> Unit,
     onMediaVersionPreference: () -> Unit,
     onOpenAdvanced: () -> Unit,
@@ -198,6 +200,7 @@ internal fun PlaybackSettingsScreen(
     onVideoCache: () -> Unit,
     onSourcePreheat: () -> Unit,
     onSkipSegments: () -> Unit,
+    onPortraitVideo: () -> Unit,
 ) {
     SettingsPage(
         title = "播放",
@@ -230,6 +233,8 @@ internal fun PlaybackSettingsScreen(
             Section(title = "播放行为") {
                 SettingsCard {
                     SwitchRow("自动播放下一集", autoNext, true, onChange = onAutoNext)
+                    SettingsDivider()
+                    SettingRow("竖屏视频", portraitVideo.label, true, onPortraitVideo)
                     SettingsDivider()
                     SwitchRow(
                         "智能跨服选源",

@@ -1,5 +1,8 @@
 package com.yfuse.feature.player
 
+import android.content.pm.ActivityInfo
+import com.yfuse.core.data.PortraitVideoOrientation
+import com.yfuse.core.model.ShortDramaMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -29,5 +32,50 @@ class PlayerOrientationTest {
         assertFalse(turnedToward(180, targets, withinDegrees = 20))
         assertTrue(turnedToward(355, listOf(0), withinDegrees = 20))
         assertFalse(turnedToward(335, listOf(0), withinDegrees = 20))
+    }
+
+    @Test
+    fun an_upright_picture_plays_upright_on_a_phone() {
+        assertEquals(
+            ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT,
+            phonePlayerOrientation(true, PortraitVideoOrientation.Auto, ShortDramaMode.Auto),
+        )
+        assertEquals(
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+            phonePlayerOrientation(false, PortraitVideoOrientation.Auto, ShortDramaMode.Auto),
+        )
+        assertEquals(
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+            phonePlayerOrientation(null, PortraitVideoOrientation.Auto, ShortDramaMode.Auto),
+        )
+    }
+
+    @Test
+    fun the_viewers_choices_decide_before_the_picture_does() {
+        assertEquals(
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+            phonePlayerOrientation(true, PortraitVideoOrientation.Landscape, ShortDramaMode.On),
+        )
+        assertEquals(
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+            phonePlayerOrientation(true, PortraitVideoOrientation.Auto, ShortDramaMode.Off),
+        )
+        // A series played as a 短剧 stands upright before its picture is known, not over a landscape one.
+        assertEquals(
+            ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT,
+            phonePlayerOrientation(null, PortraitVideoOrientation.Auto, ShortDramaMode.On),
+        )
+        assertEquals(
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+            phonePlayerOrientation(false, PortraitVideoOrientation.Auto, ShortDramaMode.On),
+        )
+    }
+
+    @Test
+    fun a_window_pinned_by_the_lock_or_the_tabletop_is_left_alone() {
+        assertTrue(phonePlayerMayReorient(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE))
+        assertTrue(phonePlayerMayReorient(ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT))
+        assertFalse(phonePlayerMayReorient(ActivityInfo.SCREEN_ORIENTATION_LOCKED))
+        assertFalse(phonePlayerMayReorient(ActivityInfo.SCREEN_ORIENTATION_FULL_USER))
     }
 }

@@ -96,6 +96,8 @@ data class MediaStreamDto(
     val Type: String? = null,
     val Height: Int? = null,
     val Width: Int? = null,
+    /** Degrees the coded picture turns on display: a phone clip stored 1920×1080 with 90 stands. */
+    val Rotation: Int? = null,
     val VideoRange: String? = null,
     val Codec: String? = null,
     val Language: String? = null,
@@ -568,6 +570,7 @@ fun MediaSourceDto.toMediaVersion(
                     codec = stream.Codec?.takeIf { it.isNotBlank() }?.uppercase(),
                     width = stream.Width,
                     height = stream.Height,
+                    rotation = stream.Rotation?.takeIf { it != 0 },
                     // Emby reports both; the average is the one that matches what plays back.
                     frameRate = stream.AverageFrameRate ?: stream.RealFrameRate,
                     bitrateBps = stream.BitRate,

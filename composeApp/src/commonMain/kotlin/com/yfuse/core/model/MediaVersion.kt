@@ -237,6 +237,8 @@ data class VideoStreamInfo(
     val codec: String? = null,
     val width: Int? = null,
     val height: Int? = null,
+    /** Degrees the coded [width]×[height] picture is turned on display; null for none. */
+    val rotation: Int? = null,
     val frameRate: Double? = null,
     val bitrateBps: Int? = null,
     val videoRange: String? = null,

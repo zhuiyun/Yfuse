@@ -113,6 +113,8 @@ data class PlayerMediaVersion(
      */
     val sourceWidth: Int? = null,
     val sourceHeight: Int? = null,
+    /** Display rotation of the coded picture, from the server; decides an upright picture. */
+    val sourceRotation: Int? = null,
     val sourceBitrateBps: Int? = null,
     val sourceVideoCodec: String? = null,
     val sourceFrameRate: Double? = null,
@@ -304,6 +306,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             sourceDolbyBaseLayerCompatibility = version.video?.dolbyBaseLayerCompatibility,
             sourceWidth = version.video?.width,
             sourceHeight = version.videoHeight ?: version.video?.height,
+            sourceRotation = version.video?.rotation,
             sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
             sourceVideoCodec = version.videoCodec ?: version.video?.codec,
             sourceFrameRate = version.video?.frameRate,

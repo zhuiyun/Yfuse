@@ -14,6 +14,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import com.yfuse.core.data.PortraitVideoOrientation
+import com.yfuse.core.model.ShortDramaMode
 import com.yfuse.tv.player.isTelevisionDevice
 import kotlin.math.abs
 
@@ -48,7 +50,52 @@ internal fun turnedToward(
     withinDegrees: Int,
 ): Boolean = targets.any { target -> abs(orientation - target).let { minOf(it, 360 - it) } <= withinDegrees }
 
+/**
+ * The orientations a phone player sets for itself. Anything else was pinned by someone — 旋转锁
+ * (LOCKED), 桌面模式 (FULL_USER) — and is left alone until they let go.
+ */
+internal fun phonePlayerMayReorient(requested: Int): Boolean =
+    requested == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE ||
+        requested == ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE ||
+        requested == ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT ||
+        requested == ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+
+/**
+ * The orientation a phone player asks for the entry on screen. An upright picture — a 短剧 shot
+ * 9:16 — plays upright, filling the screen instead of a quarter of it, unless the viewer chose
+ * 始终横屏 or plays this series as an ordinary one. A series set to play as a 短剧 stands upright
+ * while its picture is still unknown. Everything else keeps landscape, either way up.
+ */
+internal fun phonePlayerOrientation(
+    portraitPicture: Boolean?,
+    preference: PortraitVideoOrientation,
+    shortDrama: ShortDramaMode,
+): Int {
+    val upright =
+        preference == PortraitVideoOrientation.Auto &&
+            shortDrama != ShortDramaMode.Off &&
+            (portraitPicture == true || portraitPicture == null && shortDrama == ShortDramaMode.On)
+    return if (upright) {
+        ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+    } else {
+        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    }
+}
+
 // End of pure.
+
+/**
+ * The player Activity on a phone, which picks its orientation per entry. 旋转锁 asks it on
+ * release rather than restoring what was asked before the lock, so an episode that changed shape
+ * under the lock still stands the right way.
+ */
+internal interface PlayerOrientationHost {
+    /** The orientation for the entry on screen, or null where the Activity does not choose one. */
+    fun unlockedOrientation(): Int?
+
+    /** Chooses again after a setting that decides it changed — 短剧模式, 竖屏视频. */
+    fun reorientForCurrentEntry()
+}
 
 private tailrec fun Context.findActivity(): Activity? =
     when (this) {
@@ -81,7 +128,12 @@ internal fun rememberPlayerRotationLock(): PlayerRotationLock? {
     var locked by remember { mutableStateOf(false) }
     var released by remember { mutableIntStateOf(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) }
     DisposableEffect(activity) {
-        onDispose { if (locked) activity?.requestedOrientation = released }
+        onDispose {
+            if (locked) {
+                activity?.requestedOrientation =
+                    (activity as? PlayerOrientationHost)?.unlockedOrientation() ?: released
+            }
+        }
     }
     val lockable =
         activity != null &&
@@ -97,7 +149,8 @@ internal fun rememberPlayerRotationLock(): PlayerRotationLock? {
             locked = locked,
             onToggle = {
                 if (locked) {
-                    activity.requestedOrientation = released
+                    activity.requestedOrientation =
+                        (activity as? PlayerOrientationHost)?.unlockedOrientation() ?: released
                     locked = false
                 } else {
                     released = activity.requestedOrientation

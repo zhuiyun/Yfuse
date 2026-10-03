@@ -2,6 +2,7 @@ package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.model.ShortDramaMode
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureRecord
 import com.yfuse.core.playback.PlaybackOptimizationMode
@@ -36,6 +37,15 @@ enum class VideoCacheSize(
     Medium("512 MB", 512L * 1024L * 1024L),
     Large("1 GB", 1024L * 1024L * 1024L),
     ExtraLarge("2 GB", 2L * 1024L * 1024L * 1024L),
+}
+
+/** What the phone player does with an upright picture — a 短剧 shot 9:16. */
+enum class PortraitVideoOrientation(
+    val label: String,
+    val description: String,
+) {
+    Auto("自动竖屏", "竖屏拍摄的视频（如短剧）竖着全屏播放，横屏视频仍横屏"),
+    Landscape("始终横屏", "所有视频都横屏播放，竖屏视频两侧留黑边"),
 }
 
 /**
@@ -131,6 +141,8 @@ data class SeriesPlaybackPreference(
     val subtitleOutlineWidth: Float = 2f,
     val speed: Float = 1f,
     val aspectMode: String = "Fit",
+    /** [com.yfuse.core.model.ShortDramaMode] by name: whether this series plays as a 短剧. */
+    val shortDrama: String = "Auto",
 )
 
 @Serializable
@@ -186,6 +198,15 @@ class PlaybackPreferences(
     fun setVideoCacheSize(size: VideoCacheSize) {
         _videoCacheSize.value = size
         settings.putString(KEY_VIDEO_CACHE_SIZE, size.name)
+    }
+
+    private val _portraitVideoOrientation =
+        MutableStateFlow(enumSetting(KEY_PORTRAIT_VIDEO_ORIENTATION, PortraitVideoOrientation.Auto))
+    val portraitVideoOrientation: StateFlow<PortraitVideoOrientation> = _portraitVideoOrientation.asStateFlow()
+
+    fun setPortraitVideoOrientation(mode: PortraitVideoOrientation) {
+        _portraitVideoOrientation.value = mode
+        settings.putString(KEY_PORTRAIT_VIDEO_ORIENTATION, mode.name)
     }
 
     private val _sourcePreheat =
@@ -638,6 +659,7 @@ class PlaybackPreferences(
             subtitleOutlineWidth = subtitleOutlineWidth.coerceIn(0f, 6f),
             speed = speed.coerceIn(0.25f, 4f),
             aspectMode = aspectMode.takeIf { it in SERIES_ASPECT_MODES } ?: "Fit",
+            shortDrama = ShortDramaMode.fromStorage(shortDrama).name,
         )
 
     private fun RememberedPlaybackTrack.normalized(): RememberedPlaybackTrack =
@@ -662,6 +684,7 @@ class PlaybackPreferences(
     private companion object {
         const val KEY_VIDEO_CACHE_SIZE = "player.videoCacheSize"
         const val KEY_SOURCE_PREHEAT = "player.sourcePreheat"
+        const val KEY_PORTRAIT_VIDEO_ORIENTATION = "player.portraitVideoOrientation"
         const val KEY_YCORE_BUFFER_DURATION = "player.ycore.bufferDuration"
         const val KEY_FRAME_RATE_MATCH = "player.output.frameRateMatch"
         const val KEY_SHOW_FRAME_RATE = "player.showFrameRate"
@@ -688,7 +711,8 @@ class PlaybackPreferences(
 
 internal const val PLAYBACK_QOE_OUTBOX_KEY = "player.ycore.qoe.outbox.v1"
 
-internal const val MAX_SERIES_PLAYBACK_PREFERENCES = 32
+// A 短剧 viewer goes through series quickly; 32 forgot the speed and choices of last month's.
+internal const val MAX_SERIES_PLAYBACK_PREFERENCES = 96
 internal const val MAX_PLAYBACK_FAILURE_RECORDS = 96
 internal const val MAX_PLAYBACK_PERFORMANCE_RECORDS = 96
 private const val MAX_PLAYBACK_FAILURE_SIGNATURE_CHARS = 256

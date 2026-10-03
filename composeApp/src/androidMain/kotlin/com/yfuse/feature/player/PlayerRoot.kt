@@ -2923,7 +2923,7 @@ internal fun PlayerRoot(
                     state = transition,
                     ready = state.error != null || pictureReady || audioOnly,
                     inPictureInPicture = inPictureInPicture,
-                    aspectRatio = transitionAspectRatio(scaleMode, state),
+                    aspectRatio = transitionAspectRatio(scaleMode, state, activeItems.getOrNull(state.currentIndex)),
                     layer = PlayerTransitionLayerKind.Entrance,
                 )
                 PlaybackStatusChip(
@@ -3892,7 +3892,7 @@ internal fun PlayerRoot(
                     state = transition,
                     ready = true,
                     inPictureInPicture = inPictureInPicture,
-                    aspectRatio = transitionAspectRatio(scaleMode, state),
+                    aspectRatio = transitionAspectRatio(scaleMode, state, activeItems.getOrNull(state.currentIndex)),
                     layer = PlayerTransitionLayerKind.Exit,
                 )
             }
@@ -3900,15 +3900,20 @@ internal fun PlayerRoot(
     }
 }
 
-/** The fitted video rectangle a transition lands in; the whole surface when the picture fills it. */
+/**
+ * The fitted video rectangle a transition lands in; the whole surface when the picture fills it.
+ * Before the first frame the server's picture stands in, so an upright 短剧 lands in an upright
+ * box rather than the 16:9 one assumed for an unknown picture.
+ */
 private fun transitionAspectRatio(
     scaleMode: VideoScaleMode,
     state: PlaybackState,
+    item: PlayerMediaItem?,
 ): Float? =
-    if (scaleMode == VideoScaleMode.Fit && state.videoHeight > 0) {
-        state.diagnostics.videoWidth.toFloat() / state.videoHeight
-    } else {
-        null
+    when {
+        scaleMode != VideoScaleMode.Fit -> null
+        state.videoHeight > 0 -> state.diagnostics.videoWidth.toFloat() / state.videoHeight
+        else -> item?.activeVersion?.displayAspectRatio()
     }
 
 /**

@@ -49,6 +49,7 @@ import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.data.PortraitVideoOrientation
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
@@ -70,6 +71,7 @@ import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.model.ShortDramaMode
 import com.yfuse.core.model.episodeTitle
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.EmbyStream
@@ -100,11 +102,21 @@ import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 
 /**
- * Fullscreen playback lives in its own activity. Phones retain the landscape-first experience,
- * while Android 16 large screens stay adaptive and may rotate or resize freely.
+ * Fullscreen playback lives in its own activity. Phones retain the landscape-first experience —
+ * an upright picture, a 短剧, plays upright — while Android 16 large screens stay adaptive and may
+ * rotate or resize freely.
  */
-class PlayerActivity : ComponentActivity() {
+class PlayerActivity :
+    ComponentActivity(),
+    PlayerOrientationHost {
     private var completedOfflineKey: String? = null
+
+    /** A phone: the player stands upright for an upright picture, see [phonePlayerOrientation]. */
+    private var reorientsPerEntry = false
+
+    /** The entry the orientation was last chosen for, with what playback had decoded of it. */
+    private var orientationItem: PlayerMediaItem? = null
+    private var orientationState: PlaybackState? = null
     private var personalAccessJob: Job? = null
 
     companion object {
@@ -394,13 +406,14 @@ class PlayerActivity : ComponentActivity() {
         waitingForSessions = ServerSessionRecovery.showIfNeeded(this)
         if (waitingForSessions) return
         // A tablet is held whichever way its owner likes; forcing landscape on it only forces a
-        // rotation. Phones keep the manifest's landscape. FULL_USER still honours the
-        // system rotation lock, so this never fights the quick-settings toggle.
-        if (resources.configuration.smallestScreenWidthDp >= TABLET_MIN_SMALLEST_WIDTH_DP &&
-            !isTelevisionDevice(this)
-        ) {
+        // rotation. Phones keep the manifest's landscape, except for an upright picture, which
+        // stands upright (applyPhoneOrientation). FULL_USER still honours the system rotation
+        // lock, so this never fights the quick-settings toggle.
+        val tablet = resources.configuration.smallestScreenWidthDp >= TABLET_MIN_SMALLEST_WIDTH_DP
+        if (tablet && !isTelevisionDevice(this)) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
         }
+        reorientsPerEntry = !tablet && !isTelevisionDevice(this)
         registerPictureInPictureActions()
 
         applyScreenOnPolicy()
@@ -688,6 +701,8 @@ class PlayerActivity : ComponentActivity() {
             }
         val launchGeneration = ++playerLaunchGeneration
         launchViewModel.request = launchRequest
+        // Before anything is drawn, so an upright 短剧 opens upright instead of turning after.
+        applyPhoneOrientation(launchRequest.items.getOrNull(launchRequest.startIndex), state = null)
         val items =
             if (televisionDevice) {
                 launchRequest.items.withoutServerTranscodeForTv()
@@ -872,6 +887,7 @@ class PlayerActivity : ComponentActivity() {
                             onPlaybackState = { state, item ->
                                 activeState = state
                                 applyScreenOnPolicy()
+                                applyPhoneOrientation(item, state)
                                 if (state.ended && item?.serverId != null) {
                                     val completedKey = "${item.serverId}#${item.id}"
                                     if (completedOfflineKey != completedKey) {
@@ -1897,6 +1913,48 @@ class PlayerActivity : ComponentActivity() {
                     activityStarted ||
                     isInPictureInPictureMode
             )
+
+    /**
+     * Turns a phone's player to the entry on screen: upright for an upright picture, landscape
+     * otherwise (see [phonePlayerOrientation]). Nothing changes in picture-in-picture or a shared
+     * window, where the system ignores the request, or while 旋转锁 or 桌面模式 pins the window.
+     */
+    private fun applyPhoneOrientation(
+        item: PlayerMediaItem?,
+        state: PlaybackState?,
+    ) {
+        if (!reorientsPerEntry) return
+        orientationItem = item
+        orientationState = state
+        if (isInPictureInPictureMode || isInMultiWindowMode) return
+        if (!phonePlayerMayReorient(requestedOrientation)) return
+        val target = phoneOrientationFor(item, state)
+        if (requestedOrientation != target) requestedOrientation = target
+    }
+
+    private fun phoneOrientationFor(
+        item: PlayerMediaItem?,
+        state: PlaybackState?,
+    ): Int {
+        val preferences = runCatching { GlobalContext.get().get<PlaybackPreferences>() }.getOrNull()
+        val portrait =
+            item?.portraitPicture()
+                ?: state?.takeIf { it.videoHeight > 0 }?.decodedPortraitPicture()
+        val shortDrama =
+            ShortDramaMode.fromStorage(
+                preferences?.rememberedSeriesPlayback(item?.serverId, item?.seriesId, item?.id)?.shortDrama,
+            )
+        return phonePlayerOrientation(
+            portraitPicture = portrait,
+            preference = preferences?.portraitVideoOrientation?.value ?: PortraitVideoOrientation.Auto,
+            shortDrama = shortDrama,
+        )
+    }
+
+    override fun unlockedOrientation(): Int? =
+        if (reorientsPerEntry) phoneOrientationFor(orientationItem, orientationState) else null
+
+    override fun reorientForCurrentEntry() = applyPhoneOrientation(orientationItem, orientationState)
 
     private fun activePictureInPictureAspectRatio(): Rational {
         val width =
