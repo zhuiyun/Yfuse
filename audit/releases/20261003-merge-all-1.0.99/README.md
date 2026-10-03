@@ -56,12 +56,31 @@ all code and package it ("合并所有代码打包"). Asked what "all" covers, t
   - `PlayerGestureStateTest` and `PlayerChromeStateTest` run on the JVM: 24 tests passed, including
     the new ones for 上下滑换集 and 还在看吗 in #211's split state holders.
 - For comparison: #211's own quality gates on `3ccaa037` built a 29,332,533-byte R8 package.
+- Pull-request checks on `317593fe`, all passed:
+  - phone quality gates, run [37117833765](https://github.com/zhuiyun/Yfuse/actions/runs/37117833765):
+    ktlint with no baselines, compile and unit tests, the instrumented tests on an Android 15
+    emulator, the design rules, Android lint against the committed baselines with no new finding,
+    the dependency locks, the release DEX check, and an R8 release package of 29,404,589 bytes
+    against the 30,000,000-byte budget;
+  - TV quality gates, run [37117833805](https://github.com/zhuiyun/Yfuse/actions/runs/37117833805);
+  - YCore [37117833763](https://github.com/zhuiyun/Yfuse/actions/runs/37117833763) and CodeQL
+    [37117833786](https://github.com/zhuiyun/Yfuse/actions/runs/37117833786).
+- Merged build, run [37117830528](https://github.com/zhuiyun/Yfuse/actions/runs/37117830528) on
+  `317593fe` (R8 9.1.31, debug-signed release builds; the temporary workflow 1.0.98 used, removed
+  again before the merge):
+  - release DEX check: 0 findings in the phone package (61,344 methods) and the TV package (52,500
+    methods); the largest app methods have 206 and 207 registers (`PlayerRootControls`), then
+    PlayerRoot's runtime lambda with 203 and 205 and `PlayerControls` with 194 and 191;
+  - ART on an Android 16 (API 36) emulator, verifying the phone package from scratch: no rejected
+    method.
+  - Its first run, on `ad8175f5`, ran out of memory compiling both shared modules side by side in
+    the 4 GB Kotlin daemon; `317593fe` compiles them in one process first, as the quality gates do.
 - Not tried on a device: the merged player, the DLNA relay against a real television, and #211's
   features. Server-side parts of #211 (the TMDB proxy route, signing in to the television with the
   phone) need a watchTogetherServer deployment, which this delivery does not include; without it the
   app reads TMDB directly with the built-in token, as before.
 - Pending:
-  - the phone and TV quality gates on the pull request and on the merge commit;
+  - the phone and TV quality gates on the merge commit;
   - production signing, the signed-APK startup smoke on Android 35–37, and reading the final APK's
     package name, version, size, SHA-256 and signing certificate.
 

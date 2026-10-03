@@ -48,5 +48,33 @@
     "jvmTests": "PlayerGestureStateTest and PlayerChromeStateTest: 24 passed"
   },
   "deviceVerified": false,
-  "apkBuild": "pending the quality gates and production signing on the merge commit"
+  "apkBuild": "pending the quality gates and production signing on the merge commit",
+  "pullRequest": 213,
+  "pullRequestChecks": {
+    "commit": "317593fed09405b2bc2d1fccad5ccaa4779f58fb",
+    "qualityGatesRun": 37117833765,
+    "tvQualityGatesRun": 37117833805,
+    "ycoreRun": 37117833763,
+    "codeqlRun": 37117833786,
+    "qualityGateApkBytes": 29404589,
+    "apkSizeBudgetBytes": 30000000,
+    "lint": "no new finding against the committed baselines",
+    "instrumentedTests": "passed on the Android 15 emulator"
+  },
+  "mergedBuild": {
+    "workflowRun": 37117830528,
+    "commit": "317593fed09405b2bc2d1fccad5ccaa4779f58fb",
+    "phone": {
+      "methods": 61344,
+      "findings": 0,
+      "largestAppMethodRegisters": 206
+    },
+    "tv": {
+      "methods": 52500,
+      "findings": 0,
+      "largestAppMethodRegisters": 207
+    },
+    "artApi36": "no rejected method",
+    "firstAttempt": "run 37117130335 on ad8175f5 ran out of memory in the Kotlin daemon before any check"
+  }
 }
