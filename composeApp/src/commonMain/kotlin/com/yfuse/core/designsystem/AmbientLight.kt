@@ -313,7 +313,9 @@ private data class AmbientLightTransition(
 )
 
 /**
- * Paints [light] into the top/bottom bars, never over the picture or into its side bars.
+ * Paints [light] into the top/bottom bars, never over the picture. The side bars stay unlit — a 4:3
+ * frame keeps its plain pillars — unless [sideBars]: an upright 短剧 on a landscape screen leaves two
+ * thirds of it beside the picture, and those take the left and right edge colours the same way.
  *
  * Each bar is a band of its edge's bucket colours laid along the picture's edge, then a black
  * falloff from transparent at the picture toward the screen edge (alpha 0 → .2 → .55 → .8). It no
@@ -327,6 +329,7 @@ fun DrawScope.drawAmbientLight(
     bounds: Size = size,
     guard: Float = 0f,
     falloffs: List<Brush>? = null,
+    sideBars: Boolean = false,
 ) {
     if (light.isDark) return
     val barLeft = picture.left.coerceAtLeast(0f)
@@ -362,6 +365,24 @@ fun DrawScope.drawAmbientLight(
                 band = Brush.horizontalGradient(light.bottom, startX = picture.left, endX = picture.right),
                 fade = fades[3],
             )
+        }
+        if (sideBars) {
+            val barTop = picture.top.coerceAtLeast(0f)
+            val barBottom = picture.bottom.coerceAtMost(bounds.height)
+            if (barBottom > barTop && picture.left > 0.5f) {
+                bar(
+                    rect = Rect(0f, barTop, picture.left, barBottom),
+                    band = Brush.verticalGradient(light.left, startY = picture.top, endY = picture.bottom),
+                    fade = fades[0],
+                )
+            }
+            if (barBottom > barTop && picture.right < bounds.width - 0.5f) {
+                bar(
+                    rect = Rect(picture.right, barTop, bounds.width, barBottom),
+                    band = Brush.verticalGradient(light.right, startY = picture.top, endY = picture.bottom),
+                    fade = fades[1],
+                )
+            }
         }
     }
 }

@@ -92,6 +92,10 @@ class AmbientSamplingPolicyTest {
         assertFalse(ambientLightHasVisibleBars(container, IntSize(1920, 1078), 1))
         assertFalse(ambientLightHasVisibleBars(IntSize.Zero, IntSize(1920, 800), 1))
         assertFalse(ambientLightHasVisibleBars(container, IntSize.Zero, 1))
+        // An upright picture's side bars are lit, so they count; a 4:3 frame's do not.
+        assertTrue(ambientLightHasVisibleBars(container, IntSize(608, 1080), 1))
+        assertTrue(ambientLightsSideBars(IntSize(608, 1080)))
+        assertFalse(ambientLightsSideBars(IntSize(1440, 1080)))
     }
 
     @Test
