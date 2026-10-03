@@ -1,8 +1,8 @@
 name: Diagnose release DEX verification
 
-# Temporary: inspects the packaged 1.0.97 (259) APK whose player crashed with VerifyError, next to
-# 1.0.96 (258), with the static register-type check, the rejected method's bytecode, and ART
-# itself on an emulator.
+# Temporary: the packaged 1.0.97 (259) APK's player crashed with VerifyError. Rebuilds this source,
+# captures the exact input AGP gives R8, replays it with newer R8 releases and checks every result;
+# and lets ART on an emulator verify the 1.0.96 and 1.0.97 packages.
 
 on:
   push:
@@ -20,67 +20,81 @@ permissions:
   actions: read
 
 jobs:
-  dex:
-    name: Static DEX inspection
+  r8:
+    name: Replay this build's R8 input with newer R8 releases
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 180
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+          fetch-depth: 0
+      - name: Set up Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: "17"
-      - name: Download 1.0.97 (259) package
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: Yfuse-1.0.97
-          run-id: 36862579231
-          github-token: ${{ github.token }}
-          path: apk/1.0.97
-      - name: Download 1.0.96 (258) package
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: Yfuse-1.0.96
-          run-id: 36695042729
-          github-token: ${{ github.token }}
-          path: apk/1.0.96
-      - name: Register-type check of every method
-        shell: bash
-        run: |
-          set -uo pipefail
-          for version in 1.0.96 1.0.97; do
-            echo "===== $version"
-            sha256sum apk/$version/*.apk
-            scripts/verify-release-dex.sh apk/$version/*.apk || echo "::warning::$version: findings above"
-          done
-      - name: Fetch baksmali
+          cache: gradle
+      - name: Install Android 37.0 and native build tools
         shell: bash
         run: |
           set -euo pipefail
-          tools=build/dex-verify-tools
-          mkdir -p "$tools"
-          while read -r path sha256; do
-            jar="$tools/${path##*/}"
-            curl -fsSL --retry 3 --proto '=https' -o "$jar" "https://repo1.maven.org/maven2/$path"
-            echo "$sha256  $jar" | sha256sum -c -
-          done <<'EOF'
-          org/smali/baksmali/2.5.2/baksmali-2.5.2.jar 1ed236266d7dc4907aade0b19a34f77efac25342b63c8ace52e579039941b389
-          org/smali/util/2.5.2/util-2.5.2.jar 4f580a9cff3ebb83cb3fd20bec88e37e4f183796ca652732992611620282daea
-          com/beust/jcommander/1.64/jcommander-1.64.jar 156be736199c990321d9ff77090b199629cfc9865e2d6c13f7cd291bb1641817
-          EOF
-          echo "BAKSMALI_CP=$(ls "$PWD"/$tools/*.jar | tr '\n' ':')" >> "$GITHUB_ENV"
-      - name: The rejected PlayerRoot lambda in 1.0.97
-        run: >-
-          python3 scripts/diagnostics/inspect_dex_method.py --baksmali-classpath "$BAKSMALI_CP"
-          --apk apk/1.0.97/*.apk --class 'Lcom/yfuse/feature/player/PlayerRootKt;'
-          --method 'PlayerRoot$lambda$152' --offset 0x23EB --register v1 --context 60
-          --describe 'Ldv7;'
-      - name: PlayerRootKt in 1.0.96
-        run: >-
-          python3 scripts/diagnostics/inspect_dex_method.py --baksmali-classpath "$BAKSMALI_CP"
-          --apk apk/1.0.96/*.apk --class 'Lcom/yfuse/feature/player/PlayerRootKt;'
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then sdkmanager="$(find "$android_sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"; fi
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
+      - name: Download player engines
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+      - name: Build and install current YCore runtime
+        uses: ./.github/actions/build-current-ycore
+      - name: Build the R8 release package and dump R8's input
+        shell: bash
+        env:
+          JAVA_TOOL_OPTIONS: -Dcom.android.tools.r8.dumpinputtodirectory=${{ github.workspace }}/build/r8-dump
+        run: ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true --no-daemon
+      - name: Check the package AGP built
+        shell: bash
+        run: |
+          scripts/verify-release-dex.sh composeApp/build/outputs/apk/release/composeApp-release.apk ||
+            echo "::warning::the AGP-built package has findings"
+      - name: Replay R8's input with other R8 releases
+        shell: bash
+        run: |
+          set -uo pipefail
+          dump=""
+          best=0
+          for candidate in build/r8-dump/*.zip; do
+            unzip -p "$candidate" build.properties | grep -qx 'tool=R8' || continue
+            size="$(unzip -l "$candidate" program.jar | awk 'NR == 4 { print $1 }')"
+            echo "$candidate: R8 $(unzip -p "$candidate" r8-version | cut -d' ' -f1), program.jar $size bytes"
+            if (( size > best )); then best="$size"; dump="$candidate"; fi
+          done
+          [[ -n "$dump" ]] || { echo "::error::R8 wrote no dump"; exit 1; }
+          unzip -p "$dump" build.properties
+          mkdir -p build/r8
+          releases=(
+            "9.1.31 3b4de3053885da105e39c15212261d22653d6d1b5eb92323dd04ae913cc8286f"
+            "9.1.56 79580bc35617d5c60d417957c06bc337bae6cba55072d567a3fb7bb4d2a5dd56"
+            "9.2.38 f1b5d437d7da7bd3a1341777d04812a20ebd98b7f63f1110789dd05fd5da27e1"
+            "9.3.31 29677b994a40668b97155a65628afd953f72571a8100bfa7296b4c5bcc79676c"
+            "9.4.20 4e7dbcd64cce11b62e7d89ec8e855df2fb6f04f1fc4635b23d28a652f9ad334b"
+          )
+          for release in "${releases[@]}"; do
+            read -r version sha256 <<<"$release"
+            echo "===== R8 $version"
+            jar="build/r8/r8-$version.jar"
+            curl -fsSL --retry 3 --proto '=https' -o "$jar" "https://storage.googleapis.com/r8-releases/raw/$version/r8lib.jar"
+            echo "$sha256  $jar" | sha256sum -c - || continue
+            python3 scripts/diagnostics/replay_r8_dump.py --dump "$dump" --r8 "$jar" --output "build/r8/$version.zip" || continue
+            scripts/verify-release-dex.sh "build/r8/$version.zip" || echo "::warning::R8 $version output has findings"
+          done
 
   art:
     name: ART verification on Android ${{ matrix.api }}
