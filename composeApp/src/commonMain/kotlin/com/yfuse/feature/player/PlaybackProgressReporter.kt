@@ -90,7 +90,28 @@ internal class PlaybackProgressReporter(
     private var observedIndex = -1
     private var observedPlaying: Boolean? = null
     private var observedPositionMs = 0L
+    private var observedDurationMs = 0L
     private var enqueuedPositionMs = Long.MIN_VALUE
+
+    /** The entry playback just left, with the last position the sampling path saw on it. */
+    private data class Departure(
+        val index: Int,
+        val itemId: String,
+        val positionMs: Long,
+        val durationMs: Long,
+    )
+
+    /**
+     * Written by [update] when the entry changes, consumed by the actor when it stops that entry.
+     *
+     * Reports are throttled to ten seconds, so the last *reported* position of an episode that
+     * ran to its end can be up to ten seconds short of it. ExoPlayer's playlist moves to the next
+     * entry without an ended state, and a 60-second episode stopped at 50 seconds read as 83%
+     * watched: never finished, left in 继续观看 and picked again by 播放. The last *sampled*
+     * position is at most one tick old.
+     */
+    @Volatile
+    private var lastDeparture: Departure? = null
     private val preloadedSources = mutableSetOf<String>()
 
     private var activeIndex = -1
@@ -177,9 +198,15 @@ internal class PlaybackProgressReporter(
             enqueuedPositionMs == Long.MIN_VALUE ||
                 abs(state.positionMs - enqueuedPositionMs) >= REPORT_INTERVAL_MS
 
+        if (itemChanged && observedIndex >= 0) {
+            items.getOrNull(observedIndex)?.let { departed ->
+                lastDeparture = Departure(observedIndex, departed.id, observedPositionMs, observedDurationMs)
+            }
+        }
         observedIndex = state.currentIndex
         observedPlaying = state.playing
         observedPositionMs = state.positionMs
+        observedDurationMs = state.durationMs
 
         if (itemChanged || playStateChanged || seeked || periodic) {
             enqueuedPositionMs = state.positionMs
@@ -300,6 +327,7 @@ internal class PlaybackProgressReporter(
         val terminal = state.ended
         if (terminal && index == terminalIndex && activeIndex < 0) return
         if (index != activeIndex) {
+            applyDeparture()
             stopActive(PlaybackSyncTrigger.Stop)
             activeIndex = index
             terminalIndex = -1
@@ -430,6 +458,15 @@ internal class PlaybackProgressReporter(
         } else {
             activeIndex = newIndex
         }
+    }
+
+    /** Stops the departed entry where it was last seen rather than where it was last reported. */
+    private fun applyDeparture() {
+        val departure = lastDeparture ?: return
+        lastDeparture = null
+        if (activeIndex < 0 || departure.index != activeIndex || departure.itemId != activeItemId) return
+        activePositionMs = departure.positionMs.coerceAtLeast(0L)
+        if (departure.durationMs > 0L) activeDurationMs = departure.durationMs
     }
 
     private suspend fun stopActive(trigger: PlaybackSyncTrigger) {
