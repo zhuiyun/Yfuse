@@ -843,6 +843,10 @@ internal fun CompactAutoSkipPill(
     announcement: String,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
+    /** What a tap does, as a screen reader names it: 取消 a countdown, 撤销 a skip already made. */
+    clickLabel: String = "取消自动跳过",
+    /** The ✕; a 撤销 that already says what it does has no use for one. */
+    dismissIcon: Boolean = true,
 ) {
     Row(
         modifier
@@ -851,7 +855,7 @@ internal fun CompactAutoSkipPill(
                 shape = AppShapes.pill,
                 fill = Color.Black.copy(alpha = 0.58f),
                 border = Color.White.copy(alpha = 0.22f),
-            ).pressable(onClickLabel = "取消自动跳过", onClick = onCancel)
+            ).pressable(onClickLabel = clickLabel, onClick = onCancel)
             .touchTarget()
             // Live, but with the ticking label left out of the spoken tree: every second would
             // otherwise be read out. The live region goes before the clear, which would drop it.
@@ -867,12 +871,14 @@ internal fun CompactAutoSkipPill(
             color = Color.White.copy(alpha = 0.88f),
             maxLines = 1,
         )
-        Icon(
-            AppIcons.Close,
-            contentDescription = "取消自动跳过",
-            tint = Color.White.copy(alpha = 0.68f),
-            modifier = Modifier.size(10.dp),
-        )
+        if (dismissIcon) {
+            Icon(
+                AppIcons.Close,
+                contentDescription = clickLabel,
+                tint = Color.White.copy(alpha = 0.68f),
+                modifier = Modifier.size(10.dp),
+            )
+        }
     }
 }
 

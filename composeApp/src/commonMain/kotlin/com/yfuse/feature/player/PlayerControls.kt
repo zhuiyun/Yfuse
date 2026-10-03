@@ -829,6 +829,8 @@ internal fun PlayerControls(
                 TvPlayerChromeCommandType.ActivateSkipPrompt -> {
                     if (latestSkip.countdownSeconds != null) {
                         latestSkipActions.onCancelAuto()
+                    } else if (latestSkip.undoLabel != null) {
+                        latestSkipActions.onUndoSkip()
                     } else if (latestSkip.segmentLabel != null) {
                         latestSkipActions.onSkip()
                     }
@@ -1666,7 +1668,7 @@ internal fun PlayerControls(
                     modifier =
                         Modifier
                             .align(Alignment.BottomEnd)
-                            .playerHintOffset(hintProgress, (-60).dp)
+                            .playerHintOffset(hintProgress, if (uprightWindow) (-130).dp else (-60).dp)
                             .padding(end = 22.dp, bottom = 24.dp),
                 ) {
                     CompactAutoSkipPill(
@@ -1678,6 +1680,32 @@ internal fun PlayerControls(
                                 skipActions.onCancelAuto()
                             }
                         },
+                    )
+                }
+                // 已跳过片头 · 撤销: a skip made without a countdown offers the way back for a moment,
+                // where the countdown's pill would have been.
+                val lastUndoLabel = remember { arrayOf("") }
+                skip.undoLabel?.let { lastUndoLabel[0] = it }
+                ChromeVisibility(
+                    visible = skip.undoLabel != null && skip.countdownSeconds == null,
+                    edge = ChromeEdge.Bottom,
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .playerHintOffset(hintProgress, if (uprightWindow) (-130).dp else (-60).dp)
+                            .padding(end = 22.dp, bottom = 24.dp),
+                ) {
+                    CompactAutoSkipPill(
+                        label = "${lastUndoLabel[0]} · ${if (remoteChrome != null) "按确定键撤销" else "撤销"}",
+                        announcement = lastUndoLabel[0],
+                        onCancel = {
+                            if (skip.undoLabel != null) {
+                                poke()
+                                skipActions.onUndoSkip()
+                            }
+                        },
+                        clickLabel = "撤销跳过",
+                        dismissIcon = false,
                     )
                 }
                 val lastSkipLabel = remember { arrayOf("") }
@@ -1693,7 +1721,10 @@ internal fun PlayerControls(
                 ChromeVisibility(
                     visible = manualSkip,
                     edge = ChromeEdge.Bottom,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 92.dp),
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 22.dp, bottom = if (uprightWindow) 162.dp else 92.dp),
                 ) {
                     SkipPill(
                         label = lastSkipLabel[0],
@@ -1707,7 +1738,10 @@ internal fun PlayerControls(
                 }
                 // A remote cannot reach either pill while the controls are down, so OK over the
                 // picture acts on whichever one is showing (TvRemoteInputController reads this).
-                val remoteSkipPrompt = (manualSkip || skip.countdownSeconds != null) && !locked && errorMessage == null
+                val remoteSkipPrompt =
+                    (manualSkip || skip.countdownSeconds != null || skip.undoLabel != null) &&
+                        !locked &&
+                        errorMessage == null
                 DisposableEffect(remoteChrome, remoteSkipPrompt) {
                     remoteChrome?.publishSkipPrompt(remoteSkipPrompt)
                     onDispose { remoteChrome?.publishSkipPrompt(false) }
@@ -2306,11 +2340,13 @@ internal fun PlayerControls(
                     )
                 }
 
+                // Clear of the bottom bar, which stands taller in an upright window.
+                val nextUpBottom = if (uprightWindow) 166.dp else 96.dp
                 // Where the ordinary card appears, which takes over from this one for the last seconds.
                 ChromeVisibility(
                     visible = creditsPhase == CreditsTakeoverPhase.Card,
                     edge = ChromeEdge.End,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 96.dp),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = nextUpBottom),
                 ) {
                     CreditsTakeoverCard(
                         title = episodes.getOrNull(state.currentIndex + 1)?.title.orEmpty(),
@@ -2339,7 +2375,7 @@ internal fun PlayerControls(
                         nextUpDismissed = true
                         onDismissNextUp()
                     },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 96.dp),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = nextUpBottom),
                     autoAdvance = autoNext,
                 )
             }

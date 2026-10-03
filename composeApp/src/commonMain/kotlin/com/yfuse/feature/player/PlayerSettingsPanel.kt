@@ -639,6 +639,12 @@ internal fun SettingsPanel(
                                 )
                             },
                         )
+                        Text(
+                            "只对${skip.seriesName ?: "本剧"}生效，其他影视沿用「设置 → 播放 → 片头片尾」。" +
+                                "自动跳过遇到 15 秒内的片头、短剧的片头或一开场就是片头时直接跳过，可撤销。",
+                            style = AppTypography.caption.regular,
+                            color = Color.White.copy(alpha = 0.6f),
+                        )
                         PopupDivider()
                         GroupLabel("片头")
                         SkipTimeField(
