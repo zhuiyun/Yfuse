@@ -159,8 +159,12 @@ internal class EmbySourceService(
                                         providerItems.ifEmpty {
                                             query(providerMatch = false).Items
                                         }
+                                    // A provider-id hit stands under another title; a title search's
+                                    // first result does not. It is whatever ranked highest, and for a
+                                    // 短剧 without a TMDB entry that was often another show of a
+                                    // similar name, reported as 已有资源 and read in full.
                                     candidates.firstOrNull { candidate ->
-                                        val titleMatches = candidate.Name.equals(title, ignoreCase = true)
+                                        val titleMatches = sameSourceTitle(candidate.Name, title)
                                         val yearMatches = year == null || candidate.ProductionYear == year
                                         val typeMatches =
                                             when (mediaType) {
@@ -169,7 +173,7 @@ internal class EmbySourceService(
                                                 else -> true
                                             }
                                         titleMatches && yearMatches && typeMatches
-                                    } ?: candidates.firstOrNull()
+                                    } ?: providerItems.firstOrNull()
                                 }
                             lookup.onFailure {
                                 AppLog.warning(
@@ -312,3 +316,20 @@ internal class EmbySourceService(
         }
     }
 }
+
+/**
+ * Whether a server's title is the one asked for: the same words, whatever their case, spacing or
+ * punctuation — 「总裁，请签字！」 and 「总裁 请签字」 are one show; 「总裁请签字2」 is another.
+ */
+internal fun sameSourceTitle(
+    candidate: String?,
+    wanted: String,
+): Boolean {
+    val name = candidate?.let(::sourceTitleKey) ?: return false
+    return name.isNotEmpty() && name == sourceTitleKey(wanted)
+}
+
+private fun sourceTitleKey(title: String): String =
+    title
+        .lowercase()
+        .filter { it.isLetterOrDigit() }

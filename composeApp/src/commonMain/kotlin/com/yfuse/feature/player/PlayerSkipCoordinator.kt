@@ -16,11 +16,51 @@ import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.SkipTimes
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlaybackSegmentType
+import com.yfuse.core.model.isShortRuntime
 import kotlinx.coroutines.delay
 
 /** Long enough to cancel an automatic skip without making an accepted skip feel sluggish. */
 private const val AUTO_SKIP_COUNTDOWN_SECONDS = 5
 private const val AUTO_SKIP_COUNTDOWN_TICK_MS = 100L
+
+/**
+ * An intro or recap this short is skipped the moment it is reached instead of counted down: five
+ * seconds of a ten-second recap were watched before its skip, and one of five or less never skipped.
+ */
+private const val AUTO_SKIP_DIRECT_MAX_MS = 15_000L
+
+/** An intro the file opens on, reached within this of its start: where 连播 lands. */
+private const val AUTO_SKIP_OPENING_GRACE_MS = 3_000L
+
+/** How long 已跳过片头 · 撤销 offers the way back. */
+private const val SKIP_UNDO_WINDOW_MS = 5_000L
+
+/**
+ * Whether the automatic skip of [segment], reached at [positionMs] in a file of [durationMs], goes
+ * at once — with 撤销 on the notice after it — instead of after the countdown: an intro of fifteen
+ * seconds or less, any intro of an episode under five minutes, and an intro the episode opens on,
+ * so that 连播 begins the next episode where its intro ends. Credits keep the countdown; their
+ * skip leaves the episode, which 撤销 could not take back.
+ */
+internal fun skipsWithoutCountdown(
+    segment: PlaybackSegment?,
+    positionMs: Long,
+    durationMs: Long,
+): Boolean {
+    if (segment?.type != PlaybackSegmentType.Intro) return false
+    val end = segment.endMs ?: return false
+    if (end <= segment.startMs) return false
+    val opening =
+        segment.startMs <= AUTO_SKIP_OPENING_GRACE_MS &&
+            positionMs - segment.startMs <= AUTO_SKIP_OPENING_GRACE_MS
+    return opening || end - segment.startMs <= AUTO_SKIP_DIRECT_MAX_MS || isShortRuntime(durationMs) == true
+}
+
+/** What 撤销 puts back after a skip that did not count down. */
+private data class SkipUndo(
+    val label: String,
+    val returnToMs: Long,
+)
 
 internal data class PlayerSkipController(
     val state: SkipSegmentState,
@@ -90,7 +130,7 @@ internal fun rememberPlayerSkipController(
 ): PlayerSkipController {
     val playbackState by remember(playback) { derivedStateOf { playback.value.runtimeProjection() } }
     val timesBySeries by preferences.bySeries.collectAsState()
-    val mode by preferences.skipMode.collectAsState()
+    val defaultMode by preferences.skipMode.collectAsState()
     val legacySeriesId = currentItem?.seriesId?.takeIf(::skipSegmentsAvailableFor)
     // A film has no series, so it keeps its own key: the server's credits marker and a
     // remembered 片尾 still apply, they just never spill over to another title.
@@ -118,6 +158,8 @@ internal fun rememberPlayerSkipController(
         }
     val legacyTimes = legacyEntry?.second
     val times = storedTimes ?: legacyTimes
+    // This series' own 跳过方式 where it has one, else the default.
+    val mode = times?.mode ?: defaultMode
     LaunchedEffect(skipSeriesKey, storedTimes, legacyEntry, playbackState.durationMs) {
         val key = skipSeriesKey ?: return@LaunchedEffect
         if (storedTimes == null && legacyTimes != null) {
@@ -165,6 +207,12 @@ internal fun rememberPlayerSkipController(
     var creditsPreloadCancelled by remember(currentItem?.id) { mutableStateOf(false) }
     var lastOutsideCreditsPositionMs by remember(currentItem?.id) { mutableStateOf<Long?>(null) }
     var countdownSeconds by remember { mutableStateOf<Int?>(null) }
+    var skipUndo by remember(currentItem?.id) { mutableStateOf<SkipUndo?>(null) }
+    LaunchedEffect(skipUndo) {
+        if (skipUndo == null) return@LaunchedEffect
+        delay(SKIP_UNDO_WINDOW_MS)
+        skipUndo = null
+    }
     val occurrence = activeSegment?.let { segment -> currentItem?.id?.let { it to segment.type } }
     LaunchedEffect(currentItem?.id, segments, playback) {
         snapshotFlow { playback.value }.collect { current ->
@@ -242,6 +290,20 @@ internal fun rememberPlayerSkipController(
             countdownSeconds = null
             return@LaunchedEffect
         }
+        val reached = activeSegment
+        val now = playback.value
+        if (skipsWithoutCountdown(reached, now.positionMs, now.durationMs)) {
+            countdownSeconds = null
+            settled.value = armed
+            if (armedOccurrence == armed) armedOccurrence = null
+            skipUndo =
+                SkipUndo(
+                    label = "已" + reached?.type?.skipLabel.orEmpty(),
+                    returnToMs = now.positionMs,
+                )
+            latestSkipSegment()
+            return@LaunchedEffect
+        }
         var remainingMs = AUTO_SKIP_COUNTDOWN_SECONDS * 1_000L
         countdownSeconds = AUTO_SKIP_COUNTDOWN_SECONDS
         while (remainingMs > 0L) {
@@ -292,6 +354,7 @@ internal fun rememberPlayerSkipController(
                         ?.skipLabel
                         ?.takeIf { mode != SkipMode.Off },
                 countdownSeconds = countdownSeconds,
+                undoLabel = skipUndo?.label,
                 seriesName =
                     skipSeriesKey?.let {
                         currentItem?.seriesName?.ifBlank { null } ?: "本剧"
@@ -320,12 +383,29 @@ internal fun rememberPlayerSkipController(
                                     introEndSeconds = introEnd,
                                     creditsLeadSeconds = creditsLead,
                                     seriesName = currentItem?.seriesName.orEmpty(),
+                                    // New times keep the series' own 跳过方式.
+                                    mode = times?.mode,
                                 ),
                         )
                         legacyEntry?.first?.let(preferences::clear)
                     }
                 },
-                onSelectMode = preferences::setSkipMode,
+                // The panel holds this series' times, and its 跳过方式 is kept with them; a film
+                // or an entry without a series changes the default.
+                onSelectMode = { selected ->
+                    val seriesKey = skipSeriesKey
+                    if (seriesKey != null) {
+                        preferences.setSeriesMode(seriesKey, selected, currentItem?.seriesName.orEmpty())
+                    } else {
+                        preferences.setSkipMode(selected)
+                    }
+                },
+                onUndoSkip = {
+                    skipUndo?.let { undo ->
+                        skipUndo = null
+                        playbackGate.seekTo(undo.returnToMs)
+                    }
+                },
             ),
     )
 }
@@ -341,7 +421,7 @@ internal fun nextItemIntroEndMs(
     timesBySeries: Map<String, SkipTimes>,
     preferences: SkipSegmentPreferences,
 ): Long? {
-    if (next == null || mode == SkipMode.Off) return null
+    if (next == null) return null
     val seriesId = next.seriesId?.takeIf(::skipSegmentsAvailableFor) ?: return null
     val candidates =
         listOfNotNull(
@@ -350,6 +430,7 @@ internal fun nextItemIntroEndMs(
             seriesId,
         ).distinct()
     val key = candidates.firstOrNull(timesBySeries::containsKey) ?: candidates.first()
+    if ((timesBySeries[key]?.mode ?: mode) == SkipMode.Off) return null
     return preferences
         .applyTo(seriesId = key, serverSegments = next.playbackSegments, durationMs = 0L)
         .filter { it.type == PlaybackSegmentType.Intro }

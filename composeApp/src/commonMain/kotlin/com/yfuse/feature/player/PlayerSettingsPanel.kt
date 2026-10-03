@@ -69,6 +69,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.handoff.HandoffController
+import com.yfuse.core.model.ShortDramaMode
 import kotlinx.coroutines.delay
 import org.koin.core.context.GlobalContext
 import kotlin.math.abs
@@ -174,6 +175,10 @@ internal fun SettingsPanel(
     bookmarks: PlaybackBookmarkPanelState = PlaybackBookmarkPanelState(),
     bookmarkActions: PlaybackBookmarkActions = PlaybackBookmarkActions(),
     onToggleAmbientLight: () -> Unit = {},
+    autoNextEnabled: Boolean = true,
+    onToggleAutoNext: () -> Unit = {},
+    shortDramaMode: ShortDramaMode? = null,
+    onSelectShortDramaMode: (ShortDramaMode) -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -639,6 +644,12 @@ internal fun SettingsPanel(
                                 )
                             },
                         )
+                        Text(
+                            "只对${skip.seriesName ?: "本剧"}生效，其他影视沿用「设置 → 播放 → 片头片尾」。" +
+                                "自动跳过遇到 15 秒内的片头、短剧的片头或一开场就是片头时直接跳过，可撤销。",
+                            style = AppTypography.caption.regular,
+                            color = Color.White.copy(alpha = 0.6f),
+                        )
                         PopupDivider()
                         GroupLabel("片头")
                         SkipTimeField(
@@ -973,6 +984,26 @@ internal fun SettingsPanel(
                                         checked = ambientLightEnabled,
                                         onToggle = onToggleAmbientLight,
                                     )
+                                    // The same switch as 设置 → 播放; the episode playing follows it at once.
+                                    PopupToggleHeader(
+                                        label = "自动播放下一集",
+                                        checked = autoNextEnabled,
+                                        onToggle = onToggleAutoNext,
+                                    )
+                                    shortDramaMode?.let { mode ->
+                                        GroupLabel("短剧模式")
+                                        SegmentedRow(
+                                            options = ShortDramaMode.entries.map(ShortDramaMode::label),
+                                            selectedIndex = mode.ordinal,
+                                            onSelect = { onSelectShortDramaMode(ShortDramaMode.entries[it]) },
+                                        )
+                                        Text(
+                                            "只对本剧生效。自动：竖版画面竖屏播放；短剧：画面尺寸未知时也先竖屏；" +
+                                                "普通剧集：始终横屏。",
+                                            style = AppTypography.caption.regular,
+                                            color = Color.White.copy(alpha = 0.6f),
+                                        )
+                                    }
                                     OptionRow("锁定控制", false, onClick = overlayAction(onLock))
                                     OptionRow("手势说明", false, onClick = overlayAction(onOpenGestureHelp))
                                     onExternalPlayer?.let { open ->

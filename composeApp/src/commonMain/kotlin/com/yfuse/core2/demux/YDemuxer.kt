@@ -63,6 +63,18 @@ data class YVideoGeometry(
     val normalizedRotationDegrees: Int = ((rotationDegrees % 360) + 360) % 360
 }
 
+/**
+ * The size a picture is shown at. A stream turned a quarter is shown on its side — a phone clip
+ * stored 1920×1080 with a 90° flag stands upright at 1080×1920 — and the player's surface is laid
+ * out from the size a route reports, so the stored size squeezed the turned picture into a
+ * landscape box.
+ */
+fun shownVideoSize(
+    width: Int,
+    height: Int,
+    rotationDegrees: Int,
+): Pair<Int, Int> = if (rotationDegrees.mod(180) == 90) height to width else width to height
+
 data class YVideoTrackFormat(
     val codec: YVideoCodec,
     val mimeType: String,

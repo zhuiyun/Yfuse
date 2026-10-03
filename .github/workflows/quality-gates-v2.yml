@@ -138,6 +138,14 @@ jobs:
           fi
       - name: Build R8 release package
         run: ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true --no-daemon
+      # R8 can emit a method ART refuses to load; its class then throws VerifyError the first time
+      # it is used, which nothing above runs. 1.0.97 (259) shipped a player that crashed that way.
+      # The mapping names the app's own methods, which must stay within 256 registers.
+      - name: Reject DEX code ART would not verify
+        run: >-
+          scripts/verify-release-dex.sh
+          --mapping composeApp/build/outputs/mapping/release/mapping.txt
+          composeApp/build/outputs/apk/release/composeApp-release.apk
       - name: Verify release package and size budget
         shell: bash
         run: |

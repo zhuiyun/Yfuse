@@ -6,6 +6,8 @@ import com.yfuse.core.data.SourcePreheatMode
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core2.api.YMediaItem
+import com.yfuse.feature.player.PREPARED_SOURCE_MAX_HOLD_MS
+import com.yfuse.feature.player.PREPARED_SOURCE_MIN_HOLD_MS
 import com.yfuse.feature.player.PlaybackSourcePreload
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.noOpPlaybackSourcePreload
@@ -30,8 +32,9 @@ internal class PreparedCurrentItem(
 internal object AndroidCurrentItemPreparation {
     private class Entry(
         val item: YMediaItem,
+        holdMs: Long,
     ) {
-        val slot = AndroidPreparedMediaSlot<PreparedCurrentItem> { it.close() }
+        val slot = AndroidPreparedMediaSlot<PreparedCurrentItem>(expiryMillis = holdMs) { it.close() }
         var accepting = true
         var job: Job? = null
     }
@@ -48,6 +51,8 @@ internal object AndroidCurrentItemPreparation {
         cacheBytes: Long,
         mode: SourcePreheatMode,
         initialTrackSelection: com.yfuse.core2.api.YInitialTrackSelection? = null,
+        /** How long a finished preparation waits to be claimed; the next episode's lasts until it starts. */
+        holdMs: Long = PREPARED_SOURCE_MIN_HOLD_MS,
     ): PlaybackSourcePreload {
         val item =
             listOf(media)
@@ -62,7 +67,7 @@ internal object AndroidCurrentItemPreparation {
             logCurrentItemPreparationSkipped("network_power_or_memory")
             return noOpPlaybackSourcePreload()
         }
-        val entry = Entry(item)
+        val entry = Entry(item, holdMs.coerceIn(PREPARED_SOURCE_MIN_HOLD_MS, PREPARED_SOURCE_MAX_HOLD_MS))
         val previous =
             synchronized(lock) {
                 current.also {
@@ -181,7 +186,7 @@ internal object AndroidCurrentItemPreparation {
             override fun handoff() {
                 synchronized(lock) { entry.accepting = false }
                 entry.job?.cancel()
-                // A completed slot retains its own 30-second lease until playback claims it.
+                // A completed slot retains its own lease until playback claims it.
             }
         }
     }

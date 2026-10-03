@@ -71,7 +71,6 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -87,11 +86,11 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.offset
-import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -343,6 +342,11 @@ internal data class TvMediaCardModel(
     val title: String,
     val subtitle: String? = null,
     val imageUrl: String? = null,
+    /**
+     * Tried in order when [imageUrl] fails: a backdrop URL is built whether or not the item has
+     * one, so a series without a backdrop left the card blank where its still or poster would do.
+     */
+    val imageFallbackUrls: List<String?> = emptyList(),
     val serverId: String? = null,
     val profileId: String? = null,
     val progress: Float? = null,
@@ -710,11 +714,13 @@ internal fun TvMediaCard(
                     .aspectRatio(model.artworkShape.ratio)
                     .background(TvPlaceholder),
             ) {
-                AsyncImage(
-                    model = rememberTvImage(model.imageUrl),
+                // Silent, as the card already says its title once; an upright picture much narrower
+                // than the card — a 短剧 still or poster — is shown whole rather than cut to a band.
+                FallbackImage(
+                    urls = listOf(model.imageUrl) + model.imageFallbackUrls,
                     contentDescription = null,
-                    contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
+                    fitNarrow = true,
                 )
                 Box(
                     Modifier

@@ -19,7 +19,6 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.redactDiagnosticText
-import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.DEFAULT_EMBY_USER_AGENT
 import com.yfuse.core.network.EmbyStream
@@ -1271,32 +1270,16 @@ internal class AndroidOfflineMediaManager(
                                 it.seasonId == rule.seasonId &&
                                 it.automaticallyDownloaded
                         }.toList()
-                val existingIds = ruleItems.mapTo(linkedSetOf(), OfflineMedia::itemId)
-                val protectedStatuses =
-                    setOf(
-                        DownloadStatus.Queued,
-                        DownloadStatus.WaitingForWifi,
-                        DownloadStatus.Downloading,
-                    )
-                val nonReplaceableCount =
-                    ruleItems.count { it.status in protectedStatuses }
-                val selected =
-                    selectNewAutoDownloadEpisodes(
+                val plan =
+                    planAutoDownload(
                         episodes = episodes,
                         knownEpisodeIds = rule.knownEpisodeIds,
-                        existingItemIds = existingIds,
-                        itemLimit = (activePolicy.autoDownloadItemLimit - nonReplaceableCount).coerceAtLeast(0),
+                        ruleItems = ruleItems,
+                        itemLimit = activePolicy.autoDownloadItemLimit,
                     )
-                val completedToKeep =
-                    (activePolicy.autoDownloadItemLimit - nonReplaceableCount - selected.size)
-                        .coerceAtLeast(0)
-                ruleItems
-                    .filter { it.status !in protectedStatuses }
-                    .sortedByDescending(OfflineMedia::updatedAtEpochMs)
-                    .drop(completedToKeep)
-                    .forEach { removeNow(it.id) }
+                plan.remove.forEach { removeNow(it) }
                 val requests =
-                    selected.map { episode ->
+                    plan.download.map { episode ->
                         val version = episode.versions.firstOrNull()
                         val subtitle =
                             matchOfflineSubtitleTrack(
@@ -1336,12 +1319,12 @@ internal class AndroidOfflineMediaManager(
                 commitOfflineAutoDiscovery(
                     enqueue = { if (requests.isNotEmpty()) enqueueBatch(requests) },
                     rememberEpisodes = {
-                        // Remember every item returned by this refresh. A temporary item limit must not
-                        // make older episodes look newly published when capacity opens later.
+                        // Only what this refresh fetched or found watched: a new episode left out for
+                        // want of room stays new, and is fetched once a watched download makes room.
                         updateAutoRule(rule.id) { current ->
                             current.copy(
                                 knownEpisodeIds =
-                                    (current.knownEpisodeIds + episodes.map(Episode::id))
+                                    (current.knownEpisodeIds + plan.seen)
                                         .takeLastBounded(MAX_KNOWN_AUTO_EPISODES),
                                 updatedAtEpochMs = now(),
                             )

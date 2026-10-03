@@ -42,6 +42,7 @@ internal fun RefinedBottomBar(
     danmakuHeat: () -> DanmakuHeat? = { null },
     onSeekBackwardLongPress: (() -> Unit)? = null,
     playKeyModifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     RefinedBottomBar(
         state = state,
@@ -72,5 +73,6 @@ internal fun RefinedBottomBar(
         danmakuHeat = danmakuHeat,
         onSeekBackwardLongPress = onSeekBackwardLongPress,
         playKeyModifier = playKeyModifier,
+        compact = compact,
     )
 }

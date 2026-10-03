@@ -256,15 +256,23 @@ class PlaybackSyncStore(
         }
 
     /**
-     * Seeds one startup-only Emby/Jellyfin value when this device has never recorded the item.
+     * Seeds one Emby/Jellyfin value when this device has never recorded the item.
      * Existing local state always wins, and imported values are clean so a pull cannot be echoed
      * back to Yfuse cloud as if it were a new local playback mutation.
+     *
+     * The record is dated when the server says the item was last played ([lastPlayedAtEpochMs]),
+     * or as the oldest entry when it does not know. Stamping the pull's own time made every
+     * imported item newer than everything played here: the 512-record trim then evicted real
+     * local progress, and 继续观看 followed the snapshot's ID order instead of when things were
+     * watched. Once the store is full, an item older than everything it keeps is not imported.
      */
     fun seedServerProgressIfAbsent(
         serverId: String,
         itemId: String,
         positionMs: Long,
         played: Boolean,
+        lastPlayedAtEpochMs: Long? = null,
+        durationMs: Long = 0L,
     ): Boolean =
         synchronized(lock) {
             if (activeProfileId != com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE) return@synchronized false
@@ -278,15 +286,20 @@ class PlaybackSyncStore(
                         it.document.state.serverItemId == itemId
                 }
             if (alreadyLocal) return@synchronized false
-            val now = nowEpochMs()
+            val playedAt = lastPlayedAtEpochMs?.takeIf { it > 0L } ?: 0L
+            if (documents.size >= MAX_LOCAL_DOCUMENTS &&
+                playedAt <= documents.minOf { it.document.state.lastPlayedAtEpochMs }
+            ) {
+                return@synchronized false
+            }
             val state =
                 PlaybackStateRecord(
                     profileId = activeProfileId,
                     mediaKey = "emby:$itemId",
                     positionMs = normalizedPosition,
-                    durationMs = 0L,
+                    durationMs = durationMs.coerceAtLeast(0L),
                     played = played,
-                    lastPlayedAtEpochMs = now,
+                    lastPlayedAtEpochMs = playedAt,
                     deviceId = deviceId,
                     serverId = serverId,
                     serverItemId = itemId,
@@ -304,7 +317,7 @@ class PlaybackSyncStore(
                     StoredPlaybackDocument(
                         document = PlaybackSyncDocument(state = state),
                         dirty = false,
-                        mutationId = newId("server-seed"),
+                        mutationId = newId(SERVER_SEED_MUTATION),
                     ),
             )
             true
@@ -312,19 +325,27 @@ class PlaybackSyncStore(
 
     /**
      * Takes the media server's progress for an item as the truth wherever this device has
-     * nothing unsent of its own.
+     * nothing unsent of its own, and the server saw a later playback than the one recorded here.
      *
-     * A local record that is not dirty was either pulled from the server or already pushed
-     * to it, so the server's newer value — an episode watched on the television — is the one
-     * to show. A dirty record is a local playback the server has not received yet; it stays,
-     * and the outbox delivers it. Imported values are clean, so a pull is never echoed back to
-     * the cloud as a fresh local mutation. Returns true when anything changed.
+     * A record imported from the server mirrors it and always follows it. A record written by a
+     * playback — on this device, or another Yfuse device through the cloud — is replaced only when
+     * the server's [lastPlayedAtEpochMs] is later (an episode watched on the television). The
+     * server's copy of *this* playback is not newer: Jellyfin turns an item shorter than
+     * MinResumeDurationSeconds (300 s by default) into "played, position 0" once a progress
+     * report passes 5%, so taking it erased the resume point of every 短剧 episode left halfway.
+     * Without a server timestamp the old rule stands, except for that short-item case.
+     *
+     * A dirty record is a local playback the server has not received yet; it stays, and the
+     * outbox delivers it. Imported values are clean, so a pull is never echoed back to the cloud
+     * as a fresh local mutation. Returns true when anything changed.
      */
     fun absorbServerProgress(
         serverId: String,
         itemId: String,
         positionMs: Long,
         played: Boolean,
+        lastPlayedAtEpochMs: Long? = null,
+        durationMs: Long = 0L,
     ): Boolean =
         synchronized(lock) {
             if (activeProfileId != com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE) return@synchronized false
@@ -335,17 +356,42 @@ class PlaybackSyncStore(
                         it.document.state.serverId == serverId &&
                         it.document.state.serverItemId == itemId
                 }
-            if (index < 0) return@synchronized seedServerProgressIfAbsent(serverId, itemId, positionMs, played)
+            if (index < 0) {
+                return@synchronized seedServerProgressIfAbsent(
+                    serverId,
+                    itemId,
+                    positionMs,
+                    played,
+                    lastPlayedAtEpochMs,
+                    durationMs,
+                )
+            }
             val stored = documents[index]
             if (stored.dirty) return@synchronized false
             val normalizedPosition = positionMs.coerceAtLeast(0L)
             val current = stored.document.state
-            if (current.positionMs == normalizedPosition && current.played == played) return@synchronized false
+            val serverPlayedAt = lastPlayedAtEpochMs?.takeIf { it > 0L }
+            val imported = stored.mutationId.startsWith(SERVER_MUTATION_PREFIX)
+            if (!imported) {
+                val serverSawLaterPlayback =
+                    if (serverPlayedAt != null) {
+                        serverPlayedAt > current.lastPlayedAtEpochMs + SERVER_CLOCK_TOLERANCE_MS
+                    } else {
+                        !current.keepsShortResumeAgainst(played, normalizedPosition, durationMs)
+                    }
+                if (!serverSawLaterPlayback) return@synchronized false
+            }
+            val valuesChanged = current.positionMs != normalizedPosition || current.played != played
+            // An earlier pull dated imported records by its own clock; the server's date heals them.
+            val dateHealed = imported && serverPlayedAt != null && serverPlayedAt != current.lastPlayedAtEpochMs
+            if (!valuesChanged && !dateHealed) return@synchronized false
             val state =
                 current.copy(
                     positionMs = normalizedPosition,
                     played = played,
-                    lastPlayedAtEpochMs = nowEpochMs(),
+                    durationMs = current.durationMs.takeIf { it > 0L } ?: durationMs.coerceAtLeast(0L),
+                    lastPlayedAtEpochMs =
+                        serverPlayedAt ?: if (imported) current.lastPlayedAtEpochMs else nowEpochMs(),
                     revision = current.revision + 1L,
                     mutationKind =
                         if (played) {
@@ -360,16 +406,37 @@ class PlaybackSyncStore(
                     stored.copy(
                         document = stored.document.copy(state = state),
                         dirty = false,
-                        mutationId = newId("server-absorb"),
+                        mutationId = newId(SERVER_ABSORB_MUTATION),
                     ),
             )
             true
         }
 
+    /**
+     * Jellyfin marks an item shorter than its MinResumeDurationSeconds played, at position 0,
+     * as soon as a progress report passes 5%. With no server date to tell the two apart, a resume
+     * point recorded here for such an item is kept rather than replaced by that bookkeeping.
+     */
+    private fun PlaybackStateRecord.keepsShortResumeAgainst(
+        serverPlayed: Boolean,
+        serverPositionMs: Long,
+        serverDurationMs: Long,
+    ): Boolean {
+        val knownDurationMs = durationMs.takeIf { it > 0L } ?: serverDurationMs
+        return !played &&
+            positionMs > 0L &&
+            serverPlayed &&
+            serverPositionMs == 0L &&
+            knownDurationMs in 1L until SHORT_ITEM_RESUME_MAX_DURATION_MS
+    }
+
     data class ServerProgressInput(
         val itemId: String,
         val positionMs: Long,
         val played: Boolean,
+        /** When the server says the item was last played; null when it does not say. */
+        val lastPlayedAtEpochMs: Long? = null,
+        val durationMs: Long = 0L,
     )
 
     /** One complete server pull sorts/serializes once, under the same account/profile lock. */
@@ -383,7 +450,14 @@ class PlaybackSyncStore(
         serverProgressBatchChanged = false
         try {
             progress.forEach { item ->
-                absorbServerProgress(serverId, item.itemId, item.positionMs, item.played)
+                absorbServerProgress(
+                    serverId,
+                    item.itemId,
+                    item.positionMs,
+                    item.played,
+                    item.lastPlayedAtEpochMs,
+                    item.durationMs,
+                )
             }
         } finally {
             batchingServerProgress = false
@@ -890,6 +964,17 @@ class PlaybackSyncStore(
         const val KEY_ACCOUNT_USER_ID = "playback.cross_platform.account_user.v1"
         const val KEY_SERVER_APPLIES = "playback.cross_platform.server_applies.v1"
         const val MAX_LOCAL_DOCUMENTS = 512
+
+        /** Mutation-id prefixes of records that only mirror the media server. */
+        const val SERVER_MUTATION_PREFIX = "server-"
+        const val SERVER_SEED_MUTATION = "server-seed"
+        const val SERVER_ABSORB_MUTATION = "server-absorb"
+
+        /** A server date within this of the local one is the same playback seen by two clocks. */
+        const val SERVER_CLOCK_TOLERANCE_MS = 2 * 60_000L
+
+        /** Jellyfin's default MinResumeDurationSeconds. */
+        const val SHORT_ITEM_RESUME_MAX_DURATION_MS = 300_000L
         const val MAX_ALIASES = 32
 
         /** The most playback progress a process death can cost; see [replaceLocked]. */

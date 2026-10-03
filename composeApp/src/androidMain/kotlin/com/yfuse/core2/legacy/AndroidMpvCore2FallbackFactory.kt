@@ -261,6 +261,8 @@ private class AndroidMpvCore2FallbackPlayer(
 
     override fun selectItem(index: Int) = delegate.selectItem(index)
 
+    override fun setPauseAtEndOfCurrentItem(enabled: Boolean) = delegate.setPauseAtEndOfCurrentItem(enabled)
+
     override fun selectDiscTitle(index: Int): Boolean = delegate.selectDiscTitle(index)
 
     override fun selectDiscChapter(index: Int): Boolean = delegate.selectDiscChapter(index)

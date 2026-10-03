@@ -73,8 +73,10 @@ import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightOnChange
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.rememberScreenReaderActive
 import com.yfuse.core.model.PlaybackChapter
+import com.yfuse.core.model.ShortDramaMode
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.tv.player.TvPlayerChromeBridge
 import com.yfuse.tv.player.TvPlayerChromeCommandType
@@ -83,6 +85,7 @@ import com.yfuse.tv.player.TvPlayerChromePanel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlin.math.abs
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.TimeSource
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -108,7 +111,14 @@ private const val MANUAL_SKIP_STANDALONE_MS = 6_000L
  */
 private const val VOLUME_SLIDER_HIDE_MS = 1_600L
 
-private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+// To 3×: a 短剧 viewer skims a plot-heavy episode at 2.5× or 3×; 2× was as fast as the menu went.
+private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)
+
+/** 还在看吗: this many episodes running into each other with nothing touched… */
+private const val STILL_WATCHING_EPISODES = 3
+
+/** …and this long since anything was, and the episode playing stops at its end to ask. */
+private val STILL_WATCHING_AFTER = 90.minutes
 
 /** Single-purpose popups opened by their own playback-page buttons. */
 private enum class QuickPopup {
@@ -197,6 +207,9 @@ internal fun gestureHudLine(
  * discs by half the HUD and a little air, the clearance the scrub preview keeps above the middle.
  */
 private val GestureHudBelowCentreKeys = CenterKeySize / 2 + 32.dp
+
+/** The narrowest band along each side that keeps brightness and volume under an upright 短剧. */
+private val EpisodeSwipeEdge = 56.dp
 
 /**
  * Which way a drag across the picture goes: sideways to seek, up and down for brightness or volume.
@@ -291,6 +304,11 @@ internal fun PlayerControls(
     onCreditsTakeover: (Boolean) -> Unit = {},
     /** 自动播放下一集, as the engine was built with it: off, nothing counts down to the next item. */
     autoNext: Boolean = true,
+    /** The player's own 自动播放下一集 switch; the setting in 我的 is the same one. */
+    onToggleAutoNext: () -> Unit = {},
+    /** This series' 短剧模式, where choosing one changes something: a series on a phone. */
+    shortDramaMode: ShortDramaMode? = null,
+    onSelectShortDramaMode: (ShortDramaMode) -> Unit = {},
     onRefreshEpisodes: () -> Unit,
     onSelectAudio: (String) -> Unit,
     audioControls: AudioControlState = AudioControlState(),
@@ -405,6 +423,214 @@ internal fun PlayerControls(
     /** Bumped by the owner to bring the controls up, as a tap on the picture would. */
     wakeRequests: Int = 0,
 ) {
+    PlayerControlsInputs(
+        playback = playback,
+        episodes = episodes,
+        filled = filled,
+        onBack = onBack,
+        onEnterPictureInPicture = onEnterPictureInPicture,
+        onPlayPause = onPlayPause,
+        onRetry = onRetry,
+        resumedFromMs = resumedFromMs,
+        onExternalPlayer = onExternalPlayer,
+        onSeek = onSeek,
+        onSelectItem = onSelectItem,
+        onPreviousItem = onPreviousItem,
+        onNextItem = onNextItem,
+        onDismissNextUp = onDismissNextUp,
+        onCreditsTakeover = onCreditsTakeover,
+        autoNext = autoNext,
+        onToggleAutoNext = onToggleAutoNext,
+        shortDramaMode = shortDramaMode,
+        onSelectShortDramaMode = onSelectShortDramaMode,
+        onRefreshEpisodes = onRefreshEpisodes,
+        onSelectAudio = onSelectAudio,
+        audioControls = audioControls,
+        audioActions = audioActions,
+        onSelectSubtitle = onSelectSubtitle,
+        onPeekSubtitle = onPeekSubtitle,
+        onEndSubtitlePeek = onEndSubtitlePeek,
+        subtitleControls = subtitleControls,
+        subtitleActions = subtitleActions,
+        bookmarks = bookmarks,
+        bookmarkActions = bookmarkActions,
+        remoteSubtitles = remoteSubtitles,
+        remoteSubtitleActions = remoteSubtitleActions,
+        onSpeed = onSpeed,
+        onSpeedBoost = onSpeedBoost,
+        gestures = gestures,
+        sleepTimer = sleepTimer,
+        sleepTimerActions = sleepTimerActions,
+        onToggleFill = onToggleFill,
+        onSetFill = onSetFill,
+        trickplay = trickplay,
+        volume = volume,
+        onVolume = onVolume,
+        volumeKeyPresses = volumeKeyPresses,
+        brightness = brightness,
+        onBrightness = onBrightness,
+        engineOptions = engineOptions,
+        onSelectEngine = onSelectEngine,
+        transcodeLabel = transcodeLabel,
+        transcodeActive = transcodeActive,
+        onTranscode = onTranscode,
+        onResetAdaptiveLearning = onResetAdaptiveLearning,
+        onNextDiscTitle = onNextDiscTitle,
+        onNextDiscChapter = onNextDiscChapter,
+        onShowDiscMenu = onShowDiscMenu,
+        castDevices = castDevices,
+        castingDeviceId = castingDeviceId,
+        castDiscovering = castDiscovering,
+        castError = castError,
+        castStatus = castStatus,
+        castActive = castActive,
+        castPosition = castPosition,
+        castPositionSource = castPositionSource,
+        castCapabilities = castCapabilities,
+        onDiscoverCast = onDiscoverCast,
+        onCastTo = onCastTo,
+        onStopCast = onStopCast,
+        danmaku = danmaku,
+        danmakuActions = danmakuActions,
+        danmakuHeat = danmakuHeat,
+        sourceLabel = sourceLabel,
+        sourceOptions = sourceOptions,
+        selectedSourceId = selectedSourceId,
+        onSelectSource = onSelectSource,
+        containerLabel = containerLabel,
+        dolbyVision = dolbyVision,
+        dolbyAtmos = dolbyAtmos,
+        versions = versions,
+        selectedVersionId = selectedVersionId,
+        onSelectVersion = onSelectVersion,
+        skip = skip,
+        skipActions = skipActions,
+        chapters = chapters,
+        watch = watch,
+        watchActions = watchActions,
+        extras = extras,
+        remoteChrome = remoteChrome,
+        hardwareKeyboard = hardwareKeyboard,
+        ambientLight = ambientLight,
+        ambientLightEnabled = ambientLightEnabled,
+        onToggleAmbientLight = onToggleAmbientLight,
+        onAmbientChromeVisibleChange = onAmbientChromeVisibleChange,
+        modifier = modifier,
+        systemGestureTopPx = systemGestureTopPx,
+        wakeRequests = wakeRequests,
+    ).PlayerControlsContent()
+}
+
+/**
+ * [PlayerControls]' parameters, which its body reads as members.
+ *
+ * As one function the body compiled to a single method that held all 91 parameters and its own
+ * state at once, and every lambda in it captured each parameter it used separately: R8 needed over
+ * 270 registers for it, past the 256 at which it switches to the register allocation that broke
+ * 1.0.97's player (docs/diagnostics-20261003-player-verifyerror.md). As an extension of this class
+ * the body reads the parameters where it uses them, and its lambdas capture the inputs once.
+ * scripts/verify-release-dex.sh fails a release whose app code has a method over 256 registers.
+ */
+private class PlayerControlsInputs(
+    val playback: State<PlaybackState>,
+    val episodes: List<EpisodeCard>,
+    val filled: Boolean,
+    val onBack: () -> Unit,
+    val onEnterPictureInPicture: () -> Unit,
+    val onPlayPause: () -> Unit,
+    val onRetry: () -> Unit,
+    val resumedFromMs: Long?,
+    val onExternalPlayer: (() -> Unit)?,
+    val onSeek: (Long) -> Unit,
+    val onSelectItem: (Int) -> Unit,
+    val onPreviousItem: () -> Boolean,
+    val onNextItem: () -> Boolean,
+    val onDismissNextUp: () -> Unit,
+    val onCreditsTakeover: (Boolean) -> Unit,
+    val autoNext: Boolean,
+    val onToggleAutoNext: () -> Unit,
+    val shortDramaMode: ShortDramaMode?,
+    val onSelectShortDramaMode: (ShortDramaMode) -> Unit,
+    val onRefreshEpisodes: () -> Unit,
+    val onSelectAudio: (String) -> Unit,
+    val audioControls: AudioControlState,
+    val audioActions: AudioControlActions,
+    val onSelectSubtitle: (String) -> Unit,
+    val onPeekSubtitle: (SubtitlePeek) -> Unit,
+    val onEndSubtitlePeek: (String?) -> Unit,
+    val subtitleControls: SubtitleControlState,
+    val subtitleActions: SubtitleControlActions,
+    val bookmarks: PlaybackBookmarkPanelState,
+    val bookmarkActions: PlaybackBookmarkActions,
+    val remoteSubtitles: RemoteSubtitlePanelState,
+    val remoteSubtitleActions: RemoteSubtitleActions,
+    val onSpeed: (Float) -> Unit,
+    val onSpeedBoost: (Float?) -> Unit,
+    val gestures: PlayerGestureSettings,
+    val sleepTimer: SleepTimerState,
+    val sleepTimerActions: SleepTimerActions,
+    val onToggleFill: () -> Unit,
+    val onSetFill: (Boolean) -> Unit,
+    val trickplay: TrickplayStoryboard?,
+    val volume: () -> Float,
+    val onVolume: (Float) -> Unit,
+    val volumeKeyPresses: Long,
+    val brightness: () -> Float,
+    val onBrightness: (Float) -> Unit,
+    val engineOptions: List<Pair<String, Boolean>>,
+    val onSelectEngine: (Int) -> Unit,
+    val transcodeLabel: String?,
+    val transcodeActive: Boolean,
+    val onTranscode: () -> Unit,
+    val onResetAdaptiveLearning: () -> Unit,
+    val onNextDiscTitle: () -> Unit,
+    val onNextDiscChapter: () -> Unit,
+    val onShowDiscMenu: () -> Unit,
+    val castDevices: List<Pair<String, String>>,
+    val castingDeviceId: String?,
+    val castDiscovering: Boolean,
+    val castError: String?,
+    val castStatus: String?,
+    val castActive: Boolean,
+    val castPosition: String?,
+    val castPositionSource: (() -> String?)?,
+    val castCapabilities: String?,
+    val onDiscoverCast: () -> Unit,
+    val onCastTo: (String) -> Unit,
+    val onStopCast: () -> Unit,
+    val danmaku: DanmakuPanelState,
+    val danmakuActions: DanmakuPanelActions,
+    val danmakuHeat: () -> DanmakuHeat?,
+    val sourceLabel: String?,
+    val sourceOptions: List<Pair<String, String>>,
+    val selectedSourceId: String?,
+    val onSelectSource: (String) -> Unit,
+    val containerLabel: String?,
+    val dolbyVision: Boolean,
+    val dolbyAtmos: Boolean,
+    val versions: List<Pair<String, String>>,
+    val selectedVersionId: String?,
+    val onSelectVersion: (String) -> Unit,
+    val skip: SkipSegmentState,
+    val skipActions: SkipSegmentActions,
+    val chapters: List<PlaybackChapter>,
+    val watch: WatchRoomState,
+    val watchActions: WatchRoomActions,
+    val extras: PlayerChromeExtras,
+    val remoteChrome: TvPlayerChromeBridge?,
+    val hardwareKeyboard: Boolean,
+    val ambientLight: State<AmbientLight>?,
+    val ambientLightEnabled: Boolean,
+    val onToggleAmbientLight: () -> Unit,
+    val onAmbientChromeVisibleChange: (Boolean) -> Unit,
+    val modifier: Modifier,
+    val systemGestureTopPx: Float,
+    val wakeRequests: Int,
+)
+
+/** The body of [PlayerControls]; see [PlayerControlsInputs] for why it is an extension. */
+@Composable
+private fun PlayerControlsInputs.PlayerControlsContent() {
     val currentSystemGestureTop by rememberUpdatedState(systemGestureTopPx)
     val latestExtras by rememberUpdatedState(extras)
     val state by rememberPlayerControlSnapshot(playback)
@@ -490,6 +716,13 @@ internal fun PlayerControls(
     val latestVolume by rememberUpdatedState(volume)
     val latestBrightness by rememberUpdatedState(brightness)
     val latestOnSeek by rememberUpdatedState(onSeek)
+    // 短剧: an upright picture in an upright phone window is flicked through like a feed — up for
+    // the next episode, down for the one before — while the sides keep brightness and volume.
+    val episodeSwipeWindow = rememberUprightPhoneWindow()
+    val episodeSwipe = episodeSwipeWindow && state.decodedPortraitPicture() == true && state.itemCount > 1
+    val latestEpisodeSwipe by rememberUpdatedState(episodeSwipe)
+    val latestOnNextItem by rememberUpdatedState(onNextItem)
+    val latestOnPreviousItem by rememberUpdatedState(onPreviousItem)
     val latestOnPlayPause by rememberUpdatedState(onPlayPause)
     val latestOnVolume by rememberUpdatedState(onVolume)
     val latestOnBrightness by rememberUpdatedState(onBrightness)
@@ -552,9 +785,35 @@ internal fun PlayerControls(
             )
         }
 
+    // 还在看吗: once three episodes have run into each other with nothing touched for an hour and a
+    // half, the one playing stops at its end — as 取消 on the next-up card stops it — and the
+    // ending's keys ask, instead of the queue playing on to an empty room.
+    var lastInteraction by remember { mutableStateOf(TimeSource.Monotonic.markNow()) }
+    var unattendedAdvances by remember { mutableIntStateOf(0) }
+    var askingStillWatching by remember { mutableStateOf(false) }
+
     fun poke() {
         interactions++
         visible = true
+        lastInteraction = TimeSource.Monotonic.markNow()
+        unattendedAdvances = 0
+        askingStillWatching = false
+    }
+
+    val advanceMarks = remember { intArrayOf(state.currentIndex, interactions) }
+    LaunchedEffect(state.currentIndex) {
+        if (state.currentIndex == advanceMarks[0]) return@LaunchedEffect
+        unattendedAdvances = if (interactions == advanceMarks[1]) unattendedAdvances + 1 else 0
+        advanceMarks[0] = state.currentIndex
+        advanceMarks[1] = interactions
+    }
+    val latestOnDismissNextUp by rememberUpdatedState(onDismissNextUp)
+    LaunchedEffect(unattendedAdvances, autoNext) {
+        if (!autoNext || unattendedAdvances < STILL_WATCHING_EPISODES) return@LaunchedEffect
+        val wait = STILL_WATCHING_AFTER - lastInteraction.elapsedNow()
+        if (wait.isPositive()) delay(wait)
+        askingStillWatching = true
+        latestOnDismissNextUp()
     }
 
     /** Starts 长按中间 at 2×; false when it may not, having said why where there is a reason. */
@@ -829,6 +1088,8 @@ internal fun PlayerControls(
                 TvPlayerChromeCommandType.ActivateSkipPrompt -> {
                     if (latestSkip.countdownSeconds != null) {
                         latestSkipActions.onCancelAuto()
+                    } else if (latestSkip.undoLabel != null) {
+                        latestSkipActions.onUndoSkip()
                     } else if (latestSkip.segmentLabel != null) {
                         latestSkipActions.onSkip()
                     }
@@ -1336,6 +1597,9 @@ internal fun PlayerControls(
                     var seekTarget = latestPosition
                     var volumeAtDragStart = latestVolume()
                     var brightnessAtDragStart = latestBrightness()
+                    // Down the middle of an upright 短剧, up and down change episode instead.
+                    var changesEpisode = false
+                    var episodeArmed = EpisodeSwipe.None
                     val axis = PictureDragAxis()
                     detectPlayerDragGestures(
                         canStart = { origin ->
@@ -1351,6 +1615,10 @@ internal fun PlayerControls(
                             seekTarget = latestPosition
                             volumeAtDragStart = latestVolume()
                             brightnessAtDragStart = latestBrightness()
+                            changesEpisode =
+                                latestEpisodeSwipe &&
+                                inEpisodeSwipeBand(offset.x, size.width.toFloat(), EpisodeSwipeEdge.toPx())
+                            episodeArmed = EpisodeSwipe.None
                         },
                         onDragEnd = {
                             pictureScrubMs = null
@@ -1363,6 +1631,21 @@ internal fun PlayerControls(
                                     state.error == null
                                 ) {
                                     latestOnSeek(seekTarget)
+                                }
+                                if (
+                                    changesEpisode &&
+                                    axis.sideways == false &&
+                                    !latestWatchLocked &&
+                                    state.error == null
+                                ) {
+                                    val live = playback.value
+                                    when (episodeSwipe(totalY, size.height.toFloat(), live.hasNext, live.hasPrevious)) {
+                                        EpisodeSwipe.Next -> latestOnNextItem()
+                                        EpisodeSwipe.Previous -> latestOnPreviousItem()
+                                        EpisodeSwipe.None -> Unit
+                                    }
+                                    gestureHud = null
+                                    tips?.markUsed(Tips.SHORT_DRAMA_SWIPE)
                                 }
                                 poke()
                             }
@@ -1397,6 +1680,26 @@ internal fun PlayerControls(
                             val sign = if (delta < 0L) "-" else "+"
                             gestureHud = "$sign${abs(delta).asClock()} · ${seekTarget.asClock()} / ${span.asClock()}"
                             pictureScrubMs = seekTarget
+                        } else if (changesEpisode) {
+                            pictureScrubMs = null
+                            if (latestWatchLocked) {
+                                gestureHud = "房主控制播放"
+                                return@detectPlayerDragGestures
+                            }
+                            val live = playback.value
+                            val armed = episodeSwipe(totalY, size.height.toFloat(), live.hasNext, live.hasPrevious)
+                            if (armed != episodeArmed && armed != EpisodeSwipe.None) {
+                                haptics.play(HapticSignal.Threshold)
+                            }
+                            episodeArmed = armed
+                            gestureHud =
+                                when {
+                                    armed == EpisodeSwipe.Next -> "松手播放下一集"
+                                    armed == EpisodeSwipe.Previous -> "松手回到上一集"
+                                    totalY < 0f && !live.hasNext -> "已是最后一集"
+                                    totalY > 0f && !live.hasPrevious -> "已是第一集"
+                                    else -> null
+                                }
                         } else {
                             pictureScrubMs = null
                             val delta = -totalY / size.height
@@ -1502,6 +1805,8 @@ internal fun PlayerControls(
             coversScreen = true,
         ) {
             Box(Modifier.fillMaxSize()) {
+                // An upright phone window (a 短剧 playing upright): both bars stack and trim.
+                val uprightWindow = rememberUprightPhoneWindow()
                 PlayerResumeNotice(
                     notice = resumeNotice,
                     onRestart = {
@@ -1510,7 +1815,11 @@ internal fun PlayerControls(
                             latestOnSeek(0L)
                         }
                     },
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 22.dp, bottom = 120.dp),
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            // The upright bottom bar stacks transport and keys: it stands taller.
+                            .padding(start = 22.dp, bottom = if (uprightWindow) 190.dp else 120.dp),
                 )
 
                 // Top-level actions (投屏/更多) live with the title; media navigation stays below.
@@ -1547,6 +1856,7 @@ internal fun PlayerControls(
                         onOpenChat = ::openWatchChat,
                         extras = extras,
                         onKeyActivity = ::poke,
+                        compact = uprightWindow,
                     )
                 }
 
@@ -1637,6 +1947,7 @@ internal fun PlayerControls(
                             danmakuEnabled = danmaku.enabled,
                             onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
                             ambientLight = ambientLight,
+                            compact = uprightWindow,
                             danmakuHeat = danmakuHeat,
                             onSeekBackwardLongPress = { rewindMissedLine() },
                             playKeyModifier =
@@ -1658,7 +1969,7 @@ internal fun PlayerControls(
                     modifier =
                         Modifier
                             .align(Alignment.BottomEnd)
-                            .playerHintOffset(hintProgress, (-60).dp)
+                            .playerHintOffset(hintProgress, if (uprightWindow) (-130).dp else (-60).dp)
                             .padding(end = 22.dp, bottom = 24.dp),
                 ) {
                     CompactAutoSkipPill(
@@ -1670,6 +1981,32 @@ internal fun PlayerControls(
                                 skipActions.onCancelAuto()
                             }
                         },
+                    )
+                }
+                // 已跳过片头 · 撤销: a skip made without a countdown offers the way back for a moment,
+                // where the countdown's pill would have been.
+                val lastUndoLabel = remember { arrayOf("") }
+                skip.undoLabel?.let { lastUndoLabel[0] = it }
+                ChromeVisibility(
+                    visible = skip.undoLabel != null && skip.countdownSeconds == null,
+                    edge = ChromeEdge.Bottom,
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .playerHintOffset(hintProgress, if (uprightWindow) (-130).dp else (-60).dp)
+                            .padding(end = 22.dp, bottom = 24.dp),
+                ) {
+                    CompactAutoSkipPill(
+                        label = "${lastUndoLabel[0]} · ${if (remoteChrome != null) "按确定键撤销" else "撤销"}",
+                        announcement = lastUndoLabel[0],
+                        onCancel = {
+                            if (skip.undoLabel != null) {
+                                poke()
+                                skipActions.onUndoSkip()
+                            }
+                        },
+                        clickLabel = "撤销跳过",
+                        dismissIcon = false,
                     )
                 }
                 val lastSkipLabel = remember { arrayOf("") }
@@ -1685,7 +2022,10 @@ internal fun PlayerControls(
                 ChromeVisibility(
                     visible = manualSkip,
                     edge = ChromeEdge.Bottom,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 92.dp),
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 22.dp, bottom = if (uprightWindow) 162.dp else 92.dp),
                 ) {
                     SkipPill(
                         label = lastSkipLabel[0],
@@ -1699,7 +2039,10 @@ internal fun PlayerControls(
                 }
                 // A remote cannot reach either pill while the controls are down, so OK over the
                 // picture acts on whichever one is showing (TvRemoteInputController reads this).
-                val remoteSkipPrompt = (manualSkip || skip.countdownSeconds != null) && !locked && errorMessage == null
+                val remoteSkipPrompt =
+                    (manualSkip || skip.countdownSeconds != null || skip.undoLabel != null) &&
+                        !locked &&
+                        errorMessage == null
                 DisposableEffect(remoteChrome, remoteSkipPrompt) {
                     remoteChrome?.publishSkipPrompt(remoteSkipPrompt)
                     onDispose { remoteChrome?.publishSkipPrompt(false) }
@@ -1832,6 +2175,10 @@ internal fun PlayerControls(
                             trackPanelMode = trackPanelMode,
                             ambientLightEnabled = ambientLightEnabled,
                             onToggleAmbientLight = onToggleAmbientLight,
+                            autoNextEnabled = autoNext,
+                            onToggleAutoNext = onToggleAutoNext,
+                            shortDramaMode = shortDramaMode,
+                            onSelectShortDramaMode = onSelectShortDramaMode,
                             onDismiss = { settingsPanelKind = null },
                         )
                     }
@@ -1992,6 +2339,7 @@ internal fun PlayerControls(
                                 },
                             onDismiss = { drawerOpen = false },
                             modifier = Modifier.align(Alignment.BottomCenter),
+                            takeFocus = remoteChrome != null,
                         )
                     }
                 }
@@ -2186,6 +2534,19 @@ internal fun PlayerControls(
                     )
                 }
 
+                // Why this episode stopped at its end rather than running into the next one.
+                ChromeVisibility(
+                    visible = askingStillWatching && showEndedKeys,
+                    modifier = Modifier.align(Alignment.Center).offset(y = -(CenterKeySize / 2 + 44.dp)),
+                ) {
+                    Text(
+                        "还在看吗？已连续播放 $unattendedAdvances 集",
+                        style = AppTypography.body.strong,
+                        color = Color.White,
+                        modifier = Modifier.liveStatus(),
+                    )
+                }
+
                 // Taught once, while the controls are up over something that can play faster.
                 ContextualTip(
                     id = Tips.PLAYER_CENTER_HOLD,
@@ -2196,6 +2557,12 @@ internal fun PlayerControls(
                             state.durationMs > 0L &&
                             !watch.connected &&
                             castingDeviceId == null,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 88.dp),
+                )
+                ContextualTip(
+                    id = Tips.SHORT_DRAMA_SWIPE,
+                    text = "上滑看下一集，下滑回上一集；两侧边缘上下滑仍调亮度和音量",
+                    active = visible && episodeSwipe && !watchLocked && castingDeviceId == null,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 88.dp),
                 )
                 ContextualTip(
@@ -2297,11 +2664,13 @@ internal fun PlayerControls(
                     )
                 }
 
+                // Clear of the bottom bar, which stands taller in an upright window.
+                val nextUpBottom = if (uprightWindow) 166.dp else 96.dp
                 // Where the ordinary card appears, which takes over from this one for the last seconds.
                 ChromeVisibility(
                     visible = creditsPhase == CreditsTakeoverPhase.Card,
                     edge = ChromeEdge.End,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 96.dp),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = nextUpBottom),
                 ) {
                     CreditsTakeoverCard(
                         title = episodes.getOrNull(state.currentIndex + 1)?.title.orEmpty(),
@@ -2330,7 +2699,7 @@ internal fun PlayerControls(
                         nextUpDismissed = true
                         onDismissNextUp()
                     },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 96.dp),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = nextUpBottom),
                     autoAdvance = autoNext,
                 )
             }

@@ -11,8 +11,12 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
+import io.ktor.client.engine.mock.MockRequestHandleScope
+import io.ktor.client.request.HttpRequestData
+import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
@@ -32,6 +36,17 @@ class LibraryGridStoreTest {
             addOrUpdate(SavedServer("id1", "http://host:8096", "我的服务器", "u1", "zhuiyun", "tok"))
         }
 
+    /**
+     * The grid asks for a plain library's tags beside its genres. These tests are about pages and
+     * genres, so the tag request is answered here, empty, before it reaches their handlers.
+     */
+    private fun gridRepo(
+        dispatcher: CoroutineDispatcher? = null,
+        handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
+    ) = testRepo(dispatcher) { request ->
+        if (request.url.encodedPath.endsWith("/Tags")) json("""{"Items":[]}""") else this.handler(request)
+    }
+
     /** `{"Items":[…],"TotalRecordCount":total}` holding [count] items numbered from [from]. */
     private fun page(
         from: Int,
@@ -50,7 +65,7 @@ class LibraryGridStoreTest {
         runTest {
             val requested = mutableListOf<String?>()
             val repo =
-                testRepo { request ->
+                gridRepo { request ->
                     requested += request.url.parameters["StartIndex"]
                     val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
                     if (request.url.encodedPath.endsWith("/Genres")) {
@@ -88,7 +103,7 @@ class LibraryGridStoreTest {
         runTest {
             // Emby's order is not total, so a title can sit on both sides of a page boundary.
             val repo =
-                testRepo { request ->
+                gridRepo { request ->
                     val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
                     if (request.url.encodedPath.endsWith("/Genres")) {
                         json("""{"Items":[]}""")
@@ -121,7 +136,7 @@ class LibraryGridStoreTest {
         runTest {
             val requested = mutableListOf<Int>()
             val repo =
-                testRepo { request ->
+                gridRepo { request ->
                     val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
                     if (request.url.encodedPath.endsWith("/Genres")) {
                         json("""{"Items":[]}""")
@@ -166,7 +181,7 @@ class LibraryGridStoreTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             val sorts = mutableListOf<String?>()
             val repo =
-                testRepo(dispatcher) { request ->
+                gridRepo(dispatcher) { request ->
                     if (request.url.encodedPath.endsWith("/Genres")) {
                         json("""{"Items":[]}""")
                     } else {
@@ -203,7 +218,7 @@ class LibraryGridStoreTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             val releaseSortedPage = CompletableDeferred<Unit>()
             val repo =
-                testRepo(dispatcher) { request ->
+                gridRepo(dispatcher) { request ->
                     if (request.url.encodedPath.endsWith("/Genres")) {
                         json("""{"Items":[]}""")
                     } else {
@@ -242,7 +257,7 @@ class LibraryGridStoreTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             var filteredAttempts = 0
             val repo =
-                testRepo(dispatcher) { request ->
+                gridRepo(dispatcher) { request ->
                     when {
                         request.url.encodedPath.endsWith("/Genres") ->
                             json("""{"Items":[{"Id":"g1","Name":"科幻"}]}""")
@@ -295,7 +310,7 @@ class LibraryGridStoreTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             var unplayedAttempts = 0
             val repo =
-                testRepo(dispatcher) { request ->
+                gridRepo(dispatcher) { request ->
                     when {
                         request.url.encodedPath.endsWith("/Genres") -> json("""{"Items":[]}""")
                         request.url.parameters["IsPlayed"] == "false" -> {
@@ -357,7 +372,7 @@ class LibraryGridStoreTest {
         runTest {
             val requests = mutableListOf<Pair<Int, Int?>>()
             val repo =
-                testRepo { request ->
+                gridRepo { request ->
                     if (request.url.encodedPath.endsWith("/Genres")) {
                         json("""{"Items":[]}""")
                     } else {
@@ -395,7 +410,7 @@ class LibraryGridStoreTest {
         runTest {
             val starts = mutableListOf<Int>()
             val repo =
-                testRepo { request ->
+                gridRepo { request ->
                     if (request.url.encodedPath.endsWith("/Genres")) {
                         json("""{"Items":[]}""")
                     } else {
@@ -429,7 +444,7 @@ class LibraryGridStoreTest {
     fun a_failed_page_ends_the_index_fill_and_keeps_what_arrived() =
         runTest {
             val repo =
-                testRepo { request ->
+                gridRepo { request ->
                     val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
                     val limit = request.url.parameters["Limit"]?.toInt() ?: 0
                     when {
@@ -467,7 +482,7 @@ class LibraryGridStoreTest {
             val releaseFill = CompletableDeferred<Unit>()
             val requests = mutableListOf<Pair<String?, Int>>()
             val repo =
-                testRepo(dispatcher) { request ->
+                gridRepo(dispatcher) { request ->
                     if (request.url.encodedPath.endsWith("/Genres")) {
                         json("""{"Items":[]}""")
                     } else {
@@ -510,7 +525,7 @@ class LibraryGridStoreTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             val genres = mutableListOf<String?>()
             val repo =
-                testRepo(dispatcher) { request ->
+                gridRepo(dispatcher) { request ->
                     if (request.url.encodedPath.endsWith("/Genres")) {
                         json("""{"Items":[{"Id":"g1","Name":"科幻"},{"Id":"g2","Name":"悬疑"}]}""")
                     } else {
@@ -544,12 +559,56 @@ class LibraryGridStoreTest {
         }
 
     @Test
+    fun tags_join_the_filter_row_and_a_tag_takes_the_genre_s_place() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val queries = mutableListOf<Pair<String?, String?>>()
+            val repo =
+                testRepo(dispatcher) { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/Genres") ->
+                            json("""{"Items":[{"Id":"g1","Name":"爱情"}]}""")
+                        request.url.encodedPath.endsWith("/Tags") ->
+                            json(
+                                """{"Items":[{"Id":"t1","Name":"短剧"},{"Id":"t2","Name":" 竖屏 "},""" +
+                                    """{"Id":"t3","Name":"短剧"}]}""",
+                            )
+                        else -> {
+                            queries += request.url.parameters["Genres"] to request.url.parameters["Tags"]
+                            json(page(from = 0, count = 1, total = 1))
+                        }
+                    }
+                }
+            val store =
+                LibraryGridStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry(),
+                    "lib1",
+                    mainContext = dispatcher,
+                ).create()
+            advanceUntilIdle()
+            assertEquals(listOf("短剧", "竖屏"), store.state.tags)
+
+            store.accept(GridIntent.SetGenre("爱情"))
+            advanceUntilIdle()
+            store.accept(GridIntent.SetTag("短剧"))
+            advanceUntilIdle()
+
+            assertEquals("短剧", store.state.tag)
+            assertEquals(null, store.state.genre)
+            assertEquals(listOf<Pair<String?, String?>>(null to null, "爱情" to null, null to "短剧"), queries)
+            store.dispose()
+            advanceUntilIdle()
+        }
+
+    @Test
     fun media_spec_filter_reloads_with_server_side_4k_parameters() =
         runTest {
             val requests = mutableListOf<Pair<String?, String?>>()
             val dispatcher = StandardTestDispatcher(testScheduler)
             val repo =
-                testRepo(dispatcher = dispatcher) { request ->
+                gridRepo(dispatcher) { request ->
                     if (request.url.encodedPath.endsWith("/Genres")) {
                         json("""{"Items":[]}""")
                     } else {
@@ -589,7 +648,7 @@ class LibraryGridStoreTest {
         runTest {
             var genreAttempts = 0
             val repo =
-                testRepo { request ->
+                gridRepo { request ->
                     if (request.url.encodedPath.endsWith("/Genres")) {
                         genreAttempts += 1
                         if (genreAttempts == 1) {
@@ -638,7 +697,7 @@ class LibraryGridStoreTest {
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             val repo =
-                testRepo(dispatcher = dispatcher) { request ->
+                gridRepo(dispatcher) { request ->
                     val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
                     when {
                         request.url.encodedPath.endsWith("/Genres") -> json("""{"Items":[]}""")
@@ -674,7 +733,7 @@ class LibraryGridStoreTest {
         runTest {
             val sortParameters = mutableListOf<String?>()
             val repo =
-                testRepo { request ->
+                gridRepo { request ->
                     sortParameters += request.url.parameters["SortBy"]
                     json(
                         """{"Items":[{"Id":"m1","Name":"第一部（再次）","Type":"Movie","PlaylistItemId":"e2"},{"Id":"m1","Name":"第一部","Type":"Movie","PlaylistItemId":"e1"}],"TotalRecordCount":2}""",
@@ -708,7 +767,7 @@ class LibraryGridStoreTest {
     fun favorites_grid_deduplicates_repeated_media_ids() =
         runTest {
             val repo =
-                testRepo {
+                gridRepo {
                     json(
                         """{"Items":[{"Id":"m1","Name":"第一部","Type":"Movie"},{"Id":"m1","Name":"第一部（重复）","Type":"Movie"}],"TotalRecordCount":2}""",
                     )
@@ -733,7 +792,7 @@ class LibraryGridStoreTest {
     fun watch_later_grid_deduplicates_repeated_media_ids() =
         runTest {
             val repo =
-                testRepo { request ->
+                gridRepo { request ->
                     if (request.url.encodedPath.endsWith("/Playlists/p1/Items")) {
                         json(
                             """{"Items":[{"Id":"m1","Name":"第一部","Type":"Movie"},{"Id":"m1","Name":"第一部（重复）","Type":"Movie"}],"TotalRecordCount":2}""",
@@ -764,7 +823,7 @@ class LibraryGridStoreTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             var removedEntryId: String? = null
             val repo =
-                testRepo(dispatcher) { request ->
+                gridRepo(dispatcher) { request ->
                     if (request.method == HttpMethod.Delete) {
                         removedEntryId = request.url.parameters["EntryIds"]
                         json("{}")
@@ -806,7 +865,7 @@ class LibraryGridStoreTest {
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             val repo =
-                testRepo(dispatcher) { request ->
+                gridRepo(dispatcher) { request ->
                     if (request.method == HttpMethod.Delete) {
                         throw kotlinx.io.IOException("offline")
                     }
@@ -853,7 +912,7 @@ class LibraryGridStoreTest {
                 }
             val requestedHosts = mutableListOf<String>()
             val repo =
-                testRepo { request ->
+                gridRepo { request ->
                     requestedHosts += request.url.host
                     if (request.url.encodedPath.endsWith("/Genres")) {
                         json("""{"Items":[]}""")
@@ -886,7 +945,7 @@ class LibraryGridStoreTest {
         runTest {
             val starts = mutableListOf<Int>()
             val repo =
-                testRepo { request ->
+                gridRepo { request ->
                     val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
                     starts += start
                     if (start == 0) {

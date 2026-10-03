@@ -343,7 +343,7 @@ from the exact locally cached upstream v1.0.0/v0.37.0 archives.
 Quality CI rejects new ktlint violations using committed per-module baselines, runs
 Android and watch-server tests plus `:watchTogetherProtocol:jvmTest`, assembles the
 R8/resource-shrunk release with an explicitly non-distributable debug signature, and
-checks its signature, ZIP alignment, package name, and byte budget. It also checks
+checks its signature, ZIP alignment, package name, byte budget, and DEX code (below). It also checks
 dependency locks and runs dependency review. CodeQL runs on changes and weekly. The
 dependency submission workflow archives an SPDX SBOM; retain it with each production
 release and complete the native-license checklist in
@@ -388,6 +388,67 @@ compact profile, pass `-PyfuseIncludeMdk=false` to Gradle. MDK is then a compile
 its Java facade and native libraries are not packaged, it is removed from engine selection, and any
 persisted MDK lock fails closed to automatic routing. The full profile remains the default so an
 ordinary release command preserves the existing three-engine product.
+
+## DEX verification
+
+R8 can emit a method that ART's verifier refuses, for instance one that reads an object from a
+register where an int belongs. ART then rejects the whole class, and it throws
+`java.lang.VerifyError` the first time it is used, on every device. That can be long after
+startup, so the build, the unit tests and a launch all pass. 1.0.97 (259) was packaged like this:
+the player crashed as it opened.
+
+`scripts/verify-release-dex.sh --mapping <mapping.txt> <apk>` runs every method through the
+register-type rules ART applies and fails on such a method. It needs Java 11 or newer and fetches
+dexlib2 and two Guava jars, pinned by SHA-256 in `scripts/dex-verify/tools.sha256`, from Maven
+Central. Quality CI, TV CI, the packaging workflow and `build-release-packages.ps1` run it on every
+R8 release APK, with the mapping R8 wrote for it (`<module>/build/outputs/mapping/release/mapping.txt`).
+
+It also fails a method of the app's own code that needs more than 256 registers: classes the
+mapping traces back to `com.yfuse`, or without `--mapping` only those R8 left unrenamed. A
+method's parameters occupy its highest registers, so in such a method some sit above v255, out of
+reach of the 8-bit register operands most instructions have, and R8 compiles it on a separate
+path that copies them down to low registers. In 1.0.97 that path overwrote a copy still in use.
+Split a method that fails the limit. For a large composable, the player moves the body into an extension of a class holding the
+values it reads (`PlayerRuntimeSession`, `PlayerControlsInputs`): its lambdas then capture that
+object once instead of each value. `--list-registers-over N` lists every method above N registers,
+the app's and the libraries', to see how close the largest are.
+
+ART's rejection names the class, method, code offset and register, for example
+`[0x23EB] register v1 has type Reference: dv7 but expected Integer`. To see the instructions
+involved, disassemble with baksmali 2.5.2 (`org.smali:baksmali`, plus `org.smali:util` and
+`com.beust:jcommander` next to the jars above) and run:
+
+```bash
+python3 scripts/diagnostics/inspect_dex_method.py --baksmali-classpath "$CP" --apk <apk> \
+  --class 'Lcom/yfuse/feature/player/PlayerRootKt;' --method 'PlayerRoot$lambda$152' \
+  --offset 0x23EB --register v1 --describe 'Ldv7;'
+```
+
+It prints the rejected instruction with the type of each operand, the instructions before it,
+every definition of the register that reaches it, and the fields and methods of the classes named
+with `--describe`.
+
+To see whether another R8 release compiles the same input correctly, make R8 dump its input and
+replay the dump. R8 dumps only into a directory that exists, and the property must not be set for
+the whole build, because AGP also runs D8 for lint:
+
+```bash
+./gradlew :composeApp:assembleRelease -PallowDebugSigning=true
+mkdir -p build/r8-dump
+JAVA_TOOL_OPTIONS=-Dcom.android.tools.r8.dumpinputtodirectory=$PWD/build/r8-dump \
+  ./gradlew :composeApp:minifyReleaseWithR8 --rerun -PallowDebugSigning=true --no-daemon
+curl -fsSLo r8.jar https://storage.googleapis.com/r8-releases/raw/<version>/r8lib.jar
+python3 scripts/diagnostics/replay_r8_dump.py --dump build/r8-dump/<dump>.zip --r8 r8.jar --output-dir out
+scripts/verify-release-dex.sh out/*.zip
+```
+
+The replay writes `out/base.zip` and one `out/feature-N.zip` per feature split. Replay with the
+R8 release AGP used first: its output must have the APK's classes and findings, or the replay is
+not faithful.
+
+`scripts/diagnostics/art_verify_on_emulator.sh <output-dir> <apk>...` installs each APK on a
+running emulator and lets ART verify every class from scratch; it fails when dex2oat rejects a
+method.
 
 ## APK size
 

@@ -36,6 +36,7 @@ import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.demux.YAudioTrackFormat
+import com.yfuse.core2.demux.shownVideoSize
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
@@ -1065,6 +1066,13 @@ internal class AndroidNativeDirectYPlayer(
                     .maxOrNull()
                     ?: 0L
             val tracks = audioTracks()
+            // MediaCodec turns the picture by the track's rotation as it draws to the surface.
+            val (shownWidth, shownHeight) =
+                shownVideoSize(
+                    width = videoFormat?.intOrZero(MediaFormat.KEY_WIDTH) ?: 0,
+                    height = videoFormat?.intOrZero(MediaFormat.KEY_HEIGHT) ?: 0,
+                    rotationDegrees = videoFormat?.intOrZero(MediaFormat.KEY_ROTATION) ?: 0,
+                )
             mutableState.update { current ->
                 current.copy(
                     phase = YPlaybackPhase.Ready,
@@ -1091,8 +1099,8 @@ internal class AndroidNativeDirectYPlayer(
                             recoverableNetworkFailure = false,
                             renderer = if (videoTrackIndex == null) "AudioTrack" else "Surface + AudioTrack",
                             videoCodec = videoFormat?.getString(MediaFormat.KEY_MIME).orEmpty(),
-                            videoWidth = videoFormat?.intOrZero(MediaFormat.KEY_WIDTH) ?: 0,
-                            videoHeight = videoFormat?.intOrZero(MediaFormat.KEY_HEIGHT) ?: 0,
+                            videoWidth = shownWidth,
+                            videoHeight = shownHeight,
                             frameRate = videoFormat?.floatOrZero(MediaFormat.KEY_FRAME_RATE) ?: 0f,
                             renderedFrameRate = null,
                             audioCodec = audioInputFormat?.getString(MediaFormat.KEY_MIME).orEmpty(),
