@@ -1,6 +1,7 @@
 package com.yfuse.core.data
 
 import com.yfuse.core.data.dto.BaseItemDto
+import com.yfuse.core.data.dto.ItemFiltersDto
 import com.yfuse.core.data.dto.ItemsResponseDto
 import com.yfuse.core.data.dto.PlaylistCreatedDto
 import com.yfuse.core.data.dto.toMediaItem
@@ -11,6 +12,7 @@ import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaContainerPage
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -261,6 +263,8 @@ internal class EmbyBrowseService(
         limit: Int = LIBRARY_PAGE_SIZE,
         resolution: LibraryResolution = LibraryResolution.All,
         unplayedOnly: Boolean = false,
+        /** A tag from [libraryTags] — 短剧, 甜宠 — the same way as [genre]. */
+        tag: String? = null,
     ): Result<LibraryPage> =
         embyApiCall("library_items") {
             when (libraryId) {
@@ -282,6 +286,7 @@ internal class EmbyBrowseService(
                     startIndex = startIndex,
                     limit = limit,
                     resolution = resolution,
+                    tag = tag,
                 )
             }
             val dto: ItemsResponseDto =
@@ -294,6 +299,7 @@ internal class EmbyBrowseService(
                         parameter("SortBy", sort.sortBy)
                         parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
                         if (!genre.isNullOrBlank()) parameter("Genres", genre)
+                        if (!tag.isNullOrBlank()) parameter("Tags", tag)
                         if (unplayedOnly) parameter("IsPlayed", false)
                         libraryCardParameters(startIndex, limit)
                     }.body()
@@ -324,6 +330,7 @@ internal class EmbyBrowseService(
         startIndex: Int,
         limit: Int,
         resolution: LibraryResolution,
+        tag: String? = null,
     ): LibraryPage {
         val canonicalIds = mutableListOf<String>()
         val seenIds = mutableSetOf<String>()
@@ -349,6 +356,7 @@ internal class EmbyBrowseService(
                         parameter("SortBy", sort.sortBy)
                         parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
                         if (!genre.isNullOrBlank()) parameter("Genres", genre)
+                        if (!tag.isNullOrBlank()) parameter("Tags", tag)
                         applyServerResolutionFilter(resolution)
                         parameter(
                             "Fields",
@@ -454,6 +462,62 @@ internal class EmbyBrowseService(
                 category = "emby",
                 event = "library_genres_unavailable",
                 message = "Library genre facet is unavailable; the filter row stays hidden",
+                throwable = it,
+                attributes = mapOf("libraryId" to libraryId),
+            )
+        }
+    }
+
+    /**
+     * The tags used in one library — 短剧, 甜宠, 逆袭 — for the grid's filter row beside its
+     * genres: libraries of 短剧 are told apart by tags far more than by genre. Jellyfin lists them
+     * under /Items/Filters, Emby under /Tags. Failure, or none, leaves the row with genres alone.
+     */
+    suspend fun libraryTags(
+        server: SavedServer,
+        libraryId: String,
+    ): Result<List<String>> {
+        if (libraryId == FAVORITES_COLLECTION_ID || libraryId == WATCH_LATER_COLLECTION_ID) {
+            return Result.success(emptyList())
+        }
+        return runCatching {
+            val names =
+                if (server.kind == MediaServerKind.Jellyfin) {
+                    val dto: ItemFiltersDto =
+                        client
+                            .get("${server.baseUrl}/Items/Filters") {
+                                header("X-Emby-Token", server.accessToken)
+                                parameter("UserId", server.userId)
+                                parameter("ParentId", libraryId)
+                                parameter("IncludeItemTypes", "Movie,Series")
+                            }.body()
+                    dto.Tags.orEmpty()
+                } else {
+                    val dto: ItemsResponseDto =
+                        client
+                            .get("${server.baseUrl}/Tags") {
+                                header("X-Emby-Token", server.accessToken)
+                                parameter("UserId", server.userId)
+                                parameter("ParentId", libraryId)
+                                parameter("IncludeItemTypes", "Movie,Series")
+                                parameter("Recursive", true)
+                                parameter("SortBy", "SortName")
+                                parameter("SortOrder", "Ascending")
+                                parameter("Limit", LIBRARY_TAG_LIMIT)
+                            }.body()
+                    dto.Items.mapNotNull { it.Name }
+                }
+            names
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .distinct()
+                .take(LIBRARY_TAG_LIMIT)
+        }.onFailure {
+            if (it is CancellationException) throw it
+            AppLog.warning(
+                category = "emby",
+                event = "library_tags_unavailable",
+                message = "Library tag facet is unavailable; the filter row keeps its genres",
                 throwable = it,
                 attributes = mapOf("libraryId" to libraryId),
             )
@@ -740,3 +804,6 @@ private const val MAX_RESOLUTION_SCAN_PAGES = 50
 private const val MAX_RESOLUTION_CANONICAL_ITEMS = 5_000
 private const val WATCH_LATER_MEMBERSHIP_PAGE_SIZE = 200
 private const val MAX_WATCH_LATER_MEMBERSHIP_PAGES = 50
+
+/** At most this many tags in the filter row; a library tagged per title would otherwise flood it. */
+private const val LIBRARY_TAG_LIMIT = 40

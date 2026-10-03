@@ -808,3 +808,10 @@ fun List<MediaSegmentDto>.toPlaybackSegments(): List<PlaybackSegment> =
     }.sortedBy { it.startMs }
 
 private const val TICKS_PER_MS = 10_000L
+
+/** Jellyfin's /Items/Filters: the facets a library's items carry. */
+@Serializable
+data class ItemFiltersDto(
+    val Genres: List<String>? = null,
+    val Tags: List<String>? = null,
+)

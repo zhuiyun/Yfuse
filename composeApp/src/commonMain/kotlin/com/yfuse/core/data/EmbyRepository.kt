@@ -620,13 +620,21 @@ class EmbyRepository(
         resolution: LibraryResolution = LibraryResolution.All,
         /** Emby/Jellyfin only; Plex libraries ignore it. */
         unplayedOnly: Boolean = false,
+        /** Emby/Jellyfin only, like [unplayedOnly]. */
+        tag: String? = null,
     ): Result<LibraryPage> =
-        adapterFor(server).libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution, unplayedOnly)
+        adapterFor(server)
+            .libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution, unplayedOnly, tag)
 
     suspend fun libraryGenres(
         server: SavedServer,
         libraryId: String,
     ): Result<List<String>> = adapterFor(server).libraryGenres(server, libraryId)
+
+    suspend fun libraryTags(
+        server: SavedServer,
+        libraryId: String,
+    ): Result<List<String>> = adapterFor(server).libraryTags(server, libraryId)
 
     suspend fun similarItems(
         server: SavedServer,

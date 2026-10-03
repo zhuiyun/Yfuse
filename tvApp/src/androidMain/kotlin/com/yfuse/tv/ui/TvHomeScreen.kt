@@ -226,8 +226,10 @@ internal fun TvHomeScreen(
             }
         }
 
+        // Every library's row, as the phone shows them: a cap of five per server left a sixth
+        // library — often the 短剧 one, added last — off the television's home altogether.
         state.libraryContent.forEach { source ->
-            source.content.rows.take(5).forEach { row ->
+            source.content.rows.forEach { row ->
                 if (row.items.isNotEmpty()) {
                     item(key = "home-server:${source.server.id}:${row.libraryId}:${row.title}") {
                         TvMediaRow(

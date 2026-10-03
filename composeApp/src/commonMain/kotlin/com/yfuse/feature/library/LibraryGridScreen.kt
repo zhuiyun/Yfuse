@@ -352,7 +352,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 )
             }
 
-            if (state.genres.isNotEmpty()) {
+            if (state.genres.isNotEmpty() || state.tags.isNotEmpty()) {
                 GenreFilterRow(
                     genres = state.genres,
                     selected = state.genre,
@@ -360,6 +360,12 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                     onSelect = {
                         refilterOrigin = GridRefilterOrigin.Genre
                         component.store.accept(GridIntent.SetGenre(it))
+                    },
+                    tags = state.tags,
+                    selectedTag = state.tag,
+                    onSelectTag = {
+                        refilterOrigin = GridRefilterOrigin.Genre
+                        component.store.accept(GridIntent.SetTag(it))
                     },
                 )
             } else if (state.genreLoadError != null) {
@@ -728,6 +734,10 @@ private fun GenreFilterRow(
     /** The page for a genre chosen here is on its way. */
     pending: Boolean,
     onSelect: (String?) -> Unit,
+    /** The library's tags, after its genres and marked with #; one choice in the row with them. */
+    tags: List<String> = emptyList(),
+    selectedTag: String? = null,
+    onSelectTag: (String) -> Unit = {},
 ) {
     LazyRow(
         modifier =
@@ -739,7 +749,12 @@ private fun GenreFilterRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         motionItem(key = "genre-all") {
-            YfChip(label = "全部", selected = selected == null, onClick = { onSelect(null) }, onClickLabel = "选择分类 全部")
+            YfChip(
+                label = "全部",
+                selected = selected == null && selectedTag == null,
+                onClick = { onSelect(null) },
+                onClickLabel = "选择分类 全部",
+            )
         }
         motionItems(genres, key = { it }) { genre ->
             // The facet arrives after the first page, so the row grows under the header.
@@ -748,6 +763,14 @@ private fun GenreFilterRow(
                 selected = selected == genre,
                 onClick = { onSelect(genre) },
                 onClickLabel = "选择分类 $genre",
+            )
+        }
+        motionItems(tags, key = { "tag:$it" }) { tag ->
+            YfChip(
+                label = "#$tag",
+                selected = selectedTag == tag,
+                onClick = { onSelectTag(tag) },
+                onClickLabel = "选择标签 $tag",
             )
         }
     }

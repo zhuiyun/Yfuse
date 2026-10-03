@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.SmartPlaylist
 import com.yfuse.core.data.SmartPlaylistStore
+import com.yfuse.core.data.SmartShelfQuery
+import com.yfuse.core.data.libraryShelf
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DialogPresence
@@ -42,7 +44,9 @@ fun SmartPlaylistShelf(
     val requests = remember { GlobalContext.get().get<SearchRequests>() }
     val saved by store.items.collectAsState()
     val error by store.error.collectAsState()
-    val rules = if (state == null) saved.filter { it.pinned } else saved
+    // On 首页 a rule that is one library listing is a shelf of posters of its own (see
+    // [pinnedLibraryShelves]); only the rest are chips there.
+    val rules = if (state == null) saved.filter { it.pinned && it.libraryShelf() == null } else saved
     val palette = LocalPalette.current
     var editing by remember { mutableStateOf<SmartPlaylist?>(null) }
     var naming by remember { mutableStateOf(false) }
@@ -148,6 +152,16 @@ internal fun SearchState.asPlaylist(name: String) =
         watchStatus = watchStatus.name,
         sort = sort.name,
     )
+
+/** Pinned rules 首页 shows as poster shelves, with the listing each stands for. */
+@Composable
+internal fun pinnedLibraryShelves(): List<Pair<SmartPlaylist, SmartShelfQuery>> {
+    val store = remember { GlobalContext.get().get<SmartPlaylistStore>() }
+    val saved by store.items.collectAsState()
+    return remember(saved) {
+        saved.filter { it.pinned }.mapNotNull { rule -> rule.libraryShelf()?.let { rule to it } }
+    }
+}
 
 @Composable
 internal fun hasPinnedSmartPlaylists(): Boolean {

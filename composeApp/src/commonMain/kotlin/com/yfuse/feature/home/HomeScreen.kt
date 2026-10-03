@@ -39,6 +39,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -61,7 +62,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.floatingNavigationContentInset
+import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.HomeShelfLayout
+import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.SmartPlaylist
+import com.yfuse.core.data.SmartShelfQuery
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -156,8 +161,10 @@ import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.currentHourOfDay
 import com.yfuse.core.util.rememberPosterCardSharer
+import com.yfuse.feature.search.SearchRequests
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import org.koin.core.context.GlobalContext
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -323,6 +330,9 @@ internal fun HomeContentBody(
     val showSmartPlaylists =
         com.yfuse.feature.search
             .hasPinnedSmartPlaylists()
+    val smartShelves =
+        com.yfuse.feature.search
+            .pinnedLibraryShelves()
     val palette = LocalPalette.current
     val themeAccent = LocalAccentColors.current.accent
     val sharer = rememberPosterCardSharer()
@@ -506,6 +516,23 @@ internal fun HomeContentBody(
                         motionItem(key = "smart-playlists") {
                             com.yfuse.feature.search
                                 .SmartPlaylistShelf()
+                        }
+                    }
+                    // A pinned 智能片单 that is one library under a genre — 短剧 · 甜宠 — is a shelf of
+                    // posters, as the library's own rows are, rather than a name to tap.
+                    smartShelves.forEach { (rule, query) ->
+                        motionItem(key = "smart-shelf:${rule.name}") {
+                            SmartPlaylistLibraryShelf(
+                                rule = rule,
+                                query = query,
+                                onClick = openEntry,
+                                liftMenu = { entry ->
+                                    entry.homeLiftMenu(
+                                        onIntent,
+                                        onShare = { sharer.sharePosterCard(entry.shareCard()) },
+                                    )
+                                },
+                            )
                         }
                     }
                     // Offline, the calendar fails for the same reason the recommendations did.
@@ -1567,6 +1594,45 @@ internal fun compactLastPlayedDate(value: String?): String? {
     val date = value?.takeIf { it.length >= 10 }?.substring(0, 10) ?: return null
     return date.substring(5).replace('-', '/')
 }
+
+/** A pinned 智能片单 that is one library listing, as posters; its 全部 opens the rule in 搜索. */
+@Composable
+private fun SmartPlaylistLibraryShelf(
+    rule: SmartPlaylist,
+    query: SmartShelfQuery,
+    onClick: (HomeResumeEntry) -> Unit,
+    liftMenu: (HomeResumeEntry) -> LiftMenu,
+) {
+    val repository = remember { GlobalContext.get().get<EmbyRepository>() }
+    val registry = remember { GlobalContext.get().get<ServerRegistry>() }
+    val requests = remember { GlobalContext.get().get<SearchRequests>() }
+    val entries by produceState(emptyList<HomeResumeEntry>(), query) {
+        val server = registry.serverById(query.serverId) ?: return@produceState
+        value =
+            repository
+                .libraryItems(
+                    server = server,
+                    libraryId = query.libraryId,
+                    sort = query.sort,
+                    genre = query.genre,
+                    limit = SMART_SHELF_LIMIT,
+                    unplayedOnly = query.unplayedOnly,
+                ).getOrNull()
+                ?.items
+                .orEmpty()
+                .map { HomeResumeEntry(it, server) }
+    }
+    if (entries.isEmpty()) return
+    LibraryMediaShelf(
+        title = rule.name,
+        items = entries,
+        onSeeAll = { requests.openPlaylist(rule) },
+        onClick = onClick,
+        liftMenu = liftMenu,
+    )
+}
+
+private const val SMART_SHELF_LIMIT = 12
 
 @Composable
 private fun LibraryMediaShelf(

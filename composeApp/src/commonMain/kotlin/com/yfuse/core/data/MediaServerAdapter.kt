@@ -210,12 +210,19 @@ internal interface MediaServerAdapter {
         limit: Int,
         resolution: LibraryResolution,
         unplayedOnly: Boolean,
+        tag: String? = null,
     ): Result<LibraryPage>
 
     suspend fun libraryGenres(
         server: SavedServer,
         libraryId: String,
     ): Result<List<String>>
+
+    /** Tags used in a library, for its filter row; none where the server keeps no such facet. */
+    suspend fun libraryTags(
+        server: SavedServer,
+        libraryId: String,
+    ): Result<List<String>> = Result.success(emptyList())
 
     suspend fun similarItems(
         server: SavedServer,
@@ -617,13 +624,19 @@ internal class EmbyAdapter(
         limit: Int,
         resolution: LibraryResolution,
         unplayedOnly: Boolean,
+        tag: String?,
     ): Result<LibraryPage> =
-        browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution, unplayedOnly)
+        browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution, unplayedOnly, tag)
 
     override suspend fun libraryGenres(
         server: SavedServer,
         libraryId: String,
     ): Result<List<String>> = browseService.libraryGenres(server, libraryId)
+
+    override suspend fun libraryTags(
+        server: SavedServer,
+        libraryId: String,
+    ): Result<List<String>> = browseService.libraryTags(server, libraryId)
 
     override suspend fun similarItems(
         server: SavedServer,
@@ -989,6 +1002,7 @@ internal class PlexAdapter(
         limit: Int,
         resolution: LibraryResolution,
         unplayedOnly: Boolean,
+        tag: String?,
     ): Result<LibraryPage> = plex.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution)
 
     override suspend fun libraryGenres(
