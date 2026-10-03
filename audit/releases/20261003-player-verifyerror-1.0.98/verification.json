@@ -1,0 +1,38 @@
+{
+  "sourceBranch": "ccr-043c5706-n2gipq",
+  "baseCommit": "c4d12e24d4c5edfddf85bc39e6d6aee9a3b123d1",
+  "baselineWorkflowRun": 36862579231,
+  "baselineArtifact": 11164387077,
+  "baselineApk": {
+    "package": "com.yfuse",
+    "versionName": "1.0.97",
+    "versionCode": 259,
+    "fileName": "Yfuse-259-1.0.97.apk",
+    "sizeBytes": 29844919,
+    "sha256": "f063d9d82569236168271dfca3be966fc5af319f55eece8f6e2911ba94030574",
+    "productionSigned": true,
+    "published": false
+  },
+  "baselineEvidence": "Log of packaging run #140: APK file name, version, size, SHA-256 and PUBLISH_UPDATE=false, with the APK metadata and signing-certificate step passing; the artifact is not downloadable from this workspace",
+  "plannedVersionName": "1.0.98",
+  "plannedVersionCode": 260,
+  "releaseMetadata": "release_metadata.py and the 51 scripts unit tests passed",
+  "mdkPackageOnlyConfirmation": "release owner confirmed this version at 2026-10-03T14:11:05+08:00",
+  "apkBuild": "pending the quality gates and production signing on the merge commit",
+  "splitBuild": {
+    "workflowRun": 37104094707,
+    "commit": "fcaef332e8ce3bf026cdc0c015dcd0beb17b0b54",
+    "ktlint": "passed",
+    "phone": {
+      "methods": 58498,
+      "findings": 0,
+      "largestAppMethodRegisters": 188
+    },
+    "tv": {
+      "methods": 44543,
+      "findings": 0,
+      "largestAppMethodRegisters": 189
+    },
+    "artApi36": "no rejected method"
+  }
+}
