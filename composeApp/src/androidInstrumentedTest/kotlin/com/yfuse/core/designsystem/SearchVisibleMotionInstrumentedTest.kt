@@ -82,9 +82,13 @@ class SearchVisibleMotionInstrumentedTest {
                     enabled.value = false
                     reduced.value = false
                 }
-                SystemClock.sleep(150)
                 val prefix = if (isDark) "dark" else "light"
-                val off = capture(scenario, bounds.get(), "$prefix-off.png")
+                // Every switch below is judged against this still field, so it has to be the field
+                // after the theme switch, not during it: each glass plate crossfades its fill and
+                // edge for Motion.THEME_CROSSFADE. Taken 150 ms into the dark crossfade, it still
+                // held part of the light plate, no settled frame could match it, and 减少动态效果
+                // failed for a highlight that was not drawn.
+                val off = captureStill(scenario, bounds.get(), "$prefix-off.png", Motion.THEME_CROSSFADE.toLong())
                 scenario.onActivity { enabled.value = true }
                 SystemClock.sleep(100)
                 val early = capture(scenario, bounds.get(), "$prefix-early.png")
@@ -116,6 +120,31 @@ class SearchVisibleMotionInstrumentedTest {
                     listOf(off, early, later, reducedFrame, disabledAgain).forEach(Bitmap::recycle)
                 }
             }
+        }
+    }
+
+    /**
+     * Waits [motionMs] for the motion a switch starts, then captures until two frames in a row
+     * match within [STILL], for up to [motionMs] more, and returns the later one. A field that
+     * is still moving by then fails here rather than as a decoration one of the switches left.
+     */
+    private fun captureStill(
+        scenario: ActivityScenario<MainActivity>,
+        bounds: Rect,
+        name: String,
+        motionMs: Long,
+    ): Bitmap {
+        SystemClock.sleep(motionMs)
+        val deadline = SystemClock.uptimeMillis() + motionMs
+        var previous = capture(scenario, bounds, name)
+        while (true) {
+            SystemClock.sleep(50)
+            val frame = capture(scenario, bounds, name)
+            val still = difference(previous, frame) < STILL
+            previous.recycle()
+            if (still) return frame
+            assertTrue("$name never settled with every motion off", SystemClock.uptimeMillis() < deadline)
+            previous = frame
         }
     }
 

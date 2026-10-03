@@ -79,10 +79,40 @@ all code and package it ("合并所有代码打包"). Asked what "all" covers, t
   features. Server-side parts of #211 (the TMDB proxy route, signing in to the television with the
   phone) need a watchTogetherServer deployment, which this delivery does not include; without it the
   app reads TMDB directly with the built-in token, as before.
-- Pending:
-  - the phone and TV quality gates on the merge commit;
-  - production signing, the signed-APK startup smoke on Android 35–37, and reading the final APK's
-    package name, version, size, SHA-256 and signing certificate.
+## After the merge
+
+PR #213 was merged as `2ef2c00a9bfcebcadb08fa2cc4be859b8a4be639` with `[artifact only]`, and the
+push started packaging run [37122566505](https://github.com/zhuiyun/Yfuse/actions/runs/37122566505).
+No APK came out of it, and nothing was published.
+
+- TV quality gates [37122566224](https://github.com/zhuiyun/Yfuse/actions/runs/37122566224), YCore
+  [37122566221](https://github.com/zhuiyun/Yfuse/actions/runs/37122566221), CodeQL
+  [37122566233](https://github.com/zhuiyun/Yfuse/actions/runs/37122566233) and the Dolby validation
+  [37122566239](https://github.com/zhuiyun/Yfuse/actions/runs/37122566239) passed on the merge commit.
+- Phone quality gates [37122566259](https://github.com/zhuiyun/Yfuse/actions/runs/37122566259): every
+  job passed except the instrumented tests, where `SearchVisibleMotionInstrumentedTest` failed with
+  "Reduced motion left an animated decoration" (58 run, 1 failed, 3 skipped). The packaging run's
+  gate therefore refused the commit before signing.
+  - Cause, in the test: each iteration switches the theme, slept 150 ms and captured the still field
+    that every later frame is compared with. Every glass plate crossfades its fill and edge for
+    `Motion.THEME_CROSSFADE` (380 ms), so in the dark iteration that reference could hold part of the
+    light plate. With 减少动态效果 on the field draws no highlight at all, so no settled frame could
+    match it. The same tree had passed on `f97d34b3` and `317593fe`, and the test failed the same way
+    once before, on `2e546697`.
+  - The failed job was re-run once (attempt 2) and passed. The test now captures the still field
+    after the crossfade.
+- Packaging run, attempt 2: the gate passed and the build job's release APK (attempt 1, with the
+  DEX check passing) was signed with the production key, but "Verify APK metadata and signing
+  certificate" refused it. #211's split workflow reads the certificate only from a
+  `Signer #1 certificate SHA-256 digest:` line; the runner's newest apksigner prints the signer per
+  scheme, `V2 Signer: certificate SHA-256 digest: 373e36d3…e7be3e84`, which is the pinned
+  certificate. The check found no digest and failed closed; the smoke test and deployment were
+  skipped. `signature-full.txt` here is that output, and `test_publish_job_split.py` now checks both
+  formats. The check also refuses any second certificate digest, under either name.
+- Next: a package-only run (`publish=false`) of the follow-up's merge commit, version unchanged at
+  1.0.99 (261) as a retry of this delivery. Still pending: production signing, the signed-APK
+  startup smoke on Android 35–37, and reading the final APK's package name, version, size, SHA-256
+  and signing certificate.
 
 Package-only delivery is intended. Do not publish an application update, create a release or
 deploy a service as part of this build.
