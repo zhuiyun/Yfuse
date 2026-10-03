@@ -763,6 +763,8 @@ private fun EpisodeCard(
                 shape = AppShapes.thumb,
                 progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
                 modifier = Modifier.fillMaxSize(),
+                // An upright still, or the series poster standing in for one, is shown whole.
+                fitNarrow = true,
             )
             if (episode.played) {
                 EpisodeWatchedBadge(

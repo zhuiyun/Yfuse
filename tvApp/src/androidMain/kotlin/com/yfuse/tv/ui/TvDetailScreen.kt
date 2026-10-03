@@ -733,6 +733,11 @@ private fun TvEpisodeRow(
     val episodeScope = "detail:${detail.id}:episodes"
     // A server can list an episode twice, and a lazy row throws on a repeated key.
     val shown = episodes.distinctBy(Episode::id)
+    // An episode without a still shows the series poster rather than a blank card.
+    val seriesPosterUrl =
+        remember(detail, baseUrl, accessToken) {
+            EmbyImages.poster(baseUrl, detail, accessToken = accessToken)
+        }
     // Kept for the way back from the player. Another season's list starts at the episode picked,
     // or its first: the last season's position carried over opened a shorter season at its tail,
     // and ↓ from the seasons landed on a late episode.
@@ -901,6 +906,7 @@ private fun TvEpisodeRow(
                                     maxHeight = 300,
                                     accessToken = accessToken,
                                 ),
+                            imageFallbackUrls = listOf(seriesPosterUrl),
                             serverId = serverId,
                             profileId = profileId,
                             progress = episode.playedPercentage?.div(100.0)?.toFloat(),

@@ -239,6 +239,7 @@ private fun EpisodeStripCard(
                 urls = episode.artworkUrls(),
                 contentDescription = episode.title,
                 modifier = Modifier.fillMaxWidth().height(79.dp),
+                fitNarrow = true,
             )
             if (current) {
                 // The current card is named rather than only outlined: an outline on a

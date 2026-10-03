@@ -399,6 +399,7 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         posterTag = if (useSeriesPoster) SeriesPrimaryImageTag else ImageTags?.get("Primary"),
         backdropItemId = if (ownBackdrop != null) Id else ParentBackdropItemId ?: SeriesId ?: Id,
         backdropTag = ownBackdrop ?: inheritedBackdrop,
+        stillTag = if (isEpisode) ImageTags?.get("Primary") else null,
         playedPercentage = UserData?.PlayedPercentage,
         resumePositionTicks = UserData?.PlaybackPositionTicks,
         lastPlayedDate = UserData?.LastPlayedDate,

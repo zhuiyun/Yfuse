@@ -519,6 +519,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                                             item.id,
                                                         ),
                                                     modifier = Modifier.fillMaxWidth().aspectRatio(POSTER_RATIO),
+                                                    fitNarrow = true,
                                                 )
                                             }
                                             if (state.containerKind != null) {

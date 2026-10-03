@@ -410,6 +410,7 @@ private fun ProgressEpisodeRow(
                 shape = AppShapes.thumb,
                 progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
                 contentDescription = null,
+                fitNarrow = true,
                 modifier = Modifier.fillMaxSize(),
             )
             if (selected) {

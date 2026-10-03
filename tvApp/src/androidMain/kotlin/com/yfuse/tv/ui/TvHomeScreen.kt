@@ -426,9 +426,12 @@ private fun HomeResumeEntry.toTvCard(
         stableId = "$prefix:${server.kind.name.lowercase()}:${server.id}:${item.id}",
         title = item.title,
         subtitle = item.subtitle ?: item.runtimeMinutes?.let { "$it 分钟" },
-        imageUrl =
-            EmbyImages.backdrop(server.baseUrl, item, accessToken = server.accessToken)
-                ?: EmbyImages.poster(server.baseUrl, item, accessToken = server.accessToken),
+        imageUrl = EmbyImages.backdrop(server.baseUrl, item, accessToken = server.accessToken),
+        imageFallbackUrls =
+            listOf(
+                EmbyImages.still(server.baseUrl, item, accessToken = server.accessToken),
+                EmbyImages.poster(server.baseUrl, item, accessToken = server.accessToken),
+            ),
         serverId = server.id,
         profileId = server.userId,
         progress = item.playedPercentage?.div(100.0)?.toFloat(),

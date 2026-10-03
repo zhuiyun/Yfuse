@@ -1494,12 +1494,18 @@ private fun ContinueWatchingCard(
                     maxWidth = 480,
                     accessToken = entry.server.accessToken,
                 ),
-            fallbackUrl =
-                EmbyImages.poster(
-                    entry.server.baseUrl,
-                    item,
-                    accessToken = entry.server.accessToken,
+            // An episode without a backdrop shows its own still before the series poster: an upright
+            // 短剧 has rarely any backdrop, and its poster cropped to this card was a band of it.
+            fallbackUrl = EmbyImages.still(entry.server.baseUrl, item, accessToken = entry.server.accessToken),
+            fallbackUrls =
+                listOfNotNull(
+                    EmbyImages.poster(
+                        entry.server.baseUrl,
+                        item,
+                        accessToken = entry.server.accessToken,
+                    ),
                 ),
+            fitNarrow = true,
             rating = item.communityRating,
             progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
             contentDescription = "$shelfTitle ${item.title}${item.subtitle?.let { "，$it" }.orEmpty()}",

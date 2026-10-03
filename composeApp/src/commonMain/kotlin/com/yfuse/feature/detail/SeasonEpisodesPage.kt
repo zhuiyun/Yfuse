@@ -616,6 +616,7 @@ private fun EpisodeRow(
                 shape = AppShapes.thumb,
                 progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
                 modifier = Modifier.fillMaxSize(),
+                fitNarrow = true,
             )
             // Watched and part-watched are different states and only one of them has a
             // number: a check for "done", the time left for "you stopped here".
