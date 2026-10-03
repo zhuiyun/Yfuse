@@ -1,9 +1,9 @@
 name: Diagnose release DEX verification
 
-# Temporary: the packaged 1.0.97 (259) APK's player crashed with VerifyError. Rebuilds this source,
-# checks the phone and TV R8 packages, captures the exact input AGP gives R8, replays it with newer
-# R8 releases and checks every result. In parallel, builds with R8 9.1.56 pinned over AGP's 9.1.31
-# and lets ART on an emulator verify that phone package.
+# Temporary: R8 9.1.31 through 9.4.20 all compile PlayerRootKt.PlayerRoot$lambda$152 into code ART
+# rejects (a captured parameter's low-register copy is overwritten while another lambda's
+# arguments are staged). Builds two variants of PlayerRoot.kt that stop reading that parameter
+# late in the lambda, checks each package, and lets ART on an Android 16 emulator verify them.
 
 on:
   push:
@@ -21,100 +21,14 @@ permissions:
   actions: read
 
 jobs:
-  r8:
-    name: Replay this build's R8 input with newer R8 releases
-    runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - name: Set up Java
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
-      - name: Install Android 37.0 and native build tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
-          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
-          if [[ ! -x "$sdkmanager" ]]; then sdkmanager="$(find "$android_sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"; fi
-          test -x "$sdkmanager"
-          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$sdkmanager" "platforms;android-37.0" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.22.1"
-      - name: Download player engines
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! command -v 7z >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
-          chmod +x gradlew scripts/fetch-engines.sh
-          scripts/fetch-engines.sh
-      - name: Build and install current YCore runtime
-        uses: ./.github/actions/build-current-ycore
-      - name: Build the R8 release packages
-        run: ./gradlew :composeApp:assembleRelease :tvApp:assembleRelease -PallowDebugSigning=true --no-daemon
-      - name: Check the packages AGP built
-        shell: bash
-        run: |
-          for apk in composeApp/build/outputs/apk/release/composeApp-release.apk tvApp/build/outputs/apk/release/tvApp-release.apk; do
-            scripts/verify-release-dex.sh "$apk" || echo "::warning::$apk has findings"
-          done
-      # R8 dumps only into an existing directory, and only R8 should dump: D8 runs for lint too.
-      - name: Dump R8's input
-        env:
-          JAVA_TOOL_OPTIONS: -Dcom.android.tools.r8.dumpinputtodirectory=${{ github.workspace }}/build/r8-dump
-        run: |
-          mkdir -p build/r8-dump
-          ./gradlew :composeApp:minifyReleaseWithR8 --rerun -PallowDebugSigning=true --no-daemon
-      - name: Keep R8's input for later replays
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: r8-dump-${{ github.run_id }}
-          path: build/r8-dump/
-          if-no-files-found: error
-          retention-days: 3
-          compression-level: 0
-      - name: Replay R8's input with other R8 releases
-        shell: bash
-        run: |
-          set -uo pipefail
-          dump=""
-          best=0
-          for candidate in build/r8-dump/*.zip; do
-            unzip -p "$candidate" build.properties | grep -qx 'tool=R8' || continue
-            size="$(unzip -l "$candidate" program.jar | awk 'NR == 4 { print $1 }')"
-            echo "$candidate: R8 $(unzip -p "$candidate" r8-version | cut -d' ' -f1), program.jar $size bytes"
-            if (( size > best )); then best="$size"; dump="$candidate"; fi
-          done
-          [[ -n "$dump" ]] || { echo "::error::R8 wrote no dump"; exit 1; }
-          unzip -p "$dump" build.properties
-          mkdir -p build/r8
-          releases=(
-            "9.1.31 3b4de3053885da105e39c15212261d22653d6d1b5eb92323dd04ae913cc8286f"
-            "9.1.56 79580bc35617d5c60d417957c06bc337bae6cba55072d567a3fb7bb4d2a5dd56"
-            "9.2.38 f1b5d437d7da7bd3a1341777d04812a20ebd98b7f63f1110789dd05fd5da27e1"
-            "9.3.31 29677b994a40668b97155a65628afd953f72571a8100bfa7296b4c5bcc79676c"
-            "9.4.20 4e7dbcd64cce11b62e7d89ec8e855df2fb6f04f1fc4635b23d28a652f9ad334b"
-          )
-          for release in "${releases[@]}"; do
-            read -r version sha256 <<<"$release"
-            echo "===== R8 $version"
-            jar="build/r8/r8-$version.jar"
-            curl -fsSL --retry 3 --proto '=https' -o "$jar" "https://storage.googleapis.com/r8-releases/raw/$version/r8lib.jar"
-            echo "$sha256  $jar" | sha256sum -c - || continue
-            python3 scripts/diagnostics/replay_r8_dump.py --dump "$dump" --r8 "$jar" --output-dir "build/r8/$version" \
-              --locate com/yfuse/feature/player/PlayerRootKt || continue
-            scripts/verify-release-dex.sh build/r8/"$version"/*.zip || echo "::warning::R8 $version output has findings"
-          done
-
-  pinned:
-    name: Build with R8 9.1.56 pinned over AGP's 9.1.31
+  variant:
+    name: PlayerRoot variant ${{ matrix.variant }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [local, state]
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -145,58 +59,64 @@ jobs:
           scripts/fetch-engines.sh
       - name: Build and install current YCore runtime
         uses: ./.github/actions/build-current-ycore
-      - name: Pin R8 9.1.56 in the root build script
+      - name: Apply the variant
+        run: |
+          python3 scripts/diagnostics/variants/apply_variant.py ${{ matrix.variant }}
+          git diff
+      - name: Build the R8 release package
+        run: ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true --no-daemon
+      - name: Keep the package for the emulator
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: variant-${{ matrix.variant }}-${{ github.run_id }}
+          path: composeApp/build/outputs/apk/release/composeApp-release.apk
+          if-no-files-found: error
+          retention-days: 3
+      - name: Fetch baksmali
         shell: bash
         run: |
           set -euo pipefail
-          {
-            cat <<'KTS'
-          buildscript {
-              repositories {
-                  google {
-                      content { includeGroup("com.android.tools") }
-                  }
-              }
-              dependencies {
-                  classpath("com.android.tools:r8:9.1.56")
-              }
-          }
-
-          KTS
-            cat build.gradle.kts
-          } > build.gradle.kts.pinned
-          mv build.gradle.kts.pinned build.gradle.kts
-          head -14 build.gradle.kts
-          ./gradlew buildEnvironment --no-daemon | grep -E 'com\.android\.tools:r8|com\.android\.tools\.build:gradle:' | sort -u || true
-      - name: Build the R8 release packages
-        run: ./gradlew :composeApp:assembleRelease :tvApp:assembleRelease -PallowDebugSigning=true --no-daemon
-      - name: Check the packages
-        run: |
-          scripts/verify-release-dex.sh \
-            composeApp/build/outputs/apk/release/composeApp-release.apk \
-            tvApp/build/outputs/apk/release/tvApp-release.apk
-      - name: Keep the phone package for the emulator
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: r8-9.1.56-release-${{ github.run_id }}
-          path: composeApp/build/outputs/apk/release/composeApp-release.apk
-          if-no-files-found: warn
-          retention-days: 3
+          tools=build/dex-verify-tools
+          mkdir -p "$tools"
+          while read -r path sha256; do
+            jar="$tools/${path##*/}"
+            curl -fsSL --retry 3 --proto '=https' -o "$jar" "https://repo1.maven.org/maven2/$path"
+            echo "$sha256  $jar" | sha256sum -c -
+          done <<'EOF'
+          org/smali/baksmali/2.5.2/baksmali-2.5.2.jar 1ed236266d7dc4907aade0b19a34f77efac25342b63c8ace52e579039941b389
+          org/smali/util/2.5.2/util-2.5.2.jar 4f580a9cff3ebb83cb3fd20bec88e37e4f183796ca652732992611620282daea
+          com/beust/jcommander/1.64/jcommander-1.64.jar 156be736199c990321d9ff77090b199629cfc9865e2d6c13f7cd291bb1641817
+          org/smali/dexlib2/2.5.2/dexlib2-2.5.2.jar 5a5c8982d8bd7d6e3bb1a0713049e3c78b719ec32b20f6b619885cec30a0dd61
+          com/google/guava/guava/27.1-android/guava-27.1-android.jar 686404f2d1d4d221911f96bd627ff60dac2226a5dfa6fb8ba517073eb97ec0ef
+          com/google/guava/failureaccess/1.0.1/failureaccess-1.0.1.jar a171ee4c734dd2da837e4b16be9df4661afab72a41adaf31eb84dfdaf936ca26
+          EOF
+          echo "BAKSMALI_CP=$(ls "$PWD"/$tools/*.jar | tr '\n' ':')" >> "$GITHUB_ENV"
+      - name: Size of PlayerRootKt's largest methods
+        run: >-
+          python3 scripts/diagnostics/inspect_dex_method.py --baksmali-classpath "$BAKSMALI_CP"
+          --apk composeApp/build/outputs/apk/release/composeApp-release.apk
+          --class 'Lcom/yfuse/feature/player/PlayerRootKt;'
+      - name: Reject DEX code ART would not verify
+        run: scripts/verify-release-dex.sh composeApp/build/outputs/apk/release/composeApp-release.apk
 
   art:
-    name: ART verification of the pinned build on Android 36
-    needs: pinned
+    name: ART verification of variant ${{ matrix.variant }} on Android 36
+    needs: variant
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [local, state]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: r8-9.1.56-release-${{ github.run_id }}
-          path: apk/pinned
+          name: variant-${{ matrix.variant }}-${{ github.run_id }}
+          path: apk/${{ matrix.variant }}
       - name: Enable hardware acceleration
         shell: bash
         run: |
@@ -215,4 +135,4 @@ jobs:
           disk-size: 4096M
           emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
-          script: bash scripts/diagnostics/art_verify_on_emulator.sh artifacts/art-verify apk/pinned/composeApp-release.apk
+          script: bash scripts/diagnostics/art_verify_on_emulator.sh artifacts/art-verify apk/${{ matrix.variant }}/composeApp-release.apk
