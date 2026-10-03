@@ -2,7 +2,8 @@ name: Diagnose release DEX verification
 
 # Temporary: the packaged 1.0.97 (259) APK's player crashed with VerifyError. Rebuilds this source,
 # checks the phone and TV R8 packages, captures the exact input AGP gives R8, replays it with newer
-# R8 releases and checks every result.
+# R8 releases and checks every result. In parallel, builds with R8 9.1.56 pinned over AGP's 9.1.31
+# and lets ART on an emulator verify that phone package.
 
 on:
   push:
@@ -69,6 +70,14 @@ jobs:
         run: |
           mkdir -p build/r8-dump
           ./gradlew :composeApp:minifyReleaseWithR8 --rerun -PallowDebugSigning=true --no-daemon
+      - name: Keep R8's input for later replays
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: r8-dump-${{ github.run_id }}
+          path: build/r8-dump/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
       - name: Replay R8's input with other R8 releases
         shell: bash
         run: |
@@ -97,6 +106,113 @@ jobs:
             jar="build/r8/r8-$version.jar"
             curl -fsSL --retry 3 --proto '=https' -o "$jar" "https://storage.googleapis.com/r8-releases/raw/$version/r8lib.jar"
             echo "$sha256  $jar" | sha256sum -c - || continue
-            python3 scripts/diagnostics/replay_r8_dump.py --dump "$dump" --r8 "$jar" --output "build/r8/$version.zip" || continue
-            scripts/verify-release-dex.sh "build/r8/$version.zip" || echo "::warning::R8 $version output has findings"
+            python3 scripts/diagnostics/replay_r8_dump.py --dump "$dump" --r8 "$jar" --output-dir "build/r8/$version" \
+              --locate com/yfuse/feature/player/PlayerRootKt || continue
+            scripts/verify-release-dex.sh build/r8/"$version"/*.zip || echo "::warning::R8 $version output has findings"
           done
+
+  pinned:
+    name: Build with R8 9.1.56 pinned over AGP's 9.1.31
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - name: Install Android 37.0 and native build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then sdkmanager="$(find "$android_sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"; fi
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-37.0" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.22.1"
+      - name: Download player engines
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+      - name: Build and install current YCore runtime
+        uses: ./.github/actions/build-current-ycore
+      - name: Pin R8 9.1.56 in the root build script
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            cat <<'KTS'
+          buildscript {
+              repositories {
+                  google {
+                      content { includeGroup("com.android.tools") }
+                  }
+              }
+              dependencies {
+                  classpath("com.android.tools:r8:9.1.56")
+              }
+          }
+
+          KTS
+            cat build.gradle.kts
+          } > build.gradle.kts.pinned
+          mv build.gradle.kts.pinned build.gradle.kts
+          head -14 build.gradle.kts
+          ./gradlew buildEnvironment --no-daemon | grep -E 'com\.android\.tools:r8|com\.android\.tools\.build:gradle:' | sort -u || true
+      - name: Build the R8 release packages
+        run: ./gradlew :composeApp:assembleRelease :tvApp:assembleRelease -PallowDebugSigning=true --no-daemon
+      - name: Check the packages
+        run: |
+          scripts/verify-release-dex.sh \
+            composeApp/build/outputs/apk/release/composeApp-release.apk \
+            tvApp/build/outputs/apk/release/tvApp-release.apk
+      - name: Keep the phone package for the emulator
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: r8-9.1.56-release-${{ github.run_id }}
+          path: composeApp/build/outputs/apk/release/composeApp-release.apk
+          if-no-files-found: warn
+          retention-days: 3
+
+  art:
+    name: ART verification of the pinned build on Android 36
+    needs: pinned
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: r8-9.1.56-release-${{ github.run_id }}
+          path: apk/pinned
+      - name: Enable hardware acceleration
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify the package with ART
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          disk-size: 4096M
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          script: bash scripts/diagnostics/art_verify_on_emulator.sh artifacts/art-verify apk/pinned/composeApp-release.apk

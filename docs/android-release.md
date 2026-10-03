@@ -417,6 +417,24 @@ It prints the rejected instruction with the type of each operand, the instructio
 every definition of the register that reaches it, and the fields and methods of the classes named
 with `--describe`.
 
+To see whether another R8 release compiles the same input correctly, make R8 dump its input and
+replay the dump. R8 dumps only into a directory that exists, and the property must not be set for
+the whole build, because AGP also runs D8 for lint:
+
+```bash
+./gradlew :composeApp:assembleRelease -PallowDebugSigning=true
+mkdir -p build/r8-dump
+JAVA_TOOL_OPTIONS=-Dcom.android.tools.r8.dumpinputtodirectory=$PWD/build/r8-dump \
+  ./gradlew :composeApp:minifyReleaseWithR8 --rerun -PallowDebugSigning=true --no-daemon
+curl -fsSLo r8.jar https://storage.googleapis.com/r8-releases/raw/<version>/r8lib.jar
+python3 scripts/diagnostics/replay_r8_dump.py --dump build/r8-dump/<dump>.zip --r8 r8.jar --output out.zip
+scripts/verify-release-dex.sh out.zip
+```
+
+`scripts/diagnostics/art_verify_on_emulator.sh <output-dir> <apk>...` installs each APK on a
+running emulator and lets ART verify every class from scratch; it fails when dex2oat rejects a
+method.
+
 ## APK size
 
 The build is already configured for a small package: R8 with resource
