@@ -124,7 +124,10 @@ jobs:
 
       - name: Reject DEX code ART would not verify
         if: github.ref != 'refs/heads/codex/ycore-sign-20260830'
-        run: scripts/verify-release-dex.sh tvApp/build/outputs/apk/release/tvApp-release.apk
+        run: >-
+          scripts/verify-release-dex.sh
+          --mapping tvApp/build/outputs/mapping/release/mapping.txt
+          tvApp/build/outputs/apk/release/tvApp-release.apk
 
       - name: Verify packaged TV contract
         if: github.ref != 'refs/heads/codex/ycore-sign-20260830'
