@@ -198,6 +198,9 @@ internal fun gestureHudLine(
  */
 private val GestureHudBelowCentreKeys = CenterKeySize / 2 + 32.dp
 
+/** The narrowest band along each side that keeps brightness and volume under an upright 短剧. */
+private val EpisodeSwipeEdge = 56.dp
+
 /**
  * Which way a drag across the picture goes: sideways to seek, up and down for brightness or volume.
  * Decided once, by the way the finger went to get past touch slop, and kept until it lets go.
@@ -490,6 +493,13 @@ internal fun PlayerControls(
     val latestVolume by rememberUpdatedState(volume)
     val latestBrightness by rememberUpdatedState(brightness)
     val latestOnSeek by rememberUpdatedState(onSeek)
+    // 短剧: an upright picture in an upright phone window is flicked through like a feed — up for
+    // the next episode, down for the one before — while the sides keep brightness and volume.
+    val episodeSwipeWindow = rememberUprightPhoneWindow()
+    val episodeSwipe = episodeSwipeWindow && state.decodedPortraitPicture() == true && state.itemCount > 1
+    val latestEpisodeSwipe by rememberUpdatedState(episodeSwipe)
+    val latestOnNextItem by rememberUpdatedState(onNextItem)
+    val latestOnPreviousItem by rememberUpdatedState(onPreviousItem)
     val latestOnPlayPause by rememberUpdatedState(onPlayPause)
     val latestOnVolume by rememberUpdatedState(onVolume)
     val latestOnBrightness by rememberUpdatedState(onBrightness)
@@ -1338,6 +1348,9 @@ internal fun PlayerControls(
                     var seekTarget = latestPosition
                     var volumeAtDragStart = latestVolume()
                     var brightnessAtDragStart = latestBrightness()
+                    // Down the middle of an upright 短剧, up and down change episode instead.
+                    var changesEpisode = false
+                    var episodeArmed = EpisodeSwipe.None
                     val axis = PictureDragAxis()
                     detectPlayerDragGestures(
                         canStart = { origin ->
@@ -1353,6 +1366,10 @@ internal fun PlayerControls(
                             seekTarget = latestPosition
                             volumeAtDragStart = latestVolume()
                             brightnessAtDragStart = latestBrightness()
+                            changesEpisode =
+                                latestEpisodeSwipe &&
+                                inEpisodeSwipeBand(offset.x, size.width.toFloat(), EpisodeSwipeEdge.toPx())
+                            episodeArmed = EpisodeSwipe.None
                         },
                         onDragEnd = {
                             pictureScrubMs = null
@@ -1365,6 +1382,21 @@ internal fun PlayerControls(
                                     state.error == null
                                 ) {
                                     latestOnSeek(seekTarget)
+                                }
+                                if (
+                                    changesEpisode &&
+                                    axis.sideways == false &&
+                                    !latestWatchLocked &&
+                                    state.error == null
+                                ) {
+                                    val live = playback.value
+                                    when (episodeSwipe(totalY, size.height.toFloat(), live.hasNext, live.hasPrevious)) {
+                                        EpisodeSwipe.Next -> latestOnNextItem()
+                                        EpisodeSwipe.Previous -> latestOnPreviousItem()
+                                        EpisodeSwipe.None -> Unit
+                                    }
+                                    gestureHud = null
+                                    tips?.markUsed(Tips.SHORT_DRAMA_SWIPE)
                                 }
                                 poke()
                             }
@@ -1399,6 +1431,26 @@ internal fun PlayerControls(
                             val sign = if (delta < 0L) "-" else "+"
                             gestureHud = "$sign${abs(delta).asClock()} · ${seekTarget.asClock()} / ${span.asClock()}"
                             pictureScrubMs = seekTarget
+                        } else if (changesEpisode) {
+                            pictureScrubMs = null
+                            if (latestWatchLocked) {
+                                gestureHud = "房主控制播放"
+                                return@detectPlayerDragGestures
+                            }
+                            val live = playback.value
+                            val armed = episodeSwipe(totalY, size.height.toFloat(), live.hasNext, live.hasPrevious)
+                            if (armed != episodeArmed && armed != EpisodeSwipe.None) {
+                                haptics.play(HapticSignal.Threshold)
+                            }
+                            episodeArmed = armed
+                            gestureHud =
+                                when {
+                                    armed == EpisodeSwipe.Next -> "松手播放下一集"
+                                    armed == EpisodeSwipe.Previous -> "松手回到上一集"
+                                    totalY < 0f && !live.hasNext -> "已是最后一集"
+                                    totalY > 0f && !live.hasPrevious -> "已是第一集"
+                                    else -> null
+                                }
                         } else {
                             pictureScrubMs = null
                             val delta = -totalY / size.height
@@ -2239,6 +2291,12 @@ internal fun PlayerControls(
                             state.durationMs > 0L &&
                             !watch.connected &&
                             castingDeviceId == null,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 88.dp),
+                )
+                ContextualTip(
+                    id = Tips.SHORT_DRAMA_SWIPE,
+                    text = "上滑看下一集，下滑回上一集；两侧边缘上下滑仍调亮度和音量",
+                    active = visible && episodeSwipe && !watchLocked && castingDeviceId == null,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 88.dp),
                 )
                 ContextualTip(

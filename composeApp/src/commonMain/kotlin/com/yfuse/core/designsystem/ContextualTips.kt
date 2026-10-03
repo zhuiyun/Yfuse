@@ -46,6 +46,9 @@ object Tips {
     /** Scrubbing finer by moving up off the progress bar. */
     const val FINE_SCRUB = "tip.player.fineScrub"
 
+    /** Swiping up and down an upright 短剧 to change episode. */
+    const val SHORT_DRAMA_SWIPE = "tip.player.shortDramaSwipe"
+
     /** Swiping a row for its actions. */
     const val SWIPE_ROW = "tip.swipeRow"
 
