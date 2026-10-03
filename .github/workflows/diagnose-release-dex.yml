@@ -62,12 +62,13 @@ jobs:
           for apk in composeApp/build/outputs/apk/release/composeApp-release.apk tvApp/build/outputs/apk/release/tvApp-release.apk; do
             scripts/verify-release-dex.sh "$apk" || echo "::warning::$apk has findings"
           done
-      # Only R8 itself may dump: with the property set for the whole build, AGP's D8 helper for
-      # lint tries to dump as well and fails, so the R8 task alone runs again with it.
+      # R8 dumps only into an existing directory, and only R8 should dump: D8 runs for lint too.
       - name: Dump R8's input
         env:
           JAVA_TOOL_OPTIONS: -Dcom.android.tools.r8.dumpinputtodirectory=${{ github.workspace }}/build/r8-dump
-        run: ./gradlew :composeApp:minifyReleaseWithR8 --rerun -PallowDebugSigning=true --no-daemon
+        run: |
+          mkdir -p build/r8-dump
+          ./gradlew :composeApp:minifyReleaseWithR8 --rerun -PallowDebugSigning=true --no-daemon
       - name: Replay R8's input with other R8 releases
         shell: bash
         run: |
