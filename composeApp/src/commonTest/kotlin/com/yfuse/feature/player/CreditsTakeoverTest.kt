@@ -48,6 +48,28 @@ class CreditsTakeoverTest {
     }
 
     @Test
+    fun a_short_episode_or_an_upright_picture_keeps_the_whole_frame() {
+        val episode = 180_000L
+        val shortCredits = PlaybackSegment(PlaybackSegmentType.Credits, startMs = 150_000L, endMs = null)
+        assertEquals(
+            CreditsTakeoverPhase.Off,
+            creditsTakeoverPhase(160_000L, episode, shortCredits, hasNext = true, finished = false, blocked = false),
+        )
+        assertEquals(
+            CreditsTakeoverPhase.Off,
+            creditsTakeoverPhase(
+                1_420_000L,
+                duration,
+                credits,
+                hasNext = true,
+                finished = false,
+                blocked = false,
+                uprightPicture = true,
+            ),
+        )
+    }
+
+    @Test
     fun short_credits_are_left_to_the_ordinary_card() {
         val short = PlaybackSegment(PlaybackSegmentType.Credits, startMs = 1_492_000L, endMs = null)
         assertEquals(CreditsTakeoverPhase.Off, phase(1_495_000L, credits = short))

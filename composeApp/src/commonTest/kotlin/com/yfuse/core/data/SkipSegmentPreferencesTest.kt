@@ -159,4 +159,25 @@ class SkipSegmentPreferencesTest {
     fun a_fresh_install_offers_the_button_rather_than_moving_the_playhead() {
         assertEquals(SkipMode.Button, SkipSegmentPreferences(MapSettings()).skipMode.value)
     }
+
+    @Test
+    fun a_series_keeps_its_own_skip_mode_and_its_times_alongside() {
+        val settings = MapSettings()
+        val prefs = SkipSegmentPreferences(settings)
+        prefs.setSkipMode(SkipMode.Button)
+        prefs.setSeriesMode("drama", SkipMode.Auto, "短剧")
+
+        assertEquals(SkipMode.Auto, prefs.modeFor("drama"))
+        assertEquals(SkipMode.Button, prefs.modeFor("other"))
+        // A mode alone is an entry worth keeping, and it survives a restart.
+        assertEquals(SkipMode.Auto, SkipSegmentPreferences(settings).modeFor("drama"))
+
+        prefs.set("drama", SkipTimes(introEndSeconds = 5, seriesName = "短剧", mode = SkipMode.Auto))
+        prefs.setSeriesMode("drama", null)
+        assertEquals(SkipMode.Button, prefs.modeFor("drama"))
+        assertEquals(5L, prefs.timesFor("drama")?.introEndSeconds)
+
+        prefs.set("drama", SkipTimes(seriesName = "短剧"))
+        assertNull(prefs.timesFor("drama"))
+    }
 }

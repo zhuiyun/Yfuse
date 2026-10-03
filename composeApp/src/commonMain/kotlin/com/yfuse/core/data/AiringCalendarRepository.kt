@@ -1063,6 +1063,24 @@ class AiringCalendarRepository(
             }
         val titleIndex = catalog.groupBy { normalizeIdentityTitle(it.title) }
         val catalogItemIds = catalog.map(LibrarySeriesIdentity::itemId).toSet()
+        val catalogTmdbIds =
+            catalog
+                .mapNotNull { series -> series.providerIds.tmdbProviderId()?.let { series.itemId to it } }
+                .toMap()
+        val premiereYears =
+            episodes
+                .asSequence()
+                .filterNot(AiringEpisode::isMovie)
+                .map(AiringEpisode::showTmdbId)
+                .distinct()
+                .associateWith { tmdbId ->
+                    officialSchedules.premiereYear(tmdbId)
+                        ?: episodes
+                            .firstOrNull { it.showTmdbId == tmdbId && it.seasonNumber == 1 && it.episodeNumber == 1 }
+                            ?.airDate
+                            ?.take(4)
+                            ?.toIntOrNull()
+                }
         val persistedBindings =
             calendarAttempt {
                 localStore.readBindings(
@@ -1089,29 +1107,43 @@ class AiringCalendarRepository(
         val filmIndex = filmIndexResult.getOrDefault(emptyMap())
 
         fun seriesIdFor(episode: AiringEpisode): String? {
+            val tmdbId = episode.showTmdbId
+
+            // A binding to a series the server now names as another show is stale, unless the
+            // viewer gave the series this show themselves.
+            fun stillHolds(seriesId: String): Boolean {
+                if (!catalogVerified) return true
+                if (seriesId !in catalogItemIds) return false
+                val own = catalogTmdbIds[seriesId] ?: return true
+                return own == tmdbId || identityResolver.chosenByViewer(server.id, seriesId, tmdbId)
+            }
+            // Only a series the server has not identified is matched by its name, and only when
+            // its year agrees with the show's premiere: a 短剧 without a TMDB entry often shares
+            // its name with another show.
             val titleMatchedId =
                 titleIndex[normalizeIdentityTitle(episode.showTitle)]
                     ?.singleOrNull()
-                    ?.itemId
-            val persistedMappedId =
-                persistedBindings[episode.showTmdbId]
-                    ?.takeIf { !catalogVerified || it in catalogItemIds }
+                    ?.takeIf { series ->
+                        series.itemId !in catalogTmdbIds &&
+                            identityYearsAgree(series.year, premiereYears[tmdbId])
+                    }?.itemId
+            val persistedMappedId = persistedBindings[tmdbId]?.takeIf(::stillHolds)
             val mappedId =
                 identityResolver
-                    .mappedSeriesItemId(server.id, episode.showTmdbId)
+                    .mappedSeriesItemId(server.id, tmdbId)
                     ?.takeIf { libraryHint == null }
-            val validMappedId = mappedId?.takeIf { !catalogVerified || it in catalogItemIds }
-            if (catalogVerified && mappedId != null && validMappedId == null) {
-                identityResolver.forget(server.id, mappedId, episode.showTmdbId)
+            val validMappedId = mappedId?.takeIf(::stillHolds)
+            if (mappedId != null && validMappedId == null) {
+                identityResolver.forget(server.id, mappedId, tmdbId)
             }
             return libraryHint
-                ?.takeIf { it.showTmdbId == episode.showTmdbId }
+                ?.takeIf { it.showTmdbId == tmdbId }
                 ?.seriesItemId
-                ?: index["tmdb:${episode.showTmdbId}"]
+                ?: index["tmdb:$tmdbId"]
                 ?: persistedMappedId
                 ?: validMappedId
                 ?: titleMatchedId?.also {
-                    identityResolver.remember(server.id, it, episode.showTmdbId)
+                    identityResolver.rememberTitleMatch(server.id, it, tmdbId)
                 }
         }
 

@@ -73,7 +73,10 @@ internal class AmbientSamplingPolicy {
     }
 }
 
-/** Only visible top/bottom bars need fast sampling; side bars remain unlit. */
+/**
+ * Only visible lit bars need fast sampling: top and bottom, and the sides of an upright picture
+ * ([ambientLightsSideBars]); a landscape picture's side bars remain unlit.
+ */
 internal fun ambientLightHasVisibleBars(
     container: IntSize,
     picture: IntSize,
@@ -86,5 +89,9 @@ internal fun ambientLightHasVisibleBars(
         picture.height > 0 &&
         (
             (container.height - picture.height) / 2 + picture.height * inset.top > guardPx ||
-                (container.height - picture.height) / 2 + picture.height * inset.bottom > guardPx
+                (container.height - picture.height) / 2 + picture.height * inset.bottom > guardPx ||
+                (ambientLightsSideBars(picture) && (container.width - picture.width) / 2 > guardPx)
         )
+
+/** An upright picture — a 短剧 on a landscape screen — has its side bars lit as well. */
+internal fun ambientLightsSideBars(picture: IntSize): Boolean = picture.height > picture.width

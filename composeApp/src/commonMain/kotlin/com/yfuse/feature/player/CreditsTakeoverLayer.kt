@@ -64,6 +64,7 @@ internal fun rememberCreditsTakeoverPhase(
                 hasNext = live.hasNext,
                 finished = live.ended || live.error != null,
                 blocked = latestBlocked,
+                uprightPicture = live.decodedPortraitPicture() == true,
             )
         }
     }

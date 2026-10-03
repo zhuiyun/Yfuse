@@ -47,6 +47,10 @@ data class GridState(
     val genreLoadError: String? = null,
     /** The selected genre, or null for 全部. */
     val genre: String? = null,
+    /** Tags used in this library — 短剧, 甜宠 — offered after its genres in the same row. */
+    val tags: List<String> = emptyList(),
+    /** The selected tag; a tag and a genre are one choice in that row, so at most one is set. */
+    val tag: String? = null,
     val resolution: LibraryResolution = LibraryResolution.All,
     /** Hand-ordered playlist endpoints do not support Emby's IsHD filter. */
     val resolutionFilterable: Boolean = true,
@@ -116,6 +120,10 @@ sealed interface GridIntent {
     /** Null selects 全部. */
     data class SetGenre(
         val genre: String?,
+    ) : GridIntent
+
+    data class SetTag(
+        val tag: String,
     ) : GridIntent
 
     data class SetResolution(
@@ -197,6 +205,14 @@ private sealed interface GridMsg {
 
     data class GenresFailed(
         val message: String,
+    ) : GridMsg
+
+    data class TagsLoaded(
+        val values: List<String>,
+    ) : GridMsg
+
+    data class Tag(
+        val value: String,
     ) : GridMsg
 
     data class Sort(
@@ -327,8 +343,13 @@ class LibraryGridStoreFactory(
                 is GridIntent.SetPlayed -> setFlag(intent.itemId, played = intent.value)
                 is GridIntent.SetGenre -> {
                     if (containerKind == MediaContainerKind.Playlist) return
-                    if (intent.genre == state().genre) return
+                    if (intent.genre == state().genre && state().tag == null) return
                     dispatch(GridMsg.Genre(intent.genre))
+                    loadFirstPage()
+                }
+                is GridIntent.SetTag -> {
+                    if (containerKind != null || intent.tag == state().tag) return
+                    dispatch(GridMsg.Tag(intent.tag))
                     loadFirstPage()
                 }
                 is GridIntent.SetResolution -> {
@@ -338,7 +359,9 @@ class LibraryGridStoreFactory(
                     loadFirstPage()
                 }
                 GridIntent.ClearFilters -> {
-                    if (state().genre == null && state().resolution == LibraryResolution.All) return
+                    if (state().genre == null && state().tag == null && state().resolution == LibraryResolution.All) {
+                        return
+                    }
                     dispatch(GridMsg.FiltersCleared)
                     loadFirstPage()
                 }
@@ -463,6 +486,12 @@ class LibraryGridStoreFactory(
                         containerKind?.let { kind ->
                             repo.mediaContainerGenres(server, libraryId, kind)
                         } ?: repo.libraryGenres(server, libraryId)
+                    // A plain library's tags join its genres in the row; a collection has none to offer.
+                    if (containerKind == null) {
+                        launch {
+                            repo.libraryTags(server, libraryId).onSuccess { dispatch(GridMsg.TagsLoaded(it)) }
+                        }
+                    }
                     request
                         .onSuccess { genres ->
                             genresLoaded = true
@@ -496,6 +525,7 @@ class LibraryGridStoreFactory(
             }
             val sort = state().sort
             val genre = state().genre
+            val tag = state().tag
             pageJob =
                 scope.launch {
                     if (directoryKind != null) {
@@ -542,6 +572,7 @@ class LibraryGridStoreFactory(
                             limit = LIBRARY_PAGE_SIZE,
                             resolution = state().resolution,
                             unplayedOnly = state().unplayedOnly,
+                            tag = tag,
                         )
                     request
                         .onSuccess {
@@ -656,6 +687,7 @@ class LibraryGridStoreFactory(
                 limit = limit,
                 resolution = criteria.resolution,
                 unplayedOnly = criteria.unplayedOnly,
+                tag = criteria.tag,
             )
 
         private fun appendFailed(
@@ -818,6 +850,16 @@ class LibraryGridStoreFactory(
                 is GridMsg.Genre ->
                     copy(
                         genre = msg.value,
+                        tag = null,
+                        error = null,
+                        loadMoreError = null,
+                        retainingPreviousCriteria = true,
+                    )
+                is GridMsg.TagsLoaded -> copy(tags = msg.values)
+                is GridMsg.Tag ->
+                    copy(
+                        tag = msg.value,
+                        genre = null,
                         error = null,
                         loadMoreError = null,
                         retainingPreviousCriteria = true,
@@ -842,6 +884,7 @@ class LibraryGridStoreFactory(
                 GridMsg.FiltersCleared ->
                     copy(
                         genre = null,
+                        tag = null,
                         resolution = LibraryResolution.All,
                         error = null,
                         loadMoreError = null,

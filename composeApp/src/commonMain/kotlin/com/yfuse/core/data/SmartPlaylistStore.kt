@@ -1,6 +1,7 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
+import com.yfuse.core.model.LibrarySort
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
@@ -21,6 +22,40 @@ data class SmartPlaylist(
     val sort: String = "RecentlyAdded",
     val pinned: Boolean = true,
 )
+
+/** The library listing a pinned 智能片单 stands for, shown on 首页 as a poster rail. */
+data class SmartShelfQuery(
+    val serverId: String,
+    val libraryId: String,
+    val genre: String?,
+    val sort: LibrarySort,
+    val unplayedOnly: Boolean,
+)
+
+/**
+ * The listing this rule is, when it is no more than one library under a genre, an order and
+ * perhaps 未看: then 首页 can show it as posters rather than as a name to tap. A rule with words to
+ * search for, a year, a type or a watch status the listing cannot ask for stays a chip.
+ */
+fun SmartPlaylist.libraryShelf(): SmartShelfQuery? {
+    val server = serverId?.takeIf(String::isNotBlank) ?: return null
+    val library = libraryId?.takeIf(String::isNotBlank) ?: return null
+    if (query.isNotBlank() || year != null || type != "All") return null
+    val unplayedOnly =
+        when (watchStatus) {
+            "All" -> false
+            "Unplayed" -> true
+            else -> return null
+        }
+    val order =
+        when (sort) {
+            "YearNewest" -> LibrarySort.Year
+            "Rating" -> LibrarySort.Rating
+            "Name" -> LibrarySort.Name
+            else -> LibrarySort.RecentlyAdded
+        }
+    return SmartShelfQuery(server, library, genre?.takeIf(String::isNotBlank), order, unplayedOnly)
+}
 
 class SmartPlaylistStore(
     private val settings: Settings,

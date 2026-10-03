@@ -37,4 +37,9 @@ data class Episode(
     val trickplay: TrickplayInfo? = null,
     /** Exact Emby runtime retained for the player timeline before an engine reports duration. */
     val runtimeTicks: Long? = null,
+    /**
+     * Listed but not in the library: a missing or unaired episode the server shows when 显示缺失的
+     * 剧集 is on. There is nothing to play.
+     */
+    val missing: Boolean = false,
 )

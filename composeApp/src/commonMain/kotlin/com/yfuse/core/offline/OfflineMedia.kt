@@ -119,6 +119,11 @@ data class OfflineAutoDownloadRule(
     val updatedAtEpochMs: Long = 0L,
 )
 
+/**
+ * The new episodes a 追更 rule fetches, in watching order: a 短剧 that puts up eighty at once
+ * starts from the first of them, not the last ten. An episode the server only lists — one it
+ * does not have yet — waits until it does.
+ */
 internal fun selectNewAutoDownloadEpisodes(
     episodes: List<Episode>,
     knownEpisodeIds: Set<String>,
@@ -129,14 +134,61 @@ internal fun selectNewAutoDownloadEpisodes(
     val limit = itemLimit.coerceIn(1, MAX_AUTO_DOWNLOAD_ITEM_LIMIT)
     return episodes
         .asSequence()
-        .filterNot(Episode::played)
+        .filterNot { it.played || it.missing }
         .filterNot { it.id in knownEpisodeIds || it.id in existingItemIds }
-        .sortedWith(
-            compareByDescending<Episode> { it.seasonNumber ?: Int.MIN_VALUE }
-                .thenByDescending { it.indexNumber ?: Int.MIN_VALUE },
-        ).take(limit)
-        .toList()
         .sortedWith(compareBy<Episode>({ it.seasonNumber ?: Int.MAX_VALUE }, { it.indexNumber ?: Int.MAX_VALUE }))
+        .take(limit)
+        .toList()
+}
+
+/** One refresh of a 追更 rule. */
+internal data class AutoDownloadPlan(
+    val download: List<Episode>,
+    /** Ids of the rule's own downloads to delete to make room. */
+    val remove: List<String>,
+    /** Episodes the rule has now dealt with: the ones it fetches and the ones already watched. */
+    val seen: List<String>,
+)
+
+/**
+ * Plans one refresh of a 追更 rule that keeps at most [itemLimit] downloads.
+ *
+ * New episodes that do not fit wait for room rather than being remembered as seen and never
+ * fetched. Room comes only from downloads already watched (or gone from the server) and from
+ * failed ones: a download still waiting to be watched is never deleted for a newer episode.
+ */
+internal fun planAutoDownload(
+    episodes: List<Episode>,
+    knownEpisodeIds: Set<String>,
+    ruleItems: List<OfflineMedia>,
+    itemLimit: Int,
+): AutoDownloadPlan {
+    val byId = episodes.associateBy(Episode::id)
+    val (spare, held) =
+        ruleItems.partition { item ->
+            when (item.status) {
+                DownloadStatus.Completed -> byId[item.itemId]?.played != false
+                DownloadStatus.Failed -> true
+                else -> false
+            }
+        }
+    val download =
+        selectNewAutoDownloadEpisodes(
+            episodes = episodes,
+            knownEpisodeIds = knownEpisodeIds,
+            existingItemIds = ruleItems.mapTo(mutableSetOf(), OfflineMedia::itemId),
+            itemLimit = itemLimit - held.size,
+        )
+    val spareToKeep = (itemLimit - held.size - download.size).coerceAtLeast(0)
+    return AutoDownloadPlan(
+        download = download,
+        remove =
+            spare
+                .sortedByDescending(OfflineMedia::updatedAtEpochMs)
+                .drop(spareToKeep)
+                .map(OfflineMedia::id),
+        seen = download.map(Episode::id) + episodes.filter(Episode::played).map(Episode::id),
+    )
 }
 
 /** Stable batch filtering shared by the dialog and tests. */

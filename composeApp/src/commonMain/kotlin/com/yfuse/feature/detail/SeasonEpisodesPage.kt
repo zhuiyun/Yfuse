@@ -1,5 +1,8 @@
 package com.yfuse.feature.detail
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -70,6 +74,8 @@ import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.Episode
+import com.yfuse.core.model.episodeRuntimeLabel
+import com.yfuse.core.model.episodeTitle
 import com.yfuse.core.network.EmbyImages
 import kotlinx.coroutines.launch
 import kotlin.math.floor
@@ -270,79 +276,143 @@ private fun SeasonEpisodeList(
         }
     }
 
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        state = listState,
-        contentPadding = PaddingValues(bottom = Dimens.contentBottom),
-    ) {
-        motionItem(key = "season-hero") {
-            Box(Modifier.fillMaxWidth().height(268.dp)) {
-                FallbackImage(
-                    urls = style.heroUrls,
-                    contentDescription = style.seriesName,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Box(Modifier.fillMaxSize().background(heroScrim(palette.background)))
-                Column(
-                    Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(horizontal = Dimens.pageHorizontal)
-                        .padding(bottom = 18.dp),
-                ) {
-                    Text(
-                        label,
-                        style = AppTypography.display.strong,
-                        color = palette.text,
-                        maxLines = 1,
+    // Opening keeps the hero in view. When the current episode is out of sight — 第 150 集 of a
+    // 短剧 is a long way down — one tap on the chip takes the viewer there.
+    val currentRowIndex = focusedEpisodeIndex + 1
+    val currentRowOutOfSight by remember(listState, currentRowIndex) {
+        derivedStateOf {
+            currentRowIndex > 0 && listState.layoutInfo.visibleItemsInfo.none { it.index == currentRowIndex }
+        }
+    }
+    val scope = rememberCoroutineScope()
+
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(bottom = Dimens.contentBottom),
+        ) {
+            motionItem(key = "season-hero") {
+                Box(Modifier.fillMaxWidth().height(268.dp)) {
+                    FallbackImage(
+                        urls = style.heroUrls,
+                        contentDescription = style.seriesName,
+                        modifier = Modifier.fillMaxSize(),
                     )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        style.seriesName,
-                        style = AppTypography.body.medium,
-                        color = palette.sub,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        if (loading) "正在加载剧集…" else "${episodes.size} 剧集",
-                        style = AppTypography.caption.strong,
-                        color = palette.sub2,
-                        maxLines = 1,
+                    Box(Modifier.fillMaxSize().background(heroScrim(palette.background)))
+                    Column(
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(horizontal = Dimens.pageHorizontal)
+                            .padding(bottom = 18.dp),
+                    ) {
+                        Text(
+                            label,
+                            style = AppTypography.display.strong,
+                            color = palette.text,
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            style.seriesName,
+                            style = AppTypography.body.medium,
+                            color = palette.sub,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            if (loading) "正在加载剧集…" else "${episodes.size} 剧集",
+                            style = AppTypography.caption.strong,
+                            color = palette.sub2,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+
+            if (loading) {
+                motionItem(key = "season-loading") {
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 28.dp),
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        OrbProgress(size = OrbProgressDefaults.Page, contentDescription = "正在加载剧集")
+                    }
+                }
+            } else {
+                motionItemsIndexed(
+                    episodes,
+                    key = { index, episode -> "all-ep-${episode.id}-$index" },
+                ) { _, episode ->
+                    EpisodeRow(
+                        episode = episode,
+                        baseUrl = style.baseUrl,
+                        accessToken = style.accessToken,
+                        seriesPosterUrl = style.seriesPosterUrl,
+                        accent = style.accent,
+                        current = episode.id == style.currentEpisodeId,
+                        onPlay = { style.onPlayEpisode(episode) },
+                        modifier =
+                            Modifier.padding(
+                                horizontal = Dimens.pageHorizontal,
+                                vertical = 7.dp,
+                            ),
                     )
                 }
             }
         }
-
-        if (loading) {
-            motionItem(key = "season-loading") {
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 28.dp),
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    OrbProgress(size = OrbProgressDefaults.Page, contentDescription = "正在加载剧集")
+        LocateEpisodeChip(
+            visible = !loading && currentRowOutOfSight,
+            label =
+                episodes.getOrNull(focusedEpisodeIndex)?.indexNumber?.let { "定位到第 $it 集" }
+                    ?: "定位到当前剧集",
+            onClick = {
+                scope.launch {
+                    listState.motionAwareScrollToItem(index = currentRowIndex, reduceMotion = reduceMotion)
                 }
-            }
-        } else {
-            motionItemsIndexed(
-                episodes,
-                key = { index, episode -> "all-ep-${episode.id}-$index" },
-            ) { _, episode ->
-                EpisodeRow(
-                    episode = episode,
-                    baseUrl = style.baseUrl,
-                    accessToken = style.accessToken,
-                    seriesPosterUrl = style.seriesPosterUrl,
-                    accent = style.accent,
-                    current = episode.id == style.currentEpisodeId,
-                    onPlay = { style.onPlayEpisode(episode) },
-                    modifier =
-                        Modifier.padding(
-                            horizontal = Dimens.pageHorizontal,
-                            vertical = 7.dp,
-                        ),
-                )
-            }
+            },
+            modifier =
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 18.dp),
+        )
+    }
+}
+
+/** A glass chip over the list that jumps to the current episode while it is out of sight. */
+@Composable
+private fun LocateEpisodeChip(
+    visible: Boolean,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalPalette.current
+    val fade = if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.QUICK
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(Motion.tween(fade)),
+        exit = fadeOut(Motion.tween(fade)),
+    ) {
+        Row(
+            Modifier
+                .pressable(onClickLabel = label, onClick = onClick)
+                .touchTarget()
+                .glass(AppShapes.chip)
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                AppIcons.EpisodeList,
+                contentDescription = null,
+                tint = palette.text,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(label, style = AppTypography.caption.strong, color = palette.text, maxLines = 1)
         }
     }
 }
@@ -538,13 +608,15 @@ private fun EpisodeRow(
                         baseUrl,
                         episode.id,
                         episode.primaryTag,
-                        maxHeight = 240,
+                        // 84dp rows: 252px on a 3x screen.
+                        maxHeight = 270,
                         accessToken = accessToken,
                     ),
                 fallbackUrls = listOfNotNull(seriesPosterUrl),
                 shape = AppShapes.thumb,
                 progress = episode.playedPercentage?.let { (it / 100.0).toFloat() },
                 modifier = Modifier.fillMaxSize(),
+                fitNarrow = true,
             )
             // Watched and part-watched are different states and only one of them has a
             // number: a check for "done", the time left for "you stopped here".
@@ -590,8 +662,7 @@ private fun EpisodeRow(
         }
         Column(Modifier.weight(1f)) {
             Text(
-                listOfNotNull(episode.indexNumber?.let { "E$it." }, episode.name)
-                    .joinToString(" "),
+                episodeTitle(episode.indexNumber, episode.name, separator = " ") { "E$it." },
                 style = AppTypography.body.strong,
                 color = if (current) stateColors.foreground else palette.text,
                 maxLines = 1,
@@ -599,7 +670,7 @@ private fun EpisodeRow(
             )
             val facts =
                 listOfNotNull(
-                    episode.runtimeMinutes?.let { "$it 分钟" },
+                    episodeRuntimeLabel(episode.runtimeTicks, episode.runtimeMinutes),
                     episode.premiereDate,
                 )
             if (facts.isNotEmpty()) {
@@ -690,7 +761,11 @@ internal fun EpisodeSelectionBadge(
 
 /** `20:01` — how much of this episode is left, for something already started. */
 private fun Episode.remainingLabel(): String? {
-    val runtimeMs = runtimeMinutes?.takeIf { it > 0 }?.let { it * 60_000L } ?: return null
+    // The exact runtime: whole minutes put a 2:50 episode resumed at 1:00 at "1:00 left".
+    val runtimeMs =
+        runtimeTicks?.takeIf { it > 0L }?.div(10_000L)
+            ?: runtimeMinutes?.takeIf { it > 0 }?.let { it * 60_000L }
+            ?: return null
     val watchedMs = resumePositionTicks?.takeIf { it > 0 }?.let { it / 10_000L } ?: return null
     val leftMs = (runtimeMs - watchedMs).takeIf { it > 0 } ?: return null
     val totalSeconds = leftMs / 1000

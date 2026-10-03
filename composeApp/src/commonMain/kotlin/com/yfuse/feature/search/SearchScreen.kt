@@ -1373,6 +1373,7 @@ private fun ResultRow(
                         if (compact) SearchCompactPosterWidth else SearchPosterWidth,
                     ).height(if (compact) SearchCompactPosterHeight else SearchPosterHeight),
             sharedTransitionKey = sharedKey,
+            fitNarrow = true,
         )
         Column(
             Modifier

@@ -16,6 +16,7 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.PlayTarget
+import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
@@ -209,12 +210,19 @@ internal interface MediaServerAdapter {
         limit: Int,
         resolution: LibraryResolution,
         unplayedOnly: Boolean,
+        tag: String? = null,
     ): Result<LibraryPage>
 
     suspend fun libraryGenres(
         server: SavedServer,
         libraryId: String,
     ): Result<List<String>>
+
+    /** Tags used in a library, for its filter row; none where the server keeps no such facet. */
+    suspend fun libraryTags(
+        server: SavedServer,
+        libraryId: String,
+    ): Result<List<String>> = Result.success(emptyList())
 
     suspend fun similarItems(
         server: SavedServer,
@@ -325,6 +333,18 @@ internal interface MediaServerAdapter {
         itemId: String,
         mediaSourceId: String,
     ): Result<TrickplayInfo?>
+
+    /** A folder's videos in name order, queued for a video outside any series; none where unsupported. */
+    suspend fun folderVideos(
+        server: SavedServer,
+        folderId: String,
+    ): Result<List<Episode>> = Result.success(emptyList())
+
+    /** The server's own intro/recap/outro segments for one item; none where it keeps no such list. */
+    suspend fun mediaSegments(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<PlaybackSegment>> = Result.success(emptyList())
 
     suspend fun searchRemoteSubtitles(
         server: SavedServer,
@@ -610,13 +630,19 @@ internal class EmbyAdapter(
         limit: Int,
         resolution: LibraryResolution,
         unplayedOnly: Boolean,
+        tag: String?,
     ): Result<LibraryPage> =
-        browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution, unplayedOnly)
+        browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution, unplayedOnly, tag)
 
     override suspend fun libraryGenres(
         server: SavedServer,
         libraryId: String,
     ): Result<List<String>> = browseService.libraryGenres(server, libraryId)
+
+    override suspend fun libraryTags(
+        server: SavedServer,
+        libraryId: String,
+    ): Result<List<String>> = browseService.libraryTags(server, libraryId)
 
     override suspend fun similarItems(
         server: SavedServer,
@@ -743,6 +769,16 @@ internal class EmbyAdapter(
         itemId: String,
         mediaSourceId: String,
     ): Result<TrickplayInfo?> = detailService.trickplayInfo(server, itemId, mediaSourceId)
+
+    override suspend fun mediaSegments(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<PlaybackSegment>> = detailService.mediaSegments(server, itemId)
+
+    override suspend fun folderVideos(
+        server: SavedServer,
+        folderId: String,
+    ): Result<List<Episode>> = detailService.folderVideos(server, folderId)
 
     override suspend fun searchRemoteSubtitles(
         server: SavedServer,
@@ -977,6 +1013,7 @@ internal class PlexAdapter(
         limit: Int,
         resolution: LibraryResolution,
         unplayedOnly: Boolean,
+        tag: String?,
     ): Result<LibraryPage> = plex.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution)
 
     override suspend fun libraryGenres(

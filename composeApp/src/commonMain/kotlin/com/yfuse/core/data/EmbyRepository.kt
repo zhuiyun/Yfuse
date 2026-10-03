@@ -18,6 +18,7 @@ import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.PlayTarget
+import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerRoute
@@ -619,13 +620,21 @@ class EmbyRepository(
         resolution: LibraryResolution = LibraryResolution.All,
         /** Emby/Jellyfin only; Plex libraries ignore it. */
         unplayedOnly: Boolean = false,
+        /** Emby/Jellyfin only, like [unplayedOnly]. */
+        tag: String? = null,
     ): Result<LibraryPage> =
-        adapterFor(server).libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution, unplayedOnly)
+        adapterFor(server)
+            .libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution, unplayedOnly, tag)
 
     suspend fun libraryGenres(
         server: SavedServer,
         libraryId: String,
     ): Result<List<String>> = adapterFor(server).libraryGenres(server, libraryId)
+
+    suspend fun libraryTags(
+        server: SavedServer,
+        libraryId: String,
+    ): Result<List<String>> = adapterFor(server).libraryTags(server, libraryId)
 
     suspend fun similarItems(
         server: SavedServer,
@@ -939,6 +948,18 @@ class EmbyRepository(
         itemId: String,
         mediaSourceId: String = itemId,
     ): Result<TrickplayInfo?> = adapterFor(server).trickplayInfo(server, itemId, mediaSourceId)
+
+    /** The videos of one folder, in name order: the queue for a video outside any series. */
+    suspend fun folderVideos(
+        server: SavedServer,
+        folderId: String,
+    ): Result<List<Episode>> = adapterFor(server).folderVideos(server, folderId)
+
+    /** Jellyfin's intro/recap/outro segments for [itemId]; empty for other servers. */
+    suspend fun mediaSegments(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<PlaybackSegment>> = adapterFor(server).mediaSegments(server, itemId)
 
     suspend fun searchRemoteSubtitles(
         server: SavedServer,

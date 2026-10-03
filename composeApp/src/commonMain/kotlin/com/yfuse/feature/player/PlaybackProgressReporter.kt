@@ -16,7 +16,6 @@ import kotlin.random.Random
 private const val REPORT_INTERVAL_MS = 10_000L
 private const val SEEK_THRESHOLD_MS = 5_000L
 private const val TICKS_PER_MILLISECOND = 10_000L
-private const val NEXT_SOURCE_PRELOAD_WINDOW_MS = 90_000L
 private const val MAX_PENDING_REPORT_COMMANDS = 8
 private const val DEFAULT_PLAY_METHOD = "DirectPlay"
 
@@ -90,7 +89,28 @@ internal class PlaybackProgressReporter(
     private var observedIndex = -1
     private var observedPlaying: Boolean? = null
     private var observedPositionMs = 0L
+    private var observedDurationMs = 0L
     private var enqueuedPositionMs = Long.MIN_VALUE
+
+    /** The entry playback just left, with the last position the sampling path saw on it. */
+    private data class Departure(
+        val index: Int,
+        val itemId: String,
+        val positionMs: Long,
+        val durationMs: Long,
+    )
+
+    /**
+     * Written by [update] when the entry changes, consumed by the actor when it stops that entry.
+     *
+     * Reports are throttled to ten seconds, so the last *reported* position of an episode that
+     * ran to its end can be up to ten seconds short of it. ExoPlayer's playlist moves to the next
+     * entry without an ended state, and a 60-second episode stopped at 50 seconds read as 83%
+     * watched: never finished, left in 继续观看 and picked again by 播放. The last *sampled*
+     * position is at most one tick old.
+     */
+    @Volatile
+    private var lastDeparture: Departure? = null
     private val preloadedSources = mutableSetOf<String>()
 
     private var activeIndex = -1
@@ -177,9 +197,15 @@ internal class PlaybackProgressReporter(
             enqueuedPositionMs == Long.MIN_VALUE ||
                 abs(state.positionMs - enqueuedPositionMs) >= REPORT_INTERVAL_MS
 
+        if (itemChanged && observedIndex >= 0) {
+            items.getOrNull(observedIndex)?.let { departed ->
+                lastDeparture = Departure(observedIndex, departed.id, observedPositionMs, observedDurationMs)
+            }
+        }
         observedIndex = state.currentIndex
         observedPlaying = state.playing
         observedPositionMs = state.positionMs
+        observedDurationMs = state.durationMs
 
         if (itemChanged || playStateChanged || seeked || periodic) {
             enqueuedPositionMs = state.positionMs
@@ -189,19 +215,21 @@ internal class PlaybackProgressReporter(
 
     /**
      * The queue already contains concrete URLs for sibling episodes. When the active episode has
-     * at most 90 seconds left, warm the beginning of the next direct source. The platform
-     * implementation de-duplicates concurrent requests and writes into the player's shared cache,
-     * so this is cheap to call from the normal 500 ms playback-state sampling path.
+     * at most 90 seconds left — half of a shorter one — warm the beginning of the next direct
+     * source, and keep what is prepared until this episode has ended: the 30-second hold it used
+     * to have ran out a minute before the end, and for a 90-second 短剧 before it was half over.
+     * The platform implementation de-duplicates concurrent requests and writes into the player's
+     * shared cache, so this is cheap to call from the normal 500 ms playback-state sampling path.
      */
     private fun preloadNextIfNeeded(state: PlaybackState) {
         val preloader = sourcePreloader ?: return
         if (state.durationMs <= 0L) return
         val remaining = state.remainingMs
-        if (remaining <= 0L || remaining > NEXT_SOURCE_PRELOAD_WINDOW_MS) return
+        if (remaining <= 0L || remaining > nextSourcePreloadWindowMs(state.durationMs)) return
         val next = items.getOrNull(state.currentIndex + 1) ?: return
         if (!next.canPreloadSource) return
         if (!preloadedSources.add(next.url)) return
-        preloader.preload(next)
+        preloader.preloadNext(next, holdMs = nextSourceHoldMs(remaining))
     }
 
     /**
@@ -300,6 +328,7 @@ internal class PlaybackProgressReporter(
         val terminal = state.ended
         if (terminal && index == terminalIndex && activeIndex < 0) return
         if (index != activeIndex) {
+            applyDeparture()
             stopActive(PlaybackSyncTrigger.Stop)
             activeIndex = index
             terminalIndex = -1
@@ -430,6 +459,15 @@ internal class PlaybackProgressReporter(
         } else {
             activeIndex = newIndex
         }
+    }
+
+    /** Stops the departed entry where it was last seen rather than where it was last reported. */
+    private fun applyDeparture() {
+        val departure = lastDeparture ?: return
+        lastDeparture = null
+        if (activeIndex < 0 || departure.index != activeIndex || departure.itemId != activeItemId) return
+        activePositionMs = departure.positionMs.coerceAtLeast(0L)
+        if (departure.durationMs > 0L) activeDurationMs = departure.durationMs
     }
 
     private suspend fun stopActive(trigger: PlaybackSyncTrigger) {
