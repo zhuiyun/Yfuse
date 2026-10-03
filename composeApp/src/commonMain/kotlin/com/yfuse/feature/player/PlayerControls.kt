@@ -1502,6 +1502,8 @@ internal fun PlayerControls(
             coversScreen = true,
         ) {
             Box(Modifier.fillMaxSize()) {
+                // An upright phone window (a 短剧 playing upright): both bars stack and trim.
+                val uprightWindow = rememberUprightPhoneWindow()
                 PlayerResumeNotice(
                     notice = resumeNotice,
                     onRestart = {
@@ -1510,7 +1512,11 @@ internal fun PlayerControls(
                             latestOnSeek(0L)
                         }
                     },
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 22.dp, bottom = 120.dp),
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            // The upright bottom bar stacks transport and keys: it stands taller.
+                            .padding(start = 22.dp, bottom = if (uprightWindow) 190.dp else 120.dp),
                 )
 
                 // Top-level actions (投屏/更多) live with the title; media navigation stays below.
@@ -1547,6 +1553,7 @@ internal fun PlayerControls(
                         onOpenChat = ::openWatchChat,
                         extras = extras,
                         onKeyActivity = ::poke,
+                        compact = uprightWindow,
                     )
                 }
 
@@ -1637,6 +1644,7 @@ internal fun PlayerControls(
                             danmakuEnabled = danmaku.enabled,
                             onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
                             ambientLight = ambientLight,
+                            compact = uprightWindow,
                             danmakuHeat = danmakuHeat,
                             onSeekBackwardLongPress = { rewindMissedLine() },
                             playKeyModifier =

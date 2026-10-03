@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -150,6 +151,12 @@ internal fun RefinedTopBar(
     onKeyActivity: () -> Unit = {},
     /** A cast session is live: the key takes the same lit treatment as 弹幕 when it is on. */
     castActive: Boolean = false,
+    /**
+     * An upright phone window: the clock, battery, 小窗 and 画面比例 keys stay off a bar with no
+     * room for them, so the title keeps its line. 小窗 remains the system's gesture away and
+     * 画面比例 a pinch away.
+     */
+    compact: Boolean = false,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val haptics = LocalHaptics.current
@@ -164,7 +171,7 @@ internal fun RefinedTopBar(
                         1f to Color.Transparent,
                     ),
                 )
-            }.padding(horizontal = 22.dp, vertical = 14.dp),
+            }.padding(horizontal = if (compact) 14.dp else 22.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
@@ -237,9 +244,11 @@ internal fun RefinedTopBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PlayerClock()
-            PlayerBatteryStatus()
-            Spacer(Modifier.width(6.dp))
+            if (!compact) {
+                PlayerClock()
+                PlayerBatteryStatus()
+                Spacer(Modifier.width(6.dp))
+            }
             AnimatedVisibility(
                 visible = watchConnected,
                 enter = barControlEnter(reduceMotion),
@@ -270,28 +279,30 @@ internal fun RefinedTopBar(
                     )
                 }
             }
-            CircleControl(
-                AppIcons.PictureInPicture,
-                "小窗播放",
-                28.dp,
-                12.dp,
-                onClick = onEnterPictureInPicture,
-            )
-            // One key with two readings, so the glyph dissolves into the other one. The key keeps
-            // its size through the swap, which is the whole reason there is no size transform.
-            AnimatedContent(
-                targetState = filled,
-                contentKey = { it },
-                transitionSpec = { barSwapTransform(reduceMotion) },
-                label = "player-aspect-mode",
-            ) { fill ->
+            if (!compact) {
                 CircleControl(
-                    icon = if (fill) AppIcons.AspectFill else AppIcons.AspectFit,
-                    description = if (fill) "画面比例：填充" else "画面比例：适应",
-                    size = 28.dp,
-                    iconSize = 12.dp,
-                    onClick = onToggleFill,
+                    AppIcons.PictureInPicture,
+                    "小窗播放",
+                    28.dp,
+                    12.dp,
+                    onClick = onEnterPictureInPicture,
                 )
+                // One key with two readings, so the glyph dissolves into the other one. The key keeps
+                // its size through the swap, which is the whole reason there is no size transform.
+                AnimatedContent(
+                    targetState = filled,
+                    contentKey = { it },
+                    transitionSpec = { barSwapTransform(reduceMotion) },
+                    label = "player-aspect-mode",
+                ) { fill ->
+                    CircleControl(
+                        icon = if (fill) AppIcons.AspectFill else AppIcons.AspectFit,
+                        description = if (fill) "画面比例：填充" else "画面比例：适应",
+                        size = 28.dp,
+                        iconSize = 12.dp,
+                        onClick = onToggleFill,
+                    )
+                }
             }
             extras.rotationLock?.let { lock ->
                 // 旋转锁 swaps its glyph the way 画面比例 beside it does.
@@ -368,6 +379,8 @@ internal fun RefinedBottomBar(
     onSeekBackwardLongPress: (() -> Unit)? = null,
     /** See [TransportRow]: where a remote's focus lands when the controls come up. */
     playKeyModifier: Modifier = Modifier,
+    /** An upright phone window: the transport and the keys stack, 选集 first. */
+    compact: Boolean = false,
 ) {
     // A new timeline sample arrives twice a second, and this function is called with it. Only
     // this frame stops here: everything below takes the holder and reads it from a draw or a
@@ -409,6 +422,7 @@ internal fun RefinedBottomBar(
         danmakuHeat = danmakuHeat,
         onSeekBackwardLongPress = onSeekBackwardLongPress,
         playKeyModifier = playKeyModifier,
+        compact = compact,
     )
 }
 
@@ -445,6 +459,7 @@ private fun RefinedBottomBarContent(
     danmakuHeat: () -> DanmakuHeat? = { null },
     onSeekBackwardLongPress: (() -> Unit)? = null,
     playKeyModifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     // Where the finger left the thumb. Read from derived state only, never from composition:
@@ -710,11 +725,7 @@ private fun RefinedBottomBarContent(
 
         Spacer(Modifier.height(4.dp))
 
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        val transport: @Composable () -> Unit = {
             TransportRow(
                 state = buttons,
                 locked = seekLocked,
@@ -732,65 +743,93 @@ private fun RefinedBottomBarContent(
                 onSeekBackwardLongPress = onSeekBackwardLongPress,
                 playKeyModifier = playKeyModifier,
             )
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        }
+        val episodesKey: @Composable RowScope.() -> Unit = {
+            AnimatedVisibility(
+                visible = hasEpisodes,
+                enter = barControlEnter(reduceMotion),
+                exit = barControlExit(reduceMotion),
             ) {
-                CircleControl(AppIcons.Subtitle, "字幕", 26.dp, 12.dp, onClick = onOpenSubtitles)
-                CircleControl(AppIcons.AudioTrack, "音轨", 26.dp, 12.dp, onClick = onOpenAudio)
                 CircleControl(
-                    icon = AppIcons.Danmaku,
-                    description = if (danmakuEnabled) "弹幕，已开启" else "弹幕，已关闭",
+                    icon = AppIcons.EpisodeList,
+                    description = "选集",
                     size = 26.dp,
                     iconSize = 12.dp,
-                    active = danmakuEnabled,
-                    onClick = onOpenDanmaku,
+                    onClick = onOpenEpisodes,
                 )
-                RefinedSpeedControl(speed, onOpenSpeed)
-                // Which of these three exist is decided by the item, and the item changes under
-                // the bar every time the queue advances: a source list resolves, a series gains
-                // 片头 markers, a film has no 选集. Each one used to blink into the cluster and
-                // shove its neighbours across; the row's width follows them instead.
-                AnimatedVisibility(
-                    visible = hasMultipleSources,
-                    enter = barControlEnter(reduceMotion),
-                    exit = barControlExit(reduceMotion),
-                ) {
-                    CircleControl(
-                        AppIcons.PlaybackSource,
-                        "播放服务器",
-                        26.dp,
-                        12.dp,
-                        onClick = onOpenSources,
-                    )
-                }
-                AnimatedVisibility(
-                    visible = skipSettingsAvailable,
-                    enter = barControlEnter(reduceMotion),
-                    exit = barControlExit(reduceMotion),
-                ) {
-                    CircleControl(
-                        AppIcons.SkipMarkers,
-                        "标记片头片尾",
-                        26.dp,
-                        12.dp,
-                        onClick = onOpenSkipSettings,
-                    )
-                }
-                AnimatedVisibility(
-                    visible = hasEpisodes,
-                    enter = barControlEnter(reduceMotion),
-                    exit = barControlExit(reduceMotion),
-                ) {
-                    CircleControl(
-                        icon = AppIcons.EpisodeList,
-                        description = "选集",
-                        size = 26.dp,
-                        iconSize = 12.dp,
-                        onClick = onOpenEpisodes,
-                    )
-                }
+            }
+        }
+        val keys: @Composable RowScope.() -> Unit = {
+            // In a 短剧's upright window 选集 is the key reached for most, so it leads there.
+            if (compact) episodesKey()
+            CircleControl(AppIcons.Subtitle, "字幕", 26.dp, 12.dp, onClick = onOpenSubtitles)
+            CircleControl(AppIcons.AudioTrack, "音轨", 26.dp, 12.dp, onClick = onOpenAudio)
+            CircleControl(
+                icon = AppIcons.Danmaku,
+                description = if (danmakuEnabled) "弹幕，已开启" else "弹幕，已关闭",
+                size = 26.dp,
+                iconSize = 12.dp,
+                active = danmakuEnabled,
+                onClick = onOpenDanmaku,
+            )
+            RefinedSpeedControl(speed, onOpenSpeed)
+            // Which of these three exist is decided by the item, and the item changes under
+            // the bar every time the queue advances: a source list resolves, a series gains
+            // 片头 markers, a film has no 选集. Each one used to blink into the cluster and
+            // shove its neighbours across; the row's width follows them instead.
+            AnimatedVisibility(
+                visible = hasMultipleSources,
+                enter = barControlEnter(reduceMotion),
+                exit = barControlExit(reduceMotion),
+            ) {
+                CircleControl(
+                    AppIcons.PlaybackSource,
+                    "播放服务器",
+                    26.dp,
+                    12.dp,
+                    onClick = onOpenSources,
+                )
+            }
+            AnimatedVisibility(
+                visible = skipSettingsAvailable,
+                enter = barControlEnter(reduceMotion),
+                exit = barControlExit(reduceMotion),
+            ) {
+                CircleControl(
+                    AppIcons.SkipMarkers,
+                    "标记片头片尾",
+                    26.dp,
+                    12.dp,
+                    onClick = onOpenSkipSettings,
+                )
+            }
+            if (!compact) episodesKey()
+        }
+        if (compact) {
+            // An upright phone is about 400dp across and the landscape row needs some 600: the
+            // transport takes a line of its own and the keys share the next one evenly.
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                transport()
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = keys,
+                )
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                transport()
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = keys,
+                )
             }
         }
     }
