@@ -626,6 +626,31 @@ object AppIcons {
             horizontalLineTo(15.6f)
         }.build()
 
+    /** 移除 — a bin with its lid on and a cross inside; 播出日历 uses it for 取消追剧. */
+    val Remove =
+        strokeVector("remove") {
+            moveTo(4.6f, 6.7f)
+            horizontalLineTo(19.4f)
+            moveTo(9.3f, 6.7f)
+            verticalLineTo(5.1f)
+            arcToRelative(0.9f, 0.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, 0.9f, -0.9f)
+            horizontalLineTo(13.8f)
+            arcToRelative(0.9f, 0.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, 0.9f, 0.9f)
+            verticalLineTo(6.7f)
+        }.andPath {
+            moveTo(6.4f, 6.7f)
+            lineTo(7.15f, 18.4f)
+            curveTo(7.22f, 19.36f, 7.98f, 20.1f, 8.94f, 20.1f)
+            horizontalLineTo(15.06f)
+            curveTo(16.02f, 20.1f, 16.78f, 19.36f, 16.85f, 18.4f)
+            lineTo(17.6f, 6.7f)
+        }.andPath {
+            moveTo(10.2f, 11.1f)
+            lineTo(13.8f, 14.7f)
+            moveTo(13.8f, 11.1f)
+            lineTo(10.2f, 14.7f)
+        }.build()
+
     val Download =
         strokeVector("download") {
             moveTo(12f, 4.4f)

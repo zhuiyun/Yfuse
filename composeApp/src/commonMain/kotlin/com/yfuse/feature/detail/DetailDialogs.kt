@@ -36,20 +36,8 @@ import com.yfuse.core.offline.OfflineBatchMode
 import com.yfuse.core.offline.OfflineDownloadQuality
 import com.yfuse.core.offline.OfflineDownloadSelection
 import com.yfuse.core.offline.estimateOfflineDownloadBytes
-import com.yfuse.core.util.daysBetweenIso
 import com.yfuse.feature.profile.formatDownloadBytes
 import com.yfuse.core.designsystem.ThemeText as Text
-
-internal fun reminderModeLabel(
-    mode: CalendarReminderMode,
-    beforeMinutes: Int = 30,
-): String =
-    when (mode) {
-        CalendarReminderMode.Off -> "关闭"
-        CalendarReminderMode.BeforeAndAtBroadcast -> "提前 $beforeMinutes 分钟和播出时"
-        CalendarReminderMode.AtBroadcast -> "播出时"
-        CalendarReminderMode.WhenAvailable -> "检测到新入库时"
-    }
 
 internal fun nextReminderMode(mode: CalendarReminderMode): CalendarReminderMode =
     when (mode) {
@@ -57,17 +45,6 @@ internal fun nextReminderMode(mode: CalendarReminderMode): CalendarReminderMode 
         CalendarReminderMode.BeforeAndAtBroadcast -> CalendarReminderMode.AtBroadcast
         CalendarReminderMode.AtBroadcast -> CalendarReminderMode.WhenAvailable
         CalendarReminderMode.WhenAvailable -> CalendarReminderMode.Off
-    }
-
-internal fun seriesCalendarDayLabel(
-    date: String,
-    today: String,
-): String =
-    when (val delta = daysBetweenIso(today, date)) {
-        0 -> "今天"
-        1 -> "明天"
-        -1 -> "昨天"
-        else -> if (delta > 0) "$delta 天后" else "${-delta} 天前"
     }
 
 @Composable

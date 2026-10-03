@@ -27,17 +27,8 @@ class AiringShowCalendarDialogTest {
 
         val result = airingShowDays(days, showTmdbId = 8)
 
-        assertEquals(listOf("2026-08-19", "2026-08-20"), result.map(AiringShowDay::date))
-        assertEquals(listOf(1, 2), result.flatMap(AiringShowDay::entries).map { it.episode.episodeNumber })
-    }
-
-    @Test
-    fun date_window_centres_the_selection_without_running_past_an_edge() {
-        val dates = listOf("08-18", "08-19", "08-20", "08-21", "08-22")
-
-        assertEquals(listOf("08-18", "08-19", "08-20"), airingDateWindow(dates, "08-18"))
-        assertEquals(listOf("08-19", "08-20", "08-21"), airingDateWindow(dates, "08-20"))
-        assertEquals(listOf("08-20", "08-21", "08-22"), airingDateWindow(dates, "08-22"))
+        assertEquals(listOf("2026-08-19", "2026-08-20"), result.map(CalendarDay::date))
+        assertEquals(listOf(1, 2), result.flatMap(CalendarDay::entries).map { it.episode.episodeNumber })
     }
 
     @Test

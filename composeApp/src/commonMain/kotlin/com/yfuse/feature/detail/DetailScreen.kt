@@ -1160,8 +1160,11 @@ fun DetailScreen(component: DetailComponent) {
                         days = airingCalendarDays,
                         loading = airingCalendarLoading,
                         error = airingCalendarError,
-                        artworkUrls = heroUrls,
+                        // The card frames a poster; the backdrop only stands in for a missing one.
+                        posterUrls = listOf(posterUrl) + heroUrls,
                         artworkColorUrl = artworkColorUrl,
+                        overview = detail.overview,
+                        rating = detail.communityRating,
                         identityCandidates = airingCalendarCandidates,
                         followed = detailIsFollowed,
                         reminderMode = detailFollow?.reminderMode ?: CalendarReminderMode.Off,
