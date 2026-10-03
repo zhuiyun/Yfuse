@@ -191,6 +191,8 @@ internal data class PlayerCastState(
     /** The receiver's own clock, resolved inside 投屏 rather than by whoever opened the panel. */
     val positionSource: (() -> String?)? = null,
     val capabilities: String? = null,
+    /** How the receiver gets the media when that asks something of this phone; null otherwise. */
+    val transport: String? = null,
 )
 
 @Immutable

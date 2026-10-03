@@ -910,6 +910,10 @@ internal fun PlayerRootControls(
                 active = castState.hasActiveSession || castState.status == CastPlaybackStatus.Connecting,
                 positionSource = { castPositionLabel(liveCastState.value) },
                 capabilities = castCapabilitiesLabel(castState),
+                transport =
+                    castState.activeDevice
+                        ?.takeIf { castState.relayed }
+                        ?.let { "经本机转发：投屏期间请保持手机连接同一 Wi-Fi" },
             ),
         castActions =
             PlayerCastActions(

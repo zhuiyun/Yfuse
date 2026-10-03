@@ -95,6 +95,7 @@ internal fun SettingsPanel(
     /** The receiver's own clock, resolved inside 投屏 rather than by whoever opened the panel. */
     castPositionSource: (() -> String?)?,
     castCapabilities: String?,
+    castTransport: String?,
     danmaku: DanmakuPanelState,
     danmakuActions: DanmakuPanelActions,
     onOpenDanmakuSearch: () -> Unit,
@@ -245,6 +246,7 @@ internal fun SettingsPanel(
                             castPosition = castPosition,
                             castPositionSource = castPositionSource,
                             castCapabilities = castCapabilities,
+                            castTransport = castTransport,
                             onDiscoverCast = onDiscoverCast,
                             onCastTo = onCastTo,
                             onStopCast = onStopCast,

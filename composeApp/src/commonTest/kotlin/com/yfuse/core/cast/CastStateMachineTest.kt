@@ -63,7 +63,7 @@ class CastStateMachineTest {
                 .unexpectedDisconnect("连接中断")
 
         assertEquals(
-            CastRecoveryDecision(positionMs = 91_250L, resumePlayback = true),
+            CastRecoveryDecision(positionMs = 91_250L, resumePlayback = true, reason = "连接中断"),
             castRecoveryDecision(disconnected, fallbackPositionMs = 7_000L),
         )
     }
@@ -76,9 +76,47 @@ class CastStateMachineTest {
                 .unexpectedDisconnect("加载期间连接中断")
 
         assertEquals(
-            CastRecoveryDecision(positionMs = 12_000L, resumePlayback = false),
+            CastRecoveryDecision(positionMs = 12_000L, resumePlayback = false, reason = "加载期间连接中断"),
             castRecoveryDecision(disconnected, fallbackPositionMs = 12_000L),
         )
+    }
+
+    @Test
+    fun a_load_the_receiver_never_played_resumes_here_from_this_phones_position() {
+        // 2026-10-01: PLAYING at 0:00:00 from a cast started at 1:08. Stopping put the phone at 0.
+        val accepted =
+            CastState()
+                .connectingTo(receiver, positionMs = 68_187L)
+                .remoteUpdate(CastPlaybackStatus.Buffering)
+                .copy(lastRemoteWasPlaying = true, relayed = true)
+        assertFalse(accepted.positionConfirmed)
+        assertTrue(accepted.hasActiveSession)
+
+        val failed = accepted.startFailed("「客厅电视」读取视频后没有开始播放，可能不支持它的格式")
+        assertFalse(failed.hasActiveSession)
+        assertFalse(failed.relayed)
+        assertEquals(CastTermination.Unexpected, failed.termination)
+        assertEquals(
+            CastRecoveryDecision(
+                positionMs = 68_187L,
+                resumePlayback = true,
+                reason = "「客厅电视」读取视频后没有开始播放，可能不支持它的格式",
+            ),
+            castRecoveryDecision(failed, fallbackPositionMs = 68_187L),
+        )
+    }
+
+    @Test
+    fun a_relayed_session_is_marked_until_the_next_load_or_its_end() {
+        val relayed =
+            CastState()
+                .connectingTo(receiver, positionMs = 0L)
+                .remoteUpdate(CastPlaybackStatus.Playing)
+                .copy(relayed = true)
+        assertTrue(relayed.remoteUpdate(CastPlaybackStatus.Paused).relayed)
+        assertFalse(relayed.connectingTo(receiver, positionMs = 0L).relayed)
+        assertFalse(relayed.userStopped().relayed)
+        assertFalse(relayed.unexpectedDisconnect("连接中断").relayed)
     }
 
     @Test

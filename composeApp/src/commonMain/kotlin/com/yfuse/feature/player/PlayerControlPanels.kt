@@ -95,6 +95,7 @@ internal fun BoxScope.PlayerSettingsLayers(
                 castPosition = cast.position,
                 castPositionSource = cast.positionSource,
                 castCapabilities = cast.capabilities,
+                castTransport = cast.transport,
                 danmaku = danmaku.panel,
                 danmakuActions = danmakuActions,
                 onOpenDanmakuSearch = {

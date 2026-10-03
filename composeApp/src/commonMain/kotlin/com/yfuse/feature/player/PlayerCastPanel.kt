@@ -30,6 +30,8 @@ internal fun CastPanel(
     /** The receiver's own clock, resolved here rather than by whoever opened the panel. */
     castPositionSource: (() -> String?)?,
     castCapabilities: String?,
+    /** How the receiver gets the media when that asks something of this phone; null otherwise. */
+    castTransport: String?,
     onDiscoverCast: () -> Unit,
     onCastTo: (String) -> Unit,
     onStopCast: () -> Unit,
@@ -60,6 +62,7 @@ internal fun CastPanel(
     castStatus?.let { DiagnosticRow("状态", it) }
     remotePosition?.let { DiagnosticRow("远端进度", it) }
     castCapabilities?.let { DiagnosticRow("远端能力", it) }
+    castTransport?.let { DiagnosticRow("传输", it) }
     // A failed scan reports itself through [castError] below; this line only
     // speaks for a list that is empty without one.
     val emptyState =

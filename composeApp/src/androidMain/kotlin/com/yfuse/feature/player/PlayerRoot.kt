@@ -851,7 +851,7 @@ internal fun PlayerRoot(
             Toast
                 .makeText(
                     context,
-                    "投屏连接已断开，已回到本机 ${decision.positionMs / 1000} 秒",
+                    "${decision.reason ?: "投屏连接已断开"}，已回到本机 ${decision.positionMs / 1000} 秒",
                     Toast.LENGTH_LONG,
                 ).show()
         }
