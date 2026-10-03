@@ -9,8 +9,8 @@ internal fun PlayerMediaItem.portraitPicture(): Boolean? =
     }
 
 /**
- * Whether the decoded picture stands upright, for an entry the server said nothing about. Only
- * ExoPlayer reports its size after rotation, so the server's answer is asked first.
+ * Whether the decoded picture stands upright, for an entry the server said nothing about. Not every
+ * route reports its size after rotation, so the server's answer is asked first.
  */
 internal fun PlaybackState.decodedPortraitPicture(): Boolean? = isPortraitPicture(diagnostics.videoWidth, videoHeight)
 
