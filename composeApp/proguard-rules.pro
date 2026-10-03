@@ -11,10 +11,11 @@
 -keep class com.yfuse.feature.player.PlaybackKeepAliveService { *; }
 -keep class com.yfuse.core.cast.YfuseCastOptionsProvider { *; }
 
-# R8 9.1.31 moves the large Compose PlayerRoot lambda into an unrelated class.
-# On Android 17 the resulting DEX fails verification before Application startup
-# (VerifyError: register contains a reference where an integer is required).
-# Keep this generated file class and its methods out of that optimization.
+# Keeps PlayerRootKt's methods in place and named. In 1.0.90 R8 9.1.31 moved the large PlayerRoot
+# lambda into an unrelated class loaded at startup, and that class failed verification. This rule
+# does not prevent the defect itself: in 1.0.97 the same R8 corrupted the lambda's registers in
+# place (docs/diagnostics-20261003-player-verifyerror.md). The readable names it keeps are what
+# made that crash traceable; scripts/verify-release-dex.sh now rejects such a build.
 -keep class com.yfuse.feature.player.PlayerRootKt { *; }
 
 # ---- Diagnostics ----
