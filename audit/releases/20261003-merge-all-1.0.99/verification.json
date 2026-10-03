@@ -1,0 +1,80 @@
+{
+  "sourceBranch": "ccr-afc1c9d3-phenca",
+  "baseCommit": "eedf26a48eaf7815f124b7849f3a7205bdaa13a6",
+  "baselineWorkflowRun": 37110381511,
+  "baselineArtifact": 11270745007,
+  "baselineApk": {
+    "package": "com.yfuse",
+    "versionName": "1.0.98",
+    "versionCode": 260,
+    "fileName": "Yfuse-260-1.0.98.apk",
+    "sizeBytes": 29836199,
+    "sha256": "b56d19a60a9b84067f4db44fcd32e8f509fdf0e5b10372a4f34f1f4080b3fb2a",
+    "productionSigned": true,
+    "published": false
+  },
+  "baselineEvidence": "Log of packaging run #141: APK file name, version, size, SHA-256 and PUBLISH_UPDATE=false, with the APK metadata and signing-certificate step passing",
+  "plannedVersionName": "1.0.99",
+  "plannedVersionCode": 261,
+  "releaseMetadata": "release_metadata.py and the 63 scripts unit tests passed",
+  "mdkPackageOnlyConfirmation": "release owner confirmed this version at 2026-10-03T17:57:00+08:00",
+  "merged": {
+    "calendarCard": {
+      "branch": "ccr-afc1c9d3-phenca",
+      "head": "58124526"
+    },
+    "pr211": {
+      "branch": "audit/quality-completeness-20261002",
+      "head": "3ccaa037ae131b85dae308c35dbee9a3cab3aaf1",
+      "mergeCommit": "5cbfcf0e",
+      "ownQualityGateApkBytes": 29332533
+    },
+    "dlnaRelay": {
+      "branch": "ccr-32892c19-ioep1e",
+      "head": "6fd2fd6e9520b332791c58f2adbb747846487066",
+      "mergeCommit": "bf674fb6"
+    },
+    "testLab": {
+      "branch": "ccr-413ccca2-jd1ckj",
+      "head": "c49a6c639d4fa7adfcedd2041c4de02db7bf2c9c",
+      "mergeCommit": "e8475566"
+    }
+  },
+  "localChecks": {
+    "ktlint": "0 violations on the touched Kotlin files, no baselines",
+    "functionSize": "passed",
+    "designSystem": "0 violations",
+    "commonTypeCheck": "no errors outside the known Compose API gap and the omitted Turbine dependency",
+    "jvmTests": "PlayerGestureStateTest and PlayerChromeStateTest: 24 passed"
+  },
+  "deviceVerified": false,
+  "apkBuild": "pending the quality gates and production signing on the merge commit",
+  "pullRequest": 213,
+  "pullRequestChecks": {
+    "commit": "317593fed09405b2bc2d1fccad5ccaa4779f58fb",
+    "qualityGatesRun": 37117833765,
+    "tvQualityGatesRun": 37117833805,
+    "ycoreRun": 37117833763,
+    "codeqlRun": 37117833786,
+    "qualityGateApkBytes": 29404589,
+    "apkSizeBudgetBytes": 30000000,
+    "lint": "no new finding against the committed baselines",
+    "instrumentedTests": "passed on the Android 15 emulator"
+  },
+  "mergedBuild": {
+    "workflowRun": 37117830528,
+    "commit": "317593fed09405b2bc2d1fccad5ccaa4779f58fb",
+    "phone": {
+      "methods": 61344,
+      "findings": 0,
+      "largestAppMethodRegisters": 206
+    },
+    "tv": {
+      "methods": 52500,
+      "findings": 0,
+      "largestAppMethodRegisters": 207
+    },
+    "artApi36": "no rejected method",
+    "firstAttempt": "run 37117130335 on ad8175f5 ran out of memory in the Kotlin daemon before any check"
+  }
+}

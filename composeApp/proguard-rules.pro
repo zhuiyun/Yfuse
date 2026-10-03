@@ -5,6 +5,7 @@
 -keep class com.yfuse.YfuseApp { *; }
 -keep class com.yfuse.MainActivity { *; }
 -keep class com.yfuse.feature.player.PlayerActivity { *; }
+-keep class com.yfuse.feature.player.ExternalPlaybackActivity { *; }
 -keep class com.yfuse.feature.profile.QrScannerActivity { *; }
 -keep class com.yfuse.core.offline.OfflineDownloadService { *; }
 -keep class com.yfuse.update.UpdateDownloadService { *; }
@@ -18,6 +19,8 @@
 # Since 1.0.98 no app method needs that many registers, and scripts/verify-release-dex.sh rejects a
 # release build in which one does. The readable names kept here are what made that crash traceable.
 -keep class com.yfuse.feature.player.PlayerRootKt { *; }
+# The split-out parts of PlayerRoot (PlayerRoot*.kt) keep the same protection until a release without these rules passes the Android 17 startup smoke.
+-keep class com.yfuse.feature.player.PlayerRoot*Kt { *; }
 
 # ---- Diagnostics ----
 # Failure logs record exception class names (native_direct_failed exceptiontype and similar).

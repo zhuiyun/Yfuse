@@ -3,6 +3,7 @@ package com.yfuse.core.designsystem
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -294,6 +295,7 @@ internal fun Modifier.dialogMotion(
     // 全息扫描 / 菱镜光圈 / 方格织入 / 双幕展开 / 风车开页 came apart mid-air. 磁吸归位 is the one
     // style authored around this gesture, so its own exit is the one that stays.
     val neutralDragExit = animation != DialogAnimation.MagneticDrag
+    SideEffect { drag?.flingsOn = neutralDragExit }
     val transformed =
         onGloballyPositioned { position.origin = it.positionInWindow() }
             .graphicsLayer {
@@ -339,13 +341,16 @@ internal fun Modifier.dialogMotion(
                     translationY += drag.offset
                     if (drag.dismissedByDrag) {
                         translationY +=
-                            if (flung) {
-                                size.height * 0.3f * (1f - entered)
-                            } else {
-                                (host.height + size.height) * (1f - entered)
+                            when {
+                                // Flying on at the finger's speed, the panel's offset is its way out.
+                                flung && drag.flying -> 0f
+                                flung -> size.height * 0.3f * (1f - entered)
+                                else -> (host.height + size.height) * (1f - entered)
                             }
                     }
-                    val stretch = (drag.offset / size.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                    // The stretch is the pull's resistance; flying off, the panel keeps the one it had.
+                    val pulled = if (drag.flying) drag.flightStart else drag.offset
+                    val stretch = (pulled / size.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
                     scaleX *= 1f - 0.035f * stretch
                     scaleY *= 1f + 0.015f * stretch
                 }

@@ -75,8 +75,8 @@ class AndroidKeystoreSecureStore(
         value: ByteArray,
     ) = synchronized(lock) {
         val normalizedKey = validateEntryKey(key)
-        require(value.size <= MAX_PLAINTEXT_SIZE_BYTES) {
-            "Secure-store values are limited to $MAX_PLAINTEXT_SIZE_BYTES bytes"
+        require(value.size <= SECURE_STORE_MAX_VALUE_BYTES) {
+            "Secure-store values are limited to $SECURE_STORE_MAX_VALUE_BYTES bytes"
         }
         val envelope =
             try {
@@ -179,7 +179,6 @@ class AndroidKeystoreSecureStore(
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_SIZE_BITS = 128
-        private const val MAX_PLAINTEXT_SIZE_BYTES = 64 * 1024
         private const val MAX_STORED_BASE64_CHARS = 88 * 1024
         private const val SETTINGS_PREFIX = "secure.store.v1."
         private const val KEY_ALIAS_PREFIX = "com.yfuse.secure-store.v1."

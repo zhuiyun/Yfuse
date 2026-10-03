@@ -72,7 +72,6 @@ private val exoRuntimeCadence =
         activeIntervalMs = PLAYBACK_PROGRESS_STEP_MS,
         idleIntervalMs = 2_000L,
     )
-private const val TRANSIENT_RETRY_LIMIT = 2
 private const val FAILURE_HISTORY_LIMIT = 4
 private const val MPEG_TS_TIMESTAMP_SEARCH_BYTES = 5 * 1024 * 1024
 
@@ -140,12 +139,7 @@ class ExoVideoEngine(
                         item = this.items.getOrNull(startIndex),
                     ).copy(
                         outputEvidence =
-                            PlaybackOutputEvidence(
-                                sessionRevision = 1L,
-                                videoConfidence = PlaybackEvidenceConfidence.Requested,
-                                audioConfidence = PlaybackEvidenceConfidence.Requested,
-                                renderApi = PlaybackVideoRenderApi.MediaCodecSurface,
-                            ),
+                            PlaybackOutputEvidence().nextLoadAttempt(PlaybackVideoRenderApi.MediaCodecSurface),
                     ),
             ),
         )
@@ -156,7 +150,7 @@ class ExoVideoEngine(
             index.takeIf { item.startsWithServerTranscode() }
         }
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
-    private val progressiveTransitionIndices = mutableSetOf<Int>()
+    private val pendingProgressiveSwitches = PendingProgressiveSwitches()
     private val retryCounts = mutableMapOf<Triple<String, String, String>, Int>()
 
     /** Compact, credential-free failure trail preserved across replaceMediaItem fallback hops. */
@@ -386,12 +380,7 @@ class ExoVideoEngine(
             renderedFrameRate = null,
             avSyncOffsetMs = null,
             avSyncMeasurement = "等待 Media3 呈现时钟",
-            outputEvidence =
-                diagnostics.outputEvidence.nextSession().copy(
-                    videoConfidence = PlaybackEvidenceConfidence.Requested,
-                    audioConfidence = PlaybackEvidenceConfidence.Requested,
-                    renderApi = PlaybackVideoRenderApi.MediaCodecSurface,
-                ),
+            outputEvidence = diagnostics.outputEvidence.nextLoadAttempt(PlaybackVideoRenderApi.MediaCodecSurface),
         )
 
     private fun updateAudioOutput() {
@@ -521,30 +510,15 @@ class ExoVideoEngine(
                 diagnostics =
                     state.diagnostics.copy(
                         videoOutput = label,
-                        videoReadiness =
-                            if (renderedFirstFrame) {
-                                PlaybackOutputReadiness.Rendering
-                            } else {
-                                PlaybackOutputReadiness.Waiting
-                            },
+                        videoReadiness = PlaybackRenderEvidence.readiness(renderedFirstFrame),
                         // The same three facts the label was spelling out: a frame is on
                         // screen, its range is Dolby Vision, and the display chain declared
                         // that format.
                         dolbyVisionOutput = nativeDolbyVisionOutput,
                         outputEvidence =
                             state.diagnostics.outputEvidence.copy(
-                                videoReadiness =
-                                    if (renderedFirstFrame) {
-                                        PlaybackOutputReadiness.Rendering
-                                    } else {
-                                        PlaybackOutputReadiness.Waiting
-                                    },
-                                videoConfidence =
-                                    if (renderedFirstFrame) {
-                                        PlaybackEvidenceConfidence.Confirmed
-                                    } else {
-                                        PlaybackEvidenceConfidence.Requested
-                                    },
+                                videoReadiness = PlaybackRenderEvidence.readiness(renderedFirstFrame),
+                                videoConfidence = PlaybackRenderEvidence.confidence(renderedFirstFrame),
                                 videoDecoder = currentVideoDecoder,
                                 inputDynamicRange = range,
                                 outputDynamicRange =
@@ -615,20 +589,7 @@ class ExoVideoEngine(
                 if (decoderName != currentVideoDecoder) return
                 renderedFirstFrame = false
                 _state.update {
-                    it.copy(
-                        diagnostics =
-                            it.diagnostics.copy(
-                                videoOutput = "$decoderName · 视频输出已释放",
-                                videoReadiness = PlaybackOutputReadiness.Released,
-                                dolbyVisionOutput = false,
-                                outputEvidence =
-                                    it.diagnostics.outputEvidence.copy(
-                                        videoReadiness = PlaybackOutputReadiness.Released,
-                                        videoConfidence = PlaybackEvidenceConfidence.Confirmed,
-                                        outputDynamicRange = "",
-                                    ),
-                            ),
-                    )
+                    it.copy(diagnostics = it.diagnostics.withVideoOutputReleased("$decoderName · 视频输出已释放"))
                 }
             }
 
@@ -640,22 +601,7 @@ class ExoVideoEngine(
                 currentAudioDecoder = ""
                 if (currentAudioTrackConfig == null) {
                     _state.update {
-                        it.copy(
-                            diagnostics =
-                                it.diagnostics.copy(
-                                    audioOutput = "音频解码器已释放",
-                                    audioReadiness = PlaybackOutputReadiness.Released,
-                                    immersiveAudioCarrierOutput = false,
-                                    dolbyAtmosOutput = false,
-                                    spatialAudioOutput = false,
-                                    headTrackingAvailable = false,
-                                    outputEvidence =
-                                        it.diagnostics.outputEvidence.copy(
-                                            audioReadiness = PlaybackOutputReadiness.Released,
-                                            audioMode = PlaybackAudioOutputMode.Unknown,
-                                        ),
-                                ),
-                        )
+                        it.copy(diagnostics = it.diagnostics.withAudioOutputReleased("音频解码器已释放"))
                     }
                 }
             }
@@ -837,26 +783,7 @@ class ExoVideoEngine(
                 if (currentAudioTrackConfig == audioTrackConfig) {
                     currentAudioTrackConfig = null
                 }
-                _state.update {
-                    it.copy(
-                        diagnostics =
-                            it.diagnostics.copy(
-                                audioOutput = "音频输出已释放",
-                                audioReadiness = PlaybackOutputReadiness.Released,
-                                // The label rule cleared this implicitly, because the released
-                                // sentence no longer said 源码输出. A flag has to be told.
-                                immersiveAudioCarrierOutput = false,
-                                dolbyAtmosOutput = false,
-                                spatialAudioOutput = false,
-                                headTrackingAvailable = false,
-                                outputEvidence =
-                                    it.diagnostics.outputEvidence.copy(
-                                        audioReadiness = PlaybackOutputReadiness.Released,
-                                        audioMode = PlaybackAudioOutputMode.Unknown,
-                                    ),
-                            ),
-                    )
-                }
+                _state.update { it.copy(diagnostics = it.diagnostics.withAudioOutputReleased("音频输出已释放")) }
             }
 
             override fun onDroppedVideoFrames(
@@ -866,16 +793,7 @@ class ExoVideoEngine(
             ) {
                 this@ExoVideoEngine.droppedFrames += droppedFrames
                 _state.update {
-                    it.copy(
-                        diagnostics =
-                            it.diagnostics.copy(
-                                droppedFrames = this@ExoVideoEngine.droppedFrames,
-                                outputEvidence =
-                                    it.diagnostics.outputEvidence.copy(
-                                        droppedFramesMeasured = true,
-                                    ),
-                            ),
-                    )
+                    it.copy(diagnostics = it.diagnostics.withDroppedFrames(this@ExoVideoEngine.droppedFrames))
                 }
             }
 
@@ -1088,10 +1006,8 @@ class ExoVideoEngine(
                             ).copy(
                                 fallbackReason = preservedFallbackReason,
                                 outputEvidence =
-                                    previousState.diagnostics.outputEvidence.nextSession().copy(
-                                        videoConfidence = PlaybackEvidenceConfidence.Requested,
-                                        audioConfidence = PlaybackEvidenceConfidence.Requested,
-                                        renderApi = PlaybackVideoRenderApi.MediaCodecSurface,
+                                    previousState.diagnostics.outputEvidence.nextLoadAttempt(
+                                        PlaybackVideoRenderApi.MediaCodecSurface,
                                     ),
                             ),
                     )
@@ -1245,7 +1161,7 @@ class ExoVideoEngine(
                     PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
                     ->
                         if (
-                            !scheduleRetry(index, TRANSIENT_RETRY_LIMIT, "transient_network") &&
+                            !scheduleRetry(index, PlaybackFallbackLadder.TRANSIENT_RETRY_LIMIT, "transient_network") &&
                             !advanceFallback()
                         ) {
                             failPlayback(
@@ -1416,6 +1332,9 @@ class ExoVideoEngine(
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
         failureHistory.remove(index)
+        // The entry starts over, so a failure from here on gets an answer from the ladder, not the
+        // "switching" of an MP4 switch begun before (MDK clears it here too).
+        pendingProgressiveSwitches.clear()
         clearActiveOutputEvidence()
         _state.update {
             it.copy(
@@ -1435,6 +1354,8 @@ class ExoVideoEngine(
     override fun currentPositionMs(): Long = player.currentPosition
 
     override fun retry() {
+        // As in selectItem: a failure after the retry gets an answer from the ladder.
+        pendingProgressiveSwitches.clear()
         clearActiveOutputEvidence()
         _state.update {
             it.copy(
@@ -1665,10 +1586,42 @@ class ExoVideoEngine(
 
     override fun switchToTranscode(reason: String?): Boolean {
         val index = player.currentMediaItemIndex
-        if (index in transcodedIndices) return switchToProgressiveTranscode()
-        val item = items.getOrNull(index) ?: return false
-        if (!item.allowsServerTranscodeFallback(reason)) return false
-        if (item.transcodeUrl.isEmpty()) return switchToProgressiveTranscode()
+        val item = items.getOrNull(index)
+        return takeStreamStep(
+            index,
+            item,
+            reason,
+            PlaybackFallbackLadder.nextExoStreamStep(streamRung(index), item, reason),
+        )
+    }
+
+    /** Where the entry at [index] stands on the stream ladder, from this engine's per-entry sets. */
+    private fun streamRung(index: Int): PlaybackStreamRung =
+        PlaybackFallbackLadder.streamRung(
+            transcoded = index in transcodedIndices,
+            progressive = index in progressiveTranscodeIndices,
+            progressivePending = index in pendingProgressiveSwitches,
+        )
+
+    /** Carries out the stream-ladder [step] the ladder chose for the entry at [index]. */
+    private fun takeStreamStep(
+        index: Int,
+        item: PlayerMediaItem?,
+        reason: String?,
+        step: PlaybackStreamStep,
+    ): Boolean =
+        when (step) {
+            PlaybackStreamStep.Transcode -> item != null && startServerTranscode(index, item, reason)
+            PlaybackStreamStep.Progressive -> item != null && startProgressiveTranscode(index, item)
+            PlaybackStreamStep.InProgress -> true
+            PlaybackStreamStep.Exhausted -> false
+        }
+
+    private fun startServerTranscode(
+        index: Int,
+        item: PlayerMediaItem,
+        reason: String?,
+    ): Boolean {
         transcodedIndices += index
         val position = player.currentPosition
         val fallbackReason = failureChainReason(index, reason ?: "直放失败，已切换服务器转码")
@@ -1751,7 +1704,6 @@ class ExoVideoEngine(
         if (!canUpdatePlaybackQueue(previous, oldIndex, items, currentIndex)) return false
         val remappedTranscoded = remapPlaybackQueueIndices(transcodedIndices, previous, items)
         val remappedProgressive = remapPlaybackQueueIndices(progressiveTranscodeIndices, previous, items)
-        val remappedTransitions = remapPlaybackQueueIndices(progressiveTransitionIndices, previous, items)
         val remappedHistory =
             failureHistory.entries
                 .mapNotNull { (index, history) ->
@@ -1766,8 +1718,7 @@ class ExoVideoEngine(
         items.forEachIndexed { index, item -> if (item.startsWithServerTranscode()) transcodedIndices += index }
         progressiveTranscodeIndices.clear()
         progressiveTranscodeIndices.addAll(remappedProgressive)
-        progressiveTransitionIndices.clear()
-        progressiveTransitionIndices.addAll(remappedTransitions)
+        pendingProgressiveSwitches.remap(previous, items)
         failureHistory.clear()
         failureHistory.putAll(remappedHistory)
         persistentCacheUrls.clear()
@@ -1795,13 +1746,21 @@ class ExoVideoEngine(
 
     private fun switchToProgressiveTranscode(): Boolean {
         val index = player.currentMediaItemIndex
-        if (index in progressiveTranscodeIndices) return false
-        if (index in progressiveTransitionIndices) return true
-        val item = items.getOrNull(index) ?: return false
-        if (item.requiresLocalDolbyPipeline && index !in transcodedIndices) return false
-        if (item.fallbackTranscodeUrl.isEmpty()) return false
+        val item = items.getOrNull(index)
+        return takeStreamStep(
+            index,
+            item,
+            reason = null,
+            PlaybackFallbackLadder.progressiveStreamStep(streamRung(index), item),
+        )
+    }
+
+    private fun startProgressiveTranscode(
+        index: Int,
+        item: PlayerMediaItem,
+    ): Boolean {
         transcodedIndices += index
-        progressiveTransitionIndices += index
+        pendingProgressiveSwitches.start(index)
         val position = player.currentPosition
         val fallbackReason = failureChainReason(index, "HLS 转码不可用，已改用 MP4 转码")
         clearActiveOutputEvidence()
@@ -1842,8 +1801,8 @@ class ExoVideoEngine(
                 val cleaned =
                     item.playSessionId.isBlank() ||
                         withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
-                if (released || player.currentMediaItemIndex != index) return@launch
-                progressiveTransitionIndices -= index
+                val stillCurrent = !released && player.currentMediaItemIndex == index
+                if (!pendingProgressiveSwitches.settle(index, stillCurrent)) return@launch
                 if (!cleaned) {
                     AppLog.warning(
                         category = "player.exo",
@@ -1879,7 +1838,12 @@ class ExoVideoEngine(
         return true
     }
 
-    private fun advanceFallback(): Boolean = switchToTranscode() || switchToProgressiveTranscode()
+    /**
+     * After a transport failure Exo no longer retries: the next step of the ladder, like any other
+     * failure. It used to fall through to the MP4 when that step was refused, which asked a server
+     * that had not approved transcoding for a transcode it would refuse.
+     */
+    private fun advanceFallback(): Boolean = switchToTranscode()
 
     private fun scheduleRetry(
         index: Int,
@@ -1916,7 +1880,7 @@ class ExoVideoEngine(
         )
         retryJob =
             scope.launch {
-                delay(if (nextAttempt == 1) 500L else 1_500L)
+                delay(PlaybackFallbackLadder.transientRetryDelayMs(nextAttempt))
                 if (released || player.currentMediaItemIndex != index) return@launch
                 player.prepare()
                 player.playWhenReady = true

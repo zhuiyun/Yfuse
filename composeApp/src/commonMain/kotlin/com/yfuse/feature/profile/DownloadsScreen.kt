@@ -26,8 +26,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -51,6 +51,11 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
@@ -75,8 +80,12 @@ import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
+import com.yfuse.core.designsystem.PlatformBackHandler
+import com.yfuse.core.designsystem.RollingNumber
 import com.yfuse.core.designsystem.Section
-import com.yfuse.core.designsystem.Semantic
+import com.yfuse.core.designsystem.SelectionAction
+import com.yfuse.core.designsystem.SelectionActionBar
+import com.yfuse.core.designsystem.SelectionMark
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.SettingsCard
@@ -86,8 +95,10 @@ import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.ToastAction
-import com.yfuse.core.designsystem.UndoWindow
 import com.yfuse.core.designsystem.YfChip
+import com.yfuse.core.designsystem.coversAll
+import com.yfuse.core.designsystem.dragSelect
+import com.yfuse.core.designsystem.dragSelectRow
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.motionItem
@@ -95,6 +106,11 @@ import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDecorativePhase
+import com.yfuse.core.designsystem.rememberDragSelectState
+import com.yfuse.core.designsystem.rememberThrottledValue
+import com.yfuse.core.designsystem.rememberUndoWindow
+import com.yfuse.core.designsystem.selectingAll
+import com.yfuse.core.designsystem.toggling
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineIndexStatus
@@ -133,6 +149,35 @@ internal fun downloadSwipe(status: DownloadStatus): DownloadSwipe? =
         DownloadStatus.Failed -> DownloadSwipe.Retry
         DownloadStatus.Completed -> null
     }
+
+/**
+ * 多选's bar for [selection], by the rule a row's own swipe follows: 暂停 takes what moves or waits,
+ * 继续/重试 what is paused or failed, and each is handed only those ids; 删除 takes everything. A
+ * button with nothing selected to act on stays, dimmed.
+ */
+internal fun downloadSelectionActions(
+    selection: List<OfflineMedia>,
+    onPause: (List<String>) -> Unit,
+    onResume: (List<String>) -> Unit,
+    onRemove: () -> Unit,
+): List<SelectionAction> {
+    fun ids(vararg swipes: DownloadSwipe) = selection.filter { downloadSwipe(it.status) in swipes }.map { it.id }
+    val pausable = ids(DownloadSwipe.Pause)
+    val resumable = ids(DownloadSwipe.Resume, DownloadSwipe.Retry)
+    return listOf(
+        SelectionAction("暂停", enabled = pausable.isNotEmpty(), onClickLabel = "暂停所选下载") { onPause(pausable) },
+        SelectionAction("继续/重试", enabled = resumable.isNotEmpty(), onClickLabel = "继续或重试所选下载") {
+            onResume(resumable)
+        },
+        SelectionAction(
+            "删除",
+            enabled = selection.isNotEmpty(),
+            destructive = true,
+            onClickLabel = "删除所选下载",
+            onClick = onRemove,
+        ),
+    )
+}
 
 /**
  * 删除下载, 先做，给 5 秒撤销: the rows named here leave the list at once, their files only when the
@@ -181,13 +226,20 @@ internal fun DownloadsScreen(
         }
     val access by personal.policy.collectAsState()
     val allItems by manager.items.collectAsState()
-    // The delete waiting on its toast (see [UndoWindow]), and the same change as state: its rows
-    // are hidden from the list — and from every count — while it waits.
-    val removals = remember { UndoWindow<DownloadRemoval>() }
-    var removal by remember { mutableStateOf<DownloadRemoval?>(null) }
     // The deletes past their toast, hidden until the manager is done with them; see
     // [downloadsStillLeaving].
     var leaving by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
+    // The delete waiting on its toast (see [UndoWindow]), and the same change as state: its rows
+    // are hidden from the list — and from every count — while it waits. However it is committed —
+    // its toast gone, a newer delete taking its place, the page left — its rows stay hidden past
+    // that point, until the manager has dropped them.
+    val removals =
+        rememberUndoWindow<DownloadRemoval> { change ->
+            val rows = manager.items.value.filter { it.id in change.ids }
+            leaving = leaving + rows.associate { it.id to it.error }
+            manager.removeMany(change.ids.toList())
+        }
+    var removal by remember { mutableStateOf<DownloadRemoval?>(null) }
     // A fresh toast for every delete: two deletes can read alike, and a toast only re-posts on a
     // new message.
     var removalToast by remember { mutableIntStateOf(0) }
@@ -222,14 +274,17 @@ internal fun DownloadsScreen(
     // the mode has to survive having nothing ticked in it.
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // 长按拖选 (5.4), as 管理进度 has it: a finger held on a row turns 多选 on with that row ticked,
+    // and moved up or down without lifting ticks every row it passes.
+    val listState = rememberLazyListState()
+    val sweep = rememberDragSelectState<String>()
 
-    // However it is committed — its toast gone, or a newer delete taking its place — a delete's rows
-    // stay hidden past this point, until the manager has dropped them.
-    fun commit(change: DownloadRemoval) {
-        val rows = manager.items.value.filter { it.id in change.ids }
-        leaving = leaving + rows.associate { it.id to it.error }
-        manager.removeMany(change.ids.toList())
+    fun endSelection() {
+        selecting = false
+        selected = emptySet()
     }
+    // A held finger enters 多选 without ever passing 完成, so 返回 leaves the mode before the page.
+    PlatformBackHandler(enabled = selecting, onBack = ::endSelection)
 
     // Every delete on this page — a swipe, the row's ×, the batch bar — goes through here.
     fun remove(
@@ -238,7 +293,7 @@ internal fun DownloadsScreen(
     ) {
         if (ids.isEmpty()) return
         val change = DownloadRemoval(ids, message)
-        removals.hold(change)?.let(::commit)
+        removals.hold(change)
         removal = change
         removalToast++
         selected = selected - ids
@@ -249,13 +304,10 @@ internal fun DownloadsScreen(
     }
 
     // The toast left — timed out, swiped away, the app sent to the background: the files go now.
+    // Leaving the page is the toast leaving too, and the window settles itself then.
     fun settleRemoval() {
-        removals.release()?.let(::commit)
+        removals.settle()
         removal = null
-    }
-    // Leaving the page is the toast leaving too; nothing may stay held behind a closed page.
-    DisposableEffect(removals) {
-        onDispose { removals.release()?.let(::commit) }
     }
     LaunchedEffect(allItems) { leaving = downloadsStillLeaving(leaving, allItems) }
     // A delete the manager could not carry out at all says so here rather than on its rows, and
@@ -271,239 +323,299 @@ internal fun DownloadsScreen(
         }
     val selectedItems = items.filter { it.id in selected }
 
-    fun removeSelected() = remove(selectedItems.mapTo(linkedSetOf()) { it.id }, "已删除 ${selectedItems.size} 项下载")
+    fun removeSelected() {
+        remove(selectedItems.mapTo(linkedSetOf()) { it.id }, "已删除 ${selectedItems.size} 项下载")
+        // What was selected has gone, and the toast offering it back takes the bar's place.
+        endSelection()
+    }
 
-    val allShownSelected = shown.isNotEmpty() && shown.all { it.id in selected }
+    // The last download gone leaves nothing to select, and no 完成 on the page to leave by.
+    LaunchedEffect(items.isEmpty()) { if (items.isEmpty()) endSelection() }
+    val shownIds = remember(shown) { shown.map { it.id } }
+    val allShownSelected = selected.coversAll(shownIds)
     val summary = remember(items) { summarizeOfflineQueue(items) }
     val canPauseAll = summary.active > 0
     val canResumeAll = summary.paused > 0 || summary.failed > 0
 
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            Modifier.fillMaxSize().statusBarsPadding(),
-            contentPadding = PaddingValues(top = SettingsHeaderTop, bottom = TabBarInset),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            motionItem {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(start = SettingsBackInset, end = Dimens.pageHorizontal),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    SettingsBackButton(onBack)
-                    Column(Modifier.padding(start = 10.dp).weight(1f)) {
-                        Text("下载中心", style = AppTypography.section.strong, color = palette.text)
-                        // One line, and only what is true. The header used to carry six counters
-                        // over two wrapped lines, which on an empty queue was five zeros and a
-                        // "0 B 离线文件" — the page opened by telling the reader nothing, at length.
-                        Text(
-                            when (indexStatus) {
-                                OfflineIndexStatus.Loading -> "正在读取下载记录…"
-                                OfflineIndexStatus.Failed -> "下载记录暂不可用"
-                                OfflineIndexStatus.Ready -> downloadSummaryLine(summary)
-                            },
-                            style = AppTypography.caption.medium,
-                            color = palette.sub2,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    // Nothing to multi-select on an empty page.
-                    AnimatedVisibility(
-                        visible = items.isNotEmpty(),
-                        enter = downloadRevealEnter(vertical = false),
-                        exit = downloadRevealExit(vertical = false),
+        // The list over 多选's bar, which takes its height from the list's foot as it opens.
+        Column(Modifier.fillMaxSize()) {
+            LazyColumn(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .dragSelect(
+                        state = sweep,
+                        listState = listState,
+                        keys = shownIds,
+                        selection = selected,
+                        // The sweep is also a way into 多选: the first row it ticks turns the mode on.
+                        onSelectionChange = { swept ->
+                            selected = swept
+                            selecting = true
+                        },
+                        enabled = shownIds.isNotEmpty(),
+                    ),
+                state = listState,
+                contentPadding = PaddingValues(top = SettingsHeaderTop, bottom = TabBarInset),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                motionItem {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = SettingsBackInset, end = Dimens.pageHorizontal),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            // 多选 used to tick every download on the way in, so 多选 then 删除
-                            // emptied the whole queue in two taps. It opens on nothing now, and
-                            // ticking everything is its own step.
-                            if (selecting) {
+                        SettingsBackButton(onBack)
+                        Column(Modifier.padding(start = 10.dp).weight(1f)) {
+                            Text("下载中心", style = AppTypography.section.strong, color = palette.text)
+                            // One line, and only what is true. The header used to carry six counters
+                            // over two wrapped lines, which on an empty queue was five zeros and a
+                            // "0 B 离线文件" — the page opened by telling the reader nothing, at length.
+                            Text(
+                                if (selecting) {
+                                    // What 多选's bar will act on, in place of the queue it acts in.
+                                    "已选择 ${selectedItems.size} 项"
+                                } else {
+                                    when (indexStatus) {
+                                        OfflineIndexStatus.Loading -> "正在读取下载记录…"
+                                        OfflineIndexStatus.Failed -> "下载记录暂不可用"
+                                        OfflineIndexStatus.Ready -> downloadSummaryLine(summary)
+                                    }
+                                },
+                                style = AppTypography.caption.medium,
+                                color = palette.sub2,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        // Nothing to multi-select on an empty page.
+                        AnimatedVisibility(
+                            visible = items.isNotEmpty(),
+                            enter = downloadRevealEnter(vertical = false),
+                            exit = downloadRevealExit(vertical = false),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // 多选 used to tick every download on the way in, so 多选 then 删除
+                                // emptied the whole queue in two taps. It opens on nothing now, and
+                                // ticking everything is its own step.
+                                if (selecting) {
+                                    Text(
+                                        if (allShownSelected) "取消全选" else "全选",
+                                        style = AppTypography.body.strong,
+                                        color = accent,
+                                        modifier =
+                                            Modifier
+                                                .pressable(
+                                                    onClickLabel = if (allShownSelected) "取消选中" else "选中当前下载",
+                                                ) {
+                                                    selected = selected.selectingAll(shownIds)
+                                                }.touchTarget()
+                                                .padding(horizontal = 8.dp),
+                                    )
+                                }
                                 Text(
-                                    if (allShownSelected) "取消全选" else "全选",
+                                    if (selecting) "完成" else "多选",
                                     style = AppTypography.body.strong,
                                     color = accent,
                                     modifier =
                                         Modifier
                                             .pressable(
-                                                onClickLabel = if (allShownSelected) "取消选中" else "选中当前下载",
+                                                onClickLabel = if (selecting) "退出多选" else "进入多选",
                                             ) {
-                                                val shownIds = shown.mapTo(linkedSetOf()) { it.id }
-                                                selected =
-                                                    if (allShownSelected) selected - shownIds else selected + shownIds
+                                                selecting = !selecting
+                                                selected = emptySet()
                                             }.touchTarget()
                                             .padding(horizontal = 8.dp),
                                 )
                             }
+                        }
+                    }
+                }
+
+                operationError?.let { message ->
+                    motionItem(key = "download-operation-error") {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
-                                if (selecting) "完成" else "多选",
-                                style = AppTypography.body.strong,
+                                message,
+                                modifier = Modifier.weight(1f),
+                                style = AppTypography.caption.medium,
+                                color = palette.error,
+                            )
+                            Text(
+                                "关闭",
+                                style = AppTypography.caption.strong,
                                 color = accent,
                                 modifier =
                                     Modifier
                                         .pressable(
-                                            onClickLabel = if (selecting) "退出多选" else "进入多选",
-                                        ) {
-                                            selecting = !selecting
-                                            selected = emptySet()
-                                        }.touchTarget()
-                                        .padding(horizontal = 8.dp),
+                                            onClick = manager::clearOperationError,
+                                        ).touchTarget()
+                                        .padding(8.dp),
                             )
                         }
                     }
                 }
-            }
 
-            operationError?.let { message ->
-                motionItem(key = "download-operation-error") {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            message,
-                            modifier = Modifier.weight(1f),
-                            style = AppTypography.caption.medium,
-                            color = palette.error,
-                        )
-                        Text(
-                            "关闭",
-                            style = AppTypography.caption.strong,
-                            color = accent,
-                            modifier =
-                                Modifier
-                                    .pressable(
-                                        onClick = manager::clearOperationError,
-                                    ).touchTarget()
-                                    .padding(8.dp),
-                        )
-                    }
+                // The one setting the page owns, as the settings row it is everywhere else in 我的 —
+                // rather than a "下载策略" card that also held a sort control disguised as a status
+                // line and a pair of queue buttons for a queue that is usually empty.
+                motionItem(key = "download-settings-toggle") {
+                    SettingRow(
+                        title = if (showSettings) "收起下载设置" else "下载设置",
+                        value = if (access.canManageServers) "Wi-Fi、容量、自动追更" else "请切换至家长资料管理",
+                        onClick = { if (access.canManageServers) showSettings = !showSettings },
+                    )
                 }
-            }
-
-            // The one setting the page owns, as the settings row it is everywhere else in 我的 —
-            // rather than a "下载策略" card that also held a sort control disguised as a status
-            // line and a pair of queue buttons for a queue that is usually empty.
-            motionItem(key = "download-settings-toggle") {
-                SettingRow(
-                    title = if (showSettings) "收起下载设置" else "下载设置",
-                    value = if (access.canManageServers) "Wi-Fi、容量、自动追更" else "请切换至家长资料管理",
-                    onClick = { if (access.canManageServers) showSettings = !showSettings },
-                )
-            }
-            if (showSettings && access.canManageServers) {
-                motionItem {
-                    Section(title = "下载设置") {
-                        SettingsCard {
-                            SettingRow(
-                                title = "下载通知与实况通知",
-                                value = notificationAccess.label,
-                                embedded = true,
-                                onClick = notificationAccess.openSettings,
-                            )
-                            SettingsDivider()
-                            SettingRow(
-                                title = "离线视频容量上限",
-                                value =
-                                    com.yfuse.core.offline
-                                        .offlineVideoBudgetLabel(policy.storageBudgetBytes),
-                                embedded = true,
-                                onClick = {
-                                    val options = com.yfuse.core.offline.offlineVideoBudgetOptions
-                                    val next = options[(options.indexOf(policy.storageBudgetBytes) + 1) % options.size]
-                                    manager.setDownloadBudget(
-                                        next,
-                                        policy.autoDownloadChargingOnly,
-                                        policy.windowStartMinute,
-                                        policy.windowEndMinute,
-                                    )
-                                },
-                            )
-                            SettingsDivider()
-                            SwitchRow(
-                                "自动追更仅在充电时下载",
-                                policy.autoDownloadChargingOnly,
-                                embedded = true,
-                                onChange = {
-                                    manager.setDownloadBudget(
-                                        policy.storageBudgetBytes,
-                                        it,
-                                        policy.windowStartMinute,
-                                        policy.windowEndMinute,
-                                    )
-                                },
-                            )
-                            SettingsDivider()
-                            SettingRow(
-                                title = "允许下载时段",
-                                value =
-                                    com.yfuse.core.offline.offlineDownloadWindowLabel(
-                                        policy.windowStartMinute,
-                                        policy.windowEndMinute,
-                                    ),
-                                embedded = true,
-                                onClick = {
-                                    val options = com.yfuse.core.offline.offlineDownloadWindowOptions
-                                    val next =
-                                        options[
-                                            (options.indexOf(policy.windowStartMinute to policy.windowEndMinute) + 1) %
-                                                options.size,
-                                        ]
-                                    manager.setDownloadBudget(
-                                        policy.storageBudgetBytes,
-                                        policy.autoDownloadChargingOnly,
-                                        next.first,
-                                        next.second,
-                                    )
-                                },
-                            )
-                            SettingsDivider()
-                            SettingRow(
-                                title = "保存位置",
-                                value = policy.storageLabel ?: "应用内部存储",
-                                embedded = true,
-                                onClick = pickStorageDirectory,
-                                icon = AppIcons.Download,
-                                iconTint = SettingTint.downloads,
-                            )
-                            if (policy.storageTreeUri != null) {
+                if (showSettings && access.canManageServers) {
+                    motionItem {
+                        Section(title = "下载设置") {
+                            SettingsCard {
+                                SettingRow(
+                                    title = "下载通知与实况通知",
+                                    value = notificationAccess.label,
+                                    embedded = true,
+                                    onClick = notificationAccess.openSettings,
+                                )
                                 SettingsDivider()
                                 SettingRow(
-                                    title = "改回内部存储",
-                                    value = "仅影响新下载",
+                                    title = "离线视频容量上限",
+                                    value =
+                                        com.yfuse.core.offline
+                                            .offlineVideoBudgetLabel(policy.storageBudgetBytes),
                                     embedded = true,
-                                    onClick = { manager.setStorageDirectory(null) },
+                                    onClick = {
+                                        val options = com.yfuse.core.offline.offlineVideoBudgetOptions
+                                        val next =
+                                            options[(options.indexOf(policy.storageBudgetBytes) + 1) % options.size]
+                                        manager.setDownloadBudget(
+                                            next,
+                                            policy.autoDownloadChargingOnly,
+                                            policy.windowStartMinute,
+                                            policy.windowEndMinute,
+                                        )
+                                    },
                                 )
-                            }
-                            SettingsDivider()
-                            SwitchRow(
-                                "仅 Wi-Fi 下载",
-                                wifiOnly,
-                                embedded = true,
-                                icon = AppIcons.Download,
-                                iconTint = SettingTint.downloads,
-                                onChange = manager::setWifiOnly,
-                            )
-                            SettingsDivider()
-                            SwitchRow(
-                                "看完自动删除",
-                                policy.autoDeleteWatched,
-                                embedded = true,
-                                icon = AppIcons.Close,
-                                iconTint = SettingTint.downloads,
-                                onChange = manager::setAutoDeleteWatched,
-                            )
-                            SettingsDivider()
-                            SwitchRow(
-                                "自动下载新集",
-                                policy.autoDownloadEnabled,
-                                embedded = true,
-                                icon = AppIcons.Refresh,
-                                iconTint = SettingTint.downloads,
-                                onChange = manager::setAutoDownloadEnabled,
-                            )
-                            if (autoDownloadRuleCount > 0) {
+                                SettingsDivider()
+                                SwitchRow(
+                                    "自动追更仅在充电时下载",
+                                    policy.autoDownloadChargingOnly,
+                                    embedded = true,
+                                    onChange = {
+                                        manager.setDownloadBudget(
+                                            policy.storageBudgetBytes,
+                                            it,
+                                            policy.windowStartMinute,
+                                            policy.windowEndMinute,
+                                        )
+                                    },
+                                )
+                                SettingsDivider()
+                                SettingRow(
+                                    title = "允许下载时段",
+                                    value =
+                                        com.yfuse.core.offline.offlineDownloadWindowLabel(
+                                            policy.windowStartMinute,
+                                            policy.windowEndMinute,
+                                        ),
+                                    embedded = true,
+                                    onClick = {
+                                        val options = com.yfuse.core.offline.offlineDownloadWindowOptions
+                                        val window = policy.windowStartMinute to policy.windowEndMinute
+                                        val next = options[(options.indexOf(window) + 1) % options.size]
+                                        manager.setDownloadBudget(
+                                            policy.storageBudgetBytes,
+                                            policy.autoDownloadChargingOnly,
+                                            next.first,
+                                            next.second,
+                                        )
+                                    },
+                                )
+                                SettingsDivider()
+                                SettingRow(
+                                    title = "保存位置",
+                                    value = policy.storageLabel ?: "应用内部存储",
+                                    embedded = true,
+                                    onClick = pickStorageDirectory,
+                                    icon = AppIcons.Download,
+                                    iconTint = SettingTint.downloads,
+                                )
+                                if (policy.storageTreeUri != null) {
+                                    SettingsDivider()
+                                    SettingRow(
+                                        title = "改回内部存储",
+                                        value = "仅影响新下载",
+                                        embedded = true,
+                                        onClick = { manager.setStorageDirectory(null) },
+                                    )
+                                }
+                                SettingsDivider()
+                                SwitchRow(
+                                    "仅 Wi-Fi 下载",
+                                    wifiOnly,
+                                    embedded = true,
+                                    icon = AppIcons.Download,
+                                    iconTint = SettingTint.downloads,
+                                    onChange = manager::setWifiOnly,
+                                )
+                                SettingsDivider()
+                                SwitchRow(
+                                    "看完自动删除",
+                                    policy.autoDeleteWatched,
+                                    embedded = true,
+                                    icon = AppIcons.Close,
+                                    iconTint = SettingTint.downloads,
+                                    onChange = manager::setAutoDeleteWatched,
+                                )
+                                SettingsDivider()
+                                SwitchRow(
+                                    "自动下载新集",
+                                    policy.autoDownloadEnabled,
+                                    embedded = true,
+                                    icon = AppIcons.Refresh,
+                                    iconTint = SettingTint.downloads,
+                                    onChange = manager::setAutoDownloadEnabled,
+                                )
+                                if (autoDownloadRuleCount > 0) {
+                                    SettingsDivider()
+                                    Column(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 13.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        Column {
+                                            Text("追更保留数量", style = AppTypography.body.medium, color = palette.text)
+                                            Text(
+                                                "$autoDownloadRuleCount 条规则 · 每季最多保留",
+                                                style = AppTypography.caption.regular,
+                                                color = palette.sub2,
+                                            )
+                                        }
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            motionItems(listOf(1, 3, 5, 10)) { count ->
+                                                YfChip(
+                                                    label = count.toString(),
+                                                    selected = policy.autoDownloadItemLimit == count,
+                                                    onClickLabel = "每季保留 $count 集",
+                                                    onClick = { manager.setAutoDownloadItemLimit(count) },
+                                                )
+                                            }
+                                        }
+                                    }
+                                    SettingsDivider()
+                                    SettingRow(
+                                        title = "清除追更规则",
+                                        value = "$autoDownloadRuleCount 条",
+                                        embedded = true,
+                                        onClick = { confirmClearRules = true },
+                                    )
+                                }
                                 SettingsDivider()
                                 Column(
                                     Modifier
@@ -512,266 +624,207 @@ internal fun DownloadsScreen(
                                     verticalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
                                     Column {
-                                        Text("追更保留数量", style = AppTypography.body.medium, color = palette.text)
-                                        Text(
-                                            "$autoDownloadRuleCount 条规则 · 每季最多保留",
-                                            style = AppTypography.caption.regular,
-                                            color = palette.sub2,
-                                        )
+                                        Text("同时下载", style = AppTypography.body.medium, color = palette.text)
+                                        Text("1–3 个任务", style = AppTypography.caption.regular, color = palette.sub2)
                                     }
                                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        motionItems(listOf(1, 3, 5, 10)) { count ->
+                                        motionItems((1..3).toList()) { count ->
                                             YfChip(
                                                 label = count.toString(),
-                                                selected = policy.autoDownloadItemLimit == count,
-                                                onClickLabel = "每季保留 $count 集",
-                                                onClick = { manager.setAutoDownloadItemLimit(count) },
+                                                selected = policy.maxConcurrentDownloads == count,
+                                                onClickLabel = "同时下载 $count 个任务",
+                                                onClick = { manager.setMaxConcurrentDownloads(count) },
                                             )
                                         }
                                     }
                                 }
-                                SettingsDivider()
-                                SettingRow(
-                                    title = "清除追更规则",
-                                    value = "$autoDownloadRuleCount 条",
-                                    embedded = true,
-                                    onClick = { confirmClearRules = true },
-                                )
-                            }
-                            SettingsDivider()
-                            Column(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 13.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                Column {
-                                    Text("同时下载", style = AppTypography.body.medium, color = palette.text)
-                                    Text("1–3 个任务", style = AppTypography.caption.regular, color = palette.sub2)
-                                }
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    motionItems((1..3).toList()) { count ->
-                                        YfChip(
-                                            label = count.toString(),
-                                            selected = policy.maxConcurrentDownloads == count,
-                                            onClickLabel = "同时下载 $count 个任务",
-                                            onClick = { manager.setMaxConcurrentDownloads(count) },
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
                 }
-            }
 
-            // The three bars that exist only for part of the page's life share one lazy item, and
-            // each carries its own gap inside its reveal.
-            //
-            // They stay composed so they can collapse rather than being dropped, which is what made
-            // the first download look like it shoved the page. One item rather than three because a
-            // collapsed AnimatedVisibility is zero-height but still claims the list's 14dp of
-            // Arrangement.spacedBy: as separate items, the commonest state of the page — a queue
-            // with nothing selected — would carry two permanent gaps it has no rows for.
-            //
-            // A plain item rather than a motionItem: its height is already being animated from the
-            // inside, and animateItem's spring would spend every one of those frames chasing a
-            // tween it cannot catch.
-            item(key = "download-action-bars") {
-                Column(Modifier.fillMaxWidth()) {
-                    AnimatedVisibility(
-                        visible = items.isNotEmpty(),
-                        enter = downloadRevealEnter(vertical = true),
-                        exit = downloadRevealExit(vertical = true),
-                    ) {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                // The two bars that exist only for part of the page's life share one lazy item, and
+                // each carries its own gap inside its reveal. 多选's bar used to be a third; it is
+                // under the list now (see [SelectionActionBar]), where opening it moves no row.
+                //
+                // They stay composed so they can collapse rather than being dropped, which is what made
+                // the first download look like it shoved the page. One item rather than two because a
+                // collapsed AnimatedVisibility is zero-height but still claims the list's 14dp of
+                // Arrangement.spacedBy: as separate items, the commonest state of the page — every
+                // download finished — would carry a permanent gap it has no row for.
+                //
+                // A plain item rather than a motionItem: its height is already being animated from the
+                // inside, and animateItem's spring would spend every one of those frames chasing a
+                // tween it cannot catch.
+                item(key = "download-action-bars") {
+                    Column(Modifier.fillMaxWidth()) {
+                        AnimatedVisibility(
+                            visible = items.isNotEmpty(),
+                            enter = downloadRevealEnter(vertical = true),
+                            exit = downloadRevealExit(vertical = true),
                         ) {
-                            motionItems(DownloadFilter.entries) { value ->
-                                val active = filter == value
-                                YfChip(
-                                    label = value.label,
-                                    selected = active,
-                                    onClickLabel = "筛选${value.label}下载",
-                                    onClick = { filter = value },
-                                )
-                            }
-                            // Sorting belongs with filtering: both decide what the list under them
-                            // looks like, and it used to sit in another card's header where it read
-                            // as a label rather than a control.
-                            motionItem {
-                                YfChip(
-                                    label = "排序 · ${sort.label}",
-                                    selected = false,
-                                    onClickLabel = "更改排序，当前${sort.label}",
-                                    onClick = { sortOpen = true },
-                                )
-                            }
-                        }
-                    }
-
-                    // Queue-wide actions, only while there is a queue to act on.
-                    AnimatedVisibility(
-                        visible = canPauseAll || canResumeAll,
-                        enter = downloadRevealEnter(vertical = true),
-                        exit = downloadRevealExit(vertical = true),
-                    ) {
-                        val queueActions =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    top = DownloadBarGap,
-                                    start = Dimens.pageHorizontal,
-                                    end = Dimens.pageHorizontal,
-                                )
-                        if (largeText) {
-                            Column(queueActions, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                BatchAction("全部暂停", Modifier.fillMaxWidth(), enabled = canPauseAll) {
-                                    manager.pauseMany(items.map { it.id })
-                                }
-                                BatchAction("全部继续/重试", Modifier.fillMaxWidth(), enabled = canResumeAll) {
-                                    manager.resumeMany(items.map { it.id })
-                                }
-                            }
-                        } else {
-                            Row(queueActions, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                BatchAction("全部暂停", Modifier.weight(1f), enabled = canPauseAll) {
-                                    manager.pauseMany(items.map { it.id })
-                                }
-                                BatchAction("全部继续/重试", Modifier.weight(1f), enabled = canResumeAll) {
-                                    manager.resumeMany(items.map { it.id })
-                                }
-                            }
-                        }
-                    }
-
-                    AnimatedVisibility(
-                        visible = selectedItems.isNotEmpty(),
-                        enter = downloadRevealEnter(vertical = true),
-                        exit = downloadRevealExit(vertical = true),
-                    ) {
-                        val batchSurface =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    top = DownloadBarGap,
-                                    start = Dimens.pageHorizontal,
-                                    end = Dimens.pageHorizontal,
-                                ).glass(AppShapes.card, palette.card2, palette.border)
-                                .padding(10.dp)
-                        if (largeText) {
-                            Column(
-                                batchSurface,
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                BatchAction("暂停", Modifier.fillMaxWidth()) {
-                                    manager.pauseMany(selectedItems.map(OfflineMedia::id))
-                                }
-                                BatchAction("继续/重试", Modifier.fillMaxWidth()) {
-                                    manager.resumeMany(selectedItems.map(OfflineMedia::id))
-                                }
-                                BatchAction("删除", Modifier.fillMaxWidth(), danger = true, onClick = ::removeSelected)
-                            }
-                        } else {
-                            Row(
-                                batchSurface,
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                BatchAction("暂停", Modifier.weight(1f)) {
-                                    manager.pauseMany(selectedItems.map(OfflineMedia::id))
+                                motionItems(DownloadFilter.entries) { value ->
+                                    val active = filter == value
+                                    YfChip(
+                                        label = value.label,
+                                        selected = active,
+                                        onClickLabel = "筛选${value.label}下载",
+                                        onClick = { filter = value },
+                                    )
                                 }
-                                BatchAction("继续/重试", Modifier.weight(1f)) {
-                                    manager.resumeMany(selectedItems.map(OfflineMedia::id))
+                                // Sorting belongs with filtering: both decide what the list under them
+                                // looks like, and it used to sit in another card's header where it read
+                                // as a label rather than a control.
+                                motionItem {
+                                    YfChip(
+                                        label = "排序 · ${sort.label}",
+                                        selected = false,
+                                        onClickLabel = "更改排序，当前${sort.label}",
+                                        onClick = { sortOpen = true },
+                                    )
                                 }
-                                BatchAction("删除", Modifier.weight(1f), danger = true, onClick = ::removeSelected)
+                            }
+                        }
+
+                        // Queue-wide actions, only while there is a queue to act on.
+                        AnimatedVisibility(
+                            visible = canPauseAll || canResumeAll,
+                            enter = downloadRevealEnter(vertical = true),
+                            exit = downloadRevealExit(vertical = true),
+                        ) {
+                            val queueActions =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        top = DownloadBarGap,
+                                        start = Dimens.pageHorizontal,
+                                        end = Dimens.pageHorizontal,
+                                    )
+                            if (largeText) {
+                                Column(queueActions, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    BatchAction("全部暂停", Modifier.fillMaxWidth(), enabled = canPauseAll) {
+                                        manager.pauseMany(items.map { it.id })
+                                    }
+                                    BatchAction("全部继续/重试", Modifier.fillMaxWidth(), enabled = canResumeAll) {
+                                        manager.resumeMany(items.map { it.id })
+                                    }
+                                }
+                            } else {
+                                Row(queueActions, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    BatchAction("全部暂停", Modifier.weight(1f), enabled = canPauseAll) {
+                                        manager.pauseMany(items.map { it.id })
+                                    }
+                                    BatchAction("全部继续/重试", Modifier.weight(1f), enabled = canResumeAll) {
+                                        manager.resumeMany(items.map { it.id })
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            if (indexStatus == OfflineIndexStatus.Failed) {
-                // A failed read is not an empty list: say so, and offer the read again.
-                motionItem {
-                    ErrorState(
-                        message = "下载记录未能读取，请检查存储后重试",
-                        onRetry = manager::retryIndex,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 28.dp),
-                    )
-                }
-            } else if (shown.isEmpty()) {
-                motionItem {
-                    Column(
-                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 52.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(AppIcons.Download, null, tint = palette.hint, modifier = Modifier.size(30.dp))
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            when {
-                                indexStatus == OfflineIndexStatus.Loading -> "正在读取下载记录…"
-                                items.isEmpty() -> "还没有下载任务\n在详情页选择下载后会出现在这里"
-                                else -> "当前筛选没有任务"
-                            },
-                            style = AppTypography.body.regular,
-                            color = palette.hint,
+                if (indexStatus == OfflineIndexStatus.Failed) {
+                    // A failed read is not an empty list: say so, and offer the read again.
+                    motionItem {
+                        ErrorState(
+                            message = "下载记录未能读取，请检查存储后重试",
+                            onRetry = manager::retryIndex,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 28.dp),
                         )
                     }
-                }
-            } else {
-                motionItems(shown, key = { it.id }, contentType = { "download-task" }) { item ->
-                    val removeItem = { remove(setOf(item.id), "已删除「${item.title}」") }
-                    // Right: the transfer's own next step. Left: 删除, undoable like the × beside it.
-                    // Selecting is its own mode, and a row being ticked does not also swipe.
-                    SwipeActionsRow(
-                        modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-                        leading =
-                            downloadSwipe(item.status)?.let { swipe ->
-                                ItemAction(
-                                    label = swipe.label,
-                                    icon = if (swipe == DownloadSwipe.Pause) AppIcons.Pause else AppIcons.Play,
-                                    id = "download.${swipe.name}",
-                                ) {
-                                    when (swipe) {
-                                        DownloadSwipe.Pause -> manager.pause(item.id)
-                                        DownloadSwipe.Resume, DownloadSwipe.Retry -> manager.resume(item.id)
+                } else if (shown.isEmpty()) {
+                    motionItem {
+                        Column(
+                            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 52.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(AppIcons.Download, null, tint = palette.hint, modifier = Modifier.size(30.dp))
+                            Spacer(Modifier.height(10.dp))
+                            Text(
+                                when {
+                                    indexStatus == OfflineIndexStatus.Loading -> "正在读取下载记录…"
+                                    items.isEmpty() -> "还没有下载任务\n在详情页选择下载后会出现在这里"
+                                    else -> "当前筛选没有任务"
+                                },
+                                style = AppTypography.body.regular,
+                                color = palette.hint,
+                            )
+                        }
+                    }
+                } else {
+                    motionItems(shown, key = { it.id }, contentType = { "download-task" }) { item ->
+                        val removeItem = { remove(setOf(item.id), "已删除「${item.title}」") }
+                        // Right: the transfer's own next step. Left: 删除, undoable like the × beside it.
+                        // Selecting is its own mode, and a row being ticked does not also swipe.
+                        SwipeActionsRow(
+                            modifier =
+                                Modifier
+                                    .padding(horizontal = Dimens.pageHorizontal)
+                                    .dragSelectRow(sweep, item.id),
+                            tipId = Tips.SWIPE_ROW_DOWNLOADS,
+                            leading =
+                                downloadSwipe(item.status)?.let { swipe ->
+                                    ItemAction(
+                                        label = swipe.label,
+                                        icon = if (swipe == DownloadSwipe.Pause) AppIcons.Pause else AppIcons.Play,
+                                        id = "download.${swipe.name}",
+                                    ) {
+                                        when (swipe) {
+                                            DownloadSwipe.Pause -> manager.pause(item.id)
+                                            DownloadSwipe.Resume, DownloadSwipe.Retry -> manager.resume(item.id)
+                                        }
                                     }
-                                }
-                            },
-                        trailing =
-                            ItemAction(
-                                label = "删除",
-                                icon = AppIcons.Close,
-                                destructive = true,
-                                undoable = true,
-                                id = "download.remove",
-                                onSelect = removeItem,
-                            ),
-                        enabled = !selecting,
-                    ) { actions ->
-                        DownloadTaskRow(
-                            item = item,
-                            selected = item.id in selected,
-                            selectionMode = selecting,
-                            onToggleSelected = {
-                                selected = if (item.id in selected) selected - item.id else selected + item.id
-                            },
-                            onPlay = { onPlay(item) },
-                            onPause = { manager.pause(item.id) },
-                            onResume = { manager.resume(item.id) },
-                            onRemove = removeItem,
-                            modifier = actions,
-                        )
+                                },
+                            trailing =
+                                ItemAction(
+                                    label = "删除",
+                                    icon = AppIcons.Close,
+                                    destructive = true,
+                                    undoable = true,
+                                    id = "download.remove",
+                                    onSelect = removeItem,
+                                ),
+                            enabled = !selecting,
+                        ) { actions ->
+                            DownloadTaskRow(
+                                item = item,
+                                selected = item.id in selected,
+                                selectionMode = selecting,
+                                onToggleSelected = { selected = selected.toggling(item.id) },
+                                onStartSelection = {
+                                    selected = selected + item.id
+                                    selecting = true
+                                },
+                                onPlay = { onPlay(item) },
+                                onPause = { manager.pause(item.id) },
+                                onResume = { manager.resume(item.id) },
+                                onRemove = removeItem,
+                                modifier = actions,
+                            )
+                        }
                     }
                 }
             }
+            SelectionActionBar(
+                visible = selecting,
+                actions =
+                    downloadSelectionActions(
+                        selection = selectedItems,
+                        onPause = manager::pauseMany,
+                        onResume = manager::resumeMany,
+                        onRemove = ::removeSelected,
+                    ),
+            )
         }
 
         // Once there are rows to swipe; the first swipe retires it.
         ContextualTip(
-            id = Tips.SWIPE_ROW,
-            text = "左滑可删除下载，右滑可暂停或继续",
+            id = Tips.SWIPE_ROW_DOWNLOADS,
+            text = "左滑删除，右滑暂停或继续；长按一项后上下拖动可连续选择",
             active = shown.isNotEmpty() && !selecting,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = TabBarInset),
         )
@@ -903,25 +956,19 @@ private fun downloadRevealExit(vertical: Boolean): ExitTransition {
     }
 }
 
+/** A queue-wide action, drawn as [SelectionActionBar]'s buttons are. */
 @Composable
 private fun BatchAction(
     label: String,
     modifier: Modifier = Modifier,
-    danger: Boolean = false,
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current.accent
     Text(
         label,
         style = AppTypography.body.strong,
-        color =
-            when {
-                !enabled -> palette.hint
-                danger -> Semantic.Error
-                else -> accent
-            },
+        color = if (enabled) LocalAccentColors.current.accent else palette.hint,
         textAlign = TextAlign.Center,
         modifier =
             modifier
@@ -938,6 +985,8 @@ private fun DownloadTaskRow(
     selected: Boolean,
     selectionMode: Boolean,
     onToggleSelected: () -> Unit,
+    /** 多选 with this row ticked: what a finger held on the row does, for a screen reader's long press. */
+    onStartSelection: () -> Unit,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -950,6 +999,13 @@ private fun DownloadTaskRow(
         modifier
             .fillMaxWidth()
             .pressable(
+                role = if (selectionMode) Role.Checkbox else Role.Button,
+                onClickLabel =
+                    when {
+                        !selectionMode -> null
+                        selected -> "取消选择"
+                        else -> "选择"
+                    },
                 onClick =
                     if (selectionMode) {
                         onToggleSelected
@@ -966,7 +1022,19 @@ private fun DownloadTaskRow(
                             }
                         }
                     },
-            ).heightIn(min = MinTouchTarget)
+            ).semantics {
+                if (selectionMode) {
+                    this.selected = selected
+                    stateDescription = if (selected) "已选择" else "未选择"
+                } else {
+                    // The held finger is the list's own gesture (see [dragSelect]); a screen reader
+                    // reaches the same 多选 through the row's long press instead.
+                    onLongClick(label = "进入多选") {
+                        onStartSelection()
+                        true
+                    }
+                }
+            }.heightIn(min = MinTouchTarget)
             .glass(
                 AppShapes.card,
                 if (selected) accent.copy(alpha = 0.10f) else palette.card,
@@ -974,13 +1042,14 @@ private fun DownloadTaskRow(
             ).padding(13.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        // As tall with the mark as with 播放 and × — the × is a full touch target — so a finger held
+        // on a row to enter 多选 does not see the rows under it shrink and slide away.
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = MinTouchTarget),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             if (selectionMode) {
-                Text(
-                    if (selected) "✓" else "○",
-                    style = AppTypography.section.strong,
-                    color = if (selected) accent else palette.sub2,
-                )
+                SelectionMark(selected)
                 Spacer(Modifier.size(9.dp))
             }
             Column(Modifier.weight(1f)) {
@@ -991,24 +1060,40 @@ private fun DownloadTaskRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    downloadStatusText(item),
-                    modifier =
-                        Modifier.lightOnChange(
-                            item.status,
-                            if (item.status == DownloadStatus.Completed) LightEffect.Converge else LightEffect.Node,
-                            emitWhen = item.status != DownloadStatus.Failed,
-                        ),
-                    style = AppTypography.caption.medium,
-                    color =
-                        when {
-                            item.status == DownloadStatus.Failed -> palette.error
-                            item.nextRetryAt > 0L -> palette.warning
-                            else -> palette.sub2
-                        },
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                val statusColor =
+                    when {
+                        item.status == DownloadStatus.Failed -> palette.error
+                        item.nextRetryAt > 0L -> palette.warning
+                        else -> palette.sub2
+                    }
+                Box(
+                    Modifier.lightOnChange(
+                        item.status,
+                        if (item.status == DownloadStatus.Completed) LightEffect.Converge else LightEffect.Node,
+                        emitWhen = item.status != DownloadStatus.Failed,
+                    ),
+                ) {
+                    if (item.status == DownloadStatus.Downloading && item.totalBytes > 0L) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "${formatDownloadBytes(item.downloadedBytes)} / " +
+                                    "${formatDownloadBytes(item.totalBytes)} · ",
+                                style = AppTypography.caption.medium,
+                                color = statusColor,
+                                maxLines = 1,
+                            )
+                            DownloadPercent(item.progress, color = statusColor)
+                        }
+                    } else {
+                        Text(
+                            downloadStatusText(item),
+                            style = AppTypography.caption.medium,
+                            color = statusColor,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
             if (!selectionMode) {
                 Text(
@@ -1131,6 +1216,19 @@ private fun DownloadProgressTrack(
             }
         },
     )
+}
+
+/**
+ * How far a transfer is, as a figure that rolls up. A transfer reports every chunk it writes; the
+ * figure moves at most ten times a second, so each roll can be read.
+ */
+@Composable
+private fun DownloadPercent(
+    progress: Float,
+    color: Color,
+) {
+    val percent = rememberThrottledValue((progress.coerceIn(0f, 1f) * 100f).toInt())
+    RollingNumber(text = "$percent%", style = AppTypography.caption.medium, color = color)
 }
 
 private fun downloadStatusText(item: OfflineMedia): String =

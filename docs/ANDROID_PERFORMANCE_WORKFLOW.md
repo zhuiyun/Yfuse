@@ -54,7 +54,7 @@ python scripts/android_performance.py --serial RF8M223V4MD --sdk D:/AndroidSDK -
 python scripts/android_performance.py --mode profile --serial YOUR_API33_PHONE --sdk D:/AndroidSDK --output artifacts/android-performance/profile-run --export-profiles --gradle-arg=--offline
 ```
 
-脚本运行 `:macrobenchmark:connectedProfileAndroidTest`。`BaselineProfileGenerator.startup` 仅采集真实 MainActivity 启动，并输出 startup 规则；`homeJourney` 加入首页热路径，只进入 baseline 规则。成功后先验证存在有效的源名称规则和真实 MainActivity，再合并、去重并排除专用测试 activity，导出到本次 artifacts/profiles。指定 `--export-profiles` 才同时写入 `composeApp/src/main/baseline-prof.txt` 和 `startup-prof.txt`，交由 AGP 在 release 构建时消费。之后应重新构建并测量，不能预先保证 Profile 带来多少提升。
+脚本运行 `:macrobenchmark:connectedProfileAndroidTest`。`BaselineProfileGenerator.startup` 仅采集真实 MainActivity 启动，并输出 startup 规则；`homeJourney` 加入首页热路径，只进入 baseline 规则。成功后先验证存在有效的源名称规则和真实 MainActivity，再合并、去重并排除专用测试 activity，导出到本次 artifacts/profiles。指定 `--export-profiles` 才同时写入 `composeApp/src/androidMain/baseline-prof.txt` 和 `startup-prof.txt`（AGP 只在主清单所在目录读取 baseline-prof.txt），交由 AGP 在 release 构建时消费。之后应重新构建并测量，不能预先保证 Profile 带来多少提升。
 
 **本轮使用的 SM-G973U 是 Android 9/API 28，未授权 root。该设备支持普通宏基准，但不能执行真实 BaselineProfileRule 采集。应用 Profile 尚未实际采集，仓库没有占位规则。** API 33+ 或已 root 的 API 28+ 设备才满足采集条件，脚本会提前拒绝不支持的设备。
 

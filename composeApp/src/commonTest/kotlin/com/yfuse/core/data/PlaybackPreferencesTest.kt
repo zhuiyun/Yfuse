@@ -48,6 +48,21 @@ class PlaybackPreferencesTest {
     }
 
     @Test
+    fun double_tap_and_unlock_choices_survive_restart() {
+        val settings = MapSettings()
+        PlaybackPreferences(settings).setGestureSettings(
+            PlayerGestureSettings(
+                doubleTapPausesAnywhere = true,
+                unlockByLongPress = true,
+            ),
+        )
+
+        val restored = PlaybackPreferences(settings).gestureSettings.value
+        assertTrue(restored.doubleTapPausesAnywhere)
+        assertTrue(restored.unlockByLongPress)
+    }
+
+    @Test
     fun source_preheat_defaults_to_wifi_and_mobile_and_survives_restart() {
         val settings = MapSettings()
         val preferences = PlaybackPreferences(settings)
@@ -80,6 +95,17 @@ class PlaybackPreferencesTest {
         first.setSmartCrossServerSource(false)
 
         assertFalse(PlaybackPreferences(settings).smartCrossServerSource.value)
+    }
+
+    @Test
+    fun detail_theme_song_defaults_off_and_persists_on() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertFalse(first.detailThemeSong.value)
+        first.setDetailThemeSong(true)
+
+        assertTrue(PlaybackPreferences(settings).detailThemeSong.value)
     }
 
     @Test

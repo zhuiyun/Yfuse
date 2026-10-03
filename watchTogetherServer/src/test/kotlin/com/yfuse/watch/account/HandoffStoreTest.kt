@@ -211,6 +211,22 @@ class HandoffStoreTest {
         assertEquals(listOf(false), store.inbox(source).devices.map { it.acceptsRemote })
     }
 
+    @Test
+    fun aTelevisionAskingForAServerIsListedOnlyWhileItHostsAndOnlyToItsOwnAccount() {
+        val asking =
+            HandoffHeartbeat("客厅电视", "Android", canReceive = false, acceptsRemote = true, asksRemoteSignIn = true)
+        store.heartbeat(target, asking)
+        online(source)
+        online(stranger)
+        assertEquals(listOf(true), store.inbox(source).devices.map { it.asksRemoteSignIn })
+        assertTrue(store.inbox(stranger).devices.isEmpty())
+        // Asking is done on the socket a television hosts 手机遥控 on: without it, nothing is asking.
+        store.heartbeat(target, asking.copy(acceptsRemote = false))
+        assertEquals(listOf(false), store.inbox(source).devices.map { it.asksRemoteSignIn })
+        store.heartbeat(target, asking.copy(asksRemoteSignIn = false))
+        assertEquals(listOf(false), store.inbox(source).devices.map { it.asksRemoteSignIn })
+    }
+
     private fun online(account: AuthenticatedAccount) =
         store.heartbeat(account, HandoffHeartbeat(account.sessionId, "Android", true))
 

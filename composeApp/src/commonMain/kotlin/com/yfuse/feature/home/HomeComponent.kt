@@ -17,6 +17,7 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.playback.PlaybackSyncManager
+import com.yfuse.core.util.LatestWins
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.calendar.loadCalendarWithDeadline
 import kotlinx.coroutines.Job
@@ -57,8 +58,7 @@ class HomeComponent(
     private val initialCalendarLoad: Boolean = true,
 ) : ComponentContext by componentContext {
     private val scope = componentScope(lifecycle)
-    private var calendarJob: Job? = null
-    private var calendarGeneration = 0L
+    private val calendarLoad = LatestWins(scope)
     private var calendarOpenJob: Job? = null
     private val _calendar = MutableStateFlow(HomeCalendarState())
     val calendar: StateFlow<HomeCalendarState> = _calendar.asStateFlow()
@@ -111,40 +111,36 @@ class HomeComponent(
     }
 
     fun refreshCalendar(forceRefresh: Boolean = false) {
-        if (!forceRefresh && calendarJob?.isActive == true) return
-        val generation = ++calendarGeneration
-        calendarJob?.cancel()
+        if (!forceRefresh && calendarLoad.isActive) return
+        val request = calendarLoad.next()
         _calendar.update { it.copy(loading = true, error = null) }
-        calendarJob =
-            scope.launch {
-                loadCalendarWithDeadline {
-                    // The home card only needs tracked/active shows. Global TMDB discovery
-                    // belongs to the calendar screen and must not compete with the rest of
-                    // the home feed during cold start.
-                    calendarRepository.homeCalendar(
-                        forceRefresh = forceRefresh,
-                        onPreview = { preview ->
-                            if (generation == calendarGeneration && preview.isNotEmpty()) {
-                                _calendar.value = HomeCalendarState(days = preview, loading = false)
-                            }
-                        },
+        calendarLoad.launch(request) {
+            loadCalendarWithDeadline {
+                // The home card only needs tracked/active shows. Global TMDB discovery
+                // belongs to the calendar screen and must not compete with the rest of
+                // the home feed during cold start.
+                calendarRepository.homeCalendar(
+                    forceRefresh = forceRefresh,
+                    onPreview = { preview ->
+                        if (request.isCurrent && preview.isNotEmpty()) {
+                            _calendar.value = HomeCalendarState(days = preview, loading = false)
+                        }
+                    },
+                )
+            }.onSuccess {
+                if (request.isCurrent) {
+                    _calendar.value = HomeCalendarState(days = it, loading = false)
+                }
+            }.onFailure { error ->
+                if (!request.isCurrent) return@onFailure
+                _calendar.update { current ->
+                    current.copy(
+                        loading = false,
+                        error = (error.message ?: "追剧日历加载失败").takeIf { current.days.isEmpty() },
                     )
-                }.onSuccess {
-                    if (generation ==
-                        calendarGeneration
-                    ) {
-                        _calendar.value = HomeCalendarState(days = it, loading = false)
-                    }
-                }.onFailure { error ->
-                    if (generation != calendarGeneration) return@onFailure
-                    _calendar.update { current ->
-                        current.copy(
-                            loading = false,
-                            error = (error.message ?: "追剧日历加载失败").takeIf { current.days.isEmpty() },
-                        )
-                    }
                 }
             }
+        }
     }
 
     fun openCalendarEntry(entry: CalendarEntry) {

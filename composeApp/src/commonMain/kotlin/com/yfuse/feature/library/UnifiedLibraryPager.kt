@@ -56,6 +56,12 @@ private data class LibraryCursor(
 class UnifiedLibraryPager(
     private val libraries: suspend (SavedServer) -> Result<List<MediaLibrary>>,
     private val page: suspend (SavedServer, String, Int, Int, Boolean) -> Result<LibraryPage>,
+    /**
+     * Titles already in hand rather than paged from a server — 文件来源's 片库. They are grouped
+     * with the servers' pages from the first frame, so a film on both the NAS and a server is one
+     * card however far the servers have been read.
+     */
+    private val extraHits: suspend (UnifiedLibraryQuery) -> List<CrossServerMediaHit> = { emptyList() },
 ) {
     private val mutableState = MutableStateFlow(UnifiedLibraryState())
     val state = mutableState.asStateFlow()
@@ -64,6 +70,7 @@ class UnifiedLibraryPager(
     private var query = UnifiedLibraryQuery()
     private var cursors = emptyList<LibraryCursor>()
     private var hits = linkedMapOf<Pair<String, String>, CrossServerMediaHit>()
+    private var extraKeys = emptySet<Pair<String, String>>()
     private var nextCursor = 0
 
     suspend fun reset(
@@ -74,6 +81,7 @@ class UnifiedLibraryPager(
         query = newQuery
         cursors = emptyList()
         hits = linkedMapOf()
+        extraKeys = emptySet()
         nextCursor = 0
         mutableState.value = UnifiedLibraryState(loading = true)
         try {
@@ -85,7 +93,9 @@ class UnifiedLibraryPager(
                             async { permits.withPermit { server to libraries(server) } }
                         }.awaitAll()
                 }
+            val extras = extraHits(newQuery)
             if (request != generation) return
+            putExtras(extras)
             val failures = linkedMapOf<String, String>()
             cursors =
                 results.flatMap { (server, result) ->
@@ -110,6 +120,7 @@ class UnifiedLibraryPager(
                 }
             mutableState.value =
                 UnifiedLibraryState(
+                    groups = groups(),
                     failures = failures,
                     libraryCount = cursors.size,
                     hasMore = cursors.isNotEmpty(),
@@ -194,13 +205,7 @@ class UnifiedLibraryPager(
                 nextCursor = (selected.last() + 1) % cursors.size
                 mutableState.value =
                     UnifiedLibraryState(
-                        groups =
-                            aggregateCrossServerMedia(
-                                hits.values.toList(),
-                            ).sortedBy {
-                                it.recommended.item.title
-                                    .lowercase()
-                            },
+                        groups = groups(),
                         failures = failures,
                         libraryCount = cursors.size,
                         completedLibraries = cursors.count { it.complete },
@@ -209,5 +214,31 @@ class UnifiedLibraryPager(
             } finally {
                 if (generation == request) mutableState.value = mutableState.value.copy(loading = false)
             }
+        }
+
+    /**
+     * Swaps in fresh [extraHits] — a scan has just finished — without reading any server again.
+     * Skipped while a reset is still reading: that reset asks for the extras itself when it is done.
+     */
+    suspend fun refreshExtras() =
+        mutex.withLock {
+            if (mutableState.value.loading) return@withLock
+            val request = generation
+            val extras = extraHits(query)
+            if (request != generation) return@withLock
+            putExtras(extras)
+            mutableState.value = mutableState.value.copy(groups = groups())
+        }
+
+    private fun putExtras(extras: List<CrossServerMediaHit>) {
+        extraKeys.forEach(hits::remove)
+        extraKeys = extras.mapTo(mutableSetOf()) { it.serverId to it.item.id }
+        extras.forEach { hit -> hits[hit.serverId to hit.item.id] = hit }
+    }
+
+    private fun groups(): List<CrossServerMediaGroup> =
+        aggregateCrossServerMedia(hits.values.toList()).sortedBy {
+            it.recommended.item.title
+                .lowercase()
         }
 }

@@ -54,6 +54,11 @@ data class HandoffUiState(
     val canReceive: Boolean = false,
     /** Televisions of this account taking 手机遥控 now; always empty on a device that hosts it. */
     val remotes: List<HandoffDevice> = emptyList(),
+    /**
+     * Those of [remotes] whose 添加服务器 waits for a phone to hand them a server — 用手机登录.
+     * Always empty on a device that hosts, as [remotes] is.
+     */
+    val signInAsks: List<HandoffDevice> = emptyList(),
 ) {
     val connectionLabel: String
         get() =
@@ -104,11 +109,20 @@ class HandoffController(
     @Volatile
     private var remoteHosting: (() -> Boolean)? = null
 
+    /** 用手机登录: bound with [remoteHosting], read on every heartbeat. */
+    @Volatile
+    private var remoteSignIn: (() -> Boolean)? = null
+
     /**
-     * Makes this device a 手机遥控 host: every heartbeat advertises [accepting], and the device
-     * lists no remotes of its own — a television does not offer to be one.
+     * Makes this device a 手机遥控 host: every heartbeat advertises [accepting], and whether its
+     * 添加服务器 is [askingForServer] — 用手机登录 — and the device lists no remotes of its own: a
+     * television does not offer to be one.
      */
-    fun hostRemoteControl(accepting: () -> Boolean) {
+    fun hostRemoteControl(
+        accepting: () -> Boolean,
+        askingForServer: () -> Boolean = { false },
+    ) {
+        remoteSignIn = askingForServer
         remoteHosting = accepting
         wake.trySend(Unit)
     }
@@ -138,6 +152,7 @@ class HandoffController(
                                     val receiving = canReceive()
                                     val asking = pull
                                     val hostsRemote = remoteHosting
+                                    val accepting = hostsRemote?.invoke() == true
                                     val inbox =
                                         api.heartbeat(
                                             HandoffHeartbeat(
@@ -146,7 +161,8 @@ class HandoffController(
                                                 receiving,
                                                 nowPlaying = sealNowPlaying(),
                                                 pull = asking?.let { HandoffPull(it.target.sessionId, it.id) },
-                                                acceptsRemote = hostsRemote?.invoke() == true,
+                                                acceptsRemote = accepting,
+                                                asksRemoteSignIn = accepting && remoteSignIn?.invoke() == true,
                                             ),
                                         )
                                     clockOffset = inbox.serverTimeEpochMs - now()
@@ -160,6 +176,12 @@ class HandoffController(
                                         }
                                     // 在此继续 asked for exactly this transfer: it is taken without asking again.
                                     val answer = requested?.takeIf { it.sourceSessionId == asking?.target?.sessionId }
+                                    val remotes =
+                                        if (hostsRemote != null) {
+                                            emptyList()
+                                        } else {
+                                            inbox.devices.filter { it.acceptsRemote }
+                                        }
                                     _state.update { current ->
                                         current.copy(
                                             online = true,
@@ -168,12 +190,8 @@ class HandoffController(
                                             incoming = requested?.takeIf { answer == null },
                                             playingElsewhere = elsewhere,
                                             canReceive = receiving,
-                                            remotes =
-                                                if (hostsRemote != null) {
-                                                    emptyList()
-                                                } else {
-                                                    inbox.devices.filter { it.acceptsRemote }
-                                                },
+                                            remotes = remotes,
+                                            signInAsks = remotes.filter { it.asksRemoteSignIn },
                                         )
                                     }
                                     if (answer != null) {
@@ -191,6 +209,7 @@ class HandoffController(
                                             online = false,
                                             devices = emptyList(),
                                             remotes = emptyList(),
+                                            signInAsks = emptyList(),
                                             incoming = null,
                                             connectionError =
                                                 (error as? HandoffApiException)?.message

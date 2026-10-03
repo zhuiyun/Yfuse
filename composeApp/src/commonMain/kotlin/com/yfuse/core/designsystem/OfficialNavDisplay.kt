@@ -87,26 +87,39 @@ fun <T : Any> OfficialNavDisplay(
     val latestBack by rememberUpdatedState(onBack)
     val liftMenu = LocalLiftMenu.current
     val screenReader = rememberScreenReaderActive()
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val calm = calmMotion()
     val previousDepth = remember { intArrayOf(shownStack.size) }
+    // The route that was in front before this composition: the one a shrinking stack lets go of.
+    val previousTop = remember { arrayOf<String?>(contentKey(shownStack.last())) }
     if (shownStack.size < previousDepth[0]) {
-        // The route follows predictive back, but the forward-only artwork morph must not run
-        // in reverse over it. Suppress that overlay before the smaller stack is composed.
-        sharedMediaController.suppressForPop()
+        // 一镜到底: back runs the way in backwards. Decided before the smaller stack is composed,
+        // so the artwork is registered on both pages in the frame the pop starts — or kept off
+        // them where 跟手返回 is already flying the page home, or a lifted card is (LiftExpansion).
+        val returnTo =
+            if (reduceMotion || calm || liftMenu?.isOpen == true || shownStack.size != previousDepth[0] - 1) {
+                null
+            } else {
+                zoom?.poppedOrigin(popped = previousTop[0], returnedTo = contentKey(shownStack.last()))
+            }
+        sharedMediaController.onPop(returnTo)
     }
     SideEffect {
         // A route pushed right after a poster was tapped is a route from that poster.
         val pushedFrom = if (shownStack.size > previousDepth[0]) sharedMediaController.takeOrigin() else null
         if (zoom != null) {
             zoom.onBack = { latestBack() }
-            zoom.blocked = { liftMenu?.isOpen == true || screenReader }
+            // While a morph is in flight a swipe back goes to NavDisplay, whose predictive pop the
+            // morph follows and, once committed, finishes in reverse: 跟手返回 would pull the page
+            // away from under artwork still drawn above it.
+            zoom.blocked = { liftMenu?.isOpen == true || screenReader || sharedMediaController.activeKey != null }
             zoom.standIn.isBackEnabled = shownStack.size > 1
             zoom.onStack(shownStack.map(contentKey), pushedFrom)
         }
         previousDepth[0] = shownStack.size
+        previousTop[0] = contentKey(shownStack.last())
     }
     val activeSharedKey = sharedMediaController.activeKey
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val calm = calmMotion()
     val density = LocalDensity.current
     val searchTravelPx = with(density) { Motion.searchTravel.roundToPx() }
     val pushTravelPx = with(density) { Motion.pushOffset.roundToPx() }
@@ -256,6 +269,20 @@ fun <T : Any> OfficialNavDisplay(
             }
         }
     }
+}
+
+/**
+ * The poster [popped] was opened from, when the stack went back to exactly the page it was opened
+ * over and no 跟手返回 is carrying it there already: the pull-down and the side swipe fly the page
+ * home themselves, and their gesture is still finishing when the stack shrinks.
+ */
+private fun ZoomBackNavHost.poppedOrigin(
+    popped: String?,
+    returnedTo: String,
+): MediaSharedElementKey? {
+    if (popped == null || !controller.idle) return null
+    val origin = origins[popped] ?: return null
+    return origin.key.takeIf { origin.underlay == returnedTo }
 }
 
 /**

@@ -1,5 +1,6 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
@@ -14,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -64,6 +66,28 @@ internal fun dialogDragTravel(
     return threshold + reach / RUBBER_STIFFNESS * (1f / (1f - beyond / reach) - 1f)
 }
 
+/**
+ * How fast a panel pushed away carries on, in pixels a second: the speed the finger let go at, so a
+ * hard flick leaves fast and a slow push drifts off. Never slower than [DIALOG_FLING_MIN] thresholds
+ * a second — a panel dragged past the commit point and let go still leaves — nor faster than
+ * [DIALOG_FLING_MAX], past which it is off the screen within a frame or two anyway.
+ */
+internal fun dialogFlingSpeed(
+    velocity: Float,
+    threshold: Float,
+): Float {
+    if (threshold <= 0f) return 0f
+    val speed = if (velocity.isFinite()) velocity else 0f
+    return speed.coerceIn(threshold * DIALOG_FLING_MIN, threshold * DIALOG_FLING_MAX)
+}
+
+/** A dismissed panel's slowest and fastest way out, in commit thresholds a second. */
+private const val DIALOG_FLING_MIN = 6f
+private const val DIALOG_FLING_MAX = 60f
+
+/** How long a pushed-away panel keeps moving: past the longest exit, by when it has faded. */
+private const val DIALOG_FLING_MS = Motion.Dialog.EXIT_EXTENDED
+
 /** How far past the commit point the panel can ever be drawn, in thresholds. */
 private const val RUBBER_REACH = 2f
 
@@ -95,16 +119,35 @@ internal class DialogDragState(
      * 「放弃更改？」 first. A declined release settles the panel home like a short pull.
      */
     private val tryDismiss: (() -> Boolean)? = null,
+    /** 静息: a panel pushed away keeps its style's own short exit instead of flying on. */
+    private val calm: () -> Boolean = { false },
 ) : NestedScrollConnection {
     var offset by mutableFloatStateOf(0f)
         private set
     var dismissedByDrag = false
         private set
 
+    /** Pushed away and carrying on at the finger's speed (see [dialogFlingSpeed]) while it fades. */
+    var flying by mutableStateOf(false)
+        private set
+
+    /** Where the panel was let go, for the stretch it keeps while it flies on: see [offset]. */
+    var flightStart = 0f
+        private set
+
+    /**
+     * Whether the panel's style leaves along the finger. Set by [dialogMotion]: 磁吸归位 authored its
+     * own exit around this gesture, and flying on as well would take it the distance twice.
+     */
+    var flingsOn = true
+
     // The finger's own travel; [offset] is where that puts the panel.
     private var travel = 0f
     private var crossedThreshold = false
     private var settle: Job? = null
+
+    // Not a settle: the owner stops settling the moment it starts leaving, and this is the leaving.
+    private var flight: Job? = null
 
     fun stopSettling() {
         settle?.cancel()
@@ -113,6 +156,9 @@ internal class DialogDragState(
 
     fun reset() {
         stopSettling()
+        flight?.cancel()
+        flight = null
+        flying = false
         offset = 0f
         travel = 0f
         dismissedByDrag = false
@@ -141,6 +187,7 @@ internal class DialogDragState(
         if (offset <= 0f) return
         if (enabled() && shouldDismissDialogDrag(offset, velocity, threshold) && accepted()) {
             dismissedByDrag = true
+            flyOff(velocity)
         } else {
             settle =
                 scope.launch {
@@ -165,6 +212,27 @@ internal class DialogDragState(
     private fun accepted(): Boolean {
         val ask = tryDismiss ?: return true.also { dismiss() }
         return ask()
+    }
+
+    /**
+     * The panel was pushed away: it carries on down at the speed the finger let it go at while the
+     * dialog's exit fades it, instead of every release leaving on the same fixed curve (MO5). Linear,
+     * so the speed it leaves at is the speed it had. Not under 减弱动态效果 or 静息, whose exits
+     * stay what they were.
+     */
+    private fun flyOff(velocity: Float) {
+        if (!flingsOn || reduceMotion() || calm()) return
+        val start = offset
+        val end = start + dialogFlingSpeed(velocity, threshold) * DIALOG_FLING_MS / 1_000f
+        flight?.cancel()
+        flightStart = start
+        flying = true
+        flight =
+            scope.launch {
+                animate(start, end, animationSpec = Motion.tween(DIALOG_FLING_MS, easing = LinearEasing)) { value, _ ->
+                    offset = value
+                }
+            }
     }
 
     override fun onPreScroll(
@@ -202,6 +270,7 @@ internal fun rememberDialogDragState(
     val currentDismiss by rememberUpdatedState(dismiss)
     val currentTryDismiss by rememberUpdatedState(tryDismiss)
     val reduceMotion by rememberUpdatedState(LocalAccessibilityOptions.current.reduceMotion)
+    val calm by rememberUpdatedState(calmMotion())
     val haptics by rememberUpdatedState(LocalHaptics.current)
     val threshold = with(LocalDensity.current) { 96.dp.toPx() }
     return remember(scope, threshold) {
@@ -213,6 +282,7 @@ internal fun rememberDialogDragState(
             reduceMotion = { reduceMotion },
             onThresholdCrossed = { haptics.play(HapticSignal.Threshold) },
             tryDismiss = { currentTryDismiss?.invoke() ?: true.also { currentDismiss() } },
+            calm = { calm },
         )
     }
 }

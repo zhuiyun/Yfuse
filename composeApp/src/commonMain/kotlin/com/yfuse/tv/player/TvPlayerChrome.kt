@@ -25,6 +25,21 @@ enum class TvPlayerChromePanel {
 }
 
 /**
+ * What OK over hidden chrome acts on while it is on screen, since a remote cannot reach it any
+ * other way without first raising the controls — and spending the moment it offers.
+ */
+enum class TvPlayerPrompt {
+    /** 跳过片头 / 跳过片尾, or an automatic skip's countdown: OK skips, or calls the skip off. */
+    Skip,
+
+    /**
+     * The 下一集 card at the end of an episode, or the credits takeover's card beside the shrunken
+     * picture: OK plays the next episode, Back stays with the credits.
+     */
+    NextUp,
+}
+
+/**
  * Backend-neutral TV chrome truth.
  *
  * The Activity reads this before deciding whether a D-pad key is playback input or Compose focus
@@ -51,12 +66,12 @@ data class TvPlayerChromeState(
      * and Back must stay ordinary focus input rather than steer chrome that is not there.
      */
     val attached: Boolean = false,
-    /**
-     * A skip prompt is on screen: the 跳过片头 / 片尾 pill, or an automatic skip's countdown. OK over
-     * hidden chrome acts on it rather than pausing, since a remote cannot reach it any other way.
-     */
-    val skipPrompt: Boolean = false,
+    /** The prompt OK over hidden chrome acts on instead of pausing; null when there is none. */
+    val prompt: TvPlayerPrompt? = null,
 ) {
+    /** A skip prompt is on screen: the 跳过片头 / 片尾 pill, or an automatic skip's countdown. */
+    val skipPrompt: Boolean get() = prompt == TvPlayerPrompt.Skip
+
     val visible: Boolean get() = layer != TvPlayerChromeLayer.Hidden
     val hasDismissibleLayer: Boolean get() = visible
 
@@ -80,6 +95,12 @@ enum class TvPlayerChromeCommandType {
 
     /** OK over hidden chrome with a skip prompt up: skip the segment, or call off the automatic skip. */
     ActivateSkipPrompt,
+
+    /** OK over hidden chrome with the 下一集 card up: play the next episode now. */
+    ActivateNextUp,
+
+    /** Back over hidden chrome with the 下一集 card up: keep watching the credits. */
+    DismissNextUp,
 }
 
 data class TvPlayerChromeCommand(
@@ -101,8 +122,8 @@ interface TvPlayerChromeBridge {
         controlsHaveFocus: Boolean,
     )
 
-    /** Whether a skip prompt is on screen; see [TvPlayerChromeState.skipPrompt]. */
-    fun publishSkipPrompt(visible: Boolean)
+    /** Which prompt, if any, is on screen for OK to act on; see [TvPlayerChromeState.prompt]. */
+    fun publishPrompt(prompt: TvPlayerPrompt?)
 
     /** The control surface left composition; remote keys fall back to ordinary dispatch until it returns. */
     fun detach()

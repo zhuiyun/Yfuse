@@ -15,6 +15,12 @@ import com.yfuse.core.designsystem.ThemeText as Text
 /** 中间长按's two answers, in the order the panel lists them. */
 internal val CENTER_HOLD_CHOICES = listOf("临时倍速", "关闭")
 
+/** 双击's two readings of the picture: thirds, or one big play/pause key. */
+internal val DOUBLE_TAP_CHOICES = listOf("两侧快进快退", "全屏暂停")
+
+/** 解锁方式: a tap on the lock key, or a held press for a child or a pocket. */
+internal val UNLOCK_CHOICES = listOf("单击", "长按")
+
 /**
  * 手势 in 播放设置: 双击步长, what a held middle does, and which edge adjusts what.
  *
@@ -35,6 +41,15 @@ internal fun PlayerGestureSettingsSection(preferences: PlaybackPreferences) {
             preferences.setGestureSettings(gestures.copy(doubleTapSeekSeconds = steps[index]))
         },
     )
+    GestureSettingCaption("双击")
+    CompactChoiceGrid(
+        options = DOUBLE_TAP_CHOICES,
+        selectedIndex = if (gestures.doubleTapPausesAnywhere) 1 else 0,
+        columns = DOUBLE_TAP_CHOICES.size,
+        onSelect = { index ->
+            preferences.setGestureSettings(gestures.copy(doubleTapPausesAnywhere = index == 1))
+        },
+    )
     GestureSettingCaption("中间长按")
     CompactChoiceGrid(
         options = CENTER_HOLD_CHOICES,
@@ -42,6 +57,15 @@ internal fun PlayerGestureSettingsSection(preferences: PlaybackPreferences) {
         columns = CENTER_HOLD_CHOICES.size,
         onSelect = { index ->
             preferences.setGestureSettings(gestures.copy(centerHoldSpeedBoost = index == 0))
+        },
+    )
+    GestureSettingCaption("解锁方式 · 锁定后点按左侧锁键")
+    CompactChoiceGrid(
+        options = UNLOCK_CHOICES,
+        selectedIndex = if (gestures.unlockByLongPress) 1 else 0,
+        columns = UNLOCK_CHOICES.size,
+        onSelect = { index ->
+            preferences.setGestureSettings(gestures.copy(unlockByLongPress = index == 1))
         },
     )
     PopupToggleHeader(

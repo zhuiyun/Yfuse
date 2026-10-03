@@ -433,6 +433,72 @@ class HandoffControllerTest {
             controller.close()
         }
 
+    @Test
+    fun a_television_says_its_add_form_asks_for_a_server_only_while_it_hosts() =
+        runTest {
+            val api = FakeApi { testScheduler.currentTime }
+            val controller = controller(api, FakePlayback())
+            var accepting = true
+            var asking = false
+            controller.hostRemoteControl({ accepting }, { asking })
+            controller.start()
+            runCurrent()
+            assertEquals(true, api.lastHeartbeat?.acceptsRemote)
+            assertEquals(false, api.lastHeartbeat?.asksRemoteSignIn)
+            asking = true
+            controller.refreshPresence()
+            runCurrent()
+            assertEquals(true, api.lastHeartbeat?.asksRemoteSignIn)
+            // It asks on the socket it hosts on: with 手机遥控 off it cannot be asking.
+            accepting = false
+            controller.refreshPresence()
+            runCurrent()
+            assertEquals(false, api.lastHeartbeat?.asksRemoteSignIn)
+            controller.close()
+        }
+
+    @Test
+    fun a_phone_lists_a_television_asking_for_a_server_only_while_it_hosts_and_asks() =
+        runTest {
+            val asking = television.copy(acceptsRemote = true, asksRemoteSignIn = true)
+            // A flag from a television that hosts nothing is no ask: it asks on the socket it hosts on.
+            val notHosting = television.copy(sessionId = "tv-2", name = "卧室电视", asksRemoteSignIn = true)
+            val api =
+                FakeApi { testScheduler.currentTime }.apply {
+                    currentSession = "phone"
+                    devices = listOf(asking, notHosting)
+                }
+            val controller = controller(api, FakePlayback())
+            controller.start()
+            runCurrent()
+            assertEquals(listOf(asking), controller.state.value.signInAsks)
+            assertEquals(listOf(asking), controller.state.value.remotes)
+
+            api.devices = listOf(asking.copy(asksRemoteSignIn = false))
+            controller.refreshPresence()
+            runCurrent()
+            assertEquals(emptyList(), controller.state.value.signInAsks)
+            api.devices = listOf(asking)
+            api.heartbeatFails = true
+            controller.refreshPresence()
+            runCurrent()
+            assertEquals(emptyList(), controller.state.value.signInAsks)
+            controller.close()
+
+            // A television lists none: it is the one that asks.
+            val hostingApi =
+                FakeApi { testScheduler.currentTime }.apply {
+                    currentSession = "tv-3"
+                    devices = listOf(asking)
+                }
+            val hosting = controller(hostingApi, FakePlayback())
+            hosting.hostRemoteControl({ true })
+            hosting.start()
+            runCurrent()
+            assertEquals(emptyList(), hosting.state.value.signInAsks)
+            hosting.close()
+        }
+
     private fun TestScope.controller(
         api: FakeApi,
         bridge: FakePlayback,
@@ -450,7 +516,7 @@ class HandoffControllerTest {
         cryptoDispatcher = StandardTestDispatcher(testScheduler),
     ) { testScheduler.currentTime }
 
-    private class FakeApi(
+    internal class FakeApi(
         private val now: () -> Long,
     ) : HandoffApi {
         var currentSession = "source"
@@ -512,7 +578,7 @@ class HandoffControllerTest {
         }
     }
 
-    private class FakeCipher : HandoffPayloadCipher {
+    internal class FakeCipher : HandoffPayloadCipher {
         var lastEncrypted: HandoffMedia? = null
         var lastRequestId: String? = null
         var lastOpenedId: String? = null
@@ -538,7 +604,7 @@ class HandoffControllerTest {
         }
     }
 
-    private class FakePlayback : HandoffPlaybackBridge {
+    internal class FakePlayback : HandoffPlaybackBridge {
         var pauses = 0
         var resumes = 0
         var starts = 0

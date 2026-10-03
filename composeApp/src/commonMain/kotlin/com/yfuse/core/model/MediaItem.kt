@@ -57,6 +57,12 @@ data class MediaItem(
      * should show, rather than a band cut across the middle of the series poster.
      */
     val stillTag: String? = null,
+    /**
+     * Jellyfin's BlurHash for the pictures [posterTag] and [backdropTag] name: what a tile shows
+     * while they load. Emby and Plex send none.
+     */
+    val posterBlurHash: String? = null,
+    val backdropBlurHash: String? = null,
 )
 
 /** The two server-owned organization containers surfaced by the library home screen. */

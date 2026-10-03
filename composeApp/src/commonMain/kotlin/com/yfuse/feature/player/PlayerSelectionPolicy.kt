@@ -12,19 +12,3 @@ internal fun List<EngineTrack>.matchingLanguage(language: String): String? {
         .matchingPreference(YTrackPreference(language = language))
         ?.id
 }
-
-/** Best remaining physical file after every engine rejected the selected version. */
-internal fun PlayerMediaItem.nextFallbackVersionId(tried: Set<String>): String? =
-    versions
-        .sortedWith(
-            compareByDescending<PlayerMediaVersion> { it.sourceWidth ?: 0 }
-                .thenByDescending { it.sourceBitrateBps ?: 0 },
-        ).firstOrNull { it.id !in tried }
-        ?.id
-
-/** Manual selection starts a new recovery budget; automatic recovery preserves history. */
-internal fun updatedVersionAttempts(
-    tried: Set<String>,
-    selected: String,
-    automaticRecovery: Boolean,
-): Set<String> = if (automaticRecovery) tried + selected else setOf(selected)

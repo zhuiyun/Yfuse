@@ -20,20 +20,33 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
- * 画面手势's rows, true to the current 手势 settings: the step a double tap takes, whether the
- * middle holds a speed at all, and which side of the picture adjusts what.
+ * 画面手势's rows, true to the current 手势 settings and to what the picture really does: the step
+ * a double tap takes and that further taps add to it, whether the middle holds a speed at all,
+ * which side adjusts what, and how far a swipe moves.
  */
 internal fun pictureGestureHelpRows(gestures: PlayerGestureSettings): List<Pair<String, String>> {
     val brightness = "调节亮度；也可使用系统亮度设置"
     val volume = "调节音量；也可使用音量键或音量滑杆"
     return buildList {
-        add("单击画面" to "显示或隐藏控制层")
-        add("双击左侧 / 右侧" to "快退 / 快进 ${gestures.doubleTapSeekMs / 1_000L} 秒；也可拖动进度条")
-        add("双击中间" to "播放或暂停；也可使用底部播放按钮")
+        add("单击画面" to "显示或隐藏控制层；控制层隐藏时总是先显示它")
+        add("单击弹幕" to "控制层显示时点中一条弹幕：复制、屏蔽此词或屏蔽同类")
+        if (gestures.doubleTapPausesAnywhere) {
+            add("双击画面" to "播放或暂停；也可使用底部播放按钮")
+        } else {
+            add(
+                "双击左侧 / 右侧" to
+                    "快退 / 快进 ${gestures.doubleTapSeekMs / 1_000L} 秒，随后同侧每点一下再加一步；也可拖动进度条",
+            )
+            add("双击中间" to "播放或暂停；也可使用底部播放按钮")
+        }
         if (gestures.centerHoldSpeedBoost) {
             add("长按中间" to "临时 2 倍速，左右滑动切换 1.5× / 2× / 3×，松手恢复；也可使用播放速度按钮")
         }
-        add("横向滑动" to "预览并定位；也可使用可调进度条")
+        add(
+            "左侧锁键" to
+                if (gestures.unlockByLongPress) "锁定屏幕；锁定后长按锁键解锁" else "锁定屏幕；锁定后点按画面再点锁键解锁",
+        )
+        add("横向滑动" to "预览并定位，划过整屏约 1.5 到 3 分钟，划得越快越远；也可使用可调进度条")
         add("双指捏合" to "张开裁剪填满，捏合恢复适应；也可使用顶部画面按钮")
         add("左半屏上下滑" to if (gestures.swapBrightnessVolume) volume else brightness)
         add("右半屏上下滑" to if (gestures.swapBrightnessVolume) brightness else volume)
@@ -51,6 +64,18 @@ internal fun keyboardHelpRows(gestures: PlayerGestureSettings): List<Pair<String
         ", / ." to "暂停时按缩略图逐格前后查看",
     )
 
+/** What the player's keys do when held, or tapped where a tap is not the obvious thing. */
+internal fun keyHelpRows(): List<Pair<String, String>> =
+    listOf(
+        "长按后退 10 秒" to "没听清：倒回 10 秒并临时打开字幕，播回原处后恢复",
+        "点按 / 长按弹幕键" to "开关弹幕 / 打开弹幕设置",
+        "点按 / 长按画面键" to "在适应和裁剪填满之间切换 / 拉伸填满，再次长按恢复适应",
+        "按住投屏键" to "展开最近的设备，滑到一台上松手即投屏",
+        "按住聊天键" to "一起看时展开贴纸轮盘",
+        "键盘方向键" to "聚焦进度条或音量滑杆后逐级调节",
+        "返回键" to "先关闭当前面板，再退出播放器",
+    )
+
 /** A permanent, accessible explanation of the picture-level gestures and their alternatives. */
 @Composable
 internal fun PlayerGestureHelpOverlay(
@@ -59,10 +84,10 @@ internal fun PlayerGestureHelpOverlay(
 ) {
     GlassDialog(
         onDismiss = onDismiss,
-        modifier = Modifier.semantics { paneTitle = "播放器手势说明" },
+        modifier = Modifier.semantics { paneTitle = "播放器手势与快捷键" },
     ) {
         OverlayHeader(
-            title = "手势说明",
+            title = "手势与快捷键",
             subtitle = "不使用手势也能完成所有常用播放操作",
             onClose = onDismiss,
         )
@@ -71,13 +96,8 @@ internal fun PlayerGestureHelpOverlay(
             rows = pictureGestureHelpRows(gestures),
         )
         GestureHelpSection(
-            title = "辅助操作",
-            rows =
-                listOf(
-                    "长按后退 10 秒" to "没听清：倒回 10 秒并临时打开字幕，播回原处后恢复",
-                    "键盘方向键" to "聚焦进度条或音量滑杆后逐级调节",
-                    "返回键" to "先关闭当前面板，再退出播放器",
-                ),
+            title = "按键与辅助操作",
+            rows = keyHelpRows(),
         )
         GestureHelpSection(
             title = "键盘快捷键",

@@ -18,14 +18,17 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -34,6 +37,7 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -50,7 +54,9 @@ import com.yfuse.app.BindBackgroundServices
 import com.yfuse.app.RootComponent
 import com.yfuse.app.effectiveGlassStyle
 import com.yfuse.app.rememberAppAccessibilityOptions
+import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalDialogBackdrop
 import com.yfuse.core.designsystem.Motion
@@ -66,6 +72,7 @@ import com.yfuse.feature.player.PlayerScreen
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.search.SearchComponent
 import com.yfuse.tv.focus.requestFocusWhenAttached
+import com.yfuse.tv.remote.TvPhoneRemote
 import kotlinx.coroutines.launch
 
 private data class TvDestination(
@@ -86,17 +93,37 @@ private val tvDestinations =
 /** Public Android-TV entry point used by TvMainActivity. */
 @Composable
 fun TvApp(component: RootComponent) {
+    TvTheme(component.themePreferences) {
+        com.yfuse.app.BindProductServices(component)
+        val savedServers by component.dependencies.serverRegistry.data
+            .collectAsState()
+        val permissionScope = rememberCoroutineScope()
+        LocalNetworkAccessNotice(hasServers = savedServers.servers.isNotEmpty()) {
+            permissionScope.launch { component.dependencies.serverHealthMonitor.refreshAll() }
+        }
+        TvRoot(component)
+        PlaybackReportingWarning(component.dependencies.playbackReportingCoordinator)
+    }
+}
+
+/**
+ * The television's one theme, for the shell and for whatever this app lays over another page —
+ * 手机遥控's question over the player (see TvPhoneRemoteOverlay).
+ */
+@Composable
+internal fun TvTheme(
+    preferences: ThemePreferences,
+    content: @Composable () -> Unit,
+) {
     // The phone's builder: the person's switches plus the system's 「移除动画」, which the
     // television never heard — its reel kept turning and its focus kept scaling with animations
     // off for the whole device.
-    val accessibility = rememberAppAccessibilityOptions(component.themePreferences)
-    val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
-    val glassStyle by component.themePreferences.glassStyle.collectAsState()
-    val loadingAnimation by component.themePreferences.loadingAnimation.collectAsState()
-    val glassMaterials by component.themePreferences.glassMaterials.collectAsState()
+    val accessibility = rememberAppAccessibilityOptions(preferences)
+    val dialogAnimation by preferences.dialogAnimation.collectAsState()
+    val loadingAnimation by preferences.loadingAnimation.collectAsState()
     // 动效主题 is the phone's setting as much as the television's: 静息 asked for calm motion and
     // the TV kept running 经典 whatever was chosen.
-    val motionTheme by component.themePreferences.motionTheme.collectAsState()
+    val motionTheme by preferences.motionTheme.collectAsState()
 
     // Always dark. The shell paints [TvBackground] whatever the phone's 界面模式 says, and that
     // shared preference used to hand the four shared dialogs and the unified library light
@@ -104,29 +131,21 @@ fun TvApp(component: RootComponent) {
     YfuseTheme(
         dark = true,
         accessibility = accessibility,
-        glassStyle = effectiveGlassStyle(glassStyle, accessibility.reduceTransparency),
+        // No 玻璃质感 or 玻璃材质 on a television (see TvAppearanceSettingsPage): the few shared
+        // panels keep the design's own glass, so a choice made before those rows went cannot linger
+        // unseen and out of reach. 减少透明度 still makes them solid.
+        glassStyle = effectiveGlassStyle(GlassStyle.Liquid, accessibility.reduceTransparency),
         dialogAnimation = dialogAnimation.onTv(),
         // A set-top GPU pays for no decoration it does not have to: the phone's default 轻柔
         // particles lit on every focus of a shared control, and there is no setting for them here.
         particleLight = ParticleLight.Off,
         loadingAnimation = loadingAnimation,
-        glassMaterials = glassMaterials,
         motionTheme = motionTheme,
     ) {
         // Dialog panels stay opaque, like every other plate on the television (see TvTokens):
         // with no page backdrop to sample, the shared dialog paints its solid body instead of
         // blurring the whole page behind it for as long as it is open.
-        CompositionLocalProvider(LocalDialogBackdrop provides null) {
-            com.yfuse.app.BindProductServices(component)
-            val savedServers by component.dependencies.serverRegistry.data
-                .collectAsState()
-            val permissionScope = rememberCoroutineScope()
-            LocalNetworkAccessNotice(hasServers = savedServers.servers.isNotEmpty()) {
-                permissionScope.launch { component.dependencies.serverHealthMonitor.refreshAll() }
-            }
-            TvRoot(component)
-            PlaybackReportingWarning(component.dependencies.playbackReportingCoordinator)
-        }
+        CompositionLocalProvider(LocalDialogBackdrop provides null, content = content)
     }
 }
 
@@ -170,20 +189,31 @@ fun TvRoot(component: RootComponent) {
             RootComponent.Tab.Profile -> profileStack.active.instance is ProfileTabComponent.Child.Home
         }
 
-    // Back walks the hierarchy: out of a sub-screen, then to Home, and only from Home's root
-    // out of the app — the television quality checklist's expectation, and every other TV
-    // client's behaviour.
-    BackHandler(enabled = !atRoot || activeTab != RootComponent.Tab.Home) {
-        if (atRoot) {
-            component.selectTab(RootComponent.Tab.Home)
-            return@BackHandler
-        }
-        when (activeTab) {
-            RootComponent.Tab.Home -> component.home.navigateBack()
-            RootComponent.Tab.Browse -> component.browse.navigateBack()
-            RootComponent.Tab.Search -> component.search.navigateBack()
-            RootComponent.Tab.Profile -> component.profile.navigateBack()
-            RootComponent.Tab.Servers -> Unit
+    // Whether focus is on the rail — kept by the rail itself, and false while it is not there.
+    var railFocused by remember { mutableStateOf(false) }
+
+    // Back walks the hierarchy: out of a sub-screen; from a tab's page to its entry on the rail;
+    // from the rail to Home; and only from the rail on Home out of the app — the television
+    // quality checklist's expectation, and Google TV's. It used to leave from anywhere on Home's
+    // page, so a viewer halfway down a shelf who pressed Back to get their bearings lost the app.
+    // With nothing left to walk the handler stands down, and the system's own back — with its
+    // predictive back-to-home preview — takes the app away.
+    BackHandler(enabled = !atRoot || !railFocused || activeTab != RootComponent.Tab.Home) {
+        when {
+            !atRoot ->
+                when (activeTab) {
+                    RootComponent.Tab.Home -> component.home.navigateBack()
+                    RootComponent.Tab.Browse -> component.browse.navigateBack()
+                    RootComponent.Tab.Search -> component.search.navigateBack()
+                    RootComponent.Tab.Profile -> component.profile.navigateBack()
+                    RootComponent.Tab.Servers -> Unit
+                }
+            !railFocused -> runCatching { navRequesters.getValue(activeTab).requestFocus() }
+            else -> {
+                component.selectTab(RootComponent.Tab.Home)
+                // Onto 首页 as well, so the Back that leaves starts where it says it will.
+                runCatching { navRequesters.getValue(RootComponent.Tab.Home).requestFocus() }
+            }
         }
     }
 
@@ -211,37 +241,53 @@ fun TvRoot(component: RootComponent) {
     // focus, before focus moves, so the root writes it down for the card it lands on.
     val focusTravel = remember { TvFocusTravel() }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(TvBackground)
-            .recordTvFocusTravel(focusTravel),
-    ) {
-        // Each page renders from the target it was handed, never from the live stacks: the page
-        // that is leaving has to keep drawing itself, not the one that replaced it.
-        CompositionLocalProvider(LocalTvFocusTravel provides focusTravel) {
-            AnimatedContent(
-                targetState = page,
-                transitionSpec = {
-                    // Deeper arrives from the right, and back arrives from the left.
-                    val direction = if (targetState.depth >= initialState.depth) 1 else -1
-                    TvPageMotion.transform(reduceMotion, travel * direction) using Motion.sizeTransform(reduceMotion)
-                },
-                label = "tv-route",
-            ) { shown ->
-                // The page on its way out keeps focus until the new one takes it; a second press of
-                // 确定 in that moment must not open the same title again from the page that is leaving.
-                Box(Modifier.fillMaxSize().onPreviewKeyEvent { currentPage != shown }) {
-                    TvRoutePage(
-                        shown = shown,
-                        component = component,
-                        activeTab = activeTab,
-                        focusMemory = focusMemory,
-                        navRequesters = navRequesters,
-                        contentRequesters = contentRequesters,
-                        pageStates = pageStates,
-                    )
+    // 焦点固定位: focus holds its place on the screen and rows and pages slide under it — see
+    // TvFocusPivot. Provided here, so every page, list and dialog of the shell agrees on it.
+    ProvideTvFocusPivot(reduceMotion) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(TvBackground)
+                .recordTvFocusTravel(focusTravel),
+        ) {
+            // Each page renders from the target it was handed, never from the live stacks: the page
+            // that is leaving has to keep drawing itself, not the one that replaced it.
+            CompositionLocalProvider(LocalTvFocusTravel provides focusTravel) {
+                AnimatedContent(
+                    targetState = page,
+                    transitionSpec = {
+                        // Deeper arrives from the right, and back arrives from the left.
+                        val direction = if (targetState.depth >= initialState.depth) 1 else -1
+                        TvPageMotion.transform(reduceMotion, travel * direction) using
+                            Motion.sizeTransform(reduceMotion)
+                    },
+                    label = "tv-route",
+                ) { shown ->
+                    // The page on its way out keeps focus until the new one takes it; a second press of
+                    // 确定 in that moment must not open the same title again from the page that is leaving.
+                    Box(Modifier.fillMaxSize().onPreviewKeyEvent { currentPage != shown }) {
+                        TvRoutePage(
+                            shown = shown,
+                            component = component,
+                            activeTab = activeTab,
+                            focusMemory = focusMemory,
+                            navRequesters = navRequesters,
+                            contentRequesters = contentRequesters,
+                            pageStates = pageStates,
+                            onRailFocus = { railFocused = it },
+                        )
+                    }
                 }
+            }
+            TvPhoneRemote.current?.let { remote ->
+                // 手机遥控中 · 断开 while a phone is in, and the question about one that has just
+                // connected, over whichever page shows.
+                TvPhoneRemoteIndicator(
+                    remote = remote,
+                    focusMemory = focusMemory,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(top = TvSafeVertical, end = TvSafeHorizontal),
+                )
+                TvPhoneRemotePromptHost(remote, focusMemory)
             }
         }
     }
@@ -256,6 +302,7 @@ private fun TvRoutePage(
     navRequesters: Map<RootComponent.Tab, FocusRequester>,
     contentRequesters: Map<RootComponent.Tab, FocusRequester>,
     pageStates: SaveableStateHolder,
+    onRailFocus: (Boolean) -> Unit,
 ) {
     when (shown) {
         TvPage.Root ->
@@ -266,6 +313,7 @@ private fun TvRoutePage(
                     contentRequesters = contentRequesters,
                     focusMemory = focusMemory,
                     onSelected = component::selectTab,
+                    onRailFocus = onRailFocus,
                 )
                 Box(
                     Modifier
@@ -325,11 +373,18 @@ private fun TvNavigationRail(
     contentRequesters: Map<RootComponent.Tab, FocusRequester>,
     focusMemory: TvUiFocusMemory,
     onSelected: (RootComponent.Tab) -> Unit,
+    /** Whether focus is on the rail, for Back — see TvRoot; false again once the rail is gone. */
+    onRailFocus: (Boolean) -> Unit,
 ) {
+    val latestOnRailFocus by rememberUpdatedState(onRailFocus)
+    DisposableEffect(Unit) {
+        onDispose { latestOnRailFocus(false) }
+    }
     Column(
         Modifier
             .width(TvRailWidth)
             .fillMaxHeight()
+            .onFocusChanged { latestOnRailFocus(it.hasFocus) }
             .padding(start = TvSafeHorizontal, top = TvSafeVertical, bottom = TvSafeVertical),
         verticalArrangement = Arrangement.Center,
     ) {
@@ -560,6 +615,9 @@ private fun TvPushedPage(
         is LibraryComponent.Child.Player -> PlayerScreen(child.component)
         is SearchComponent.Child.Detail -> TvDetailScreen(child.component, focusMemory)
         is SearchComponent.Child.Player -> PlayerScreen(child.component)
+        // 演员页 and the TMDB page of one of its 其他作品; see RootComponent.openPersonPage.
+        is SearchComponent.Child.Person -> TvPersonScreen(child.component, focusMemory)
+        is SearchComponent.Child.Info -> TvTmdbInfoScreen(child.component, focusMemory)
     }
 }
 

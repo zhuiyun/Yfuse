@@ -64,6 +64,9 @@ internal class HandoffStore(
                     heartbeat.nowPlaying,
                     heartbeat.pull,
                     heartbeat.acceptsRemote,
+                    // A television asks for a server on the socket it hosts 手机遥控 on, so only one
+                    // that hosts can be asking; anything else saying so is not listed as asking.
+                    asksRemoteSignIn = heartbeat.acceptsRemote && heartbeat.asksRemoteSignIn,
                 ),
             )
         return inbox(account)

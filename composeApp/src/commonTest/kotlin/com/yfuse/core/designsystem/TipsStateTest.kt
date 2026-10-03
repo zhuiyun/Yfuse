@@ -29,13 +29,14 @@ class TipsStateTest {
     private val downloads = Any()
 
     @Test
-    fun aTipShowsOnceAndRetiresTheMomentItIsShown() {
+    fun aTipShowsOnceAndRetiresOnceSeen() {
         val store = MemoryStore()
         var today = "2026-09-26"
         val tips = TipsState(store) { today }
         assertTrue(tips.claim(Tips.LIFT, home))
         assertEquals(Tips.LIFT, tips.showing)
         assertTrue(tips.isShowing(Tips.LIFT, home))
+        tips.markSeen(Tips.LIFT)
         tips.dismiss(Tips.LIFT)
         today = "2026-09-27"
         assertFalse(tips.claim(Tips.LIFT, home))
@@ -43,11 +44,36 @@ class TipsStateTest {
     }
 
     @Test
-    fun noMoreThanOneTipADay() {
+    fun aTipThatWasNotSeenComesBackAndLeavesTheDayFree() {
+        val store = MemoryStore()
+        val tips = TipsState(store) { "2026-09-26" }
+        // Up for a moment under controls that hid again: claimed, never seen.
+        assertTrue(tips.claim(Tips.PLAYER_DOUBLE_TAP, home))
+        tips.dismiss(Tips.PLAYER_DOUBLE_TAP)
+        assertNull(store.day)
+        assertTrue(tips.claim(Tips.PLAYER_DOUBLE_TAP, home))
+    }
+
+    @Test
+    fun aPageLeftWithItsTipHiddenUnderControlsDoesNotRetireIt() {
+        val store = MemoryStore()
+        val tips = TipsState(store) { "2026-09-26" }
+        assertTrue(tips.claim(Tips.PLAYER_DOUBLE_TAP, home))
+        // The controls it sat under had hidden before the page went: it was never read.
+        tips.release(Tips.PLAYER_DOUBLE_TAP, home, seen = false)
+        assertNull(tips.showing)
+        assertNull(store.day)
+        val homeAgain = Any()
+        assertTrue(tips.claim(Tips.PLAYER_DOUBLE_TAP, homeAgain))
+    }
+
+    @Test
+    fun noMoreThanOneTipSeenADay() {
         val store = MemoryStore()
         var today = "2026-09-26"
         val tips = TipsState(store) { today }
         assertTrue(tips.claim(Tips.LIFT, home))
+        tips.markSeen(Tips.LIFT)
         tips.dismiss(Tips.LIFT)
         assertFalse(tips.claim(Tips.PINCH_GRID, home))
         today = "2026-09-27"
@@ -59,18 +85,18 @@ class TipsStateTest {
         val tips = TipsState(MemoryStore()) { "2026-09-26" }
         assertTrue(tips.claim(Tips.LIFT, home))
         assertTrue(tips.claim(Tips.LIFT, home))
-        assertFalse(tips.claim(Tips.SWIPE_ROW, downloads))
+        assertFalse(tips.claim(Tips.SWIPE_ROW_HISTORY, downloads))
     }
 
     @Test
     fun theSameTipAtASecondPlaceIsNotShownTwice() {
         val tips = TipsState(MemoryStore()) { "2026-09-26" }
-        assertTrue(tips.claim(Tips.SWIPE_ROW, downloads))
-        assertFalse(tips.claim(Tips.SWIPE_ROW, home))
-        assertFalse(tips.isShowing(Tips.SWIPE_ROW, home))
+        assertTrue(tips.claim(Tips.SWIPE_ROW_DOWNLOADS, downloads))
+        assertFalse(tips.claim(Tips.SWIPE_ROW_DOWNLOADS, home))
+        assertFalse(tips.isShowing(Tips.SWIPE_ROW_DOWNLOADS, home))
         // Nor does that second place leaving take it down where it is showing.
-        tips.release(Tips.SWIPE_ROW, home)
-        assertTrue(tips.isShowing(Tips.SWIPE_ROW, downloads))
+        tips.release(Tips.SWIPE_ROW_DOWNLOADS, home)
+        assertTrue(tips.isShowing(Tips.SWIPE_ROW_DOWNLOADS, downloads))
     }
 
     @Test

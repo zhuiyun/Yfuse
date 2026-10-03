@@ -305,7 +305,7 @@ fun GlassDialog(
         // The grey pane is not the page: `body` and `sub2` were measured against `background`
         // and landed at about 3:1 on the light dialog. Every dialog reads the recalibrated pair
         // from here, so the 48 call sites keep writing `palette.body` and get the right ink.
-        val opaqueGlass = LocalAccessibilityOptions.current.reduceTransparency || !supportsBackdropBlur
+        val opaqueGlass = LocalAccessibilityOptions.current.reduceTransparency || !backdropBlurAvailable()
         val dialogPalette =
             remember(palette, material, opaqueGlass) {
                 val surfacePalette = material.contentPalette(palette, opaqueGlass)

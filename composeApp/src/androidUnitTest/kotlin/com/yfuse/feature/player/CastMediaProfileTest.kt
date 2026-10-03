@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CastMediaProfileTest {
@@ -37,5 +38,39 @@ class CastMediaProfileTest {
         assertEquals("dvh1.08.06", profile.videoCodec)
         assertEquals("truehd", profile.audioCodec)
         assertEquals("application/x-mpegURL", profile.contentType)
+    }
+
+    @Test
+    fun profile_carries_the_container_size_and_runtime_a_dlna_renderer_is_told() {
+        val version =
+            PlayerMediaVersion(
+                id = "hevc",
+                label = "1080p",
+                detail = "HDR10 · MKV",
+                url = "https://media.example.test/Videos/42/stream?static=true",
+                transcodeUrl = "",
+                fallbackTranscodeUrl = "",
+                container = "MKV",
+                sourceSizeBytes = 4_655_267_216L,
+            )
+        val item =
+            PlayerMediaItem(
+                id = "42",
+                url = version.url,
+                transcodeUrl = "",
+                title = "Episode",
+                versions = listOf(version),
+                versionId = version.id,
+                durationMsHint = 2_470_504L,
+            )
+
+        val profile = item.castMediaProfile()
+
+        assertEquals("MKV", profile.container)
+        assertEquals(4_655_267_216L, profile.sizeBytes)
+        assertEquals(2_470_504L, profile.durationMs)
+        val unknown = PlayerMediaItem(id = "x", url = "u", transcodeUrl = "", title = "t")
+        assertNull(unknown.castMediaProfile().durationMs)
+        assertNull(unknown.castMediaProfile().container)
     }
 }

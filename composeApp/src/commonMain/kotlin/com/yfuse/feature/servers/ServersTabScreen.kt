@@ -32,7 +32,6 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
@@ -108,7 +107,6 @@ import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.SwipeActionsRow
 import com.yfuse.core.designsystem.ToastAction
-import com.yfuse.core.designsystem.UndoWindow
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glass
@@ -117,6 +115,7 @@ import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.refreshAction
+import com.yfuse.core.designsystem.rememberUndoWindow
 import com.yfuse.core.designsystem.serverTintColor
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
@@ -125,6 +124,7 @@ import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.core.util.rememberShareHandler
+import com.yfuse.feature.filesource.FileSourcesSection
 import com.yfuse.feature.profile.AddServerDialog
 import kotlinx.coroutines.delay
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -151,7 +151,7 @@ private const val CHILD_PROFILE_NOTE = "儿童资料不能管理服务器，请�
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ServersTabScreen(component: ServersTabComponent) {
+internal fun ServersGridScreen(component: ServersTabComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val palette = LocalPalette.current
     val routeVisible = LocalRouteVisible.current
@@ -414,6 +414,14 @@ fun ServersTabScreen(component: ServersTabComponent) {
                                 onMore = { actionsFor = server },
                                 modifier = cardMotion,
                             )
+                        }
+
+                        // 文件来源 below the servers. A child profile can neither add one nor play
+                        // a file that belongs to no server, so it is not offered one.
+                        if (canManage) {
+                            motionItem(key = "file-sources", span = { GridItemSpan(maxLineSpan) }) {
+                                FileSourcesSection(component.fileSources)
+                            }
                         }
                     }
                 }
@@ -1825,21 +1833,20 @@ private fun ServerRoutesDialog(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val latestServer by rememberUpdatedState(server)
+    val latestSave by rememberUpdatedState(onSave)
     // 删除线路, 先做，给 5 秒撤销 (see [UndoWindow]): the route leaves the list at once and the server
     // only when its toast has gone, and it is taken out of whatever the routes are by then.
-    val removals = remember(server.id) { UndoWindow<ServerRoute>() }
+    val removals =
+        rememberUndoWindow<ServerRoute>(server.id) { route ->
+            latestSave(latestServer.effectiveRoutes.filterNot { it.id == route.id }, false)
+        }
     var removing by remember(server.id) { mutableStateOf<ServerRoute?>(null) }
     // A fresh toast for every removal: two routes can share a name.
     var removalToast by remember(server.id) { mutableIntStateOf(0) }
-    val latestServer by rememberUpdatedState(server)
-    val latestSave by rememberUpdatedState(onSave)
-
-    fun commitRemoval(route: ServerRoute) {
-        latestSave(latestServer.effectiveRoutes.filterNot { it.id == route.id }, false)
-    }
 
     fun removeRoute(route: ServerRoute) {
-        removals.hold(route)?.let(::commitRemoval)
+        removals.hold(route)
         removing = route
         removalToast++
     }
@@ -1849,13 +1856,10 @@ private fun ServerRoutesDialog(
     }
 
     // The toast left — timed out, swiped away, the app sent to the background: the route goes now.
+    // Closing the sheet is the toast leaving too, and the window settles itself then.
     fun settleRemoval() {
-        removals.release()?.let(::commitRemoval)
+        removals.settle()
         removing = null
-    }
-    // Closing the sheet is the toast leaving too.
-    DisposableEffect(removals) {
-        onDispose { removals.release()?.let(::commitRemoval) }
     }
     val routes = server.effectiveRoutes.filterNot { it.id == removing?.id }
     var draftName by remember(server.id) { mutableStateOf("") }

@@ -377,8 +377,10 @@ private fun String.isSafeTransportHeader(): Boolean = isNotBlank() && none { it 
 internal fun Map<String, String>.withHttpBasicCredentials(credentials: YTransportCredentials?): Map<String, String> {
     if (keys.any { it.equals("Authorization", ignoreCase = true) }) return this
     val usernamePassword = credentials as? YTransportCredentials.UsernamePassword ?: return this
+    // UTF-8 per RFC 7617, as the 文件来源 browser sends it: OkHttp's ISO-8859-1 default turned a
+    // Chinese WebDAV password into question marks, so a share that listed then refused to play.
     return this +
-        ("Authorization" to Credentials.basic(usernamePassword.username, usernamePassword.password))
+        ("Authorization" to Credentials.basic(usernamePassword.username, usernamePassword.password, Charsets.UTF_8))
 }
 
 private val sharedMediaTransportClient =

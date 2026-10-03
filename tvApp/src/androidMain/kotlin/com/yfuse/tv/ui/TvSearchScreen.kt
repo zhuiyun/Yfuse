@@ -472,44 +472,53 @@ private fun TvSearchResult.toTvCard(component: SearchHomeComponent): TvMediaCard
     )
 
 /**
- * 长按面板 on a result: the phone's 浮起菜单 for it, less 分享 — a television has nothing to share
- * to — and the other servers' copies, each a result of its own here. Results are a snapshot, so
- * the flags go through the component, which remembers what changed since the search ran.
+ * 长按面板 on a result: the phone's 浮起菜单 for it (SearchScreen's `searchLiftMenu`), less 分享 — a
+ * television has nothing to share to — and less 在…打开, since the television lists each server's
+ * copy as a card of its own. Results are a snapshot: the flags go through the component, which
+ * remembers what was changed here since the search ran, so the panel offers 取消收藏 once the title
+ * is a favourite. A series resolves its episode in 详情, which the card opens; it has no 播放 here.
  */
 private fun TvSearchResult.tvQuickActions(component: SearchHomeComponent): LiftMenu {
-    val current = component.flags.current(serverId, item)
+    val listed = item
+    val current = component.flags.current(serverId, listed)
     val resumeTicks = current.resumePositionTicks?.takeIf { it > 0L && !current.played }
-    return mediaItemLiftMenu(
-        item = current,
-        backdropUrl = null,
-        onOpen = { component.onOpenItem(serverId, item.id) },
-        actions =
-            listOf(
-                // A series resolves its episode in 详情, which 查看详情 opens.
-                if (current.type == "Series") {
-                    emptyList()
-                } else {
-                    listOfNotNull(
-                        ItemAction(
-                            label = if (resumeTicks != null) "继续播放" else "播放",
-                            icon = AppIcons.Play,
-                            detail = current.liftRemainingLabel(),
-                            leavesPage = true,
-                            onSelect = { component.onPlayItem(serverId, item.id, resumeTicks ?: 0L) },
-                        ),
-                        resumeTicks?.let {
-                            ItemAction(
-                                label = "从头播放",
-                                icon = AppIcons.Refresh,
-                                leavesPage = true,
-                                onSelect = { component.onPlayItem(serverId, item.id, 0L) },
-                            )
-                        },
+    val play =
+        if (current.type == "Series") {
+            emptyList()
+        } else {
+            listOfNotNull(
+                ItemAction(
+                    label = if (resumeTicks != null) "继续播放" else "播放",
+                    icon = AppIcons.Play,
+                    detail = current.liftRemainingLabel(),
+                    leavesPage = true,
+                    onSelect = { component.onPlayItem(serverId, current.id, resumeTicks ?: 0L) },
+                ),
+                resumeTicks?.let {
+                    ItemAction(
+                        label = "从头播放",
+                        icon = AppIcons.Refresh,
+                        leavesPage = true,
+                        onSelect = { component.onPlayItem(serverId, current.id, 0L) },
                     )
                 },
+            )
+        }
+    return mediaItemLiftMenu(
+        item = current,
+        backdropUrl =
+            EmbyImages.backdrop(
+                component.serverBaseUrl(serverId),
+                current,
+                accessToken = component.serverAccessToken(serverId),
+            ),
+        onOpen = { component.onOpenItem(serverId, current.id) },
+        actions =
+            listOf(
+                play,
                 listOf(
-                    playedLiftAction(current.played) { component.flags.setPlayed(serverId, item, it) },
-                    favoriteLiftAction(current.isFavorite) { component.flags.setFavorite(serverId, item, it) },
+                    playedLiftAction(current.played) { component.flags.setPlayed(serverId, listed, it) },
+                    favoriteLiftAction(current.isFavorite) { component.flags.setFavorite(serverId, listed, it) },
                 ),
             ),
     )

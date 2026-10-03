@@ -19,6 +19,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.sp
+import com.arkivanov.mvikotlin.core.store.Store
+import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DialogPresence
@@ -38,7 +41,9 @@ import com.yfuse.core.handoff.ActiveHandoffPlayback
 import com.yfuse.core.handoff.HandoffController
 import com.yfuse.core.handoff.HandoffMedia
 import com.yfuse.core.handoff.HandoffPlaybackRegistry
+import com.yfuse.core.handoff.HandoffUiState
 import com.yfuse.feature.profile.SettingsPage
+import com.yfuse.feature.profile.rememberComposedPageStore
 import com.yfuse.watch.protocol.HandoffRequest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -46,20 +51,54 @@ import kotlinx.coroutines.withTimeoutOrNull
 /** Reusable on phone, tablet and TV; every action has an explicit focusable button. */
 @Composable
 fun DeviceHandoffScreen(
-    controller: HandoffController,
+    store: Store<DeviceHandoffIntent, HandoffUiState, Nothing>,
     onBack: () -> Unit,
 ) {
-    val state by controller.state.collectAsState()
+    val state by store.states.collectAsState(store.state)
     val palette = LocalPalette.current
     // 遥控器 opens in place of this page: it belongs to the television picked here, and back returns here.
     var remoteSessionId by rememberSaveable { mutableStateOf<String?>(null) }
     var remoteName by rememberSaveable { mutableStateOf("") }
+    // So does 登录服务器到电视, for a television whose 添加服务器 waits on a phone.
+    var signInSessionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var signInName by rememberSaveable { mutableStateOf("") }
     val television = remoteSessionId
     if (television != null) {
         PhoneRemoteScreen(television, remoteName, onBack = { remoteSessionId = null })
         return
     }
+    val asking = signInSessionId
+    if (asking != null) {
+        RemoteSignInScreen(asking, signInName, onBack = { signInSessionId = null })
+        return
+    }
+    // Only this page, not a remote or a sign-in in its place, has the devices asked for more often.
+    DisposableEffect(store) {
+        store.accept(DeviceHandoffIntent.PageShown)
+        onDispose { store.accept(DeviceHandoffIntent.PageHidden) }
+    }
     SettingsPage(title = "设备接力", onBack = onBack) {
+        if (state.signInAsks.isNotEmpty()) {
+            item {
+                Section(title = "等待登录的电视") {
+                    SettingsCard {
+                        state.signInAsks.forEachIndexed { index, waiting ->
+                            if (index > 0) SettingsDivider()
+                            SettingRow(
+                                "登录服务器到 ${waiting.name}",
+                                embedded = true,
+                                onClick = {
+                                    signInName = waiting.name
+                                    signInSessionId = waiting.sessionId
+                                },
+                                icon = AppIcons.Server,
+                                supporting = "电视正在等待，选一台服务器发给它",
+                            )
+                        }
+                    }
+                }
+            }
+        }
         item {
             Section(title = "在线设备") {
                 SettingsCard {
@@ -79,7 +118,12 @@ fun DeviceHandoffScreen(
                             device.platform + if (state.busy) " · 接力中" else " · 接力播放",
                             embedded = true,
                             icon = AppIcons.Play,
-                            onClick = if (state.busy) null else ({ controller.send(device.sessionId) }),
+                            onClick =
+                                if (state.busy) {
+                                    null
+                                } else {
+                                    ({ store.accept(DeviceHandoffIntent.Send(device.sessionId)) })
+                                },
                         )
                     }
                     // Only televisions that host 手机遥控 are listed, and only on a device that is not one.
@@ -98,7 +142,9 @@ fun DeviceHandoffScreen(
                     }
                     if (state.busy) {
                         SettingsDivider()
-                        SettingRow("取消接力", "停止本次传输", embedded = true, onClick = controller::cancelTransfer)
+                        SettingRow("取消接力", "停止本次传输", embedded = true, onClick = {
+                            store.accept(DeviceHandoffIntent.CancelTransfer)
+                        })
                     }
                 }
             }
@@ -122,6 +168,23 @@ fun DeviceHandoffScreen(
             }
         }
     }
+}
+
+/**
+ * The same page for the television's settings, which swap their pages in place rather than through
+ * the phone's page stack; the store lives as long as the page is composed there.
+ */
+@Composable
+fun DeviceHandoffScreen(
+    controller: HandoffController,
+    onBack: () -> Unit,
+) {
+    val store =
+        rememberComposedPageStore(controller) {
+            // The app's StoreFactory is this one; the television reaches the page without it.
+            DeviceHandoffStoreFactory(DefaultStoreFactory(), controller).create()
+        }
+    DeviceHandoffScreen(store, onBack)
 }
 
 /** Mount once above the phone/TV navigation graph so incoming requests remain visible. */

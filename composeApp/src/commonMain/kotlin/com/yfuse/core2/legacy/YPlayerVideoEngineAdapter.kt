@@ -12,9 +12,8 @@ import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.PlaybackAudioOutputMode
 import com.yfuse.feature.player.PlaybackDiagnostics
 import com.yfuse.feature.player.PlaybackDynamicRangeOutputMode
-import com.yfuse.feature.player.PlaybackEvidenceConfidence
 import com.yfuse.feature.player.PlaybackOutputEvidence
-import com.yfuse.feature.player.PlaybackOutputReadiness
+import com.yfuse.feature.player.PlaybackRenderEvidence
 import com.yfuse.feature.player.PlaybackState
 import com.yfuse.feature.player.PlaybackVideoRenderApi
 import com.yfuse.feature.player.VideoEngine
@@ -215,17 +214,15 @@ private fun YPlayerState.toLegacyPlaybackState(
                 videoOutput = diagnostics.videoOutput.ifBlank { "等待首帧" },
                 audioOutput = diagnostics.audioOutput.ifBlank { "等待音频输出" },
                 videoReadiness =
-                    when {
-                        diagnostics.videoOutputVerified -> PlaybackOutputReadiness.Rendering
-                        phase == YPlaybackPhase.Idle -> PlaybackOutputReadiness.Released
-                        else -> PlaybackOutputReadiness.Waiting
-                    },
+                    PlaybackRenderEvidence.readiness(
+                        verified = diagnostics.videoOutputVerified,
+                        released = phase == YPlaybackPhase.Idle,
+                    ),
                 audioReadiness =
-                    when {
-                        diagnostics.audioOutputVerified -> PlaybackOutputReadiness.Rendering
-                        phase == YPlaybackPhase.Idle -> PlaybackOutputReadiness.Released
-                        else -> PlaybackOutputReadiness.Waiting
-                    },
+                    PlaybackRenderEvidence.readiness(
+                        verified = diagnostics.audioOutputVerified,
+                        released = phase == YPlaybackPhase.Idle,
+                    ),
                 dolbyVisionOutput = diagnostics.dolbyVisionOutput,
                 dolbyVisionRpuApplied = diagnostics.dolbyVisionRpuApplied,
                 dolbyVisionEnhancementLayerComposed = diagnostics.dolbyVisionFelComposed,
@@ -262,18 +259,9 @@ private fun YPlayerState.toLegacyPlaybackState(
 internal fun com.yfuse.core2.api.YPlayerDiagnostics.toPlaybackOutputEvidence(
     phase: YPlaybackPhase,
 ): PlaybackOutputEvidence {
-    val videoReadiness =
-        when {
-            videoOutputVerified -> PlaybackOutputReadiness.Rendering
-            phase == YPlaybackPhase.Idle -> PlaybackOutputReadiness.Released
-            else -> PlaybackOutputReadiness.Waiting
-        }
-    val audioReadiness =
-        when {
-            audioOutputVerified -> PlaybackOutputReadiness.Rendering
-            phase == YPlaybackPhase.Idle -> PlaybackOutputReadiness.Released
-            else -> PlaybackOutputReadiness.Waiting
-        }
+    val released = phase == YPlaybackPhase.Idle
+    val videoReadiness = PlaybackRenderEvidence.readiness(videoOutputVerified, released)
+    val audioReadiness = PlaybackRenderEvidence.readiness(audioOutputVerified, released)
     val decoderParts = decoder.split(" + ", limit = 2)
     val videoTrackKnown =
         videoCodec.isNotBlank() || videoWidth > 0 || videoHeight > 0 || videoOutputVerified
@@ -282,10 +270,8 @@ internal fun com.yfuse.core2.api.YPlayerDiagnostics.toPlaybackOutputEvidence(
         sessionRevision = if (phase == YPlaybackPhase.Idle) 0L else outputEvidenceGeneration.coerceAtLeast(1L),
         videoReadiness = videoReadiness,
         audioReadiness = audioReadiness,
-        videoConfidence =
-            if (videoOutputVerified) PlaybackEvidenceConfidence.Confirmed else PlaybackEvidenceConfidence.Requested,
-        audioConfidence =
-            if (audioOutputVerified) PlaybackEvidenceConfidence.Confirmed else PlaybackEvidenceConfidence.Requested,
+        videoConfidence = PlaybackRenderEvidence.confidence(videoOutputVerified),
+        audioConfidence = PlaybackRenderEvidence.confidence(audioOutputVerified),
         // Prefer typed identities. A single legacy label with both tracks present is
         // ambiguous: audio may have started before the video Surface was attached.
         videoDecoder =

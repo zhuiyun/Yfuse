@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -33,9 +34,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.DialogPresence
@@ -44,8 +47,10 @@ import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
+import com.yfuse.core.remote.RemoteSignInRequest
 import com.yfuse.feature.servers.QuickConnectUiState
 import com.yfuse.feature.servers.ServersIntent
+import com.yfuse.feature.servers.ServersLabel
 import com.yfuse.feature.servers.ServersState
 import com.yfuse.feature.servers.ServersTabComponent
 import com.yfuse.feature.servers.hasInputSince
@@ -54,6 +59,7 @@ import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.requestFocusWhenAttached
 import com.yfuse.tv.focus.tvFocusScope
 import com.yfuse.tv.focus.tvIgnoreOpeningHold
+import com.yfuse.tv.remote.TvPhoneRemote
 
 @Composable
 internal fun TvServersScreen(
@@ -103,6 +109,12 @@ internal fun TvServersScreen(
         },
     )
     LaunchedEffect(component) { component.primeStats() }
+    // 用手机登录: the phone that handed over a session hears whether this television saved it.
+    LaunchedEffect(store) {
+        store.labels.collect { label ->
+            if (label is ServersLabel.SessionHandedOver) TvPhoneRemote.current?.finishSignIn(label.saved)
+        }
+    }
 
     Column(
         Modifier
@@ -302,6 +314,11 @@ private fun TvServerDialog(
             onGranted = { sendIntent(ServersIntent.Scan) },
             onDenied = { sendIntent(ServersIntent.LocalNetworkPermissionDenied) },
         )
+    val phoneRemote = TvPhoneRemote.current
+    val phoneSignIn = rememberTvPhoneSignInStatus(phoneRemote)
+    // Only 添加服务器 offers it: an edit is of a server already chosen.
+    val offersPhoneSignIn = phoneSignIn.available && state.editingServerId == null
+    TvPhoneSignInReceiver(phoneRemote, phoneSignIn.available, sendIntent)
     LaunchedEffect(Unit) { hostRequester.requestFocusWhenAttached() }
     DisposableEffect(focusMemory) {
         onDispose { focusMemory.requestLastForRoute("servers") }
@@ -361,8 +378,13 @@ private fun TvServerDialog(
                 )
             }
             // Typing an address on a remote is slow, so the LAN scan goes above the form: the
-            // common case is one press to fill everything in.
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // common case is one press to fill everything in. 用手机登录 beside it types nothing at
+            // all — a phone of the same account sends one of its servers — except for Plex, which
+            // signs in only with Plex's own authorisation, and says so in its place.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 TvActionButton(
                     label = if (state.scanning) "正在搜索…" else "搜索局域网",
                     stableId = "server-dialog:scan",
@@ -372,6 +394,22 @@ private fun TvServerDialog(
                     modifier = Modifier.width(176.dp),
                     icon = AppIcons.Search,
                 )
+                if (offersPhoneSignIn && state.form.kind != MediaServerKind.Plex) {
+                    TvActionButton(
+                        label = "用手机登录",
+                        stableId = "server-dialog:phone-sign-in",
+                        focusScope = "server-dialog:discovery",
+                        focusMemory = focusMemory,
+                        onClick = { phoneRemote?.askForServer() },
+                        icon = AppIcons.Cast,
+                    )
+                } else if (offersPhoneSignIn) {
+                    Text(
+                        "Plex 服务器用 Plex 自己的授权登录，不能用手机登录",
+                        color = TvOnSurfaceMuted,
+                        fontSize = TvType.caption,
+                    )
+                }
             }
             state.scanError?.let { Text(it, color = TvWarning, fontSize = TvType.caption) }
             if (state.discovered.isNotEmpty()) {
@@ -517,6 +555,15 @@ private fun TvServerDialog(
                 onDismiss = { confirmDiscard = false },
             )
         }
+        // Over the form, so what was typed stays, and Back or 取消 returns to it.
+        DialogPresence(phoneSignIn.request.takeIf { it != RemoteSignInRequest.Idle }) { request ->
+            TvPhoneSignInDialog(
+                request = request,
+                focusMemory = focusMemory,
+                onCancel = { phoneRemote?.cancelSignIn() },
+                onRetry = { phoneRemote?.askForServer() },
+            )
+        }
     }
 }
 
@@ -544,5 +591,8 @@ private fun TvServerTextField(
         label = { Text(label, fontSize = TvType.caption) },
         singleLine = true,
         visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
+        // As in TvSettingsTextField: a password to the keyboard, and to 手机遥控.
+        keyboardOptions =
+            if (secret) KeyboardOptions(keyboardType = KeyboardType.Password) else KeyboardOptions.Default,
     )
 }

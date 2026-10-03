@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -52,10 +51,10 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalToastBottomInset
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.RollingNumber
 import com.yfuse.core.designsystem.SwipeActionsRow
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.ToastAction
-import com.yfuse.core.designsystem.UndoWindow
 import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.dragSelect
 import com.yfuse.core.designsystem.dragSelectRow
@@ -64,6 +63,7 @@ import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDragSelectState
+import com.yfuse.core.designsystem.rememberUndoWindow
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.Episode
@@ -98,19 +98,15 @@ internal fun EpisodeProgressManager(
     onDismiss: () -> Unit,
     rowActions: EpisodeRowActions? = null,
 ) {
+    val latestActions by rememberUpdatedState(rowActions)
     // 删除下载 from a swipe is 先做，给 5 秒撤销 (see [UndoWindow]): the row reads as not downloaded
     // at once, and the file goes only when the toast has.
-    val removals = remember { UndoWindow<OfflineMedia>() }
+    val removals = rememberUndoWindow<OfflineMedia> { latestActions?.removeDownload(it) }
     var removing by remember { mutableStateOf<OfflineMedia?>(null) }
     var removalToast by remember { mutableIntStateOf(0) }
-    val latestActions by rememberUpdatedState(rowActions)
-
-    fun commitRemoval(download: OfflineMedia) {
-        latestActions?.removeDownload(download)
-    }
 
     fun removeDownload(download: OfflineMedia) {
-        removals.hold(download)?.let(::commitRemoval)
+        removals.hold(download)
         removing = download
         removalToast++
     }
@@ -120,13 +116,10 @@ internal fun EpisodeProgressManager(
     }
 
     // The toast left — timed out, swiped away, the app sent to the background: the file goes now.
+    // Closing the sheet is the toast leaving too, and the window settles itself then.
     fun settleRemoval() {
-        removals.release()?.let(::commitRemoval)
+        removals.settle()
         removing = null
-    }
-    // Closing the sheet is the toast leaving too.
-    DisposableEffect(removals) {
-        onDispose { removals.release()?.let(::commitRemoval) }
     }
     val removingId = removing?.id
     val downloads = rowActions?.downloads.orEmpty().filterValues { it.id != removingId }
@@ -216,6 +209,7 @@ internal fun EpisodeProgressManager(
                             val download = downloads[episode.id]
                             SwipeActionsRow(
                                 modifier = Modifier.dragSelectRow(sweep, episode.id),
+                                tipId = Tips.SWIPE_ROW_EPISODES,
                                 leading =
                                     rowActions?.let { actions ->
                                         ItemAction(
@@ -261,7 +255,7 @@ internal fun EpisodeProgressManager(
                     }
                     // Where the rows can be swiped, once there are rows; the first swipe retires it.
                     ContextualTip(
-                        id = Tips.SWIPE_ROW,
+                        id = Tips.SWIPE_ROW_EPISODES,
                         text = "右滑标记已看，左滑下载；长按一集后上下拖动可连续选择",
                         active = rowActions != null && episodes.isNotEmpty(),
                         modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
@@ -426,20 +420,32 @@ private fun ProgressEpisodeRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(3.dp))
-            Text(
-                listOfNotNull(
+            val watching = !episode.played && (episode.resumePositionTicks ?: 0L) > 0L
+            val ink = if (selected) accent else palette.sub2
+            val tail = episodeDownloadLabel(download?.status)?.let { " · $it" }.orEmpty()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
                     when {
-                        episode.played -> "已看完"
-                        (episode.resumePositionTicks ?: 0L) > 0L ->
-                            "观看中 · ${episode.playedPercentage?.toInt() ?: 0}%"
-                        else -> "未观看"
+                        episode.played -> "已看完$tail"
+                        watching -> "观看中 · "
+                        else -> "未观看$tail"
                     },
-                    episodeDownloadLabel(download?.status),
-                ).joinToString(" · "),
-                style = AppTypography.caption.regular,
-                color = if (selected) accent else palette.sub2,
-                maxLines = 1,
-            )
+                    style = AppTypography.caption.regular,
+                    color = ink,
+                    maxLines = 1,
+                )
+                if (watching) {
+                    // How far in, rolling to its new figure as the episode's progress changes.
+                    RollingNumber(
+                        text = "${episode.playedPercentage?.toInt() ?: 0}%",
+                        style = AppTypography.caption.regular,
+                        color = ink,
+                    )
+                    if (tail.isNotEmpty()) {
+                        Text(tail, style = AppTypography.caption.regular, color = ink, maxLines = 1)
+                    }
+                }
+            }
         }
     }
 }

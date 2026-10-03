@@ -25,10 +25,13 @@ private const val ACTION_RESUME = "com.yfuse.cast.LIVE_RESUME"
 private const val ACTION_STOP = "com.yfuse.cast.LIVE_STOP"
 
 /**
- * Not the player's id: that one can still belong to the playback service as it stops, and the
- * system takes it down along with the service.
+ * The cast's 实况通知, from the player while it is open and from [CastLiveUpdateKeeper] once it has
+ * closed. Not [PlayerActivity.NOTIFICATION_ID] (2407): that id is the media notification and the
+ * playback service's foreground notification, which the system takes down along with the service,
+ * and a MediaStyle notification cannot be promoted to a live update — replacing it took the lock
+ * screen's and quick settings' media card, and 上一集 / 下一集, away for as long as the cast ran.
  */
-private const val CAST_LIVE_NOTIFICATION_ID = 2409
+internal const val CAST_LIVE_NOTIFICATION_ID = 2409
 
 /** What the player knew about the titles on the television when it closed. */
 internal class CastLiveHandover(

@@ -54,6 +54,13 @@ class TvSettingsSearchTest {
     }
 
     @Test
+    fun `phone remote is found by what the viewer would call it`() {
+        assertTrue(TvSettingsPage.PhoneRemote in searchTvSettings("手机"))
+        assertEquals(listOf(TvSettingsPage.PhoneRemote), searchTvSettings("遥控"))
+        assertEquals(listOf(TvSettingsPage.PhoneRemote), searchTvSettings("信任"))
+    }
+
+    @Test
     fun `the motion theme is found on the page that sets it`() {
         assertEquals(listOf(TvSettingsPage.Appearance), searchTvSettings("动效"))
         assertEquals(listOf(TvSettingsPage.Appearance), searchTvSettings("动效主题"))
@@ -76,6 +83,14 @@ class TvSettingsSearchTest {
     fun `unimplemented resource integration is not searchable`() {
         assertTrue(searchTvSettings("转存").isEmpty())
         assertTrue(searchTvSettings("tgto").isEmpty())
+    }
+
+    @Test
+    fun `there is no glass page, and looking for one finds the page that says why`() {
+        // Every television surface is an opaque plate: 玻璃材质 had nothing there to change.
+        assertTrue(TvSettingsPage.entries.none { "玻璃" in it.title })
+        assertEquals(listOf(TvSettingsPage.Appearance), searchTvSettings("玻璃"))
+        assertEquals(listOf(TvSettingsPage.Appearance), searchTvSettings("布局"))
     }
 
     @Test

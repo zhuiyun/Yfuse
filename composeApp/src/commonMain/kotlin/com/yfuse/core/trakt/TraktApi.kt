@@ -206,13 +206,19 @@ data class TraktPlaybackMedia(
 ) {
     fun valid() =
         type in setOf("movie", "episode") &&
+            (ids.trakt == null || ids.trakt > 0L) &&
+            (ids.tmdb == null || ids.tmdb > 0) &&
+            (ids.tvdb == null || ids.tvdb > 0) &&
+            (ids.imdb == null || traktImdbIdPattern.matches(ids.imdb)) &&
             (
                 (ids.trakt ?: 0) > 0 ||
                     (ids.tmdb ?: 0) > 0 ||
                     (ids.tvdb ?: 0) > 0 ||
-                    ids.imdb?.matches(Regex("tt[0-9]+")) == true
+                    ids.imdb != null
             )
 }
+
+private val traktImdbIdPattern = Regex("tt[0-9]{1,16}")
 
 @Serializable
 enum class TraktPlaybackAction { Start, Pause, Stop }
