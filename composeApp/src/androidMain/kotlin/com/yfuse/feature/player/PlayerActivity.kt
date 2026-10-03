@@ -100,6 +100,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
+import kotlin.math.roundToInt
 
 /**
  * Fullscreen playback lives in its own activity. Phones retain the landscape-first experience —
@@ -1961,6 +1962,13 @@ class PlayerActivity :
     override fun reorientForCurrentEntry() = applyPhoneOrientation(orientationItem, orientationState)
 
     private fun activePictureInPictureAspectRatio(): Rational {
+        // The server's size knows the file's rotation, which only ExoPlayer applies to its decoded
+        // size: a 1920×1080 file tagged rotate=90 is an upright window, not a landscape one.
+        orientationItem?.activeVersion?.displayAspectRatio()?.let { aspect ->
+            val (ratioWidth, ratioHeight) =
+                pictureInPictureAspectRatioDimensions((aspect * ASPECT_PRECISION).roundToInt(), ASPECT_PRECISION)
+            return Rational(ratioWidth, ratioHeight)
+        }
         val width =
             activeState.diagnostics.videoWidth.takeIf { it > 0 }
                 ?: videoBounds?.width()
@@ -2055,3 +2063,6 @@ private const val PIP_SEEK_STEP_MS = 10_000L
 private const val EMBY_TICKS_PER_MILLISECOND = 10_000L
 private const val MIN_PICTURE_IN_PICTURE_ASPECT_RATIO = 1.0 / 2.39
 private const val MAX_PICTURE_IN_PICTURE_ASPECT_RATIO = 2.39
+
+/** Display aspects become whole-number ratios at this precision before reduction. */
+private const val ASPECT_PRECISION = 1_000

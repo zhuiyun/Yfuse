@@ -44,6 +44,7 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.account.AccountAccessTokenSource
@@ -2827,6 +2828,15 @@ internal fun PlayerRoot(
                 ?.takeUnless { inPictureInPicture }
                 ?.let { tabletopSplit(it.first, it.last, containerHeightPx) }
         val density = LocalDensity.current
+        // 画中画 grows out of the picture, not the player: an upright 短剧 fitted in a landscape
+        // window is a third of it, and the whole player as the hint drew the wrong shape. The
+        // server's size knows the file's rotation; a decoded frame stands in for it.
+        val pictureAspect =
+            currentItem?.activeVersion?.displayAspectRatio()
+                ?: state.diagnostics.videoWidth
+                    .takeIf { it > 0 && state.videoHeight > 0 }
+                    ?.let { it.toFloat() / state.videoHeight }
+        val latestPictureAspect by rememberUpdatedState(pictureAspect.takeIf { scaleMode == VideoScaleMode.Fit })
         Box(
             Modifier
                 .fillMaxSize()
@@ -2834,14 +2844,9 @@ internal fun PlayerRoot(
                 .onGloballyPositioned { coordinates ->
                     containerHeightPx = coordinates.size.height
                     val bounds = coordinates.boundsInWindow()
-                    onVideoBounds(
-                        Rect(
-                            bounds.left.roundToInt(),
-                            bounds.top.roundToInt(),
-                            bounds.right.roundToInt(),
-                            bounds.bottom.roundToInt(),
-                        ),
-                    )
+                    val picture =
+                        fittedPictureBounds(bounds.left, bounds.top, bounds.right, bounds.bottom, latestPictureAspect)
+                    onVideoBounds(Rect(picture.left, picture.top, picture.right, picture.bottom))
                     ambient.onContainerSize(coordinates.size)
                 },
         ) {
@@ -4021,3 +4026,31 @@ internal fun core2NativeOnlyFailureToast(kind: PlaybackFailureKind?): String =
 
 private const val SLEEP_TIMER_TICK_MS = 1_000L
 private const val SLEEP_TIMER_PAUSED_POLL_MS = 500L
+
+/**
+ * Where a picture of [aspect] (width / height) sits when fitted and centred in the given bounds;
+ * the bounds themselves when the shape is not known, or the picture fills them.
+ */
+internal fun fittedPictureBounds(
+    left: Float,
+    top: Float,
+    right: Float,
+    bottom: Float,
+    aspect: Float?,
+): IntRect {
+    val width = right - left
+    val height = bottom - top
+    if (aspect == null || !aspect.isFinite() || aspect <= 0f || width <= 0f || height <= 0f) {
+        return IntRect(left.roundToInt(), top.roundToInt(), right.roundToInt(), bottom.roundToInt())
+    }
+    val fittedWidth = if (aspect > width / height) width else height * aspect
+    val fittedHeight = if (aspect > width / height) width / aspect else height
+    val fittedLeft = left + (width - fittedWidth) / 2f
+    val fittedTop = top + (height - fittedHeight) / 2f
+    return IntRect(
+        fittedLeft.roundToInt(),
+        fittedTop.roundToInt(),
+        (fittedLeft + fittedWidth).roundToInt(),
+        (fittedTop + fittedHeight).roundToInt(),
+    )
+}
