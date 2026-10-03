@@ -12,10 +12,11 @@
 -keep class com.yfuse.core.cast.YfuseCastOptionsProvider { *; }
 
 # Keeps PlayerRootKt's methods in place and named. In 1.0.90 R8 9.1.31 moved the large PlayerRoot
-# lambda into an unrelated class loaded at startup, and that class failed verification. This rule
-# does not prevent the defect itself: in 1.0.97 the same R8 corrupted the lambda's registers in
-# place (docs/diagnostics-20261003-player-verifyerror.md). The readable names it keeps are what
-# made that crash traceable; scripts/verify-release-dex.sh now rejects such a build.
+# lambda into an unrelated class loaded at startup, and that class failed verification. The defect
+# was R8's register allocation for methods over 256 registers, which this rule cannot prevent: in
+# 1.0.97 the same R8 corrupted the lambda in place (docs/diagnostics-20261003-player-verifyerror.md).
+# Since 1.0.98 no app method needs that many registers, and scripts/verify-release-dex.sh rejects a
+# release build in which one does. The readable names kept here are what made that crash traceable.
 -keep class com.yfuse.feature.player.PlayerRootKt { *; }
 
 # ---- Diagnostics ----

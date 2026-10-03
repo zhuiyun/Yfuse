@@ -397,10 +397,21 @@ register where an int belongs. ART then rejects the whole class, and it throws
 startup, so the build, the unit tests and a launch all pass. 1.0.97 (259) was packaged like this:
 the player crashed as it opened.
 
-`scripts/verify-release-dex.sh <apk>` runs every method through the register-type rules ART
-applies and fails on such a method. It needs Java 11 or newer and fetches dexlib2 and two Guava
-jars, pinned by SHA-256 in `scripts/dex-verify/tools.sha256`, from Maven Central. Quality CI, TV
-CI, the packaging workflow and `build-release-packages.ps1` run it on every R8 release APK.
+`scripts/verify-release-dex.sh --mapping <mapping.txt> <apk>` runs every method through the
+register-type rules ART applies and fails on such a method. It needs Java 11 or newer and fetches
+dexlib2 and two Guava jars, pinned by SHA-256 in `scripts/dex-verify/tools.sha256`, from Maven
+Central. Quality CI, TV CI, the packaging workflow and `build-release-packages.ps1` run it on every
+R8 release APK, with the mapping R8 wrote for it (`<module>/build/outputs/mapping/release/mapping.txt`).
+
+It also fails a method of the app's own code that needs more than 256 registers: classes the
+mapping traces back to `com.yfuse`, or without `--mapping` only those R8 left unrenamed. A
+method's parameters occupy its highest registers, so in such a method some sit above v255, out of
+reach of the 8-bit register operands most instructions have, and R8 compiles it on a separate
+path that copies them down to low registers. In 1.0.97 that path overwrote a copy still in use.
+Split a method that fails the limit. For a large composable, the player moves the body into an extension of a class holding the
+values it reads (`PlayerRuntimeSession`, `PlayerControlsInputs`): its lambdas then capture that
+object once instead of each value. `--list-registers-over N` lists every method above N registers,
+the app's and the libraries', to see how close the largest are.
 
 ART's rejection names the class, method, code offset and register, for example
 `[0x23EB] register v1 has type Reference: dv7 but expected Integer`. To see the instructions

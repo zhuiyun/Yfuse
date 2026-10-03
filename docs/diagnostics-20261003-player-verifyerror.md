@@ -45,37 +45,54 @@
 
 ## 修复
 
-- 升级 R8 无效，只能从源码绕开。`PlayerRoot.kt` 在这个 lambda 里设好画中画淡出时长之后，用
-  `val pictureInPicture by rememberUpdatedState(inPictureInPicture)` 读一次捕获参数，后面 13 处
-  改读这个 State。参数此后不再使用，R8 也就不必让它的低位副本跨过后面摆放 lambda 实参的代码。
-  这 13 处都在组合期间读取，读到的值与原来相同，界面行为不变。
-- 另一种改法（先把 `!inPictureInPicture` 存进局部变量，替换 8 处取反读取）同样通过了下面的验证，
-  但参数在后面仍被读取，能通过只是 R8 这次恰好没有出错，所以没有采用。
+- 升级 R8 无效，根治的办法是让应用自己的代码不再走 R8 出错的那条路径，也就是寄存器超过 256 个的
+  方法。这样的方法有一部分参数落在 v255 之后，多数指令的 8 位寄存器操作数够不到，R8 要先把它们
+  复制到低位寄存器，1.0.97 就坏在这一步。
+- 先给出包检查加上寄存器数统计。按 1.0.97 的源码构建，应用自己有三个方法超过 256 个寄存器，手机包
+  和电视包都一样：
+  - `PlayerRoot` 的运行时 lambda，正式包里 307 个（98 个参数）。电视包没有 `PlayerRootKt` 的 keep
+    规则，R8 把它挪进了 `PlayerAmbientBindingKt`，305 个。这正是 1.0.90 那次闪退的情形，只是这次
+    碰巧校验通过。
+  - `PlayerControls`，272 个（91 个参数；电视包 274 个）。
+  - `AndroidAdaptiveCore2YPlayer.runLoop`，即 YCore 播放调度的命令循环，289 个。
+  库代码里最大的方法只有 181 个寄存器。
+- 三处都已拆开。代码原样搬移，只改缩进（`runLoop` 有 4 行因行宽重新折行），行为不变：
+  - `PlayerRoot` 的运行时 lambda 改为 `PlayerRuntimeSession` 的扩展函数。会话对象携带原来被这个
+    lambda 捕获的 94 个值：`PlayerRoot` 的参数、派生的值，以及各个 `var` 背后的 State，名字都不变。
+    函数里的 lambda 只捕获会话这一个对象，不再各自捕获几十个值。`AnimatedVisibility` 的内容作用域
+    自带一个 `transition`，在扩展函数里会盖过会话的同名成员，所以函数开头用一个局部变量保住播放器
+    自己的 `transition`。
+  - `PlayerControls` 的函数体改为 `PlayerControlsInputs` 的扩展函数，签名和默认值不变。
+  - `runLoop` 的命令循环放进一个局部类。被局部函数捕获的变量（Kotlin 的 `Ref` 对象）作为字段保存，
+    不再在挂起函数的每个挂起点前后都占着寄存器。
+- 先前的 `rememberUpdatedState` 绕开改动已撤回。
 
 ## 验证及边界
 
-- 在 CI 上按正式包的方式构建（AGP 9.1.1 / R8 9.1.31，`assembleRelease`）：
-  - 两种改法的 release 包：寄存器类型检查 0 处（State 写法 58,544 个方法，局部变量写法 58,542 个）；
-    Android 16 (API 36) 模拟器删除 dexopt 结果后以 `verify` 过滤器强制重新编译，dex2oat 没有拒绝
-    任何方法。同一流程对 1.0.97 正式包报出 `PlayerRoot$lambda$152` 的 `Verification error`，对
-    1.0.96 正式包没有报错。
-  - 提交后的源码（加了说明注释，后面的行号随之后移）重新完整构建：寄存器类型检查 0 处（58,544 个
-    方法），模拟器上 ART 同样没有拒绝任何方法。
-  - 修改后这个方法有 98 个参数、308 个寄存器（1.0.97 为 307 个）。
-- 这是绕开，不是根治：这个 lambda 仍超过 256 个寄存器，以后改动这段代码，R8 仍可能在别的参数上
-  犯同样的错。出包检查会把这样的包拦下（见下节）。根治需要把它拆成若干独立的 `@Composable` 函数，
-  让每个方法都在 256 个寄存器以内，参数不再落在 8 位指令够不到的寄存器上；或者等 R8 修复。
+- 在 CI 上按正式包的方式构建（AGP 9.1.1 / R8 9.1.31）：
+  - 拆分后两个包都没有超过 256 个寄存器的应用方法，寄存器类型检查都是 0 处（手机包 58,498 个方法，
+    电视包 44,543 个）。手机包最大的应用方法 188 个寄存器，是 `PlayerControls` 本身（它接住 91 个
+    参数再转交）；它的函数体 172 个。电视包最大 189 个，是没有改动的
+    `AndroidNativeEnhancedYPlayer` 里的 `prepareCurrent`。`PlayerRoot` 的运行时、`runLoop` 和原来
+    239 个寄存器的控件 lambda 都降到 160 个以下。
+  - Android 16 (API 36) 模拟器删除 dexopt 结果后，以 `verify` 过滤器让 ART 从头校验手机包，dex2oat
+    没有拒绝任何方法。同一流程对 1.0.97 正式包报出 `PlayerRoot$lambda$152` 的 `Verification error`，
+    对 1.0.96 正式包没有报错。
+- R8 的缺陷本身还在。以后代码里再长出超过 256 个寄存器的方法，出包检查会直接失败（见下节），
+  需要按同样的办法拆开。
 - 可以凭 R8 dump 向 Google 的 R8 issue tracker 报告这个缺陷。dump 含整个应用的程序代码，提交前
   需确认可以外发。
-- 已交付的 1.0.97 无法修补，需要出新包，版本号须高于 1.0.97 (259)。本次没有打包。
+- 已交付的 1.0.97 无法修补，修复随 1.0.98 (260) 交付。
 
 ## 防止再次出包
 
-- `scripts/verify-release-dex.sh <apk>`：用 dexlib2（baksmali 的校验模型，含 ART 的 instance-of
-  收窄）检查 APK 中每个方法的寄存器类型，发现对象当整数用、整数当对象用、long/double 寄存器对
-  不完整或读取未赋值的寄存器即失败。对 1.0.97 正式包（58,541 个方法）只报出这一处，与 ART 的报错
+- `scripts/verify-release-dex.sh --mapping <mapping.txt> <apk>`：用 dexlib2（baksmali 的校验模型，
+  含 ART 的 instance-of 收窄）检查 APK 中每个方法的寄存器类型，发现对象当整数用、整数当对象用、
+  long/double 寄存器对不完整或读取未赋值的寄存器即失败。对 1.0.97 正式包（58,541 个方法）只报出这一处，与 ART 的报错
   完全一致；对 1.0.96 正式包为 0；对 Kotlin、协程、序列化、OkHttp、Guava、Ktor 经 D8/R8 9.1.31
   编出的 91,000 个方法没有误报。
+- 同一个检查还借助 R8 的 mapping 找出应用自己（`com.yfuse`）的方法，超过 256 个寄存器即失败，
+  不等 R8 真的编错。`--list-registers-over N` 列出所有超过 N 个寄存器的方法，用来看离上限多远。
 - 已接入质量门禁、TV 门禁、正式出包 workflow（构建后、上传前）和本地
   `build-release-packages.ps1`。依赖的三个 jar 在 `scripts/dex-verify/tools.sha256` 中以 SHA-256 固定。
 - `scripts/diagnostics/inspect_dex_method.py`：拿 ART 报错里的类、方法、偏移和寄存器，打印被拒绝
