@@ -26,6 +26,8 @@ class PlayerGestureStateTest {
         dy: Float,
         watchGuest: Boolean = false,
         swapBrightnessVolume: Boolean = false,
+        hasNext: Boolean = false,
+        hasPrevious: Boolean = false,
     ): PictureLevel? =
         gestures.drag(
             dx = dx,
@@ -38,9 +40,20 @@ class PlayerGestureStateTest {
             durationMs = hour,
             watchGuest = watchGuest,
             swapBrightnessVolume = swapBrightnessVolume,
+            hasNext = hasNext,
+            hasPrevious = hasPrevious,
         )
 
-    private fun startDrag(x: Float) = gestures.startDrag(x, positionMs = 60_000L, volume = 0.5f, brightness = 0.5f)
+    private fun startDrag(
+        x: Float,
+        changesEpisode: Boolean = false,
+    ) = gestures.startDrag(
+        x,
+        positionMs = 60_000L,
+        volume = 0.5f,
+        brightness = 0.5f,
+        changesEpisode = changesEpisode,
+    )
 
     @Test
     fun theHudSaysWhatItIsToldUntilCleared() {
@@ -173,6 +186,45 @@ class PlayerGestureStateTest {
 
         startDrag(x = 200f)
         assertEquals(PictureLevel.Volume(0.75f), drag(dx = 0f, dy = -125f, swapBrightnessVolume = true))
+    }
+
+    @Test
+    fun downAShortDramasMiddleAnUprightDragChangesEpisodeInsteadOfTheLevels() {
+        startDrag(x = 500f, changesEpisode = true)
+        // An eighth of the 500 px picture is the threshold: short of it nothing is armed.
+        assertNull(drag(dx = 0f, dy = -40f, hasNext = true, hasPrevious = true))
+        assertEquals(EpisodeSwipe.None, gestures.episodeArmed)
+        assertNull(drag(dx = 0f, dy = -40f, hasNext = true, hasPrevious = true))
+        assertEquals(EpisodeSwipe.Next, gestures.episodeArmed)
+        assertEquals("松手播放下一集", gestures.hud)
+        assertEquals(EpisodeSwipe.Next, gestures.endEpisodeDrag(height = 500, hasNext = true, hasPrevious = true))
+        assertNull(gestures.hud)
+        // No seek lands from it either.
+        assertNull(gestures.endDrag(durationMs = hour, watchGuest = false))
+
+        startDrag(x = 500f, changesEpisode = true)
+        assertNull(drag(dx = 0f, dy = 100f, hasNext = true, hasPrevious = false))
+        assertEquals(EpisodeSwipe.None, gestures.episodeArmed)
+        assertEquals("已是第一集", gestures.hud)
+        assertEquals(EpisodeSwipe.None, gestures.endEpisodeDrag(height = 500, hasNext = true, hasPrevious = false))
+    }
+
+    @Test
+    fun anEpisodeDragIsTheHostsInARoomAndASidewaysOneStillSeeks() {
+        startDrag(x = 500f, changesEpisode = true)
+        assertNull(drag(dx = 0f, dy = -100f, watchGuest = true, hasNext = true))
+        assertEquals(EpisodeSwipe.None, gestures.episodeArmed)
+        assertEquals("房主控制播放", gestures.hud)
+
+        startDrag(x = 500f, changesEpisode = true)
+        drag(dx = 40f, dy = 0f, hasNext = true)
+        assertNull(gestures.endEpisodeDrag(height = 500, hasNext = true, hasPrevious = true))
+        assertTrue(gestures.endDrag(durationMs = hour, watchGuest = false) != null)
+
+        // An ordinary drag is never an episode change.
+        startDrag(x = 500f)
+        drag(dx = 0f, dy = -100f, hasNext = true)
+        assertNull(gestures.endEpisodeDrag(height = 500, hasNext = true, hasPrevious = true))
     }
 
     @Test

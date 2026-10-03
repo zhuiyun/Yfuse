@@ -54,6 +54,17 @@ class PlayerChromeStateTest {
     }
 
     @Test
+    fun aPokeAnswersStillWatchingAndStartsTheUnattendedCountAgain() {
+        chrome.unattendedAdvances = 3
+        chrome.askingStillWatching = true
+        chrome.poke()
+        assertEquals(0, chrome.unattendedAdvances)
+        assertFalse(chrome.askingStillWatching)
+        // The mark was taken just now: 还在看吗 waits out the full hour and a half from here.
+        assertTrue(chrome.lastInteraction.elapsedNow().inWholeMinutes < 1)
+    }
+
+    @Test
     fun aSettingsPanelReplacesEveryOtherPanelAndRemembersItsTrackMode() {
         openEverything()
         chrome.visible = false
