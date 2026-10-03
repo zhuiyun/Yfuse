@@ -63,6 +63,13 @@ jobs:
         include:
           - api: 35
             sdk: "35"
+            # The Android 15 image composites through guest Vulkan, and with it the whole guest
+            # froze at a display rotation between the portrait launcher and the landscape app
+            # during the foreground/background soak; qemu exited 40-60 s later with the host never
+            # short of memory. That killed every Android 15 run since 1.0.96, at any RAM, core count
+            # or GPU mode tried. Without guest Vulkan the soak completes; the app's UI draws with GL
+            # either way, and Android 16 and 17 keep guest Vulkan.
+            features: -feature -Vulkan
           - api: 36
             sdk: "36"
           # Android 17 SDK packages carry a minor version: platforms;android-37.0 (what the app
@@ -132,7 +139,7 @@ jobs:
           disk-size: 4096M
           emulator-boot-timeout: 600
           disable-animations: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on ${{ matrix.features }}
           # The runner executes each script line on its own, so this stays one folded line.
           script: >-
             python3 scripts/android_cloud_ui.py --apk-directory artifacts/cloud-input

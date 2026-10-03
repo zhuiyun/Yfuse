@@ -284,6 +284,10 @@ class PublishJobSplitTest(unittest.TestCase):
         for api, sdk in (("35", '"35"'), ("36", '"36"'), ("37", '"37.0"')):
             self.assertIn(f"          - api: {api}\n            sdk: {sdk}\n", cloud)
         self.assertIn("api-level: ${{ matrix.sdk }}", cloud)
+        # Only the Android 15 image runs without guest Vulkan, under which it froze mid-soak.
+        self.assertIn("            features: -feature -Vulkan\n          - api: 36\n", cloud)
+        self.assertEqual(1, cloud.count("features: -feature -Vulkan"))
+        self.assertIn("-camera-back none -accel on ${{ matrix.features }}\n", cloud)
         for option in ('--expected-api "$EXPECTED_API"', '--expected-sha256 "$EXPECTED_SHA256"',
                        '--expected-version-code "$EXPECTED_VERSION_CODE"',
                        '--expected-version-name "$EXPECTED_VERSION_NAME"'):
