@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -147,6 +149,7 @@ internal fun Core2Surface(
         )
         ambientLayer()
         Core2SubtitleOverlay(
+            textWidth = with(density) { uprightSubtitleTextWidth(layoutSize, surfaceSize)?.toDp() },
             engine = engine,
             canvasSize = IntSize(videoWidth, videoHeight),
             offsetMs = subtitleOffsetMs,
@@ -164,6 +167,8 @@ internal fun Core2Surface(
 
 @Composable
 private fun Core2SubtitleOverlay(
+    /** Text cues' width where it differs from the picture's; see [uprightSubtitleTextWidth]. */
+    textWidth: Dp?,
     engine: YPlayerVideoEngineAdapter,
     canvasSize: IntSize,
     offsetMs: Long,
@@ -231,6 +236,7 @@ private fun Core2SubtitleOverlay(
         val viewport = DpSize(maxWidth, maxHeight)
         val channel: @Composable (Boolean) -> Unit = { secondary ->
             Core2SubtitleChannel(
+                textWidth = textWidth,
                 cues = if (secondary) secondaryCues else primaryCues,
                 clock = clock,
                 animateFrames = animateFrames,
@@ -269,6 +275,7 @@ private fun Core2SubtitleOverlay(
 
 @Composable
 private fun Core2SubtitleChannel(
+    textWidth: Dp?,
     cues: List<YSubtitleCue>,
     clock: YSubtitleClockAnchor,
     animateFrames: Boolean,
@@ -346,7 +353,7 @@ private fun Core2SubtitleChannel(
                     scale,
                     brightness,
                     appearance,
-                    Modifier.fillMaxWidth(0.92f).padding(horizontal = 12.dp),
+                    Modifier.subtitleTextWidth(textWidth).padding(horizontal = 12.dp),
                 )
             }
         }
@@ -366,7 +373,7 @@ private fun Core2SubtitleChannel(
                     appearance,
                     Modifier
                         .align(alignmentCode.toComposeAlignment())
-                        .fillMaxWidth(0.92f)
+                        .subtitleTextWidth(textWidth)
                         .padding(horizontal = 12.dp)
                         .then(
                             when {
@@ -699,3 +706,31 @@ internal fun SubtitleAppearance.assStyleOverrides(): List<String> {
         "Shadow=0",
     )
 }
+
+/**
+ * How wide text captions may run over an upright picture standing in a landscape frame: an upright
+ * 短剧 on a television or a sideways phone left them a column a third of the screen wide, a few
+ * characters a line. They get the width of a 4:3 picture of the same height, centred on the
+ * picture, at most the frame's. Null keeps them to the picture, as for any other shape; bitmap and
+ * ASS cues, placed in the picture's own coordinates, always stay there.
+ */
+internal fun uprightSubtitleTextWidth(
+    container: IntSize,
+    picture: IntSize,
+): Int? {
+    if (picture.width <= 0 || picture.height <= picture.width) return null
+    if (container.width < picture.width * UPRIGHT_SUBTITLE_MIN_SPARE) return null
+    return (minOf(container.width.toFloat(), picture.height * UPRIGHT_SUBTITLE_ASPECT) * SUBTITLE_TEXT_SHARE).toInt()
+}
+
+private const val UPRIGHT_SUBTITLE_ASPECT = 4f / 3f
+private const val UPRIGHT_SUBTITLE_MIN_SPARE = 1.5f
+private const val SUBTITLE_TEXT_SHARE = 0.92f
+
+/** The picture's own share of its width, or [width] — wider than the picture — centred over it. */
+private fun Modifier.subtitleTextWidth(width: Dp?): Modifier =
+    if (width == null) {
+        fillMaxWidth(SUBTITLE_TEXT_SHARE)
+    } else {
+        wrapContentWidth(unbounded = true).requiredWidth(width)
+    }

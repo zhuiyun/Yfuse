@@ -392,7 +392,8 @@ private fun CalendarEntry.toCalendarTvCard(component: CalendarComponent): TvMedi
         stableId = tvCalendarCardId(this),
         title = episode.showTitle,
         subtitle = episode.episodeLabel,
-        imageUrl = posterUrls.firstOrNull() ?: TmdbImages.poster(episode.posterPath),
+        imageUrl = posterUrls.firstOrNull(),
+        imageFallbackUrls = posterUrls.drop(1) + TmdbImages.poster(episode.posterPath),
         serverId = serverId,
         progress = playedPercentage?.div(100.0)?.toFloat(),
         badge =

@@ -570,7 +570,7 @@ class EmbyRepositoryTest {
             val repo =
                 testRepo { request ->
                     assertEquals("IsFavorite", request.url.parameters["Filters"])
-                    assertEquals("Movie,Series", request.url.parameters["IncludeItemTypes"])
+                    assertEquals("Movie,Series,Video", request.url.parameters["IncludeItemTypes"])
                     json(
                         """{"Items":[{"Id":"m1","Name":"收藏电影","Type":"Movie",""" +
                             """"ImageTags":{"Primary":"poster"},"UserData":{"IsFavorite":true}}],""" +

@@ -35,6 +35,9 @@ data class SyncedUserItem(
     val played: Boolean,
     val positionTicks: Long,
     val dateModified: String? = null,
+    /** When the server says this user last played the item; null when it does not say. */
+    val lastPlayedAtEpochMs: Long? = null,
+    val runtimeTicks: Long = 0L,
 )
 
 @Serializable
@@ -530,6 +533,8 @@ class ServerSyncManager(
                                                 itemId = item.id,
                                                 positionMs = item.positionTicks / TICKS_PER_MILLISECOND,
                                                 played = item.played,
+                                                lastPlayedAtEpochMs = item.lastPlayedAtEpochMs,
+                                                durationMs = item.runtimeTicks / TICKS_PER_MILLISECOND,
                                             )
                                         },
                                     expectedScopeToken = progressScopeToken,

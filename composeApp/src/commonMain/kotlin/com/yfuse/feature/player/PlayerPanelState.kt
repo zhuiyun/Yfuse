@@ -95,6 +95,8 @@ data class SkipSegmentState(
     val segmentLabel: String? = null,
     /** Seconds left before an automatic skip fires, or null when none is armed. */
     val countdownSeconds: Int? = null,
+    /** `已跳过片头`, for a few seconds after an automatic skip that did not count down; see 撤销. */
+    val undoLabel: String? = null,
     /** Non-null when this entry belongs to a series, which is what times are kept per. */
     val seriesName: String? = null,
     val introStartSeconds: Long = 0L,
@@ -119,6 +121,8 @@ data class SkipSegmentActions(
     val onCancelAuto: () -> Unit = {},
     val onSetTimes: (Long, Long, Long) -> Unit = { _, _, _ -> },
     val onSelectMode: (SkipMode) -> Unit = {},
+    /** Back to where an automatic skip that did not count down left from. */
+    val onUndoSkip: () -> Unit = {},
 )
 
 data class SubtitleControlState(

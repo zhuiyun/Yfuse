@@ -490,7 +490,7 @@ internal fun SkipSegmentDialog(
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "片头片尾",
-            subtitle = "设置所有影视的跳过方式",
+            subtitle = "默认的跳过方式",
             onClose = onDismiss,
         )
         // 关闭 keeps every title's saved boundaries while globally disabling the prompt.
@@ -503,7 +503,7 @@ internal fun SkipSegmentDialog(
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            "具体片头片尾边界只在播放对应影视时设置；个人中心不展示剧名、集数或时间。",
+            "具体片头片尾边界只在播放对应影视时设置；在播放器里为某部剧另选的跳过方式只对那部剧生效。个人中心不展示剧名、集数或时间。",
             style = AppTypography.caption.regular,
             color = palette.sub2,
         )

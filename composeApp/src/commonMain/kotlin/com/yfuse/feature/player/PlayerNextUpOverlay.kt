@@ -35,7 +35,7 @@ internal fun PlayerNextUpOverlay(
             state.hasNext &&
                 state.durationMs > 0L &&
                 !dismissed &&
-                (state.durationMs - state.positionMs) in 1L..NEXT_UP_WINDOW_MS
+                (state.durationMs - state.positionMs) in 1L..nextUpWindowMs(state.durationMs)
         }
     }
     ChromeVisibility(
@@ -83,7 +83,7 @@ private fun NextUpContent(
                 if (
                     latestActive &&
                     current.currentIndex == latestIndex &&
-                    current.remainingMs in 1L..NEXT_UP_WINDOW_MS
+                    current.remainingMs in 1L..nextUpWindowMs(current.durationMs)
                 ) {
                     latestOnPlayNow()
                 }
@@ -94,7 +94,8 @@ private fun NextUpContent(
             { if (latestActive && playback.value.currentIndex == latestIndex) latestOnDismiss() }
         }
     val title = episodes.getOrNull(currentIndex + 1)?.title.orEmpty()
-    val remainingMs = (state.durationMs - state.positionMs).coerceIn(0L, NEXT_UP_WINDOW_MS)
+    val windowMs = nextUpWindowMs(state.durationMs)
+    val remainingMs = (state.durationMs - state.positionMs).coerceIn(0L, windowMs)
     val countdown = nextUpCountdownLabel(autoAdvance, remainingMs, state.speed)
     if (countdown == null) {
         NextUpKey(title = title, onPlayNow = playNow)
@@ -112,6 +113,7 @@ private fun NextUpContent(
             speed = state.speed,
             onPlayNow = playNow,
             onDismiss = dismiss,
+            windowMs = windowMs,
         )
     }
 }

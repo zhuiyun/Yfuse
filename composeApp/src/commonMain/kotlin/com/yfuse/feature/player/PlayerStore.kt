@@ -22,6 +22,7 @@ import com.yfuse.core.model.PlaybackChapter
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.SubtitleTrackInfo
+import com.yfuse.core.model.episodeTitle
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.EmbyImages
@@ -112,6 +113,8 @@ data class PlayerMediaVersion(
      */
     val sourceWidth: Int? = null,
     val sourceHeight: Int? = null,
+    /** Display rotation of the coded picture, from the server; decides an upright picture. */
+    val sourceRotation: Int? = null,
     val sourceBitrateBps: Int? = null,
     val sourceVideoCodec: String? = null,
     val sourceFrameRate: Double? = null,
@@ -303,6 +306,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             sourceDolbyBaseLayerCompatibility = version.video?.dolbyBaseLayerCompatibility,
             sourceWidth = version.video?.width,
             sourceHeight = version.videoHeight ?: version.video?.height,
+            sourceRotation = version.video?.rotation,
             sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
             sourceVideoCodec = version.videoCodec ?: version.video?.codec,
             sourceFrameRate = version.video?.frameRate,
@@ -1381,6 +1385,53 @@ class PlayerStoreFactory(
                             }
                         }
                         launch {
+                            // A video outside any series — a 短剧 kept as 01.mp4, 02.mp4 in a folder —
+                            // is queued with the videos beside it, so 下一集 and 选集 have something
+                            // to offer.
+                            val folderId = detail?.parentId
+                            if (detail?.type == "Video" && folderId != null) {
+                                withTimeoutOrNull(PLAYER_QUEUE_ENRICHMENT_TIMEOUT_MS) {
+                                    val videos = repo.folderVideos(server, folderId).getOrDefault(emptyList())
+                                    if (videos.size < 2 || videos.none { it.id == effectiveItemId }) {
+                                        return@withTimeoutOrNull
+                                    }
+                                    val items =
+                                        videos.queueEpisodes(effectiveItemId).mapIndexed { index, video ->
+                                            itemOf(
+                                                video.id,
+                                                video.name.ifBlank { "第 ${index + 1} 个" },
+                                                video.playbackSegments,
+                                                video.providerIds,
+                                                versions =
+                                                    if (video.id == effectiveItemId) {
+                                                        detail.versions
+                                                    } else {
+                                                        video.versions
+                                                    },
+                                                stillTag = video.primaryTag,
+                                                progress =
+                                                    when {
+                                                        video.played -> 1f
+                                                        else -> video.playedPercentage?.let { (it / 100.0).toFloat() }
+                                                    },
+                                                runtimeTicks =
+                                                    if (video.id == effectiveItemId) {
+                                                        detail.runtimeTicks ?: video.runtimeTicks
+                                                    } else {
+                                                        video.runtimeTicks
+                                                    },
+                                                chapters =
+                                                    if (video.id == effectiveItemId) {
+                                                        detail.playbackChapters.ifEmpty { video.playbackChapters }
+                                                    } else {
+                                                        video.playbackChapters
+                                                    },
+                                            )
+                                        }
+                                    if (loadAttempt == attempt) dispatch(PlayerMsg.QueueEnriched(items))
+                                }
+                                return@launch
+                            }
                             if (detail?.type != "Episode" || seriesId == null) return@launch
                             withTimeoutOrNull(PLAYER_QUEUE_ENRICHMENT_TIMEOUT_MS) {
                                 val seriesDetailDeferred = async { repo.playbackItemDetail(server, seriesId) }
@@ -1413,13 +1464,10 @@ class PlayerStoreFactory(
                                 val episodes = episodesResult.getOrDefault(emptyList())
                                 if (episodes.none { it.id == effectiveItemId }) return@withTimeoutOrNull
                                 val items =
-                                    episodes.map { ep ->
+                                    episodes.queueEpisodes(effectiveItemId).map { ep ->
                                         itemOf(
                                             ep.id,
-                                            listOfNotNull(
-                                                ep.indexNumber?.let { "第 $it 集" },
-                                                ep.name,
-                                            ).joinToString("  "),
+                                            episodeTitle(ep.indexNumber, ep.name, separator = "  ") { "第 $it 集" },
                                             ep.playbackSegments,
                                             ep.providerIds,
                                             ep.seasonNumber,
@@ -1781,4 +1829,9 @@ internal fun PlayerMediaItem.withQueueMetadata(metadata: PlayerMediaItem): Playe
         durationMsHint = metadata.durationMsHint.takeIf { it > 0L } ?: durationMsHint,
     )
 
-private const val PLAYER_QUEUE_ENRICHMENT_TIMEOUT_MS = 15_000L
+/**
+ * The series queue arrives after the first frame, so its budget only bounds background work. A
+ * 短剧 season of a hundred episodes with their media sources outgrew fifteen seconds on a slow
+ * server, which left the player without 下一集 or 选集.
+ */
+private const val PLAYER_QUEUE_ENRICHMENT_TIMEOUT_MS = 30_000L

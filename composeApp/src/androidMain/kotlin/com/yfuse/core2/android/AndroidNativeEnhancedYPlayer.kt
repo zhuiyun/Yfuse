@@ -22,6 +22,7 @@ import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.demux.YDemuxOpenResult
 import com.yfuse.core2.demux.YDemuxTrackType
 import com.yfuse.core2.demux.YTrackId
+import com.yfuse.core2.demux.shownVideoSize
 import com.yfuse.core2.recovery.YPlaybackFailureReporter
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.strategy.YDemuxPath
@@ -555,6 +556,13 @@ internal class AndroidNativeEnhancedYPlayer(
                     tracks.firstOrNull { it.selected }?.id,
                 )
                 val video = result.tracks.firstOrNull { it.type == YDemuxTrackType.Video }?.video
+                // The GPU renderer turns the picture by the track's rotation.
+                val (shownWidth, shownHeight) =
+                    shownVideoSize(
+                        width = video?.width ?: 0,
+                        height = video?.height ?: 0,
+                        rotationDegrees = video?.geometry?.rotationDegrees ?: 0,
+                    )
                 val audio = result.tracks.firstOrNull { it.id == session.selectedAudioTrackId() }?.audio
                 activeDolbyProfile = video?.dolbyVisionConfig?.profile
                 mutableState.updateState {
@@ -581,8 +589,8 @@ internal class AndroidNativeEnhancedYPlayer(
                                 container = result.container.name,
                                 demuxer = "FFmpeg / libavformat",
                                 videoCodec = video?.mimeType.orEmpty(),
-                                videoWidth = video?.width ?: 0,
-                                videoHeight = video?.height ?: 0,
+                                videoWidth = shownWidth,
+                                videoHeight = shownHeight,
                                 frameRate = video?.frameRate ?: 0f,
                                 renderedFrameRate = null,
                                 audioCodec = audio?.mimeType.orEmpty(),

@@ -3,11 +3,13 @@ package com.yfuse.core.data
 import com.yfuse.core.data.dto.BaseItemDto
 import com.yfuse.core.data.dto.EmbyThumbnailSetDto
 import com.yfuse.core.data.dto.ItemsResponseDto
+import com.yfuse.core.data.dto.MediaSegmentsResponseDto
 import com.yfuse.core.data.dto.bestTrickplay
 import com.yfuse.core.data.dto.toEpisode
 import com.yfuse.core.data.dto.toMediaDetail
 import com.yfuse.core.data.dto.toMediaItem
 import com.yfuse.core.data.dto.toPerson
+import com.yfuse.core.data.dto.toPlaybackSegments
 import com.yfuse.core.data.dto.toSeason
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
@@ -16,6 +18,7 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.PlayTarget
+import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.TrickplayInfo
@@ -272,24 +275,21 @@ internal class EmbyDetailService(
         server: SavedServer,
         limit: Int,
     ): List<MediaItem> {
-        val recentStates = progress.localStates(server).take(MAX_LOCAL_NEXT_UP_HISTORY)
-        val ids = recentStates.mapNotNull { it.serverItemId }.distinct()
+        val scannedStates = progress.localStates(server).take(MAX_LOCAL_NEXT_UP_SCAN)
+        val ids = scannedStates.mapNotNull { it.serverItemId }.distinct()
         if (ids.isEmpty()) return emptyList()
-        val cards: ItemsResponseDto =
-            client
-                .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
-                    header("X-Emby-Token", server.accessToken)
-                    parameter("Ids", ids.joinToString(","))
-                    parameter(
-                        "Fields",
-                        "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags," +
-                            "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks,UserData",
-                    )
-                    parameter("EnableImageTypes", "Primary,Backdrop")
-                    parameter("ImageTypeLimit", 2)
-                    parameter("Limit", ids.size)
-                }.body()
-        val cardsById = cards.Items.associateBy(BaseItemDto::Id)
+        val cardsById = fetchNextUpCards(server, ids)
+        // History is per episode: count series, not episodes. One binge used to fill the whole
+        // window, so every show watched before it vanished from 下一集. A series' newest entry
+        // also names its next episode on its own; older entries could only offer an earlier one.
+        val recentStates =
+            newestPerWork(scannedStates, MAX_LOCAL_NEXT_UP_HISTORY) { state ->
+                state.serverItemId
+                    ?.takeIf { state.played || state.positionMs > 0L }
+                    ?.let(cardsById::get)
+                    ?.takeIf { it.Type == "Episode" }
+                    ?.let { it.SeriesId ?: it.Id }
+            }
         // Every finished episode needs its series directory to name the one after it. Those
         // used to be fetched one at a time as the loop reached them — up to 36 serial round
         // trips before the shelf could show. Read the distinct series up front, a few at a
@@ -336,6 +336,37 @@ internal class EmbyDetailService(
         return result.take(limit).map { progress.project(server, it).toMediaItem() }
     }
 
+    /** Cards for the scanned history, a few short requests at once so no URL grows unbounded. */
+    private suspend fun fetchNextUpCards(
+        server: SavedServer,
+        ids: List<String>,
+    ): Map<String, BaseItemDto> =
+        coroutineScope {
+            ids
+                .chunked(NEXT_UP_CARD_REQUEST_IDS)
+                .map { chunk ->
+                    async {
+                        client
+                            .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
+                                header("X-Emby-Token", server.accessToken)
+                                parameter("Ids", chunk.joinToString(","))
+                                parameter(
+                                    "Fields",
+                                    "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags," +
+                                        "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag," +
+                                        "RunTimeTicks,UserData",
+                                )
+                                parameter("EnableImageTypes", "Primary,Backdrop")
+                                parameter("ImageTypeLimit", 2)
+                                parameter("Limit", chunk.size)
+                            }.body<ItemsResponseDto>()
+                            .Items
+                    }
+                }.awaitAll()
+                .flatten()
+                .associateBy(BaseItemDto::Id)
+        }
+
     private suspend fun fetchSeriesEpisodes(
         server: SavedServer,
         seriesId: String,
@@ -358,6 +389,10 @@ internal class EmbyDetailService(
 
     private companion object {
         const val MAX_LOCAL_NEXT_UP_HISTORY = 36
+
+        /** Entries read to find [MAX_LOCAL_NEXT_UP_HISTORY] distinct series. */
+        const val MAX_LOCAL_NEXT_UP_SCAN = 120
+        const val NEXT_UP_CARD_REQUEST_IDS = 40
         const val NEXT_UP_SERIES_CONCURRENCY = 4
         const val EMBY_THUMBNAIL_WIDTH = 320
         const val TICKS_PER_MILLISECOND = 10_000L
@@ -386,16 +421,16 @@ internal class EmbyDetailService(
                             // know risks the whole request rather than adding a field.
                             if (playbackOnly) {
                                 "MediaSources,MediaStreams,Chapters,ProviderIds,Path,DateCreated," +
-                                    "SeriesPrimaryImageTag"
+                                    "SeriesPrimaryImageTag,ParentId"
                             } else if (!includePlaybackFields) {
                                 // Detail pages paint from this request. Keep the response small and
                                 // fetch file-level metadata after the first content is visible.
                                 "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
-                                    "SeriesPrimaryImageTag,ProviderIds,DateCreated"
+                                    "SeriesPrimaryImageTag,ProviderIds,DateCreated,ParentId"
                             } else {
                                 "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
                                     "SeriesPrimaryImageTag,MediaSources,MediaStreams," +
-                                    "Path,DateCreated,Chapters,ProviderIds"
+                                    "Path,DateCreated,Chapters,ProviderIds,ParentId"
                             },
                         )
                     }
@@ -501,6 +536,49 @@ internal class EmbyDetailService(
             dto.Items.map { progress.project(server, it).toEpisode() }
         }
 
+    /**
+     * The videos in one folder, in name order, with what playing them needs: the queue for a video
+     * outside any series. Folders of loose files are where many 短剧 libraries keep 01.mp4, 02.mp4….
+     */
+    suspend fun folderVideos(
+        server: SavedServer,
+        folderId: String,
+    ): Result<List<Episode>> =
+        embyApiCall("folder_videos") {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("ParentId", folderId)
+                        parameter("IncludeItemTypes", "Video")
+                        parameter("SortBy", "SortName")
+                        parameter("SortOrder", "Ascending")
+                        parameter("Limit", FOLDER_QUEUE_LIMIT)
+                        parameter("Fields", "MediaSources,MediaStreams,Chapters,ProviderIds")
+                    }.body()
+            dto.Items.map { progress.project(server, it).toEpisode() }
+        }
+
+    /**
+     * Jellyfin's media segments (10.10+), where intro-detection plugins keep intros, recaps and
+     * outros instead of chapter markers. Emby has none, and an older Jellyfin answers 404: either
+     * way the player keeps the segments it already had.
+     */
+    suspend fun mediaSegments(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<PlaybackSegment>> {
+        if (server.kind != MediaServerKind.Jellyfin) return Result.success(emptyList())
+        return embyApiCall("jellyfin_media_segments") {
+            val dto: MediaSegmentsResponseDto =
+                client
+                    .get("${server.baseUrl}/MediaSegments/${embyPath(itemId)}") {
+                        header("X-Emby-Token", server.accessToken)
+                    }.body()
+            dto.Items.toPlaybackSegments()
+        }
+    }
+
     /** Optional provider-specific seek previews; failure is intentionally isolated from playback. */
     suspend fun trickplayInfo(
         server: SavedServer,
@@ -583,3 +661,6 @@ internal class EmbyDetailService(
             )
         }
 }
+
+/** At most this many videos of one folder are queued. */
+private const val FOLDER_QUEUE_LIMIT = 500

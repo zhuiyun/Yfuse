@@ -50,6 +50,7 @@ import com.yfuse.core.account.AccountState
 import com.yfuse.core.account.canUseWatchTogether
 import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.MediaVersionPreference
+import com.yfuse.core.data.PortraitVideoOrientation
 import com.yfuse.core.data.SourcePreheatMode
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.VideoCacheSize
@@ -108,6 +109,7 @@ import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
+import com.yfuse.feature.player.speedLabel
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -135,6 +137,8 @@ private enum class Sheet {
     WatchProfile,
     VideoCache,
     SourcePreheat,
+    PortraitVideo,
+    DefaultSpeed,
 }
 
 /** Light to dark, which is how the segmented control is read left to right. */
@@ -305,6 +309,8 @@ fun ProfileScreen(component: ProfileComponent) {
     var appIcon by remember { mutableStateOf(currentAppIconVariant()) }
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
     val sourcePreheat by component.playbackPreferences.sourcePreheat.collectAsState()
+    val portraitVideo by component.playbackPreferences.portraitVideoOrientation.collectAsState()
+    val defaultSpeed by component.playbackPreferences.defaultSpeed.collectAsState()
     val yCoreBufferDuration by component.playbackPreferences.yCoreBufferDuration.collectAsState()
     val optimizationMode by component.playbackPreferences.optimizationMode.collectAsState()
     val mediaVersionPreference by component.playbackPreferences.mediaVersionPreference.collectAsState()
@@ -440,6 +446,10 @@ fun ProfileScreen(component: ProfileComponent) {
                         onVideoCache = { sheet = Sheet.VideoCache },
                         onSourcePreheat = { sheet = Sheet.SourcePreheat },
                         onSkipSegments = { sheet = Sheet.SkipSegments },
+                        portraitVideo = portraitVideo,
+                        onPortraitVideo = { sheet = Sheet.PortraitVideo },
+                        defaultSpeed = defaultSpeed,
+                        onDefaultSpeed = { sheet = Sheet.DefaultSpeed },
                     )
 
                 ProfilePage.AdvancedPlayback ->
@@ -1032,6 +1042,33 @@ fun ProfileScreen(component: ProfileComponent) {
                     options = VideoCacheSize.entries.map { it.label to (it == videoCacheSize) },
                     onSelect = { index ->
                         component.playbackPreferences.setVideoCacheSize(VideoCacheSize.entries[index])
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
+
+            Sheet.PortraitVideo ->
+                OptionSheet(
+                    title = "竖屏视频",
+                    subtitle = "手机上播放竖屏拍摄的视频时的方向；平板和电视不受影响",
+                    options = PortraitVideoOrientation.entries.map { it.label to (it == portraitVideo) },
+                    descriptions = PortraitVideoOrientation.entries.map { it.description },
+                    onSelect = { index ->
+                        component.playbackPreferences.setPortraitVideoOrientation(
+                            PortraitVideoOrientation.entries[index],
+                        )
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
+
+            Sheet.DefaultSpeed ->
+                OptionSheet(
+                    title = "默认倍速",
+                    subtitle = "影片，以及还没有记住倍速的剧集从这个速度开始；播放器里为一部剧改过的倍速仍按剧记住",
+                    options = DEFAULT_SPEED_CHOICES.map { speedLabel(it) to (it == defaultSpeed) },
+                    onSelect = { index ->
+                        component.playbackPreferences.setDefaultSpeed(DEFAULT_SPEED_CHOICES[index])
                         sheet = null
                     },
                     onDismiss = { sheet = null },

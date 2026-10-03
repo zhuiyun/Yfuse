@@ -136,6 +136,17 @@ object EmbyImages {
         return backdropOf(baseUrl, id, item.backdropTag, maxWidth, accessToken)
     }
 
+    /** An episode's own still ([MediaItem.stillTag]); null for anything else or an episode without one. */
+    fun still(
+        baseUrl: String,
+        item: MediaItem,
+        maxHeight: Int = 360,
+        accessToken: String? = null,
+    ): String? {
+        val tag = item.stillTag ?: return null
+        return primary(baseUrl, item.id, tag, maxHeight, accessToken)
+    }
+
     fun poster(
         baseUrl: String,
         detail: MediaDetail,

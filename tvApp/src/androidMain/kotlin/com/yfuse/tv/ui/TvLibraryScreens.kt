@@ -671,9 +671,17 @@ private fun MediaItem.toLibraryTvCard(
         imageUrl =
             if (landscape) {
                 EmbyImages.backdrop(server.baseUrl, this, accessToken = server.accessToken)
-                    ?: EmbyImages.poster(server.baseUrl, this, accessToken = server.accessToken)
             } else {
                 EmbyImages.poster(server.baseUrl, this, accessToken = server.accessToken)
+            },
+        imageFallbackUrls =
+            if (landscape) {
+                listOf(
+                    EmbyImages.still(server.baseUrl, this, accessToken = server.accessToken),
+                    EmbyImages.poster(server.baseUrl, this, accessToken = server.accessToken),
+                )
+            } else {
+                emptyList()
             },
         serverId = server.id,
         profileId = server.userId,
