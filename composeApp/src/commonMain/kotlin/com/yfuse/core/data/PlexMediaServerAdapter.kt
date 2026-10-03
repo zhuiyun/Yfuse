@@ -892,6 +892,9 @@ internal class PlexMediaServerAdapter(
                                     played = played,
                                     positionTicks = if (played) 0L else offset * 10_000L,
                                     dateModified = item.updatedAt?.toString(),
+                                    // Plex dates are Unix seconds.
+                                    lastPlayedAtEpochMs = item.lastViewedAt?.takeIf { it > 0L }?.times(1_000L),
+                                    runtimeTicks = item.duration?.coerceAtLeast(0L)?.times(10_000L) ?: 0L,
                                 )
                         }
                     }

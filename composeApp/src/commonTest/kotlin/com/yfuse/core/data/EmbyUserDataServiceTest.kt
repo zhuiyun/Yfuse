@@ -63,7 +63,7 @@ class EmbyUserDataServiceTest {
             val client =
                 client { request ->
                     assertEquals("/Users/u1/Items", request.url.encodedPath)
-                    assertEquals("UserData,DateModified", request.url.parameters["Fields"])
+                    assertEquals("UserData,DateModified,RunTimeTicks", request.url.parameters["Fields"])
                     when {
                         request.url.parameters["Filters"] == "IsFavorite" ->
                             json(
@@ -99,6 +99,35 @@ class EmbyUserDataServiceTest {
                     ),
                     snapshot,
                 )
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
+    fun snapshot_carries_when_the_server_last_saw_the_item_played_and_its_runtime() =
+        runTest {
+            val client =
+                client { request ->
+                    if (request.url.parameters["IsPlayed"] == "true") {
+                        json(
+                            """{"Items":[{"Id":"e1","Name":"第1集","RunTimeTicks":1200000000,""" +
+                                """"UserData":{"Played":true,"LastPlayedDate":"2026-09-30T12:00:00.1234567Z"}}],""" +
+                                """"TotalRecordCount":1}""",
+                        )
+                    } else {
+                        json("""{"Items":[],"TotalRecordCount":0}""")
+                    }
+                }
+            try {
+                val item =
+                    EmbyUserDataService(client)
+                        .snapshot(server, includeFavorites = false)
+                        .getOrThrow()
+                        .single()
+
+                assertEquals(1_790_769_600_123L, item.lastPlayedAtEpochMs)
+                assertEquals(1_200_000_000L, item.runtimeTicks)
             } finally {
                 client.close()
             }

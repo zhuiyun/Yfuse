@@ -215,7 +215,9 @@ internal fun PlaybackSettingsScreen(
                         embedded = true,
                         description =
                             if (progressSyncEnabled) {
-                                "同步到 Emby/Jellyfin 与 Yfuse 云端，支持跨设备续播"
+                                // Jellyfin marks anything under its MinResumeDurationSeconds (300 s
+                                // by default) played a few seconds in; the store keeps the local one.
+                                "同步到 Emby/Jellyfin 与 Yfuse 云端，支持跨设备续播；5 分钟内的短集以本机续播点为准"
                             } else {
                                 "仅保留本机进度，不向 Emby/Jellyfin 或 Yfuse 云端上报"
                             },

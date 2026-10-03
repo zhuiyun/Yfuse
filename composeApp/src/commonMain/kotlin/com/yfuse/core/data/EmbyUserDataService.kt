@@ -85,7 +85,7 @@ internal class EmbyUserDataService(
                             header("X-Emby-Token", server.accessToken)
                             parameter("Recursive", true)
                             parameter("IncludeItemTypes", "Movie,Series,Episode")
-                            parameter("Fields", "UserData,DateModified")
+                            parameter("Fields", "UserData,DateModified,RunTimeTicks")
                             parameter("EnableImages", false)
                             parameter("SortBy", "Id")
                             parameter("StartIndex", startIndex)
@@ -140,6 +140,9 @@ internal class EmbyUserDataService(
                                     0L
                                 },
                             dateModified = item.DateModified,
+                            lastPlayedAtEpochMs =
+                                if (includeProgress) item.UserData?.LastPlayedDate?.let(::serverDateEpochMs) else null,
+                            runtimeTicks = item.RunTimeTicks?.coerceAtLeast(0L) ?: 0L,
                         )
                 }
             dto.TotalRecordCount?.takeIf { it >= 0 }?.let { total = it }
