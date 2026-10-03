@@ -16,6 +16,7 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.PlayTarget
+import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
@@ -325,6 +326,12 @@ internal interface MediaServerAdapter {
         itemId: String,
         mediaSourceId: String,
     ): Result<TrickplayInfo?>
+
+    /** The server's own intro/recap/outro segments for one item; none where it keeps no such list. */
+    suspend fun mediaSegments(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<PlaybackSegment>> = Result.success(emptyList())
 
     suspend fun searchRemoteSubtitles(
         server: SavedServer,
@@ -743,6 +750,11 @@ internal class EmbyAdapter(
         itemId: String,
         mediaSourceId: String,
     ): Result<TrickplayInfo?> = detailService.trickplayInfo(server, itemId, mediaSourceId)
+
+    override suspend fun mediaSegments(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<PlaybackSegment>> = detailService.mediaSegments(server, itemId)
 
     override suspend fun searchRemoteSubtitles(
         server: SavedServer,

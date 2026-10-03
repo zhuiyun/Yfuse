@@ -3,11 +3,13 @@ package com.yfuse.core.data
 import com.yfuse.core.data.dto.BaseItemDto
 import com.yfuse.core.data.dto.EmbyThumbnailSetDto
 import com.yfuse.core.data.dto.ItemsResponseDto
+import com.yfuse.core.data.dto.MediaSegmentsResponseDto
 import com.yfuse.core.data.dto.bestTrickplay
 import com.yfuse.core.data.dto.toEpisode
 import com.yfuse.core.data.dto.toMediaDetail
 import com.yfuse.core.data.dto.toMediaItem
 import com.yfuse.core.data.dto.toPerson
+import com.yfuse.core.data.dto.toPlaybackSegments
 import com.yfuse.core.data.dto.toSeason
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
@@ -16,6 +18,7 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.PlayTarget
+import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.TrickplayInfo
@@ -532,6 +535,26 @@ internal class EmbyDetailService(
                     }.body()
             dto.Items.map { progress.project(server, it).toEpisode() }
         }
+
+    /**
+     * Jellyfin's media segments (10.10+), where intro-detection plugins keep intros, recaps and
+     * outros instead of chapter markers. Emby has none, and an older Jellyfin answers 404: either
+     * way the player keeps the segments it already had.
+     */
+    suspend fun mediaSegments(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<PlaybackSegment>> {
+        if (server.kind != MediaServerKind.Jellyfin) return Result.success(emptyList())
+        return embyApiCall("jellyfin_media_segments") {
+            val dto: MediaSegmentsResponseDto =
+                client
+                    .get("${server.baseUrl}/MediaSegments/${embyPath(itemId)}") {
+                        header("X-Emby-Token", server.accessToken)
+                    }.body()
+            dto.Items.toPlaybackSegments()
+        }
+    }
 
     /** Optional provider-specific seek previews; failure is intentionally isolated from playback. */
     suspend fun trickplayInfo(

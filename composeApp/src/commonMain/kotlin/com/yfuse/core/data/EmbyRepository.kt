@@ -18,6 +18,7 @@ import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.PlayTarget
+import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerRoute
@@ -939,6 +940,12 @@ class EmbyRepository(
         itemId: String,
         mediaSourceId: String = itemId,
     ): Result<TrickplayInfo?> = adapterFor(server).trickplayInfo(server, itemId, mediaSourceId)
+
+    /** Jellyfin's intro/recap/outro segments for [itemId]; empty for other servers. */
+    suspend fun mediaSegments(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<PlaybackSegment>> = adapterFor(server).mediaSegments(server, itemId)
 
     suspend fun searchRemoteSubtitles(
         server: SavedServer,

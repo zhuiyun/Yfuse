@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.model.Episode
+import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.isShortRuntime
 
 /** How close to an episode's end the player refreshes its series queue from the server. */
@@ -33,4 +34,17 @@ internal fun List<Episode>.queueEpisodes(currentId: String?): List<Episode> {
     return filter { episode ->
         episode.id == currentId || (!episode.missing && (playingSpecial || episode.seasonNumber != 0))
     }
+}
+
+/** Where an item's fetched media segments are kept: by server and item, as ids repeat across servers. */
+internal fun mediaSegmentKey(
+    serverId: String?,
+    itemId: String,
+): String = "${serverId.orEmpty()}/$itemId"
+
+/** [this] with the server's media segments from [cache], where it has none of its own. */
+internal fun PlayerMediaItem.withMediaSegments(cache: Map<String, List<PlaybackSegment>>): PlayerMediaItem {
+    if (playbackSegments.isNotEmpty()) return this
+    val fetched = cache[mediaSegmentKey(serverId, id)]?.takeIf { it.isNotEmpty() } ?: return this
+    return copy(playbackSegments = fetched)
 }

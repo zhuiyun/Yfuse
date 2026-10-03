@@ -71,7 +71,9 @@ import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.playbackDiagnosticTrace
 import com.yfuse.core.model.DecoderMode
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.PlaybackMethod
+import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.currentPlaybackNetworkClass
@@ -1596,9 +1598,29 @@ internal fun PlayerRoot(
                         id to (serverNames[id] ?: "服务器")
                     }
             }
+        // Jellyfin 10.10+ keeps intros, recaps and outros as media segments rather than chapter
+        // markers. They are read for what is playing and what plays next, so 跳过片头 and the warmed
+        // intro end of the next episode can use them; an item with segments of its own keeps those.
+        var mediaSegmentCache by remember { mutableStateOf(emptyMap<String, List<PlaybackSegment>>()) }
+        val segmentTargets =
+            listOfNotNull(currentItem, items.getOrNull(state.currentIndex + 1))
+                .filter { it.playbackSegments.isEmpty() && it.serverId != null }
+                .map { mediaSegmentKey(it.serverId, it.id) to it }
+        LaunchedEffect(segmentTargets.map { it.first }) {
+            segmentTargets.forEach { (key, item) ->
+                if (mediaSegmentCache.containsKey(key)) return@forEach
+                val server =
+                    item.serverId
+                        ?.let(remoteSubtitleRegistry::serverById)
+                        ?.takeIf { it.kind == MediaServerKind.Jellyfin }
+                        ?: return@forEach
+                val segments = remoteSubtitleRepository.mediaSegments(server, item.id).getOrDefault(emptyList())
+                mediaSegmentCache = mediaSegmentCache + (key to segments)
+            }
+        }
         val skip =
             rememberPlayerSkipController(
-                currentItem = currentItem,
+                currentItem = currentItem?.withMediaSegments(mediaSegmentCache),
                 playback = livePlayback,
                 preferences = skipSegmentPreferences,
                 playbackGate = playbackGate,
@@ -1608,7 +1630,7 @@ internal fun PlayerRoot(
         val sourcePreheat by playbackPreferences.sourcePreheat.collectAsState()
         val skipTimesBySeries by skipSegmentPreferences.bySeries.collectAsState()
         val skipMode by skipSegmentPreferences.skipMode.collectAsState()
-        val nextItem = items.getOrNull(state.currentIndex + 1)
+        val nextItem = items.getOrNull(state.currentIndex + 1)?.withMediaSegments(mediaSegmentCache)
         val nextIntroEndMs =
             remember(nextItem, skipMode, skipTimesBySeries) {
                 nextItemIntroEndMs(nextItem, skipMode, skipTimesBySeries, skipSegmentPreferences)

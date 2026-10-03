@@ -1,6 +1,8 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.model.Episode
+import com.yfuse.core.model.PlaybackSegment
+import com.yfuse.core.model.PlaybackSegmentType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -61,4 +63,17 @@ class NextSourcePreloadWindowTest {
         resumePositionTicks = null,
         missing = missing,
     )
+
+    @Test
+    fun fetched_media_segments_fill_in_only_where_an_item_has_none() {
+        val intro = PlaybackSegment(PlaybackSegmentType.Intro, 0L, 20_000L)
+        val cache = mapOf(mediaSegmentKey("jf", "e2") to listOf(intro))
+        val bare = PlayerMediaItem(id = "e2", url = "u", transcodeUrl = "", title = "E2", serverId = "jf")
+        val marked = bare.copy(playbackSegments = listOf(PlaybackSegment(PlaybackSegmentType.Intro, 5_000L, 9_000L)))
+
+        assertEquals(listOf(intro), bare.withMediaSegments(cache).playbackSegments)
+        assertEquals(marked, marked.withMediaSegments(cache))
+        // The same item id on another server is another item.
+        assertEquals(bare.copy(serverId = "emby"), bare.copy(serverId = "emby").withMediaSegments(cache))
+    }
 }

@@ -773,3 +773,38 @@ private val COUNTING_CHAPTER_NAME =
             "\\.?\\s*#?\\s*\\d+)|(?:第\\s*\\d+\\s*[章节節话話幕])|[\\d\\s.:,-]+",
         RegexOption.IGNORE_CASE,
     )
+
+/** One of Jellyfin's media segments (10.10+): `/MediaSegments/{itemId}`. */
+@Serializable
+data class MediaSegmentDto(
+    /** Intro, Outro, Recap, Preview, Commercial or Unknown. */
+    val Type: String? = null,
+    val StartTicks: Long = 0L,
+    val EndTicks: Long = 0L,
+)
+
+@Serializable
+data class MediaSegmentsResponseDto(
+    val Items: List<MediaSegmentDto> = emptyList(),
+)
+
+/**
+ * Jellyfin's media segments as the player skips them: an intro or a recap — 前情提要 at the top of
+ * a 短剧 — is skipped like an intro, an outro like credits. A preview can sit at either end and a
+ * commercial anywhere, so neither is taken: read as credits, one near the start would end the
+ * episode there.
+ */
+fun List<MediaSegmentDto>.toPlaybackSegments(): List<PlaybackSegment> =
+    mapNotNull { dto ->
+        val type =
+            when (dto.Type?.lowercase()) {
+                "intro", "recap" -> PlaybackSegmentType.Intro
+                "outro" -> PlaybackSegmentType.Credits
+                else -> null
+            } ?: return@mapNotNull null
+        val startMs = (dto.StartTicks / TICKS_PER_MS).coerceAtLeast(0L)
+        val endMs = dto.EndTicks / TICKS_PER_MS
+        if (endMs <= startMs) null else PlaybackSegment(type, startMs, endMs)
+    }.sortedBy { it.startMs }
+
+private const val TICKS_PER_MS = 10_000L
