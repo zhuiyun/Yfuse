@@ -109,6 +109,7 @@ import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
+import com.yfuse.feature.player.speedLabel
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -137,6 +138,7 @@ private enum class Sheet {
     VideoCache,
     SourcePreheat,
     PortraitVideo,
+    DefaultSpeed,
 }
 
 /** Light to dark, which is how the segmented control is read left to right. */
@@ -308,6 +310,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
     val sourcePreheat by component.playbackPreferences.sourcePreheat.collectAsState()
     val portraitVideo by component.playbackPreferences.portraitVideoOrientation.collectAsState()
+    val defaultSpeed by component.playbackPreferences.defaultSpeed.collectAsState()
     val yCoreBufferDuration by component.playbackPreferences.yCoreBufferDuration.collectAsState()
     val optimizationMode by component.playbackPreferences.optimizationMode.collectAsState()
     val mediaVersionPreference by component.playbackPreferences.mediaVersionPreference.collectAsState()
@@ -445,6 +448,8 @@ fun ProfileScreen(component: ProfileComponent) {
                         onSkipSegments = { sheet = Sheet.SkipSegments },
                         portraitVideo = portraitVideo,
                         onPortraitVideo = { sheet = Sheet.PortraitVideo },
+                        defaultSpeed = defaultSpeed,
+                        onDefaultSpeed = { sheet = Sheet.DefaultSpeed },
                     )
 
                 ProfilePage.AdvancedPlayback ->
@@ -1052,6 +1057,18 @@ fun ProfileScreen(component: ProfileComponent) {
                         component.playbackPreferences.setPortraitVideoOrientation(
                             PortraitVideoOrientation.entries[index],
                         )
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
+
+            Sheet.DefaultSpeed ->
+                OptionSheet(
+                    title = "默认倍速",
+                    subtitle = "影片，以及还没有记住倍速的剧集从这个速度开始；播放器里为一部剧改过的倍速仍按剧记住",
+                    options = DEFAULT_SPEED_CHOICES.map { speedLabel(it) to (it == defaultSpeed) },
+                    onSelect = { index ->
+                        component.playbackPreferences.setDefaultSpeed(DEFAULT_SPEED_CHOICES[index])
                         sheet = null
                     },
                     onDismiss = { sheet = null },

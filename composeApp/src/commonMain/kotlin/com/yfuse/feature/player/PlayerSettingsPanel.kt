@@ -174,6 +174,8 @@ internal fun SettingsPanel(
     bookmarks: PlaybackBookmarkPanelState = PlaybackBookmarkPanelState(),
     bookmarkActions: PlaybackBookmarkActions = PlaybackBookmarkActions(),
     onToggleAmbientLight: () -> Unit = {},
+    autoNextEnabled: Boolean = true,
+    onToggleAutoNext: () -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -978,6 +980,12 @@ internal fun SettingsPanel(
                                         label = "氛围光",
                                         checked = ambientLightEnabled,
                                         onToggle = onToggleAmbientLight,
+                                    )
+                                    // The same switch as 设置 → 播放; the episode playing follows it at once.
+                                    PopupToggleHeader(
+                                        label = "自动播放下一集",
+                                        checked = autoNextEnabled,
+                                        onToggle = onToggleAutoNext,
                                     )
                                     OptionRow("锁定控制", false, onClick = overlayAction(onLock))
                                     OptionRow("手势说明", false, onClick = overlayAction(onOpenGestureHelp))

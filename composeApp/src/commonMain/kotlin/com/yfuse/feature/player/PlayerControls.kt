@@ -73,6 +73,7 @@ import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.lightOnChange
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.rememberScreenReaderActive
 import com.yfuse.core.model.PlaybackChapter
 import com.yfuse.core.sync.WatchChatMessage
@@ -83,6 +84,7 @@ import com.yfuse.tv.player.TvPlayerChromePanel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlin.math.abs
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.TimeSource
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -108,7 +110,14 @@ private const val MANUAL_SKIP_STANDALONE_MS = 6_000L
  */
 private const val VOLUME_SLIDER_HIDE_MS = 1_600L
 
-private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+// To 3×: a 短剧 viewer skims a plot-heavy episode at 2.5× or 3×; 2× was as fast as the menu went.
+private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)
+
+/** 还在看吗: this many episodes running into each other with nothing touched… */
+private const val STILL_WATCHING_EPISODES = 3
+
+/** …and this long since anything was, and the episode playing stops at its end to ask. */
+private val STILL_WATCHING_AFTER = 90.minutes
 
 /** Single-purpose popups opened by their own playback-page buttons. */
 private enum class QuickPopup {
@@ -294,6 +303,8 @@ internal fun PlayerControls(
     onCreditsTakeover: (Boolean) -> Unit = {},
     /** 自动播放下一集, as the engine was built with it: off, nothing counts down to the next item. */
     autoNext: Boolean = true,
+    /** The player's own 自动播放下一集 switch; the setting in 我的 is the same one. */
+    onToggleAutoNext: () -> Unit = {},
     onRefreshEpisodes: () -> Unit,
     onSelectAudio: (String) -> Unit,
     audioControls: AudioControlState = AudioControlState(),
@@ -562,9 +573,35 @@ internal fun PlayerControls(
             )
         }
 
+    // 还在看吗: once three episodes have run into each other with nothing touched for an hour and a
+    // half, the one playing stops at its end — as 取消 on the next-up card stops it — and the
+    // ending's keys ask, instead of the queue playing on to an empty room.
+    var lastInteraction by remember { mutableStateOf(TimeSource.Monotonic.markNow()) }
+    var unattendedAdvances by remember { mutableIntStateOf(0) }
+    var askingStillWatching by remember { mutableStateOf(false) }
+
     fun poke() {
         interactions++
         visible = true
+        lastInteraction = TimeSource.Monotonic.markNow()
+        unattendedAdvances = 0
+        askingStillWatching = false
+    }
+
+    val advanceMarks = remember { intArrayOf(state.currentIndex, interactions) }
+    LaunchedEffect(state.currentIndex) {
+        if (state.currentIndex == advanceMarks[0]) return@LaunchedEffect
+        unattendedAdvances = if (interactions == advanceMarks[1]) unattendedAdvances + 1 else 0
+        advanceMarks[0] = state.currentIndex
+        advanceMarks[1] = interactions
+    }
+    val latestOnDismissNextUp by rememberUpdatedState(onDismissNextUp)
+    LaunchedEffect(unattendedAdvances, autoNext) {
+        if (!autoNext || unattendedAdvances < STILL_WATCHING_EPISODES) return@LaunchedEffect
+        val wait = STILL_WATCHING_AFTER - lastInteraction.elapsedNow()
+        if (wait.isPositive()) delay(wait)
+        askingStillWatching = true
+        latestOnDismissNextUp()
     }
 
     /** Starts 长按中间 at 2×; false when it may not, having said why where there is a reason. */
@@ -1926,6 +1963,8 @@ internal fun PlayerControls(
                             trackPanelMode = trackPanelMode,
                             ambientLightEnabled = ambientLightEnabled,
                             onToggleAmbientLight = onToggleAmbientLight,
+                            autoNextEnabled = autoNext,
+                            onToggleAutoNext = onToggleAutoNext,
                             onDismiss = { settingsPanelKind = null },
                         )
                     }
@@ -2278,6 +2317,19 @@ internal fun PlayerControls(
                         },
                         onBack = onBack,
                         onHold = { endingFlowsBack = it },
+                    )
+                }
+
+                // Why this episode stopped at its end rather than running into the next one.
+                ChromeVisibility(
+                    visible = askingStillWatching && showEndedKeys,
+                    modifier = Modifier.align(Alignment.Center).offset(y = -(CenterKeySize / 2 + 44.dp)),
+                ) {
+                    Text(
+                        "还在看吗？已连续播放 $unattendedAdvances 集",
+                        style = AppTypography.body.strong,
+                        color = Color.White,
+                        modifier = Modifier.liveStatus(),
                     )
                 }
 

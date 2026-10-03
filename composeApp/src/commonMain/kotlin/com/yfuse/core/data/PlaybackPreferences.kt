@@ -209,6 +209,20 @@ class PlaybackPreferences(
         settings.putString(KEY_PORTRAIT_VIDEO_ORIENTATION, mode.name)
     }
 
+    /**
+     * 默认倍速: what a title starts at where its series has kept no speed of its own — every film,
+     * and a series' first episode. A 短剧 viewer who watches everything at 1.5× set it per series.
+     */
+    private val _defaultSpeed =
+        MutableStateFlow(settings.getFloat(KEY_DEFAULT_SPEED, 1f).coerceIn(MIN_DEFAULT_SPEED, MAX_DEFAULT_SPEED))
+    val defaultSpeed: StateFlow<Float> = _defaultSpeed.asStateFlow()
+
+    fun setDefaultSpeed(speed: Float) {
+        val bounded = speed.coerceIn(MIN_DEFAULT_SPEED, MAX_DEFAULT_SPEED)
+        _defaultSpeed.value = bounded
+        settings.putFloat(KEY_DEFAULT_SPEED, bounded)
+    }
+
     private val _sourcePreheat =
         MutableStateFlow(enumSetting(KEY_SOURCE_PREHEAT, SourcePreheatMode.WifiAndMobile))
     val sourcePreheat: StateFlow<SourcePreheatMode> = _sourcePreheat.asStateFlow()
@@ -694,6 +708,9 @@ class PlaybackPreferences(
         const val KEY_ENGINE_SELECTION = "player.ycore.engineSelection"
         const val KEY_CORE2_TRIAL_ENABLED = "player.ycore2.trialEnabled"
         const val KEY_AMBIENT_LIGHT = "player.ambientLight"
+        const val KEY_DEFAULT_SPEED = "player.defaultSpeed"
+        const val MIN_DEFAULT_SPEED = 0.5f
+        const val MAX_DEFAULT_SPEED = 3f
         const val KEY_DOUBLE_TAP_SEEK_SECONDS = "player.gesture.doubleTapSeekSeconds"
         const val KEY_CENTER_HOLD_SPEED_BOOST = "player.gesture.centerHoldSpeedBoost"
         const val KEY_SWAP_BRIGHTNESS_VOLUME = "player.gesture.swapBrightnessVolume"

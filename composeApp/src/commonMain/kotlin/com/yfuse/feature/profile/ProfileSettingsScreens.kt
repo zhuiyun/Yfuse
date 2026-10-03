@@ -28,6 +28,7 @@ import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
+import com.yfuse.feature.player.speedLabel
 import org.koin.core.context.GlobalContext
 
 internal data class PlaybackOptionCopy(
@@ -190,6 +191,7 @@ internal fun PlaybackSettingsScreen(
     sourcePreheat: SourcePreheatMode,
     skipSegments: String,
     portraitVideo: PortraitVideoOrientation,
+    defaultSpeed: Float,
     onPlaybackMode: () -> Unit,
     onMediaVersionPreference: () -> Unit,
     onOpenAdvanced: () -> Unit,
@@ -201,6 +203,7 @@ internal fun PlaybackSettingsScreen(
     onSourcePreheat: () -> Unit,
     onSkipSegments: () -> Unit,
     onPortraitVideo: () -> Unit,
+    onDefaultSpeed: () -> Unit,
 ) {
     SettingsPage(
         title = "播放",
@@ -235,6 +238,8 @@ internal fun PlaybackSettingsScreen(
                     SwitchRow("自动播放下一集", autoNext, true, onChange = onAutoNext)
                     SettingsDivider()
                     SettingRow("竖屏视频", portraitVideo.label, true, onPortraitVideo)
+                    SettingsDivider()
+                    SettingRow("默认倍速", speedLabel(defaultSpeed), true, onDefaultSpeed)
                     SettingsDivider()
                     SwitchRow(
                         "智能跨服选源",
@@ -695,3 +700,6 @@ internal fun AppearanceSettingsScreen(
         }
     }
 }
+
+/** What 默认倍速 offers. */
+internal val DEFAULT_SPEED_CHOICES = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)

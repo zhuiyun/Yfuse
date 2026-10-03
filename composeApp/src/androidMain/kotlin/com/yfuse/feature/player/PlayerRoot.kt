@@ -221,6 +221,10 @@ internal fun PlayerRoot(
         remember { GlobalContext.get().getOrNull<com.yfuse.core.personal.PersonalLibraryRepository>() }
     val personalPlaybackOwner = remember(personalLibrary) { personalLibrary?.scopeToken }
     val themePreferences = remember { GlobalContext.get().get<ThemePreferences>() }
+    // 自动播放下一集 as it stands now, not as it stood when the player opened: the player's own switch
+    // changes it mid-episode. The engine is opened able to advance and held at each end while it is
+    // off ([autoNext] only seeds the setting the launch read).
+    val autoNextSetting by themePreferences.autoNext.collectAsState(autoNext)
     val playbackNetworkFlow = remember { playbackNetworkClasses() }
     val playbackNetworkClass by
         playbackNetworkFlow.collectAsState(initial = currentPlaybackNetworkClass())
@@ -492,7 +496,7 @@ internal fun PlayerRoot(
                     startSpeed = input.handover.speed,
                     decoderMode = effectiveDecoderMode,
                     optimizationMode = effectiveOptimizationMode,
-                    autoNext = autoNext,
+                    autoNext = true,
                     customUserAgent = customUserAgent,
                     videoCacheBytes = videoCacheBytes,
                     yCoreBufferTargetUs = yCoreBufferTargetUs,
@@ -1164,9 +1168,16 @@ internal fun PlayerRoot(
         // still advanced ten seconds later, which is the opposite of what 取消 promised.
         var nextUpDismissedItemId by remember { mutableStateOf<String?>(null) }
         val currentQueueItemId = activeItems.getOrNull(state.currentIndex)?.id
-        LaunchedEffect(backendExtensions, sleepTimerOption, nextUpDismissedItemId, currentQueueItemId) {
+        LaunchedEffect(
+            backendExtensions,
+            sleepTimerOption,
+            nextUpDismissedItemId,
+            currentQueueItemId,
+            autoNextSetting,
+        ) {
             backendExtensions.setPauseAtEndOfCurrentItem(
-                sleepTimerOption == SleepTimerOption.EndOfEpisode ||
+                !autoNextSetting ||
+                    sleepTimerOption == SleepTimerOption.EndOfEpisode ||
                     (nextUpDismissedItemId != null && nextUpDismissedItemId == currentQueueItemId),
             )
         }
@@ -1402,7 +1413,9 @@ internal fun PlayerRoot(
             secondarySubtitleRestore = remembered?.secondarySubtitle?.toRestorePreference()
             secondarySubtitleTrackId = null
             restoreSubtitlesOff = initialTracks?.subtitlesDisabled == true
-            requestedPlaybackSpeed = remembered?.speed ?: 1f
+            // A series' own speed, or 默认倍速: the stored 1× is also what a series that never chose
+            // one reads, so it gives way to the default.
+            requestedPlaybackSpeed = remembered?.speed?.takeIf { it != 1f } ?: playbackPreferences.defaultSpeed.value
             audioControls =
                 audioControls.copy(
                     delayMs =
@@ -1640,7 +1653,7 @@ internal fun PlayerRoot(
             player,
             currentItem?.id,
             skip.nextItemBoundaryMs,
-            autoNext,
+            autoNextSetting,
             watchState.connected,
             watchState.canControl,
             sourcePreheat,
@@ -1651,7 +1664,7 @@ internal fun PlayerRoot(
                     itemId = id,
                     transitionPositionMs = skip.nextItemBoundaryMs,
                     enabled =
-                        autoNext &&
+                        autoNextSetting &&
                             !(watchState.connected && !watchState.canControl) &&
                             sourcePreheat != SourcePreheatMode.Off,
                     allowMeteredNetwork = sourcePreheat == SourcePreheatMode.WifiAndMobile,
@@ -2709,7 +2722,7 @@ internal fun PlayerRoot(
             castState.status,
             castState.sessionRevision,
             localState.currentIndex,
-            autoNext,
+            autoNextSetting,
             sleepTimerOption,
             sleepTimerEndIndex,
             sleepTimerEndSessionRevision,
@@ -2729,7 +2742,7 @@ internal fun PlayerRoot(
                 return@LaunchedEffect
             }
             if (
-                !autoNext ||
+                !autoNextSetting ||
                 castState.status != CastPlaybackStatus.Ended ||
                 autoAdvancedCastRevision == castState.sessionRevision
             ) {
@@ -3121,7 +3134,8 @@ internal fun PlayerRoot(
                     },
                     onDismissNextUp = { nextUpDismissedItemId = activeItems.getOrNull(state.currentIndex)?.id },
                     onCreditsTakeover = { creditsTakeover = it },
-                    autoNext = autoNext,
+                    autoNext = autoNextSetting,
+                    onToggleAutoNext = { themePreferences.setAutoNext(!autoNextSetting) },
                     onNextItem = {
                         sourceSwitchCoordinator.invalidate()
                         val next = state.currentIndex + 1
