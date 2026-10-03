@@ -23,13 +23,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { label: baseline-a, gpu: swiftshader_indirect, extra: "", ram: 4096M, cores: 2 }
-          - { label: baseline-b, gpu: swiftshader_indirect, extra: "", ram: 4096M, cores: 2 }
-          - { label: no-guest-vulkan, gpu: swiftshader_indirect, extra: "-feature -Vulkan", ram: 4096M, cores: 2 }
-          - { label: swangle, gpu: swangle_indirect, extra: "", ram: 4096M, cores: 2 }
-          - { label: guest-gpu, gpu: guest, extra: "", ram: 4096M, cores: 2 }
-          - { label: ram-6g, gpu: swiftshader_indirect, extra: "", ram: 6144M, cores: 2 }
-          - { label: cores-4, gpu: swiftshader_indirect, extra: "", ram: 4096M, cores: 4 }
+          - { label: no-guest-vulkan-1, gpu: swiftshader_indirect, extra: "-feature -Vulkan", ram: 4096M, cores: 2 }
+          - { label: no-guest-vulkan-2, gpu: swiftshader_indirect, extra: "-feature -Vulkan", ram: 4096M, cores: 2 }
+          - { label: no-guest-vulkan-3, gpu: swiftshader_indirect, extra: "-feature -Vulkan", ram: 4096M, cores: 2 }
+          - { label: no-guest-vulkan-4, gpu: swiftshader_indirect, extra: "-feature -Vulkan", ram: 4096M, cores: 2 }
+          - { label: no-guest-vulkan-5, gpu: swiftshader_indirect, extra: "-feature -Vulkan", ram: 4096M, cores: 2 }
+          - { label: baseline-c, gpu: swiftshader_indirect, extra: "", ram: 4096M, cores: 2 }
+          - { label: baseline-d, gpu: swiftshader_indirect, extra: "", ram: 4096M, cores: 2 }
+          - { label: baseline-e, gpu: swiftshader_indirect, extra: "", ram: 4096M, cores: 2 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

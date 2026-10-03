@@ -17,6 +17,11 @@ monitor=$!
 adb -s emulator-5554 logcat -v threadtime > /tmp/guest-logcat.txt 2>&1 &
 logcat=$!
 
+echo "==== guest graphics configuration"
+adb -s emulator-5554 shell getprop | grep -iE "renderengine|vulkan|hwui.renderer|egl|gltransport|ro.hardware" | head -20
+adb -s emulator-5554 shell dumpsys SurfaceFlinger 2>/dev/null | grep -iE "renderengine|vulkan|skia" | head -10
+echo "==== end of graphics configuration"
+
 python3 scripts/android_cloud_ui.py --apk-directory artifacts/cloud-input --output artifacts/cloud-ui \
   --source-run 37128629545 --expected-api 35 \
   --expected-sha256 e06d261f1c207582df890081dd58d71d044d5caedda55b465f447b335729f195 \
