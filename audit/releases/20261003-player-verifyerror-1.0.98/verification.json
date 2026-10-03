@@ -34,5 +34,31 @@
       "largestAppMethodRegisters": 189
     },
     "artApi36": "no rejected method"
+  },
+  "shortDrama": {
+    "branch": "ccr-9a50929d-07i3hs",
+    "head": "4f72c08fc63541e0223f3d5e8406b27879d92f26",
+    "commits": 32,
+    "mergeCommit": "5c9a34b2",
+    "resplitCommit": "2dcb7bce",
+    "deviceVerified": false
+  },
+  "mergedBuild": {
+    "workflowRun": 37107401799,
+    "commit": "476eeba4823cf1a74e5040e74a01ce3c6c954476",
+    "ktlint": "passed",
+    "phone": {
+      "methods": 58752,
+      "findings": 0,
+      "largestAppMethodRegisters": 194
+    },
+    "tv": {
+      "methods": 44855,
+      "findings": 0,
+      "largestAppMethodRegisters": 194
+    },
+    "artApi36": "no rejected method",
+    "qualityGateApkBytes": 29836071,
+    "apkSizeBudgetBytes": 30000000
   }
 }

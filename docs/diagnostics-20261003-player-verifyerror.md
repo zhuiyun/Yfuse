@@ -58,26 +58,41 @@
   库代码里最大的方法只有 181 个寄存器。
 - 三处都已拆开。代码原样搬移，只改缩进（`runLoop` 有 4 行因行宽重新折行），行为不变：
   - `PlayerRoot` 的运行时 lambda 改为 `PlayerRuntimeSession` 的扩展函数。会话对象携带原来被这个
-    lambda 捕获的 94 个值：`PlayerRoot` 的参数、派生的值，以及各个 `var` 背后的 State，名字都不变。
-    函数里的 lambda 只捕获会话这一个对象，不再各自捕获几十个值。`AnimatedVisibility` 的内容作用域
-    自带一个 `transition`，在扩展函数里会盖过会话的同名成员，所以函数开头用一个局部变量保住播放器
-    自己的 `transition`。
+    lambda 捕获的值（1.0.97 的代码是 94 个，合入短剧后 95 个）：`PlayerRoot` 的参数、派生的值，以及
+    各个 `var` 背后的 State，名字都不变。函数里的 lambda 只捕获会话这一个对象，不再各自捕获几十个值。
+    `AnimatedVisibility` 的内容作用域自带一个 `transition`，在扩展函数里会盖过会话的同名成员，所以
+    函数开头用一个局部变量保住播放器自己的 `transition`。
   - `PlayerControls` 的函数体改为 `PlayerControlsInputs` 的扩展函数，签名和默认值不变。
   - `runLoop` 的命令循环放进一个局部类。被局部函数捕获的变量（Kotlin 的 `Ref` 对象）作为字段保存，
     不再在挂起函数的每个挂起点前后都占着寄存器。
 - 先前的 `rememberUpdatedState` 绕开改动已撤回。
+- 1.0.98 同时合入了短剧分支（`ccr-9a50929d-07i3hs`），它也改了这三个文件。合并时先取短剧的版本，
+  再按同样的搬移重新拆分，函数体仍是短剧的原文，只改缩进：
+  - 会话对象多带 `themePreferences` 和 `autoNextSetting`（播放中可切换的自动播放下一集）背后的
+    State；`autoNext` 只剩一个同名的具名参数标签，不再携带。
+  - `PlayerControlsInputs` 多了短剧的 3 个参数（`onToggleAutoNext`、`shortDramaMode`、
+    `onSelectShortDramaMode`）。
+  - `runLoop` 的命令循环照旧放进局部类，其中调用短剧新增的局部函数 `stopNextPreparationForSeek`。
+  - 新增的名字都不是函数体里各个接收者（`BoxScope`、`AnimatedVisibilityScope`、`PointerInputScope`、
+    `CoroutineScope`）的成员，也不与任何导入同名，所以每个名字指向的仍是短剧代码里的那个。
 
 ## 验证及边界
 
 - 在 CI 上按正式包的方式构建（AGP 9.1.1 / R8 9.1.31）：
-  - 拆分后两个包都没有超过 256 个寄存器的应用方法，寄存器类型检查都是 0 处（手机包 58,498 个方法，
-    电视包 44,543 个）。手机包最大的应用方法 188 个寄存器，是 `PlayerControls` 本身（它接住 91 个
-    参数再转交）；它的函数体 172 个。电视包最大 189 个，是没有改动的
-    `AndroidNativeEnhancedYPlayer` 里的 `prepareCurrent`。`PlayerRoot` 的运行时、`runLoop` 和原来
-    239 个寄存器的控件 lambda 都降到 160 个以下。
-  - Android 16 (API 36) 模拟器删除 dexopt 结果后，以 `verify` 过滤器让 ART 从头校验手机包，dex2oat
-    没有拒绝任何方法。同一流程对 1.0.97 正式包报出 `PlayerRoot$lambda$152` 的 `Verification error`，
-    对 1.0.96 正式包没有报错。
+  - 只含闪退修复时（运行 37104094707），两个包都没有超过 256 个寄存器的应用方法，寄存器类型检查都是
+    0 处（手机包 58,498 个方法，电视包 44,543 个）。手机包最大的应用方法 188 个寄存器，是
+    `PlayerControls` 本身（它接住 91 个参数再转交）；它的函数体 172 个。电视包最大 189 个，是没有
+    改动的 `AndroidNativeEnhancedYPlayer` 里的 `prepareCurrent`。`PlayerRoot` 的运行时、`runLoop`
+    和原来 239 个寄存器的控件 lambda 都降到 160 个以下。
+  - 合入短剧并重新拆分后（运行 37107401799），两个包仍没有超过 256 个寄存器的应用方法，寄存器类型
+    检查都是 0 处（手机包 58,752 个方法，电视包 44,855 个）。两个包最大的应用方法都是
+    `PlayerControls` 本身，194 个寄存器（94 个参数）；它的函数体手机包 182 个、电视包 181 个；
+    运行时里最大的 lambda 165 个，`PlayerRoot` 本身 162 个。`runLoop` 仍不超过 160 个。
+  - Android 16 (API 36) 模拟器删除 dexopt 结果后，以 `verify` 过滤器让 ART 从头校验手机包，合入短剧
+    前后两次都没有拒绝任何方法。同一流程对 1.0.97 正式包报出 `PlayerRoot$lambda$152` 的
+    `Verification error`，对 1.0.96 正式包没有报错。
+- 短剧的改动本身只经过 ktlint、设计规范检查、主机单测和上述构建与校验，没有在真机上验证过
+  （`docs/SHORT_DRAMA_SUPPORT_REVIEW_20261002.md`）。
 - R8 的缺陷本身还在。以后代码里再长出超过 256 个寄存器的方法，出包检查会直接失败（见下节），
   需要按同样的办法拆开。
 - 可以凭 R8 dump 向 Google 的 R8 issue tracker 报告这个缺陷。dump 含整个应用的程序代码，提交前
