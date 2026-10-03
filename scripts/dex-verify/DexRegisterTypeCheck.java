@@ -1,6 +1,12 @@
 import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
@@ -18,6 +24,7 @@ import org.jf.dexlib2.analysis.RegisterType;
 import org.jf.dexlib2.dexbacked.DexBackedDexFile;
 import org.jf.dexlib2.iface.ClassDef;
 import org.jf.dexlib2.iface.Method;
+import org.jf.dexlib2.iface.MethodImplementation;
 import org.jf.dexlib2.iface.MultiDexContainer;
 import org.jf.dexlib2.iface.instruction.FiveRegisterInstruction;
 import org.jf.dexlib2.iface.instruction.Instruction;
@@ -29,6 +36,7 @@ import org.jf.dexlib2.iface.instruction.TwoRegisterInstruction;
 import org.jf.dexlib2.iface.reference.FieldReference;
 import org.jf.dexlib2.iface.reference.MethodReference;
 import org.jf.dexlib2.iface.reference.TypeReference;
+import org.jf.dexlib2.util.MethodUtil;
 
 /**
  * Flags DEX code that ART's verifier rejects because a register holds the wrong kind of value: an
@@ -41,7 +49,19 @@ import org.jf.dexlib2.iface.reference.TypeReference;
  * with ART's instance-of narrowing. Only kind mismatches are reported, never int/float or
  * boolean/int subtleties, so a finding is an instruction no verifier accepts.
  *
- * Usage: java -cp <dexlib2 classpath> DexRegisterTypeCheck.java <apk-or-dex>...
+ * It also flags every method of the app's own code that needs more than 256 registers. An 8-bit
+ * register operand reaches v0..v255 and a method's parameters sit in its highest registers, so in
+ * a larger method R8 copies parameters down to low registers for the instructions that read them.
+ * In 1.0.97 that path of R8 (9.1.31 through 9.4.20 alike) overwrote such a copy while it was
+ * still in use, and ART rejected PlayerRootKt. Keeping every method within 256 registers keeps the
+ * app off that path: split a method that grows past it. The app's own code is every class that
+ * R8's mapping file traces back to com.yfuse; without --mapping, only classes R8 left unrenamed
+ * are recognised.
+ *
+ * Usage: java -cp <dexlib2 classpath> DexRegisterTypeCheck.java [--list-registers-over N]
+ *            [--mapping <R8 mapping.txt>] <apk-or-dex> [[--mapping <file>] <apk-or-dex>]...
+ * A --mapping belongs to the APK after it. --list-registers-over also prints every method, the
+ * app's or a library's, that has more than N registers.
  * Exit status: 0 clean, 1 findings or methods that could not be analysed, 2 bad input.
  */
 public final class DexRegisterTypeCheck {
@@ -49,32 +69,64 @@ public final class DexRegisterTypeCheck {
 
     private static final int MIN_API = 26;
     private static final int MAX_FINDINGS_PRINTED = 50;
+    /** v0..v255, the registers an 8-bit register operand reaches. */
+    private static final int REGISTER_LIMIT = 256;
+    private static final String OWN_CODE = "Lcom/yfuse/";
+    private static final Pattern MAPPED_CLASS = Pattern.compile("^(\\S+) -> (\\S+):$");
+    private static final Pattern MAPPED_METHOD =
+        Pattern.compile("^\\s+(?:\\d+:\\d+:)?\\S+ ([^\\s(]+)\\(.*\\)(?::\\d+){0,2} -> (\\S+)$");
     /** D8, R8 and L8 leave a marker string such as ~~R8{..."version":"9.1.31"} in their output. */
     private static final Pattern COMPILER_MARKER = Pattern.compile("^~~([DLR]8)\\{.*\"version\":\"([^\"]+)\"");
 
+    private final Mapping mapping;
+    private final int listOver;
     private int classes;
     private int methods;
     private final Set<String> compilers = new TreeSet<>();
     private final List<String> findings = new ArrayList<>();
     private final List<String> analysisFailures = new ArrayList<>();
+    private final List<SizedMethod> largeMethods = new ArrayList<>();
+    private SizedMethod largestOwn;
+
+    private DexRegisterTypeCheck(Mapping mapping, int listOver) {
+        this.mapping = mapping;
+        this.listOver = listOver;
+    }
 
     public static void main(String[] args) throws Exception {
-        if (args.length == 0) {
-            System.err.println("usage: DexRegisterTypeCheck <apk-or-dex>...");
+        Mapping mapping = null;
+        int listOver = -1;
+        boolean checked = false;
+        boolean failed = false;
+        for (int i = 0; i < args.length; i++) {
+            if (args[i].equals("--mapping") && i + 1 < args.length) {
+                mapping = Mapping.read(existingFile(args[++i]));
+                continue;
+            }
+            if (args[i].equals("--list-registers-over") && i + 1 < args.length) {
+                listOver = Integer.parseInt(args[++i]);
+                continue;
+            }
+            DexRegisterTypeCheck check = new DexRegisterTypeCheck(mapping, listOver);
+            check.run(existingFile(args[i]));
+            failed |= check.report(args[i]);
+            checked = true;
+            mapping = null;
+        }
+        if (!checked) {
+            System.err.println("usage: DexRegisterTypeCheck [--list-registers-over N] [--mapping <mapping.txt>] <apk-or-dex>...");
             System.exit(2);
         }
-        boolean failed = false;
-        for (String path : args) {
-            File file = new File(path);
-            if (!file.isFile()) {
-                System.err.println("Not a file: " + path);
-                System.exit(2);
-            }
-            DexRegisterTypeCheck check = new DexRegisterTypeCheck();
-            check.run(file);
-            failed |= check.report(path);
-        }
         System.exit(failed ? 1 : 0);
+    }
+
+    private static File existingFile(String path) {
+        File file = new File(path);
+        if (!file.isFile()) {
+            System.err.println("Not a file: " + path);
+            System.exit(2);
+        }
+        return file;
     }
 
     private void run(File file) throws Exception {
@@ -98,8 +150,10 @@ public final class DexRegisterTypeCheck {
             for (ClassDef classDef : dex.getClasses()) {
                 classes++;
                 for (Method method : classDef.getMethods()) {
-                    if (method.getImplementation() == null) continue;
+                    MethodImplementation code = method.getImplementation();
+                    if (code == null) continue;
                     methods++;
+                    checkRegisterCount(method, code.getRegisterCount());
                     checkMethod(classPath, method);
                 }
             }
@@ -120,7 +174,52 @@ public final class DexRegisterTypeCheck {
         for (int i = 0; i < analysisFailures.size() && i < MAX_FINDINGS_PRINTED; i++) {
             System.out.println(analysisFailures.get(i));
         }
+        if (largestOwn != null) {
+            System.out.printf("  largest method of the app's own code: %d registers (limit %d), %s%n",
+                largestOwn.registers, REGISTER_LIMIT, largestOwn.name);
+        }
+        if (mapping == null) {
+            System.out.println("  no --mapping: only classes R8 did not rename count as the app's own code");
+        }
+        if (listOver >= 0) {
+            largeMethods.sort(Comparator.comparingInt((SizedMethod m) -> -m.registers).thenComparing(m -> m.name));
+            System.out.printf("  %d methods with more than %d registers:%n", largeMethods.size(), listOver);
+            for (SizedMethod m : largeMethods) {
+                System.out.printf("  %5d registers, %3d for parameters  %s%s%n",
+                    m.registers, m.parameterRegisters, m.own ? "[app] " : "", m.name);
+            }
+        }
         return !findings.isEmpty() || !analysisFailures.isEmpty();
+    }
+
+    private void checkRegisterCount(Method method, int registers) {
+        String type = method.getDefiningClass();
+        boolean own = (mapping == null ? type : mapping.classes.getOrDefault(type, type)).startsWith(OWN_CODE);
+        boolean largest = own && (largestOwn == null || registers > largestOwn.registers);
+        boolean listed = listOver >= 0 && registers > listOver;
+        boolean tooLarge = own && registers > REGISTER_LIMIT;
+        if (!largest && !listed && !tooLarge) return;
+        SizedMethod sized = new SizedMethod(
+            readableName(method), registers, MethodUtil.getParameterRegisterCount(method), own);
+        if (largest) largestOwn = sized;
+        if (listed) largeMethods.add(sized);
+        if (tooLarge) {
+            findings.add(String.format(
+                "FAIL %s (%s)%n  needs %d registers, %d of them for parameters. R8 compiles a method of more than %d"
+                    + " registers on the path that corrupted 1.0.97's player: split it.",
+                sized.name, describe(method), registers, sized.parameterRegisters, REGISTER_LIMIT));
+        }
+    }
+
+    private String readableName(Method method) {
+        String type = method.getDefiningClass();
+        String name = method.getName();
+        if (mapping != null) {
+            Set<String> originals = mapping.methods.get(type + "->" + name);
+            if (originals != null) name = String.join("|", originals);
+            type = mapping.classes.getOrDefault(type, type);
+        }
+        return type.substring(1, type.length() - 1).replace('/', '.') + "." + name;
     }
 
     private void checkMethod(ClassPath classPath, Method method) {
@@ -412,6 +511,51 @@ public final class DexRegisterTypeCheck {
         int[] registers = new int[five.getRegisterCount()];
         System.arraycopy(all, 0, registers, 0, registers.length);
         return registers;
+    }
+
+    private static final class SizedMethod {
+        final String name;
+        final int registers;
+        final int parameterRegisters;
+        final boolean own;
+
+        SizedMethod(String name, int registers, int parameterRegisters, boolean own) {
+            this.name = name;
+            this.registers = registers;
+            this.parameterRegisters = parameterRegisters;
+            this.own = own;
+        }
+    }
+
+    /** Original class and method names from an R8 mapping file, keyed by the names in the DEX. */
+    private static final class Mapping {
+        final Map<String, String> classes = new HashMap<>();
+        final Map<String, Set<String>> methods = new HashMap<>();
+
+        static Mapping read(File file) throws IOException {
+            Mapping mapping = new Mapping();
+            String current = null;
+            for (String line : Files.readAllLines(file.toPath(), StandardCharsets.UTF_8)) {
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                if (!Character.isWhitespace(line.charAt(0))) {
+                    Matcher mappedClass = MAPPED_CLASS.matcher(line);
+                    current = mappedClass.matches() ? descriptor(mappedClass.group(2)) : null;
+                    if (current != null) mapping.classes.put(current, descriptor(mappedClass.group(1)));
+                    continue;
+                }
+                Matcher mappedMethod = MAPPED_METHOD.matcher(line);
+                // A qualified original name is a frame R8 inlined from another class.
+                if (current != null && mappedMethod.matches() && mappedMethod.group(1).indexOf('.') < 0) {
+                    mapping.methods.computeIfAbsent(current + "->" + mappedMethod.group(2), k -> new TreeSet<>())
+                        .add(mappedMethod.group(1));
+                }
+            }
+            return mapping;
+        }
+
+        private static String descriptor(String className) {
+            return "L" + className.replace('.', '/') + ";";
+        }
     }
 
     private static String describe(Method method) {

@@ -7,7 +7,7 @@
 # PlayerRootKt.PlayerRoot$lambda$152 with an object where an int belongs, and the player crashed
 # as it opened. See scripts/dex-verify/DexRegisterTypeCheck.java for what is checked.
 #
-# usage: scripts/verify-release-dex.sh <apk-or-dex>...
+# usage: scripts/verify-release-dex.sh [--list-registers-over N] [--mapping <R8 mapping.txt>] <apk-or-dex>...
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -29,7 +29,7 @@ sha256_of() {
   fi
 }
 
-(( $# > 0 )) || die "usage: $0 <apk-or-dex>..."
+(( $# > 0 )) || die "usage: $0 [--list-registers-over N] [--mapping <mapping.txt>] <apk-or-dex>..."
 command -v java >/dev/null 2>&1 || die "java (11 or newer) is required"
 mkdir -p "$TOOLS"
 
