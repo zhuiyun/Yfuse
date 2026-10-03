@@ -16,7 +16,6 @@ import kotlin.random.Random
 private const val REPORT_INTERVAL_MS = 10_000L
 private const val SEEK_THRESHOLD_MS = 5_000L
 private const val TICKS_PER_MILLISECOND = 10_000L
-private const val NEXT_SOURCE_PRELOAD_WINDOW_MS = 90_000L
 private const val MAX_PENDING_REPORT_COMMANDS = 8
 private const val DEFAULT_PLAY_METHOD = "DirectPlay"
 
@@ -216,19 +215,21 @@ internal class PlaybackProgressReporter(
 
     /**
      * The queue already contains concrete URLs for sibling episodes. When the active episode has
-     * at most 90 seconds left, warm the beginning of the next direct source. The platform
-     * implementation de-duplicates concurrent requests and writes into the player's shared cache,
-     * so this is cheap to call from the normal 500 ms playback-state sampling path.
+     * at most 90 seconds left — half of a shorter one — warm the beginning of the next direct
+     * source, and keep what is prepared until this episode has ended: the 30-second hold it used
+     * to have ran out a minute before the end, and for a 90-second 短剧 before it was half over.
+     * The platform implementation de-duplicates concurrent requests and writes into the player's
+     * shared cache, so this is cheap to call from the normal 500 ms playback-state sampling path.
      */
     private fun preloadNextIfNeeded(state: PlaybackState) {
         val preloader = sourcePreloader ?: return
         if (state.durationMs <= 0L) return
         val remaining = state.remainingMs
-        if (remaining <= 0L || remaining > NEXT_SOURCE_PRELOAD_WINDOW_MS) return
+        if (remaining <= 0L || remaining > nextSourcePreloadWindowMs(state.durationMs)) return
         val next = items.getOrNull(state.currentIndex + 1) ?: return
         if (!next.canPreloadSource) return
         if (!preloadedSources.add(next.url)) return
-        preloader.preload(next)
+        preloader.preloadNext(next, holdMs = nextSourceHoldMs(remaining))
     }
 
     /**

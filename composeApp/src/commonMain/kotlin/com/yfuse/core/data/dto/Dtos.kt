@@ -289,6 +289,8 @@ data class BaseItemDto(
     val Id: String,
     val Name: String? = null,
     val Type: String? = null,
+    /** `Virtual` for an episode the server only knows of — missing or not yet aired. */
+    val LocationType: String? = null,
     val ProductionYear: Int? = null,
     val IndexNumber: Int? = null,
     val ParentIndexNumber: Int? = null,
@@ -682,6 +684,7 @@ fun BaseItemDto.toEpisode() =
             },
         trickplay = bestTrickplay(),
         runtimeTicks = RunTimeTicks?.takeIf { it > 0L },
+        missing = LocationType.equals("Virtual", ignoreCase = true),
     )
 
 fun BaseItemDto.bestTrickplay(mediaSourceId: String? = null): TrickplayInfo? =

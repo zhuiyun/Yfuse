@@ -601,6 +601,22 @@ internal class AndroidAdaptiveCore2YPlayer(
             preloadedNextRoute?.sources?.close()
             preloadedNextRoute = null
         }
+
+        /**
+         * A seek within the entry stops next-item work still in flight, so the seek has the network
+         * to itself, but keeps a next entry already prepared: its sources do not depend on this
+         * entry's position and lapse on their own lease ([PreloadedNextRoute.matches]). Dropping it
+         * threw away the preparation of every short episode scrubbed in its last seconds.
+         */
+        fun stopNextPreparationForSeek() {
+            if (preloadedNextRoute?.index != currentIndex + 1) {
+                discardNextPreparation()
+                return
+            }
+            nextPreparationRevision.incrementAndGet()
+            nextItemPreloadJob?.cancel()
+            nextItemPreloadJob = null
+        }
         val adaptiveFeedbackGeneration = AtomicLong(0L)
         val sameRouteRecoveryAttempts = mutableMapOf<RouteRecoveryKey, Int>()
         val codecResetCounts = mutableMapOf<Int, Int>()
@@ -1939,7 +1955,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             seekCommandQueued.set(false)
                             val positionMs = pendingSeekMs.getAndSet(NO_PENDING_SEEK_MS)
                             if (positionMs >= 0L) {
-                                discardNextPreparation()
+                                stopNextPreparationForSeek()
                                 nextPreloadRetryAfterMs = 0L
                                 val seekFeedbackGeneration = adaptiveFeedbackGeneration.incrementAndGet()
                                 adaptiveFeedbackSink?.updatePlaybackFeedback(

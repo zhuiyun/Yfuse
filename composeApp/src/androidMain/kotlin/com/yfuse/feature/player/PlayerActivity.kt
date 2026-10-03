@@ -128,7 +128,6 @@ class PlayerActivity :
         internal const val ACTION_NEXT = "com.yfuse.player.NEXT"
         private const val ACTION_OPEN = "com.yfuse.player.OPEN"
         private const val EPISODE_REFRESH_COOLDOWN_MS = 5 * 60_000L
-        private const val EPISODE_REFRESH_NEAR_END_MS = 5 * 60_000L
 
         fun intent(
             context: Context,
@@ -924,7 +923,11 @@ class PlayerActivity :
                                 if (
                                     state.playing &&
                                     state.hasNext &&
-                                    state.remainingMs in 1L..EPISODE_REFRESH_NEAR_END_MS
+                                    queueRefreshDue(
+                                        remainingMs = state.remainingMs,
+                                        durationMs = state.durationMs,
+                                        itemsAfterCurrent = playbackItems.value.lastIndex - state.currentIndex,
+                                    )
                                 ) {
                                     refreshEpisodes()
                                 }
@@ -1412,8 +1415,9 @@ class PlayerActivity :
                 if (episodes.isEmpty()) return@launch
 
                 val existing = playbackItems.value.associateBy(PlayerMediaItem::id)
+                val playingId = playbackItems.value.getOrNull(activeState.currentIndex)?.id
                 val refreshedFromServer =
-                    episodes.map { episode ->
+                    episodes.queueEpisodes(playingId).map { episode ->
                         val title = episodeTitle(episode.indexNumber, episode.name, separator = "  ") { "第 $it 集" }
                         val stillUrl =
                             EmbyImages.primary(

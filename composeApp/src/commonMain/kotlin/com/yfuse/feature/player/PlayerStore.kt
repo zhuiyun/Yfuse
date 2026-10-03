@@ -1417,7 +1417,7 @@ class PlayerStoreFactory(
                                 val episodes = episodesResult.getOrDefault(emptyList())
                                 if (episodes.none { it.id == effectiveItemId }) return@withTimeoutOrNull
                                 val items =
-                                    episodes.map { ep ->
+                                    episodes.queueEpisodes(effectiveItemId).map { ep ->
                                         itemOf(
                                             ep.id,
                                             episodeTitle(ep.indexNumber, ep.name, separator = "  ") { "第 $it 集" },
@@ -1782,4 +1782,9 @@ internal fun PlayerMediaItem.withQueueMetadata(metadata: PlayerMediaItem): Playe
         durationMsHint = metadata.durationMsHint.takeIf { it > 0L } ?: durationMsHint,
     )
 
-private const val PLAYER_QUEUE_ENRICHMENT_TIMEOUT_MS = 15_000L
+/**
+ * The series queue arrives after the first frame, so its budget only bounds background work. A
+ * 短剧 season of a hundred episodes with their media sources outgrew fifteen seconds on a slow
+ * server, which left the player without 下一集 or 选集.
+ */
+private const val PLAYER_QUEUE_ENRICHMENT_TIMEOUT_MS = 30_000L
