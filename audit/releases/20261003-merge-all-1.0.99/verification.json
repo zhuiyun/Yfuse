@@ -48,7 +48,28 @@
     "jvmTests": "PlayerGestureStateTest and PlayerChromeStateTest: 24 passed"
   },
   "deviceVerified": false,
-  "apkBuild": "pending the quality gates and production signing on the merge commit",
+  "apkBuild": "pending: the merge commit's packaging run signed the APK but its certificate check could not read the runner's apksigner output; a package-only run of the follow-up's merge commit, still 1.0.99 (261), replaces it",
+  "afterMerge": {
+    "mergeCommit": "2ef2c00a9bfcebcadb08fa2cc4be859b8a4be639",
+    "tvQualityGatesRun": 37122566224,
+    "ycoreRun": 37122566221,
+    "codeqlRun": 37122566233,
+    "dolbyValidationRun": 37122566239,
+    "qualityGatesRun": {
+      "id": 37122566259,
+      "attempt1": "instrumented tests: SearchVisibleMotionInstrumentedTest failed (58 run, 1 failed, 3 skipped); every other job passed",
+      "cause": "the test's still reference was captured 150 ms into the 380 ms theme crossfade of the glass plates",
+      "attempt2": "failed job re-run once: passed"
+    },
+    "packagingRun": {
+      "id": 37122566505,
+      "attempt1": "gate refused the commit after the instrumented test failure",
+      "attempt2": "gate passed; signed with the production key, then refused by the certificate check, which read only 'Signer #1 certificate SHA-256 digest:' while the runner's apksigner printed 'V2 Signer: certificate SHA-256 digest:'; smoke and deployment skipped",
+      "signerCertificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+      "signatureOutput": "signature-full.txt",
+      "published": false
+    }
+  },
   "pullRequest": 213,
   "pullRequestChecks": {
     "commit": "317593fed09405b2bc2d1fccad5ccaa4779f58fb",

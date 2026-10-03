@@ -21,8 +21,13 @@ import android_cloud_ui  # noqa: E402
 from release_metadata import read_release  # noqa: E402
 
 CERT ="373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84"
-# Real `apksigner verify --verbose --print-certs` output for a published production APK.
-PUBLISHED_SIGNATURE = ROOT / "audit" / "releases" / "20260923-performance-1.0.81" / "signature-full.txt"
+# Real `apksigner verify --verbose --print-certs` output for production-signed APKs. Older build-tools
+# name the signer "Signer #1"; newer ones, which the runner had by 1.0.99, print it per scheme as
+# "V2 Signer:". Each is paired with how a second signer's certificate line would read in it.
+PUBLISHED_SIGNATURES = {
+    ROOT / "audit" / "releases" / "20260923-performance-1.0.81" / "signature-full.txt": "Signer #2",
+    ROOT / "audit" / "releases" / "20261003-merge-all-1.0.99" / "signature-full.txt": "V3 Signer:",
+}
 KEYSTORE = {"ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD"}
 SECRETS_BY_JOB = {
     "request": {"UPDATE_MANIFEST_SIGNING_KEY"},
@@ -223,7 +228,11 @@ class PublishJobSplitTest(unittest.TestCase):
                 self.assertEqual([], list((work / "tmp").iterdir()))
 
     def test_the_signed_apk_must_carry_exactly_the_published_signature(self):
-        published = PUBLISHED_SIGNATURE.read_text()
+        for fixture, other_signer in PUBLISHED_SIGNATURES.items():
+            self.check_signature_variants(fixture, other_signer)
+
+    def check_signature_variants(self, fixture, other_signer):
+        published = fixture.read_text()
         variants = {
             "published": (published, True),
             "v3 added": (published.replace("(APK Signature Scheme v3): false", "(APK Signature Scheme v3): true"),
@@ -231,9 +240,12 @@ class PublishJobSplitTest(unittest.TestCase):
             "v1 added": (published.replace("(JAR signing): false", "(JAR signing): true"), False),
             "second signer": (published.replace("Number of signers: 1", "Number of signers: 2"), False),
             "other certificate": (published.replace(CERT, "0" * 64), False),
+            "second certificate": (published + f"{other_signer} certificate SHA-256 digest: {'0' * 64}\n", False),
+            "no certificate": (published.replace(f"certificate SHA-256 digest: {CERT}", ""), False),
         }
         for label, (signature, accepted) in variants.items():
-            with self.subTest(label), tempfile.TemporaryDirectory(prefix="yfuse-verify-") as directory:
+            with self.subTest(fixture=fixture.parent.name, variant=label), \
+                    tempfile.TemporaryDirectory(prefix="yfuse-verify-") as directory:
                 work = Path(directory)
                 (work / "signature.txt").write_text(signature)
                 sdk = work / "sdk" / "build-tools" / "37.0.0"
