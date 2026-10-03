@@ -9,13 +9,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -24,13 +31,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.EpisodeGridColors
+import com.yfuse.core.designsystem.EpisodeNumberCell
+import com.yfuse.core.designsystem.EpisodeNumberGrid
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.motionItemsIndexed
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
+import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.model.prefersEpisodeGrid
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -45,7 +58,25 @@ internal data class EpisodeCard(
     /** Cross-server identities are also used by the room playlist to jump into this queue. */
     val watchKey: String,
     val watchMatchKeys: List<String>,
+    /** The episode's number, which the 选集 grid shows; null where the server gave none. */
+    val number: Int? = null,
 )
+
+/** Finished episodes read 1 in [EpisodeCard.progress]: the queue marks them played that way. */
+private const val WATCHED_PROGRESS = 0.995f
+
+/** The 选集 grid's cells for the strip's cards: a number each, in queue order. */
+internal fun List<EpisodeCard>.toNumberCells(currentIndex: Int): List<EpisodeNumberCell> =
+    mapIndexed { index, card ->
+        val progress = card.progress
+        EpisodeNumberCell(
+            key = card.watchKey.ifBlank { "episode-$index" },
+            number = card.number ?: (index + 1),
+            watched = progress != null && progress >= WATCHED_PROGRESS,
+            progress = progress?.takeIf { it < WATCHED_PROGRESS },
+            current = index == currentIndex,
+        )
+    }
 
 internal fun List<PlayerMediaItem>.toEpisodeCards(): List<EpisodeCard> =
     mapIndexed { index, item ->
@@ -57,6 +88,7 @@ internal fun List<PlayerMediaItem>.toEpisodeCards(): List<EpisodeCard> =
             progress = item.progress?.takeIf { it > 0.01f },
             watchKey = item.watchKey,
             watchMatchKeys = item.matchKeys,
+            number = item.episodeNumber,
         )
     }
 
@@ -84,12 +116,19 @@ internal fun EpisodeStrip(
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    /** A remote drives the player: the number grid hands focus to what is playing as it opens. */
+    takeFocus: Boolean = false,
 ) {
     val listState = rememberLazyListState()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     LaunchedEffect(currentIndex) {
         runCatching { listState.scrollToItem(currentIndex) }
     }
+    // A long season — most 短剧 run past a hundred episodes — opens on the number grid; stills
+    // stay a tap away for the viewer who picks by picture.
+    val gridFits = prefersEpisodeGrid(episodes.size)
+    var showGrid by remember(gridFits) { mutableStateOf(gridFits) }
+    val gridMaxHeight = if (rememberUprightPhoneWindow()) UprightGridMaxHeight else LandscapeGridMaxHeight
 
     Column(
         modifier
@@ -108,33 +147,73 @@ internal fun EpisodeStrip(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("剧集列表", style = AppTypography.body.strong, color = Color.White)
-            Icon(
-                AppIcons.Close,
-                contentDescription = "关闭",
-                tint = Color.White.copy(alpha = 0.5f),
-                modifier = Modifier.noRippleClickable(onDismiss).size(11.dp),
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (gridFits) {
+                    Text(
+                        if (showGrid) "剧照" else "集数",
+                        style = AppTypography.caption.strong,
+                        color = Color.White.copy(alpha = 0.72f),
+                        modifier =
+                            Modifier
+                                .pressable(
+                                    onClickLabel = if (showGrid) "按剧照选集" else "按集数选集",
+                                    onClick = { showGrid = !showGrid },
+                                ).touchTarget(),
+                    )
+                }
+                Icon(
+                    AppIcons.Close,
+                    contentDescription = "关闭",
+                    tint = Color.White.copy(alpha = 0.5f),
+                    modifier = Modifier.noRippleClickable(onDismiss).size(11.dp),
+                )
+            }
         }
         Spacer(Modifier.height(10.dp))
-        LazyRow(
-            state = listState,
-            contentPadding = PaddingValues(horizontal = 22.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            motionItemsIndexed(
-                items = episodes,
-                key = { index, episode -> episode.watchKey.ifBlank { "episode-$index" } },
-            ) { index, episode ->
-                EpisodeStripCard(
-                    episode = episode,
-                    current = index == currentIndex,
-                    onClick = { onSelect(index) },
-                    modifier = Modifier,
-                )
+        if (showGrid) {
+            EpisodeNumberGrid(
+                cells = remember(episodes, currentIndex) { episodes.toNumberCells(currentIndex) },
+                onPick = onSelect,
+                colors = EpisodeGridColors.overPicture(),
+                focusCurrent = takeFocus,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = gridMaxHeight)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 22.dp),
+            )
+        } else {
+            LazyRow(
+                state = listState,
+                contentPadding = PaddingValues(horizontal = 22.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                motionItemsIndexed(
+                    items = episodes,
+                    key = { index, episode -> episode.watchKey.ifBlank { "episode-$index" } },
+                ) { index, episode ->
+                    EpisodeStripCard(
+                        episode = episode,
+                        current = index == currentIndex,
+                        onClick = { onSelect(index) },
+                        modifier = Modifier,
+                    )
+                }
             }
         }
     }
 }
+
+/**
+ * A tab of thirty in 48dp rows: six rows of five on an upright phone, three of ten or more across a
+ * landscape frame, which keeps its upper half clear. A narrower frame scrolls the rest.
+ */
+private val UprightGridMaxHeight = 300.dp
+private val LandscapeGridMaxHeight = 150.dp
 
 @Composable
 private fun EpisodeStripCard(

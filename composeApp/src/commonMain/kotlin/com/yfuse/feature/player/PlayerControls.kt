@@ -2000,6 +2000,7 @@ internal fun PlayerControls(
                                 },
                             onDismiss = { drawerOpen = false },
                             modifier = Modifier.align(Alignment.BottomCenter),
+                            takeFocus = remoteChrome != null,
                         )
                     }
                 }

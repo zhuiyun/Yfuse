@@ -34,6 +34,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +62,9 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.EpisodeGridColors
+import com.yfuse.core.designsystem.EpisodeNumberCell
+import com.yfuse.core.designsystem.EpisodeNumberGrid
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftAnchor
 import com.yfuse.core.designsystem.LiftMenu
@@ -91,6 +95,8 @@ import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.episodeRuntimeLabel
 import com.yfuse.core.model.episodeTitle
+import com.yfuse.core.model.opensOnEpisodeGrid
+import com.yfuse.core.model.prefersEpisodeGrid
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineDownloadSelection
@@ -138,6 +144,9 @@ private fun EpisodeHeader(
     onPickerAnchor: (Rect) -> Unit,
     onManageProgress: () -> Unit,
     onSeeAll: () -> Unit,
+    /** The listed season is long enough for the 选集 grid, which is on show; see [EpisodeHeaderActions]. */
+    showingGrid: Boolean,
+    onToggleGrid: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
@@ -192,6 +201,8 @@ private fun EpisodeHeader(
                 staleAlpha = staleAlpha,
                 onManageProgress = onManageProgress,
                 onSeeAll = onSeeAll,
+                showingGrid = showingGrid,
+                onToggleGrid = onToggleGrid,
             )
         }
     }
@@ -205,6 +216,9 @@ private fun EpisodeHeaderActions(
     staleAlpha: State<Float>,
     onManageProgress: () -> Unit,
     onSeeAll: () -> Unit,
+    showingGrid: Boolean,
+    /** 集数 ⇄ 剧照: the number grid or the rail of stills; null for a season short enough for stills alone. */
+    onToggleGrid: (() -> Unit)?,
 ) {
     val palette = LocalPalette.current
     Row(
@@ -212,6 +226,31 @@ private fun EpisodeHeaderActions(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (onToggleGrid != null) {
+            Row(
+                Modifier
+                    .pressable(
+                        enabled = !seasonLoading,
+                        onClickLabel = if (showingGrid) "按剧照选集" else "按集数选集",
+                        onClick = onToggleGrid,
+                    ).touchTarget()
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    if (showingGrid) AppIcons.Movie else AppIcons.Grid,
+                    contentDescription = null,
+                    tint = palette.sub2,
+                    modifier = Modifier.size(11.dp),
+                )
+                Text(
+                    if (showingGrid) "剧照" else "集数",
+                    style = AppTypography.caption.strong,
+                    color = palette.body,
+                )
+            }
+        }
         // This count comes from Emby, not the official production total.
         Row(
             Modifier
@@ -509,6 +548,12 @@ internal fun EpisodeSection(
     // also separates groups with identical season labels and stays stable across progress updates.
     val firstEpisodeId = episodes.firstOrNull()?.id
     var initiallyPositioned by remember(baseUrl, seasonLabel, firstEpisodeId) { mutableStateOf(false) }
+    // A season past thirty episodes can be picked by number; one of short episodes — a 短剧 —
+    // opens that way. Asked again for each season the rail hands over to.
+    val gridFits = prefersEpisodeGrid(episodes.size)
+    var showGrid by rememberSaveable(listedSeasonId, gridFits) {
+        mutableStateOf(gridFits && opensOnEpisodeGrid(episodes.map { it.runtimeMs() }))
+    }
 
     Column(Modifier.padding(top = Dimens.sectionGap)) {
         EpisodeHeader(
@@ -523,6 +568,8 @@ internal fun EpisodeSection(
             onTogglePicker = onTogglePicker,
             onPickerAnchor = onPickerAnchor,
             onManageProgress = onManageProgress,
+            showingGrid = showGrid,
+            onToggleGrid = if (gridFits) ({ showGrid = !showGrid }) else null,
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
         )
         if (episodes.isEmpty()) {
@@ -539,6 +586,34 @@ internal fun EpisodeSection(
                             .liveStatus(),
                 )
             }
+            return@Column
+        }
+        if (showGrid) {
+            val downloaded =
+                rowActions
+                    ?.downloads
+                    ?.filterValues { it.status == DownloadStatus.Completed }
+                    ?.keys
+                    .orEmpty()
+            EpisodeNumberGrid(
+                cells =
+                    remember(episodes, selectedEpisodeId, downloaded) {
+                        episodes.toNumberCells(selectedEpisodeId, downloaded)
+                    },
+                // A number says nothing to look over first, so it plays at once, as 播放 in the
+                // 浮起菜单 does.
+                onPick = pick@{ position ->
+                    if (seasonLoading) return@pick
+                    val episode = episodes.getOrNull(position) ?: return@pick
+                    rowActions?.play(episode, onPlayEpisode) ?: onPlayEpisode(episode)
+                },
+                colors = EpisodeGridColors.themed(),
+                modifier =
+                    Modifier
+                        .contentHandoff(listedSeasonId.orEmpty())
+                        .graphicsLayer { alpha = staleAlpha.value }
+                        .padding(horizontal = Dimens.pageHorizontal),
+            )
             return@Column
         }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -954,6 +1029,32 @@ internal fun unwatchedBefore(
     if (index <= 0) return emptySet()
     return episodes.subList(0, index).filter { !it.played }.mapTo(linkedSetOf()) { it.id }
 }
+
+/** The episode's length in milliseconds, to the second where the server gives ticks. */
+private fun Episode.runtimeMs(): Long? =
+    runtimeTicks?.takeIf { it > 0L }?.div(TICKS_PER_MILLISECOND)
+        ?: runtimeMinutes?.takeIf { it > 0 }?.let { it * 60_000L }
+
+private const val TICKS_PER_MILLISECOND = 10_000L
+
+/** The 选集 grid's cells for a season: numbered as the server numbers them, in list order. */
+internal fun List<Episode>.toNumberCells(
+    selectedEpisodeId: String?,
+    downloaded: Set<String> = emptySet(),
+): List<EpisodeNumberCell> =
+    mapIndexed { index, episode ->
+        EpisodeNumberCell(
+            key = episode.id,
+            number = episode.indexNumber ?: (index + 1),
+            watched = episode.played,
+            progress =
+                episode.playedPercentage
+                    ?.takeIf { !episode.played && it > 0.0 }
+                    ?.let { (it / 100.0).toFloat() },
+            current = episode.id == selectedEpisodeId,
+            downloaded = episode.id in downloaded,
+        )
+    }
 
 /** How far an episode's offline copy has got, in a word or two; null when there is none. */
 internal fun episodeDownloadLabel(status: DownloadStatus?): String? =

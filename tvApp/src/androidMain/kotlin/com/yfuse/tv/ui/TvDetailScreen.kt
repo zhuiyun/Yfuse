@@ -1,5 +1,6 @@
 package com.yfuse.tv.ui
 
+import android.view.KeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,17 +19,24 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,8 +50,14 @@ import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.episodePositionForNumber
+import com.yfuse.core.model.episodeRangeIndex
+import com.yfuse.core.model.episodeRangeLabel
+import com.yfuse.core.model.episodeRanges
 import com.yfuse.core.model.episodeRuntimeLabel
 import com.yfuse.core.model.episodeTitle
+import com.yfuse.core.model.prefersEpisodeGrid
+import com.yfuse.core.model.typedEpisodeNumberMayGrow
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.DownloadStatus
@@ -59,6 +73,8 @@ import com.yfuse.feature.detail.seriesProgressConfirmMessage
 import com.yfuse.feature.personal.PersonalMediaActions
 import com.yfuse.tv.focus.FocusCandidate
 import com.yfuse.tv.focus.FocusContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 
 @Composable
@@ -736,6 +752,50 @@ private fun TvEpisodeRow(
                 index = index,
             )
         }
+    // 选集 by remote: a long season gets tabs of thirty over the row, the digit keys go to 第几集
+    // and the channel keys to the next tab, instead of a hundred presses along the row.
+    val numbers = remember(shown) { shown.map(Episode::indexNumber) }
+    val ranges = remember(shown.size) { if (prefersEpisodeGrid(shown.size)) episodeRanges(shown.size) else emptyList() }
+    val digitJump = shown.size >= DIGIT_JUMP_MIN_EPISODES
+    // The tab of the episode last focused, or of the one picked; it changes only as focus crosses
+    // into another tab, so moving along the row recomposes nothing here.
+    val activeRange by remember(shown, serverId, selectedEpisodeId) {
+        derivedStateOf {
+            val anchor = focusMemory.anchor(episodeScope)
+            val focused = shown.indexOfFirst { "server:$serverId:episode:${it.id}" == anchor }
+            episodeRangeIndex(
+                focused.takeIf { it >= 0 } ?: shown.indexOfFirst { it.id == selectedEpisodeId }.coerceAtLeast(0),
+            )
+        }
+    }
+    val coroutineScope = rememberCoroutineScope()
+
+    fun reveal(position: Int) {
+        val episode = shown.getOrNull(position) ?: return
+        coroutineScope.launch {
+            rowState.scrollToItem(position)
+            // The card is composed within a frame or two of the scroll; focus it once it is.
+            repeat(EPISODE_FOCUS_ATTEMPTS) {
+                withFrameNanos { }
+                if (focusMemory.requestFocus(episodeScope, "server:$serverId:episode:${episode.id}")) return@launch
+            }
+        }
+    }
+    var typed by remember(shown) { mutableStateOf("") }
+    var missing by remember(shown) { mutableStateOf<String?>(null) }
+    val highestNumber = remember(numbers) { numbers.filterNotNull().maxOrNull() ?: shown.size }
+    LaunchedEffect(typed) {
+        val number = typed.toIntOrNull() ?: return@LaunchedEffect
+        if (typedEpisodeNumberMayGrow(number, highestNumber)) delay(DIGIT_ENTRY_WINDOW_MS)
+        val position = episodePositionForNumber(number, numbers)
+        if (position != null) reveal(position) else missing = "没有第 $number 集"
+        typed = ""
+    }
+    LaunchedEffect(missing) {
+        if (missing == null) return@LaunchedEffect
+        delay(MISSING_EPISODE_NOTICE_MS)
+        missing = null
+    }
     val route = tvDetailRoute(detail.id)
     val saved = focusMemory.lastForRoute(route, FocusContext(route, serverId, profileId))
     if (saved != null && saved.sectionId == episodeScope) {
@@ -753,10 +813,63 @@ private fun TvEpisodeRow(
         )
     }
     Column(
-        Modifier.padding(horizontal = TvSafeHorizontal),
+        Modifier
+            .padding(horizontal = TvSafeHorizontal)
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                val native = event.nativeKeyEvent
+                val digit = remoteDigit(native.keyCode)
+                when {
+                    digit != null && digitJump -> {
+                        // A leading 0 names no episode; it is swallowed rather than typed.
+                        if (typed.isNotEmpty() || digit != 0) typed = (typed + digit).takeLast(MAX_TYPED_DIGITS)
+                        true
+                    }
+                    ranges.size > 1 && native.repeatCount == 0 && native.keyCode in NextRangeKeys -> {
+                        ranges.getOrNull(activeRange + 1)?.let { reveal(it.first) }
+                        true
+                    }
+                    ranges.size > 1 && native.repeatCount == 0 && native.keyCode in PreviousRangeKeys -> {
+                        ranges.getOrNull(activeRange - 1)?.let { reveal(it.first) }
+                        true
+                    }
+                    else -> false
+                }
+            },
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("剧集", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("剧集", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.Bold)
+            val entry = if (typed.isNotEmpty()) "第 $typed 集" else missing
+            if (entry != null) {
+                Text(entry, color = TvAccent, fontSize = TvType.body, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        if (ranges.size > 1) {
+            LazyRow(
+                modifier = Modifier.tvFocusBleed(),
+                contentPadding = TvFocusBleedPadding,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                itemsIndexed(ranges, key = { index, _ -> "episode-range:${detail.id}:$index" }) { index, range ->
+                    TvActionButton(
+                        label = episodeRangeLabel(range) { numbers[it] },
+                        stableId = "detail:${detail.id}:episode-range:$index",
+                        focusScope = "detail:${detail.id}:episode-ranges",
+                        focusMemory = focusMemory,
+                        onClick = { reveal(range.first) },
+                        modifier = Modifier.width(120.dp),
+                        selected = index == activeRange,
+                        selectable = true,
+                        serverId = serverId,
+                        profileId = profileId,
+                    )
+                }
+            }
+        }
         LazyRow(
             state = rowState,
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
@@ -804,13 +917,55 @@ private fun TvEpisodeRow(
             }
         }
         Text(
-            "按一次选择剧集，再按一次直接播放",
+            when {
+                ranges.size > 1 -> "按一次选择剧集，再按一次直接播放 · 数字键跳到第几集，频道键翻页"
+                digitJump -> "按一次选择剧集，再按一次直接播放 · 数字键跳到第几集"
+                else -> "按一次选择剧集，再按一次直接播放"
+            },
             color = TvOnSurfaceMuted,
             fontSize = TvType.caption,
             modifier = Modifier.padding(start = 8.dp),
         )
     }
 }
+
+/** From this many episodes the digit keys jump to 第几集; a shorter row is quicker to walk. */
+private const val DIGIT_JUMP_MIN_EPISODES = 10
+
+/** How long a digit waits for the next one of the same number before the row jumps. */
+private const val DIGIT_ENTRY_WINDOW_MS = 1_200L
+
+private const val MISSING_EPISODE_NOTICE_MS = 1_500L
+
+private const val MAX_TYPED_DIGITS = 4
+
+/** Frames to wait for a card scrolled to before giving up on focusing it. */
+private const val EPISODE_FOCUS_ATTEMPTS = 4
+
+/** The next tab of thirty: CH+, page down, fast-forward or next. */
+private val NextRangeKeys =
+    setOf(
+        KeyEvent.KEYCODE_CHANNEL_UP,
+        KeyEvent.KEYCODE_PAGE_DOWN,
+        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+        KeyEvent.KEYCODE_MEDIA_NEXT,
+    )
+
+private val PreviousRangeKeys =
+    setOf(
+        KeyEvent.KEYCODE_CHANNEL_DOWN,
+        KeyEvent.KEYCODE_PAGE_UP,
+        KeyEvent.KEYCODE_MEDIA_REWIND,
+        KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+    )
+
+/** The digit a remote's number key or a keypad key stands for; null for any other key. */
+private fun remoteDigit(keyCode: Int): Int? =
+    when (keyCode) {
+        in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> keyCode - KeyEvent.KEYCODE_0
+        in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9 -> keyCode - KeyEvent.KEYCODE_NUMPAD_0
+        else -> null
+    }
 
 private fun MediaItem.toRelatedCard(
     server: com.yfuse.core.model.SavedServer,
