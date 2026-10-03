@@ -1385,6 +1385,53 @@ class PlayerStoreFactory(
                             }
                         }
                         launch {
+                            // A video outside any series — a 短剧 kept as 01.mp4, 02.mp4 in a folder —
+                            // is queued with the videos beside it, so 下一集 and 选集 have something
+                            // to offer.
+                            val folderId = detail?.parentId
+                            if (detail?.type == "Video" && folderId != null) {
+                                withTimeoutOrNull(PLAYER_QUEUE_ENRICHMENT_TIMEOUT_MS) {
+                                    val videos = repo.folderVideos(server, folderId).getOrDefault(emptyList())
+                                    if (videos.size < 2 || videos.none { it.id == effectiveItemId }) {
+                                        return@withTimeoutOrNull
+                                    }
+                                    val items =
+                                        videos.queueEpisodes(effectiveItemId).mapIndexed { index, video ->
+                                            itemOf(
+                                                video.id,
+                                                video.name.ifBlank { "第 ${index + 1} 个" },
+                                                video.playbackSegments,
+                                                video.providerIds,
+                                                versions =
+                                                    if (video.id == effectiveItemId) {
+                                                        detail.versions
+                                                    } else {
+                                                        video.versions
+                                                    },
+                                                stillTag = video.primaryTag,
+                                                progress =
+                                                    when {
+                                                        video.played -> 1f
+                                                        else -> video.playedPercentage?.let { (it / 100.0).toFloat() }
+                                                    },
+                                                runtimeTicks =
+                                                    if (video.id == effectiveItemId) {
+                                                        detail.runtimeTicks ?: video.runtimeTicks
+                                                    } else {
+                                                        video.runtimeTicks
+                                                    },
+                                                chapters =
+                                                    if (video.id == effectiveItemId) {
+                                                        detail.playbackChapters.ifEmpty { video.playbackChapters }
+                                                    } else {
+                                                        video.playbackChapters
+                                                    },
+                                            )
+                                        }
+                                    if (loadAttempt == attempt) dispatch(PlayerMsg.QueueEnriched(items))
+                                }
+                                return@launch
+                            }
                             if (detail?.type != "Episode" || seriesId == null) return@launch
                             withTimeoutOrNull(PLAYER_QUEUE_ENRICHMENT_TIMEOUT_MS) {
                                 val seriesDetailDeferred = async { repo.playbackItemDetail(server, seriesId) }

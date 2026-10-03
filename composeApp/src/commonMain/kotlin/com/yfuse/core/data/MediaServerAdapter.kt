@@ -334,6 +334,12 @@ internal interface MediaServerAdapter {
         mediaSourceId: String,
     ): Result<TrickplayInfo?>
 
+    /** A folder's videos in name order, queued for a video outside any series; none where unsupported. */
+    suspend fun folderVideos(
+        server: SavedServer,
+        folderId: String,
+    ): Result<List<Episode>> = Result.success(emptyList())
+
     /** The server's own intro/recap/outro segments for one item; none where it keeps no such list. */
     suspend fun mediaSegments(
         server: SavedServer,
@@ -768,6 +774,11 @@ internal class EmbyAdapter(
         server: SavedServer,
         itemId: String,
     ): Result<List<PlaybackSegment>> = detailService.mediaSegments(server, itemId)
+
+    override suspend fun folderVideos(
+        server: SavedServer,
+        folderId: String,
+    ): Result<List<Episode>> = detailService.folderVideos(server, folderId)
 
     override suspend fun searchRemoteSubtitles(
         server: SavedServer,

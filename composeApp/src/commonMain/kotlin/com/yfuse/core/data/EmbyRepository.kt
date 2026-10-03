@@ -949,6 +949,12 @@ class EmbyRepository(
         mediaSourceId: String = itemId,
     ): Result<TrickplayInfo?> = adapterFor(server).trickplayInfo(server, itemId, mediaSourceId)
 
+    /** The videos of one folder, in name order: the queue for a video outside any series. */
+    suspend fun folderVideos(
+        server: SavedServer,
+        folderId: String,
+    ): Result<List<Episode>> = adapterFor(server).folderVideos(server, folderId)
+
     /** Jellyfin's intro/recap/outro segments for [itemId]; empty for other servers. */
     suspend fun mediaSegments(
         server: SavedServer,

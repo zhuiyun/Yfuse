@@ -421,16 +421,16 @@ internal class EmbyDetailService(
                             // know risks the whole request rather than adding a field.
                             if (playbackOnly) {
                                 "MediaSources,MediaStreams,Chapters,ProviderIds,Path,DateCreated," +
-                                    "SeriesPrimaryImageTag"
+                                    "SeriesPrimaryImageTag,ParentId"
                             } else if (!includePlaybackFields) {
                                 // Detail pages paint from this request. Keep the response small and
                                 // fetch file-level metadata after the first content is visible.
                                 "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
-                                    "SeriesPrimaryImageTag,ProviderIds,DateCreated"
+                                    "SeriesPrimaryImageTag,ProviderIds,DateCreated,ParentId"
                             } else {
                                 "Overview,Genres,People,ParentBackdropItemId,ParentBackdropImageTags," +
                                     "SeriesPrimaryImageTag,MediaSources,MediaStreams," +
-                                    "Path,DateCreated,Chapters,ProviderIds"
+                                    "Path,DateCreated,Chapters,ProviderIds,ParentId"
                             },
                         )
                     }
@@ -537,6 +537,29 @@ internal class EmbyDetailService(
         }
 
     /**
+     * The videos in one folder, in name order, with what playing them needs: the queue for a video
+     * outside any series. Folders of loose files are where many 短剧 libraries keep 01.mp4, 02.mp4….
+     */
+    suspend fun folderVideos(
+        server: SavedServer,
+        folderId: String,
+    ): Result<List<Episode>> =
+        embyApiCall("folder_videos") {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("ParentId", folderId)
+                        parameter("IncludeItemTypes", "Video")
+                        parameter("SortBy", "SortName")
+                        parameter("SortOrder", "Ascending")
+                        parameter("Limit", FOLDER_QUEUE_LIMIT)
+                        parameter("Fields", "MediaSources,MediaStreams,Chapters,ProviderIds")
+                    }.body()
+            dto.Items.map { progress.project(server, it).toEpisode() }
+        }
+
+    /**
      * Jellyfin's media segments (10.10+), where intro-detection plugins keep intros, recaps and
      * outros instead of chapter markers. Emby has none, and an older Jellyfin answers 404: either
      * way the player keeps the segments it already had.
@@ -638,3 +661,6 @@ internal class EmbyDetailService(
             )
         }
 }
+
+/** At most this many videos of one folder are queued. */
+private const val FOLDER_QUEUE_LIMIT = 500

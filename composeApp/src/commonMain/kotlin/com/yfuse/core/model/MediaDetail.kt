@@ -60,6 +60,11 @@ data class MediaDetail(
     val id: String,
     val title: String,
     val type: String,
+    /**
+     * The folder holding the item, where the player asked for it: a video outside any series —
+     * a 短剧 kept as 01.mp4, 02.mp4 in a folder — is queued with the videos beside it.
+     */
+    val parentId: String? = null,
     /** Set for episodes; used to load the series' episode list and cast. */
     val seriesId: String?,
     /** Set for episodes, for naming the series apart from this episode's own title. */

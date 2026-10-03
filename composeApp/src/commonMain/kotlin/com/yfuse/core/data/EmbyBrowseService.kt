@@ -295,7 +295,7 @@ internal class EmbyBrowseService(
                         header("X-Emby-Token", server.accessToken)
                         parameter("ParentId", libraryId)
                         parameter("Recursive", true)
-                        parameter("IncludeItemTypes", "Movie,Series")
+                        parameter("IncludeItemTypes", LIBRARY_ITEM_TYPES)
                         parameter("SortBy", sort.sortBy)
                         parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
                         if (!genre.isNullOrBlank()) parameter("Genres", genre)
@@ -352,7 +352,7 @@ internal class EmbyBrowseService(
                         header("X-Emby-Token", server.accessToken)
                         parameter("ParentId", libraryId)
                         parameter("Recursive", true)
-                        parameter("IncludeItemTypes", "Movie,Episode")
+                        parameter("IncludeItemTypes", "Movie,Episode,Video")
                         parameter("SortBy", sort.sortBy)
                         parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
                         if (!genre.isNullOrBlank()) parameter("Genres", genre)
@@ -402,7 +402,7 @@ internal class EmbyBrowseService(
                     header("X-Emby-Token", server.accessToken)
                     parameter("Ids", pageIds.joinToString(","))
                     parameter("Recursive", true)
-                    parameter("IncludeItemTypes", "Movie,Series")
+                    parameter("IncludeItemTypes", LIBRARY_ITEM_TYPES)
                     parameter(
                         "Fields",
                         "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
@@ -448,7 +448,7 @@ internal class EmbyBrowseService(
                         header("X-Emby-Token", server.accessToken)
                         parameter("UserId", server.userId)
                         parameter("ParentId", libraryId)
-                        parameter("IncludeItemTypes", "Movie,Series")
+                        parameter("IncludeItemTypes", LIBRARY_ITEM_TYPES)
                         parameter("SortBy", "SortName")
                         parameter("SortOrder", "Ascending")
                         parameter("Limit", LIBRARY_GENRE_LIMIT)
@@ -489,7 +489,7 @@ internal class EmbyBrowseService(
                                 header("X-Emby-Token", server.accessToken)
                                 parameter("UserId", server.userId)
                                 parameter("ParentId", libraryId)
-                                parameter("IncludeItemTypes", "Movie,Series")
+                                parameter("IncludeItemTypes", LIBRARY_ITEM_TYPES)
                             }.body()
                     dto.Tags.orEmpty()
                 } else {
@@ -499,7 +499,7 @@ internal class EmbyBrowseService(
                                 header("X-Emby-Token", server.accessToken)
                                 parameter("UserId", server.userId)
                                 parameter("ParentId", libraryId)
-                                parameter("IncludeItemTypes", "Movie,Series")
+                                parameter("IncludeItemTypes", LIBRARY_ITEM_TYPES)
                                 parameter("Recursive", true)
                                 parameter("SortBy", "SortName")
                                 parameter("SortOrder", "Ascending")
@@ -706,7 +706,7 @@ internal class EmbyBrowseService(
                     header("X-Emby-Token", server.accessToken)
                     parameter("Recursive", true)
                     parameter("Filters", "IsFavorite")
-                    parameter("IncludeItemTypes", "Movie,Series")
+                    parameter("IncludeItemTypes", LIBRARY_ITEM_TYPES)
                     parameter("SortBy", sort.sortBy)
                     parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
                     applyServerResolutionFilter(resolution)
@@ -774,7 +774,7 @@ internal class EmbyBrowseService(
 
 private fun BaseItemDto.canonicalLibraryCardId(): String? =
     when {
-        Type.equals("Movie", ignoreCase = true) -> Id
+        Type.equals("Movie", ignoreCase = true) || Type.equals("Video", ignoreCase = true) -> Id
         Type.equals("Episode", ignoreCase = true) -> SeriesId?.takeIf(String::isNotBlank)
         else -> null
     }
@@ -807,3 +807,9 @@ private const val MAX_WATCH_LATER_MEMBERSHIP_PAGES = 50
 
 /** At most this many tags in the filter row; a library tagged per title would otherwise flood it. */
 private const val LIBRARY_TAG_LIMIT = 40
+
+/**
+ * What a library grid lists: films, series, and videos outside both — a home-video, mixed or
+ * folder library of 短剧 kept as 01.mp4, 02.mp4 used to show an empty grid.
+ */
+private const val LIBRARY_ITEM_TYPES = "Movie,Series,Video"

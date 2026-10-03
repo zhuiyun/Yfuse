@@ -291,6 +291,8 @@ data class BaseItemDto(
     val Type: String? = null,
     /** `Virtual` for an episode the server only knows of — missing or not yet aired. */
     val LocationType: String? = null,
+    /** The folder holding the item; asked for by the player, which queues a loose video's siblings. */
+    val ParentId: String? = null,
     val ProductionYear: Int? = null,
     val IndexNumber: Int? = null,
     val ParentIndexNumber: Int? = null,
@@ -430,6 +432,7 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
     val posterTag = ownPoster ?: SeriesPrimaryImageTag
 
     return MediaDetail(
+        parentId = ParentId,
         id = Id,
         title = if (Type == "Episode") "${SeriesName ?: ""} ${Name ?: ""}".trim() else (Name ?: ""),
         type = Type ?: "",
