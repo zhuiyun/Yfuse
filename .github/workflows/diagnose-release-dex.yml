@@ -1,8 +1,8 @@
 name: Diagnose release DEX verification
 
 # Temporary: the packaged 1.0.97 (259) APK's player crashed with VerifyError. Rebuilds this source,
-# captures the exact input AGP gives R8, replays it with newer R8 releases and checks every result;
-# and lets ART on an emulator verify the 1.0.96 and 1.0.97 packages.
+# checks the phone and TV R8 packages, captures the exact input AGP gives R8, replays it with newer
+# R8 releases and checks every result.
 
 on:
   push:
@@ -44,7 +44,7 @@ jobs:
           if [[ ! -x "$sdkmanager" ]]; then sdkmanager="$(find "$android_sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"; fi
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$sdkmanager" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.22.1"
+          "$sdkmanager" "platforms;android-37.0" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.22.1"
       - name: Download player engines
         shell: bash
         run: |
@@ -54,16 +54,20 @@ jobs:
           scripts/fetch-engines.sh
       - name: Build and install current YCore runtime
         uses: ./.github/actions/build-current-ycore
-      - name: Build the R8 release package and dump R8's input
-        shell: bash
-        env:
-          JAVA_TOOL_OPTIONS: -Dcom.android.tools.r8.dumpinputtodirectory=${{ github.workspace }}/build/r8-dump
-        run: ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true --no-daemon
-      - name: Check the package AGP built
+      - name: Build the R8 release packages
+        run: ./gradlew :composeApp:assembleRelease :tvApp:assembleRelease -PallowDebugSigning=true --no-daemon
+      - name: Check the packages AGP built
         shell: bash
         run: |
-          scripts/verify-release-dex.sh composeApp/build/outputs/apk/release/composeApp-release.apk ||
-            echo "::warning::the AGP-built package has findings"
+          for apk in composeApp/build/outputs/apk/release/composeApp-release.apk tvApp/build/outputs/apk/release/tvApp-release.apk; do
+            scripts/verify-release-dex.sh "$apk" || echo "::warning::$apk has findings"
+          done
+      # Only R8 itself may dump: with the property set for the whole build, AGP's D8 helper for
+      # lint tries to dump as well and fails, so the R8 task alone runs again with it.
+      - name: Dump R8's input
+        env:
+          JAVA_TOOL_OPTIONS: -Dcom.android.tools.r8.dumpinputtodirectory=${{ github.workspace }}/build/r8-dump
+        run: ./gradlew :composeApp:minifyReleaseWithR8 --rerun -PallowDebugSigning=true --no-daemon
       - name: Replay R8's input with other R8 releases
         shell: bash
         run: |
@@ -95,57 +99,3 @@ jobs:
             python3 scripts/diagnostics/replay_r8_dump.py --dump "$dump" --r8 "$jar" --output "build/r8/$version.zip" || continue
             scripts/verify-release-dex.sh "build/r8/$version.zip" || echo "::warning::R8 $version output has findings"
           done
-
-  art:
-    name: ART verification on Android ${{ matrix.api }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      matrix:
-        api: [36]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Download 1.0.97 (259) package
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: Yfuse-1.0.97
-          run-id: 36862579231
-          github-token: ${{ github.token }}
-          path: apk/1.0.97
-      - name: Download 1.0.96 (258) package
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: Yfuse-1.0.96
-          run-id: 36695042729
-          github-token: ${{ github.token }}
-          path: apk/1.0.96
-      - name: Enable hardware acceleration
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-      - name: Verify both packages with ART
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
-        with:
-          api-level: ${{ matrix.api }}
-          target: google_apis
-          arch: x86_64
-          profile: pixel_2
-          ram-size: 4096M
-          disk-size: 4096M
-          emulator-boot-timeout: 600
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
-          script: bash scripts/diagnostics/art_verify_on_emulator.sh artifacts/art-verify apk/1.0.96/Yfuse-258-1.0.96.apk apk/1.0.97/Yfuse-259-1.0.97.apk
-      - name: Keep logcat
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: art-verify-api-${{ matrix.api }}-${{ github.run_id }}
-          path: artifacts/art-verify/
-          if-no-files-found: warn
-          retention-days: 3
