@@ -2793,16 +2793,23 @@ internal fun PlayerRoot(
         // Every layer that only belongs to the full-size window crosses the 画中画 boundary on the
         // same short fade, so the overlays leave together instead of blinking out one by one.
         val pictureInPictureFadeMs = if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.QUICK
+        // Below this line, read 画中画 through this State, not the captured inPictureInPicture parameter.
+        // This lambda compiles to one method with 98 parameters and over 300 registers. R8 9.1.31–9.4.20
+        // overwrote its low-register copy of that parameter while passing arguments to the
+        // PlaybackTimelineContent lambda, so ART rejected PlayerRootKt and 1.0.97 crashed whenever the
+        // player opened (docs/diagnostics-20261003-player-verifyerror.md). scripts/verify-release-dex.sh
+        // fails any release build where R8 does this again.
+        val pictureInPicture by rememberUpdatedState(inPictureInPicture)
         // 折叠屏桌面模式: standing half-open, the picture keeps above the hinge and the controls below.
         var containerHeightPx by remember { mutableIntStateOf(0) }
         val tabletopHinge =
             rememberTabletopHinge(
                 rotationLocked = rotationLock?.locked == true,
-                inPictureInPicture = inPictureInPicture,
+                inPictureInPicture = pictureInPicture,
             )
         val tabletop =
             tabletopHinge
-                ?.takeUnless { inPictureInPicture }
+                ?.takeUnless { pictureInPicture }
                 ?.let { tabletopSplit(it.first, it.last, containerHeightPx) }
         val density = LocalDensity.current
         Box(
@@ -2833,8 +2840,8 @@ internal fun PlayerRoot(
                             Modifier.fillMaxWidth().height(with(density) { tabletop.pictureBottomPx.toDp() })
                         },
                     ).creditsTakeoverPicture(
-                        active = creditsTakeover && !inPictureInPicture,
-                        immediate = inPictureInPicture,
+                        active = creditsTakeover && !pictureInPicture,
+                        immediate = pictureInPicture,
                     )
             when (engine) {
                 is YPlayerVideoEngineAdapter ->
@@ -2860,7 +2867,7 @@ internal fun PlayerRoot(
                         subtitlePosition = presentationSubtitleControls.position,
                         subtitleAppearance = presentationSubtitleControls.appearance,
                         modifier = pictureModifier,
-                        visible = !inPictureInPicture,
+                        visible = !pictureInPicture,
                         ambientSampler = ambient.sampler,
                         ambientLayer = ambientLayer,
                     )
@@ -2922,7 +2929,7 @@ internal fun PlayerRoot(
                 PlayerTransitionLayer(
                     state = transition,
                     ready = state.error != null || pictureReady || audioOnly,
-                    inPictureInPicture = inPictureInPicture,
+                    inPictureInPicture = pictureInPicture,
                     aspectRatio = transitionAspectRatio(scaleMode, state),
                     layer = PlayerTransitionLayerKind.Entrance,
                 )
@@ -2936,7 +2943,7 @@ internal fun PlayerRoot(
                     // Entering 画中画 used to cut the comment layer out between two frames, which
                     // reads as the picture glitching rather than as the window changing shape.
                     AnimatedVisibility(
-                        visible = !inPictureInPicture,
+                        visible = !pictureInPicture,
                         enter = fadeIn(Motion.tween(pictureInPictureFadeMs)),
                         exit = fadeOut(Motion.tween(pictureInPictureFadeMs)),
                     ) {
@@ -2960,14 +2967,14 @@ internal fun PlayerRoot(
             // Registered before the chrome so a drawer or a disc menu composed later still takes
             // the gesture first.
             PlatformPredictiveBackHandler(
-                enabled = transition != null && !transition.disabled && !inPictureInPicture,
+                enabled = transition != null && !transition.disabled && !pictureInPicture,
                 onProgress = { transition?.onBackProgress(it) },
                 onBack = onBack,
                 onCancel = { transition?.onBackCancel() },
             )
 
             AnimatedVisibility(
-                visible = !inPictureInPicture,
+                visible = !pictureInPicture,
                 modifier =
                     if (tabletop == null) {
                         Modifier
@@ -3851,7 +3858,7 @@ internal fun PlayerRoot(
             }
 
             // Over the chrome: 点弹幕's menu, and whatever a held 聊天 or 投屏 key has open.
-            if (!inPictureInPicture) {
+            if (!pictureInPicture) {
                 if (danmaku.enabled) {
                     DanmakuPickLayer(
                         picker = danmakuPicker,
@@ -3865,7 +3872,7 @@ internal fun PlayerRoot(
             PlayerFrameRateOverlay(
                 playback = livePlayback,
                 preferences = playbackPreferences,
-                visible = !inPictureInPicture && !oledPauseProtectionActive,
+                visible = !pictureInPicture && !oledPauseProtectionActive,
                 modifier =
                     Modifier
                         .align(androidx.compose.ui.Alignment.TopEnd)
@@ -3876,7 +3883,7 @@ internal fun PlayerRoot(
             // Folded into the overlay's own visibility rather than an `if`, so leaving the
             // screensaver for 画中画 fades out instead of vanishing between two frames.
             OledPauseProtectionOverlay(
-                visible = oledPauseProtectionActive && !inPictureInPicture,
+                visible = oledPauseProtectionActive && !pictureInPicture,
                 onDismiss = {
                     oledPauseProtectionActive = false
                     controlsWakeRequests++
@@ -3891,7 +3898,7 @@ internal fun PlayerRoot(
                 PlayerTransitionLayer(
                     state = transition,
                     ready = true,
-                    inPictureInPicture = inPictureInPicture,
+                    inPictureInPicture = pictureInPicture,
                     aspectRatio = transitionAspectRatio(scaleMode, state),
                     layer = PlayerTransitionLayerKind.Exit,
                 )
