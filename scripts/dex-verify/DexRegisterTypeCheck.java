@@ -1,6 +1,10 @@
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.jf.dexlib2.DexFileFactory;
 import org.jf.dexlib2.Opcode;
 import org.jf.dexlib2.Opcodes;
@@ -45,9 +49,12 @@ public final class DexRegisterTypeCheck {
 
     private static final int MIN_API = 26;
     private static final int MAX_FINDINGS_PRINTED = 50;
+    /** D8, R8 and L8 leave a marker string such as ~~R8{..."version":"9.1.31"} in their output. */
+    private static final Pattern COMPILER_MARKER = Pattern.compile("^~~([DLR]8)\\{.*\"version\":\"([^\"]+)\"");
 
     private int classes;
     private int methods;
+    private final Set<String> compilers = new TreeSet<>();
     private final List<String> findings = new ArrayList<>();
     private final List<String> analysisFailures = new ArrayList<>();
 
@@ -84,6 +91,10 @@ public final class DexRegisterTypeCheck {
         // them; platform classes stay unresolved, which only ever widens a reference type.
         ClassPath classPath = new ClassPath(providers, false, ClassPath.NOT_SPECIFIED);
         for (DexBackedDexFile dex : dexFiles) {
+            for (String string : dex.getStringSection()) {
+                Matcher marker = COMPILER_MARKER.matcher(string);
+                if (marker.find()) compilers.add(marker.group(1) + " " + marker.group(2));
+            }
             for (ClassDef classDef : dex.getClasses()) {
                 classes++;
                 for (Method method : classDef.getMethods()) {
@@ -97,8 +108,9 @@ public final class DexRegisterTypeCheck {
 
     private boolean report(String path) {
         System.out.printf(
-            "%s: %d classes, %d methods with code, %d findings, %d methods not analysable%n",
-            path, classes, methods, findings.size(), analysisFailures.size());
+            "%s (%s): %d classes, %d methods with code, %d findings, %d methods not analysable%n",
+            path, compilers.isEmpty() ? "compiler unknown" : String.join(", ", compilers),
+            classes, methods, findings.size(), analysisFailures.size());
         for (int i = 0; i < findings.size() && i < MAX_FINDINGS_PRINTED; i++) {
             System.out.println(findings.get(i));
         }
