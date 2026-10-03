@@ -1,0 +1,137 @@
+name: Diagnose release DEX verification
+
+# Temporary: inspects the packaged 1.0.97 (259) APK whose player crashed with VerifyError, next to
+# 1.0.96 (258), with the static register-type check, the rejected method's bytecode, and ART
+# itself on an emulator.
+
+on:
+  push:
+    branches:
+      - ccr-043c5706-n2gipq
+    paths:
+      - .github/workflows/diagnose-release-dex.yml
+      - scripts/diagnostics/**
+      - scripts/dex-verify/**
+      - scripts/verify-release-dex.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  dex:
+    name: Static DEX inspection
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Download 1.0.97 (259) package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: Yfuse-1.0.97
+          run-id: 36862579231
+          github-token: ${{ github.token }}
+          path: apk/1.0.97
+      - name: Download 1.0.96 (258) package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: Yfuse-1.0.96
+          run-id: 36695042729
+          github-token: ${{ github.token }}
+          path: apk/1.0.96
+      - name: Register-type check of every method
+        shell: bash
+        run: |
+          set -uo pipefail
+          for version in 1.0.96 1.0.97; do
+            echo "===== $version"
+            sha256sum apk/$version/*.apk
+            scripts/verify-release-dex.sh apk/$version/*.apk || echo "::warning::$version: findings above"
+          done
+      - name: Fetch baksmali
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools=build/dex-verify-tools
+          mkdir -p "$tools"
+          while read -r path sha256; do
+            jar="$tools/${path##*/}"
+            curl -fsSL --retry 3 --proto '=https' -o "$jar" "https://repo1.maven.org/maven2/$path"
+            echo "$sha256  $jar" | sha256sum -c -
+          done <<'EOF'
+          org/smali/baksmali/2.5.2/baksmali-2.5.2.jar 1ed236266d7dc4907aade0b19a34f77efac25342b63c8ace52e579039941b389
+          org/smali/util/2.5.2/util-2.5.2.jar 4f580a9cff3ebb83cb3fd20bec88e37e4f183796ca652732992611620282daea
+          com/beust/jcommander/1.64/jcommander-1.64.jar 156be736199c990321d9ff77090b199629cfc9865e2d6c13f7cd291bb1641817
+          EOF
+          echo "BAKSMALI_CP=$(ls "$PWD"/$tools/*.jar | tr '\n' ':')" >> "$GITHUB_ENV"
+      - name: The rejected PlayerRoot lambda in 1.0.97
+        run: >-
+          python3 scripts/diagnostics/inspect_dex_method.py --baksmali-classpath "$BAKSMALI_CP"
+          --apk apk/1.0.97/*.apk --class 'Lcom/yfuse/feature/player/PlayerRootKt;'
+          --method 'PlayerRoot$lambda$152' --offset 0x23EB --register v1 --context 60
+          --describe 'Ldv7;'
+      - name: PlayerRootKt in 1.0.96
+        run: >-
+          python3 scripts/diagnostics/inspect_dex_method.py --baksmali-classpath "$BAKSMALI_CP"
+          --apk apk/1.0.96/*.apk --class 'Lcom/yfuse/feature/player/PlayerRootKt;'
+
+  art:
+    name: ART verification on Android ${{ matrix.api }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [36]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download 1.0.97 (259) package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: Yfuse-1.0.97
+          run-id: 36862579231
+          github-token: ${{ github.token }}
+          path: apk/1.0.97
+      - name: Download 1.0.96 (258) package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: Yfuse-1.0.96
+          run-id: 36695042729
+          github-token: ${{ github.token }}
+          path: apk/1.0.96
+      - name: Enable hardware acceleration
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify both packages with ART
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          disk-size: 4096M
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
+          script: bash scripts/diagnostics/art_verify_on_emulator.sh artifacts/art-verify apk/1.0.96/Yfuse-258-1.0.96.apk apk/1.0.97/Yfuse-259-1.0.97.apk
+      - name: Keep logcat
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: art-verify-api-${{ matrix.api }}-${{ github.run_id }}
+          path: artifacts/art-verify/
+          if-no-files-found: warn
+          retention-days: 3
