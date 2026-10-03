@@ -343,7 +343,7 @@ from the exact locally cached upstream v1.0.0/v0.37.0 archives.
 Quality CI rejects new ktlint violations using committed per-module baselines, runs
 Android and watch-server tests plus `:watchTogetherProtocol:jvmTest`, assembles the
 R8/resource-shrunk release with an explicitly non-distributable debug signature, and
-checks its signature, ZIP alignment, package name, and byte budget. It also checks
+checks its signature, ZIP alignment, package name, byte budget, and DEX code (below). It also checks
 dependency locks and runs dependency review. CodeQL runs on changes and weekly. The
 dependency submission workflow archives an SPDX SBOM; retain it with each production
 release and complete the native-license checklist in
@@ -388,6 +388,34 @@ compact profile, pass `-PyfuseIncludeMdk=false` to Gradle. MDK is then a compile
 its Java facade and native libraries are not packaged, it is removed from engine selection, and any
 persisted MDK lock fails closed to automatic routing. The full profile remains the default so an
 ordinary release command preserves the existing three-engine product.
+
+## DEX verification
+
+R8 can emit a method that ART's verifier refuses, for instance one that reads an object from a
+register where an int belongs. ART then rejects the whole class, and it throws
+`java.lang.VerifyError` the first time it is used, on every device. That can be long after
+startup, so the build, the unit tests and a launch all pass. 1.0.97 (259) was packaged like this:
+the player crashed as it opened.
+
+`scripts/verify-release-dex.sh <apk>` runs every method through the register-type rules ART
+applies and fails on such a method. It needs Java 11 or newer and fetches dexlib2 and two Guava
+jars, pinned by SHA-256 in `scripts/dex-verify/tools.sha256`, from Maven Central. Quality CI, TV
+CI, the packaging workflow and `build-release-packages.ps1` run it on every R8 release APK.
+
+ART's rejection names the class, method, code offset and register, for example
+`[0x23EB] register v1 has type Reference: dv7 but expected Integer`. To see the instructions
+involved, disassemble with baksmali 2.5.2 (`org.smali:baksmali`, plus `org.smali:util` and
+`com.beust:jcommander` next to the jars above) and run:
+
+```bash
+python3 scripts/diagnostics/inspect_dex_method.py --baksmali-classpath "$CP" --apk <apk> \
+  --class 'Lcom/yfuse/feature/player/PlayerRootKt;' --method 'PlayerRoot$lambda$152' \
+  --offset 0x23EB --register v1 --describe 'Ldv7;'
+```
+
+It prints the rejected instruction with the type of each operand, the instructions before it,
+every definition of the register that reaches it, and the fields and methods of the classes named
+with `--describe`.
 
 ## APK size
 

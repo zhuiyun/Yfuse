@@ -499,6 +499,11 @@ jobs:
             -Pkotlin.incremental=false \
             --no-daemon
 
+      # A class with a method ART's verifier rejects throws VerifyError the first time it is used:
+      # 1.0.97 (259) was packaged with a player that crashed as it opened.
+      - name: Reject DEX code ART would not verify
+        run: scripts/verify-release-dex.sh composeApp/build/outputs/apk/release/composeApp-release.apk
+
       - name: Verify release build did not mutate version metadata
         run: git diff --exit-code -- version.properties
 
