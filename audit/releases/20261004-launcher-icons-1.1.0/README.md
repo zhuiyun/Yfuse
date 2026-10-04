@@ -7,13 +7,11 @@ all of them to be switchable in the settings with larger marks ("全部做到设
 
 ## Version
 
-- Last APK actually delivered: 1.0.98 (260), packaging run
-  [37110381511](https://github.com/zhuiyun/Yfuse/actions/runs/37110381511), `Yfuse-260-1.0.98.apk`,
-  29,836,199 bytes.
-- 1.0.99 (261) has not come out yet: runs 37122566505 and 37128629545 failed (the signer check, then
-  the Android 15 smoke), and package-only run
-  [37178647914](https://github.com/zhuiyun/Yfuse/actions/runs/37178647914) of #215's merge was in
-  progress when this record was written. It is the owner's separate delivery and keeps its version.
+- Last APK actually delivered: 1.0.99 (261), the owner's separate delivery, from package-only run
+  [37178647914](https://github.com/zhuiyun/Yfuse/actions/runs/37178647914) of #215's merge, which
+  finished while this one was being prepared: `Yfuse-261-1.0.99.apk`, 29,390,921 bytes, SHA-256
+  `0bf6e2e4…676ecf`, `PUBLISH_UPDATE=false`, signed, and through the Android 35–37 smoke. Before it,
+  1.0.98 (260) from run [37110381511](https://github.com/zhuiyun/Yfuse/actions/runs/37110381511).
 - This delivery is therefore code 262, above both. Offered 1.0.100 (262) or 1.1.0 (262), the owner
   chose 1.1.0 (262). `version.properties` and `release-notes.txt` carry it; every earlier version's
   notes are kept.
@@ -47,7 +45,8 @@ Android code was not compiled here.
   limit is 800). Rendered back to SVG they match the masters within 1.1% RMSE.
 - On October 4 at 14:18 (Asia/Shanghai) the release owner explicitly confirmed use and distribution
   of the existing MDK SDK for this package-only delivery, chose 1.1.0 (262), and asked for a pull
-  request that Claude merges into `master` as `[artifact only]` once 1.0.99 (261) has come out.
+  request that Claude merges into `master` as `[artifact only]` once 1.0.99 (261) has come out,
+  which it now has.
   `.github/mdk-distribution-approval.json` records it with the SDK checksum and scope unchanged;
   `scripts/mdk_distribution_approval.py --package-only` returns `true`, and `false` without it.
 
