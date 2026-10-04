@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  叠印: two strokes overprint into a Y, the shared stem printing a third colour.
+  The three layers are drawn by scripts/launcher_icons/generate.py.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_overprint_background" />
+    <foreground android:drawable="@drawable/ic_overprint_foreground" />
+    <monochrome android:drawable="@drawable/ic_overprint_mono" />
+</adaptive-icon>

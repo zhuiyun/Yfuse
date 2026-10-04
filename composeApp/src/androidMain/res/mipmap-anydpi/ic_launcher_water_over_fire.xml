@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  水火既济: one wave splits the play key into water above and fire below.
+  The three layers are drawn by scripts/launcher_icons/generate.py.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_water_over_fire_background" />
+    <foreground android:drawable="@drawable/ic_water_over_fire_foreground" />
+    <monochrome android:drawable="@drawable/ic_water_over_fire_mono" />
+</adaptive-icon>
