@@ -15,6 +15,7 @@ import androidx.compose.runtime.setValue
 import com.yfuse.APP_ENTRY_ALIAS
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.util.androidAppContext
+import com.yfuse.shared.R
 import com.yfuse.shortcuts.scheduleShortcutUpdate
 import java.util.Collections
 import java.util.WeakHashMap
@@ -37,6 +38,37 @@ private fun AppIconVariant.componentClass(): String =
         AppIconVariant.Overprint -> "com.yfuse.LauncherOverprint"
         AppIconVariant.Danmaku -> "com.yfuse.LauncherDanmaku"
         AppIconVariant.LiquidGlass -> "com.yfuse.LauncherLiquidGlass"
+    }
+
+/**
+ * The icon the launcher shows for this variant: its alias's, or for [AppIconVariant.Default],
+ * which is MainActivity with no icon of its own, the application's.
+ */
+fun AppIconVariant.launcherIcon(): Int =
+    when (this) {
+        AppIconVariant.Default -> R.mipmap.ic_launcher
+        AppIconVariant.Graphite -> R.mipmap.ic_launcher_graphite
+        AppIconVariant.CloudPlayer -> R.mipmap.ic_launcher_cloud
+        AppIconVariant.AuroraDark -> R.mipmap.ic_launcher_aurora_dark
+        AppIconVariant.AuroraLight -> R.mipmap.ic_launcher_aurora_light
+        AppIconVariant.Prism -> R.mipmap.ic_launcher_prism
+        AppIconVariant.WaterOverFire -> R.mipmap.ic_launcher_water_over_fire
+        AppIconVariant.Overprint -> R.mipmap.ic_launcher_overprint
+        AppIconVariant.Danmaku -> R.mipmap.ic_launcher_danmaku
+        AppIconVariant.LiquidGlass -> R.mipmap.ic_launcher_liquid_glass
+    }
+
+/** The variant's mark as a one-colour stencil, for the small icon of a notification. */
+fun AppIconVariant.notificationIcon(): Int =
+    when (this) {
+        AppIconVariant.Default, AppIconVariant.Graphite -> R.drawable.ic_notification_yfuse
+        AppIconVariant.CloudPlayer -> R.drawable.ic_notification_cloud_player
+        AppIconVariant.AuroraDark, AppIconVariant.AuroraLight -> R.drawable.ic_notification_aurora
+        AppIconVariant.Prism -> R.drawable.ic_notification_prism
+        AppIconVariant.WaterOverFire -> R.drawable.ic_notification_water_over_fire
+        AppIconVariant.Overprint -> R.drawable.ic_notification_overprint
+        AppIconVariant.Danmaku -> R.drawable.ic_notification_danmaku
+        AppIconVariant.LiquidGlass -> R.drawable.ic_notification_liquid_glass
     }
 
 /**

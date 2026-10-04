@@ -26,9 +26,9 @@ import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.model.LibraryStatus
+import com.yfuse.core.notification.setChosenAppIcon
 import com.yfuse.core.util.currentEpochMillis
 import com.yfuse.core.util.scheduledEpochMillis
-import com.yfuse.shared.R
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
 import java.util.concurrent.TimeUnit
@@ -313,7 +313,7 @@ class CalendarReminderWorker(
             key.hashCode(),
             NotificationCompat
                 .Builder(applicationContext, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_notification_calendar)
+                .setChosenAppIcon(applicationContext)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))

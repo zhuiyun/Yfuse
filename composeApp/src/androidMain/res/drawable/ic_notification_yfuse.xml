@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  当前 Logo and 当前 Logo · 石墨: status-bar icon of the notifications sent while either is
+  chosen. The themed layer's stencil (ic_yfuse_mark_mono), cropped to the mark: its bounds,
+  18–87 across and 20–84 down, centred in 24dp with 1dp clear on each side.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="75.3"
+    android:viewportHeight="75.3">
+    <group
+        android:translateX="-14.85"
+        android:translateY="-14.35">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M32,20 L87,53 L33,84 L46,72 L69,53 L45,33 Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M26.5,48 L38.5,48 A2.5,2.5 0 0 1 38.5,53 L26.5,53 A2.5,2.5 0 0 1 26.5,48 Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M20.5,56 L23.5,56 A2.5,2.5 0 0 1 23.5,61 L20.5,61 A2.5,2.5 0 0 1 20.5,56 Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M30.5,56 L42.5,56 A2.5,2.5 0 0 1 42.5,61 L30.5,61 A2.5,2.5 0 0 1 30.5,56 Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M27.5,64 L36.5,64 A2.5,2.5 0 0 1 36.5,69 L27.5,69 A2.5,2.5 0 0 1 27.5,64 Z" />
+    </group>
+</vector>

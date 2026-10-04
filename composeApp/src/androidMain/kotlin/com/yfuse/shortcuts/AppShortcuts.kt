@@ -15,7 +15,8 @@ import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.offline.DownloadNotificationActions
 import com.yfuse.core.sync.playback.PlaybackSyncStore
-import com.yfuse.shared.R
+import com.yfuse.feature.profile.currentAppIconVariant
+import com.yfuse.feature.profile.launcherIcon
 import org.koin.core.context.GlobalContext
 
 /** How many 继续观看 titles the launcher lists above 搜索 and 下载. */
@@ -51,7 +52,9 @@ class AppShortcutsWorker(
                 .data.value.servers
         val progress = koin.get<PlaybackSyncStore>()
         val cache = koin.get<LibraryCache>()
-        val icon = Icon.createWithResource(context, R.mipmap.ic_launcher)
+        // The icon chosen in APP 图标, like the one the shortcuts open from. A switch republishes
+        // them, so they never keep the icon that was swapped out.
+        val icon = Icon.createWithResource(context, currentAppIconVariant().launcherIcon())
         val resume =
             servers
                 .flatMap { server ->
