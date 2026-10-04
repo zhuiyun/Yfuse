@@ -29,21 +29,14 @@ case "${PROBE_MODE:-gate}" in
   gate)
     gate_smoke
     ;;
-  powersave)
-    # Battery saver: Yfuse's motion budget turns the dock's backdrop blur off and draws as 静息.
-    adb -s $serial shell dumpsys battery unplug
-    adb -s $serial shell settings put global low_power 1
-    adb -s $serial shell cmd power set-mode 1 || true
-    adb -s $serial shell dumpsys power | grep -iE "battery ?saver|lowpower|powersave" | head -8
+  thermal)
+    # Thermal status MODERATE: Yfuse's motion budget draws as 静息 and turns the live backdrop
+    # blur (dock and bar glass) off, as it does in 省电模式. The status is set before install, so
+    # the app starts with it, and the override holds until reset.
+    adb -s $serial shell cmd thermalservice override-status 2
+    echo "==== thermal status before the smoke"
+    adb -s $serial shell dumpsys thermalservice | grep -iE "status|override" | head -6
     gate_smoke
-    ;;
-  offlinehome)
-    # No network from before launch to the end: 首页 never gets TMDB content.
-    adb -s $serial shell svc wifi disable
-    adb -s $serial shell svc data disable
-    cp scripts/android_cloud_ui.py scripts/_probe_offline.py
-    python3 .github/tmp-keep-offline.py scripts/_probe_offline.py
-    gate_smoke scripts/_probe_offline.py
     ;;
 esac
 status=$?
@@ -56,8 +49,8 @@ for f in artifacts/cloud-ui/05-home.xml artifacts/cloud-ui/08-dark.xml; do
   echo "-- $f"
   grep -o 'text="[^"]*"\|content-desc="[^"]*"' "$f" | grep -v '=""' | head -45
 done
-echo "==== motion budget lines"
-grep -iE "MotionBudget|powerSave" /tmp/guest-logcat.txt | head -5
+echo "==== thermal status after the smoke (the override must still hold)"
+timeout 15 adb -s $serial shell dumpsys thermalservice | grep -iE "status|override" | head -6 || echo "device not answering"
 echo "==== smoke exit status: $status"
 echo "==== host monitor"
 cat /tmp/host-monitor.txt

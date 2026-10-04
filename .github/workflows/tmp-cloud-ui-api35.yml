@@ -9,7 +9,6 @@ on:
     paths:
       - .github/workflows/tmp-cloud-ui-api35.yml
       - .github/tmp-cloud-ui-probe.sh
-      - .github/tmp-keep-offline.py
 
 permissions:
   contents: read
@@ -24,14 +23,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { label: battery-saver-1, mode: powersave }
-          - { label: battery-saver-2, mode: powersave }
-          - { label: battery-saver-3, mode: powersave }
-          - { label: offline-home-1, mode: offlinehome }
-          - { label: offline-home-2, mode: offlinehome }
-          - { label: offline-home-3, mode: offlinehome }
-          - { label: gate-control-3, mode: gate }
-          - { label: gate-control-4, mode: gate }
+          - { label: calm-1, mode: thermal }
+          - { label: calm-2, mode: thermal }
+          - { label: calm-3, mode: thermal }
+          - { label: calm-4, mode: thermal }
+          - { label: calm-5, mode: thermal }
+          - { label: calm-6, mode: thermal }
+          - { label: gate-control-5, mode: gate }
+          - { label: gate-control-6, mode: gate }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
