@@ -117,13 +117,34 @@ package-only run [37210109423](https://github.com/zhuiyun/Yfuse/actions/runs/372
 - The failed job was re-run once. The test now draws frames until the split has had its time,
   scaled by the animator duration scale, before it taps.
 
-## Pending
+## Delivery
 
-- The pull request's quality gates, merging it into `master` as `[artifact only]`, the packaging
-  run's production signing and Android 35–37 smoke, and reading the final APK's package name,
-  version, size, SHA-256 and signing certificate.
-- No device check of the notification, the shortcuts or 短剧模式: the CI smoke posts no 追剧更新
-  reminder, opens no launcher menu and plays no series or folder.
+The failed job's one re-run passed, run 37210109162's attempt 2, so every quality gate on
+`b581f729` is green. The packaging run's failed jobs were then re-run as attempt 2, which
+signed the APK built in attempt 1. #218 (`95674f1c`) carries the test fix to `master`.
+
+- The production signature's check passed. It requires:
+  - package `com.yfuse`, `versionCode='263'` and `versionName='1.1.1'`;
+  - one signer, APK Signature Scheme v2 only;
+  - certificate SHA-256 `373e36d3…e7be3e84`;
+  - the 30,000,000-byte budget.
+- The startup smoke passed all 14 cases on Android 35, 36 and 37 emulators. Each run read the APK
+  itself: SHA-256 `060dba6f…fb1d44`, certificate `373e36d3…e7be3e84`, package `com.yfuse`, 263 and
+  1.1.1, ABI `arm64-v8a`.
+- Final APK: `Yfuse-263-1.1.1.apk`, 29,422,566 bytes (8,584 more than 1.1.0), SHA-256
+  `060dba6f80e75ed3058e3ccd529cdae1c19d6a15e44d8b79ef36ffb926fb1d44`, `PUBLISH_UPDATE=false`.
+- Artifact `Yfuse-1.1.1`
+  ([11308295190](https://github.com/zhuiyun/Yfuse/actions/runs/37210109423/artifacts/11308295190))
+  holds the APK with `update.json` and `update-v2.json` for 7 days.
+- Nothing was published:
+  - The deploy job skipped its SSH, upload, server-check and finalize steps.
+  - "Create GitHub release" run [37214421717](https://github.com/zhuiyun/Yfuse/actions/runs/37214421717)
+    found no published update and skipped its release job, so there is no `v1.1.1` release.
+  - Firebase Test Lab run [37214421686](https://github.com/zhuiyun/Yfuse/actions/runs/37214421686)
+    skipped signing in and both device jobs.
+- Not run on any device: the notification, the shortcuts and 短剧模式. The CI smoke posts no
+  追剧更新 reminder, opens no launcher menu and plays no series or folder.
+- 1.1.1 (263) is now the last delivered APK, so the next delivery needs code 264 or higher.
 
 Package-only delivery is intended. Do not publish an application update, create a release or
 deploy a service as part of this build.
