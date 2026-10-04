@@ -9,6 +9,7 @@ on:
     paths:
       - .github/workflows/tmp-cloud-ui-api35.yml
       - .github/tmp-cloud-ui-probe.sh
+      - .github/tmp-keep-offline.py
 
 permissions:
   contents: read
@@ -23,17 +24,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { label: animator-off-1, mode: animator0 }
-          - { label: animator-off-2, mode: animator0 }
-          - { label: animator-off-3, mode: animator0 }
-          - { label: window-transitions-off-1, mode: transitions0 }
-          - { label: window-transitions-off-2, mode: transitions0 }
-          - { label: window-transitions-off-3, mode: transitions0 }
-          - { label: profile-tab-1, mode: profiletab }
-          - { label: profile-tab-2, mode: profiletab }
-          - { label: profile-tab-3, mode: profiletab }
-          - { label: gate-control-1, mode: gate }
-          - { label: gate-control-2, mode: gate }
+          - { label: battery-saver-1, mode: powersave }
+          - { label: battery-saver-2, mode: powersave }
+          - { label: battery-saver-3, mode: powersave }
+          - { label: offline-home-1, mode: offlinehome }
+          - { label: offline-home-2, mode: offlinehome }
+          - { label: offline-home-3, mode: offlinehome }
+          - { label: gate-control-3, mode: gate }
+          - { label: gate-control-4, mode: gate }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
