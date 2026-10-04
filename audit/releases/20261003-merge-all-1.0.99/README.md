@@ -114,5 +114,45 @@ No APK came out of it, and nothing was published.
   startup smoke on Android 35–37, and reading the final APK's package name, version, size, SHA-256
   and signing certificate.
 
+## After the follow-up merge
+
+PR #214 was merged as `caef4f991ed33404f4d171e85b9f753fba6fe7ac` with `[artifact only]`, and
+package-only run [37128629545](https://github.com/zhuiyun/Yfuse/actions/runs/37128629545)
+(`publish=false`, 1.0.99 (261)) packaged it. Nothing was published.
+
+- The quality gate, the release build with its DEX check, production signing and the certificate
+  check passed. The signed APK's SHA-256 was `e06d261f…5729f195`, certificate `373e36d3…e7be3e84`.
+- Signed-APK startup smoke: Android 36 and 37 passed. Android 35 failed in "Short
+  foreground/background stability", in attempt 1 and in the one re-run of that job (attempt 2), so
+  the deployment job was skipped. The emulator froze: the guest log stopped for every process at
+  once, adb timed out, and the emulator process exited about a minute later. Yfuse logged no crash.
+- A temporary workflow on `ccr-afc1c9d3-phenca` ran the gate's smoke on that signed APK under one
+  change at a time, in runs [37161859004](https://github.com/zhuiyun/Yfuse/actions/runs/37161859004),
+  [37162851486](https://github.com/zhuiyun/Yfuse/actions/runs/37162851486),
+  [37163604416](https://github.com/zhuiyun/Yfuse/actions/runs/37163604416),
+  [37171229170](https://github.com/zhuiyun/Yfuse/actions/runs/37171229170),
+  [37172114425](https://github.com/zhuiyun/Yfuse/actions/runs/37172114425) and
+  [37173305918](https://github.com/zhuiyun/Yfuse/actions/runs/37173305918); it was removed before
+  the fix. Soaks passed, by arm:
+  - unchanged: 4 of 13, counting the two gate attempts;
+  - display settings restored before the soak, so no rotations: 4 of 4 (a fifth run failed earlier,
+    at app launch);
+  - the system Settings app instead of Yfuse, through the same landscape soak: 3 of 3;
+  - Yfuse on 我的 instead of 首页: 3 of 3;
+  - Yfuse drawn as 静息 (thermal status MODERATE, confirmed before and after; the live glass off):
+    6 of 6, against 0 of 2 unchanged controls in the same run;
+  - with the live glass still on: app animators off 2 of 3, window and rotation animations off 1 of
+    3, guest Vulkan off 3 of 6; 6 GB of RAM, 4 cores and guest rendering each failed.
+- Cause: the soak inherited the landscape, 1.3 font and dark theme of the cases before it, so every
+  cycle rotated the display between the portrait launcher and Yfuse's landscape 首页. The live glass
+  under the dock and the bars captures and blurs the page every frame; on the Android 15 image's
+  software GPU such frames took one to two seconds, and a rotation among them froze the emulator.
+- The owner chose to change the gate, not the app: the smoke now puts back the device's own font,
+  rotation and theme before the soak ("Display settings restored before the soak"). Landscape,
+  dark and large font keep their own capture cases. Yfuse and its version are unchanged.
+- Next: a package-only run of this fix's merge commit, still 1.0.99 (261) as a retry of this
+  delivery, then reading the final APK's package name, version, size, SHA-256 and signing
+  certificate.
+
 Package-only delivery is intended. Do not publish an application update, create a release or
 deploy a service as part of this build.

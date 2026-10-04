@@ -48,7 +48,7 @@
     "jvmTests": "PlayerGestureStateTest and PlayerChromeStateTest: 24 passed"
   },
   "deviceVerified": false,
-  "apkBuild": "pending: the merge commit's packaging run signed the APK but its certificate check could not read the runner's apksigner output; a package-only run of the follow-up's merge commit, still 1.0.99 (261), replaces it",
+  "apkBuild": "pending: the follow-up's package-only run 37128629545 signed the APK, but its Android 15 startup smoke froze in the foreground/background soak; a package-only run of the gate fix's merge commit, still 1.0.99 (261), replaces it",
   "afterMerge": {
     "mergeCommit": "2ef2c00a9bfcebcadb08fa2cc4be859b8a4be639",
     "tvQualityGatesRun": 37122566224,
@@ -97,5 +97,51 @@
     },
     "artApi36": "no rejected method",
     "firstAttempt": "run 37117130335 on ad8175f5 ran out of memory in the Kotlin daemon before any check"
+  },
+  "afterFollowUpMerge": {
+    "pullRequest": 214,
+    "mergeCommit": "caef4f991ed33404f4d171e85b9f753fba6fe7ac",
+    "packagingRun": {
+      "id": 37128629545,
+      "publish": false,
+      "gate": "passed",
+      "build": "passed, DEX check passed",
+      "signing": "production key; metadata and signing-certificate check passed",
+      "signedApkSha256": "e06d261f1c207582df890081dd58d71d044d5caedda55b465f447b335729f195",
+      "signerCertificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+      "smoke": {
+        "android35": "failed in the foreground/background soak, attempt 1 and its one re-run (attempt 2): the emulator froze mid-rotation and exited about a minute later; Yfuse logged no crash",
+        "android36": "passed",
+        "android37": "passed"
+      },
+      "deployment": "skipped",
+      "published": false
+    },
+    "android15Investigation": {
+      "workflow": "Temporary Android 15 smoke investigation, on ccr-afc1c9d3-phenca, removed before the fix",
+      "apkUnderTest": "signed APK of run 37128629545",
+      "runs": [
+        37161859004,
+        37162851486,
+        37163604416,
+        37171229170,
+        37172114425,
+        37173305918
+      ],
+      "soakPassedByArm": {
+        "unchanged": "4 of 13, including the two gate attempts",
+        "displayRestoredBeforeSoak": "4 of 4 (a fifth run failed earlier, at app launch)",
+        "settingsAppInsteadOfYfuse": "3 of 3",
+        "yfuseOnProfileTab": "3 of 3",
+        "yfuseDrawnAsCalm": "6 of 6 with thermal status MODERATE confirmed before and after; 0 of 2 unchanged controls in the same run",
+        "appAnimatorsOff": "2 of 3",
+        "windowAndRotationAnimationsOff": "1 of 3",
+        "guestVulkanOff": "3 of 6",
+        "sixGigabytesRamFourCoresGuestRendering": "each failed"
+      },
+      "cause": "the soak inherited the landscape, 1.3 font and dark theme of the cases before it, so every cycle rotated the display between the portrait launcher and Yfuse's landscape 首页; the live glass under the dock and bars captures and blurs the page every frame, which took one to two seconds per frame on the Android 15 image's software GPU, and a rotation among such frames froze the emulator"
+    },
+    "ownerDecision": "change the gate, not the app (October 4)",
+    "fix": "the smoke restores the device's own font, rotation and theme before the soak ('Display settings restored before the soak'); landscape, dark and large font keep their own capture cases; Yfuse and its version unchanged"
   }
 }

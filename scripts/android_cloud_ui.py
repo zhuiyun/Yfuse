@@ -323,13 +323,17 @@ class Session:
             self.adb("shell", "settings", *operation, check=check)
         self.adb("shell", "cmd", "uimode", "night", getattr(self, "original_night", "auto"), check=check)
 
-    def settle_for_layout_probe(self):
-        # The probe samples its own rotations and font scales; it must not start from the
-        # smoke's landscape, 1.3 font and dark theme.
+    def restore_display(self, name="09b-display-restored"):
+        """Puts back the device's own font, rotation and theme, and captures Yfuse redrawn in them."""
         self.reset_configuration()
         time.sleep(3)
         self.wait_label("我的")
-        return self.capture("layout-start")
+        return self.capture(name)
+
+    def settle_for_layout_probe(self):
+        # The probe samples its own rotations and font scales; it must not start from the
+        # smoke's landscape, 1.3 font and dark theme.
+        return self.restore_display("layout-start")
 
     def restore(self):
         if not hasattr(self, "original"):
@@ -390,6 +394,13 @@ def run_cases(session, args):
     session.case("Dark-theme foreground capture", lambda: session.configuration("08-dark",
                  ("cmd", "uimode", "night", "yes")))
     session.case("UI survives disabling Wi-Fi and mobile data", session.offline)
+    # The soak cycles home and back from the device's own display state. Left in the landscape,
+    # large-font and dark state of the cases above, every cycle rotated the display between the
+    # portrait launcher and Yfuse's landscape 首页, whose live glass blurs the page afresh each
+    # frame. On the Android 15 image's software GPU that froze the whole emulator mid-rotation in
+    # 9 of 13 runs of 1.0.99; without the rotations the soak passed 4 of 4, and with Yfuse drawn as
+    # 静息, which turns the live glass off, 6 of 6. The cases above still cover landscape and dark.
+    session.case("Display settings restored before the soak", session.restore_display)
     session.case("Short foreground/background stability", lambda: session.soak(args.soak_seconds))
     session.summary["result"] = "smoke_completed_visual_review_required"
     if args.layout_probe:

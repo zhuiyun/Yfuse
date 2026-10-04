@@ -18,6 +18,7 @@ SMOKE_CASES = [
     "Landscape foreground capture",
     "Dark-theme foreground capture",
     "UI survives disabling Wi-Fi and mobile data",
+    "Display settings restored before the soak",
     "Short foreground/background stability",
 ]
 
@@ -105,6 +106,8 @@ class CaseOrderTest(unittest.TestCase):
             ["Display settings restored after the smoke", "Targeted rotation, font and tablet viewport evidence"],
             cases[-2:],
         )
+        self.assertLess(session.calls.index("offline"), session.calls.index("restore_display"))
+        self.assertLess(session.calls.index("restore_display"), session.calls.index("soak"))
         self.assertLess(session.calls.index("soak"), session.calls.index("settle_for_layout_probe"))
         self.assertLess(session.calls.index("settle_for_layout_probe"), session.calls.index("layout_probe"))
         self.assertEqual("smoke_and_layout_probe_completed_visual_review_required", session.summary["result"])
@@ -115,6 +118,8 @@ class CaseOrderTest(unittest.TestCase):
 
         self.assertNotIn("layout_probe", session.calls)
         self.assertNotIn("settle_for_layout_probe", session.calls)
+        # A release gate runs without the probe; its soak still starts from the device's own display.
+        self.assertLess(session.calls.index("restore_display"), session.calls.index("soak"))
         self.assertEqual("smoke_completed_visual_review_required", session.summary["result"])
 
 
