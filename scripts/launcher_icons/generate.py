@@ -7,6 +7,7 @@ icon, and is written as
   composeApp/src/androidMain/res/drawable/ic_<key>_background.xml   108dp background layer
   composeApp/src/androidMain/res/drawable/ic_<key>_foreground.xml   108dp foreground layer
   composeApp/src/androidMain/res/drawable/ic_<key>_mono.xml         Android 13+ themed layer
+  composeApp/src/androidMain/res/drawable/ic_notification_<key>.xml 24dp status-bar icon
   docs/logo-concepts-20261004/NN-<key>-icon.svg, -mono.svg          the same artwork as SVG
 
 A vector drawable has paths and linear or radial gradients and nothing else: no filters, masks
@@ -18,6 +19,7 @@ relative path data split across paths that stay under that length.
     python3 scripts/launcher_icons/generate.py            # every icon
     python3 scripts/launcher_icons/generate.py prism      # one icon
 """
+import math
 import os
 import sys
 from dataclasses import dataclass, replace
@@ -411,6 +413,36 @@ def to_vector(shapes, comment):
     return "\n".join(out) + "\n"
 
 
+# A status-bar icon is drawn 24dp square; the mark fills the middle 22dp, the 1dp margin
+# Android's own notification icons keep.
+SMALL_ICON_DP = 24
+SMALL_ICON_LIVE_DP = 22
+
+
+def to_small_icon(geom, comment):
+    """The themed layer's shape as a 24dp status-bar icon, cropped to its own bounds.
+
+    Android draws only the alpha of a notification's small icon, tinted, so the one-colour
+    stencil of the themed layer is already the right artwork; at 108dp it would leave the mark
+    a third of the icon, so the viewport is the mark's bounds plus the margin.
+    """
+    x0, y0, x1, y1 = geom.bounds
+    side = math.ceil(max(x1 - x0, y1 - y0) * SMALL_ICON_DP / SMALL_ICON_LIVE_DP)
+    placed = affinity.translate(geom, side / 2 - (x0 + x1) / 2, side / 2 - (y0 + y1) / 2)
+    out = ['<?xml version="1.0" encoding="utf-8"?>', "<!--", *[f"  {line}" for line in comment], "-->"]
+    out += [
+        '<vector xmlns:android="http://schemas.android.com/apk/res/android"',
+        f'    android:width="{SMALL_ICON_DP}dp"',
+        f'    android:height="{SMALL_ICON_DP}dp"',
+        f'    android:viewportWidth="{side}"',
+        f'    android:viewportHeight="{side}">',
+    ]
+    for data in vector_path_data(placed, 0, 1.0, PATH_LIMIT):
+        out += ["    <path", '        android:fillColor="#FFFFFFFF"', f'        android:pathData="{data}" />']
+    out.append("</vector>")
+    return "\n".join(out) + "\n"
+
+
 def write(path, text):
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
@@ -432,6 +464,10 @@ def main(keys):
         write(
             os.path.join(DRAWABLES, f"ic_{key}_mono.xml"),
             to_vector([Shape(icon.mono, "#FFFFFF")], [f"{name}: launcher icon, Android 13+ themed layer.", source]),
+        )
+        write(
+            os.path.join(DRAWABLES, f"ic_notification_{key}.xml"),
+            to_small_icon(icon.mono, [f"{name}: status-bar icon of the notifications sent while it is chosen.", source]),
         )
         stem = f"{number:02d}-{key.replace('_', '-')}"
         write(os.path.join(MASTERS, f"{stem}-icon.svg"), to_svg(icon.background + icon.foreground, f"Yfuse {name}"))

@@ -32,6 +32,7 @@
 - 入口：manifest 里五个 `com.yfuse.Launcher*` 别名，默认关闭；`AppIconVariant` 新增 `Prism`、`WaterOverFire`、`Overprint`、`Danmaku`、`LiquidGlass`。
 - 预览：设置页的图标预览和首页顶栏 logo 直接画这两层矢量，按启动器的可见范围（108dp 中间的 72dp）裁切；这五款的图形都配合自己的底色设计，所以顶栏显示整块图标，和极光一样。
 - 生成：`scripts/launcher_icons/generate.py`（`pip install shapely` 后运行）同时写出上面的矢量资源和 `docs/logo-concepts-20261004/` 里的 SVG 母版。改图形、配色或大小时改脚本再生成，不要手改资源。
+- 通知与快捷方式（1.1.1 起）：追剧更新推送的状态栏小图标是所选图标的单色剪影（`drawable/ic_notification_<key>.xml`，24dp），选了默认以外的图标时通知右侧再显示所选图标；长按桌面图标弹出的快捷方式也用所选图标。五款新图标的小图标由 `generate.py` 从主题图标层裁出；极光两款没有主题图标层，剪影由 `scripts/launcher_icons/trace_aurora.py` 从 `yfuse_aurora_dark.webp` 描出（另需 `pip install pillow potracer`）；当前 Logo、石墨和旧版云朵是手工从各自的主题图标层裁出。通知左上角的应用图标由系统读取安装包里的 `<application>` 图标，切换别名改不到，保持默认。
 
 ## 技术约束
 

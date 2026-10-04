@@ -47,6 +47,7 @@ import com.yfuse.core.designsystem.LocalTips
 import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.rememberScreenReaderActive
+import com.yfuse.core.model.ShortDramaMode
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.tv.player.TvPlayerChromeCommandType
 import com.yfuse.tv.player.TvPlayerChromeLayer
@@ -296,8 +297,12 @@ internal fun PlayerControls(
     // over the bottom bar moves up with it.
     val uprightWindow = rememberUprightPhoneWindow()
     // 短剧: an upright picture in an upright phone window is flicked through like a feed — up for
-    // the next episode, down for the one before — while the sides keep brightness and volume.
-    val episodeSwipe = uprightWindow && state.decodedPortraitPicture() == true && state.itemCount > 1
+    // the next episode, down for the one before — while the sides keep brightness and volume. A
+    // show the viewer set to 短剧 or 普通剧集 does so, or not, whatever its picture.
+    val episodeSwipe =
+        uprightWindow &&
+            state.itemCount > 1 &&
+            (panels.shortDramaMode ?: ShortDramaMode.Auto).swipesEpisodes(state.decodedPortraitPicture())
     val latestEpisodeSwipe by rememberUpdatedState(episodeSwipe)
     val latestOnNextItem by rememberUpdatedState(transportActions.onNextItem)
     val latestOnPreviousItem by rememberUpdatedState(transportActions.onPreviousItem)

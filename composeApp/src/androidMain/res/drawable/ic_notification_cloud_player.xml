@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  旧版云朵播放器: status-bar icon of the notifications sent while it is chosen. The themed
+  layer's stencil (ic_cloud_player_mono), cropped to the cloud: its bounds, 9–104 across and
+  18–79 down, centred in 24dp with 1dp clear on each side.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="103.6"
+    android:viewportHeight="103.6">
+    <group
+        android:translateX="-4.7"
+        android:translateY="3.3">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M27,79 C16.5,79 9,70.8 9,60.5 C9,50.2 16.7,42 27,41 C31.5,27 43.5,18 57.5,18 C72.5,18 84.7,29.2 87.2,43.5 C97.2,45 104,53 104,62.8 C104,72.2 96.3,79 86,79 Z M38,59 A18,18 0,1 0,74 59 A18,18 0,1 0,38 59 Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M51,49 L51,69 L67,59 Z" />
+    </group>
+</vector>

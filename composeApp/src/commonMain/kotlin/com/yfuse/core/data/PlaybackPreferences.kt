@@ -45,7 +45,7 @@ enum class PortraitVideoOrientation(
     val description: String,
 ) {
     Auto("自动竖屏", "竖屏拍摄的视频（如短剧）竖着全屏播放，横屏视频仍横屏"),
-    Landscape("始终横屏", "所有视频都横屏播放，竖屏视频两侧留黑边"),
+    Landscape("始终横屏", "所有视频都横屏播放，竖屏视频两侧留黑边；播放器里设为「短剧」的剧仍竖屏"),
 }
 
 /**

@@ -152,6 +152,7 @@ internal class PlayerQueueItemBuilder(
         seriesId: String? = null,
         seriesName: String? = null,
         seriesProviderIds: Map<String, String>? = null,
+        folderId: String? = null,
         versions: List<MediaVersion> = emptyList(),
         stillTag: String? = null,
         posterUrl: String? = null,
@@ -246,6 +247,7 @@ internal class PlayerQueueItemBuilder(
             episodeNumber = episodeNumber,
             seriesId = seriesId,
             seriesName = seriesName,
+            folderId = folderId,
             seriesKey =
                 skipSeriesStorageKey(
                     serverId = server.id,

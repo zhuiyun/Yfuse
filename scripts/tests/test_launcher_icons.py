@@ -2,8 +2,10 @@
 
 Choosing an icon enables one manifest component and disables the rest, so a variant whose
 component is missing, enabled by default or not a launcher entry breaks the switch with no
-compile error. The vector layers drawn by scripts/launcher_icons/generate.py are checked against
-the limits the generator promises: lint reports a pathData longer than 800 characters as slow.
+compile error. The launcher shortcuts and the 追剧更新 notification draw the chosen icon too,
+through resource mappings that nothing else checks against the manifest. The vector layers drawn
+by scripts/launcher_icons/generate.py are checked against the limits the generator promises:
+lint reports a pathData longer than 800 characters as slow.
 """
 import re
 import unittest
@@ -26,6 +28,17 @@ def variants():
 def components():
     android = (ANDROID / "kotlin/com/yfuse/feature/profile/AppIconVariant.android.kt").read_text("utf-8")
     return dict(re.findall(r"AppIconVariant\.(\w+) -> \"([\w.]+)\"", android))
+
+
+def resources(function):
+    """The branches of one `AppIconVariant.<function>(): Int` mapping, as variant -> @type/name."""
+    android = (ANDROID / "kotlin/com/yfuse/feature/profile/AppIconVariant.android.kt").read_text("utf-8")
+    body = android.split(f"fun AppIconVariant.{function}(): Int =", 1)[1].split("\n    }\n", 1)[0]
+    found = {}
+    for names, kind, name in re.findall(r"^\s+([\w., ]+) -> R\.(\w+)\.(\w+)$", body, re.M):
+        for variant in re.findall(r"AppIconVariant\.(\w+)", names):
+            found[variant] = f"@{kind}/{name}"
+    return found
 
 
 def resource(reference):
@@ -65,6 +78,29 @@ class LauncherIconTest(unittest.TestCase):
                     for layer in ET.parse(icon).getroot():
                         target = resource(layer.get(A + "drawable"))
                         self.assertTrue(target is None or target.exists(), f"{icon.name}: {target}")
+
+    def test_shortcuts_and_notifications_draw_the_chosen_icon(self):
+        application = ET.parse(ANDROID / "AndroidManifest.xml").getroot().find("application")
+        entries = {e.get(A + "name"): e for e in [*application.findall("activity"), *application.findall("activity-alias")]}
+        mapping = components()
+        launcher = resources("launcherIcon")
+        small = resources("notificationIcon")
+        for variant in variants():
+            with self.subTest(variant=variant):
+                # MainActivity has no icon of its own; the launcher shows the application's.
+                entry = entries[mapping[variant]]
+                self.assertEqual(launcher.get(variant), entry.get(A + "icon") or application.get(A + "icon"))
+                icon = resource(small.get(variant, "@drawable/missing"))
+                self.assertTrue(icon.exists(), f"{variant}: {icon}")
+                root = ET.parse(icon).getroot()
+                self.assertEqual(root.tag, "vector")
+                self.assertEqual((root.get(A + "width"), root.get(A + "height")), ("24dp", "24dp"))
+                self.assertEqual(root.get(A + "viewportWidth"), root.get(A + "viewportHeight"))
+                # Android keeps only the alpha of a small icon: one opaque colour, no gradient.
+                self.assertNotIn("aapt:attr", icon.read_text("utf-8"))
+                for element in root.iter("path"):
+                    self.assertEqual(element.get(A + "fillColor"), "#FFFFFFFF")
+                    self.assertLessEqual(len(element.get(A + "pathData")), 800)
 
     def test_generated_vector_layers_stay_within_their_limits(self):
         for key in GENERATED:

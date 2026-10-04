@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  极光深色 and 极光浅色: status-bar icon of the notifications sent while either is chosen.
+  Traced by scripts/launcher_icons/trace_aurora.py; change the script and run it again.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="754"
+    android:viewportHeight="754">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M403,721l14,1 14,-3 10,-9 7,-14 1,-22 1,-135 4,-17 7,-15 10,-13 9,-9 157,-99 11,-9 10,-15 6,-15 0,-37 -4,-18 -9,-16 -17,-14 -166,-105 -34,-20 -11,-1 -12,1 -11,5 -10,8 -7,11 -6,15 -2,204 -14,-11 -8,-9 -7,-13 -6,-17 -2,-20 -2,-130 -5,-18 -10,-19 -11,-13 -17,-12 -135,-83 -13,-3 -20,2 -12,6 -9,8 -7,12 -4,13 -4,35 2,18 1,64 3,20 4,16 10,18 15,16 20,14 88,57 18,16 17,21 11,24 3,14 2,217 3,10 8,14 10,11z" />
+</vector>

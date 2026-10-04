@@ -150,9 +150,43 @@ package-only run [37128629545](https://github.com/zhuiyun/Yfuse/actions/runs/371
 - The owner chose to change the gate, not the app: the smoke now puts back the device's own font,
   rotation and theme before the soak ("Display settings restored before the soak"). Landscape,
   dark and large font keep their own capture cases. Yfuse and its version are unchanged.
-- Next: a package-only run of this fix's merge commit, still 1.0.99 (261) as a retry of this
-  delivery, then reading the final APK's package name, version, size, SHA-256 and signing
-  certificate.
+- This fix is PR #215. All of its checks passed on `377ca5af`, including the instrumented tests on
+  the Android 15 emulator, and it was merged as `eac9636317b8a62f418a75a6ca2bcb23eb68ee08` with
+  `[artifact only]`.
+
+## Package
+
+Package-only run [37178647914](https://github.com/zhuiyun/Yfuse/actions/runs/37178647914) of
+`eac96363` (`publish=false`, 1.0.99 (261), the same release notes as the earlier attempts)
+passed every job:
+
+- the quality gate on the merge commit;
+- the release build with its DEX check, the version-metadata check and the APK-contents check;
+- production signing, then the metadata and signing-certificate check: package `com.yfuse`,
+  versionCode 261, versionName 1.0.99, exactly one signer with the pinned certificate, v2 only, and
+  the size within the 30,000,000-byte budget;
+- the signed-APK startup smoke on Android 35, 36 and 37. On Android 35 every case passed:
+  "Display settings restored before the soak" left the display in portrait (1080×1920), and the
+  soak ran 22 cycles in 123 s.
+
+The final APK:
+
+- `Yfuse-261-1.0.99.apk`, package `com.yfuse`, versionName `1.0.99`, versionCode `261`.
+  - Each smoke job's identity case checks the package, both version fields, the SHA-256 and the
+    certificate of this exact APK.
+  - 1.0.98 (260) was the previous delivery.
+- 29,390,921 bytes, SHA-256 `0bf6e2e48710c42e53daf035acc87f09acfb5b107a3c5a5a7517cd104a676ecf`.
+- Signing certificate SHA-256 `373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84`,
+  v2 scheme only.
+- Kept as the run's `Yfuse-1.0.99` artifact (the APK with `update.json` and `update-v2.json`),
+  until 2026-10-11.
+
+`PUBLISH_UPDATE` was `false`. The SSH, publish, server-verification, release-finalization and
+rollback steps were skipped, and no GitHub release was created.
+
+`version.properties` and `release-notes.txt` have not changed since the 1.0.99 (261) preparation,
+where `scripts/release_metadata.py` passed. #214 and #215 did not touch them.
+
 
 Package-only delivery is intended. Do not publish an application update, create a release or
 deploy a service as part of this build.

@@ -29,7 +29,7 @@ all of them to be switchable in the settings with larger marks ("全部做到设
 - The marks reach 411–461 units from the centre of the 1024 canvas (the current icon: 444; the 66dp
   safe zone: 469). 水火既济 grew 1.65x from its first draft.
 
-## Verification so far
+## Verification before the pull request
 
 This workspace cannot reach Google Maven (`dl.google.com` is refused by its network policy), so the
 Android code was not compiled here.
@@ -50,12 +50,40 @@ Android code was not compiled here.
   `.github/mdk-distribution-approval.json` records it with the SDK checksum and scope unchanged;
   `scripts/mdk_distribution_approval.py --package-only` returns `true`, and `false` without it.
 
-## Pending
+## Delivery
 
-- The pull request's quality gates (compile, unit and instrumented tests, lint, R8 package, DEX
-  check, size budget), the packaging run's production signing and its Android 35–37 startup smoke.
-- Reading the final APK's package name, version name and code, size, SHA-256 and signing
-  certificate.
+All PR #216 checks passed on `52e6ccc1`; Android quality gates run
+[37182501795](https://github.com/zhuiyun/Yfuse/actions/runs/37182501795) compiled, ran the unit and
+instrumented tests, lint, the release DEX check and an R8 package of 29,426,394 bytes. The PR was
+merged as `73f7370e0b4aff15d6ce37b116266104862a671b` with `[artifact only]`, and the push started
+package-only run [37183767245](https://github.com/zhuiyun/Yfuse/actions/runs/37183767245).
+
+- On the merge commit, Android quality gates
+  [37183767078](https://github.com/zhuiyun/Yfuse/actions/runs/37183767078), TV quality gates
+  [37183767111](https://github.com/zhuiyun/Yfuse/actions/runs/37183767111), CodeQL
+  [37183767143](https://github.com/zhuiyun/Yfuse/actions/runs/37183767143) and the Dolby validation
+  [37183767092](https://github.com/zhuiyun/Yfuse/actions/runs/37183767092) passed. The packaging
+  run waited for them, and its request job accepted 1.1.0 (262) as newer than 1.0.99 (261).
+- The production signature's check passed. It requires package `com.yfuse`, `versionCode='262'`,
+  `versionName='1.1.0'`, one signer, APK Signature Scheme v2 only, certificate SHA-256
+  `373e36d3…e7be3e84` and the 30,000,000-byte budget.
+- The startup smoke passed all 14 cases on Android 35, 36 and 37 emulators. Each run read the APK
+  itself: SHA-256 `66eb8a8f…80846d`, certificate `373e36d3…e7be3e84`, package `com.yfuse`, 262 and
+  1.1.0, ABI `arm64-v8a`.
+- Final APK: `Yfuse-262-1.1.0.apk`, 29,413,982 bytes (23,061 more than 1.0.99), SHA-256
+  `66eb8a8f25cac36c10371eb2ed4182b2bc3fe4bb80bc4037d584836aea80846d`, `PUBLISH_UPDATE=false`.
+  Artifact `Yfuse-1.1.0`
+  ([11296193616](https://github.com/zhuiyun/Yfuse/actions/runs/37183767245/artifacts/11296193616))
+  holds it with `update.json` and `update-v2.json` for 7 days.
+- Nothing was published. The deploy job skipped its SSH, upload, server-check and finalize steps.
+  "Create GitHub release" run [37185287105](https://github.com/zhuiyun/Yfuse/actions/runs/37185287105)
+  found no published update and skipped its release job, so there is no `v1.1.0` release. Firebase
+  Test Lab run [37185287070](https://github.com/zhuiyun/Yfuse/actions/runs/37185287070) skipped
+  signing in and both device jobs.
+- Not run on any device: switching to the new icons. The smoke does not open APP 图标, and no
+  instrumented test switches launcher icons; `test_launcher_icons.py` checks the manifest wiring
+  statically.
+- 1.1.0 (262) is now the last delivered APK, so the next delivery needs code 263 or higher.
 
 Package-only delivery is intended. Do not publish an application update, create a release or
 deploy a service as part of this build.

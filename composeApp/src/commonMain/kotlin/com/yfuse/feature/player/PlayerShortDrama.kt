@@ -1,6 +1,21 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.model.ShortDramaMode
 import com.yfuse.core.model.isPortraitPicture
+
+/**
+ * What 短剧模式 is remembered against: the series, or for videos queued from their folder — a 短剧
+ * kept as 01.mp4, 02.mp4 — the folder, which its viewer treats as one show. Null for an entry with
+ * neither, a film or a lone video, where there is no run of episodes to play either way.
+ */
+internal fun PlayerMediaItem.shortDramaKey(): String? = seriesId ?: folderId?.let { "folder:$it" }
+
+/**
+ * Whether a vertical drag down the middle of an upright window changes episode: under 短剧 always,
+ * under 普通剧集 never, and left to [ShortDramaMode.Auto] when the decoded picture stands upright.
+ */
+internal fun ShortDramaMode.swipesEpisodes(decodedPortraitPicture: Boolean?): Boolean =
+    resolve(detected = decodedPortraitPicture == true)
 
 /** Whether this entry's picture stands upright, from the server's stream facts; null when unknown. */
 internal fun PlayerMediaItem.portraitPicture(): Boolean? =

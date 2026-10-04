@@ -61,10 +61,12 @@ internal fun phonePlayerMayReorient(requested: Int): Boolean =
         requested == ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
 /**
- * The orientation a phone player asks for the entry on screen. An upright picture — a 短剧 shot
- * 9:16 — plays upright, filling the screen instead of a quarter of it, unless the viewer chose
- * 始终横屏 or plays this series as an ordinary one. A series set to play as a 短剧 stands upright
- * while its picture is still unknown. Everything else keeps landscape, either way up.
+ * The orientation a phone player asks for the entry on screen. A show the viewer set to play as a
+ * 短剧 stands upright, and one set to play as an ordinary series lies in landscape, whatever its
+ * picture: the choice is made for this one show, so it goes before 竖屏视频 too, and it is what
+ * turns a 短剧 coded on its side, or with bars beside it, upright. Left to 自动, an upright picture —
+ * a 短剧 shot 9:16 — plays upright, filling the screen instead of a quarter of it, unless the viewer
+ * chose 始终横屏. Everything else keeps landscape, either way up.
  */
 internal fun phonePlayerOrientation(
     portraitPicture: Boolean?,
@@ -72,9 +74,11 @@ internal fun phonePlayerOrientation(
     shortDrama: ShortDramaMode,
 ): Int {
     val upright =
-        preference == PortraitVideoOrientation.Auto &&
-            shortDrama != ShortDramaMode.Off &&
-            (portraitPicture == true || portraitPicture == null && shortDrama == ShortDramaMode.On)
+        when (shortDrama) {
+            ShortDramaMode.On -> true
+            ShortDramaMode.Off -> false
+            ShortDramaMode.Auto -> preference == PortraitVideoOrientation.Auto && portraitPicture == true
+        }
     return if (upright) {
         ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
     } else {
