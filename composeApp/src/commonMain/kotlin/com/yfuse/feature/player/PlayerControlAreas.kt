@@ -165,7 +165,10 @@ internal data class PlayerSourceActions(
 internal data class PlayerPanelState(
     val bookmarks: PlaybackBookmarkPanelState = PlaybackBookmarkPanelState(),
     val sleepTimer: SleepTimerState = SleepTimerState(),
-    /** This series' 短剧模式, where choosing one changes something: a series on a phone. */
+    /**
+     * This show's 短剧模式, where choosing one changes something: a series, or videos queued from
+     * their folder, on a phone.
+     */
     val shortDramaMode: ShortDramaMode? = null,
 )
 

@@ -2017,7 +2017,7 @@ class PlayerActivity :
                 ?: state?.takeIf { it.videoHeight > 0 }?.decodedPortraitPicture()
         val shortDrama =
             ShortDramaMode.fromStorage(
-                preferences?.rememberedSeriesPlayback(item?.serverId, item?.seriesId, item?.id)?.shortDrama,
+                preferences?.rememberedSeriesPlayback(item?.serverId, item?.shortDramaKey())?.shortDrama,
             )
         return phonePlayerOrientation(
             portraitPicture = portrait,

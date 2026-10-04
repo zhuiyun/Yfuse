@@ -3,8 +3,9 @@ package com.yfuse.core.model
 /**
  * How a series plays: as a 短剧 — upright picture, 选集 by number, swipe between episodes, a
  * light next-up — or as an ordinary series. [Auto] reads it from the episode on screen; the
- * viewer can settle it per series in the player's settings, where it is remembered with the
- * series' other playback choices.
+ * viewer can settle it per series, or per folder of videos, in the player's settings, where it is
+ * remembered with the series' other playback choices. Settled, it decides the orientation and the
+ * swipe whatever the picture.
  */
 enum class ShortDramaMode(
     val label: String,

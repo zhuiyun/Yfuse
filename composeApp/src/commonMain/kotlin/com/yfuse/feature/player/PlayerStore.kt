@@ -498,6 +498,11 @@ data class PlayerMediaItem(
      */
     val seriesId: String? = null,
     val seriesName: String? = null,
+    /**
+     * The folder a video outside any series was queued from with the videos beside it — a 短剧
+     * kept as 01.mp4, 02.mp4 — or null. Its viewer treats them as one show; see [shortDramaKey].
+     */
+    val folderId: String? = null,
     /** Cross-server identity used by watch-together rooms — the one this device publishes. */
     val watchKey: String = id,
     /**
@@ -1427,6 +1432,7 @@ class PlayerStoreFactory(
                     video.name.ifBlank { "第 ${index + 1} 个" },
                     video.playbackSegments,
                     video.providerIds,
+                    folderId = folderId,
                     versions = if (video.id == currentItemId) detail.versions else video.versions,
                     stillTag = video.primaryTag,
                     progress =

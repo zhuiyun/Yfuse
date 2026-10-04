@@ -1,4 +1,4 @@
-# Notifications and shortcuts follow the chosen icon — 1.1.1 (263)
+# Notifications and shortcuts follow the chosen icon, 短剧模式 by hand — 1.1.1 (263)
 
 Base: cloud `master` at `73f7370e0b4aff15d6ce37b116266104862a671b` (#216, 1.1.0). On October 4
 the owner asked to merge all code, fix push notifications not using the logo chosen in the
@@ -56,6 +56,29 @@ No pull request was open. Every other remote branch is already contained in `mas
 - `scripts/tests/test_launcher_icons.py` checks that each variant's shortcut icon is the icon its
   launcher entry shows and that its status-bar icon exists as a 24dp, single-colour vector.
 
+## 短剧模式 by hand
+
+With the pull request open, the owner asked for 短剧模式 to be switchable by hand ("需要可以手动切换短剧
+模式"). The per-show choice in the player's 播放设置 (自动 / 短剧 / 普通剧集, from 1.0.98) existed
+but did little:
+
+- It showed only for a series. A 短剧 kept as 01.mp4, 02.mp4 in a folder is queued with the videos
+  beside it and has no series, so the choice never appeared for it.
+- 短剧 turned the phone upright only while the picture's size was unknown, and not under
+  竖屏视频 → 始终横屏, so a 短剧 coded on its side, or with bars beside it, stayed in landscape.
+- 上下滑切集 followed the decoded picture alone, whatever had been chosen.
+
+Now:
+
+- 短剧 always stands upright and swipes between episodes; 普通剧集 always lies in landscape and does
+  not swipe; 自动 decides from the picture and 竖屏视频, as before. A show's own choice goes before
+  竖屏视频.
+- Videos queued from their folder carry the folder's id (`PlayerMediaItem.folderId`), and the
+  choice is remembered against the series or, for them, the folder (`shortDramaKey()`).
+- The panel's note and 始终横屏's description say so.
+- Tests: `PlayerOrientationTest` for the new orientation rules, and `EpisodeSwipeTest` for the
+  swipe and the remembered key.
+
 ## Verification before the pull request
 
 This workspace cannot reach Google Maven, so the Android code was not compiled here.
@@ -77,8 +100,8 @@ This workspace cannot reach Google Maven, so the Android code was not compiled h
 - The pull request's quality gates, merging it into `master` as `[artifact only]`, the packaging
   run's production signing and Android 35–37 smoke, and reading the final APK's package name,
   version, size, SHA-256 and signing certificate.
-- No device check of the notification or the shortcuts: the CI smoke posts no 追剧更新 reminder
-  and opens no launcher menu.
+- No device check of the notification, the shortcuts or 短剧模式: the CI smoke posts no 追剧更新
+  reminder, opens no launcher menu and plays no series or folder.
 
 Package-only delivery is intended. Do not publish an application update, create a release or
 deploy a service as part of this build.

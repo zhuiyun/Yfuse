@@ -328,8 +328,8 @@ internal fun MorePanel(
                         onSelect = { onSelectShortDramaMode(ShortDramaMode.entries[it]) },
                     )
                     Text(
-                        "只对本剧生效。自动：竖版画面竖屏播放；短剧：画面尺寸未知时也先竖屏；" +
-                            "普通剧集：始终横屏。",
+                        "只对本剧生效，同一文件夹里的视频算作一部。自动：竖版画面竖屏播放；" +
+                            "短剧：始终竖屏，在画面中间上下滑切集；普通剧集：始终横屏。",
                         style = AppTypography.caption.regular,
                         color = Color.White.copy(alpha = 0.6f),
                     )

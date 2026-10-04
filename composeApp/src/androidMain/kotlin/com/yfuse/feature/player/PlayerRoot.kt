@@ -898,14 +898,14 @@ internal fun PlayerRoot(
             )
         }
 
-        // 短剧模式 is kept with the series' other playback choices; a phone turns to it at once.
+        // 短剧模式 is kept with the series' other playback choices, or for videos queued from their
+        // folder with the folder's; a phone turns to it at once.
         val entryOrientationHost = rememberEntryOrientationHost()
-        var shortDramaMode by remember(currentItem?.serverId, currentItem?.seriesId, currentItem?.id) {
+        val shortDramaKey = currentItem?.shortDramaKey()
+        var shortDramaMode by remember(currentItem?.serverId, shortDramaKey) {
             mutableStateOf(
                 ShortDramaMode.fromStorage(
-                    playbackPreferences
-                        .rememberedSeriesPlayback(currentItem?.serverId, currentItem?.seriesId, currentItem?.id)
-                        ?.shortDrama,
+                    playbackPreferences.rememberedSeriesPlayback(currentItem?.serverId, shortDramaKey)?.shortDrama,
                 ),
             )
         }
@@ -1457,10 +1457,12 @@ internal fun PlayerRoot(
                 onToggleAutoNext = { themePreferences.setAutoNext(!autoNextSetting) },
                 shortDramaMode =
                     shortDramaMode.takeIf {
-                        entryOrientationHost != null && currentItem?.seriesId != null
+                        entryOrientationHost != null && shortDramaKey != null
                     },
                 onSelectShortDramaMode = { mode ->
-                    rememberSeriesPlayback { it.copy(shortDrama = mode.name) }
+                    playbackPreferences.updateSeriesPlayback(currentItem?.serverId, shortDramaKey) {
+                        it.copy(shortDrama = mode.name)
+                    }
                     shortDramaMode = mode
                     entryOrientationHost?.reorientForCurrentEntry()
                 },
