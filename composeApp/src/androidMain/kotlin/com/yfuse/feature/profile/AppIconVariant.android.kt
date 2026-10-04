@@ -22,7 +22,7 @@ import java.util.WeakHashMap
 /**
  * The manifest component each variant corresponds to.
  *
- * [AppIconVariant.Default] is `MainActivity` itself rather than a fourth alias, so a fresh
+ * [AppIconVariant.Default] is `MainActivity` itself rather than another alias, so a fresh
  * install with no preference ever set is in exactly the state it shipped in.
  */
 private fun AppIconVariant.componentClass(): String =
@@ -32,6 +32,11 @@ private fun AppIconVariant.componentClass(): String =
         AppIconVariant.CloudPlayer -> "com.yfuse.LauncherCloud"
         AppIconVariant.AuroraDark -> "com.yfuse.LauncherAuroraDark"
         AppIconVariant.AuroraLight -> "com.yfuse.LauncherAuroraLight"
+        AppIconVariant.Prism -> "com.yfuse.LauncherPrism"
+        AppIconVariant.WaterOverFire -> "com.yfuse.LauncherWaterOverFire"
+        AppIconVariant.Overprint -> "com.yfuse.LauncherOverprint"
+        AppIconVariant.Danmaku -> "com.yfuse.LauncherDanmaku"
+        AppIconVariant.LiquidGlass -> "com.yfuse.LauncherLiquidGlass"
     }
 
 /**

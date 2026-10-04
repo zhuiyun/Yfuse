@@ -7,7 +7,9 @@ import androidx.compose.ui.Modifier
  * Which launcher icon the app presents.
  *
  * The current water-fire mark is available on light and graphite grounds, and the previous
- * cloud-player mark remains available alongside the light and dark Aurora artwork.
+ * cloud-player mark remains available alongside the light and dark Aurora artwork. The last
+ * five are the 2026-10 concepts, drawn as vectors by scripts/launcher_icons/generate.py; each
+ * mark is made for its own ground, so they are always shown whole, ground included.
  */
 enum class AppIconVariant(
     val label: String,
@@ -27,6 +29,11 @@ enum class AppIconVariant(
     CloudPlayer("旧版云朵播放器", "旧版云朵播放器 Logo，浅色底"),
     AuroraDark("极光 · 深色", "青蓝紫渐变折带，深色底"),
     AuroraLight("极光 · 浅色", "青蓝紫渐变折带，浅色底"),
+    Prism("汇光", "三束彩光射进播放键，汇成一束白光，深色底"),
+    WaterOverFire("水火既济", "浪线分开上水下火的播放键，浅色底"),
+    Overprint("叠印", "青与品红两笔叠印成 Y，白底"),
+    Danmaku("弹幕", "弹幕横条拼成的 Y，深色底"),
+    LiquidGlass("液态", "两滴水汇成的磨砂玻璃 Y，极光渐变底"),
 }
 
 /** The variant the launcher is currently showing. */

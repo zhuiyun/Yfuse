@@ -13,15 +13,19 @@ import com.yfuse.shared.R
 @Composable
 actual fun CloudPlayerLogo(modifier: Modifier) {
     val variant = currentAppIconVariant()
-    if (variant == AppIconVariant.AuroraDark || variant == AppIconVariant.AuroraLight) {
+    val mark =
+        when (variant) {
+            AppIconVariant.Default, AppIconVariant.Graphite -> R.drawable.yfuse_mark
+            AppIconVariant.CloudPlayer -> R.drawable.cloud_player_logo
+            // Aurora and the vector icons: each mark is made for its own ground, so the whole tile.
+            else -> null
+        }
+    if (mark == null) {
         AppIconPreview(variant, modifier)
         return
     }
     Image(
-        painter =
-            painterResource(
-                if (variant == AppIconVariant.CloudPlayer) R.drawable.cloud_player_logo else R.drawable.yfuse_mark,
-            ),
+        painter = painterResource(mark),
         contentDescription = null,
         modifier = modifier,
         contentScale = ContentScale.Fit,
