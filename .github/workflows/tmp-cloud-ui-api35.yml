@@ -23,14 +23,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { label: no-guest-vulkan-1, gpu: swiftshader_indirect, extra: "-feature -Vulkan", ram: 4096M, cores: 2 }
-          - { label: no-guest-vulkan-2, gpu: swiftshader_indirect, extra: "-feature -Vulkan", ram: 4096M, cores: 2 }
-          - { label: no-guest-vulkan-3, gpu: swiftshader_indirect, extra: "-feature -Vulkan", ram: 4096M, cores: 2 }
-          - { label: no-guest-vulkan-4, gpu: swiftshader_indirect, extra: "-feature -Vulkan", ram: 4096M, cores: 2 }
-          - { label: no-guest-vulkan-5, gpu: swiftshader_indirect, extra: "-feature -Vulkan", ram: 4096M, cores: 2 }
-          - { label: baseline-c, gpu: swiftshader_indirect, extra: "", ram: 4096M, cores: 2 }
-          - { label: baseline-d, gpu: swiftshader_indirect, extra: "", ram: 4096M, cores: 2 }
-          - { label: baseline-e, gpu: swiftshader_indirect, extra: "", ram: 4096M, cores: 2 }
+          - { label: portrait-soak-1, mode: portrait }
+          - { label: portrait-soak-2, mode: portrait }
+          - { label: portrait-soak-3, mode: portrait }
+          - { label: portrait-soak-4, mode: portrait }
+          - { label: portrait-soak-5, mode: portrait }
+          - { label: settings-control-1, mode: settings }
+          - { label: settings-control-2, mode: settings }
+          - { label: settings-control-3, mode: settings }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -54,17 +54,18 @@ jobs:
           free -m
           nproc
       - name: Run the gate's smoke with evidence
+        env:
+          PROBE_MODE: ${{ matrix.mode }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: "35"
           target: google_apis
           arch: x86_64
           profile: pixel_2
-          cores: ${{ matrix.cores }}
-          ram-size: ${{ matrix.ram }}
+          ram-size: 4096M
           heap-size: 512M
           disk-size: 4096M
           emulator-boot-timeout: 600
           disable-animations: false
-          emulator-options: -no-window -gpu ${{ matrix.gpu }} -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on ${{ matrix.extra }}
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
           script: bash .github/tmp-cloud-ui-probe.sh
