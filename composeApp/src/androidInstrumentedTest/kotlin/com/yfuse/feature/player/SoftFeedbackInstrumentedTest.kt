@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import android.graphics.Bitmap
 import android.os.SystemClock
+import android.provider.Settings
 import android.view.MotionEvent
 import android.view.ViewTreeObserver
 import androidx.activity.compose.setContent
@@ -29,6 +30,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.yfuse.MainActivity
 import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.feature.detail.DETAIL_SPLIT_ARRIVAL_MS
+import com.yfuse.feature.detail.DETAIL_SPLIT_MS
 import com.yfuse.feature.detail.DetailActionDock
 import com.yfuse.feature.detail.DetailPlayButtonHeight
 import org.junit.Assert.assertEquals
@@ -200,6 +203,7 @@ class SoftFeedbackInstrumentedTest {
                 }
             }
             repeat(3) { frame() }
+            awaitFromStartSplit()
             val dock = requireNotNull(bounds.get())
             val row = Rect(dock.left, dock.top, dock.right, dock.top + rowHeight)
             val down = SystemClock.uptimeMillis()
@@ -252,6 +256,19 @@ class SoftFeedbackInstrumentedTest {
                 event.recycle()
             }
         }
+    }
+
+    /**
+     * Draws frames until a dock opened with progress has split 从头 off. It arrives as one key and
+     * splits once the page is in; until then the end of the row answers as 播放, so a tap there
+     * that came too soon counted as a second play.
+     */
+    private fun awaitFromStartSplit() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scale = Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val split = SystemClock.uptimeMillis() + DETAIL_SPLIT_ARRIVAL_MS + (DETAIL_SPLIT_MS * maxOf(scale, 1f)).toLong()
+        while (SystemClock.uptimeMillis() < split) frame()
+        frame()
     }
 
     private fun frame() {

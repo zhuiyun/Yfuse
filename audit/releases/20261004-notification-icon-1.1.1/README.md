@@ -95,6 +95,28 @@ This workspace cannot reach Google Maven, so the Android code was not compiled h
   `.github/mdk-distribution-approval.json` records it with the SDK checksum and scope unchanged;
   `scripts/mdk_distribution_approval.py --package-only` returns `true`, and `false` without it.
 
+## Packaging
+
+All PR #217 checks passed on `05b243f2`. The PR was merged as
+`b581f729e311d9774c037161752cc349a581bf6a` with `[artifact only]`, and the push started
+package-only run [37210109423](https://github.com/zhuiyun/Yfuse/actions/runs/37210109423).
+
+- The build job built the release APK and its DEX check passed.
+- Android quality gates [37210109162](https://github.com/zhuiyun/Yfuse/actions/runs/37210109162) on
+  the merge commit failed one instrumented test (58 run, 1 failed, 3 skipped), so the gate refused
+  the commit and signing, smoke and deployment were skipped. The gate's last poll also met an
+  HTTP 500 from the GitHub API.
+- The failing test was
+  `SoftFeedbackInstrumentedTest.compound_play_surface_preserves_separate_actions_and_disabled_state`:
+  `expected:<1> but was:<2>` plays.
+  - Cause, in the test: a 详情 play dock opened with progress arrives as one key, and 从头 splits
+    off only after `DETAIL_SPLIT_ARRIVAL_MS` (420 ms) and the 600 ms split. Until then the end of
+    the row answers as 播放, so the end can never restart from a stray tap.
+  - The test tapped the end after a few frames, so on a fast emulator the tap meant to restart
+    counted as a second play. The same tree had passed on `05b243f2`.
+- The failed job was re-run once. The test now draws frames until the split has had its time,
+  scaled by the animator duration scale, before it taps.
+
 ## Pending
 
 - The pull request's quality gates, merging it into `master` as `[artifact only]`, the packaging
