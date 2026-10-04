@@ -23,14 +23,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { label: portrait-soak-1, mode: portrait }
-          - { label: portrait-soak-2, mode: portrait }
-          - { label: portrait-soak-3, mode: portrait }
-          - { label: portrait-soak-4, mode: portrait }
-          - { label: portrait-soak-5, mode: portrait }
-          - { label: settings-control-1, mode: settings }
-          - { label: settings-control-2, mode: settings }
-          - { label: settings-control-3, mode: settings }
+          - { label: animator-off-1, mode: animator0 }
+          - { label: animator-off-2, mode: animator0 }
+          - { label: animator-off-3, mode: animator0 }
+          - { label: window-transitions-off-1, mode: transitions0 }
+          - { label: window-transitions-off-2, mode: transitions0 }
+          - { label: window-transitions-off-3, mode: transitions0 }
+          - { label: profile-tab-1, mode: profiletab }
+          - { label: profile-tab-2, mode: profiletab }
+          - { label: profile-tab-3, mode: profiletab }
+          - { label: gate-control-1, mode: gate }
+          - { label: gate-control-2, mode: gate }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

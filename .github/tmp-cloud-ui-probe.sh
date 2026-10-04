@@ -22,47 +22,42 @@ adb -s emulator-5554 shell getprop | grep -iE "renderengine|vulkan|hwui.renderer
 adb -s emulator-5554 shell dumpsys SurfaceFlinger 2>/dev/null | grep -iE "renderengine|vulkan|skia" | head -10
 echo "==== end of graphics configuration"
 
+gate_smoke() {
+  python3 "${1:-scripts/android_cloud_ui.py}" --apk-directory artifacts/cloud-input --output artifacts/cloud-ui \
+    --source-run 37128629545 --expected-api 35 \
+    --expected-sha256 e06d261f1c207582df890081dd58d71d044d5caedda55b465f447b335729f195 \
+    --expected-version-code 261 --expected-version-name 1.0.99
+}
+
 case "${PROBE_MODE:-gate}" in
-  portrait)
-    # The gate's script, restoring the display settings (font, rotation, night mode) before the soak.
-    cp scripts/android_cloud_ui.py scripts/_probe_portrait.py
+  gate)
+    gate_smoke
+    ;;
+  animator0)
+    # App and launcher animators stop (Compose follows ANIMATOR_DURATION_SCALE); window and
+    # rotation animations keep running.
+    adb -s emulator-5554 shell settings put global animator_duration_scale 0
+    gate_smoke
+    ;;
+  transitions0)
+    # Window, transition and rotation animations stop; the app's own animations keep running.
+    adb -s emulator-5554 shell settings put global window_animation_scale 0
+    adb -s emulator-5554 shell settings put global transition_animation_scale 0
+    gate_smoke
+    ;;
+  profiletab)
+    # The gate's smoke, with Yfuse on 我的 instead of 首页 while the soak rotates.
+    cp scripts/android_cloud_ui.py scripts/_probe_profile.py
     python3 - <<'PATCH'
 from pathlib import Path
-path = Path("scripts/_probe_portrait.py")
+path = Path("scripts/_probe_profile.py")
 text = path.read_text()
 soak = '    session.case("Short foreground/background stability", lambda: session.soak(args.soak_seconds))'
 assert soak in text
-text = text.replace(soak, '    session.case("Display settings restored before the soak", session.settle_for_layout_probe)\n' + soak, 1)
+text = text.replace(soak, '    session.case("Profile tab before the soak", lambda: session.navigate("我的", "账号与同步", "09c-profile"))\n' + soak, 1)
 path.write_text(text)
 PATCH
-    python3 scripts/_probe_portrait.py --apk-directory artifacts/cloud-input --output artifacts/cloud-ui \
-      --source-run 37128629545 --expected-api 35 \
-      --expected-sha256 e06d261f1c207582df890081dd58d71d044d5caedda55b465f447b335729f195 \
-      --expected-version-code 261 --expected-version-name 1.0.99
-    ;;
-  settings)
-    # No Yfuse: the system Settings app through the same landscape, 1.3 font, dark soak.
-    serial=emulator-5554
-    adb -s $serial shell settings put system font_scale 1.3
-    adb -s $serial shell settings put system accelerometer_rotation 0
-    adb -s $serial shell settings put system user_rotation 1
-    adb -s $serial shell cmd uimode night yes
-    timeout 90 adb -s $serial shell am start -W -n com.android.settings/.Settings
-    sleep 5
-    done_cycles=0
-    first=$(timeout 20 adb -s $serial shell pidof com.android.settings)
-    for i in $(seq 1 21); do
-      timeout 60 adb -s $serial shell input keyevent 3 || { echo "cycle $i: home failed"; break; }
-      sleep 2
-      timeout 60 adb -s $serial shell am start -W -n com.android.settings/.Settings > /dev/null || { echo "cycle $i: am start failed"; break; }
-      sleep 3
-      pid=$(timeout 20 adb -s $serial shell pidof com.android.settings)
-      echo "cycle $i settings pid=$pid (first $first)"
-      [ -n "$pid" ] || break
-      done_cycles=$i
-    done
-    echo "settings control completed $done_cycles of 21 cycles"
-    [ "$done_cycles" = 21 ]
+    gate_smoke scripts/_probe_profile.py
     ;;
 esac
 status=$?
