@@ -60,6 +60,12 @@ internal class AndroidYCoreVerifiedRouteMemory(
         )
     }
 
+    /** Forgets every verified route, for the user's 重置 YCore 学习数据. */
+    @Synchronized
+    fun clearAll() {
+        persist(emptyList())
+    }
+
     @Synchronized
     fun forget(item: YMediaItem) {
         val identity = item.verifiedRouteIdentity() ?: return

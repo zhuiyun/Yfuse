@@ -44,6 +44,7 @@ import com.yfuse.core2.learning.YPlaybackObservation
 import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.quirk.YCore2FailureKey
 import com.yfuse.core2.quirk.YCore2FailureLedger
+import com.yfuse.core2.quirk.penalizesCore2Route
 import com.yfuse.core2.recovery.YPlaybackFailureReporter
 import com.yfuse.core2.recovery.YPlaybackRecoveryAction
 import com.yfuse.core2.recovery.YPlaybackRecoveryContext
@@ -646,6 +647,9 @@ internal class AndroidAdaptiveCore2YPlayer(
         var bypassLearnedRouteMemoryOnce = false
         var pendingFailureKey: YCore2FailureKey? = null
 
+        /** Whether the child being built plays an audio-only source, which never verifies video. */
+        var pendingAudioOnly = false
+
         /** Dynamic range entering the child being started; decides whether software can take over. */
         var pendingInputHdrType: YHdrType? = null
 
@@ -1114,6 +1118,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             currentCoroutineContext().ensureActive()
             budget.ensureActive()
             pendingFailureKey = null
+            pendingAudioOnly = false
             pendingVerifiedRoute = null
             pendingInputHdrType = null
             val bypassLearnedRouteMemory =
@@ -1264,13 +1269,35 @@ internal class AndroidAdaptiveCore2YPlayer(
             currentCoroutineContext().ensureActive()
             budget.ensureActive()
             val learnedAdvice = learningEngine.advice(decision.toFailureKey().toLearningKey())
-            if (
+            val memorySkipsPlannedRoute =
                 !bypassLearnedRouteMemory &&
-                (
-                    failureLedger.isBlocked(decision.toFailureKey()) ||
-                        learnedAdvice == YLearnedRouteAdvice.Avoid
-                )
+                    (
+                        failureLedger.isBlocked(decision.toFailureKey()) ||
+                            learnedAdvice == YLearnedRouteAdvice.Avoid
+                    )
+            // Memory against the platform demuxer steps down one tier, to YCore's own demuxer with
+            // the same hardware decoder, before software decode is considered at all.
+            if (
+                memorySkipsPlannedRoute &&
+                decision.plan.route in PLATFORM_DEMUX_ROUTES &&
+                decision.probe.playbackRequest.enhancedDemuxSupported &&
+                !decision.audioOnly
             ) {
+                val enhancedKey = decision.toFailureKey().forExecutedRoute(YPlaybackRoute.NativeEnhanced)
+                val enhancedAllowed =
+                    !failureLedger.isBlocked(enhancedKey) &&
+                        learningEngine.advice(enhancedKey.toLearningKey()) != YLearnedRouteAdvice.Avoid
+                if (enhancedAllowed) {
+                    videoHandoff.close()
+                    routeEvaluator.closePreparedExtractor()
+                    createInternalEnhancedRoute(item, singleRequest, decision)?.let { enhanced ->
+                        pendingFailureKey = enhancedKey
+                        pendingAudioOnly = false
+                        return enhanced
+                    }
+                }
+            }
+            if (memorySkipsPlannedRoute) {
                 decision =
                     decision.copy(
                         plan =
@@ -1320,6 +1347,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     ),
             )
             pendingFailureKey = decision.toFailureKey()
+            pendingAudioOnly = decision.audioOnly
             // Manifest target revisions may carry a different init under the same user cache identity.
             // Each revision is probed afresh and must never poison the root item's learned probe.
             pendingVerifiedRoute = if (target == null) item to decision.probe else null
@@ -1507,6 +1535,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             val childSoftwareFallbackAttempted: Boolean,
         ) {
             val childFailureKey = pendingFailureKey
+            val childAudioOnly = pendingAudioOnly
             val childVerifiedRoute = pendingVerifiedRoute
             val childInputHdrType = pendingInputHdrType ?: queueItems[currentIndex].hintedHdrType()
             var failureRecorded = false
@@ -1542,7 +1571,11 @@ internal class AndroidAdaptiveCore2YPlayer(
                     key = key,
                     observation =
                         YPlaybackObservation(
-                            rendered = childState.diagnostics.videoOutputVerified,
+                            // An audio-only source has no picture to verify; its sound reaching the
+                            // sink is the success a video source proves with a frame.
+                            rendered =
+                                childState.diagnostics.videoOutputVerified ||
+                                    (childAudioOnly && childState.diagnostics.audioOutputVerified),
                             playedDurationMs = playedDurationMs,
                             droppedFrames = childState.diagnostics.droppedFrames.coerceAtLeast(0),
                             codecResets =
@@ -1852,7 +1885,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                             reported = reportedFailure,
                         )?.takeIf { it.concrete }?.let { keptRouteFailure = it }
                     }
-                    if (!prematureEnd) recordLearning(childState, terminal = true)
+                    // A dropped network, a refused login or a licence says nothing about how well this
+                    // route decodes: such failures teach the ledger nothing and the learning memory
+                    // nothing either, so a flaky connection cannot push a class of media off hardware.
+                    if (!prematureEnd && category?.penalizesCore2Route() == true) {
+                        recordLearning(childState, terminal = true)
+                    }
                 }
             }
 
@@ -3160,3 +3198,6 @@ internal fun YPlaybackPlan.withNativeGpuFallbackTruth(probe: YNativeGpuRuntimePr
         } ?: "$reason; native Vulkan presentation executor is not installed"
     return copy(reason = reason)
 }
+
+/** Routes whose demuxer is the platform's; memory against them first tries YCore's own demuxer. */
+private val PLATFORM_DEMUX_ROUTES = setOf(YPlaybackRoute.NativeDirect, YPlaybackRoute.NativeTunnel)

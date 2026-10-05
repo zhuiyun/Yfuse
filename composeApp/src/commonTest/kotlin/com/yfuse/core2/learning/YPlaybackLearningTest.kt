@@ -87,30 +87,83 @@ class YPlaybackLearningTest {
     }
 
     @Test
-    fun `severe thermal pressure penalizes then avoids the exact route`() {
-        engine.record(
-            key(),
-            YPlaybackObservation(
-                rendered = true,
-                playedDurationMs = 60_000L,
-                maximumThermalStatus = 3,
-            ),
-        )
-        assertEquals(YLearnedRouteAdvice.Penalize, engine.advice(key()))
-
-        repeat(2) {
+    fun `severe thermal pressure penalizes but never avoids the route`() {
+        repeat(3) {
             now++
             engine.record(
                 key(),
                 YPlaybackObservation(
                     rendered = true,
-                    playedDurationMs = 60_000L,
+                    playedDurationMs = 600_000L,
                     maximumThermalStatus = 3,
                 ),
             )
         }
 
+        // Software decode, the alternative an avoided hardware route leaves, runs hotter still.
+        assertEquals(YLearnedRouteAdvice.Penalize, engine.advice(key()))
+    }
+
+    @Test
+    fun `ordinary hiccups spread over long sessions do not avoid a route`() {
+        repeat(5) {
+            now++
+            engine.record(
+                key(),
+                YPlaybackObservation(
+                    rendered = true,
+                    playedDurationMs = 2 * 3_600_000L,
+                    codecResets = 1,
+                    audioUnderruns = 6,
+                ),
+            )
+        }
+
+        // Thirty underruns and five recovered resets over ten hours were enough to avoid the route
+        // when the thresholds were lifetime totals; as rates they stay well below the bar.
+        assertEquals(YLearnedRouteAdvice.Penalize, engine.advice(key()))
+    }
+
+    @Test
+    fun `frequent resets within a short span still avoid the route`() {
+        repeat(3) {
+            now++
+            engine.record(
+                key(),
+                YPlaybackObservation(rendered = true, playedDurationMs = 120_000L, codecResets = 2),
+            )
+        }
+
         assertEquals(YLearnedRouteAdvice.Avoid, engine.advice(key()))
+    }
+
+    @Test
+    fun `old evidence fades and a stale avoidance lifts`() {
+        repeat(3) {
+            now++
+            engine.record(key(), YPlaybackObservation(rendered = false, playedDurationMs = 0L))
+        }
+        assertEquals(YLearnedRouteAdvice.Avoid, engine.advice(key()))
+
+        now += 15L * 24L * 60L * 60L * 1_000L
+        assertEquals(YLearnedRouteAdvice.Allow, engine.advice(key()))
+
+        // A new failure after the fade starts a fresh record rather than adding to the old one.
+        engine.record(key(), YPlaybackObservation(rendered = false, playedDurationMs = 0L))
+        assertEquals(1, store.load().single().consecutiveFailures)
+    }
+
+    @Test
+    fun `clearing forgets every learned route`() {
+        repeat(3) {
+            now++
+            engine.record(key(), YPlaybackObservation(rendered = false, playedDurationMs = 0L))
+        }
+
+        engine.clearAll()
+
+        assertEquals(YLearnedRouteAdvice.Allow, engine.advice(key()))
+        assertEquals(emptyList(), store.load())
     }
 
     private fun key() =
