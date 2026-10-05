@@ -1807,26 +1807,30 @@ internal class AndroidNativeDirectYPlayer(
             return when (val output = dequeued) {
                 YAudioCodecOutputResult.TryAgain -> false
                 is YAudioCodecOutputResult.FormatChanged -> {
-                    nativeDirectStage(
-                        YPlaybackFailureCategory.AudioSink,
-                        YPlaybackFailureStage.AudioRenderer,
-                        "NativeDirect PCM sink configure",
-                    ) {
-                        audioRenderer.configure(output.format)
-                        audioRendererConfigured = true
-                        captureAudioRoutingGeneration()
-                        audioRenderer.setSpeed(speed)
-                        audioRenderer.setAudioDelayMs(audioDelayMs)
-                        if (requestedPlay) audioRenderer.play()
-                    }
-                    mutableState.update { current ->
-                        current.copy(
-                            diagnostics =
-                                current.diagnostics.copy(
-                                    audioOutput = "等待 PCM 输出",
-                                    audioOutputVerified = false,
-                                ),
-                        )
+                    val rebuilt =
+                        nativeDirectStage(
+                            YPlaybackFailureCategory.AudioSink,
+                            YPlaybackFailureStage.AudioRenderer,
+                            "NativeDirect PCM sink configure",
+                        ) {
+                            audioRenderer.configureIfChanged(output.format).also {
+                                audioRendererConfigured = true
+                                captureAudioRoutingGeneration()
+                                audioRenderer.setSpeed(speed)
+                                audioRenderer.setAudioDelayMs(audioDelayMs)
+                                if (requestedPlay) audioRenderer.play()
+                            }
+                        }
+                    if (rebuilt) {
+                        mutableState.update { current ->
+                            current.copy(
+                                diagnostics =
+                                    current.diagnostics.copy(
+                                        audioOutput = "等待 PCM 输出",
+                                        audioOutputVerified = false,
+                                    ),
+                            )
+                        }
                     }
                     true
                 }

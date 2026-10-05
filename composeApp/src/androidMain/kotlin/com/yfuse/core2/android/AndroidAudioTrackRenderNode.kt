@@ -139,6 +139,20 @@ internal class AndroidAudioTrackRenderNode(
     val clockStalled: Boolean
         get() = staleClockFallback
 
+    /**
+     * [configure], unless a track already plays this exact PCM shape; true when a track was built.
+     * Decoders announce their output format again mid-stream (after a flush, for changed metadata)
+     * with nothing AudioTrack depends on changed, and rebuilding then threw away up to two seconds
+     * of buffered audio.
+     */
+    @Synchronized
+    fun configureIfChanged(format: MediaFormat): Boolean {
+        val current = configuredFormat
+        if (track != null && current != null && current.pcmShape() == format.pcmShape()) return false
+        configure(format)
+        return true
+    }
+
     @Synchronized
     fun configure(format: MediaFormat) {
         release()
@@ -464,6 +478,27 @@ internal class AndroidAudioTrackRenderNode(
         )
     }
 }
+
+/** What an AudioTrack is built from: rate, channels and their layout, and sample encoding. */
+private data class PcmShape(
+    val sampleRate: Int,
+    val channelCount: Int,
+    val channelMask: Int?,
+    val encoding: Int,
+)
+
+private fun MediaFormat.pcmShape(): PcmShape =
+    PcmShape(
+        sampleRate = getInteger(MediaFormat.KEY_SAMPLE_RATE),
+        channelCount = getInteger(MediaFormat.KEY_CHANNEL_COUNT),
+        channelMask = if (containsKey(MediaFormat.KEY_CHANNEL_MASK)) getInteger(MediaFormat.KEY_CHANNEL_MASK) else null,
+        encoding =
+            if (containsKey(MediaFormat.KEY_PCM_ENCODING)) {
+                getInteger(MediaFormat.KEY_PCM_ENCODING)
+            } else {
+                AudioFormat.ENCODING_PCM_16BIT
+            },
+    )
 
 private fun buildAudioTrack(format: MediaFormat): AudioTrack {
     val sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)

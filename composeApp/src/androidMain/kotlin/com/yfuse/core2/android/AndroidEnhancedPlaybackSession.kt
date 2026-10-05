@@ -1657,7 +1657,7 @@ internal class AndroidEnhancedPlaybackSession(
                     stage = YPlaybackFailureStage.AudioRenderer,
                     safeDetail = "Enhanced PCM sink configure",
                 ) {
-                    audioRenderer.configure(output.format)
+                    audioRenderer.configureIfChanged(output.format)
                 }
                 audioRendererConfigured = true
                 captureAudioRoutingGeneration()
