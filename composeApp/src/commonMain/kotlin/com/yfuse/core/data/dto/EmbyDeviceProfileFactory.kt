@@ -180,6 +180,11 @@ internal object EmbyDeviceProfileFactory {
             if (capabilities.supportsHdrOutput(PlaybackHdrFormat.Hlg, codec)) add("HLG")
         }
 
+    /**
+     * Styled text is also taken as a sidecar. With ASS and SSA offered only embedded, the server met
+     * an external `.ass` file, or embedded ASS in an HLS transcode, by converting it to SRT, and the
+     * players lost its positioning, fonts and karaoke; they all render ASS themselves.
+     */
     private fun subtitleProfiles(): List<SubtitleProfileDto> =
         listOf(
             SubtitleProfileDto("srt", "External"),
@@ -187,6 +192,8 @@ internal object EmbyDeviceProfileFactory {
             SubtitleProfileDto("subrip", "External"),
             SubtitleProfileDto("ass", "Embed"),
             SubtitleProfileDto("ssa", "Embed"),
+            SubtitleProfileDto("ass", "External"),
+            SubtitleProfileDto("ssa", "External"),
             SubtitleProfileDto("pgs", "Embed"),
             SubtitleProfileDto("pgssub", "Embed"),
             SubtitleProfileDto("dvdsub", "Embed"),
