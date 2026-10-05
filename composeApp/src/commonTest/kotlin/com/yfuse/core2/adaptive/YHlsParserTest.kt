@@ -9,6 +9,40 @@ import kotlin.test.assertTrue
 
 class YHlsParserTest {
     @Test
+    fun a_playlist_with_a_byte_order_mark_parses_and_rewrites() {
+        val text = "\uFEFF#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nsegment-1.ts\n#EXT-X-ENDLIST"
+
+        val base = "https://media.example.test/live/index.m3u8"
+
+        val media = assertIs<YHlsPlaylist.Media>(parseYHlsPlaylist(text, base))
+        val rewritten = rewriteYHlsResourceUris(text, base) { uri, _ -> "local:$uri" }
+
+        assertEquals("https://media.example.test/live/segment-1.ts", media.segments.single().uri)
+        assertTrue(rewritten.startsWith("#EXTM3U\n"))
+        assertTrue("local:https://media.example.test/live/segment-1.ts" in rewritten)
+    }
+
+    @Test
+    fun inline_data_resources_are_left_for_ffmpeg_to_read() {
+        val key = "data:text/plain;base64,AAECAwQFBgcICQoLDA0ODw=="
+        val rewritten =
+            rewriteYHlsResourceUris(
+                text =
+                    """
+                    #EXTM3U
+                    #EXT-X-TARGETDURATION:4
+                    #EXT-X-KEY:METHOD=AES-128,URI="$key"
+                    #EXTINF:4,
+                    segment-1.ts
+                    """.trimIndent(),
+                baseUri = "https://media.example.test/live/index.m3u8",
+            ) { uri, _ -> "local:$uri" }
+
+        assertTrue("URI=\"$key\"" in rewritten)
+        assertTrue("local:https://media.example.test/live/segment-1.ts" in rewritten)
+    }
+
+    @Test
     fun master_playlist_preserves_variants_and_resolves_relative_urls() {
         val playlist =
             parseYHlsPlaylist(
