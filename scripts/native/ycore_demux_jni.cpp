@@ -49,6 +49,7 @@ extern "C" {
 
 #include "ycore_parallel_rows.h"
 #include "ycore_tone_map.h"
+#include "ycore_disc_language.h"
 #include "ycore_disc_uri.h"
 #include "ycore_overlay_plane.h"
 
@@ -2552,9 +2553,36 @@ jlongArray native_track_audio_info(JNIEnv* env, jclass, jlong handle, jint index
     return result;
 }
 
+// Blu-ray M2TS carries no language descriptors; the playlist's stream table names each PID's
+// language instead. Every clip of a title shares one stream layout, so the first clip answers.
+jstring disc_stream_language(JNIEnv* env, const BlurayIo& disc, int pid) {
+    if (!disc.source || pid <= 0) return nullptr;
+    char language[4] = {};
+    {
+        std::lock_guard<std::mutex> lock(disc.source->mutex);
+        const BLURAY_TITLE_INFO* title = disc.title_info;
+        if (!title || title->clip_count == 0 || !title->clips) return nullptr;
+        const BLURAY_CLIP_INFO& clip = title->clips[0];
+        const BLURAY_STREAM_INFO* stream =
+            ycore_disc::find_stream_by_pid(clip.audio_streams, clip.audio_stream_count, pid);
+        if (!stream) stream = ycore_disc::find_stream_by_pid(clip.pg_streams, clip.pg_stream_count, pid);
+        if (!stream) {
+            stream = ycore_disc::find_stream_by_pid(clip.sec_audio_streams, clip.sec_audio_stream_count, pid);
+        }
+        if (!stream || !ycore_disc::iso639_language(stream->lang, language)) return nullptr;
+    }
+    return env->NewStringUTF(language);
+}
+
 jstring native_track_language(JNIEnv* env, jclass, jlong handle, jint index) {
-    AVStream* stream = checked_stream(env, from_handle(handle), index);
-    return stream ? dictionary_value(env, stream->metadata, "language") : nullptr;
+    DemuxSession* session = from_handle(handle);
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream) return nullptr;
+    const AVDictionaryEntry* entry = av_dict_get(stream->metadata, "language", nullptr, 0);
+    if ((entry && entry->value && entry->value[0]) || !session->disc) {
+        return nullable_string(env, entry ? entry->value : nullptr);
+    }
+    return disc_stream_language(env, *session->disc, stream->id);
 }
 
 jstring native_track_title(JNIEnv* env, jclass, jlong handle, jint index) {
