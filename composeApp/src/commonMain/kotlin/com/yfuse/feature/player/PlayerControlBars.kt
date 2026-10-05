@@ -197,7 +197,15 @@ internal fun BoxScope.PlayerBottomChrome(
                 skipSettingsAvailable = skip.seriesName != null,
                 onOpenSkipSettings = { chrome.openSettingsPanel(SettingsPanelKind.Skip) },
                 danmakuEnabled = danmaku.panel.enabled,
-                onToggleDanmaku = danmakuActions.onToggle,
+                onToggleDanmaku = {
+                    // With no 弹幕来源 a switch has nothing to show either way, and the tap seemed to
+                    // do nothing. The panel says where one is added.
+                    if (danmaku.panel.configured) {
+                        danmakuActions.onKeyToggle()
+                    } else {
+                        chrome.openSettingsPanel(SettingsPanelKind.Danmaku)
+                    }
+                },
                 onOpenDanmaku = { chrome.openSettingsPanel(SettingsPanelKind.Danmaku) },
                 // 进度条跟随作品取色: the series poster, or the episode still without one.
                 artworkUrl =

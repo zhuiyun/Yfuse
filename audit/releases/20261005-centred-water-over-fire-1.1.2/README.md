@@ -56,7 +56,42 @@ This workspace cannot reach Google Maven, so nothing was built here.
 
 ## Packaging
 
-Pending: the pull request's checks, its merge as `[artifact only]` and the package-only run.
+All PR #219 checks passed on `d3880b6b`, among them Android quality gates run
+[37270637721](https://github.com/zhuiyun/Yfuse/actions/runs/37270637721) with an R8 package of
+29,435,546 bytes. The PR was merged as `ce85150466927020094cc1902d4d35d35aefa4f0` with
+`[artifact only]`, and the push started package-only run
+[37272794603](https://github.com/zhuiyun/Yfuse/actions/runs/37272794603), which passed on its
+first attempt.
+
+- Android quality gates run [37272794317](https://github.com/zhuiyun/Yfuse/actions/runs/37272794317)
+  on the merge commit passed, so the gate let signing go ahead.
+- The build job built the release APK; its DEX check and content check passed.
+- The production signature's check passed. It requires:
+  - package `com.yfuse`, `versionCode='264'` and `versionName='1.1.2'`;
+  - one signer, APK Signature Scheme v2 only;
+  - certificate SHA-256 `373e36d3…e7be3e84`;
+  - the 30,000,000-byte budget.
+- The startup smoke passed all 14 cases on Android 35, 36 and 37 emulators. Each run read the APK
+  itself: SHA-256 `9c0f5752…392679`, certificate `373e36d3…e7be3e84`, package `com.yfuse`, 264 and
+  1.1.2, ABI `arm64-v8a`.
+- Final APK: `Yfuse-264-1.1.2.apk`, 29,422,566 bytes, SHA-256
+  `9c0f5752a09e4a1491c9f3579f801e0afd71385937cdb24d7e7c69174f392679`, `PUBLISH_UPDATE=false`.
+  - The size equals 1.1.1's to the byte, but the file differs: its SHA-256 differs, and the
+    entries before `resources.arsc` end 60 bytes earlier (29,278,704 against 29,278,764).
+  - apksigner starts the signing block on a 4,096-byte boundary, and that padding takes up a
+    difference this small.
+- Artifact `Yfuse-1.1.2`
+  ([11330136113](https://github.com/zhuiyun/Yfuse/actions/runs/37272794603/artifacts/11330136113))
+  holds the APK with `update.json` and `update-v2.json` until 2026-10-12 15:00 (Asia/Shanghai).
+- Nothing was published:
+  - The deploy job skipped its SSH, upload, server-check and finalize steps.
+  - "Create GitHub release" run [37275347931](https://github.com/zhuiyun/Yfuse/actions/runs/37275347931)
+    found no published update and skipped its release job, so there is no `v1.1.2` release.
+  - Firebase Test Lab run [37275347951](https://github.com/zhuiyun/Yfuse/actions/runs/37275347951)
+    skipped signing in and both device jobs.
+- Not run on any device: the icon on a home screen. The CI smoke opens no launcher and switches no
+  icon.
+- 1.1.2 (264) is now the last delivered APK, so the next delivery needs code 265 or higher.
 
 Package-only delivery is intended. Do not publish an application update, create a release or
 deploy a service as part of this build.

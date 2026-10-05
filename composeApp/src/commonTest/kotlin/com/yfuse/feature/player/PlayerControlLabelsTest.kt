@@ -43,6 +43,28 @@ class PlayerControlLabelsTest {
     }
 
     @Test
+    fun the_danmaku_key_says_off_at_once_and_on_with_what_loading_came_to() {
+        assertEquals("弹幕已关闭", danmakuKeyToast(enabled = false))
+        // Off is off, whatever the last load left behind.
+        assertEquals("弹幕已关闭", danmakuKeyToast(enabled = false, count = 120, error = "弹幕接口不存在（404）"))
+        assertEquals("弹幕已开启 · 已匹配 120 条", danmakuKeyToast(enabled = true, count = 120))
+    }
+
+    @Test
+    fun the_danmaku_key_says_why_no_comments_show() {
+        // No episode for this one: 搜索弹幕, behind the held key, puts that right.
+        assertEquals(
+            "弹幕已开启，但没有匹配到这一集，按住弹幕键可手动搜索",
+            danmakuKeyToast(enabled = true, error = "没有匹配到弹幕，可用搜索手动选择", unmatched = true),
+        )
+        assertEquals(
+            "弹幕已开启，但加载失败：弹幕接口连接失败，请检查地址和网络",
+            danmakuKeyToast(enabled = true, error = "弹幕接口连接失败，请检查地址和网络"),
+        )
+        assertEquals("弹幕已开启，这一集还没有弹幕", danmakuKeyToast(enabled = true))
+    }
+
+    @Test
     fun the_cast_position_waits_for_the_receiver_and_then_shows_where_it_is() {
         assertNull(castPositionLabel(CastState(positionMs = 5_000L, positionConfirmed = true)))
         assertEquals(

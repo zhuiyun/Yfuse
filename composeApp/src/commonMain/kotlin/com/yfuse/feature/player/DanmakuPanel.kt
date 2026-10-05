@@ -125,6 +125,12 @@ data class DanmakuSearchState(
 /** Callbacks for [DanmakuPanelState], grouped for the same reason the state is. */
 data class DanmakuPanelActions(
     val onToggle: () -> Unit = {},
+    /**
+     * The 弹幕 key's tap: [onToggle], and then a word on what it came to — off, or on with how
+     * many comments matched or why none show (see [danmakuKeyToast]). The panel's own switch
+     * stays [onToggle]: the panel already says all of that under it.
+     */
+    val onKeyToggle: () -> Unit = onToggle,
     val onSelectArea: (Int) -> Unit = {},
     val onSelectFont: (Int) -> Unit = {},
     val onSelectSpeed: (Int) -> Unit = {},
@@ -194,7 +200,8 @@ internal fun DanmakuTab(
         PopupDivider()
         val status =
             when {
-                !state.configured -> "请先在个人中心配置弹幕链接"
+                // Where to go, by the names on the way: there is no 个人中心 to look for.
+                !state.configured -> "还没有弹幕来源，请到「我的 → 弹幕设置 → 弹幕来源」添加"
                 state.loading -> "正在加载弹幕…"
                 state.error != null -> state.error
                 state.count > 0 -> "已匹配 ${state.count} 条弹幕"

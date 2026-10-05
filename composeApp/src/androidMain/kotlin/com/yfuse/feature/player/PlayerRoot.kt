@@ -873,12 +873,16 @@ internal fun PlayerRoot(
             runtimeEnvironment = runtimeEnvironment,
             attachedEngineLabel = attachedEngineLabel,
         )
+        // One toast for the 弹幕 key, the newest replacing the last: off and on again in quick taps
+        // otherwise queued a stale 「弹幕已关闭」 behind the answer.
+        val danmakuToast = remember { DanmakuKeyToastSlot() }
         val danmaku =
             rememberPlayerDanmakuController(
                 currentItem = currentItem,
                 positionMs = { livePlayback.value.positionMs },
                 preferences = danmakuPreferences,
                 repository = danmakuRepository,
+                onNotice = { message -> danmakuToast.show(context, message) },
             )
         PlayerSeriesRestoreEffects(
             currentItem = currentItem,

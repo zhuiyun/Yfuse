@@ -777,13 +777,15 @@ private fun RefinedBottomBarContent(
             CircleControl(AppIcons.Subtitle, "字幕", 26.dp, 12.dp, onClick = onOpenSubtitles)
             CircleControl(AppIcons.AudioTrack, "音轨", 26.dp, 12.dp, onClick = onOpenAudio)
             // 弹幕 is switched far more often than it is set up, so a tap switches it and the
-            // panel waits behind a held press.
+            // panel waits behind a held press. Off is struck through: the lit fill alone, a 12%
+            // wash behind a 12dp glyph, was lost against the picture, and a tap looked like nothing.
             CircleControl(
-                icon = AppIcons.Danmaku,
+                icon = if (danmakuEnabled) AppIcons.Danmaku else AppIcons.DanmakuOff,
                 description = if (danmakuEnabled) "弹幕，已开启" else "弹幕，已关闭",
                 size = 26.dp,
                 iconSize = 12.dp,
                 active = danmakuEnabled,
+                crossfadeIcon = true,
                 onClick = onToggleDanmaku,
                 onLongClick = {
                     tips?.markUsed(Tips.PLAYER_DANMAKU_KEY)

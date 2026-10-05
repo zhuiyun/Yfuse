@@ -1,5 +1,7 @@
 package com.yfuse.feature.player
 
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -62,8 +64,11 @@ internal fun rememberPlayerDanmakuController(
     positionMs: () -> Long,
     preferences: DanmakuPreferences,
     repository: DanmakuRepository,
+    /** Where the 弹幕 key's tap says what it came to: [danmakuKeyToast]'s line, as a toast. */
+    onNotice: (String) -> Unit = {},
 ): PlayerDanmakuController {
     val scope = rememberCoroutineScope()
+    val latestNotice by rememberUpdatedState(onNotice)
     val sources by preferences.sources.collectAsState()
     val activeSourceId by preferences.activeSourceId.collectAsState()
     val bindings by preferences.bindings.collectAsState()
@@ -91,6 +96,8 @@ internal fun rememberPlayerDanmakuController(
     // Lines sent from here to that episode, shown as soon as the server takes them and kept over a
     // refetch that does not carry them yet.
     var sent by remember { mutableStateOf(emptyList<DanmakuComment>()) }
+    // A tap on the 弹幕 key that switched it on, waiting for the load it started to say how it went.
+    var keyNoticeArmed by remember { mutableStateOf(false) }
     val source = sources.activeOr(activeSourceId)
 
     // Keyed on the show and its coordinate rather than the library's item id, so a match
@@ -119,9 +126,15 @@ internal fun rememberPlayerDanmakuController(
         episodeId = null
         episodeSource = null
         loading = false
-        val item = currentItem ?: return@LaunchedEffect
-        if (!enabled) return@LaunchedEffect
-        val activeSource = source ?: return@LaunchedEffect
+        val item = currentItem
+        val activeSource = source
+        if (item == null || !enabled || activeSource == null) {
+            // Nothing loads, so a waiting tap has nothing to report, now or for a later load.
+            keyNoticeArmed = false
+            return@LaunchedEffect
+        }
+        // The source answered with no episode for this one, as opposed to not answering at all.
+        var unmatched = false
         val media =
             DanmakuMedia(
                 id = item.id,
@@ -155,6 +168,7 @@ internal fun rememberPlayerDanmakuController(
                         ).fold(
                             onSuccess = { episode ->
                                 if (episode == null) {
+                                    unmatched = true
                                     Result.failure(
                                         IllegalStateException("没有匹配到弹幕，可用搜索手动选择"),
                                     )
@@ -173,6 +187,10 @@ internal fun rememberPlayerDanmakuController(
             onFailure = { error = it.message ?: "弹幕加载失败" },
         )
         loading = false
+        if (keyNoticeArmed) {
+            keyNoticeArmed = false
+            latestNotice(danmakuKeyToast(enabled = true, count = comments.size, error = error, unmatched = unmatched))
+        }
         val loadedSource = episodeSource ?: return@LaunchedEffect
         val loadedEpisode = episodeId ?: return@LaunchedEffect
         // A line that went through asks for the episode again. The comments on screen keep running
@@ -202,6 +220,18 @@ internal fun rememberPlayerDanmakuController(
     val actions =
         DanmakuPanelActions(
             onToggle = { preferences.setEnabled(!enabled) },
+            onKeyToggle = {
+                if (enabled) {
+                    // Off is said at once, and a tap still waiting on a load is dropped.
+                    keyNoticeArmed = false
+                    preferences.setEnabled(false)
+                    latestNotice(danmakuKeyToast(enabled = false))
+                } else {
+                    // On is said once the load the switch starts has come back.
+                    keyNoticeArmed = true
+                    preferences.setEnabled(true)
+                }
+            },
             onSelectArea = { index ->
                 preferences.setDisplayArea(DanmakuDisplayArea.entries[index])
             },
@@ -404,6 +434,28 @@ internal fun rememberPlayerDanmakuController(
             ),
         actions = actions,
     )
+}
+
+/**
+ * Past this many characters the 弹幕 key's toast stays up the long time: a line saying why no
+ * comments show is read, not glanced at. Twelve, as the app's own toasts start lengthening.
+ */
+private const val DANMAKU_TOAST_GLANCE_CHARS = 12
+
+/** The 弹幕 key's toast, one at a time: a new line takes the place of the one still showing. */
+internal class DanmakuKeyToastSlot {
+    private var shown: Toast? = null
+
+    fun show(
+        context: Context,
+        message: String,
+    ) {
+        shown?.cancel()
+        val length = if (message.length > DANMAKU_TOAST_GLANCE_CHARS) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
+        val toast = Toast.makeText(context, message, length)
+        toast.show()
+        shown = toast
+    }
 }
 
 /** How far apart a line sent from here and the server's copy of it can be and still be one line. */
