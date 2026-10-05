@@ -330,6 +330,7 @@ private class CacheIndex(
 
     fun initialize() {
         if (initialized) return
+        pruneBlocklessSources()
         root
             .walkTopDown()
             .filter { it.isFile && it.name.startsWith(BLOCK_PREFIX) && it.name.endsWith(BLOCK_SUFFIX) }
@@ -349,6 +350,23 @@ private class CacheIndex(
                 }
             }
         initialized = true
+    }
+
+    /**
+     * Eviction removes block files but used to leave each source's directory and validation record,
+     * one per title ever cached, for good. Once a process, a directory that holds no block and was
+     * not touched recently goes; a later open of that title validates afresh, with nothing to lose.
+     */
+    private fun pruneBlocklessSources() {
+        val touchedSince = System.currentTimeMillis() - BLOCKLESS_SOURCE_GRACE_MS
+        root.listFiles()?.forEach { directory ->
+            if (directory.isDirectory &&
+                directory.lastModified() < touchedSince &&
+                directory.listFiles()?.none { it.name.startsWith(BLOCK_PREFIX) } == true
+            ) {
+                directory.deleteRecursively()
+            }
+        }
     }
 
     @Synchronized
@@ -546,5 +564,6 @@ private const val CONTENT_LENGTH_FILE = "length"
 private const val BLOCK_PREFIX = "block-"
 private const val BLOCK_SUFFIX = ".bin"
 private const val TEMP_SUFFIX = ".tmp"
+private const val BLOCKLESS_SOURCE_GRACE_MS = 60L * 60L * 1_000L
 private const val BLOCK_MAGIC = 0x59434232
 private const val BLOCK_HEADER_BYTES = 20
