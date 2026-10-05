@@ -24,4 +24,13 @@ class YAvSyncTest {
             YAvSync.offsetUs(0L, 0L, YClockSnapshot(0L, 0L), speed = 0f)
         }
     }
+
+    @Test
+    fun audio_timestamp_jumps_beyond_200_ms_either_way_are_discontinuities() {
+        assertEquals(null, YAvSync.audioTimestampJumpUs(expectedUs = 10_000_000L, actualUs = 10_021_333L))
+        // A buffer resubmitted after a partial write starts a little before the written end.
+        assertEquals(null, YAvSync.audioTimestampJumpUs(expectedUs = 10_000_000L, actualUs = 9_980_000L))
+        assertEquals(4_500_000L, YAvSync.audioTimestampJumpUs(expectedUs = 10_000_000L, actualUs = 14_500_000L))
+        assertEquals(-9_000_000L, YAvSync.audioTimestampJumpUs(expectedUs = 10_000_000L, actualUs = 1_000_000L))
+    }
 }

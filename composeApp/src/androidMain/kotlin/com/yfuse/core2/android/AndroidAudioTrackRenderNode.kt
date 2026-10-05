@@ -12,6 +12,7 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.graph.YAudioRenderNode
+import com.yfuse.core2.sync.YAvSync
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicLong
 
@@ -41,6 +42,7 @@ internal class AndroidAudioTrackRenderNode(
     private var audioDelayMs = 0L
     private var writtenBytes = 0L
     private val pcmTail = PcmTailTracker()
+    private var timestampJumps = 0
     private var zeroWriteCount = 0L
     private var startThresholdFrames = 0
 
@@ -149,6 +151,7 @@ internal class AndroidAudioTrackRenderNode(
         configuredFormat = format
         spatialAudioState = spatialAudioProbe?.current(format) ?: AndroidSpatialAudioState()
         basePresentationTimeUs = null
+        timestampJumps = 0
         requestedPlay = false
         speed = 1f
         resetClockProgress()
@@ -204,6 +207,8 @@ internal class AndroidAudioTrackRenderNode(
         val audioTrack = checkNotNull(track) { "AudioTrack render node has not been configured" }
         if (basePresentationTimeUs == null && data.hasRemaining()) {
             basePresentationTimeUs = presentationTimeUs.coerceAtLeast(0L)
+        } else if (data.hasRemaining()) {
+            followTimestampJump(presentationTimeUs)
         }
         var total = 0
         while (data.hasRemaining()) {
@@ -236,6 +241,7 @@ internal class AndroidAudioTrackRenderNode(
         val audioTrack = checkNotNull(track) { "AudioTrack render node has not been configured" }
         if (!data.hasRemaining()) return 0
         val shouldAnchorClock = basePresentationTimeUs == null
+        if (!shouldAnchorClock) followTimestampJump(presentationTimeUs)
         val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_NON_BLOCKING)
         check(written >= 0) { "AudioTrack.write failed with code $written" }
         if (written == 0) {
@@ -270,9 +276,38 @@ internal class AndroidAudioTrackRenderNode(
     /** Hardware-clock position, not decoder EOS, determines whether submitted PCM remains. */
     @Synchronized
     fun hasPendingPcm(): Boolean {
-        val format = configuredFormat ?: return false
         val base = basePresentationTimeUs ?: return false
         if (!pcmTail.hasSamples || sampleRate <= 0) return false
+        val frameBytes = pcmFrameBytes() ?: return false
+        val played = clockSnapshot()?.positionUs?.minus(base)?.coerceAtLeast(0L) ?: return true
+        return pcmTail.pending(frameBytes, sampleRate, played)
+    }
+
+    /**
+     * Moves the clock's anchor when a write's timestamp leaves the timeline written so far (see
+     * [YAvSync.audioTimestampJumpUs]). The clock counts played frames from its anchor, so after a
+     * transport stream's timestamp jump audio and video would otherwise stay on different
+     * timelines, out of sync by the jump, until the next seek.
+     */
+    private fun followTimestampJump(presentationTimeUs: Long) {
+        val base = basePresentationTimeUs ?: return
+        val frameBytes = pcmFrameBytes() ?: return
+        if (sampleRate <= 0) return
+        val expectedUs = base + pcmTail.submittedBytes / frameBytes * MICROS_PER_SECOND / sampleRate
+        val jumpUs = YAvSync.audioTimestampJumpUs(expectedUs, presentationTimeUs) ?: return
+        basePresentationTimeUs = base + jumpUs
+        if (++timestampJumps <= MAX_LOGGED_TIMESTAMP_JUMPS) {
+            AppLog.info(
+                category = "player.core2",
+                event = "audio_timestamp_jump",
+                message = "Audio clock followed a timestamp discontinuity",
+                attributes = mapOf("jumpMs" to (jumpUs / 1_000L).toString()),
+            )
+        }
+    }
+
+    private fun pcmFrameBytes(): Int? {
+        val format = configuredFormat ?: return null
         val encoding =
             if (format.containsKey(MediaFormat.KEY_PCM_ENCODING)) {
                 format.getInteger(MediaFormat.KEY_PCM_ENCODING)
@@ -285,11 +320,9 @@ internal class AndroidAudioTrackRenderNode(
                 AudioFormat.ENCODING_PCM_16BIT -> 2
                 AudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
                 AudioFormat.ENCODING_PCM_FLOAT, AudioFormat.ENCODING_PCM_32BIT -> 4
-                else -> return false
+                else -> return null
             }
-        val frameBytes = sampleBytes * format.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)
-        val played = clockSnapshot()?.positionUs?.minus(base)?.coerceAtLeast(0L) ?: return true
-        return pcmTail.pending(frameBytes, sampleRate, played)
+        return sampleBytes * format.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)
     }
 
     @Synchronized
@@ -644,6 +677,7 @@ private const val DEFAULT_AUDIO_BUFFER_BYTES = 64 * 1024
 private const val MAX_AUDIO_BUFFER_BYTES = 2 * 1024 * 1024
 private const val MINIMUM_AUDIO_BUFFER_MULTIPLIER = 4L
 private const val TARGET_AUDIO_BUFFER_SECONDS = 2L
+private const val MAX_LOGGED_TIMESTAMP_JUMPS = 5
 
 internal fun pcmTailPending(
     writtenBytes: Long,
@@ -663,6 +697,9 @@ internal fun pcmTailPending(
 internal class PcmTailTracker {
     private var bytes = 0L
     val hasSamples: Boolean get() = bytes > 0L
+
+    /** Bytes written since the clock was last anchored. */
+    val submittedBytes: Long get() = bytes
 
     fun record(written: Int) {
         if (written > 0) bytes += written
