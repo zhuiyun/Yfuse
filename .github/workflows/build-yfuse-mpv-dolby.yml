@@ -196,6 +196,7 @@ jobs:
             .native-build/artifacts/ycore-native.aar.sha256
             .native-build/artifacts/ycore-gpu.aar
             .native-build/artifacts/ycore-gpu.aar.sha256
+            .native-build/artifacts/ycore-native-symbols.zip
             .native-build/artifacts/NATIVE-SOURCES.txt
             .native-build/artifacts/BUILD-MANIFEST.txt
           if-no-files-found: error
