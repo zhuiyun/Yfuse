@@ -98,6 +98,21 @@ class AndroidCore2TrialTest {
     }
 
     @Test
+    fun only_the_item_being_opened_decides_whether_ycore_takes_the_queue() {
+        val items =
+            listOf(
+                mediaItem("https://media.example.test/episode1.mkv"),
+                mediaItem("ftp://media.example.test/episode2.mkv"),
+                mediaItem("https://media.example.test/episode3.mkv"),
+            )
+
+        // A later episode YCore cannot open no longer keeps the season off YCore.
+        assertTrue(items.canUseCore2Trial(startIndex = 0))
+        assertFalse(items.canUseCore2Trial(startIndex = 1))
+        assertTrue(items.canUseCore2Trial(startIndex = 2))
+    }
+
+    @Test
     fun invalid_queue_or_unknown_source_scheme_stays_on_legacy() {
         assertFalse(emptyList<PlayerMediaItem>().canUseCore2Trial(startIndex = 0))
         assertFalse(listOf(mediaItem("https://media/movie")).canUseCore2Trial(startIndex = 1))

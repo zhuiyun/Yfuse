@@ -225,24 +225,29 @@ private fun PlaybackOptimizationMode.toCore2Preference(): YOptimizationPreferenc
         PlaybackOptimizationMode.Compatibility -> YOptimizationPreference.Compatibility
     }
 
+/**
+ * Whether the item at [startIndex] can open in YCore. Only that item decides: one episode with a
+ * Dolby Vision profile or DRM YCore cannot take used to keep the whole season off YCore, and in
+ * the native-only build that left nothing to play at all. A later item YCore cannot take fails
+ * when it is reached: the native-only build reports that episode, the full build hands the
+ * session to its Legacy engine there.
+ */
 internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
-    if (isEmpty() || startIndex !in indices) return false
-    return all { item ->
-        val version = item.activeVersion
-        // Unknown server metadata is not evidence that the stream is unsupported. Let it reach
-        // YCore's local MediaExtractor/FFmpeg truth probe, then keep routing fail-closed if that
-        // probe still cannot identify a supported Dolby Vision profile.
-        val knownUnsupportedDolbyProfile =
-            version?.dolbyVision == true &&
-                version.dolbyProfile != null &&
-                version.dolbyProfile !in CORE2_DOLBY_TRIAL_PROFILES
-        val drmConfiguration = item.drmConfiguration ?: version?.drmConfiguration
-        // Sidecars are loaded on selection by AndroidExternalSubtitleSession. A bad or
-        // unsupported track must not veto this video's route, or any later queue item.
-        !knownUnsupportedDolbyProfile &&
-            (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
-            item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
-    }
+    val item = getOrNull(startIndex) ?: return false
+    val version = item.activeVersion
+    // Unknown server metadata is not evidence that the stream is unsupported. Let it reach
+    // YCore's local MediaExtractor/FFmpeg truth probe, then keep routing fail-closed if that
+    // probe still cannot identify a supported Dolby Vision profile.
+    val knownUnsupportedDolbyProfile =
+        version?.dolbyVision == true &&
+            version.dolbyProfile != null &&
+            version.dolbyProfile !in CORE2_DOLBY_TRIAL_PROFILES
+    val drmConfiguration = item.drmConfiguration ?: version?.drmConfiguration
+    // Sidecars are loaded on selection by AndroidExternalSubtitleSession. A bad or
+    // unsupported track must not veto this video's route.
+    return !knownUnsupportedDolbyProfile &&
+        (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
+        item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
 }
 
 internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: Int): String? {
