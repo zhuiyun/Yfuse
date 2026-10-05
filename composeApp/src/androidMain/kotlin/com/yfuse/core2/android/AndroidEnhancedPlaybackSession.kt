@@ -46,6 +46,7 @@ import com.yfuse.core2.dolby.verifyDolbyVisionFelComposition
 import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
 import com.yfuse.core2.network.YPlaybackBufferGate
+import com.yfuse.core2.recovery.passthroughRestorable
 import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.render.YRenderedFrameRateSampler
@@ -238,6 +239,8 @@ internal class AndroidEnhancedPlaybackSession(
         audioRenderer.setAudioDelayMs(value)
         if (value != 0L && isAudioPassthrough()) {
             switchPassthroughToPcm(currentPositionUs(), countFailure = false)
+        } else {
+            restorePassthroughIfAvailable()
         }
     }
 
@@ -755,6 +758,34 @@ internal class AndroidEnhancedPlaybackSession(
             return
         }
         if (audioRendererConfigured && !isAudioPassthrough()) audioRenderer.setSpeed(value)
+        restorePassthroughIfAvailable()
+    }
+
+    /** Gives passthrough back once speed is 1.0 and the delay 0 again; see [passthroughRestorable]. */
+    private fun restorePassthroughIfAvailable() {
+        val track = audioTrack ?: return
+        val format = track.audio ?: return
+        if (!prepared) return
+        val capabilities = capabilityProvider.current()
+        val devicePath =
+            capabilities.audioOutputPath(
+                YAudioRequirement(
+                    codec = format.codec,
+                    channelCount = format.channelCount,
+                    sampleRate = format.sampleRate,
+                ),
+            )
+        val restorable =
+            passthroughRestorable(
+                currentPath = audioOutputPath,
+                devicePath = devicePath,
+                protectedContent = false,
+                passthroughRejected = track.id in rejectedPassthroughTracks,
+                speed = speed,
+                audioDelayMs = audioDelayMs,
+            )
+        // Re-selecting the same track re-plans its path, and restores the PCM one if the sink fails.
+        if (restorable) selectAudioTrack(track.id, capabilities)
     }
 
     fun setOutputSurface(next: Surface) {

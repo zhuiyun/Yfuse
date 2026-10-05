@@ -40,6 +40,7 @@ import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
 import com.yfuse.core2.recovery.YPlaybackFailureReporter
+import com.yfuse.core2.recovery.passthroughRestorable
 import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.render.YRenderedFrameRateSampler
@@ -1431,6 +1432,7 @@ internal class AndroidNativeDirectYPlayer(
             }
             if (audioRendererConfigured && !isAudioPassthrough()) audioRenderer.setSpeed(value)
             mutableState.update { current -> current.copy(speed = value) }
+            restorePassthroughIfAvailable()
         }
 
         private var audioDelayMs = 0L
@@ -1442,6 +1444,46 @@ internal class AndroidNativeDirectYPlayer(
                 val position = currentPositionUs()
                 switchPassthroughToPcm(countFailure = false)
                 seekTo(position)
+            } else {
+                restorePassthroughIfAvailable()
+            }
+        }
+
+        /** Gives passthrough back once speed is 1.0 and the delay 0 again; see [passthroughRestorable]. */
+        private fun restorePassthroughIfAvailable() {
+            val coreFormat = audioTrackFormat ?: return
+            if (!prepared || audioInputFormat == null) return
+            val devicePath =
+                plannedAudioOutputPath
+                    ?: capabilityProvider.current().audioOutputPath(
+                        YAudioRequirement(
+                            codec = coreFormat.codec,
+                            channelCount = coreFormat.channelCount,
+                            sampleRate = coreFormat.sampleRate,
+                        ),
+                    )
+            val restorable =
+                passthroughRestorable(
+                    currentPath = audioOutputPath,
+                    devicePath = devicePath,
+                    protectedContent = drmBinding != null,
+                    passthroughRejected = audioTrackIndex?.let(rejectedPassthroughTracks::contains) == true,
+                    speed = speed,
+                    audioDelayMs = audioDelayMs,
+                )
+            if (!restorable) return
+            val positionUs = currentPositionUs()
+            releaseAudioPath()
+            configureAudioPath(audioInputFormat)
+            seekTo(positionUs)
+            mutableState.update { current ->
+                current.copy(
+                    diagnostics =
+                        current.diagnostics.copy(
+                            audioOutput = waitingAudioOutputLabel(),
+                            audioOutputVerified = false,
+                        ),
+                )
             }
         }
 
