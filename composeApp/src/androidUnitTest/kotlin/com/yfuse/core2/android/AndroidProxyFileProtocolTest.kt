@@ -87,6 +87,27 @@ class AndroidProxyFileProtocolTest {
     }
 
     @Test
+    fun an_upstream_that_ignores_ranges_is_streamed_instead_of_refused() {
+        val payload = ByteArray(300_000) { (it % 233).toByte() }
+        val upstream = WholeBodyTransport(payload)
+        withProxy({ upstream }) { proxy ->
+            val local = proxy.localUrl("https://media.test/transcode.mp4", cacheable = false, cacheIdentity = null)
+            val connection = URL(local).openConnection() as HttpURLConnection
+            connection.connectTimeout = 2_000
+            connection.readTimeout = 5_000
+            connection.setRequestProperty("Range", "bytes=0-")
+            try {
+                assertEquals(200, connection.responseCode)
+                // Told "none", FFmpeg treats the body as a stream and never asks for an offset.
+                assertEquals("none", connection.getHeaderField("Accept-Ranges"))
+                assertContentEquals(payload, connection.inputStream.use { it.readBytes() })
+            } finally {
+                connection.disconnect()
+            }
+        }
+    }
+
+    @Test
     fun the_document_transport_reads_from_any_offset() {
         val file = File.createTempFile("ycore-document", ".bin")
         val payload = ByteArray(10_000) { (it * 7).toByte() }
@@ -193,6 +214,39 @@ class AndroidProxyFileProtocolTest {
             proxy.close()
             directory.deleteRecursively()
         }
+    }
+
+    /** Answers every request, ranged or not, with the whole body, as a progressive transcode does. */
+    private class WholeBodyTransport(
+        private val payload: ByteArray,
+    ) : YMediaTransport {
+        override val supportedProtocols = YSourceProtocol.entries.toSet()
+        override val features = setOf(YTransportFeature.ByteRange, YTransportFeature.RandomAccess)
+        private var position = 0
+
+        override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse {
+            position = 0
+            return YMediaTransportResponse(
+                statusCode = 200,
+                contentLength = payload.size.toLong(),
+                acceptedRange = null,
+                features = features,
+            )
+        }
+
+        override suspend fun read(
+            destination: ByteArray,
+            offset: Int,
+            length: Int,
+        ): Int {
+            if (position >= payload.size) return -1
+            val count = minOf(length, payload.size - position)
+            payload.copyInto(destination, offset, position, position + count)
+            position += count
+            return count
+        }
+
+        override suspend fun close() = Unit
     }
 
     /** Serves [payload] for any address, honouring the requested start offset. */

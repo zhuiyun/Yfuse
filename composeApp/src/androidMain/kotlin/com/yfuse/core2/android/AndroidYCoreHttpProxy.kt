@@ -1677,8 +1677,25 @@ internal class AndroidYCoreHttpProxy(
             activeRangeSources.add(source)
             check(!closed.get()) { "Playback proxy is closed" }
             updateRangePlaybackWindow(source)
-            val totalLength = source.getSize()
-            require(totalLength >= 0L) { "Upstream media length is unknown" }
+            val totalLength =
+                try {
+                    source.getSize()
+                } catch (failure: Throwable) {
+                    if (!failure.upstreamIgnoresByteRanges()) throw failure
+                    -1L
+                }
+            if (totalLength < 0L) {
+                // The upstream sends only whole bodies (a progressive transcode, a one-shot signed
+                // link) or never says how long the media is. Served as a stream it cannot seek,
+                // but it plays, where the block reader's 502 played nothing; the block cache needs
+                // offsets and a length, so it is bypassed.
+                if ((requestedRange?.startInclusive ?: 0L) > 0L) {
+                    writeEmptyResponse(socket, 416, "Range Not Satisfiable")
+                } else {
+                    serveSequential(socket, route, method, seekable = false)
+                }
+                return
+            }
             val start = requestedRange?.startInclusive ?: 0L
             if (start >= totalLength) {
                 writeRangeNotSatisfiable(socket, totalLength)
@@ -1721,10 +1738,12 @@ internal class AndroidYCoreHttpProxy(
         }
     }
 
+    /** Streams the upstream body from its start; [seekable] says whether ranges may follow. */
     private fun serveSequential(
         socket: Socket,
         route: Route,
         method: String,
+        seekable: Boolean = true,
     ) = runBlocking {
         val transport = trackedTransport(route.upstreamUri)
         try {
@@ -1744,6 +1763,7 @@ internal class AndroidYCoreHttpProxy(
                 reason = "OK",
                 contentType = route.upstreamUri.guessContentType(),
                 contentLength = response.contentLength,
+                acceptRanges = seekable,
             )
             if (method == "GET") {
                 var networkReadDurationNs = 0L
@@ -1891,12 +1911,15 @@ internal class AndroidYCoreHttpProxy(
         contentType: String,
         contentLength: Long?,
         contentRange: String? = null,
+        // A client told "none" (FFmpeg among them) treats the body as a stream and never seeks.
+        acceptRanges: Boolean = true,
     ) {
         val output = socket.getOutputStream()
         responsesStarted.add(socket)
         output.write("HTTP/1.1 $status $reason\r\n".toByteArray(StandardCharsets.ISO_8859_1))
         output.write("Content-Type: $contentType\r\n".toByteArray(StandardCharsets.ISO_8859_1))
-        output.write("Accept-Ranges: bytes\r\n".toByteArray(StandardCharsets.ISO_8859_1))
+        val ranges = if (acceptRanges) "bytes" else "none"
+        output.write("Accept-Ranges: $ranges\r\n".toByteArray(StandardCharsets.ISO_8859_1))
         contentRange?.let {
             output.write("Content-Range: $it\r\n".toByteArray(StandardCharsets.ISO_8859_1))
         }
@@ -2242,3 +2265,17 @@ private val EPHEMERAL_MEDIA_QUERY_NAMES =
         "xamzsignature",
         "xamzsignedheaders",
     )
+
+/**
+ * The upstream answered a byte range with its whole body (200), as progressive transcodes and
+ * one-shot signed links do; such a source can only be streamed from its start.
+ */
+private fun Throwable.upstreamIgnoresByteRanges(): Boolean =
+    generateSequence(this) { it.cause }
+        .take(MAX_UPSTREAM_CAUSE_DEPTH)
+        .any { cause ->
+            (cause is YRangeReadException && cause.statusCode == 200) ||
+                (cause is AndroidRangeResponseException && cause.statusCode == 200)
+        }
+
+private const val MAX_UPSTREAM_CAUSE_DEPTH = 8
