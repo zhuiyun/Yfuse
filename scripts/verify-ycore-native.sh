@@ -155,6 +155,8 @@ for bridge in "${bridges[@]}"; do
   strings "$bridge" > "$bridge_strings"
 
   grep -F 'JNI_OnLoad' "$symbols" >/dev/null || fail "$abi bridge does not export JNI_OnLoad"
+  readelf -SW "$bridge" | grep -F '.gnu_debugdata' >/dev/null ||
+    fail "$abi bridge lost its tombstone function names (.gnu_debugdata)"
   for dependency in libavformat.so libavcodec.so libavutil.so libswscale.so libswresample.so; do
     grep -F "Shared library: [$dependency]" "$dynamic" >/dev/null ||
       fail "$abi bridge is not dynamically linked to $dependency"
@@ -192,6 +194,8 @@ for bridge in "${gpu_bridges[@]}"; do
     grep -F "Shared library: [$dependency]" "$dynamic" >/dev/null ||
       fail "$abi GPU bridge is not dynamically linked to $dependency"
   done
+  readelf -SW "$bridge" | grep -F '.gnu_debugdata' >/dev/null ||
+    fail "$abi GPU bridge lost its tombstone function names (.gnu_debugdata)"
   grep -F 'nativeProbeGpuFeatures' "$symbols" >/dev/null ||
     fail "$abi GPU bridge is missing the Vulkan/AHardwareBuffer probe"
   grep -F 'nativeCreateRenderer' "$symbols" >/dev/null ||
