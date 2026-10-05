@@ -30,6 +30,29 @@ internal fun discChapterToast(
 }
 
 /**
+ * What a tap on the 弹幕 key says it did. The tap used to change nothing but a faint fill behind
+ * the key, and when no comments came — the episode not matched, a source that did not answer —
+ * nothing said why: the reason sat in the panel, behind a held press.
+ *
+ * Off is said at once. On waits for the load, so it can say how many comments matched or why none
+ * show. [unmatched] is the source answering with no episode for this one, which 搜索弹幕 in the
+ * panel puts right.
+ */
+internal fun danmakuKeyToast(
+    enabled: Boolean,
+    count: Int = 0,
+    error: String? = null,
+    unmatched: Boolean = false,
+): String =
+    when {
+        !enabled -> "弹幕已关闭"
+        count > 0 -> "弹幕已开启 · 已匹配 $count 条"
+        unmatched -> "弹幕已开启，但没有匹配到这一集，按住弹幕键可手动搜索"
+        error != null -> "弹幕已开启，但加载失败：$error"
+        else -> "弹幕已开启，这一集还没有弹幕"
+    }
+
+/**
  * The cast panel's position line: where the receiver is, and of how long once that is known — but
  * only after the receiver has confirmed it. Null while nothing is being cast to.
  */
