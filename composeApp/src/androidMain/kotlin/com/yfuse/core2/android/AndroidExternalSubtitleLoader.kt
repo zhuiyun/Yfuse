@@ -229,6 +229,9 @@ private fun YSubtitleFormat.externalMimeType(): String =
         YSubtitleFormat.WebVtt -> "text/vtt"
         YSubtitleFormat.Ass -> "text/x-ass"
         YSubtitleFormat.Ssa -> "text/x-ssa"
+        YSubtitleFormat.Smi -> "application/x-sami"
+        YSubtitleFormat.MicroDvd -> "text/x-microdvd"
+        YSubtitleFormat.Ttml -> "application/ttml+xml"
         else -> error("External subtitle format is unsupported")
     }
 

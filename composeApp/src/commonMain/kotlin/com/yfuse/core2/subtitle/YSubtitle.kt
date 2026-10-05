@@ -11,6 +11,15 @@ enum class YSubtitleFormat {
     /** DVB bitmap subtitles (broadcast recordings); drawn from FFmpeg display sets like PGS. */
     DvbSub,
     Tx3g,
+
+    /** SAMI (`.smi`), common for Korean releases. */
+    Smi,
+
+    /** MicroDVD (`.sub` text): frame-numbered lines. */
+    MicroDvd,
+
+    /** TTML / DFXP (`.ttml`, `.dfxp`, `.xml`). */
+    Ttml,
     Unknown,
     ;
 
@@ -18,7 +27,14 @@ enum class YSubtitleFormat {
         get() = this == Srt || this == WebVtt || this == Ass || this == Ssa || this == Tx3g
 
     val standaloneTextSupported: Boolean
-        get() = this == Srt || this == WebVtt || this == Ass || this == Ssa
+        get() =
+            this == Srt ||
+                this == WebVtt ||
+                this == Ass ||
+                this == Ssa ||
+                this == Smi ||
+                this == MicroDvd ||
+                this == Ttml
 
     /** Bitmap formats FFmpeg decodes into display sets. */
     val bitmapDisplaySet: Boolean
@@ -193,10 +209,13 @@ fun externalTextSubtitleFormat(
             "application/x-subrip", "application/srt", "text/srt" -> YSubtitleFormat.Srt
             "text/vtt" -> YSubtitleFormat.WebVtt
             "text/x-ass", "text/x-ssa", "application/x-ass", "application/x-ssa" -> YSubtitleFormat.Ass
+            "application/x-sami", "application/smil" -> YSubtitleFormat.Smi
+            "application/ttml+xml" -> YSubtitleFormat.Ttml
             else -> null
         }
     if (declared != null) return declared
 
+    val prefix = contentPrefix.removePrefix("\uFEFF").trimStart()
     val path = uri.substringBefore('#').substringBefore('?').lowercase()
     val extension =
         when {
@@ -204,13 +223,19 @@ fun externalTextSubtitleFormat(
             path.endsWith(".vtt") -> YSubtitleFormat.WebVtt
             path.endsWith(".ass") -> YSubtitleFormat.Ass
             path.endsWith(".ssa") -> YSubtitleFormat.Ssa
+            path.endsWith(".smi") || path.endsWith(".sami") -> YSubtitleFormat.Smi
+            path.endsWith(".ttml") || path.endsWith(".dfxp") -> YSubtitleFormat.Ttml
+            // A .sub is MicroDVD text only when it reads as such; VobSub's .sub is binary.
+            path.endsWith(".sub") && MICRO_DVD_LINE.containsMatchIn(prefix.take(256)) -> YSubtitleFormat.MicroDvd
             else -> null
         }
     if (extension != null) return extension
 
-    val prefix = contentPrefix.removePrefix("\uFEFF").trimStart()
     return when {
         prefix.startsWith("WEBVTT", ignoreCase = true) -> YSubtitleFormat.WebVtt
+        prefix.startsWith("<SAMI", ignoreCase = true) -> YSubtitleFormat.Smi
+        prefix.contains("<tt", ignoreCase = true) && prefix.contains("ttml", ignoreCase = true) -> YSubtitleFormat.Ttml
+        MICRO_DVD_LINE.matchesAt(prefix, 0) -> YSubtitleFormat.MicroDvd
         prefix.startsWith("[Script Info]", ignoreCase = true) ||
             prefix.contains("\n[Events]", ignoreCase = true) -> YSubtitleFormat.Ass
         "-->" in prefix -> YSubtitleFormat.Srt
@@ -315,3 +340,5 @@ private val SIMPLE_TAG = Regex("</?[A-Za-z][^>]*>")
 private val ASS_OVERRIDE = Regex("\\{[^}]*\\}")
 private const val ASS_PACKET_FIELD_COUNT = 9
 private const val DEFAULT_PACKET_DURATION_US = 5_000_000L
+
+private val MICRO_DVD_LINE = Regex("\\{\\d+\\}\\{\\d*\\}")

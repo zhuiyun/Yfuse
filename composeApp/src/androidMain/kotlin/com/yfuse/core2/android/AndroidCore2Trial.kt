@@ -450,6 +450,9 @@ private fun PlayerMediaItem.toCore2MediaItem(
                             "vtt", "webvtt" -> YSubtitleFormat.WebVtt
                             "ass" -> YSubtitleFormat.Ass
                             "ssa" -> YSubtitleFormat.Ssa
+                            "smi", "sami" -> YSubtitleFormat.Smi
+                            "ttml", "dfxp" -> YSubtitleFormat.Ttml
+                            "microdvd" -> YSubtitleFormat.MicroDvd
                             else -> null
                         },
                     default = subtitle.default,
