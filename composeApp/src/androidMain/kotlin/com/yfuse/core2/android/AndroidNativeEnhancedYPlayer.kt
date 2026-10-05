@@ -1239,9 +1239,7 @@ private fun YDemuxOpenResult.toSubtitleTracks(): List<YTrack> =
     tracks.mapNotNull { track ->
         val subtitle =
             track.subtitle?.takeIf {
-                it.format.textOverlaySupported ||
-                    it.format == com.yfuse.core2.subtitle.YSubtitleFormat.Pgs ||
-                    it.format == com.yfuse.core2.subtitle.YSubtitleFormat.VobSub
+                it.format.textOverlaySupported || it.format.bitmapDisplaySet
             } ?: return@mapNotNull null
         YTrack(
             id = "$SUBTITLE_TRACK_PREFIX${track.id.value}",

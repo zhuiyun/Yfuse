@@ -7,6 +7,9 @@ enum class YSubtitleFormat {
     Ssa,
     Pgs,
     VobSub,
+
+    /** DVB bitmap subtitles (broadcast recordings); drawn from FFmpeg display sets like PGS. */
+    DvbSub,
     Tx3g,
     Unknown,
     ;
@@ -16,6 +19,10 @@ enum class YSubtitleFormat {
 
     val standaloneTextSupported: Boolean
         get() = this == Srt || this == WebVtt || this == Ass || this == Ssa
+
+    /** Bitmap formats FFmpeg decodes into display sets. */
+    val bitmapDisplaySet: Boolean
+        get() = this == Pgs || this == VobSub || this == DvbSub
 }
 
 /** Immutable script/header and optional container fonts, shared by every packet in one ASS track. */

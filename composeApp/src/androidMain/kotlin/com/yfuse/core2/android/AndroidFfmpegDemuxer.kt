@@ -692,6 +692,7 @@ internal fun ffmpegSubtitleFormat(name: String): YSubtitleFormat =
         "ssa" -> YSubtitleFormat.Ssa
         "hdmv_pgs_subtitle", "pgssub" -> YSubtitleFormat.Pgs
         "dvd_subtitle", "dvdsub" -> YSubtitleFormat.VobSub
+        "dvb_subtitle", "dvbsub" -> YSubtitleFormat.DvbSub
         "mov_text", "tx3g" -> YSubtitleFormat.Tx3g
         else -> YSubtitleFormat.Unknown
     }
@@ -703,6 +704,7 @@ private fun ffmpegSubtitleMime(name: String): String =
         YSubtitleFormat.Ass, YSubtitleFormat.Ssa -> "text/x-ssa"
         YSubtitleFormat.Pgs -> "application/pgs"
         YSubtitleFormat.VobSub -> "application/vobsub"
+        YSubtitleFormat.DvbSub -> "application/dvbsubs"
         YSubtitleFormat.Tx3g -> "application/x-quicktime-tx3g"
         YSubtitleFormat.Unknown -> "application/x-ffmpeg-subtitle"
     }
@@ -852,7 +854,7 @@ private fun rationalToFloat(
 
 private val DTS_HD_PROFILES = setOf(50, 60)
 private val DTS_X_PROFILES = setOf(61, 62)
-private val BITMAP_SUBTITLE_FORMATS = setOf(YSubtitleFormat.Pgs, YSubtitleFormat.VobSub)
+private val BITMAP_SUBTITLE_FORMATS = YSubtitleFormat.entries.filter { it.bitmapDisplaySet }.toSet()
 private const val MIME_AUDIO_MPEG_LAYER_2 = "audio/mpeg-L2"
 private val ASS_SUBTITLE_FORMATS = setOf(YSubtitleFormat.Ass, YSubtitleFormat.Ssa)
 private const val ATMOS_PROFILE = 30
