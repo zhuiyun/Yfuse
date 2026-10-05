@@ -43,6 +43,7 @@ internal class AndroidAudioTrackRenderNode(
     private var writtenBytes = 0L
     private val pcmTail = PcmTailTracker()
     private var timestampJumps = 0
+    private var deadTrackRebuilds = 0
     private var zeroWriteCount = 0L
     private var startThresholdFrames = 0
 
@@ -218,7 +219,7 @@ internal class AndroidAudioTrackRenderNode(
         data: ByteBuffer,
         presentationTimeUs: Long,
     ): Int {
-        val audioTrack = checkNotNull(track) { "AudioTrack render node has not been configured" }
+        var audioTrack = checkNotNull(track) { "AudioTrack render node has not been configured" }
         if (basePresentationTimeUs == null && data.hasRemaining()) {
             basePresentationTimeUs = presentationTimeUs.coerceAtLeast(0L)
         } else if (data.hasRemaining()) {
@@ -227,11 +228,17 @@ internal class AndroidAudioTrackRenderNode(
         var total = 0
         while (data.hasRemaining()) {
             val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_BLOCKING)
+            if (written == AudioTrack.ERROR_DEAD_OBJECT && canRebuildDeadTrack()) {
+                audioTrack = rebuildDeadTrack()
+                basePresentationTimeUs = presentationTimeUs.coerceAtLeast(0L)
+                continue
+            }
             check(written >= 0) { "AudioTrack.write failed with code $written" }
             if (written == 0) {
                 zeroWriteCount++
                 continue
             }
+            deadTrackRebuilds = 0
             writtenBytes += written
             pcmTail.record(written)
             total += written
@@ -257,10 +264,16 @@ internal class AndroidAudioTrackRenderNode(
         val shouldAnchorClock = basePresentationTimeUs == null
         if (!shouldAnchorClock) followTimestampJump(presentationTimeUs)
         val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_NON_BLOCKING)
+        if (written == AudioTrack.ERROR_DEAD_OBJECT && canRebuildDeadTrack()) {
+            // The caller keeps the buffer and offers it again, to the new track, which anchors then.
+            rebuildDeadTrack()
+            return 0
+        }
         check(written >= 0) { "AudioTrack.write failed with code $written" }
         if (written == 0) {
             zeroWriteCount++
         } else {
+            deadTrackRebuilds = 0
             writtenBytes += written
             pcmTail.record(written)
         }
@@ -269,6 +282,32 @@ internal class AndroidAudioTrackRenderNode(
         }
         restorePlayingBufferIfStarted(audioTrack)
         return written
+    }
+
+    private fun canRebuildDeadTrack(): Boolean = configuredFormat != null && deadTrackRebuilds < MAX_DEAD_TRACK_REBUILDS
+
+    /**
+     * The audio server drops a track when it restarts or the output it was routed to goes away
+     * (ERROR_DEAD_OBJECT). That used to fail the whole pipeline; the track is now rebuilt on the
+     * same format, keeping play state and speed, and only the audio buffered in the old one is
+     * lost. A track that dies again before accepting anything still fails.
+     */
+    private fun rebuildDeadTrack(): AudioTrack {
+        val format = checkNotNull(configuredFormat)
+        val resume = requestedPlay
+        val currentSpeed = speed
+        val rebuilds = deadTrackRebuilds + 1
+        configure(format)
+        deadTrackRebuilds = rebuilds
+        if (currentSpeed != 1f) setSpeed(currentSpeed)
+        if (resume) play()
+        AppLog.warning(
+            category = "player.core2",
+            event = "audio_track_dead_rebuilt",
+            message = "AudioTrack lost its audio server connection; rebuilt on the same format",
+            attributes = mapOf("attempt" to rebuilds.toString()),
+        )
+        return checkNotNull(track)
     }
 
     /** Pre-S: once the first frames have played, the startup cut gives way to the playing buffer. */
@@ -713,6 +752,7 @@ private const val MAX_AUDIO_BUFFER_BYTES = 2 * 1024 * 1024
 private const val MINIMUM_AUDIO_BUFFER_MULTIPLIER = 4L
 private const val TARGET_AUDIO_BUFFER_SECONDS = 2L
 private const val MAX_LOGGED_TIMESTAMP_JUMPS = 5
+private const val MAX_DEAD_TRACK_REBUILDS = 2
 
 internal fun pcmTailPending(
     writtenBytes: Long,
