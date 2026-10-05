@@ -706,6 +706,10 @@ private fun ffmpegSubtitleMime(name: String): String =
         YSubtitleFormat.VobSub -> "application/vobsub"
         YSubtitleFormat.DvbSub -> "application/dvbsubs"
         YSubtitleFormat.Tx3g -> "application/x-quicktime-tx3g"
+        // Sidecar-only formats; ffmpegSubtitleFormat never names them for an embedded track.
+        YSubtitleFormat.Smi -> "application/x-sami"
+        YSubtitleFormat.MicroDvd -> "text/x-microdvd"
+        YSubtitleFormat.Ttml -> "application/ttml+xml"
         YSubtitleFormat.Unknown -> "application/x-ffmpeg-subtitle"
     }
 
