@@ -1155,8 +1155,13 @@ internal class AndroidNativeEnhancedYPlayer(
     }
 }
 
-/** Remote static files need the same redirect/range/credential boundary as adaptive manifests. */
+/**
+ * Remote static files need the same redirect/range/credential boundary as adaptive manifests.
+ * SMB shares and on-device documents always go through the proxy: FFmpeg has no smb protocol
+ * here, and its android_content protocol depends on a reference libmpv deletes.
+ */
 internal fun shouldProxyEnhancedSourceUri(uri: String): Boolean {
+    if (uri.rawUriScheme() in setOf("smb", "content")) return true
     val parsed = runCatching { URI(uri) }.getOrNull() ?: return false
     if (parsed.scheme?.lowercase() !in setOf("http", "https", "webdav", "webdavs")) return false
     return parsed.host?.lowercase() !in setOf("127.0.0.1", "localhost", "::1")

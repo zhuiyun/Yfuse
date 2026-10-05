@@ -97,7 +97,7 @@ internal fun smbProperties(): Properties =
         setProperty("jcifs.smb.client.soTimeout", "15000")
     }
 
-private fun YByteRange.boundedTo(length: Long): YByteRange? {
+internal fun YByteRange.boundedTo(length: Long): YByteRange? {
     if (startInclusive >= length) return null
     return YByteRange(startInclusive, minOf(endInclusive ?: (length - 1L), length - 1L))
 }

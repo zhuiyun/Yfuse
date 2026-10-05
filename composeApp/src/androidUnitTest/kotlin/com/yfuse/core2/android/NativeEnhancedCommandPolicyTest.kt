@@ -68,9 +68,21 @@ class NativeEnhancedCommandPolicyTest {
     }
 
     @Test
+    fun smb_and_documents_are_read_by_ycore_transports_not_ffmpeg() {
+        // SMB paths stay unencoded for jcifs; a space must not keep the address off the proxy.
+        assertTrue(shouldProxyEnhancedSourceUri("smb://nas.local/Movies/Some Film (2020).mkv"))
+        assertTrue(shouldProxyEnhancedSourceUri("content://media/external/video/1"))
+        assertTrue(
+            shouldProxyEnhancedSourceUri(
+                "content://com.android.externalstorage.documents/document/primary%3AMovies%2Ffilm.mkv",
+            ),
+        )
+    }
+
+    @Test
     fun local_and_loopback_sources_do_not_reenter_the_proxy() {
         assertFalse(shouldProxyEnhancedSourceUri("file:///storage/emulated/0/video.mkv"))
-        assertFalse(shouldProxyEnhancedSourceUri("content://media/external/video/1"))
+        assertFalse(shouldProxyEnhancedSourceUri("/storage/emulated/0/video.mkv"))
         assertFalse(shouldProxyEnhancedSourceUri("http://127.0.0.1:1234/ycore/video.mkv"))
         assertFalse(shouldProxyEnhancedSourceUri("http://localhost:1234/ycore/video.mkv"))
     }

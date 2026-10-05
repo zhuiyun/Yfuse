@@ -24,6 +24,7 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavcodec/codec_par.h>
+#include <libavcodec/jni.h>
 #include <libavcodec/packet.h>
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
@@ -665,15 +666,36 @@ std::string ffmpeg_error(int error) {
     return std::string(buffer);
 }
 
-bool is_remote_source(const std::string& source) {
+std::string source_scheme(const std::string& source) {
     const size_t separator = source.find(':');
-    if (separator == std::string::npos) return false;
+    if (separator == std::string::npos) return {};
     std::string scheme = source.substr(0, separator);
     std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char value) {
         return static_cast<char>(std::tolower(value));
     });
+    return scheme;
+}
+
+bool is_remote_source(const std::string& source) {
+    const std::string scheme = source_scheme(source);
     return scheme == "http" || scheme == "https" || scheme == "smb" || scheme == "webdav";
 }
+
+/**
+ * Sources FFmpeg must never open itself. This build has no smb protocol, and FFmpeg's
+ * android_content protocol reads through the application context libmpv registers and deletes
+ * again when its player is destroyed, so using it after that aborts the process. YCore's loopback
+ * proxy serves both; one that reaches here was never localized.
+ */
+bool needs_ycore_transport(const std::string& source) {
+    const std::string scheme = source_scheme(source);
+    return scheme == "smb" || scheme == "content" || scheme == "android_content";
+}
+
+// A remote playlist can name any URL FFmpeg understands, local files included. Each source kind is
+// held to the protocols it needs; nested opens (segments, keys) inherit the list.
+constexpr const char* kRemoteProtocolWhitelist = "http,https,tls,tcp,crypto,data,httpproxy";
+constexpr const char* kLocalProtocolWhitelist = "file,crypto,data";
 
 constexpr const char* kProbeSizeBytes = "2097152";
 constexpr const char* kProbeAnalyzeDurationUs = "1000000";
@@ -700,7 +722,11 @@ int failure_status(int error, bool remote_source) {
     if (error == AVERROR_HTTP_UNAUTHORIZED || error == AVERROR_HTTP_FORBIDDEN) {
         return kFailureAuthorization;
     }
-    if (error == AVERROR_INVALIDDATA || error == AVERROR_DEMUXER_NOT_FOUND) {
+    // Unsupported, not unreachable: reporting these as network faults sent users to check a
+    // server that was answering fine.
+    if (error == AVERROR_INVALIDDATA || error == AVERROR_DEMUXER_NOT_FOUND ||
+        error == AVERROR_PROTOCOL_NOT_FOUND || error == AVERROR_DECODER_NOT_FOUND ||
+        error == AVERROR_PATCHWELCOME || error == AVERROR(ENOSYS)) {
         return kFailureContainer;
     }
     if (!remote_source) return kFailureContainer;
@@ -2140,6 +2166,10 @@ jlong open_session(
     if (!headers_valid || env->ExceptionCheck()) return 0;
 
     g_last_open_failure.clear();
+    if (needs_ycore_transport(source)) {
+        record_open_failure("ycore_transport_required", AVERROR_PROTOCOL_NOT_FOUND);
+        return open_failure_status(AVERROR_PROTOCOL_NOT_FOUND, false, kOpenStageOpenInput);
+    }
     auto session = std::make_unique<DemuxSession>();
     session->cancellation = std::move(cancellation);
     int64_t disc_source_id = 0;
@@ -2174,6 +2204,12 @@ jlong open_session(
         av_dict_set(&options, "respect_retry_after", "1", 0);
         av_dict_set(&options, "rw_timeout", "15000000", 0);
     }
+
+    av_dict_set(
+        &options,
+        "protocol_whitelist",
+        session->remote_source ? kRemoteProtocolWhitelist : kLocalProtocolWhitelist,
+        0);
 
     if (probe_only || startup_analysis) {
         // A truth probe only needs stream parameters. Keep FFmpeg from reading its default
@@ -3578,6 +3614,10 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK || !env) {
         return JNI_ERR;
     }
+    // FFmpeg's JNI helpers need the VM before first use whether or not libmpv ever loads; the same
+    // VM may be registered again by libmpv. No application context is handed over: content://
+    // goes through YCore's proxy, never FFmpeg's android_content protocol.
+    av_jni_set_java_vm(vm, nullptr);
     jclass bridge = env->FindClass("com/yfuse/core2/android/FfmpegNativeBridge");
     if (!bridge) return JNI_ERR;
     const int result = env->RegisterNatives(

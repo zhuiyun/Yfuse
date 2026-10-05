@@ -543,6 +543,7 @@ internal class AndroidYCoreHttpProxy(
     }
 
     private val cacheDirectory = cacheDirectory ?: requireNotNull(context).applicationContext.cacheDir
+    private val appContext = context?.applicationContext
     private val routesLock = Any()
     private val routes = LinkedHashMap<String, Route>()
     private val routeIds = HashMap<Route, String>()
@@ -589,7 +590,8 @@ internal class AndroidYCoreHttpProxy(
         mediaBitRateBitsPerSecond: Long = 0L,
         credentialOrigin: String = upstreamUri,
     ): String {
-        if (closed.get() || upstreamUri.sourceProtocolOrNull() == null) return upstreamUri
+        val protocol = upstreamUri.sourceProtocolOrNull()
+        if (closed.get() || protocol == null) return upstreamUri
         // An explicit source preparation/retry starts a new failure observation window.
         synchronized(routesLock) { terminalSourceFailures.remove(upstreamUri) }
         val route =
@@ -598,7 +600,9 @@ internal class AndroidYCoreHttpProxy(
                 upstreamHeaders = upstreamHeaders,
                 credentialOrigin = credentialOrigin,
                 credentials = credentials,
-                cacheable = cacheable,
+                // A document on this device is already local; copying it into the block cache
+                // would only spend the cache budget twice.
+                cacheable = cacheable && protocol != YSourceProtocol.Local,
                 cacheIdentity = cacheIdentity,
                 maximumWidth = maximumWidth,
                 maximumHeight = maximumHeight,
@@ -807,10 +811,22 @@ internal class AndroidYCoreHttpProxy(
     private fun trackedTransport(mediaUri: String?) =
         YCoreProxyTransport(
             createTransport?.invoke()
+                ?: mediaUri?.let(::fileProtocolTransport)
                 ?: mediaUri?.let(::sharedRouteHttpMediaTransport)
                 ?: AndroidHttpMediaTransport(followSafeRedirects = true, allowCrossProtocolRedirects = true),
             requests,
         )
+
+    /**
+     * SMB shares and on-device documents have no FFmpeg protocol YCore can rely on, so the proxy
+     * reads them with YCore's own transports and serves FFmpeg plain HTTP ranges.
+     */
+    private fun fileProtocolTransport(mediaUri: String): YMediaTransport? =
+        when (mediaUri.sourceProtocolOrNull()) {
+            YSourceProtocol.Smb -> AndroidSmbMediaTransport()
+            YSourceProtocol.Local -> appContext?.let { AndroidContentMediaTransport(it) }
+            else -> null
+        }
 
     private fun registerRoute(route: Route): String {
         while (routes.size >= MAX_ROUTES) {
@@ -2023,10 +2039,14 @@ internal fun mergeYCoreHlsReloadQuery(
     }
 }
 
+// The scheme is read off the raw string: SMB paths are deliberately unencoded (jcifs reads them
+// literally), so an ordinary file name with a space makes java.net.URI reject the whole address.
 private fun String.sourceProtocolOrNull(): YSourceProtocol? =
-    when (runCatching { URI(this).scheme?.lowercase() }.getOrNull()) {
+    when (rawUriScheme()) {
         "http" -> YSourceProtocol.Http
         "https" -> YSourceProtocol.Https
+        "smb" -> YSourceProtocol.Smb
+        "content" -> YSourceProtocol.Local
         else -> null
     }
 

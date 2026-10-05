@@ -26,6 +26,7 @@ import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.strategy.YDecoderPreference
 import com.yfuse.core2.strategy.YOptimizationPreference
 import com.yfuse.core2.subtitle.YSubtitleFormat
+import com.yfuse.feature.filesource.isFileSourcePlayback
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.VideoEngine
 import com.yfuse.feature.player.externalSubtitleFormatHint
@@ -268,6 +269,7 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
                 version?.dolbyVision != true ||
                     version?.dolbyProfile == null ||
                     version?.dolbyProfile in CORE2_DOLBY_TRIAL_PROFILES,
+            probedBeforeRouting = item.isFileSourcePlayback,
         )
     return evaluateCore2NativeBaseline(source)?.userMessage()
 }
