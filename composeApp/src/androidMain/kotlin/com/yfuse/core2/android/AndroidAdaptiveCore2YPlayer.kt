@@ -2426,8 +2426,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                 else -> {
                     pendingPositionMs =
                         if (child != null) globalChildPosition() else mutableState.value.positionMs
-                    forceEnhancedFallback = false
-                    forceSoftwareFallback = false
+                    // A route this item already fell back from stays behind it, as tunnelling
+                    // does: clearing the fallback here sent every headphone, Bluetooth or HDMI
+                    // change back to a route that had failed, through a stall and a second
+                    // fallback. The rebuilt graph still takes the new output into account.
                     rebuild(pendingPositionMs)
                 }
             }
