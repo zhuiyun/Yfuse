@@ -81,7 +81,8 @@ FFMPEG_REVISION="$(manifest_value ffmpeg)"
 [[ "$(manifest_value ycore-libbluray)" == "1.4.1" ]] || fail "unexpected libbluray revision"
 [[ "$(manifest_value ycore-disc-uri-source)" == "scripts/native/ycore_disc_uri.h" ]] ||
   fail "YCore disc URI boundary provenance is missing"
-[[ "$(manifest_value ycore-gpu-api)" == "2" ]] || fail "YCore GPU API v2 is missing"
+[[ "$(manifest_value ycore-gpu-api)" == "3" ]] ||
+  fail "YCore GPU API v3 (per-frame presentation, present timing, in-place reset) is missing"
 [[ "$(manifest_value ycore-gpu-source)" == "scripts/native/ycore_vulkan_jni.cpp" ]] ||
   fail "YCore Vulkan source provenance is missing"
 [[ "$(manifest_value ycore-gpu-renderer-source)" == "scripts/native/ycore_vulkan_renderer.cpp" ]] ||

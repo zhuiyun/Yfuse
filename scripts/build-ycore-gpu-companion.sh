@@ -92,7 +92,7 @@ GPU_LIBRARY="$STAGE/source/jni/arm64-v8a/libycore_gpu.so"
 
 PROVENANCE="$OUTPUT_DIR/NATIVE-SOURCES.txt"
 printf '%s\n' \
-  "ycore-gpu-api=2" \
+  "ycore-gpu-api=3" \
   "ycore-gpu-source=scripts/native/ycore_vulkan_jni.cpp" \
   "ycore-gpu-renderer-source=scripts/native/ycore_vulkan_renderer.cpp" \
   "ycore-gpu-vertex-shader=scripts/native/shaders/ycore_fullscreen.vert" \

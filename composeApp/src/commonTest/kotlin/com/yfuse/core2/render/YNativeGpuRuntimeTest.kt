@@ -33,6 +33,19 @@ class YNativeGpuRuntimeTest {
     }
 
     @Test
+    fun newerExecutorsKeepTheRouteAndOlderOnesAreNamed() {
+        // An API 3 executor only adds entry points; requiring exactly API 2 would have turned the
+        // GPU route off the day the rebuilt executor shipped.
+        val newer = probe(WARMUP_FEATURE_MASK, nativeApiVersion = NATIVE_GPU_TIMED_PRESENT_API_VERSION)
+        val older = probe(WARMUP_FEATURE_MASK, nativeApiVersion = NATIVE_GPU_API_VERSION - 1)
+
+        assertTrue(newer.supportsWarmup)
+        assertEquals(YNativeGpuRequirement.SwapchainPresentation, newer.firstMissingRequirement())
+        assertFalse(older.supportsWarmup)
+        assertEquals(YNativeGpuRequirement.NativeApi, older.firstMissingRequirement())
+    }
+
+    @Test
     fun oldAndroidOrMissingYcbcrCannotEnterWarmup() {
         assertFalse(probe(WARMUP_FEATURE_MASK, apiLevel = 27).supportsWarmup)
         assertFalse(
@@ -65,9 +78,10 @@ class YNativeGpuRuntimeTest {
     private fun probe(
         mask: Long,
         apiLevel: Int = 35,
+        nativeApiVersion: Int = NATIVE_GPU_API_VERSION,
     ) = YNativeGpuRuntimeProbe(
         platformApiLevel = apiLevel,
-        nativeApiVersion = NATIVE_GPU_API_VERSION,
+        nativeApiVersion = nativeApiVersion,
         featureMask = mask,
     )
 }

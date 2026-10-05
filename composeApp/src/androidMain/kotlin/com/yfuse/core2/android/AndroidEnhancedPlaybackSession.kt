@@ -1774,6 +1774,11 @@ internal class AndroidEnhancedPlaybackSession(
                 droppedFrames++
             }
             is YVideoFrameReleaseDecision.Render -> {
+                val gpu = gpuVideoOutput
+                if (gpu != null && decision.tooEarlyToPresentOnArrival(nowNs)) {
+                    pendingVideoOutput = output
+                    return false
+                }
                 pendingVideoOutput = null
                 yPlaybackStage(
                     category = YPlaybackFailureCategory.Renderer,
@@ -1781,6 +1786,9 @@ internal class AndroidEnhancedPlaybackSession(
                     safeDetail = "Enhanced video frame release",
                 ) {
                     videoOutputEpoch.submitted(output.presentationTimeUs)
+                    // Recorded first: the image can reach the renderer's thread before
+                    // releaseOutput returns.
+                    gpu?.recordFrame(decision.releaseTimeNs, output.presentationTimeUs)
                     videoDecoder.releaseOutput(output, render = true, renderTimeNs = decision.releaseTimeNs)
                     surfaceCompletion.frameReleased(decision.releaseTimeNs)
                 }

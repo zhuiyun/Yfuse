@@ -345,7 +345,6 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
             "ycore-demux-extradata-budget=32MiB-codec-32MiB-font-128-fonts",
             "ycore-disc-api=2",
             "ycore-bdmv-vfs=read-only-saf",
-            "ycore-gpu-api=2",
             "ycore-gpu-source=scripts/native/ycore_vulkan_jni.cpp",
             "ycore-gpu-renderer-source=scripts/native/ycore_vulkan_renderer.cpp",
             "ycore-gpu-vertex-shader=scripts/native/shaders/ycore_fullscreen.vert",
@@ -365,6 +364,10 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
         // runtime and swaps their channels while drawing.
         require(Regex("(?m)^ycore-software-decoder-api=[23]$").containsMatchIn(provenance)) {
             "Standalone YCore provenance is missing ycore-software-decoder-api=2 or 3"
+        }
+        // GPU API 2 executors stay usable; the bridge enables API 3 additions by version.
+        require(Regex("(?m)^ycore-gpu-api=[23]$").containsMatchIn(provenance)) {
+            "Standalone YCore provenance is missing ycore-gpu-api=2 or 3"
         }
         ZipFile(aarFile).use { archive ->
             require(archive.getEntry("jni/arm64-v8a/libycore_demux.so") != null) {
@@ -444,7 +447,6 @@ val verifyYCoreGpuCompanionArtifact by tasks.registering {
 
         val provenance = sourcesFile.readText()
         listOf(
-            "ycore-gpu-api=2",
             "ycore-gpu-source=scripts/native/ycore_vulkan_jni.cpp",
             "ycore-gpu-renderer-source=scripts/native/ycore_vulkan_renderer.cpp",
             "ycore-gpu-entry=libycore_gpu.so",
@@ -452,6 +454,9 @@ val verifyYCoreGpuCompanionArtifact by tasks.registering {
             require(marker in provenance) {
                 "YCore GPU companion provenance is missing $marker"
             }
+        }
+        require(Regex("(?m)^ycore-gpu-api=[23]$").containsMatchIn(provenance)) {
+            "YCore GPU companion provenance is missing ycore-gpu-api=2 or 3"
         }
         ZipFile(aarFile).use { archive ->
             require(archive.getEntry("jni/arm64-v8a/libycore_gpu.so") != null) {

@@ -203,6 +203,20 @@ class AndroidMediaCodecVideoNodePolicyTest {
     }
 
     @Test
+    fun outputsThatShowFramesOnArrivalGetThemJustBeforeTheirTime() {
+        val now = 2_000_000_000L
+        // A display Surface may take this frame 200 ms early and hold it; an ImageReader would
+        // show it at once.
+        val early = YVideoFrameReleaseDecision.Render(now + 200_000_000L)
+        val due = YVideoFrameReleaseDecision.Render(now + PRESENT_ON_ARRIVAL_RELEASE_LEAD_NS)
+        val late = YVideoFrameReleaseDecision.Render(now - 5_000_000L)
+
+        assertTrue(early.tooEarlyToPresentOnArrival(now))
+        assertEquals(false, due.tooEarlyToPresentOnArrival(now))
+        assertEquals(false, late.tooEarlyToPresentOnArrival(now))
+    }
+
+    @Test
     fun lateFirstFrameRendersImmediatelyInsteadOfLeavingTheSurfaceBlank() {
         assertEquals(
             YVideoFrameReleaseDecision.Render(2_000_000_000L),

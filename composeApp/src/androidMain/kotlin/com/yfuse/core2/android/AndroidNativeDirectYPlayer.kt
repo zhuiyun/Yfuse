@@ -2023,6 +2023,10 @@ internal class AndroidNativeDirectYPlayer(
                         droppedFrames++
                     }
                     is YVideoFrameReleaseDecision.Render -> {
+                        if (videoDecoder.anime4KActive && decision.tooEarlyToPresentOnArrival(nowNs)) {
+                            pendingVideoOutput = output
+                            return false
+                        }
                         pendingVideoOutput = null
                         videoOutputEpoch.submitted(output.presentationTimeUs)
                         releaseVideoOutput(output, render = true, renderTimeNs = decision.releaseTimeNs)
