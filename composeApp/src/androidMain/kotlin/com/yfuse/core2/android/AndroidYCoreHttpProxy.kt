@@ -31,6 +31,7 @@ import com.yfuse.core2.adaptive.buildYDashPlaybackManifest
 import com.yfuse.core2.adaptive.buildYHlsPlaybackMaster
 import com.yfuse.core2.adaptive.compatibleYDashReopenRepresentations
 import com.yfuse.core2.adaptive.compatibleYHlsReopenVariants
+import com.yfuse.core2.adaptive.initialVariantOnly
 import com.yfuse.core2.adaptive.manifestForPeriod
 import com.yfuse.core2.adaptive.parseYDashManifest
 import com.yfuse.core2.adaptive.parseYHlsPlaylist
@@ -656,7 +657,7 @@ internal class AndroidYCoreHttpProxy(
                     require(manifest.periods.all { it.durationUs != null }) { "Static DASH Period duration is unknown" }
                     AdaptivePresentation(rootUri, route, dash = manifest)
                 } else {
-                    require(route.drmProtected || !text.hasHlsSessionKey()) {
+                    require(route.drmProtected || !text.hasDrmHlsSessionKey()) {
                         "HLS session keys require the native DRM route"
                     }
                     val master = parseYHlsPlaylist(text, route.upstreamUri) as? YHlsPlaylist.Master
@@ -1128,7 +1129,7 @@ internal class AndroidYCoreHttpProxy(
     ) {
         val pinned = route.playbackTarget?.hls
         val rootText = pinned?.text ?: loadBounded(route.upstreamUri, MAX_HLS_MANIFEST_BYTES, route).decodeToString()
-        require(route.drmProtected || !rootText.hasHlsSessionKey()) {
+        require(route.drmProtected || !rootText.hasDrmHlsSessionKey()) {
             "HLS session keys require the native DRM route"
         }
         val root = pinned?.media ?: parseYHlsPlaylist(rootText, route.upstreamUri)
@@ -1152,7 +1153,7 @@ internal class AndroidYCoreHttpProxy(
                         ),
                 )
             val selectedMaster =
-                buildYHlsPlaybackMaster(playback) { upstreamUri, _ ->
+                buildYHlsPlaybackMaster(playback.initialVariantOnly()) { upstreamUri, _ ->
                     localUrl(
                         upstreamUri = upstreamUri,
                         upstreamHeaders = route.upstreamHeaders,
@@ -1301,7 +1302,7 @@ internal class AndroidYCoreHttpProxy(
         uri: String,
         drmProtected: Boolean,
     ): YHlsPlaylist.Media {
-        require(drmProtected || !hasHlsSessionKey()) { "HLS session keys require the native DRM route" }
+        require(drmProtected || !hasDrmHlsSessionKey()) { "HLS session keys require the native DRM route" }
         val media = parseYHlsPlaylist(this, uri) as? YHlsPlaylist.Media
         requireNotNull(media) { "Nested HLS master playlists are not executable" }
         media.requireSupportedEncryption(drmProtected)
@@ -2099,12 +2100,15 @@ internal fun String.hasSeparateYCoreHlsRenditions(): Boolean =
             ("AUDIO=" in normalized || "VIDEO=" in normalized || "SUBTITLES=" in normalized)
     }
 
-private fun String.hasHlsSessionKey(): Boolean =
+/**
+ * A session key for sample encryption, which is DRM that only the native DRM route opens. An
+ * AES-128 session key only lets a client fetch, early, the keys its media playlists name anyway,
+ * and FFmpeg decrypts those segments itself; refusing it refused clear AES-128 streams.
+ */
+private fun String.hasDrmHlsSessionKey(): Boolean =
     lineSequence().any { line ->
-        line
-            .trim()
-            .uppercase()
-            .startsWith("#EXT-X-SESSION-KEY:")
+        val normalized = line.trim().uppercase()
+        normalized.startsWith("#EXT-X-SESSION-KEY:") && !normalized.contains("METHOD=AES-128")
     }
 
 private fun String.hasLowLatencyHlsParts(): Boolean =
