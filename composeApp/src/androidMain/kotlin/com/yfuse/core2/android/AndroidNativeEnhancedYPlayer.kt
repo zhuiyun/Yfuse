@@ -556,12 +556,15 @@ internal class AndroidNativeEnhancedYPlayer(
                     tracks.firstOrNull { it.selected }?.id,
                 )
                 val video = result.tracks.firstOrNull { it.type == YDemuxTrackType.Video }?.video
-                // The GPU renderer turns the picture by the track's rotation.
+                // Every output turns the picture by the track's rotation: the GPU and software
+                // renderers themselves, MediaCodec on a direct Surface. Those renderers also square
+                // the pixels inside a surface of this shape; a direct Surface simply takes it.
                 val (shownWidth, shownHeight) =
                     shownVideoSize(
                         width = video?.width ?: 0,
                         height = video?.height ?: 0,
                         rotationDegrees = video?.geometry?.rotationDegrees ?: 0,
+                        pixelAspectRatio = video?.geometry?.pixelAspectRatio ?: 1.0,
                     )
                 val audio = result.tracks.firstOrNull { it.id == session.selectedAudioTrackId() }?.audio
                 activeDolbyProfile = video?.dolbyVisionConfig?.profile

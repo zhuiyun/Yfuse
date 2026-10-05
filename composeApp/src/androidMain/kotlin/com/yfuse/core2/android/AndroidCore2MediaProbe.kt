@@ -69,6 +69,8 @@ internal sealed interface YCore2ProbeResult {
         val dolbyVisionStreamEvidence: YDolbyVisionStreamEvidence? = null,
         /** Dolby NAL units were observed even though the container omitted its profile record. */
         val unconfiguredDolbyVisionSignal: Boolean = false,
+        /** The video's pixel aspect ratio when the container states one; see [statedPixelAspectRatio]. */
+        val pixelAspectRatio: Double? = null,
     ) : YCore2ProbeResult
 
     data class Failure(
@@ -362,6 +364,7 @@ internal class AndroidCore2MediaProbe(
                             YDolbyVisionStreamEvidence(config, observedDolbyVisionNals)
                         },
                     unconfiguredDolbyVisionSignal = unconfiguredDolbyVisionSignal,
+                    pixelAspectRatio = videoFormat.statedPixelAspectRatio(),
                 ).let(::retain)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error

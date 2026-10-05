@@ -24,10 +24,15 @@ internal object AndroidMediaFormatFactory {
      * [inBandParameterSets] are the first keyframe's, used only when the container's own codec
      * configuration carries no complete set (see [h26xCodecSpecificData]). Callers build the format
      * inside [yVideoFormatStage] so that a malformed record is reported as the Bitstream failure it is.
+     *
+     * [displayRotation] when the decoder draws straight to the display Surface: MediaCodec then
+     * turns the picture by the track's rotation. The GPU renderer turns it itself from the track
+     * geometry, so the format of a decoder feeding it carries none.
      */
     fun video(
         track: YVideoTrackFormat,
         inBandParameterSets: YParameterSets? = null,
+        displayRotation: Boolean = false,
     ): MediaFormat {
         val mime =
             if (track.dolbyVisionConfig != null) {
@@ -37,6 +42,10 @@ internal object AndroidMediaFormatFactory {
             }
         val format = MediaFormat.createVideoFormat(mime, track.width.coerceAtLeast(0), track.height.coerceAtLeast(0))
         if (track.frameRate > 0f) format.setFloat(MediaFormat.KEY_FRAME_RATE, track.frameRate)
+        val rotation = track.geometry.normalizedRotationDegrees
+        if (displayRotation && rotation != 0 && rotation % 90 == 0) {
+            format.setInteger(MediaFormat.KEY_ROTATION, rotation)
+        }
         applyHdr(format, track.hdrType)
         track.hdrStaticMetadata?.let { metadata ->
             format.setByteBuffer(

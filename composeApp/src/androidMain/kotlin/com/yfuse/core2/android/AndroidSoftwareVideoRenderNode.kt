@@ -9,6 +9,7 @@ import android.graphics.RectF
 import android.os.Build
 import android.os.Process
 import android.view.Surface
+import com.yfuse.core2.demux.YVideoGeometry
 import kotlinx.coroutines.CancellationException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -49,6 +50,10 @@ internal class AndroidSoftwareVideoRenderNode {
 
     @Volatile
     private var surface: Surface? = null
+
+    /** The track's pixel shape and rotation, which every frame is drawn squared and turned by. */
+    @Volatile
+    var geometry: YVideoGeometry = YVideoGeometry()
 
     private val inFlightFrames = AtomicInteger()
     private val renderedFrames = AtomicInteger()
@@ -213,19 +218,20 @@ internal class AndroidSoftwareVideoRenderNode {
         try {
             require(canvas.width > 0 && canvas.height > 0) { "Software video output has no drawable area" }
             canvas.drawColor(Color.BLACK)
-            val sourceAspect = width.toFloat() / height.toFloat()
-            val outputAspect = canvas.width.toFloat() / canvas.height.toFloat()
-            val destination =
-                if (sourceAspect > outputAspect) {
-                    val scaledHeight = canvas.width / sourceAspect
-                    val top = (canvas.height - scaledHeight) / 2f
-                    RectF(0f, top, canvas.width.toFloat(), top + scaledHeight)
-                } else {
-                    val scaledWidth = canvas.height * sourceAspect
-                    val left = (canvas.width - scaledWidth) / 2f
-                    RectF(left, 0f, left + scaledWidth, canvas.height.toFloat())
-                }
-            canvas.drawBitmap(target, null, destination, if (redBlueSwapped) redBlueSwappedPaint else paint)
+            // MediaCodec turns and the GPU renderer squares and turns pictures for the other routes;
+            // here the canvas does both, about the centre so a turned picture stays in place.
+            val shape = geometry
+            val (drawWidth, drawHeight) = softwareFrameDrawSize(width, height, shape, canvas.width, canvas.height)
+            canvas.save()
+            canvas.translate(canvas.width / 2f, canvas.height / 2f)
+            if (shape.drawnRotationDegrees != 0) canvas.rotate(shape.drawnRotationDegrees.toFloat())
+            canvas.drawBitmap(
+                target,
+                null,
+                RectF(-drawWidth / 2f, -drawHeight / 2f, drawWidth / 2f, drawHeight / 2f),
+                if (redBlueSwapped) redBlueSwappedPaint else paint,
+            )
+            canvas.restore()
         } finally {
             output.unlockCanvasAndPost(canvas)
         }

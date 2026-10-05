@@ -440,6 +440,7 @@ internal class AndroidEnhancedPlaybackSession(
                         trackId = videoTrack.id,
                         toneMapHdrToSdr = plan.softwareVideoToneMap,
                     )
+                    softwareVideoRenderer.geometry = effectiveVideo.geometry
                     softwareVideoRenderer.attach(surface)
                 }
             } else {
@@ -462,7 +463,11 @@ internal class AndroidEnhancedPlaybackSession(
                 videoParameterSetsPending = parameterSetsMissing && keyframeParameterSets == null
                 val videoFormat =
                     yVideoFormatStage(ENHANCED_VIDEO_FORMAT_DETAIL) {
-                        AndroidMediaFormatFactory.video(effectiveVideo, keyframeParameterSets)
+                        AndroidMediaFormatFactory.video(
+                            effectiveVideo,
+                            keyframeParameterSets,
+                            displayRotation = plan.route != YPlaybackRoute.GpuEnhanced,
+                        )
                     }
                 val decoderSurface =
                     if (plan.route == YPlaybackRoute.GpuEnhanced) {
@@ -1018,7 +1023,11 @@ internal class AndroidEnhancedPlaybackSession(
                 // taken from a keyframe when the container record carried none.
                 val videoFormat =
                     yVideoFormatStage(ENHANCED_VIDEO_FORMAT_DETAIL) {
-                        AndroidMediaFormatFactory.video(requireNotNull(effectiveVideoTrack), videoInBandParameterSets)
+                        AndroidMediaFormatFactory.video(
+                            requireNotNull(effectiveVideoTrack),
+                            videoInBandParameterSets,
+                            displayRotation = gpuVideoOutput == null,
+                        )
                     }
                 yPlaybackStage(
                     category = YPlaybackFailureCategory.Decoder,

@@ -36,7 +36,6 @@ import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.demux.YAudioTrackFormat
-import com.yfuse.core2.demux.shownVideoSize
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
@@ -1075,13 +1074,9 @@ internal class AndroidNativeDirectYPlayer(
                     .maxOrNull()
                     ?: 0L
             val tracks = audioTracks()
-            // MediaCodec turns the picture by the track's rotation as it draws to the surface.
-            val (shownWidth, shownHeight) =
-                shownVideoSize(
-                    width = videoFormat?.intOrZero(MediaFormat.KEY_WIDTH) ?: 0,
-                    height = videoFormat?.intOrZero(MediaFormat.KEY_HEIGHT) ?: 0,
-                    rotationDegrees = videoFormat?.intOrZero(MediaFormat.KEY_ROTATION) ?: 0,
-                )
+            // MediaCodec turns the picture by the track's rotation as it draws to the surface, but
+            // stretches nothing: the surface itself takes the shape of non-square pixels.
+            val (shownWidth, shownHeight) = videoFormat?.shownSize() ?: (0 to 0)
             mutableState.update { current ->
                 current.copy(
                     phase = YPlaybackPhase.Ready,
@@ -1933,17 +1928,30 @@ internal class AndroidNativeDirectYPlayer(
                 videoDecoder.dequeueOutput()
             }
 
+        /**
+         * The shown size once the decoder states a pixel aspect ratio, which it reads from the
+         * bitstream, when the container (MPEG-TS, AVI) stated none; a container's own ratio stays.
+         */
+        private fun decodedShownSize(output: MediaFormat): Pair<Int, Int>? {
+            val input = videoFormat?.takeIf { it.statedPixelAspectRatio() == null } ?: return null
+            val decoded = output.statedPixelAspectRatio() ?: return null
+            return input.shownSize(decoded)
+        }
+
         private fun drainVideo(): Boolean {
             if (!videoConfigured || videoOutputEnded) return false
             val output =
                 pendingVideoOutput ?: when (val dequeued = dequeueVideoOutput()) {
                     YCodecOutputResult.TryAgain -> return false
                     is YCodecOutputResult.FormatChanged -> {
+                        val shownSize = decodedShownSize(dequeued.format)
                         mutableState.update { current ->
                             current.copy(
                                 diagnostics =
                                     current.diagnostics.copy(
                                         videoOutput = "硬解已配置 · 等待首帧",
+                                        videoWidth = shownSize?.first ?: current.diagnostics.videoWidth,
+                                        videoHeight = shownSize?.second ?: current.diagnostics.videoHeight,
                                     ),
                             )
                         }
