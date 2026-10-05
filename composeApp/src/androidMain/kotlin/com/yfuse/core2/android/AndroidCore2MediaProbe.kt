@@ -122,7 +122,8 @@ internal data class YCore2RouteDecision(
                         (
                             probe.playbackRequest.video.hdrType == YHdrType.Sdr ||
                                 plan.softwareVideoToneMap &&
-                                plan.outputHdrType == YHdrType.Sdr
+                                plan.outputHdrType == YHdrType.Sdr &&
+                                probe.playbackRequest.video.softwareToneMapWithinBounds()
                         ) &&
                         probe.playbackRequest.video.softwareDecodeWithinBounds() ||
                         plan.decodePath != YDecodePath.Software &&
@@ -137,10 +138,23 @@ private fun YVideoRequirement.softwareDecodeWithinBounds(): Boolean =
         width.toLong() * height.toLong() <= SOFTWARE_VIDEO_MAX_PIXELS &&
         (frameRate <= 0f || frameRate <= SOFTWARE_VIDEO_MAX_FRAME_RATE)
 
+/**
+ * HDR-to-SDR mapping is per-pixel work on top of software decode: about 25 ms per 1080p frame over
+ * the conversion threads, and four times that at 4K. Past 1080p30 the route would drop most frames,
+ * so such sources go to a route that maps on the GPU.
+ */
+private fun YVideoRequirement.softwareToneMapWithinBounds(): Boolean =
+    width in 1..SOFTWARE_TONE_MAP_MAX_WIDTH &&
+        height in 1..SOFTWARE_TONE_MAP_MAX_HEIGHT &&
+        (frameRate <= 0f || frameRate <= SOFTWARE_TONE_MAP_MAX_FRAME_RATE)
+
 private const val SOFTWARE_VIDEO_MAX_WIDTH = 4096
 private const val SOFTWARE_VIDEO_MAX_HEIGHT = 4096
 private const val SOFTWARE_VIDEO_MAX_PIXELS = 4096L * 2160L
 private const val SOFTWARE_VIDEO_MAX_FRAME_RATE = 60f
+private const val SOFTWARE_TONE_MAP_MAX_WIDTH = 1920
+private const val SOFTWARE_TONE_MAP_MAX_HEIGHT = 1088
+private const val SOFTWARE_TONE_MAP_MAX_FRAME_RATE = 30.5f
 
 /**
  * Bounded metadata truth source for deciding whether one item may enter Core2.

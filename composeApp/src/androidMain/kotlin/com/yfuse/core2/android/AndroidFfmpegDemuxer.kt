@@ -308,6 +308,8 @@ internal class AndroidFfmpegDemuxer :
 
     val softwareDecodeAvailable: Boolean get() = FfmpegNativeBridge.softwareDecodeAvailable
 
+    val softwareVideoRgba: Boolean get() = FfmpegNativeBridge.softwareVideoRgba
+
     fun configureSoftwareDecoder(
         trackId: YTrackId,
         toneMapHdrToSdr: Boolean = false,

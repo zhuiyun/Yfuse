@@ -120,7 +120,7 @@ internal data class YEnhancedPlaybackSnapshot(
  *
  * This class intentionally contains no Compose/UI code. The demuxer yields compressed samples;
  * hardware and platform-software codecs go through MediaCodec, while the terminal compatibility
- * route decodes through the optional FFmpeg extension and presents bounded BGRA/PCM frames. All
+ * route decodes through the optional FFmpeg extension and presents bounded RGBA/PCM frames. All
  * methods must be called serially from one playback worker.
  */
 internal class AndroidEnhancedPlaybackSession(

@@ -65,8 +65,8 @@ FFMPEG_REVISION="$(manifest_value ffmpeg)"
   fail "YCore was not built against the pinned FFmpeg revision"
 [[ "$(manifest_value ycore-demux-source)" == "scripts/native/ycore_demux_jni.cpp" ]] ||
   fail "native provenance points at an unexpected YCore source"
-[[ "$(manifest_value ycore-software-decoder-api)" == "2" ]] ||
-  fail "YCore software decoder API v2 is missing"
+[[ "$(manifest_value ycore-software-decoder-api)" == "3" ]] ||
+  fail "YCore software decoder API v3 (RGBA output, stream colour matrix, damaged-packet tolerance) is missing"
 [[ "$(manifest_value ycore-tone-map-source)" == "scripts/native/ycore_tone_map.h" ]] ||
   fail "YCore HDR tone-map provenance is missing"
 [[ "$(manifest_value ycore-libass)" == "0.17.4" ]] || fail "unexpected libass revision"

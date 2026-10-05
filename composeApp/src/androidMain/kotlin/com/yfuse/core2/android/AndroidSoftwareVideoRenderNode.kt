@@ -2,6 +2,8 @@ package com.yfuse.core2.android
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.RectF
 import android.os.Build
@@ -23,9 +25,17 @@ internal data class YSoftwareRenderSnapshot(
     val idle: Boolean,
 )
 
-/** Dedicated, bounded Canvas presentation lane for BGRA frames produced by FFmpeg software decode. */
+/** Dedicated, bounded Canvas presentation lane for RGBA frames produced by FFmpeg software decode. */
 internal class AndroidSoftwareVideoRenderNode {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
+    // Native libraries before software decoder API 3 write BGRA. Swapping the channels while
+    // drawing costs nothing on a hardware canvas, where a per-frame byte swap would cost a pass
+    // over every pixel.
+    private val redBlueSwappedPaint =
+        Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = ColorMatrixColorFilter(redBlueSwapMatrix())
+        }
     private val lifecycleLock = Any()
     private var memory: PlaybackMemoryReservation? = null
     private var requestedMemoryBytes = 0L
@@ -67,16 +77,16 @@ internal class AndroidSoftwareVideoRenderNode {
             require(
                 frame.width > 0 &&
                     frame.height > 0 &&
-                    frame.width.toLong() * frame.height <= MAX_SOFTWARE_BITMAP_BYTES / BGRA_BYTES_PER_PIXEL,
+                    frame.width.toLong() * frame.height <= MAX_SOFTWARE_BITMAP_BYTES / BYTES_PER_PIXEL,
             ) { "Software video frame exceeds the bitmap safety limit" }
-            require(frame.width > 0 && frame.height > 0 && frame.strideBytes == frame.width * BGRA_BYTES_PER_PIXEL) {
+            require(frame.width > 0 && frame.height > 0 && frame.strideBytes == frame.width * BYTES_PER_PIXEL) {
                 "Software video frame stride is unsupported"
             }
             require(frame.data.remaining().toLong() >= frame.strideBytes.toLong() * frame.height) {
                 "Software video frame is truncated"
             }
             val requestedBytes =
-                frame.width.toLong() * frame.height * BGRA_BYTES_PER_PIXEL *
+                frame.width.toLong() * frame.height * BYTES_PER_PIXEL *
                     MAX_IN_FLIGHT_SOFTWARE_FRAMES
             if (requestedBytes != requestedMemoryBytes) {
                 if (inFlightFrames.get() != 0) return false
@@ -104,7 +114,7 @@ internal class AndroidSoftwareVideoRenderNode {
                 owner().execute {
                     try {
                         if (generation == renderGeneration.get()) {
-                            renderCopiedFrame(lease.value, frame.presentationTimeUs)
+                            renderCopiedFrame(lease.value, frame.presentationTimeUs, frame.redBlueSwapped)
                         }
                     } catch (throwable: Throwable) {
                         if (throwable is CancellationException) throw throwable
@@ -189,6 +199,7 @@ internal class AndroidSoftwareVideoRenderNode {
     private fun renderCopiedFrame(
         target: Bitmap,
         presentationTimeUs: Long,
+        redBlueSwapped: Boolean,
     ) {
         val output = requireNotNull(surface).also { require(it.isValid) }
         val width = target.width
@@ -214,7 +225,7 @@ internal class AndroidSoftwareVideoRenderNode {
                     val left = (canvas.width - scaledWidth) / 2f
                     RectF(left, 0f, left + scaledWidth, canvas.height.toFloat())
                 }
-            canvas.drawBitmap(target, null, destination, paint)
+            canvas.drawBitmap(target, null, destination, if (redBlueSwapped) redBlueSwappedPaint else paint)
         } finally {
             output.unlockCanvasAndPost(canvas)
         }
@@ -229,4 +240,15 @@ private const val MAX_SOFTWARE_BITMAP_BYTES = 128L * 1024L * 1024L
 private const val SOFTWARE_RENDER_THREAD_NAME = "YCore-Software-Render"
 private const val MAX_IN_FLIGHT_SOFTWARE_FRAMES = 2
 private const val RENDER_SHUTDOWN_TIMEOUT_MS = 2_000L
-private const val BGRA_BYTES_PER_PIXEL = 4
+private const val BYTES_PER_PIXEL = 4
+
+/** A 4x5 colour matrix, row-major: rows produce R, G, B, A from columns R, G, B, A, offset. */
+private fun redBlueSwapMatrix(): ColorMatrix =
+    ColorMatrix(
+        FloatArray(20).apply {
+            this[2] = 1f // red from blue
+            this[6] = 1f // green from green
+            this[10] = 1f // blue from red
+            this[18] = 1f // alpha from alpha
+        },
+    )

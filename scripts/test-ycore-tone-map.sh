@@ -6,9 +6,12 @@ CXX="${CXX:-c++}"
 OUTPUT="$(mktemp "${TMPDIR:-/tmp}/ycore-tone-map.XXXXXX")"
 trap 'rm -f "$OUTPUT"' EXIT
 
+# -DNDEBUG matches the release flags; the test's checks do not depend on assert().
 "$CXX" \
   -std=c++17 \
   -O2 \
+  -DNDEBUG \
+  -pthread \
   -Wall \
   -Wextra \
   -Werror \

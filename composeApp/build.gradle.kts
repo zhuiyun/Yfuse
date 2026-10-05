@@ -336,7 +336,6 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
             "ffmpeg=b79d4c4c0a160fc46988e98505af6039a53ad53e",
             "ycore-demux=true",
             "ycore-demux-ffmpeg=b79d4c4c0a160fc46988e98505af6039a53ad53e",
-            "ycore-software-decoder-api=2",
             "ycore-tone-map-source=scripts/native/ycore_tone_map.h",
             "ycore-libass=0.17.4",
             "ycore-libass-api=2",
@@ -361,6 +360,11 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
             "ycore-native-forbidden=libmpv.so,libplayer.so,libmdk.so",
         ).forEach { marker ->
             require(marker in provenance) { "Standalone YCore provenance is missing $marker" }
+        }
+        // API 2 libraries (BGRA frames) stay installable: the Kotlin bridge reads the version at
+        // runtime and swaps their channels while drawing.
+        require(Regex("(?m)^ycore-software-decoder-api=[23]$").containsMatchIn(provenance)) {
+            "Standalone YCore provenance is missing ycore-software-decoder-api=2 or 3"
         }
         ZipFile(aarFile).use { archive ->
             require(archive.getEntry("jni/arm64-v8a/libycore_demux.so") != null) {
