@@ -11,6 +11,9 @@ on:
       - scripts/build-ycore-demux.sh
       - scripts/test-ycore-extradata-budget.sh
       - scripts/test-ycore-demux-interrupt.sh
+      - scripts/test-ycore-gpu-capability.sh
+      - scripts/test-ycore-overlay-plane.sh
+      - scripts/native-test-build.sh
       - scripts/build-ycore-gpu-companion.sh
       - scripts/package-ycore-native-aar.py
       - scripts/verify-ycore-native.sh
@@ -40,6 +43,9 @@ on:
       - scripts/test-ycore-disc-uri.sh
       - scripts/test-ycore-extradata-budget.sh
       - scripts/test-ycore-demux-interrupt.sh
+      - scripts/test-ycore-gpu-capability.sh
+      - scripts/test-ycore-overlay-plane.sh
+      - scripts/native-test-build.sh
       - scripts/verify-yfuse-mpv-bluray-aar.sh
       - scripts/verify-yfuse-mpv-dolby-aar.sh
       - scripts/verify-ycore-native.sh
@@ -106,6 +112,8 @@ jobs:
           bash scripts/test-ycore-disc-uri.sh
           bash scripts/test-ycore-extradata-budget.sh
           bash scripts/test-ycore-demux-interrupt.sh
+          bash scripts/test-ycore-gpu-capability.sh
+          bash scripts/test-ycore-overlay-plane.sh
           cp scripts/build-yfuse-mpv-bluray.sh "$RUNNER_TEMP/generated-dolby-builder.sh"
           python3 scripts/native/patch_yfuse_mpv_dolby_build.py "$RUNNER_TEMP/generated-dolby-builder.sh"
           bash -n "$RUNNER_TEMP/generated-dolby-builder.sh"

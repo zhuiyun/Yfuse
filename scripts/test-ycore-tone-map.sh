@@ -2,21 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CXX="${CXX:-c++}"
-OUTPUT="$(mktemp "${TMPDIR:-/tmp}/ycore-tone-map.XXXXXX")"
-trap 'rm -f "$OUTPUT"' EXIT
+# shellcheck source=scripts/native-test-build.sh
+source "$ROOT/scripts/native-test-build.sh"
 
-# -DNDEBUG matches the release flags; the test's checks do not depend on assert().
-"$CXX" \
-  -std=c++17 \
-  -O2 \
-  -DNDEBUG \
-  -pthread \
-  -Wall \
-  -Wextra \
-  -Werror \
-  "$ROOT/scripts/native/ycore_tone_map_test.cpp" \
-  -o "$OUTPUT"
-"$OUTPUT"
-
+ycore_native_test ycore-tone-map-test "$ROOT/scripts/native/ycore_tone_map_test.cpp"
 echo "[ycore-tone-map] tests passed"
