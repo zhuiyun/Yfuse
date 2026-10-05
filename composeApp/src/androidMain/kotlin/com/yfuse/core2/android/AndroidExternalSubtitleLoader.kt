@@ -15,7 +15,6 @@ import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.core2.subtitle.YSubtitlePayload
 import com.yfuse.core2.subtitle.YSubtitleTimeBase
 import com.yfuse.core2.subtitle.YTextSubtitleParser
-import com.yfuse.core2.subtitle.decodeExternalSubtitleText
 import com.yfuse.core2.subtitle.externalTextSubtitleFormat
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -50,7 +49,7 @@ internal class AndroidExternalSubtitleLoader(
         val loaded = read(source.uri, headers)
         val loadingContext = currentCoroutineContext()
         loadingContext.ensureActive()
-        val text = decodeExternalSubtitleText(loaded.data)
+        val text = decodeSubtitleFile(loaded.data, source.language, subtitleAddressName(source.uri))
         loadingContext.ensureActive()
         val format =
             source.format

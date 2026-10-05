@@ -211,29 +211,6 @@ fun externalTextSubtitleFormat(
     }
 }
 
-/** Decodes the Unicode encodings routinely used by downloaded subtitle sidecars. */
-fun decodeExternalSubtitleText(data: ByteArray): String =
-    when {
-        data.size >= 2 && data[0] == 0xff.toByte() && data[1] == 0xfe.toByte() ->
-            data.decodeUtf16(offset = 2, littleEndian = true)
-        data.size >= 2 && data[0] == 0xfe.toByte() && data[1] == 0xff.toByte() ->
-            data.decodeUtf16(offset = 2, littleEndian = false)
-        else -> data.decodeToString().removePrefix("\uFEFF")
-    }
-
-private fun ByteArray.decodeUtf16(
-    offset: Int,
-    littleEndian: Boolean,
-): String {
-    val chars = CharArray((size - offset) / 2)
-    chars.indices.forEach { index ->
-        val first = this[offset + index * 2].toInt() and 0xff
-        val second = this[offset + index * 2 + 1].toInt() and 0xff
-        chars[index] = if (littleEndian) ((second shl 8) or first).toChar() else ((first shl 8) or second).toChar()
-    }
-    return chars.concatToString()
-}
-
 private fun List<YSubtitleCue>.firstIndexAfter(positionUs: Long): Int {
     var low = 0
     var high = size
