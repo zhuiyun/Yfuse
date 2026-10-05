@@ -283,10 +283,39 @@ internal class AndroidYCoreBlockCache(
         }
     }
 
-    private companion object {
-        val ROOTS = mutableMapOf<String, CacheIndex>()
-        val EPOCHS = mutableMapOf<String, java.lang.ref.WeakReference<AtomicLong>>()
-        val WRITER = AndroidCacheWriteQueue()
+    companion object {
+        private val ROOTS = mutableMapOf<String, CacheIndex>()
+        private val EPOCHS = mutableMapOf<String, java.lang.ref.WeakReference<AtomicLong>>()
+        private val WRITER = AndroidCacheWriteQueue()
+
+        /** Payload bytes of the verified media blocks YCore keeps under [cacheDirectory]. */
+        internal fun usageBytes(cacheDirectory: File): Long =
+            File(cacheDirectory, CACHE_ROOT_DIRECTORY)
+                .walkTopDown()
+                .filter { it.isFile && it.name.startsWith(BLOCK_PREFIX) && it.name.endsWith(BLOCK_SUFFIX) }
+                .sumOf { it.payloadLengthOnDisk() }
+
+        /**
+         * Deletes every block and representation record YCore owns under [cacheDirectory].
+         *
+         * Open sources keep playing from the network: their representation epoch moves on, so they
+         * neither read the deleted blocks nor write new ones until a later open validates again.
+         * Returns the payload bytes released.
+         */
+        internal fun clearAll(cacheDirectory: File): Long {
+            val root = File(cacheDirectory, CACHE_ROOT_DIRECTORY)
+            val index = synchronized(ROOTS) { ROOTS.getOrPut(root.absolutePath) { CacheIndex(root) } }
+            return synchronized(index.writeLock) {
+                val prefix = root.absolutePath + File.separator
+                synchronized(EPOCHS) {
+                    EPOCHS.forEach { (path, epoch) -> if (path.startsWith(prefix)) epoch.get()?.incrementAndGet() }
+                }
+                val released = usageBytes(cacheDirectory)
+                root.listFiles()?.forEach { child -> child.deleteRecursively() }
+                index.reset()
+                released
+            }
+        }
     }
 }
 
@@ -347,6 +376,14 @@ private class CacheIndex(
     @Synchronized
     fun remove(file: File) {
         totalBytes -= entries.remove(file)?.first ?: 0
+    }
+
+    /** Forgets every entry after the files are gone; the next writer rebuilds from disk. */
+    @Synchronized
+    fun reset() {
+        entries.clear()
+        totalBytes = 0L
+        initialized = false
     }
 
     fun trimToBudget(maximumBytes: Long) {

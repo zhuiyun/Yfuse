@@ -292,7 +292,13 @@ internal fun PlayerRoot(
             items.mapIndexed { index, item -> index to item.serverFallbacks }.toMap()
         }
     val activeItems =
-        remember(items, sources.serverChoices, sources.versionChoices, sources.importedSubtitles) {
+        remember(
+            items,
+            sources.serverChoices,
+            sources.versionChoices,
+            sources.importedSubtitles,
+            sources.forcedTranscodes,
+        ) {
             val sourcedItems =
                 items.mapIndexed { index, item -> sources.serverChoices[index] ?: item }
             val versionedItems =
@@ -303,7 +309,10 @@ internal fun PlayerRoot(
                         sources.versionChoices[item.id]?.let(item::withVersion) ?: item
                     }
                 }
-            versionedItems.map { it.withImportedSubtitles(sources.importedSubtitles) }
+            versionedItems.map { item ->
+                val transcoded = sources.forcedTranscodes[item.id]?.let(item::withForcedServerTranscode) ?: item
+                transcoded.withImportedSubtitles(sources.importedSubtitles)
+            }
         }
 
     fun preflightItem(item: PlayerMediaItem): PlayerMediaItem {
@@ -1118,6 +1127,21 @@ internal fun PlayerRoot(
             }
             build.resume.secondarySubtitle?.let { choices.secondarySubtitleRestore = it }
             backendExtensions.prepareForHandover()
+        }
+        // YCore cannot rewrite an open source in place. A server transcode asked for by hand or by the
+        // plan restarts the session at the same position with the entry transcoded, the handover an
+        // engine switch already performs.
+        backendExtensions.transcodeRebuild = transcode@{ reason ->
+            val snapshot = latestState
+            val item = latestActiveItems.getOrNull(snapshot.currentIndex) ?: return@transcode false
+            if (item.startsWithServerTranscode()) return@transcode false
+            if (item.transcodeUrl.isBlank() && item.fallbackTranscodeUrl.isBlank()) return@transcode false
+            capturePlaybackHandover()
+            player.pause()
+            sources.forcedTranscodes =
+                sources.forcedTranscodes + (item.id to reason.orEmpty().ifBlank { "用户手动选择服务器转码" })
+            build.engineGeneration++
+            true
         }
         val (remoteSubtitles, remoteSubtitleActions) =
             rememberPlayerSubtitleLibrary(

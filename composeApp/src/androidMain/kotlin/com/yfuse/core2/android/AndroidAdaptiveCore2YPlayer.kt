@@ -29,9 +29,11 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.api.appendingDistinct
+import com.yfuse.core2.api.hasSameActiveSourceAs
 import com.yfuse.core2.api.invalidateOutputEvidence
 import com.yfuse.core2.api.isPrematurePlaybackEnd
 import com.yfuse.core2.api.preferenceIn
+import com.yfuse.core2.api.retainingActiveSources
 import com.yfuse.core2.api.trackSelectionSkipReason
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YHdrType
@@ -414,16 +416,11 @@ internal class AndroidAdaptiveCore2YPlayer(
             val current = oldItems.getOrNull(mutableState.value.currentIndex) ?: return@synchronized false
             val replacement = items.getOrNull(currentIndex) ?: return@synchronized false
             // Metadata may arrive later, but an update must never replace an active byte source.
-            if (current.id != replacement.id ||
-                current.uri != replacement.uri ||
-                current.headers != replacement.headers ||
-                current.drmConfiguration != replacement.drmConfiguration ||
-                current.transportCredentials != replacement.transportCredentials
-            ) {
-                return@synchronized false
-            }
+            // The caller maps entries without the loopback routes this player was opened with, so
+            // the comparison is by source fingerprint and the open address is kept.
+            if (!current.hasSameActiveSourceAs(replacement)) return@synchronized false
             if (items.map { it.id }.distinct().size != items.size) return@synchronized false
-            queueItems = items
+            queueItems = items.retainingActiveSources(oldItems)
             if (!commands.trySend(Command.QueueUpdated).isSuccess) {
                 queueItems = oldItems
                 return@synchronized false

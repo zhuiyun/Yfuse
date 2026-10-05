@@ -5,6 +5,7 @@ import com.yfuse.core.offline.offlinePlaybackUri
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDrmConfiguration
 import com.yfuse.core.playback.PlaybackDrmScheme
+import com.yfuse.core2.api.hasSameActiveSourceAs
 import com.yfuse.feature.player.PlayerExternalSubtitle
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.PlayerMediaVersion
@@ -41,6 +42,30 @@ class AndroidCore2TrialTest {
                     localize = { _, _ -> "http://127.0.0.1:1234/media/session" },
                 ).single()
         assertEquals(mapOf("User-Agent" to "player"), mapped.headers)
+    }
+
+    @Test
+    fun aQueueRefreshMappedWithoutTheLoopbackRouteMatchesTheOpenEntry() {
+        val item = mediaItem("https://host/Videos/1/master.m3u8?api_key=secret&UserId=user")
+        val opened =
+            listOf(item)
+                .toCore2MediaItems(
+                    customUserAgent = "player",
+                    appVersion = { "1" },
+                    localize = { _, _ -> "http://127.0.0.1:1234/media/session" },
+                ).single()
+        val refreshed = listOf(item).toCore2MediaItems(customUserAgent = "player", appVersion = { "1" }).single()
+
+        assertEquals(opened.sourceKey, refreshed.sourceKey)
+        assertTrue(opened.hasSameActiveSourceAs(refreshed))
+        assertFalse(
+            opened.hasSameActiveSourceAs(
+                listOf(mediaItem("https://host/Videos/2/master.m3u8"))
+                    .toCore2MediaItems(customUserAgent = "player", appVersion = { "1" })
+                    .single()
+                    .copy(id = opened.id),
+            ),
+        )
     }
 
     @Test
