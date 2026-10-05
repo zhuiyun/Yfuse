@@ -486,7 +486,7 @@ internal class AndroidFfmpegDemuxer :
                     audio =
                         YAudioTrackFormat(
                             codec = codec,
-                            mimeType = ffmpegAudioMime(codec),
+                            mimeType = ffmpegAudioMime(codec, codecName),
                             channelCount = info[AUDIO_CHANNELS_INDEX].toInt().coerceAtLeast(0),
                             sampleRate = info[AUDIO_SAMPLE_RATE_INDEX].toInt().coerceAtLeast(0),
                             codecPrivateData = YCodecPrivateData(extradata),
@@ -737,6 +737,22 @@ private fun ffmpegVideoMime(
         }
     }
 
+/**
+ * MPEG audio Layer II (DVB and DVD MPEG-2) shares MP3's codec identity for planning, but not its
+ * decoder: Android's MP3 decoder accepts the format and then fails to decode it. Its own type
+ * finds a Layer II decoder where a device has one and fails configuration elsewhere, which sends
+ * the track to FFmpeg's decoder.
+ */
+private fun ffmpegAudioMime(
+    codec: YAudioCodec,
+    codecName: String,
+): String =
+    if (codecName.equals("mp2", ignoreCase = true)) {
+        MIME_AUDIO_MPEG_LAYER_2
+    } else {
+        ffmpegAudioMime(codec)
+    }
+
 private fun ffmpegAudioMime(codec: YAudioCodec): String =
     when (codec) {
         YAudioCodec.Aac -> "audio/mp4a-latm"
@@ -837,6 +853,7 @@ private fun rationalToFloat(
 private val DTS_HD_PROFILES = setOf(50, 60)
 private val DTS_X_PROFILES = setOf(61, 62)
 private val BITMAP_SUBTITLE_FORMATS = setOf(YSubtitleFormat.Pgs, YSubtitleFormat.VobSub)
+private const val MIME_AUDIO_MPEG_LAYER_2 = "audio/mpeg-L2"
 private val ASS_SUBTITLE_FORMATS = setOf(YSubtitleFormat.Ass, YSubtitleFormat.Ssa)
 private const val ATMOS_PROFILE = 30
 private const val INITIAL_PACKET_BUFFER_BYTES = 2 * 1024 * 1024

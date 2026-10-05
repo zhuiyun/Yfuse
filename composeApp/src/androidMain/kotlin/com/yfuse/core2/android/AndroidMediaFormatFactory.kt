@@ -6,17 +6,20 @@ import android.media.MediaFormat
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
+import com.yfuse.core2.bitstream.YAudioConfiguration
 import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YCodecConfiguration
 import com.yfuse.core2.bitstream.YNalCodec
 import com.yfuse.core2.bitstream.YParameterSets
 import com.yfuse.core2.bitstream.YSamplePacking
+import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.demux.YAudioTrackFormat
 import com.yfuse.core2.demux.YVideoTrackFormat
 import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /** Converts container-neutral Core2 track metadata into Android MediaCodec configuration. */
 internal object AndroidMediaFormatFactory {
@@ -70,13 +73,30 @@ internal object AndroidMediaFormatFactory {
                 track.sampleRate.coerceAtLeast(1),
                 track.channelCount.coerceAtLeast(1),
             )
-        track.codecPrivateData.entries.forEachIndexed { index, bytes ->
+        val entries = track.codecPrivateData.entries
+        entries.forEachIndexed { index, bytes ->
             if (bytes.isNotEmpty()) {
                 format.setByteBuffer("csd-$index", ByteBuffer.wrap(bytes))
             }
         }
+        when (track.codec) {
+            YAudioCodec.Aac -> if (YAudioConfiguration.aacIsAdts(entries)) format.setInteger(MediaFormat.KEY_IS_ADTS, 1)
+            YAudioCodec.Opus ->
+                entries.firstOrNull()?.let(YAudioConfiguration::opusCodecDelayNs)?.takeIf { entries.size < 3 }?.let {
+                    format.setByteBuffer("csd-1", nativeOrderLong(it))
+                    format.setByteBuffer("csd-2", nativeOrderLong(YAudioConfiguration.OPUS_SEEK_PRE_ROLL_NS))
+                }
+            else -> Unit
+        }
         return format
     }
+
+    private fun nativeOrderLong(value: Long): ByteBuffer =
+        ByteBuffer
+            .allocate(Long.SIZE_BYTES)
+            .order(ByteOrder.nativeOrder())
+            .putLong(value)
+            .apply { flip() }
 
     private fun applyHdr(
         format: MediaFormat,
