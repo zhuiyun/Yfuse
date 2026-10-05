@@ -1,6 +1,7 @@
 package com.yfuse.core2.android
 
 import android.annotation.SuppressLint
+import android.media.AudioFormat
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import com.yfuse.core2.api.YPlaybackException
@@ -306,6 +307,26 @@ internal fun MediaFormat.applyAudioMaxInputSizeFloor() {
     val channelCount = runCatching { getInteger(MediaFormat.KEY_CHANNEL_COUNT) }.getOrDefault(1)
     setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, audioMaxInputSizeBytes(channelCount))
 }
+
+/**
+ * Asks the decoder to fold a stream no Android output layout carries (22.2 AAC, 9- to 16-channel
+ * Opus, 10 or 12 channels before API 32) into 7.1. Decoders that can downmix (the AAC and Opus
+ * ones) honour it; the others ignore it, and their output still fails at the AudioTrack as before.
+ */
+internal fun MediaFormat.capAudioOutputChannels() {
+    val channelCount = runCatching { getInteger(MediaFormat.KEY_CHANNEL_COUNT) }.getOrDefault(0)
+    if (audioOutputChannelCap(channelCount) == null) return
+    setInteger(KEY_MAX_OUTPUT_CHANNEL_COUNT, DOWNMIX_CHANNELS)
+    setInteger(KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT, DOWNMIX_CHANNELS)
+}
+
+/** The channel count a decoder should fold [channelCount] into, or null when it plays as it is. */
+internal fun audioOutputChannelCap(channelCount: Int): Int? =
+    DOWNMIX_CHANNELS.takeIf { channelCount > 0 && channelMaskForCount(channelCount) == AudioFormat.CHANNEL_INVALID }
+
+private const val DOWNMIX_CHANNELS = 8
+private const val KEY_MAX_OUTPUT_CHANNEL_COUNT = "max-output-channel-count"
+private const val KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT = "aac-max-output-channel_count"
 
 /**
  * Lower bound for a compressed video access unit, mirroring the ratio the platform decoders are

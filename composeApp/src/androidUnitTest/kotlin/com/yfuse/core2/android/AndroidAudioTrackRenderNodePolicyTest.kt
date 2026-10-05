@@ -61,6 +61,15 @@ class AndroidAudioTrackRenderNodePolicyTest {
     }
 
     @Test
+    fun `decoders are asked to fold only layouts no output mask carries`() {
+        assertEquals(null, audioOutputChannelCap(2))
+        assertEquals(null, audioOutputChannelCap(8))
+        assertEquals(8, audioOutputChannelCap(9))
+        assertEquals(8, audioOutputChannelCap(24))
+        assertEquals(null, audioOutputChannelCap(0))
+    }
+
+    @Test
     fun `truly unsupported layouts still fail closed`() {
         assertEquals(AudioFormat.CHANNEL_INVALID, audioTrackChannelMask(declaredMask = 0, channelCount = 9))
     }

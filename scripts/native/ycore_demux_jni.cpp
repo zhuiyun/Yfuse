@@ -1932,6 +1932,27 @@ jlongArray make_packet_result(
     return result;
 }
 
+// The PCM layout Android plays for [channels], in Android's channel order (the Kotlin side picks the
+// matching mask by count): converting into it puts a 6.1 or 2.1 source's channels where the
+// speakers are rather than where their index lands, and folds more than eight channels into 7.1,
+// which every device takes.
+constexpr double kLfeDownmixLevel = 0.7071067811865476;
+
+void android_output_layout(int channels, AVChannelLayout* layout) {
+    uint64_t mask = AV_CH_LAYOUT_7POINT1;
+    switch (channels) {
+        case 1: mask = AV_CH_LAYOUT_MONO; break;
+        case 2: mask = AV_CH_LAYOUT_STEREO; break;
+        case 3: mask = AV_CH_LAYOUT_SURROUND; break;
+        case 4: mask = AV_CH_LAYOUT_QUAD; break;
+        case 5: mask = AV_CH_LAYOUT_5POINT0_BACK; break;
+        case 6: mask = AV_CH_LAYOUT_5POINT1_BACK; break;
+        case 7: mask = AV_CH_LAYOUT_5POINT1_BACK | AV_CH_BACK_CENTER; break;
+        default: break;
+    }
+    av_channel_layout_from_mask(layout, mask);
+}
+
 jlongArray make_software_frame_result(
     JNIEnv* env,
     jlong status,
@@ -3460,9 +3481,11 @@ jlongArray native_receive_software_audio_frame(
         decoder->resampler_rate != sample_rate ||
         av_channel_layout_compare(&decoder->resampler_layout, &input_layout) != 0) {
         decoder->reset_resampler();
+        AVChannelLayout output_layout = {};
+        android_output_layout(channels, &output_layout);
         int error = swr_alloc_set_opts2(
             &decoder->resampler,
-            &input_layout,
+            &output_layout,
             AV_SAMPLE_FMT_S16,
             sample_rate,
             &input_layout,
@@ -3470,10 +3493,14 @@ jlongArray native_receive_software_audio_frame(
             sample_rate,
             0,
             nullptr);
+        av_channel_layout_uninit(&output_layout);
         if (error >= 0 && decoder->resampler) {
             // 24-bit and float sources lose their low bits in the S16 the audio track takes;
             // dither keeps that from turning into distortion correlated with quiet passages.
             av_opt_set_int(decoder->resampler, "dither_method", SWR_DITHER_TRIANGULAR, 0);
+            // Folded into a layout without an LFE channel (2.1 into 3.0), the LFE joins the
+            // fronts at -3 dB instead of vanishing; layouts that keep it pass it straight through.
+            av_opt_set_double(decoder->resampler, "lfe_mix_level", kLfeDownmixLevel, 0);
             error = swr_init(decoder->resampler);
         }
         if (error < 0 || !decoder->resampler) {
@@ -3492,8 +3519,13 @@ jlongArray native_receive_software_audio_frame(
         decoder->resampler_rate = sample_rate;
     }
     av_channel_layout_uninit(&input_layout);
+    AVChannelLayout output_layout = {};
+    android_output_layout(channels, &output_layout);
+    const int output_channels = output_layout.nb_channels;
+    av_channel_layout_uninit(&output_layout);
     const int output_samples = swr_get_out_samples(decoder->resampler, decoder->frame->nb_samples);
-    const int required = av_samples_get_buffer_size(nullptr, channels, output_samples, AV_SAMPLE_FMT_S16, 1);
+    const int required =
+        av_samples_get_buffer_size(nullptr, output_channels, output_samples, AV_SAMPLE_FMT_S16, 1);
     if (required <= 0 || static_cast<size_t>(required) > kMaxSoftwareAudioFrameBytes) {
         throw_illegal_state(env, "FFmpeg software audio frame exceeds the safety limit");
         return nullptr;
@@ -3511,7 +3543,7 @@ jlongArray native_receive_software_audio_frame(
             kSoftwareFrameGrowBuffer,
             required,
             pts_us,
-            channels,
+            output_channels,
             sample_rate,
             output_samples);
     }
@@ -3526,7 +3558,7 @@ jlongArray native_receive_software_audio_frame(
         throw_illegal_state(env, "FFmpeg software audio conversion failed: " + ffmpeg_error(converted));
         return nullptr;
     }
-    const int output_bytes = converted * channels * static_cast<int>(sizeof(int16_t));
+    const int output_bytes = converted * output_channels * static_cast<int>(sizeof(int16_t));
     av_frame_unref(decoder->frame);
     decoder->frame_pending = false;
     return make_software_frame_result(
@@ -3534,7 +3566,7 @@ jlongArray native_receive_software_audio_frame(
         kSoftwareFrameData,
         output_bytes,
         pts_us,
-        channels,
+        output_channels,
         sample_rate,
         converted);
 }

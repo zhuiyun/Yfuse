@@ -81,6 +81,7 @@ internal class AndroidMediaCodecAudioNode(
                         }
                     }
                     codecFormat.applyAudioMaxInputSizeFloor()
+                    codecFormat.capAudioOutputChannels()
                 }
         val decoder = createDecoder(mime)
         try {
