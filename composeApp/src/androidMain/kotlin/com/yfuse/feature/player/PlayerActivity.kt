@@ -1805,7 +1805,11 @@ class PlayerActivity :
             state,
             sessionTitles,
             current?.playbackSegments.orEmpty(),
-            current?.chapters?.map { it.startMs }.orEmpty(),
+            current
+                ?.chapters
+                .orEmpty()
+                .ifEmpty { state.chapters }
+                .map { it.startMs },
         )
     }
 

@@ -2,6 +2,7 @@ package com.yfuse.core2.android
 
 import android.content.Context
 import android.os.Build
+import com.yfuse.core2.api.YChapter
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioRequirement
@@ -171,6 +172,10 @@ internal fun encodeVerifiedRouteRecord(
         dolby?.baseLayerPresent ?: false,
         dolby?.baseLayerCompatibilityId ?: -1,
         dolby?.metadataCompression ?: -1,
+        // Version 2: the tunnel route sizes anamorphic video from this, and the progress bar shows
+        // the chapters, so a remembered probe must not lose either.
+        probe.pixelAspectRatio?.toString().orEmpty(),
+        probe.chapters.encodeChapters(),
     ).joinToString(SEPARATOR)
 }
 
@@ -180,7 +185,10 @@ internal fun decodeVerifiedRouteRecord(
 ): YVerifiedRouteRecord? =
     runCatching {
         val fields = encoded.split(SEPARATOR)
-        require(fields.size == FIELD_COUNT && fields[0] == VERSION && fields[1] == systemImage)
+        val current = fields[0] == VERSION && fields.size == FIELD_COUNT
+        // Version 1 records stay usable; they predate the pixel aspect ratio and chapters.
+        require(current || fields[0] == VERSION_1 && fields.size == VERSION_1_FIELD_COUNT)
+        require(fields[1] == systemImage)
         val audioCodec = fields[14].takeIf(String::isNotEmpty)?.let { enumValueOf<YAudioCodec>(it) }
         val dolbyProfile = fields[28].toInt()
         YVerifiedRouteRecord(
@@ -237,9 +245,25 @@ internal fun decodeVerifiedRouteRecord(
                                 metadataCompression = fields[34].toInt(),
                             )
                         },
+                    pixelAspectRatio = if (current) fields[35].takeIf(String::isNotEmpty)?.toDouble() else null,
+                    chapters = if (current) fields[36].decodeChapters() else emptyList(),
                 ),
         )
     }.getOrNull()
+
+private fun List<YChapter>.encodeChapters(): String =
+    take(MAX_REMEMBERED_CHAPTERS)
+        .joinToString("\n") { "${it.startMs}:${it.title.take(MAX_REMEMBERED_TITLE_CHARS).replace('\n', ' ')}" }
+        .encodeOpaque()
+
+private fun String.decodeChapters(): List<YChapter> =
+    if (isEmpty()) {
+        emptyList()
+    } else {
+        decodeOpaque().split('\n').map { line ->
+            YChapter(startMs = line.substringBefore(':').toLong(), title = line.substringAfter(':'))
+        }
+    }
 
 private fun String.encodeOpaque(): String =
     Base64
@@ -255,8 +279,12 @@ private fun String.decodeOpaque(): String =
 
 private const val PREFERENCES_NAME = "yfuse_ycore2_verified_routes"
 private const val KEY_RECORDS = "records_v1"
-private const val VERSION = "1"
+private const val VERSION = "2"
+private const val VERSION_1 = "1"
 private const val SEPARATOR = "\t"
-private const val FIELD_COUNT = 35
+private const val FIELD_COUNT = 37
+private const val VERSION_1_FIELD_COUNT = 35
+private const val MAX_REMEMBERED_CHAPTERS = 200
+private const val MAX_REMEMBERED_TITLE_CHARS = 120
 private const val MAX_RECORDS = 64
 private const val RECORD_TTL_MS = 30L * 24L * 60L * 60L * 1000L

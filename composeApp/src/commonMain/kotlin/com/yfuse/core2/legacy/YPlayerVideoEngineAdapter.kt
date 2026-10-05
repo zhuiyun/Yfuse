@@ -1,7 +1,10 @@
 package com.yfuse.core2.legacy
 
+import com.yfuse.core.model.PlaybackChapter
+import com.yfuse.core.model.namedPlaybackChapters
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackFailureKind
+import com.yfuse.core2.api.YChapter
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlayer
@@ -165,8 +168,10 @@ private class ReverseMappedStateFlow<Source, Target>(
 private class LegacyPlaybackStateMapper {
     private var audioSource: List<YTrack>? = null
     private var subtitleSource: List<YTrack>? = null
+    private var chapterSource: Pair<List<YChapter>, Long>? = null
     private var audio: List<EngineTrack> = emptyList()
     private var subtitles: List<EngineTrack> = emptyList()
+    private var chapters: List<PlaybackChapter> = emptyList()
 
     fun map(state: YPlayerState): PlaybackState {
         if (audioSource != state.audioTracks) {
@@ -177,13 +182,24 @@ private class LegacyPlaybackStateMapper {
             subtitleSource = state.subtitleTracks
             subtitles = state.subtitleTracks.map(YTrack::toEngineTrack)
         }
-        return state.toLegacyPlaybackState(audio, subtitles)
+        // Position ticks keep the same list, so the progress bar is not handed a new one each time.
+        val chapterKey = state.chapters to state.durationMs
+        if (chapterSource != chapterKey) {
+            chapterSource = chapterKey
+            chapters =
+                namedPlaybackChapters(
+                    state.chapters.asSequence().map { it.startMs to it.title },
+                    runtimeMs = state.durationMs.takeIf { it > 0L },
+                )
+        }
+        return state.toLegacyPlaybackState(audio, subtitles, chapters)
     }
 }
 
 private fun YPlayerState.toLegacyPlaybackState(
     audio: List<EngineTrack>,
     subtitles: List<EngineTrack>,
+    chapters: List<PlaybackChapter>,
 ): PlaybackState =
     PlaybackState(
         playing = playing,
@@ -200,6 +216,7 @@ private fun YPlayerState.toLegacyPlaybackState(
         secondarySubtitleTrackId = secondarySubtitleTrackId,
         secondarySubtitleOffsetMs = secondarySubtitleOffsetMs,
         discNavigation = discNavigation,
+        chapters = chapters,
         error = error,
         errorKind = errorCategory?.toLegacyFailureKind(),
         ended = phase == YPlaybackPhase.Ended,

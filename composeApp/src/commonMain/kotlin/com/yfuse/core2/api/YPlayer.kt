@@ -569,6 +569,8 @@ data class YPlayerState(
     val secondarySubtitleTrackId: String? = null,
     val secondarySubtitleOffsetMs: Long = 0L,
     val discNavigation: PlaybackDiscNavigationState = PlaybackDiscNavigationState(),
+    /** The current item's chapters as its container declares them, unfiltered; empty when it has none. */
+    val chapters: List<YChapter> = emptyList(),
     val error: String? = null,
     val errorCategory: YPlaybackFailureCategory? = null,
     val diagnostics: YPlayerDiagnostics = YPlayerDiagnostics(),

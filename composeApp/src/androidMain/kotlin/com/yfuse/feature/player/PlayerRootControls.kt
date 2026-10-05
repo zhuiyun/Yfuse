@@ -142,7 +142,7 @@ internal fun PlayerRootControls(
                 resumedFromMs = initialResumeNoticeMs,
                 autoNext = autoNext,
                 trickplay = currentTrickplay,
-                chapters = currentItem?.chapters.orEmpty(),
+                chapters = currentItem?.chapters.orEmpty().ifEmpty { state.chapters },
                 skip = skip.state,
             ),
         transportActions =

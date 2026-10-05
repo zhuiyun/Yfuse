@@ -15,6 +15,7 @@ import com.yfuse.core.logging.diagnosticRootCause
 import com.yfuse.core.logging.diagnosticTypeName
 import com.yfuse.core.logging.playbackDiagnosticTrace
 import com.yfuse.core2.api.YAudioEffect
+import com.yfuse.core2.api.YChapter
 import com.yfuse.core2.api.YInitialTrackSelection
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YOutputEvidenceResetReason
@@ -665,6 +666,9 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         /** The media and probe behind the child being started, recorded once the child renders. */
         var pendingVerifiedRoute: Pair<YMediaItem, YCore2ProbeResult.Success>? = null
+
+        /** The container chapters the probe read for the child about to attach. */
+        var pendingChapters: List<YChapter> = emptyList()
         var finalizeChildLearning: (() -> Unit)? = null
         val videoHandoff = AndroidVideoDecoderHandoff()
         var nextItemPreloadJob: Job? = null
@@ -1132,6 +1136,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             pendingAudioOnly = false
             pendingVerifiedRoute = null
             pendingInputHdrType = null
+            pendingChapters = emptyList()
             val bypassLearnedRouteMemory =
                 shouldBypassLearnedYCoreRouteMemory(
                     manualRetry = bypassLearnedRouteMemoryOnce,
@@ -1240,7 +1245,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                     )
             currentCoroutineContext().ensureActive()
             budget.ensureActive()
-            decision?.let { pendingInputHdrType = it.probe.playbackRequest.video.hdrType }
+            decision?.let {
+                pendingInputHdrType = it.probe.playbackRequest.video.hdrType
+                pendingChapters = it.probe.chapters
+            }
             if (forceSoftwareFallback) {
                 videoHandoff.close()
                 routeEvaluator.closePreparedExtractor()
@@ -1361,6 +1369,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             )
             pendingFailureKey = decision.toFailureKey()
             pendingAudioOnly = decision.audioOnly
+            pendingChapters = decision.probe.chapters
             // Manifest target revisions may carry a different init under the same user cache identity.
             // Each revision is probed afresh and must never poison the root item's learned probe.
             pendingVerifiedRoute = if (target == null) item to decision.probe else null
@@ -1551,6 +1560,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             val childFailureKey = pendingFailureKey
             val childAudioOnly = pendingAudioOnly
             val childVerifiedRoute = pendingVerifiedRoute
+            val childChapters = pendingChapters
             val childInputHdrType = pendingInputHdrType ?: queueItems[currentIndex].hintedHdrType()
             var failureRecorded = false
             var successRecorded = false
@@ -2049,6 +2059,8 @@ internal class AndroidAdaptiveCore2YPlayer(
                         currentIndex = childIndex(),
                         itemCount = queueItems.size,
                         playbackRequested = requestedPlay && childState.phase != YPlaybackPhase.Ended,
+                        // MediaExtractor and FFmpeg children report none; the probe read the header.
+                        chapters = childChapters.ifEmpty { publishedChildState.chapters },
                         diagnostics =
                             publishedChildState.diagnostics.copy(
                                 codecResetCount =

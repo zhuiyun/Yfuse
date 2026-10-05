@@ -1,6 +1,7 @@
 package com.yfuse.core.data.dto
 
 import com.yfuse.core.model.PlaybackChapter
+import com.yfuse.core.model.isCountingChapterName
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
