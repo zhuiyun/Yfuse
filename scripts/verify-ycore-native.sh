@@ -63,6 +63,9 @@ FFMPEG_REVISION="$(manifest_value ffmpeg)"
 [[ "$(manifest_value ycore-demux)" == "true" ]] || fail "native provenance is missing ycore-demux=true"
 [[ "$(manifest_value ycore-demux-ffmpeg)" == "$FFMPEG_REVISION" ]] ||
   fail "YCore was not built against the pinned FFmpeg revision"
+# Builds before the license was recorded still verify; the value decides distribution obligations.
+FFMPEG_LICENSE="$(manifest_value ycore-demux-ffmpeg-license)"
+echo "FFmpeg license (as configured): ${FFMPEG_LICENSE:-not recorded by this build}"
 [[ "$(manifest_value ycore-demux-source)" == "scripts/native/ycore_demux_jni.cpp" ]] ||
   fail "native provenance points at an unexpected YCore source"
 [[ "$(manifest_value ycore-software-decoder-api)" == "3" ]] ||

@@ -263,10 +263,22 @@ finally:
 PY
 
 sha256sum "$AAR" | awk -v name="$(basename "$AAR")" '{print $1 "  " name}' > "$AAR.sha256"
+# The license FFmpeg was configured under (avutil_license(): LGPL unless --enable-gpl, version 3
+# with --enable-version3) decides what distributing this runtime obliges. Recorded, not assumed.
+FFMPEG_LICENSE="$(
+  LC_ALL=C grep -a -o -m1 -E 'L?GPL version [0-9.]+ or later|nonfree and unredistributable' \
+    "$UPSTREAM/buildscripts/prefix/${ABIS[0]}/lib/libavutil.so" 2>/dev/null || true
+)"
+if [[ -z "$FFMPEG_LICENSE" ]]; then
+  echo "[ycore-demux] warning: could not read FFmpeg's license from libavutil" >&2
+  FFMPEG_LICENSE=unknown
+fi
+echo "[ycore-demux] FFmpeg license: $FFMPEG_LICENSE"
 PROVENANCE_TEMP="$(mktemp "$ARTIFACTS/.NATIVE-SOURCES.XXXXXX")"
 awk -F= '
   $1 != "ycore-demux" &&
   $1 != "ycore-demux-ffmpeg" &&
+  $1 != "ycore-demux-ffmpeg-license" &&
   $1 != "ycore-demux-source" &&
   $1 != "ycore-tone-map-source" &&
   $1 != "ycore-libass" &&
@@ -299,6 +311,7 @@ awk -F= '
 {
   echo "ycore-demux=true"
   echo "ycore-demux-ffmpeg=$FFMPEG_REVISION"
+  echo "ycore-demux-ffmpeg-license=$FFMPEG_LICENSE"
   echo "ycore-demux-source=scripts/native/ycore_demux_jni.cpp"
   echo "ycore-tone-map-source=scripts/native/ycore_tone_map.h"
   echo "ycore-libass=$(manifest_value libass)"
