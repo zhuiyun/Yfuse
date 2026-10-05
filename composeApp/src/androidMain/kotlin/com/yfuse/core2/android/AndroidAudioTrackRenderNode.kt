@@ -43,6 +43,13 @@ internal class AndroidAudioTrackRenderNode(
     private val pcmTail = PcmTailTracker()
     private var zeroWriteCount = 0L
     private var startThresholdFrames = 0
+
+    /**
+     * Pre-S only: the effective buffer is cut to the startup threshold until the first frames play.
+     * It then grows back (see [restorePlayingBufferIfStarted]); left at 40 ms, any pause in feeding
+     * longer than that underran the track.
+     */
+    private var startupBufferLimited = false
     private var lastTimestampFrames: Long? = null
     private var lastPlaybackHeadFrames = 0L
     private val clockProgressGuard = AndroidAudioClockProgressGuard()
@@ -210,6 +217,7 @@ internal class AndroidAudioTrackRenderNode(
             pcmTail.record(written)
             total += written
         }
+        restorePlayingBufferIfStarted(audioTrack)
         return total
     }
 
@@ -239,7 +247,20 @@ internal class AndroidAudioTrackRenderNode(
         if (shouldAnchorClock && written > 0) {
             basePresentationTimeUs = presentationTimeUs.coerceAtLeast(0L)
         }
+        restorePlayingBufferIfStarted(audioTrack)
         return written
+    }
+
+    /** Pre-S: once the first frames have played, the startup cut gives way to the playing buffer. */
+    private fun restorePlayingBufferIfStarted(audioTrack: AudioTrack) {
+        if (!startupBufferLimited) return
+        val started =
+            runCatching {
+                audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING && audioTrack.playbackHeadPosition > 0
+            }.getOrDefault(false)
+        if (!started) return
+        startupBufferLimited = false
+        runCatching { audioTrack.setBufferSizeInFrames(nativeDirectAudioPlayingBufferFrames(sampleRate, audioTrack)) }
     }
 
     @get:Synchronized
@@ -328,6 +349,8 @@ internal class AndroidAudioTrackRenderNode(
         pcmTail.reset()
         basePresentationTimeUs = null
         resetClockProgress()
+        // A flushed pre-S track would otherwise wait for its whole playing buffer before sounding.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) configureStartThreshold(audioTrack)
         if (resume) audioTrack.play()
     }
 
@@ -345,6 +368,7 @@ internal class AndroidAudioTrackRenderNode(
         writtenBytes = 0L
         zeroWriteCount = 0L
         startThresholdFrames = 0
+        startupBufferLimited = false
         if (audioTrack != null) {
             runCatching { audioTrack.removeOnRoutingChangedListener(routingListener) }
             runCatching { audioTrack.pause() }
@@ -374,9 +398,14 @@ internal class AndroidAudioTrackRenderNode(
                     // Capacity protects against jitter; it must not also require two seconds of
                     // interleaved PCM before AudioTrack will begin consuming the first frame.
                     audioTrack.setStartThresholdInFrames(target)
+                } else if (audioTrack.playbackHeadPosition > 0) {
+                    // A route change mid-play keeps the playing buffer; only a start needs the cut.
+                    startupBufferLimited = false
+                    audioTrack.setBufferSizeInFrames(nativeDirectAudioPlayingBufferFrames(sampleRate, audioTrack))
                 } else {
                     // Pre-31 has no independent threshold. Reduce the effective streaming buffer,
                     // leaving its allocation intact; the platform clamps to its hardware minimum.
+                    startupBufferLimited = true
                     audioTrack.setBufferSizeInFrames(target)
                 }.also { check(it > 0) { "AudioTrack rejected startup threshold: $it" } }
             }
@@ -497,6 +526,26 @@ internal fun nativeDirectAudioStartThresholdFrames(
     require(sampleRate > 0 && capacityFrames > 0)
     return (sampleRate.toLong() * 40L / 1_000L).coerceIn(1L, capacityFrames.toLong()).toInt()
 }
+
+/**
+ * Effective pre-S buffer while playing: at least 500 ms, or the allocation if that is smaller.
+ * Media3 keeps its PCM buffer at 250 ms or more for the same reason; YCore feeds from a polling
+ * worker that can be held up by a long decode, so it keeps a little more.
+ */
+internal fun nativeDirectAudioPlayingBufferFrames(
+    sampleRate: Int,
+    capacityFrames: Int,
+): Int {
+    require(sampleRate > 0 && capacityFrames > 0)
+    return (sampleRate.toLong() * PLAYING_BUFFER_MS / 1_000L).coerceIn(1L, capacityFrames.toLong()).toInt()
+}
+
+private fun nativeDirectAudioPlayingBufferFrames(
+    sampleRate: Int,
+    audioTrack: AudioTrack,
+): Int = nativeDirectAudioPlayingBufferFrames(sampleRate.coerceAtLeast(1), audioTrack.bufferCapacityInFrames)
+
+private const val PLAYING_BUFFER_MS = 500L
 
 internal fun nativeDirectAudioBufferSizeBytes(
     minimumBufferBytes: Int,

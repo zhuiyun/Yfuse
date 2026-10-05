@@ -123,6 +123,14 @@ class AndroidAudioTrackRenderNodePolicyTest {
     }
 
     @Test
+    fun `once playing the pre S buffer grows back to half a second`() {
+        // The 40 ms startup cut, kept for the whole session, underran on any pause in feeding.
+        assertEquals(24_000, nativeDirectAudioPlayingBufferFrames(48_000, 96_000))
+        assertEquals(22_050, nativeDirectAudioPlayingBufferFrames(44_100, 88_200))
+        assertEquals(4_096, nativeDirectAudioPlayingBufferFrames(48_000, 4_096))
+    }
+
+    @Test
     fun `startup threshold is bounded by the actual device allocation`() {
         assertEquals(240, nativeDirectAudioStartThresholdFrames(48_000, 240))
         assertEquals(1, nativeDirectAudioStartThresholdFrames(1, 1))
