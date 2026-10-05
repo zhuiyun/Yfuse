@@ -181,10 +181,16 @@ def water_over_fire():
         # Drawn over the seam between the two halves, so neither edge shows through.
         Shape(gap, "#FFFFFF"),
     ]
+    glyph = tri.difference(gap)
+    # A play triangle's weight sits toward its flat side and its point reaches far past it: centred
+    # by its box it leans left, and centred by its centroid its point comes near the edge. The eye
+    # settles halfway between, so that goes on the centre.
     # The first draft drew this at 1.12x, the smallest of the five; 1.85x reaches 429 from the centre.
-    fit = dict(scale=1.85, origin=(530, cy), target=(530, 512))
+    gx0, _, gx1, _ = glyph.bounds
+    middle = ((gx0 + gx1) / 2 + glyph.centroid.x) / 2
+    fit = dict(scale=1.85, origin=(middle, cy), target=(512, 512))
     ground = Shape(FULL, linear(0, 0, 0, 1024, (0, "#FFFFFF", 1), (1, "#F4F1EC", 1)))
-    return Icon([ground], place(mark, **fit), placed_geometry(tri.difference(gap), **fit))
+    return Icon([ground], place(mark, **fit), placed_geometry(glyph, **fit))
 
 
 # ---------------------------------------------------------------------------------------------

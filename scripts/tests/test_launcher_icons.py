@@ -5,7 +5,9 @@ component is missing, enabled by default or not a launcher entry breaks the swit
 compile error. The launcher shortcuts and the 追剧更新 notification draw the chosen icon too,
 through resource mappings that nothing else checks against the manifest. The vector layers drawn
 by scripts/launcher_icons/generate.py are checked against the limits the generator promises:
-lint reports a pathData longer than 800 characters as slow.
+lint reports a pathData longer than 800 characters as slow. Their marks are checked to sit in the
+middle of the icon, since a mark leaning to one side passes everything else and shows only on the
+home screen.
 """
 import re
 import unittest
@@ -48,6 +50,38 @@ def resource(reference):
     kind, name = re.fullmatch(r"@(\w+)/(\w+)", reference).groups()
     found = sorted(RES.glob(f"{kind}*/{name}.*"))
     return found[0] if found else Path(f"missing {reference}")
+
+
+def balance(layer):
+    """How far right of the layer's centre its mark's box centre and its area centroid sit.
+
+    The generator writes each ring as `Mx,y` and integer `l` steps. Rows two units apart are filled
+    even-odd, which matches the nonzero rule for rings that do not overlap.
+    """
+    root = ET.parse(layer).getroot()
+    rings = []
+    for element in root.iter("path"):
+        for x, y, steps in re.findall(r"M(-?\d+),(-?\d+)l([^z]*)z", element.get(A + "pathData")):
+            points = [(int(x), int(y))]
+            for dx, dy in re.findall(r"(-?\d+),(-?\d+)", steps):
+                points.append((points[-1][0] + int(dx), points[-1][1] + int(dy)))
+            rings.append(points)
+    xs = [x for ring in rings for x, _ in ring]
+    ys = [y for ring in rings for _, y in ring]
+    area = moment = 0.0
+    for row in range(min(ys), max(ys), 2):
+        y = row + 0.5
+        cuts = sorted(
+            x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+            for ring in rings
+            for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1])
+            if (y1 <= y) != (y2 <= y)
+        )
+        for a, b in zip(cuts[::2], cuts[1::2]):
+            area += b - a
+            moment += (b * b - a * a) / 2
+    centre = float(root.get(A + "viewportWidth")) / 2
+    return (min(xs) + max(xs)) / 2 - centre, moment / area - centre
 
 
 class LauncherIconTest(unittest.TestCase):
@@ -120,6 +154,15 @@ class LauncherIconTest(unittest.TestCase):
                                 self.assertRegex(value, r"^#[0-9A-F]{8}$")
                     if layer == "mono":
                         self.assertNotIn("aapt:attr", path.read_text("utf-8"), "a themed layer is one colour")
+
+    def test_generated_marks_sit_in_the_middle(self):
+        # The eye puts a mark's middle between its box and its centroid: a play triangle centred by
+        # its box leans left, and one centred by its centroid has its point near the edge. 水火既济
+        # once sat 52 units right of the middle, on a canvas of 1024.
+        for key in GENERATED:
+            with self.subTest(icon=key):
+                box, centroid = balance(RES / f"drawable/ic_{key}_mono.xml")
+                self.assertLessEqual(abs((box + centroid) / 2), 16, f"box {box:+.0f}, centroid {centroid:+.0f}")
 
 
 if __name__ == "__main__":

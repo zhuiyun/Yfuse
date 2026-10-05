@@ -26,6 +26,8 @@
 | 04 弹幕 | 1.12 | 435（飞过的半透明弹幕 461） |
 | 05 液态 | 1.21 | 444 |
 
+2 号的播放三角分量偏向平边、尖角伸得远：按外框居中看着偏左，按重心居中尖角又贴近右边，所以按两者的中点摆在正中。1.1.1 及以前它的外框中心在中心右边 85、重心在右边 19，看着偏右。`scripts/tests/test_launcher_icons.py` 从主题图标层量五款图形的这个中点，离中心不超过 16。
+
 ## 实现
 
 - 资源：`composeApp/src/androidMain/res/drawable/ic_<key>_{background,foreground,mono}.xml`，`mipmap-anydpi/ic_launcher_<key>.xml`，`key` 为 `prism`、`water_over_fire`、`overprint`、`danmaku`、`liquid_glass`。每款都有单色层，Android 13+ 主题图标可用。
