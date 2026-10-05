@@ -40,12 +40,22 @@ class YAudioHandoverPolicyTest {
             passthroughRejected: Boolean = false,
             speed: Float = 1f,
             audioDelayMs: Long = 0L,
-        ) = passthroughRestorable(currentPath, devicePath, false, passthroughRejected, speed, audioDelayMs)
+            audioEffectActive: Boolean = false,
+        ) = passthroughRestorable(
+            currentPath,
+            devicePath,
+            false,
+            passthroughRejected,
+            speed,
+            audioDelayMs,
+            audioEffectActive,
+        )
 
         assertTrue(restorable())
-        // Still stretched or shifted, refused by the sink, or never passthrough on this device.
+        // Still stretched, shifted or processed, refused by the sink, or never passthrough here.
         assertFalse(restorable(speed = 1.25f))
         assertFalse(restorable(audioDelayMs = -120L))
+        assertFalse(restorable(audioEffectActive = true))
         assertFalse(restorable(passthroughRejected = true))
         assertFalse(restorable(devicePath = YAudioOutputPath.DecodePcm))
         assertFalse(restorable(currentPath = YAudioOutputPath.Passthrough))

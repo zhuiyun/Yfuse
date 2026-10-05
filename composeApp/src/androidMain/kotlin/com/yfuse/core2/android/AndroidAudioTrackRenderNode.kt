@@ -11,6 +11,9 @@ import android.media.PlaybackParams
 import android.os.Build
 import androidx.annotation.RequiresApi
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core2.api.YAudioEffect
+import com.yfuse.core2.audio.YAudioChannelRole
+import com.yfuse.core2.audio.YAudioEffectProcessor
 import com.yfuse.core2.graph.YAudioRenderNode
 import com.yfuse.core2.sync.YAvSync
 import java.nio.ByteBuffer
@@ -45,6 +48,9 @@ internal class AndroidAudioTrackRenderNode(
     private var timestampJumps = 0
     private var deadTrackRebuilds = 0
     private var zeroWriteCount = 0L
+    private var audioEffect = YAudioEffect.Off
+    private var effectStage: AndroidPcmEffectStage? = null
+    private var effectStageShape: PcmShape? = null
     private var startThresholdFrames = 0
 
     /**
@@ -107,6 +113,7 @@ internal class AndroidAudioTrackRenderNode(
             "audioClockSource" to clockSource,
             "audioClockStalled" to clockStalled.toString(),
             "audioUnderruns" to underrunCount.toString(),
+            "audioEffect" to (effectStage?.processor?.effect ?: YAudioEffect.Off).name,
         )
 
     @get:Synchronized
@@ -164,6 +171,7 @@ internal class AndroidAudioTrackRenderNode(
                 it.addOnRoutingChangedListener(routingListener, null)
             }
         configuredFormat = format
+        refreshEffectStage(format)
         spatialAudioState = spatialAudioProbe?.current(format) ?: AndroidSpatialAudioState()
         basePresentationTimeUs = null
         timestampJumps = 0
@@ -208,6 +216,34 @@ internal class AndroidAudioTrackRenderNode(
         audioDelayMs = value.coerceIn(-5_000L, 5_000L)
     }
 
+    /**
+     * Applies [effect] to every write from now on. PCM of an encoding the processor cannot read is
+     * written untouched; [outputDiagnostics] reports the effect actually applied.
+     */
+    @Synchronized
+    fun setAudioEffect(effect: YAudioEffect) {
+        if (effect == audioEffect) return
+        audioEffect = effect
+        val format = configuredFormat
+        if (format != null) {
+            refreshEffectStage(format)
+        } else {
+            effectStage = null
+            effectStageShape = null
+        }
+    }
+
+    /**
+     * A rebuild on the same PCM shape (a dead track, a new output path) keeps the running processor,
+     * so a normalised loudness does not ramp up again from unity.
+     */
+    private fun refreshEffectStage(format: MediaFormat) {
+        val shape = format.pcmShape()
+        if (effectStage?.processor?.effect == audioEffect && effectStageShape == shape) return
+        effectStage = pcmEffectStage(shape, audioEffect)
+        effectStageShape = shape
+    }
+
     /** Only for video pacing. Position/progress/route verification keep using the unmodified clock. */
     @Synchronized
     fun videoClockPositionUs(fallbackPositionUs: Long): Long =
@@ -227,13 +263,16 @@ internal class AndroidAudioTrackRenderNode(
         }
         var total = 0
         while (data.hasRemaining()) {
-            val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_BLOCKING)
+            val stage = effectStage
+            val input = stage?.input(data) ?: data
+            val written = audioTrack.write(input, input.remaining(), AudioTrack.WRITE_BLOCKING)
             if (written == AudioTrack.ERROR_DEAD_OBJECT && canRebuildDeadTrack()) {
                 audioTrack = rebuildDeadTrack()
                 basePresentationTimeUs = presentationTimeUs.coerceAtLeast(0L)
                 continue
             }
             check(written >= 0) { "AudioTrack.write failed with code $written" }
+            stage?.consumed(data, written)
             if (written == 0) {
                 zeroWriteCount++
                 continue
@@ -263,13 +302,16 @@ internal class AndroidAudioTrackRenderNode(
         if (!data.hasRemaining()) return 0
         val shouldAnchorClock = basePresentationTimeUs == null
         if (!shouldAnchorClock) followTimestampJump(presentationTimeUs)
-        val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_NON_BLOCKING)
+        val stage = effectStage
+        val input = stage?.input(data) ?: data
+        val written = audioTrack.write(input, input.remaining(), AudioTrack.WRITE_NON_BLOCKING)
         if (written == AudioTrack.ERROR_DEAD_OBJECT && canRebuildDeadTrack()) {
             // The caller keeps the buffer and offers it again, to the new track, which anchors then.
             rebuildDeadTrack()
             return 0
         }
         check(written >= 0) { "AudioTrack.write failed with code $written" }
+        stage?.consumed(data, written)
         if (written == 0) {
             zeroWriteCount++
         } else {
@@ -433,6 +475,7 @@ internal class AndroidAudioTrackRenderNode(
         if (audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING) audioTrack.pause()
         audioTrack.flush()
         pcmTail.reset()
+        effectStage?.reset()
         basePresentationTimeUs = null
         resetClockProgress()
         // A flushed pre-S track would otherwise wait for its whole playing buffer before sounding.
@@ -446,6 +489,7 @@ internal class AndroidAudioTrackRenderNode(
         track = null
         configuredFormat = null
         pcmTail.reset()
+        effectStage?.discardPending()
         requestedPlay = false
         sampleRate = 0
         basePresentationTimeUs = null
@@ -538,6 +582,51 @@ private fun MediaFormat.pcmShape(): PcmShape =
                 AudioFormat.ENCODING_PCM_16BIT
             },
     )
+
+/** The effect stage for PCM of [shape], or null for Off and for encodings it cannot read. */
+private fun pcmEffectStage(
+    shape: PcmShape,
+    effect: YAudioEffect,
+): AndroidPcmEffectStage? {
+    if (effect == YAudioEffect.Off || shape.sampleRate <= 0 || shape.channelCount <= 0) return null
+    val sampleFormat =
+        when (shape.encoding) {
+            AudioFormat.ENCODING_PCM_8BIT -> AndroidPcmSampleFormat.Unsigned8
+            AudioFormat.ENCODING_PCM_16BIT -> AndroidPcmSampleFormat.Signed16
+            AudioFormat.ENCODING_PCM_24BIT_PACKED -> AndroidPcmSampleFormat.Signed24Packed
+            AudioFormat.ENCODING_PCM_32BIT -> AndroidPcmSampleFormat.Signed32
+            AudioFormat.ENCODING_PCM_FLOAT -> AndroidPcmSampleFormat.Float32
+            else -> return null
+        }
+    val roles = audioChannelRoles(audioTrackChannelMask(shape.channelMask, shape.channelCount), shape.channelCount)
+    return AndroidPcmEffectStage(YAudioEffectProcessor(effect, shape.sampleRate, roles), sampleFormat)
+}
+
+/**
+ * What each channel of [mask] carries, in interleaving order (ascending bit). A mask that does not
+ * describe [channelCount] channels counts every channel as a front one.
+ */
+internal fun audioChannelRoles(
+    mask: Int,
+    channelCount: Int,
+): List<YAudioChannelRole> {
+    val roles = (0 until Int.SIZE_BITS - 1).map { 1 shl it }.filter { mask and it != 0 }.map(::audioChannelRole)
+    return roles.takeIf { it.size == channelCount } ?: List(channelCount) { YAudioChannelRole.Front }
+}
+
+private fun audioChannelRole(channel: Int): YAudioChannelRole =
+    when (channel) {
+        AudioFormat.CHANNEL_OUT_FRONT_CENTER -> YAudioChannelRole.Centre
+        AudioFormat.CHANNEL_OUT_LOW_FREQUENCY -> YAudioChannelRole.Lfe
+        AudioFormat.CHANNEL_OUT_BACK_LEFT,
+        AudioFormat.CHANNEL_OUT_BACK_RIGHT,
+        AudioFormat.CHANNEL_OUT_BACK_CENTER,
+        AudioFormat.CHANNEL_OUT_SIDE_LEFT,
+        AudioFormat.CHANNEL_OUT_SIDE_RIGHT,
+        -> YAudioChannelRole.Surround
+        // Every position above the side pair is a height or bottom channel.
+        else -> if (channel > AudioFormat.CHANNEL_OUT_SIDE_RIGHT) YAudioChannelRole.Height else YAudioChannelRole.Front
+    }
 
 private fun buildAudioTrack(format: MediaFormat): AudioTrack {
     val sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)

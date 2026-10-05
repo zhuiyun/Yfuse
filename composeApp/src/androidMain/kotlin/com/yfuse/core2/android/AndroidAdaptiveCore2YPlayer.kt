@@ -14,6 +14,7 @@ import com.yfuse.core.logging.diagnosticOrigin
 import com.yfuse.core.logging.diagnosticRootCause
 import com.yfuse.core.logging.diagnosticTypeName
 import com.yfuse.core.logging.playbackDiagnosticTrace
+import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YInitialTrackSelection
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YOutputEvidenceResetReason
@@ -440,6 +441,14 @@ internal class AndroidAdaptiveCore2YPlayer(
         return true
     }
 
+    override val supportsAudioEffects: Boolean get() = true
+
+    override fun setAudioEffect(effect: YAudioEffect): Boolean {
+        if (released) return false
+        commands.trySend(Command.SetAudioEffect(effect))
+        return true
+    }
+
     override fun retry() {
         if (released) return
         invalidateProbe("superseded")
@@ -626,6 +635,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         var requestedPlay = request.autoPlay
         var speed = 1f
         var audioDelayMs = 0L
+        var audioEffect = YAudioEffect.Off
         var adaptiveTarget: YAdaptivePlaybackTarget? = null
         var pendingAdaptiveTarget: YAdaptivePlaybackTarget? = null
         var pausedSeekPreviewRequested = false
@@ -831,6 +841,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 !anime4KRequestedFor(item) &&
                     item.allExternalSubtitles.isEmpty() &&
                     audioDelayMs == 0L &&
+                    audioEffect == YAudioEffect.Off &&
                     kotlin.math.abs(speed - 1f) <= TUNNEL_SPEED_EPSILON
             if (nextItemPreloadJob?.isActive == true ||
                 nowMs < nextPreloadRetryAfterMs ||
@@ -1145,6 +1156,8 @@ internal class AndroidAdaptiveCore2YPlayer(
                 allowTunnel &&
                     !anime4KRequestedFor(item) &&
                     audioDelayMs == 0L &&
+                    // Tunnelled audio goes straight to the HAL; effects need YCore's own PCM sink.
+                    audioEffect == YAudioEffect.Off &&
                     item.drmConfiguration == null &&
                     item.allExternalSubtitles.isEmpty() &&
                     item.initialTrackSelection?.subtitle == null &&
@@ -1500,6 +1513,7 @@ internal class AndroidAdaptiveCore2YPlayer(
 
             next.setSpeed(speed)
             next.setAudioDelayMs(audioDelayMs)
+            next.setAudioEffect(audioEffect)
             // NativeDirect gets the caller's newest output rather than the command copy, which may
             // still be queued behind this very start (see requestedVideoOutput): before prepare()
             // it only records the Surface and then configures its decoder with it. The enhanced
@@ -2155,6 +2169,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 Command.SeekPending -> seekToPending()
                 is Command.SetSpeed -> updateSpeed(command)
                 is Command.SetAudioDelay -> updateAudioDelay(command)
+                is Command.SetAudioEffect -> updateAudioEffect(command)
                 is Command.AdaptiveTransition -> {
                     if (child === command.fromChild) {
                         pendingAdaptiveTarget = command.target
@@ -2254,6 +2269,23 @@ internal class AndroidAdaptiveCore2YPlayer(
                 rebuild(pendingPositionMs)
             } else {
                 child?.setAudioDelayMs(audioDelayMs)
+            }
+        }
+
+        private suspend fun updateAudioEffect(command: Command.SetAudioEffect) {
+            audioEffect = command.effect
+            if (audioEffect != YAudioEffect.Off &&
+                child
+                    ?.state
+                    ?.value
+                    ?.diagnostics
+                    ?.route == YPlaybackRoute.NativeTunnel
+            ) {
+                allowTunnel = false
+                pendingPositionMs = globalChildPosition()
+                rebuild(pendingPositionMs)
+            } else {
+                child?.setAudioEffect(audioEffect)
             }
         }
 
@@ -2629,6 +2661,10 @@ internal class AndroidAdaptiveCore2YPlayer(
     private sealed interface Command {
         data class SetAudioDelay(
             val delayMs: Long,
+        ) : Command
+
+        data class SetAudioEffect(
+            val effect: YAudioEffect,
         ) : Command
 
         data class AdaptiveTransition(

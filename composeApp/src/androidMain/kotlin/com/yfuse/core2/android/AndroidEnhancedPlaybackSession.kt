@@ -9,6 +9,7 @@ import android.os.SystemClock
 import android.view.Surface
 import android.view.WindowManager
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YDualDolbyEvidenceState
 import com.yfuse.core2.api.YFrameRateSample
@@ -244,6 +245,19 @@ internal class AndroidEnhancedPlaybackSession(
         }
     }
 
+    private var audioEffect = YAudioEffect.Off
+
+    /** Effects process PCM, so a bitstreamed track decodes while one is on; kept across opens. */
+    fun setAudioEffect(value: YAudioEffect) {
+        audioEffect = value
+        audioRenderer.setAudioEffect(value)
+        if (value != YAudioEffect.Off && isAudioPassthrough()) {
+            switchPassthroughToPcm(currentPositionUs(), countFailure = false)
+        } else {
+            restorePassthroughIfAvailable()
+        }
+    }
+
     fun open(
         source: YDemuxSource,
         plan: YPlaybackPlan,
@@ -376,7 +390,10 @@ internal class AndroidEnhancedPlaybackSession(
             )
         }
         val initialAudioOutputPath =
-            if (audioDelayMs != 0L && audioSelection?.outputPath == YAudioOutputPath.Passthrough) {
+            if (
+                (audioDelayMs != 0L || audioEffect != YAudioEffect.Off) &&
+                audioSelection?.outputPath == YAudioOutputPath.Passthrough
+            ) {
                 YAudioOutputPath.DecodePcm
             } else {
                 audioSelection?.outputPath ?: YAudioOutputPath.None
@@ -783,6 +800,7 @@ internal class AndroidEnhancedPlaybackSession(
                 passthroughRejected = track.id in rejectedPassthroughTracks,
                 speed = speed,
                 audioDelayMs = audioDelayMs,
+                audioEffectActive = audioEffect != YAudioEffect.Off,
             )
         // Re-selecting the same track re-plans its path, and restores the PCM one if the sink fails.
         if (restorable) selectAudioTrack(track.id, capabilities)
@@ -866,7 +884,11 @@ internal class AndroidEnhancedPlaybackSession(
         var nextPath =
             if (
                 devicePath == YAudioOutputPath.Passthrough &&
-                (audioDelayMs != 0L || requiresPcmAudioPath(false, passthroughRejected, speed))
+                (
+                    audioDelayMs != 0L ||
+                        audioEffect != YAudioEffect.Off ||
+                        requiresPcmAudioPath(false, passthroughRejected, speed)
+                )
             ) {
                 YAudioOutputPath.DecodePcm
             } else {

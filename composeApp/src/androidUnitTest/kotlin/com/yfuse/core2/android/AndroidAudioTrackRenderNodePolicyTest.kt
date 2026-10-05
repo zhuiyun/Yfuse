@@ -1,6 +1,7 @@
 package com.yfuse.core2.android
 
 import android.media.AudioFormat
+import com.yfuse.core2.audio.YAudioChannelRole
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -34,6 +35,29 @@ class AndroidAudioTrackRenderNodePolicyTest {
                 AudioFormat.CHANNEL_OUT_LOW_FREQUENCY
 
         assertEquals(threePointOne, audioTrackChannelMask(declaredMask = threePointOne, channelCount = 4))
+    }
+
+    @Test
+    fun `effects know which channel holds dialogue, bass and surround`() {
+        assertEquals(
+            listOf(
+                YAudioChannelRole.Front,
+                YAudioChannelRole.Front,
+                YAudioChannelRole.Centre,
+                YAudioChannelRole.Lfe,
+                YAudioChannelRole.Surround,
+                YAudioChannelRole.Surround,
+                YAudioChannelRole.Surround,
+                YAudioChannelRole.Surround,
+            ),
+            audioChannelRoles(AudioFormat.CHANNEL_OUT_7POINT1_SURROUND, channelCount = 8),
+        )
+        assertEquals(listOf(YAudioChannelRole.Front), audioChannelRoles(AudioFormat.CHANNEL_OUT_MONO, channelCount = 1))
+        // A mask for another count says nothing reliable about the channels.
+        assertEquals(
+            List(6) { YAudioChannelRole.Front },
+            audioChannelRoles(AudioFormat.CHANNEL_OUT_STEREO, channelCount = 6),
+        )
     }
 
     @Test

@@ -5,6 +5,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.diagnosticOrigin
 import com.yfuse.core.logging.diagnosticRootCause
 import com.yfuse.core.logging.diagnosticTypeName
+import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
@@ -233,6 +234,14 @@ internal class AndroidNativeEnhancedYPlayer(
     override fun setAudioDelayMs(delayMs: Long): Boolean {
         if (released) return false
         submit(Command.SetAudioDelay(delayMs.coerceIn(-5_000L, 5_000L)))
+        return true
+    }
+
+    override val supportsAudioEffects: Boolean get() = true
+
+    override fun setAudioEffect(effect: YAudioEffect): Boolean {
+        if (released) return false
+        submit(Command.SetAudioEffect(effect))
         return true
     }
 
@@ -958,6 +967,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                 audioDelayMs = command.delayMs
                                 session.setAudioDelayMs(audioDelayMs)
                             }
+                            is Command.SetAudioEffect -> session.setAudioEffect(command.effect)
                             is Command.ExternalSubtitleReady -> {
                                 if (externalSubtitleSession.accept(command.result)) {
                                     externalSubtitles = externalSubtitleSession.tracks
@@ -1120,6 +1130,10 @@ internal class AndroidNativeEnhancedYPlayer(
             val delayMs: Long,
         ) : Command
 
+        data class SetAudioEffect(
+            val effect: YAudioEffect,
+        ) : Command
+
         data class ExternalSubtitleReady(
             val result: AndroidExternalSubtitleSession.Completion,
         ) : Command
@@ -1209,6 +1223,8 @@ private fun AndroidNativeEnhancedYPlayer.Command.canBeReplacedBy(next: AndroidNa
         is AndroidNativeEnhancedYPlayer.Command.SetSpeed -> next is AndroidNativeEnhancedYPlayer.Command.SetSpeed
         is AndroidNativeEnhancedYPlayer.Command.SetAudioDelay ->
             next is AndroidNativeEnhancedYPlayer.Command.SetAudioDelay
+        is AndroidNativeEnhancedYPlayer.Command.SetAudioEffect ->
+            next is AndroidNativeEnhancedYPlayer.Command.SetAudioEffect
         is AndroidNativeEnhancedYPlayer.Command.SetVideoOutput ->
             next is AndroidNativeEnhancedYPlayer.Command.SetVideoOutput
         is AndroidNativeEnhancedYPlayer.Command.SelectAudioTrack ->

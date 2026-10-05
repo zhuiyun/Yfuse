@@ -42,6 +42,12 @@ interface YPlayer {
     /** Positive values make audio later relative to video; values are bounded to +/- five seconds. */
     fun setAudioDelayMs(delayMs: Long): Boolean = delayMs == 0L
 
+    /** Applies [YAudioEffect] modes to its own decoded audio, without leaving the native player. */
+    val supportsAudioEffects: Boolean get() = false
+
+    /** [YAudioEffect.Off] is always accepted; true when [effect] is applied, or will be once audio plays. */
+    fun setAudioEffect(effect: YAudioEffect): Boolean = effect == YAudioEffect.Off
+
     fun selectTrack(
         type: YTrackType,
         id: String,

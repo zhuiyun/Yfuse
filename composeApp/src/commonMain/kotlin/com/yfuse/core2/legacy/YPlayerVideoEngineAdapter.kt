@@ -8,6 +8,7 @@ import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
+import com.yfuse.feature.player.AudioEnhancementMode
 import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.PlaybackAudioOutputMode
 import com.yfuse.feature.player.PlaybackDiagnostics
@@ -54,6 +55,10 @@ internal class YPlayerVideoEngineAdapter(
     override val supportsAudioDelay: Boolean get() = player.supportsAudioDelay
 
     override fun setAudioDelayMs(delayMs: Long): Boolean = player.setAudioDelayMs(delayMs)
+
+    override val supportsAudioEnhancement: Boolean get() = player.supportsAudioEffects
+
+    override fun setAudioEnhancement(mode: AudioEnhancementMode): Boolean = player.setAudioEffect(mode.toYAudioEffect())
 
     override fun selectAudioTrack(id: String) = player.selectTrack(YTrackType.Audio, id)
 
