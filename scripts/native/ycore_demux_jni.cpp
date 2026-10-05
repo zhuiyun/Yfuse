@@ -1418,6 +1418,45 @@ const char* android_ass_fallback_font() {
     return nullptr;
 }
 
+/**
+ * Fonts for scripts the default (CJK) font lacks. libass reads a fonts directory's every file into
+ * memory, once per library: given /system/fonts that was 100 MB or more for each ASS track. The
+ * default font is opened from its path instead, and only these small files are read, within a
+ * total cap; a device that lacks one simply goes without it.
+ */
+void add_android_script_fonts(ASS_Library* library) {
+    static constexpr const char* kScriptFonts[] = {
+        "/system/fonts/Roboto-Regular.ttf",
+        "/system/fonts/NotoNaskhArabic-Regular.ttf",
+        "/system/fonts/NotoSansHebrew-Regular.ttf",
+        "/system/fonts/NotoSansThai-Regular.ttf",
+        "/system/fonts/NotoSansDevanagari-Regular.otf",
+        "/system/fonts/NotoSansDevanagari-VF.ttf",
+    };
+    constexpr long kMaxFontBytes = 4L * 1024L * 1024L;
+    constexpr long kMaxTotalBytes = 8L * 1024L * 1024L;
+    if (!library) return;
+    long total = 0;
+    for (const char* path : kScriptFonts) {
+        FILE* file = std::fopen(path, "rb");
+        if (!file) continue;
+        std::vector<char> bytes;
+        if (std::fseek(file, 0, SEEK_END) == 0) {
+            const long size = std::ftell(file);
+            if (size > 0 && size <= kMaxFontBytes && total + size <= kMaxTotalBytes &&
+                std::fseek(file, 0, SEEK_SET) == 0) {
+                bytes.resize(static_cast<size_t>(size));
+                if (std::fread(bytes.data(), 1, bytes.size(), file) != bytes.size()) bytes.clear();
+            }
+        }
+        std::fclose(file);
+        if (bytes.empty()) continue;
+        total += static_cast<long>(bytes.size());
+        const char* name = std::strrchr(path, '/');
+        ass_add_font(library, name ? name + 1 : path, bytes.data(), static_cast<int>(bytes.size()));
+    }
+}
+
 void configure_ass_fonts(ASS_Renderer* renderer) {
     if (!renderer) return;
     ass_set_fonts(
@@ -1446,7 +1485,7 @@ ASS_Track* ass_subtitle_track(JNIEnv* env, DemuxSession* session, jint index) {
             throw_illegal_state(env, "Unable to initialize libass");
             return nullptr;
         }
-        ass_set_fonts_dir(session->ass_library, "/system/fonts");
+        add_android_script_fonts(session->ass_library);
     }
     if (!session->ass_renderer) {
         session->ass_renderer = ass_renderer_init(session->ass_library);
@@ -2982,7 +3021,7 @@ jlong native_create_ass_renderer(
     session->library = ass_library_init();
     if (!session->library) { throw_illegal_state(env, "Unable to initialize libass"); return 0; }
     ass_set_extract_fonts(session->library, 1);
-    ass_set_fonts_dir(session->library, "/system/fonts");
+    add_android_script_fonts(session->library);
     const jsize font_count = font_data ? env->GetArrayLength(font_data) : 0;
     if (font_count > 128 || (font_count && (!font_names || env->GetArrayLength(font_names) != font_count))) {
         throw_illegal_argument(env, "Invalid ASS font attachments"); return 0;
