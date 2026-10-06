@@ -32,6 +32,8 @@ private class TtmlDocument(
         val start: Long,
         val end: Long,
         val text: String,
+        val preserve: Boolean = false,
+        val lineBreak: Boolean = false,
     )
 
     fun cues(): List<YSubtitleCue> {
@@ -112,7 +114,7 @@ private class TtmlDocument(
             if (end == null) return // No finite media interval to display.
             val pieces = mutableListOf<Piece>()
             collect(node, start, end, pieces)
-            render(pieces, node.preserve)
+            render(pieces)
         } else {
             node.children.mapNotNull { it.second }.forEach { paragraphs(it, start, end) }
         }
@@ -129,42 +131,27 @@ private class TtmlDocument(
         val end = minOf(parentEnd, node.end ?: parentEnd)
         if (end <= start) return
         if (node.element.name.local == "br") {
-            pieces += Piece(start, end, "\n")
+            pieces += Piece(start, end, "\n", lineBreak = true)
         } else {
             for ((child, nested) in node.children) {
                 if (nested != null) {
                     collect(nested, start, end, pieces)
                 } else if (child is YXmlContent.Text) {
                     val text = if (node.preserve) child.value else child.value.replace(XML_SPACE, " ")
-                    pieces += Piece(start, end, text)
+                    pieces += Piece(start, end, text, preserve = node.preserve)
                 }
                 require(pieces.size <= MAX_PARAGRAPH_PIECES) { "TTML paragraph is too complex" }
             }
         }
     }
 
-    private fun render(
-        pieces: List<Piece>,
-        preserve: Boolean,
-    ) {
+    private fun render(pieces: List<Piece>) {
         val boundaries = pieces.flatMap { listOf(it.start, it.end) }.distinct().sorted()
         for (index in 0 until boundaries.lastIndex) {
             ensureActive()
             val start = boundaries[index]
             val end = boundaries[index + 1]
-            val raw = buildString { pieces.forEach { if (it.start <= start && start < it.end) append(it.text) } }
-            val plain =
-                if (preserve) {
-                    raw
-                } else {
-                    raw
-                        .replace(
-                            SPACE_RUN,
-                            " ",
-                        ).lines()
-                        .joinToString("\n") { it.trim() }
-                        .trim()
-                }
+            val plain = renderText(pieces.filter { it.start <= start && start < it.end })
             if (plain.isBlank()) continue
             outputChars += plain.length
             require(
@@ -173,6 +160,31 @@ private class TtmlDocument(
             result += YSubtitleCue("ttml-${result.size}", start, end, YSubtitlePayload.Text(plain, plain))
         }
     }
+
+    private fun renderText(pieces: List<Piece>): String =
+        buildString {
+            var pendingSpace = false
+            for (piece in pieces) {
+                if (piece.lineBreak) {
+                    pendingSpace = false
+                    append('\n')
+                } else if (piece.preserve) {
+                    if (pendingSpace && isNotEmpty() && last() != '\n') append(' ')
+                    pendingSpace = false
+                    append(piece.text)
+                } else {
+                    for (char in piece.text) {
+                        if (char == ' ') {
+                            pendingSpace = true
+                        } else {
+                            if (pendingSpace && isNotEmpty() && last() != '\n' && last() != ' ') append(' ')
+                            pendingSpace = false
+                            append(char)
+                        }
+                    }
+                }
+            }
+        }
 }
 
 private class TtmlTiming(
@@ -261,7 +273,6 @@ private val TTML_NAMESPACES = setOf("", "http://www.w3.org/ns/ttml", "http://www
 private const val TTML_PARAMETER_NAMESPACE = "http://www.w3.org/ns/ttml#parameter"
 private val TIMED_ELEMENTS = setOf("tt", "body", "div", "p", "span", "br")
 private val XML_SPACE = Regex("[ \\t\\r\\n]+")
-private val SPACE_RUN = Regex(" +")
 private val OFFSET_TIME = Regex("([0-9]+(?:\\.[0-9]+)?)(h|ms|m|s|f|t)")
 private val CLOCK_TIME = Regex("([0-9]+):([0-9]{2}):([0-9]{2}(?:\\.[0-9]+)?)(?::([0-9]+)(?:\\.([0-9]+))?)?")
 private const val MAX_PARAGRAPH_PIECES = 2_048

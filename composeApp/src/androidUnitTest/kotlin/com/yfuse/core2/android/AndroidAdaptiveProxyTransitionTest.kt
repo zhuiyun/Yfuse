@@ -142,6 +142,69 @@ class AndroidAdaptiveProxyTransitionTest {
     }
 
     @Test
+    fun separated_vod_rebuild_keeps_renditions_and_pins_each_targets_initialization() {
+        val resources = hlsResources().toMutableMap()
+        resources["/master.m3u8"] =
+            resources
+                .getValue("/master.m3u8")
+                .replace(
+                    "#EXTM3U",
+                    "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"English\",URI=\"audio.m3u8\"",
+                ).replace("RESOLUTION=", "AUDIO=\"audio\",RESOLUTION=")
+        withProxy(FixtureUpstream(resources)) { proxy ->
+            val root = proxy.localUrl("https://media.example.test/master.m3u8", cacheable = false, cacheIdentity = null)
+            val first = assertNotNull(runBlocking { proxy.resolvePlaybackTarget(root, 0L) })
+
+            fun videoManifest(target: YAdaptivePlaybackTarget): String {
+                val master = readUrl(target.uri).decodeToString()
+                assertTrue("TYPE=AUDIO" in master && "GROUP-ID=\"audio\"" in master)
+                return readUrl(master.lineSequence().first { it.isNotBlank() && !it.startsWith('#') }).decodeToString()
+            }
+            val before = videoManifest(first)
+            val segment = before.lineSequence().first { it.isNotBlank() && !it.startsWith('#') }
+            proxy.updatePlaybackFeedback(YAdaptivePlaybackFeedback(0L, true, 1f, 4L))
+            var next: YAdaptivePlaybackTarget? = null
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (next == null && System.nanoTime() < deadline) {
+                readUrl(segment)
+                next = proxy.pollPlaybackTransition(root, 3_000L)
+            }
+            assertEquals("LOW_INIT", readUrl(hlsInitialization(videoManifest(assertNotNull(next)))).decodeToString())
+            assertEquals("HIGH_INIT", readUrl(hlsInitialization(videoManifest(first))).decodeToString())
+        }
+    }
+
+    @Test
+    fun separated_live_renditions_reload_the_window_instead_of_replaying_the_initial_snapshot() {
+        val resources = java.util.concurrent.ConcurrentHashMap(hlsResources())
+        resources["/master.m3u8"] =
+            resources
+                .getValue("/master.m3u8")
+                .replace(
+                    "#EXTM3U",
+                    "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"English\",URI=\"audio.m3u8\"",
+                ).replace("RESOLUTION=", "AUDIO=\"audio\",RESOLUTION=")
+        listOf("low", "high").forEach { name ->
+            resources["/$name.m3u8"] =
+                hlsMedia(name)
+                    .replace("#EXT-X-ENDLIST", "")
+                    .replace("#EXT-X-VERSION:7", "#EXT-X-VERSION:7\n#EXT-X-MEDIA-SEQUENCE:0")
+        }
+        withProxy(FixtureUpstream(resources)) { proxy ->
+            val root = proxy.localUrl("https://media.example.test/master.m3u8", cacheable = false, cacheIdentity = null)
+            assertNull(runBlocking { proxy.resolvePlaybackTarget(root, 0L) })
+            val master = readUrl(root).decodeToString()
+            val video = master.lineSequence().first { it.isNotBlank() && !it.startsWith('#') }
+            assertTrue("MEDIA-SEQUENCE:0" in readUrl(video).decodeToString())
+            resources["/high.m3u8"] =
+                resources
+                    .getValue("/high.m3u8")
+                    .replace("#EXT-X-MEDIA-SEQUENCE:0", "#EXT-X-MEDIA-SEQUENCE:7")
+            assertTrue("MEDIA-SEQUENCE:7" in readUrl(video).decodeToString())
+        }
+    }
+
+    @Test
     fun cancelling_manifest_resolution_closes_the_inflight_transport_without_publishing_a_target() {
         val upstream = FixtureUpstream(hlsResources(), blockedPath = "/master.m3u8")
         withProxy(upstream) { proxy ->

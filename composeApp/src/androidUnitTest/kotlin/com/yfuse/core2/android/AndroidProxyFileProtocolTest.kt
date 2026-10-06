@@ -69,6 +69,9 @@ class AndroidProxyFileProtocolTest {
 
             fun blocks() = directory.walkTopDown().count { it.isFile && it.name.startsWith("block-") }
             try {
+                // Active playback requests a complete block after startup. Paused header-only
+                // slices deliberately rely on cancellable speculative fills and need not persist.
+                proxy.updatePlaybackFeedback(YAdaptivePlaybackFeedback(0L, true, 1f, 0L))
                 val local = proxy.localUrl(source, cacheable = true, cacheIdentity = identity)
                 assertContentEquals(payload, read(local, range = "bytes=0-"))
                 assertEquals(

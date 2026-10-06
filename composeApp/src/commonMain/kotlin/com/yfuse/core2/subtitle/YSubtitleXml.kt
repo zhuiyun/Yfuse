@@ -32,6 +32,10 @@ internal class YSubtitleXml(
 
     fun read(): YXmlContent.Element {
         require(text.length <= MAX_XML_CHARS) { "TTML exceeds the size limit" }
+        text.forEachIndexed { index, char ->
+            if (index % 4_096 == 0) ensureActive()
+            require(char >= ' ' || char in "\n\r\t") { "Invalid XML control character" }
+        }
         if (text.startsWith('\uFEFF')) offset++
         skipMisc()
         val root = element(mapOf("xml" to XML_NAMESPACE), 0)

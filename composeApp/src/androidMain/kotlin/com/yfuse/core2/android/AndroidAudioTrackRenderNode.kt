@@ -344,7 +344,15 @@ internal class AndroidAudioTrackRenderNode(
         val currentSpeed = speed
         val rebuilds = deadTrackRebuilds + 1
         val pendingCursor = writeCursor
+        val pendingStage = effectStage
+        val pendingShape = effectStageShape
+        // The already processed remainder is still owned by the decoder buffer. release() must
+        // not discard it and run the same PCM through the effect's advanced state a second time.
+        effectStage = null
+        effectStageShape = null
         configure(format)
+        effectStage = pendingStage
+        effectStageShape = pendingShape
         writeCursor = pendingCursor
         deadTrackRebuilds = rebuilds
         if (currentSpeed != 1f) setSpeed(currentSpeed)

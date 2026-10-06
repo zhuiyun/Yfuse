@@ -91,6 +91,16 @@ class YTtmlTimingTest {
     }
 
     @Test
+    fun inlinePreservedSpacesAndLineBreaksSurviveDefaultWhitespace() {
+        val cue =
+            parse(
+                """<t:p dur="2s">  A  <t:span xml:space="preserve"> B  C </t:span> D<t:br/> E </t:p>""",
+            ).single()
+        assertEquals("A  B  C D\nE", (cue.payload as YSubtitlePayload.Text).plainText)
+        assertFails { parse("<t:p dur='1s'><![CDATA[bad\u0001]]></t:p>") }
+    }
+
+    @Test
     fun cancellationIsNotSwallowedByTheXmlReader() {
         class Cancel : RuntimeException()
         assertFailsWith<Cancel> { YTextSubtitleParser.parse("<tt/>", YSubtitleFormat.Ttml) { throw Cancel() } }

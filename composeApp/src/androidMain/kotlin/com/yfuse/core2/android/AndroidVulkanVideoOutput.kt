@@ -286,7 +286,7 @@ internal class AndroidVulkanVideoOutput
                                 val handle = renderer.get()
                                 if (handle == 0L) return@synchronized
                                 attemptedFrames.incrementAndGet()
-                                mediaTimeUs(image.timestamp)?.let { applyHdr10PlusForTimestamp(it) }
+                                applyHdr10PlusForTimestamp(mediaTimeUs(image.timestamp))
                                 AndroidYCoreGpuNativeBridge.setDesiredPresentTime(handle, image.timestamp)
                                 val mask =
                                     AndroidYCoreGpuNativeBridge.renderHardwareBuffer(
@@ -334,8 +334,8 @@ internal class AndroidVulkanVideoOutput
             return entry.value
         }
 
-        private fun applyHdr10PlusForTimestamp(presentationTimeUs: Long) {
-            val metadata = pendingHdr10Plus.take(presentationTimeUs)
+        private fun applyHdr10PlusForTimestamp(presentationTimeUs: Long?) {
+            val metadata = presentationTimeUs?.let(pendingHdr10Plus::take)
             activeColorConfig.updateAndGet { it.copy(hdr10PlusSceneMetadata = metadata) }
         }
     }
