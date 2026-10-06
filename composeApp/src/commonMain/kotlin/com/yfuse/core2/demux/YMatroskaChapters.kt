@@ -28,7 +28,7 @@ internal sealed interface YMatroskaChaptersResult {
  * fetched; muxers write them just after the track list, ahead of attachments and clusters.
  *
  * The default edition is used (else the first visible one). Hidden or disabled chapters, and those
- * of an ordered edition that point into another file, are left out; nested chapters are not read.
+ * of an ordered edition that point into another file, are left out; nested titles retain their path.
  * Of a chapter's titles a Chinese one is preferred, else the first.
  */
 internal object YMatroskaChapterParser {
@@ -44,6 +44,21 @@ internal object YMatroskaChapterParser {
             position = element.end ?: return YMatroskaChaptersResult.Truncated
         }
         return YMatroskaChaptersResult.Truncated
+    }
+
+    fun chapterElementSize(header: ByteArray): Int? {
+        val element = EbmlReader(header).element(0) ?: return null
+        if (element.id != ID_CHAPTERS) return null
+        val length = element.dataSize ?: return null
+        return (element.dataStart + length).takeIf { it in 1..MAX_CHAPTER_ELEMENT_BYTES }?.toInt()
+    }
+
+    fun parseChapterElement(bytes: ByteArray): YMatroskaChaptersResult {
+        val reader = EbmlReader(bytes)
+        val element = reader.element(0) ?: return YMatroskaChaptersResult.Truncated
+        if (element.id != ID_CHAPTERS) return YMatroskaChaptersResult.Invalid
+        val end = element.end ?: return YMatroskaChaptersResult.Truncated
+        return YMatroskaChaptersResult.Found(reader.chapters(element.dataStart, end))
     }
 
     private fun parseSegment(
@@ -86,6 +101,7 @@ private class EbmlElement(
     val dataStart: Int,
     /** Where the element ends, or null when its size is unknown or runs past the bytes read. */
     val end: Int?,
+    val dataSize: Long?,
 )
 
 private class Edition(
@@ -98,6 +114,7 @@ private class EbmlReader(
     private val bytes: ByteArray,
 ) {
     val size: Int get() = bytes.size
+    private var chapterNodes = 0
 
     fun element(offset: Int): EbmlElement? {
         val id = vint(offset, keepMarker = true, maximumLength = 4) ?: return null
@@ -110,7 +127,7 @@ private class EbmlReader(
                 .takeUnless { unknownSize }
                 ?.takeIf { it <= bytes.size - dataStart }
                 ?.let { dataStart + it.toInt() }
-        return EbmlElement(id.first, dataStart, end)
+        return EbmlElement(id.first, dataStart, end, length.first.takeUnless { unknownSize })
     }
 
     /** Children of [start] until [end], each complete; a damaged child ends the walk. */
@@ -177,7 +194,15 @@ private class EbmlReader(
                 ID_EDITION_FLAG_DEFAULT -> default = unsigned(child.dataStart, childEnd) == 1L
                 ID_EDITION_FLAG_HIDDEN -> hidden = unsigned(child.dataStart, childEnd) == 1L
                 ID_CHAPTER_ATOM ->
-                    if (chapters.size < MAX_CHAPTERS) chapter(child.dataStart, childEnd)?.let(chapters::add)
+                    if (chapters.size <
+                        MAX_CHAPTERS
+                    ) {
+                        chapters.addAll(
+                            chapter(child.dataStart, childEnd, 0, "").take(
+                                MAX_CHAPTERS - chapters.size,
+                            ),
+                        )
+                    }
             }
         }
         return Edition(default, hidden, chapters)
@@ -186,7 +211,11 @@ private class EbmlReader(
     private fun chapter(
         start: Int,
         end: Int,
-    ): YChapter? {
+        depth: Int,
+        parentTitle: String,
+    ): List<YChapter> {
+        if (depth >= MAX_CHAPTER_DEPTH || ++chapterNodes > MAX_CHAPTER_NODES) return emptyList()
+        val nested = mutableListOf<Pair<Int, Int>>()
         var startNs: Long? = null
         var visible = true
         val titles = mutableListOf<Pair<String, String?>>()
@@ -198,14 +227,23 @@ private class EbmlReader(
                 // Ordered editions can play a span of another file; its times mean nothing here.
                 ID_CHAPTER_SEGMENT_UID -> visible = false
                 ID_CHAPTER_DISPLAY -> title(child.dataStart, childEnd)?.let(titles::add)
+                ID_CHAPTER_ATOM -> if (nested.size < MAX_CHAPTERS) nested += child.dataStart to childEnd
             }
         }
-        val time = startNs?.takeIf { visible && it >= 0L } ?: return null
+        val time = startNs?.takeIf { visible && it >= 0L } ?: return emptyList()
         val title =
             titles.firstOrNull { (_, language) -> language.chinese() }?.first
                 ?: titles.firstOrNull()?.first
                 ?: ""
-        return YChapter(startMs = time / NANOS_PER_MILLISECOND, title = title)
+        val fullTitle = listOf(parentTitle, title).filter(String::isNotBlank).joinToString(" / ")
+        val result = mutableListOf<YChapter>()
+        for ((childStart, childEnd) in nested) {
+            if (result.size >= MAX_CHAPTERS) break
+            result += chapter(childStart, childEnd, depth + 1, fullTitle).take(MAX_CHAPTERS - result.size)
+        }
+        val current = YChapter(startMs = time / NANOS_PER_MILLISECOND, title = fullTitle)
+        if (result.none { it.startMs == current.startMs }) result.add(0, current)
+        return result.take(MAX_CHAPTERS)
     }
 
     /** One ChapterDisplay: its ChapString and language (ChapLanguageIETF over ChapLanguage). */
@@ -292,3 +330,7 @@ private const val ID_CHAP_LANGUAGE_IETF = 0x437DL
 private const val NANOS_PER_MILLISECOND = 1_000_000L
 private const val MAX_CHAPTERS = 1_000
 private const val MAX_STRING_BYTES = 1_024
+
+private const val MAX_CHAPTER_DEPTH = 32
+private const val MAX_CHAPTER_NODES = 5_000
+private const val MAX_CHAPTER_ELEMENT_BYTES = 4L * 1024 * 1024

@@ -310,6 +310,8 @@ internal class AndroidFfmpegDemuxer :
 
     val softwareVideoRgba: Boolean get() = FfmpegNativeBridge.softwareVideoRgba
 
+    val softwareAudioFloat: Boolean get() = FfmpegNativeBridge.softwareAudioFloat
+
     fun configureSoftwareDecoder(
         trackId: YTrackId,
         toneMapHdrToSdr: Boolean = false,

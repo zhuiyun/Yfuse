@@ -109,7 +109,7 @@ constexpr int kSoftwareFrameEof = 2;
 constexpr int kSoftwareFrameGrowBuffer = -1;
 // Version 3: video frames are RGBA (Android ARGB_8888 memory order; v2 wrote BGRA), YUV matrix and
 // range follow the stream, and isolated undecodable packets are dropped instead of thrown.
-constexpr int kSoftwareDecoderApiVersion = 3;
+constexpr int kSoftwareDecoderApiVersion = 4;
 // A damaged TS segment or a broken frame at a splice is dropped the way ffmpeg and mpv drop it.
 // Only this many failures in a row, with no frame decoded in between, mean the decoder cannot
 // play the stream at all.
@@ -262,6 +262,7 @@ struct SoftwareDecoder {
     AVChannelLayout resampler_layout = {};
     int resampler_format = AV_SAMPLE_FMT_NONE;
     int resampler_rate = 0;
+    AVSampleFormat resampler_output_format = AV_SAMPLE_FMT_NONE;
     std::vector<uint16_t> tone_map_rgb48;
     std::unique_ptr<ycore_tone_map::Mapper> tone_mapper;
     ycore_tone_map::Transfer tone_mapper_transfer = ycore_tone_map::Transfer::Pq;
@@ -276,6 +277,7 @@ struct SoftwareDecoder {
         av_channel_layout_uninit(&resampler_layout);
         resampler_format = AV_SAMPLE_FMT_NONE;
         resampler_rate = 0;
+        resampler_output_format = AV_SAMPLE_FMT_NONE;
     }
 
     /** Discards decoder state for a seek; configuration, scaler and tables stay. */
@@ -3431,12 +3433,12 @@ jlongArray native_receive_software_video_frame(
         static_cast<jlong>(width) * 4L);
 }
 
-jlongArray native_receive_software_audio_frame(
+jlongArray receive_software_audio_frame(
     JNIEnv* env,
-    jclass,
     jlong handle,
     jint index,
-    jobject target) {
+    jobject target,
+    AVSampleFormat output_format) {
     DemuxSession* session = from_handle(handle);
     AVStream* stream = checked_stream(env, session, index);
     if (!stream) return nullptr;
@@ -3478,6 +3480,7 @@ jlongArray native_receive_software_audio_frame(
     const AVSampleFormat input_format = static_cast<AVSampleFormat>(decoder->frame->format);
     if (!decoder->resampler ||
         decoder->resampler_format != input_format ||
+        decoder->resampler_output_format != output_format ||
         decoder->resampler_rate != sample_rate ||
         av_channel_layout_compare(&decoder->resampler_layout, &input_layout) != 0) {
         decoder->reset_resampler();
@@ -3486,7 +3489,7 @@ jlongArray native_receive_software_audio_frame(
         int error = swr_alloc_set_opts2(
             &decoder->resampler,
             &output_layout,
-            AV_SAMPLE_FMT_S16,
+            output_format,
             sample_rate,
             &input_layout,
             input_format,
@@ -3495,8 +3498,7 @@ jlongArray native_receive_software_audio_frame(
             nullptr);
         av_channel_layout_uninit(&output_layout);
         if (error >= 0 && decoder->resampler) {
-            // 24-bit and float sources lose their low bits in the S16 the audio track takes;
-            // dither keeps that from turning into distortion correlated with quiet passages.
+            // The legacy S16 entry point retains dither; float PCM preserves the source precision.
             av_opt_set_int(decoder->resampler, "dither_method", SWR_DITHER_TRIANGULAR, 0);
             // Folded into a layout without an LFE channel (2.1 into 3.0), the LFE joins the
             // fronts at -3 dB instead of vanishing; layouts that keep it pass it straight through.
@@ -3516,6 +3518,7 @@ jlongArray native_receive_software_audio_frame(
             return nullptr;
         }
         decoder->resampler_format = input_format;
+        decoder->resampler_output_format = output_format;
         decoder->resampler_rate = sample_rate;
     }
     av_channel_layout_uninit(&input_layout);
@@ -3525,7 +3528,7 @@ jlongArray native_receive_software_audio_frame(
     av_channel_layout_uninit(&output_layout);
     const int output_samples = swr_get_out_samples(decoder->resampler, decoder->frame->nb_samples);
     const int required =
-        av_samples_get_buffer_size(nullptr, output_channels, output_samples, AV_SAMPLE_FMT_S16, 1);
+        av_samples_get_buffer_size(nullptr, output_channels, output_samples, output_format, 1);
     if (required <= 0 || static_cast<size_t>(required) > kMaxSoftwareAudioFrameBytes) {
         throw_illegal_state(env, "FFmpeg software audio frame exceeds the safety limit");
         return nullptr;
@@ -3558,7 +3561,7 @@ jlongArray native_receive_software_audio_frame(
         throw_illegal_state(env, "FFmpeg software audio conversion failed: " + ffmpeg_error(converted));
         return nullptr;
     }
-    const int output_bytes = converted * output_channels * static_cast<int>(sizeof(int16_t));
+    const int output_bytes = converted * output_channels * av_get_bytes_per_sample(output_format);
     av_frame_unref(decoder->frame);
     decoder->frame_pending = false;
     return make_software_frame_result(
@@ -3569,6 +3572,15 @@ jlongArray native_receive_software_audio_frame(
         output_channels,
         sample_rate,
         converted);
+}
+
+// Keep the S16 entry point for callers using the older software-audio contract.
+jlongArray native_receive_software_audio_frame(JNIEnv* env, jclass, jlong handle, jint index, jobject target) {
+    return receive_software_audio_frame(env, handle, index, target, AV_SAMPLE_FMT_S16);
+}
+
+jlongArray native_receive_software_float_audio_frame(JNIEnv* env, jclass, jlong handle, jint index, jobject target) {
+    return receive_software_audio_frame(env, handle, index, target, AV_SAMPLE_FMT_FLT);
 }
 
 void native_flush_software_decoder(
@@ -3723,6 +3735,19 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
         bridge,
         kMethods,
         sizeof(kMethods) / sizeof(kMethods[0]));
+    if (result == JNI_OK) {
+        jmethodID float_audio = env->GetMethodID(bridge, "nativeReceiveSoftwareFloatAudioFrame", "(JILjava/nio/ByteBuffer;)[J");
+        if (float_audio) {
+            const JNINativeMethod method = {"nativeReceiveSoftwareFloatAudioFrame", "(JILjava/nio/ByteBuffer;)[J",
+                reinterpret_cast<void*>(native_receive_software_float_audio_frame)};
+            if (env->RegisterNatives(bridge, &method, 1) != JNI_OK) {
+                env->DeleteLocalRef(bridge);
+                return JNI_ERR;
+            }
+        } else {
+            env->ExceptionClear();
+        }
+    }
     env->DeleteLocalRef(bridge);
     return result == JNI_OK ? JNI_VERSION_1_6 : JNI_ERR;
 }

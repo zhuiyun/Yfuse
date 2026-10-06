@@ -41,6 +41,8 @@ internal object FfmpegNativeBridge {
      */
     val softwareVideoRgba: Boolean get() = softwareDecoderApiVersion >= SOFTWARE_DECODER_RGBA_API_VERSION
 
+    val softwareAudioFloat: Boolean get() = softwareDecoderApiVersion >= 4
+
     val assRendererAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         available && runCatching { nativeAssRendererApiVersion() >= ASS_RENDERER_API_VERSION }.getOrDefault(false)
     }
@@ -390,7 +392,13 @@ internal object FfmpegNativeBridge {
         trackIndex: Int,
         target: ByteBuffer,
     ): LongArray =
-        checkNotNull(nativeReceiveSoftwareAudioFrame(handle, trackIndex, target)) {
+        checkNotNull(
+            if (softwareAudioFloat) {
+                nativeReceiveSoftwareFloatAudioFrame(handle, trackIndex, target)
+            } else {
+                nativeReceiveSoftwareAudioFrame(handle, trackIndex, target)
+            },
+        ) {
             "FFmpeg software audio result is unavailable"
         }
 
@@ -623,6 +631,12 @@ internal object FfmpegNativeBridge {
     ): LongArray?
 
     private external fun nativeReceiveSoftwareAudioFrame(
+        handle: Long,
+        trackIndex: Int,
+        target: ByteBuffer,
+    ): LongArray?
+
+    private external fun nativeReceiveSoftwareFloatAudioFrame(
         handle: Long,
         trackIndex: Int,
         target: ByteBuffer,
