@@ -9,6 +9,7 @@ fun parseYHlsPlaylist(
 ): YHlsPlaylist {
     val lines =
         text
+            .removePrefix(BYTE_ORDER_MARK)
             .lineSequence()
             .map(String::trim)
             .filter(String::isNotEmpty)
@@ -42,7 +43,8 @@ fun rewriteYHlsResourceUris(
     localize: (absoluteUri: String, kind: YHlsResourceKind) -> String,
 ): String {
     var nextPlainUriKind = YHlsResourceKind.MediaSegment
-    return text.lineSequence().joinToString("\n") { line ->
+    // A byte-order mark would otherwise make the header line read as a segment address.
+    return text.removePrefix(BYTE_ORDER_MARK).lineSequence().joinToString("\n") { line ->
         val trimmed = line.trim()
         when {
             trimmed.startsWith(STREAM_INFO_TAG) -> {
@@ -57,12 +59,17 @@ fun rewriteYHlsResourceUris(
                     HLS_URI_ATTRIBUTE.replace(line) { match ->
                         val quote = match.groupValues[1]
                         val reference = match.groupValues[2]
+                        if (reference.isDataUri()) return@replace match.value
                         val localized =
                             localize(resolveAdaptiveUri(baseUri, reference), kind)
                                 .also(::requireSafeManifestUri)
                         "URI=$quote$localized$quote"
                     }
                 }
+            }
+            trimmed.isDataUri() -> {
+                nextPlainUriKind = YHlsResourceKind.MediaSegment
+                line
             }
             else -> {
                 val kind = nextPlainUriKind
@@ -472,6 +479,13 @@ private fun String.hlsAttributeResourceKind(): YHlsResourceKind? =
         else -> null
     }
 
+/**
+ * Inline `data:` resources (a key or an initialization segment carried in the playlist) need no
+ * fetching: FFmpeg reads them itself, while the loopback proxy has no transport for them and
+ * answered 502, failing the stream.
+ */
+private fun String.isDataUri(): Boolean = trim().startsWith("data:", ignoreCase = true)
+
 private fun requireSafeManifestUri(uri: String) {
     require(uri.isNotBlank() && '\r' !in uri && '\n' !in uri) { "Unsafe localized HLS URI" }
 }
@@ -491,6 +505,7 @@ private fun Long?.orZero(): Long = this ?: 0L
 private const val MAX_HLS_LINES = 100_000
 private const val MICROS_PER_SECOND = 1_000_000.0
 private const val HLS_HEADER = "#EXTM3U"
+private const val BYTE_ORDER_MARK = "\uFEFF"
 private const val STREAM_INFO_TAG = "#EXT-X-STREAM-INF:"
 private const val MEDIA_SEQUENCE_TAG = "#EXT-X-MEDIA-SEQUENCE:"
 private const val TARGET_DURATION_TAG = "#EXT-X-TARGETDURATION:"

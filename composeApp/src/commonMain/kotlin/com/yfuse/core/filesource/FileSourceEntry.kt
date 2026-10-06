@@ -125,7 +125,7 @@ val VIDEO_EXTENSIONS: Set<String> =
     )
 
 /** Text sidecars the player's loaders read; bitmap `sub/idx` pairs are not paired. */
-val SUBTITLE_EXTENSIONS: Set<String> = setOf("srt", "ass", "ssa", "vtt")
+val SUBTITLE_EXTENSIONS: Set<String> = setOf("srt", "ass", "ssa", "vtt", "smi", "sami", "ttml", "dfxp")
 
 private val HIDDEN_NAMES =
     setOf(

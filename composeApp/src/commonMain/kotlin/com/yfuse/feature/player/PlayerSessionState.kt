@@ -99,4 +99,8 @@ internal class PlayerSourceChoices {
     // Queue index -> the same entry on another server, chosen by hand or by failover.
     var serverChoices: Map<Int, PlayerMediaItem> by mutableStateOf(emptyMap())
     var importedSubtitles: Map<SubtitleItemKey, List<PlayerExternalSubtitle>> by mutableStateOf(emptyMap())
+
+    // Entry id -> why the server has to transcode it, for an engine that cannot rewrite an open source
+    // in place (YCore). The session restarts at the same position with that entry transcoded.
+    var forcedTranscodes: Map<String, String> by mutableStateOf(emptyMap())
 }

@@ -209,6 +209,12 @@ internal class AndroidRuntimeCapabilityRegistry(
 
     fun recordConfigured(key: YRuntimeVideoCapabilityKey) = record(key, YRuntimeCapabilityEvidence.Configured)
 
+    /** Forgets every decoder verdict, for the user's 重置 YCore 学习数据. */
+    @Synchronized
+    fun clearAll() {
+        persist(emptyList())
+    }
+
     fun recordRendered(key: YRuntimeVideoCapabilityKey) = record(key, YRuntimeCapabilityEvidence.Rendered)
 
     /** For a verdict already known to be the decoder's own, such as an active codec probe's. */

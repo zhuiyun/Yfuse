@@ -2,6 +2,7 @@ package com.yfuse.core2.legacy
 
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackFailureKind
+import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
@@ -53,6 +54,11 @@ internal class LegacyYPlayerAdapter(
     override val supportsAudioDelay: Boolean get() = engine.supportsAudioDelay
 
     override fun setAudioDelayMs(delayMs: Long): Boolean = engine.setAudioDelayMs(delayMs)
+
+    override val supportsAudioEffects: Boolean get() = engine.supportsAudioEnhancement
+
+    override fun setAudioEffect(effect: YAudioEffect): Boolean =
+        engine.setAudioEnhancement(effect.toAudioEnhancementMode())
 
     override fun selectTrack(
         type: YTrackType,

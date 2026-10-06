@@ -37,6 +37,32 @@ class AndroidYCoreBlockCacheTest {
     }
 
     @Test
+    fun clearing_the_video_cache_releases_ycore_blocks_and_retires_open_sources() {
+        val directory = Files.createTempDirectory("ycore-cache-clear-test").toFile()
+        val identity = YCacheIdentity("scope", "media", "version")
+        val cache = AndroidYCoreBlockCache(directory, identity, 64, 4_096)
+        try {
+            cache.validateRepresentation(256L, "\"v1\"")
+            cache.writeBlock(0L, ByteArray(64) { 1 }, 256L)
+            cache.writeBlock(1L, ByteArray(32) { 2 }, 256L)
+            assertEquals(96L, AndroidYCoreBlockCache.usageBytes(directory))
+
+            assertEquals(96L, AndroidYCoreBlockCache.clearAll(directory))
+
+            assertEquals(0L, AndroidYCoreBlockCache.usageBytes(directory))
+            assertFalse(blockFile(directory, identity, 0L).exists())
+            // The open source keeps playing from the network; it neither serves nor rewrites blocks
+            // until a later open validates the representation again.
+            assertNull(cache.readBlock(0L))
+            assertFalse(cache.canAcceptWrite)
+            cache.validateRepresentation(256L, "\"v1\"")
+            assertTrue(cache.canAcceptWrite)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun externally_removed_cache_blocks_are_not_reported_as_buffered() {
         val directory = Files.createTempDirectory("ycore-cache-removed-test").toFile()
         val identity = YCacheIdentity("scope", "media", "version")

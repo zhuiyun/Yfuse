@@ -63,10 +63,13 @@ FFMPEG_REVISION="$(manifest_value ffmpeg)"
 [[ "$(manifest_value ycore-demux)" == "true" ]] || fail "native provenance is missing ycore-demux=true"
 [[ "$(manifest_value ycore-demux-ffmpeg)" == "$FFMPEG_REVISION" ]] ||
   fail "YCore was not built against the pinned FFmpeg revision"
+# Builds before the license was recorded still verify; the value decides distribution obligations.
+FFMPEG_LICENSE="$(manifest_value ycore-demux-ffmpeg-license)"
+echo "FFmpeg license (as configured): ${FFMPEG_LICENSE:-not recorded by this build}"
 [[ "$(manifest_value ycore-demux-source)" == "scripts/native/ycore_demux_jni.cpp" ]] ||
   fail "native provenance points at an unexpected YCore source"
-[[ "$(manifest_value ycore-software-decoder-api)" == "2" ]] ||
-  fail "YCore software decoder API v2 is missing"
+[[ "$(manifest_value ycore-software-decoder-api)" == "3" ]] ||
+  fail "YCore software decoder API v3 (RGBA output, stream colour matrix, damaged-packet tolerance) is missing"
 [[ "$(manifest_value ycore-tone-map-source)" == "scripts/native/ycore_tone_map.h" ]] ||
   fail "YCore HDR tone-map provenance is missing"
 [[ "$(manifest_value ycore-libass)" == "0.17.4" ]] || fail "unexpected libass revision"
@@ -81,7 +84,8 @@ FFMPEG_REVISION="$(manifest_value ffmpeg)"
 [[ "$(manifest_value ycore-libbluray)" == "1.4.1" ]] || fail "unexpected libbluray revision"
 [[ "$(manifest_value ycore-disc-uri-source)" == "scripts/native/ycore_disc_uri.h" ]] ||
   fail "YCore disc URI boundary provenance is missing"
-[[ "$(manifest_value ycore-gpu-api)" == "2" ]] || fail "YCore GPU API v2 is missing"
+[[ "$(manifest_value ycore-gpu-api)" == "3" ]] ||
+  fail "YCore GPU API v3 (per-frame presentation, present timing, in-place reset) is missing"
 [[ "$(manifest_value ycore-gpu-source)" == "scripts/native/ycore_vulkan_jni.cpp" ]] ||
   fail "YCore Vulkan source provenance is missing"
 [[ "$(manifest_value ycore-gpu-renderer-source)" == "scripts/native/ycore_vulkan_renderer.cpp" ]] ||
@@ -154,6 +158,8 @@ for bridge in "${bridges[@]}"; do
   strings "$bridge" > "$bridge_strings"
 
   grep -F 'JNI_OnLoad' "$symbols" >/dev/null || fail "$abi bridge does not export JNI_OnLoad"
+  readelf -SW "$bridge" | grep -F '.gnu_debugdata' >/dev/null ||
+    fail "$abi bridge lost its tombstone function names (.gnu_debugdata)"
   for dependency in libavformat.so libavcodec.so libavutil.so libswscale.so libswresample.so; do
     grep -F "Shared library: [$dependency]" "$dynamic" >/dev/null ||
       fail "$abi bridge is not dynamically linked to $dependency"
@@ -191,6 +197,8 @@ for bridge in "${gpu_bridges[@]}"; do
     grep -F "Shared library: [$dependency]" "$dynamic" >/dev/null ||
       fail "$abi GPU bridge is not dynamically linked to $dependency"
   done
+  readelf -SW "$bridge" | grep -F '.gnu_debugdata' >/dev/null ||
+    fail "$abi GPU bridge lost its tombstone function names (.gnu_debugdata)"
   grep -F 'nativeProbeGpuFeatures' "$symbols" >/dev/null ||
     fail "$abi GPU bridge is missing the Vulkan/AHardwareBuffer probe"
   grep -F 'nativeCreateRenderer' "$symbols" >/dev/null ||

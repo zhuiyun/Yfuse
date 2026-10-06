@@ -5,8 +5,10 @@ import java.net.URI
 internal fun mediaCredentialOriginsMatch(
     origin: String,
     target: String,
-): Boolean =
-    runCatching {
+): Boolean {
+    // The same address is the same origin, including SMB addresses java.net.URI cannot parse.
+    if (origin == target) return true
+    return runCatching {
         val first = URI(origin)
         val second = URI(target)
 
@@ -23,6 +25,18 @@ internal fun mediaCredentialOriginsMatch(
             first.scheme.equals(second.scheme, true) &&
             port(first) == port(second)
     }.getOrDefault(false)
+}
+
+/**
+ * The lowercase scheme of an address, read without parsing the rest. SMB addresses keep their
+ * paths unencoded for jcifs, and java.net.URI rejects one as soon as a file name has a space.
+ */
+internal fun String.rawUriScheme(): String? {
+    val scheme = substringBefore(':', missingDelimiterValue = "")
+    if (scheme.isEmpty() || !scheme.first().isLetter()) return null
+    if (!scheme.all { it.isLetterOrDigit() || it == '+' || it == '-' || it == '.' }) return null
+    return scheme.lowercase()
+}
 
 internal fun scopedMediaHeaders(
     headers: Map<String, String>,

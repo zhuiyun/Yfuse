@@ -115,6 +115,8 @@ class AndroidFfmpegDemuxerMappingTest {
         assertEquals(YSubtitleFormat.Srt, ffmpegSubtitleFormat("subrip"))
         assertEquals(YSubtitleFormat.Ass, ffmpegSubtitleFormat("ass"))
         assertEquals(YSubtitleFormat.Pgs, ffmpegSubtitleFormat("hdmv_pgs_subtitle"))
+        assertEquals(YSubtitleFormat.DvbSub, ffmpegSubtitleFormat("dvb_subtitle"))
+        assertTrue(YSubtitleFormat.DvbSub.bitmapDisplaySet && !YSubtitleFormat.DvbSub.textOverlaySupported)
         assertEquals(YSubtitleFormat.Tx3g, ffmpegSubtitleFormat("mov_text"))
         assertEquals(YSubtitleFormat.Unknown, ffmpegSubtitleFormat("unknown_subtitle"))
     }

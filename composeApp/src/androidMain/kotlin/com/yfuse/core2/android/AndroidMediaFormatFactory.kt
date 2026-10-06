@@ -1,22 +1,26 @@
 package com.yfuse.core2.android
 
 import android.annotation.SuppressLint
+import android.media.AudioFormat
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
+import com.yfuse.core2.bitstream.YAudioConfiguration
 import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YCodecConfiguration
 import com.yfuse.core2.bitstream.YNalCodec
 import com.yfuse.core2.bitstream.YParameterSets
 import com.yfuse.core2.bitstream.YSamplePacking
+import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.demux.YAudioTrackFormat
 import com.yfuse.core2.demux.YVideoTrackFormat
 import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /** Converts container-neutral Core2 track metadata into Android MediaCodec configuration. */
 internal object AndroidMediaFormatFactory {
@@ -24,10 +28,15 @@ internal object AndroidMediaFormatFactory {
      * [inBandParameterSets] are the first keyframe's, used only when the container's own codec
      * configuration carries no complete set (see [h26xCodecSpecificData]). Callers build the format
      * inside [yVideoFormatStage] so that a malformed record is reported as the Bitstream failure it is.
+     *
+     * [displayRotation] when the decoder draws straight to the display Surface: MediaCodec then
+     * turns the picture by the track's rotation. The GPU renderer turns it itself from the track
+     * geometry, so the format of a decoder feeding it carries none.
      */
     fun video(
         track: YVideoTrackFormat,
         inBandParameterSets: YParameterSets? = null,
+        displayRotation: Boolean = false,
     ): MediaFormat {
         val mime =
             if (track.dolbyVisionConfig != null) {
@@ -37,6 +46,10 @@ internal object AndroidMediaFormatFactory {
             }
         val format = MediaFormat.createVideoFormat(mime, track.width.coerceAtLeast(0), track.height.coerceAtLeast(0))
         if (track.frameRate > 0f) format.setFloat(MediaFormat.KEY_FRAME_RATE, track.frameRate)
+        val rotation = track.geometry.normalizedRotationDegrees
+        if (displayRotation && rotation != 0 && rotation % 90 == 0) {
+            format.setInteger(MediaFormat.KEY_ROTATION, rotation)
+        }
         applyHdr(format, track.hdrType)
         track.hdrStaticMetadata?.let { metadata ->
             format.setByteBuffer(
@@ -61,13 +74,30 @@ internal object AndroidMediaFormatFactory {
                 track.sampleRate.coerceAtLeast(1),
                 track.channelCount.coerceAtLeast(1),
             )
-        track.codecPrivateData.entries.forEachIndexed { index, bytes ->
+        val entries = track.codecPrivateData.entries
+        entries.forEachIndexed { index, bytes ->
             if (bytes.isNotEmpty()) {
                 format.setByteBuffer("csd-$index", ByteBuffer.wrap(bytes))
             }
         }
+        when (track.codec) {
+            YAudioCodec.Aac -> if (YAudioConfiguration.aacIsAdts(entries)) format.setInteger(MediaFormat.KEY_IS_ADTS, 1)
+            YAudioCodec.Opus ->
+                entries.firstOrNull()?.let(YAudioConfiguration::opusCodecDelayNs)?.takeIf { entries.size < 3 }?.let {
+                    format.setByteBuffer("csd-1", nativeOrderLong(it))
+                    format.setByteBuffer("csd-2", nativeOrderLong(YAudioConfiguration.OPUS_SEEK_PRE_ROLL_NS))
+                }
+            else -> Unit
+        }
         return format
     }
+
+    private fun nativeOrderLong(value: Long): ByteBuffer =
+        ByteBuffer
+            .allocate(Long.SIZE_BYTES)
+            .order(ByteOrder.nativeOrder())
+            .putLong(value)
+            .apply { flip() }
 
     private fun applyHdr(
         format: MediaFormat,
@@ -277,6 +307,26 @@ internal fun MediaFormat.applyAudioMaxInputSizeFloor() {
     val channelCount = runCatching { getInteger(MediaFormat.KEY_CHANNEL_COUNT) }.getOrDefault(1)
     setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, audioMaxInputSizeBytes(channelCount))
 }
+
+/**
+ * Asks the decoder to fold a stream no Android output layout carries (22.2 AAC, 9- to 16-channel
+ * Opus, 10 or 12 channels before API 32) into 7.1. Decoders that can downmix (the AAC and Opus
+ * ones) honour it; the others ignore it, and their output still fails at the AudioTrack as before.
+ */
+internal fun MediaFormat.capAudioOutputChannels() {
+    val channelCount = runCatching { getInteger(MediaFormat.KEY_CHANNEL_COUNT) }.getOrDefault(0)
+    if (audioOutputChannelCap(channelCount) == null) return
+    setInteger(KEY_MAX_OUTPUT_CHANNEL_COUNT, DOWNMIX_CHANNELS)
+    setInteger(KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT, DOWNMIX_CHANNELS)
+}
+
+/** The channel count a decoder should fold [channelCount] into, or null when it plays as it is. */
+internal fun audioOutputChannelCap(channelCount: Int): Int? =
+    DOWNMIX_CHANNELS.takeIf { channelCount > 0 && channelMaskForCount(channelCount) == AudioFormat.CHANNEL_INVALID }
+
+private const val DOWNMIX_CHANNELS = 8
+private const val KEY_MAX_OUTPUT_CHANNEL_COUNT = "max-output-channel-count"
+private const val KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT = "aac-max-output-channel_count"
 
 /**
  * Lower bound for a compressed video access unit, mirroring the ratio the platform decoders are

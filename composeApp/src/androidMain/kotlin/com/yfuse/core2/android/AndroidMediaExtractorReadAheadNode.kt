@@ -61,6 +61,18 @@ internal class AndroidMediaExtractorReadAheadNode(
     @Volatile
     private var latestTransportQoeSnapshot: YTransportPrefetchQoeSnapshot? = null
 
+    /**
+     * Track formats read once on the owner when the source opens. MediaExtractor formats do not
+     * change after open, and the playback pump asks for them on every embedded subtitle sample and
+     * every track list; asking the owner instead parked the pump behind a read-ahead fill that can
+     * wait seconds on the network.
+     */
+    @Volatile
+    private var openedFormats: List<MediaFormat>? = null
+
+    /** Owner work submitted by a caller and not yet started; the fill loop yields to it. */
+    private val pendingOwnerControls = AtomicInteger()
+
     private val transportQoeRefreshScheduled = AtomicBoolean(false)
 
     val name: String get() = delegate.name
@@ -80,6 +92,7 @@ internal class AndroidMediaExtractorReadAheadNode(
             latestTransportQoeSnapshot = null
             transportQoeRefreshScheduled.set(false)
         }
+        openedFormats = null
         runOnOwner {
             if (preparedSource == null) {
                 delegate.open(source)
@@ -87,6 +100,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                 delegate.release()
                 delegate = preparedSource
             }
+            openedFormats = (0 until delegate.trackCount).map(delegate::trackFormat)
             synchronized(monitor) {
                 opened = true
                 ownerSelectedTracks = emptySet()
@@ -96,13 +110,26 @@ internal class AndroidMediaExtractorReadAheadNode(
         }
     }
 
-    val trackCount: Int get() = runOnOwner { delegate.trackCount }
+    val trackCount: Int get() = openedFormats?.size ?: runOnOwner { delegate.trackCount }
 
-    fun trackFormat(index: Int): MediaFormat = runOnOwner { delegate.trackFormat(index) }
+    /**
+     * The format read when the source opened. A caller that changes it for a codec attempt copies it
+     * first (see copyForCodecAttempt), as it did when each call returned a fresh extractor copy.
+     */
+    fun trackFormat(index: Int): MediaFormat =
+        openedFormats?.getOrNull(index) ?: runOnOwner { delegate.trackFormat(index) }
 
-    fun findFirstTrack(mimePrefix: String): Int? = runOnOwner { delegate.findFirstTrack(mimePrefix) }
+    fun findFirstTrack(mimePrefix: String): Int? {
+        val formats = openedFormats ?: return runOnOwner { delegate.findFirstTrack(mimePrefix) }
+        return formats
+            .indexOfFirst { format -> format.getString(MediaFormat.KEY_MIME).startsWithIgnoringCase(mimePrefix) }
+            .takeIf { it >= 0 }
+    }
 
     fun readSourcePrefix(maximumBytes: Int): ByteArray? = runOnOwner { delegate.readSourcePrefix(maximumBytes) }
+
+    /** Returns once owner work queued before this call has run; a fill in flight yields to it. */
+    internal fun awaitOwnerTurn() = runOnOwner { }
 
     fun drmInitializationData(schemeUuid: java.util.UUID): ByteArray? =
         runOnOwner { delegate.drmInitializationData(schemeUuid) }
@@ -319,6 +346,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                 transportQoeRefreshScheduled.set(false)
                 executor
             }
+        openedFormats = null
         if (owner != null) {
             delegate.cancelPendingRead()
             runCatching {
@@ -417,6 +445,9 @@ internal class AndroidMediaExtractorReadAheadNode(
             val capacity = synchronized(monitor) { sampleCapacity }
             val buffer = stagingBuffer(capacity)
             while (true) {
+                // A seek, a track change or a query waits behind this loop on the single owner
+                // thread. Stop between samples and let it run; the finally below queues the next fill.
+                if (pendingOwnerControls.get() > 0) return
                 synchronized(monitor) {
                     if (
                         !opened ||
@@ -529,7 +560,22 @@ internal class AndroidMediaExtractorReadAheadNode(
                 }.also { executor = it }
         }
 
-    private fun <T> runOnOwner(block: () -> T): T = await(owner().submit(Callable(block)))
+    private fun <T> runOnOwner(block: () -> T): T {
+        pendingOwnerControls.incrementAndGet()
+        val future =
+            try {
+                owner().submit(
+                    Callable {
+                        pendingOwnerControls.decrementAndGet()
+                        block()
+                    },
+                )
+            } catch (rejected: Throwable) {
+                pendingOwnerControls.decrementAndGet()
+                throw rejected
+            }
+        return await(future)
+    }
 
     private fun <T> await(future: Future<T>): T {
         try {
@@ -580,3 +626,6 @@ private const val DEFAULT_SAMPLE_CAPACITY_BYTES = 8 * 1024 * 1024
 private const val MINIMUM_SAMPLES_BEFORE_TIME_LIMIT = 8
 private const val DEFAULT_HIGH_WATERMARK_US = 3_000_000L
 private const val DEFAULT_MAXIMUM_QUEUE_BYTES = 24L * 1024L * 1024L
+
+private fun String?.startsWithIgnoringCase(prefix: String): Boolean =
+    this?.startsWith(prefix, ignoreCase = true) == true

@@ -102,6 +102,71 @@ class YCoreNativeReadinessTest {
     }
 
     @Test
+    fun file_source_shares_are_admitted_for_ycore_to_probe() {
+        listOf("smb", "webdav", "https").forEach { scheme ->
+            val block =
+                evaluateCore2NativeBaseline(
+                    Core2NativeBaselineSource(
+                        hasMetadata = true,
+                        scheme = scheme,
+                        // Only the extension is known; the codec is read from the file itself.
+                        container = "avi",
+                        videoCodec = null,
+                        serverTranscode = false,
+                        adaptiveManifest = false,
+                        disc = false,
+                        drm = false,
+                        dolbyVision = false,
+                        probedBeforeRouting = true,
+                    ),
+                )
+
+            assertEquals(null, block, "scheme $scheme")
+        }
+    }
+
+    @Test
+    fun a_server_item_without_codec_metadata_is_still_refused() {
+        val block =
+            evaluateCore2NativeBaseline(
+                Core2NativeBaselineSource(
+                    hasMetadata = true,
+                    scheme = "https",
+                    container = "mkv",
+                    videoCodec = null,
+                    serverTranscode = false,
+                    adaptiveManifest = false,
+                    disc = false,
+                    drm = false,
+                    dolbyVision = false,
+                ),
+            )
+
+        assertEquals(Core2NativeBaselineBlock.UnsupportedVideoCodec, block)
+    }
+
+    @Test
+    fun an_unknown_scheme_is_refused_even_when_probed() {
+        val block =
+            evaluateCore2NativeBaseline(
+                Core2NativeBaselineSource(
+                    hasMetadata = true,
+                    scheme = "ftp",
+                    container = "mkv",
+                    videoCodec = null,
+                    serverTranscode = false,
+                    adaptiveManifest = false,
+                    disc = false,
+                    drm = false,
+                    dolbyVision = false,
+                    probedBeforeRouting = true,
+                ),
+            )
+
+        assertEquals(Core2NativeBaselineBlock.UnsupportedScheme, block)
+    }
+
+    @Test
     fun transport_stream_and_vc1_are_admitted_to_runtime_capability_checks() {
         val block =
             evaluateCore2NativeBaseline(

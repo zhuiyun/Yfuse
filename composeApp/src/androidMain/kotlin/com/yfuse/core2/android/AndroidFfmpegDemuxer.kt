@@ -308,6 +308,8 @@ internal class AndroidFfmpegDemuxer :
 
     val softwareDecodeAvailable: Boolean get() = FfmpegNativeBridge.softwareDecodeAvailable
 
+    val softwareVideoRgba: Boolean get() = FfmpegNativeBridge.softwareVideoRgba
+
     fun configureSoftwareDecoder(
         trackId: YTrackId,
         toneMapHdrToSdr: Boolean = false,
@@ -484,7 +486,7 @@ internal class AndroidFfmpegDemuxer :
                     audio =
                         YAudioTrackFormat(
                             codec = codec,
-                            mimeType = ffmpegAudioMime(codec),
+                            mimeType = ffmpegAudioMime(codec, codecName),
                             channelCount = info[AUDIO_CHANNELS_INDEX].toInt().coerceAtLeast(0),
                             sampleRate = info[AUDIO_SAMPLE_RATE_INDEX].toInt().coerceAtLeast(0),
                             codecPrivateData = YCodecPrivateData(extradata),
@@ -690,6 +692,7 @@ internal fun ffmpegSubtitleFormat(name: String): YSubtitleFormat =
         "ssa" -> YSubtitleFormat.Ssa
         "hdmv_pgs_subtitle", "pgssub" -> YSubtitleFormat.Pgs
         "dvd_subtitle", "dvdsub" -> YSubtitleFormat.VobSub
+        "dvb_subtitle", "dvbsub" -> YSubtitleFormat.DvbSub
         "mov_text", "tx3g" -> YSubtitleFormat.Tx3g
         else -> YSubtitleFormat.Unknown
     }
@@ -701,7 +704,12 @@ private fun ffmpegSubtitleMime(name: String): String =
         YSubtitleFormat.Ass, YSubtitleFormat.Ssa -> "text/x-ssa"
         YSubtitleFormat.Pgs -> "application/pgs"
         YSubtitleFormat.VobSub -> "application/vobsub"
+        YSubtitleFormat.DvbSub -> "application/dvbsubs"
         YSubtitleFormat.Tx3g -> "application/x-quicktime-tx3g"
+        // Sidecar-only formats; ffmpegSubtitleFormat never names them for an embedded track.
+        YSubtitleFormat.Smi -> "application/x-sami"
+        YSubtitleFormat.MicroDvd -> "text/x-microdvd"
+        YSubtitleFormat.Ttml -> "application/ttml+xml"
         YSubtitleFormat.Unknown -> "application/x-ffmpeg-subtitle"
     }
 
@@ -733,6 +741,22 @@ private fun ffmpegVideoMime(
             YVideoCodec.ProRes -> "video/prores"
             YVideoCodec.Unknown -> "video/x-ffmpeg-unknown"
         }
+    }
+
+/**
+ * MPEG audio Layer II (DVB and DVD MPEG-2) shares MP3's codec identity for planning, but not its
+ * decoder: Android's MP3 decoder accepts the format and then fails to decode it. Its own type
+ * finds a Layer II decoder where a device has one and fails configuration elsewhere, which sends
+ * the track to FFmpeg's decoder.
+ */
+private fun ffmpegAudioMime(
+    codec: YAudioCodec,
+    codecName: String,
+): String =
+    if (codecName.equals("mp2", ignoreCase = true)) {
+        MIME_AUDIO_MPEG_LAYER_2
+    } else {
+        ffmpegAudioMime(codec)
     }
 
 private fun ffmpegAudioMime(codec: YAudioCodec): String =
@@ -834,7 +858,8 @@ private fun rationalToFloat(
 
 private val DTS_HD_PROFILES = setOf(50, 60)
 private val DTS_X_PROFILES = setOf(61, 62)
-private val BITMAP_SUBTITLE_FORMATS = setOf(YSubtitleFormat.Pgs, YSubtitleFormat.VobSub)
+private val BITMAP_SUBTITLE_FORMATS = YSubtitleFormat.entries.filter { it.bitmapDisplaySet }.toSet()
+private const val MIME_AUDIO_MPEG_LAYER_2 = "audio/mpeg-L2"
 private val ASS_SUBTITLE_FORMATS = setOf(YSubtitleFormat.Ass, YSubtitleFormat.Ssa)
 private const val ATMOS_PROFILE = 30
 private const val INITIAL_PACKET_BUFFER_BYTES = 2 * 1024 * 1024

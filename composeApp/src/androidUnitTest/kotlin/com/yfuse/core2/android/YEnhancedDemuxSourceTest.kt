@@ -55,11 +55,36 @@ class YEnhancedDemuxSourceTest {
     }
 
     @Test
-    fun loopbackAndLocalSourcesAreNotWrappedAgain() {
-        listOf("http://127.0.0.1:12345/media/opaque", "file:///video.mkv", "content://media/video/1").forEach { uri ->
+    fun loopbackAndFileSourcesAreNotWrappedAgain() {
+        listOf("http://127.0.0.1:12345/media/opaque", "file:///video.mkv").forEach { uri ->
             val source = enhancedDemuxSource(item.copy(uri = uri), localize = { error("Unexpected proxy") })
             assertEquals(uri, source.uri)
             assertEquals(item.headers, source.headers)
+        }
+    }
+
+    @Test
+    fun documentsAndSmbUseTheOwnedTransportWithoutForwardingCredentialsToFfmpeg() {
+        listOf("content://media/video/1", "smb://nas.example.test/share/video.mkv").forEach { uri ->
+            val upstream = item.copy(uri = uri)
+            listOf(false, true).forEach { probeOnly ->
+                var localized = false
+                val source =
+                    enhancedDemuxSource(upstream, probeOnly = probeOnly) { requested ->
+                        assertSame(upstream, requested)
+                        assertSame(item.transportCredentials, requested.transportCredentials)
+                        localized = true
+                        "http://127.0.0.1:12345/media/opaque"
+                    }
+
+                assertTrue(localized)
+                assertEquals("http://127.0.0.1:12345/media/opaque", source.uri)
+                assertTrue(source.headers.isEmpty())
+                assertNull(source.transportCredentials)
+                assertEquals(item.cacheIdentity, source.cacheIdentity)
+                assertEquals(item.cacheMaximumBytes, source.cacheMaximumBytes)
+                assertEquals(probeOnly, source.probeOnly)
+            }
         }
     }
 }

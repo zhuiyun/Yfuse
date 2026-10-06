@@ -9,6 +9,75 @@ import kotlin.test.assertTrue
 
 class YHlsParserTest {
     @Test
+    fun a_playlist_with_a_byte_order_mark_parses_and_rewrites() {
+        val text = "\uFEFF#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nsegment-1.ts\n#EXT-X-ENDLIST"
+
+        val base = "https://media.example.test/live/index.m3u8"
+
+        val media = assertIs<YHlsPlaylist.Media>(parseYHlsPlaylist(text, base))
+        val rewritten = rewriteYHlsResourceUris(text, base) { uri, _ -> "local:$uri" }
+
+        assertEquals("https://media.example.test/live/segment-1.ts", media.segments.single().uri)
+        assertTrue(rewritten.startsWith("#EXTM3U\n"))
+        assertTrue("local:https://media.example.test/live/segment-1.ts" in rewritten)
+    }
+
+    @Test
+    fun a_master_ffmpeg_plays_alone_names_only_the_chosen_variant() {
+        val master =
+            assertIs<YHlsPlaylist.Master>(
+                parseYHlsPlaylist(
+                    text =
+                        """
+                        #EXTM3U
+                        #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aac",NAME="Main",DEFAULT=YES,URI="audio/main.m3u8"
+                        #EXT-X-STREAM-INF:BANDWIDTH=600000,RESOLUTION=640x360,AUDIO="aac"
+                        video/360.m3u8
+                        #EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720,AUDIO="aac"
+                        video/720.m3u8
+                        #EXT-X-STREAM-INF:BANDWIDTH=6000000,RESOLUTION=1920x1080,AUDIO="aac"
+                        video/1080.m3u8
+                        """.trimIndent(),
+                    baseUri = "https://media.example.test/master.m3u8",
+                ),
+            )
+        val playback =
+            selectYHlsPlaybackSet(
+                master,
+                YAdaptiveSelectionConditions(20_000_000L, 10_000_000L),
+                YHlsPlaybackCapabilities(),
+            )
+
+        val rendered = buildYHlsPlaybackMaster(playback.initialVariantOnly()) { uri, _ -> uri }
+
+        // The whole ladder, lowest first, made FFmpeg's first video stream the 360p one.
+        assertEquals(3, playback.variants.size)
+        assertEquals(1, Regex("#EXT-X-STREAM-INF").findAll(rendered).count())
+        assertTrue("https://media.example.test/video/1080.m3u8" in rendered)
+        assertTrue("URI=\"https://media.example.test/audio/main.m3u8\"" in rendered)
+    }
+
+    @Test
+    fun inline_data_resources_are_left_for_ffmpeg_to_read() {
+        val key = "data:text/plain;base64,AAECAwQFBgcICQoLDA0ODw=="
+        val rewritten =
+            rewriteYHlsResourceUris(
+                text =
+                    """
+                    #EXTM3U
+                    #EXT-X-TARGETDURATION:4
+                    #EXT-X-KEY:METHOD=AES-128,URI="$key"
+                    #EXTINF:4,
+                    segment-1.ts
+                    """.trimIndent(),
+                baseUri = "https://media.example.test/live/index.m3u8",
+            ) { uri, _ -> "local:$uri" }
+
+        assertTrue("URI=\"$key\"" in rewritten)
+        assertTrue("local:https://media.example.test/live/segment-1.ts" in rewritten)
+    }
+
+    @Test
     fun master_playlist_preserves_variants_and_resolves_relative_urls() {
         val playlist =
             parseYHlsPlaylist(

@@ -15,7 +15,9 @@
 
 namespace {
 
-constexpr jint kNativeGpuApiVersion = 2;
+// Version 3: render reports presentation per frame, frames carry a desired present time,
+// renderers reset in place for a seek, and a changed decoder format rebuilds the YCbCr pipeline.
+constexpr jint kNativeGpuApiVersion = 3;
 constexpr uint32_t kProbeBufferWidth = 64;
 constexpr uint32_t kProbeBufferHeight = 64;
 

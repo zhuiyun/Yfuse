@@ -87,8 +87,11 @@ class YPlaybackLearningEngine(
         observation: YPlaybackObservation,
     ): YPlaybackLearningRecord {
         val records = store.load()
-        val old = records.firstOrNull { it.key == key }
-        val successful = observation.rendered && observation.codecResets == 0
+        val now = nowEpochMs().coerceAtLeast(0L)
+        // Evidence fades: a route that misbehaved weeks ago starts again from a clean record.
+        val old = records.firstOrNull { it.key == key }?.takeUnless { it.isStale(now) }
+        // A recovered decoder reset is a quality signal, weighed by rate below, not a failed session.
+        val successful = observation.rendered
         val updated =
             YPlaybackLearningRecord(
                 key = key,
@@ -109,7 +112,7 @@ class YPlaybackLearningEngine(
                 maximumThermalStatus = maxOf(old?.maximumThermalStatus ?: 0, observation.maximumThermalStatus),
                 batteryDeltaPermille =
                     (old?.batteryDeltaPermille ?: 0L).saturatedAdd(abs(observation.batteryDeltaPermille.toLong())),
-                updatedAtEpochMs = nowEpochMs().coerceAtLeast(0L),
+                updatedAtEpochMs = now,
             )
         store.replace(
             records
@@ -123,8 +126,17 @@ class YPlaybackLearningEngine(
 
     @Synchronized
     fun advice(key: YPlaybackLearningKey): YLearnedRouteAdvice {
-        val record = store.load().firstOrNull { it.key == key } ?: return YLearnedRouteAdvice.Allow
+        val now = nowEpochMs().coerceAtLeast(0L)
+        val record =
+            store.load().firstOrNull { it.key == key }?.takeUnless { it.isStale(now) }
+                ?: return YLearnedRouteAdvice.Allow
         if (record.consecutiveFailures >= FAILURES_TO_AVOID) return YLearnedRouteAdvice.Avoid
+        // Quality signals are rates over the time actually played, so a route is never avoided for
+        // having accumulated ordinary hiccups across many long sessions.
+        val playedHours = record.playedDurationMs.toDouble() / MILLIS_PER_HOUR
+        val enoughPlayback = record.playedDurationMs >= QUALITY_DURATION_TO_AVOID_MS
+
+        fun perHour(count: Long): Double = if (playedHours > 0.0) count / playedHours else 0.0
         val dropRate =
             if (record.playedDurationMs > 0L) {
                 record.droppedFrames.toDouble() / (record.playedDurationMs.toDouble() / 1_000.0)
@@ -133,22 +145,21 @@ class YPlaybackLearningEngine(
             }
         if (
             record.attempts >= QUALITY_ATTEMPTS_TO_AVOID &&
+            enoughPlayback &&
             (
-                record.codecResets >= CODEC_RESETS_TO_AVOID ||
-                    record.audioUnderruns >= UNDERRUNS_TO_AVOID ||
+                perHour(record.codecResets) >= CODEC_RESETS_PER_HOUR_TO_AVOID ||
+                    perHour(record.audioUnderruns) >= UNDERRUNS_PER_HOUR_TO_AVOID ||
                     record.maximumAbsoluteAvDriftMs >= AV_DRIFT_TO_AVOID_MS ||
-                    record.maximumThermalStatus >= THERMAL_STATUS_SEVERE ||
-                    (
-                        record.playedDurationMs >= QUALITY_DURATION_TO_AVOID_MS &&
-                            dropRate >= DROPPED_FRAMES_PER_SECOND_TO_AVOID
-                    )
+                    dropRate >= DROPPED_FRAMES_PER_SECOND_TO_AVOID
             )
         ) {
             return YLearnedRouteAdvice.Avoid
         }
+        // Heat is the device and the room as much as the route: it only ever costs a preference,
+        // never the route itself, because the alternative is software decode, which runs hotter.
         return if (
             record.codecResets > 0L ||
-            record.audioUnderruns >= UNDERRUNS_TO_PENALIZE ||
+            (enoughPlayback && perHour(record.audioUnderruns) >= UNDERRUNS_PER_HOUR_TO_PENALIZE) ||
             record.maximumAbsoluteAvDriftMs >= AV_DRIFT_TO_PENALIZE_MS ||
             record.maximumThermalStatus >= THERMAL_STATUS_SEVERE ||
             dropRate >= DROPPED_FRAMES_PER_SECOND_TO_PENALIZE
@@ -158,7 +169,15 @@ class YPlaybackLearningEngine(
             YLearnedRouteAdvice.Allow
         }
     }
+
+    /** Forgets every learned route, for the user's 重置 YCore 学习数据. */
+    @Synchronized
+    fun clearAll() {
+        store.replace(emptyList())
+    }
 }
+
+private fun YPlaybackLearningRecord.isStale(now: Long): Boolean = now - updatedAtEpochMs > LEARNING_DECAY_MS
 
 private fun Int.saturatedIncrement(): Int = if (this == Int.MAX_VALUE) this else this + 1
 
@@ -167,16 +186,19 @@ private fun Long.saturatedAdd(value: Long): Long =
 
 private const val FAILURES_TO_AVOID = 3
 private const val QUALITY_ATTEMPTS_TO_AVOID = 3
-private const val UNDERRUNS_TO_PENALIZE = 3L
-private const val UNDERRUNS_TO_AVOID = 12L
-private const val CODEC_RESETS_TO_AVOID = 3L
+private const val UNDERRUNS_PER_HOUR_TO_PENALIZE = 30.0
+private const val UNDERRUNS_PER_HOUR_TO_AVOID = 120.0
+private const val CODEC_RESETS_PER_HOUR_TO_AVOID = 6.0
 private const val AV_DRIFT_TO_PENALIZE_MS = 250L
 private const val AV_DRIFT_TO_AVOID_MS = 1_000L
 private const val DROPPED_FRAMES_PER_SECOND_TO_PENALIZE = 1.0
 private const val DROPPED_FRAMES_PER_SECOND_TO_AVOID = 3.0
 private const val QUALITY_DURATION_TO_AVOID_MS = 180_000L
+private const val MILLIS_PER_HOUR = 3_600_000.0
+
+/** A record untouched this long no longer speaks for the route. */
+private const val LEARNING_DECAY_MS = 14L * 24L * 60L * 60L * 1_000L
 
 // Mirrors Android's stable PowerManager.THERMAL_STATUS_SEVERE integer without making common code
-// depend on the Android SDK. A severe route is penalized immediately and avoided after the same
-// three-observation confidence gate used by the other quality signals.
+// depend on the Android SDK. A severe route is penalized, never avoided.
 private const val THERMAL_STATUS_SEVERE = 3

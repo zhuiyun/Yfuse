@@ -16,6 +16,7 @@ import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.model.VideoStreamInfo
 import com.yfuse.core.model.episodeOwnName
 import com.yfuse.core.model.languageDisplayName
+import com.yfuse.core.model.namedPlaybackChapters
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import kotlinx.serialization.Serializable
 
@@ -761,36 +762,19 @@ fun BaseItemDto.playbackSegments(): List<PlaybackSegment> {
  *
  * Emby marks its skip points as chapters too — `IntroStart`, `IntroEnd`, `CreditsStart` — and
  * those are [playbackSegments]' business, so only an unmarked chapter (Jellyfin) or one marked
- * `Chapter` (Emby) counts. A name that only counts — "Chapter 3", "第 3 章", "00:12:00", which
- * muxers and servers write when the file had none — says nothing its position does not, and is
- * left out with the unnamed ones, as is a chapter at or past the end of the runtime. Two
- * chapters at one position keep the first.
+ * `Chapter` (Emby) counts; [namedPlaybackChapters] then drops the ones that only count.
  */
-fun BaseItemDto.playbackChapters(): List<PlaybackChapter> {
-    val runtimeMs = RunTimeTicks?.takeIf { it > 0L }?.div(10_000L)
-    return Chapters
-        .orEmpty()
-        .asSequence()
-        .filter { chapter ->
-            val type = chapter.MarkerType?.trim().orEmpty()
-            type.isEmpty() || type.equals("Chapter", ignoreCase = true)
-        }.mapNotNull { chapter ->
-            val name = chapter.Name?.trim()?.takeIf { it.isNotEmpty() && !isCountingChapterName(it) }
-            val startMs = (chapter.StartPositionTicks / 10_000L).coerceAtLeast(0L)
-            if (name == null || (runtimeMs != null && startMs >= runtimeMs)) null else PlaybackChapter(startMs, name)
-        }.sortedBy(PlaybackChapter::startMs)
-        .distinctBy(PlaybackChapter::startMs)
-        .toList()
-}
-
-/** "Chapter 3", "Ch. 12", "第 3 章", "チャプター 2", a bare number or a timestamp: a name that only counts. */
-internal fun isCountingChapterName(name: String): Boolean = COUNTING_CHAPTER_NAME.matches(name.trim())
-
-private val COUNTING_CHAPTER_NAME =
-    Regex(
-        "(?:(?:chapter|chap|ch|kapitel|chapitre|cap[ií]tulo|capitolo|глава|章节|章節|チャプター|챕터)" +
-            "\\.?\\s*#?\\s*\\d+)|(?:第\\s*\\d+\\s*[章节節话話幕])|[\\d\\s.:,-]+",
-        RegexOption.IGNORE_CASE,
+fun BaseItemDto.playbackChapters(): List<PlaybackChapter> =
+    namedPlaybackChapters(
+        chapters =
+            Chapters
+                .orEmpty()
+                .asSequence()
+                .filter { chapter ->
+                    val type = chapter.MarkerType?.trim().orEmpty()
+                    type.isEmpty() || type.equals("Chapter", ignoreCase = true)
+                }.map { chapter -> chapter.StartPositionTicks / 10_000L to chapter.Name },
+        runtimeMs = RunTimeTicks?.takeIf { it > 0L }?.div(10_000L),
     )
 
 /** One of Jellyfin's media segments (10.10+): `/MediaSegments/{itemId}`. */

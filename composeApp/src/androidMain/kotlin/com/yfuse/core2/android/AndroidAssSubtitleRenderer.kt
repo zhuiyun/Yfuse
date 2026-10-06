@@ -275,8 +275,7 @@ internal class AndroidAssSubtitleRenderer(
         source: YAssSubtitleSource,
         request: Request,
     ): Track {
-        val width = request.width.takeIf { it > 0 } ?: source.canvasWidth.takeIf { it > 0 } ?: 1280
-        val height = request.height.takeIf { it > 0 } ?: source.canvasHeight.takeIf { it > 0 } ?: 720
+        val (width, height) = targetCanvas(source, request)
         val memory =
             acquireMemory(
                 sourceBytes(source) * 2L + width.toLong() * height * BYTES_PER_CANVAS_PIXEL + CACHE_BYTES,
@@ -291,13 +290,26 @@ internal class AndroidAssSubtitleRenderer(
         }
     }
 
+    /**
+     * The canvas the picture asks for, at most 1080p in area. Scripts are authored at 1080p or less
+     * and scale up cleanly; a 4K canvas only cost the memory that squeezed every canvas smaller.
+     */
+    private fun targetCanvas(
+        source: YAssSubtitleSource,
+        request: Request,
+    ): Pair<Int, Int> {
+        val width = request.width.takeIf { it > 0 } ?: source.canvasWidth.takeIf { it > 0 } ?: 1280
+        val height = request.height.takeIf { it > 0 } ?: source.canvasHeight.takeIf { it > 0 } ?: 720
+        val scale = sqrt(MAX_CANVAS_PIXELS.toDouble() / (width.toDouble() * height)).coerceAtMost(1.0)
+        return (width * scale).toInt().coerceAtLeast(1) to (height * scale).toInt().coerceAtLeast(1)
+    }
+
     private fun dimensions(
         source: YAssSubtitleSource,
         request: Request,
         limitBytes: Long,
     ): Pair<Int, Int> {
-        val width = request.width.takeIf { it > 0 } ?: source.canvasWidth.takeIf { it > 0 } ?: 1280
-        val height = request.height.takeIf { it > 0 } ?: source.canvasHeight.takeIf { it > 0 } ?: 720
+        val (width, height) = targetCanvas(source, request)
         val available = limitBytes - sourceBytes(source) * 2L - CACHE_BYTES
         check(available >= 64L * 64L * BYTES_PER_CANVAS_PIXEL) { "ASS fonts exceed the subtitle memory budget" }
         val ratio = sqrt(available.toDouble() / (width.toDouble() * height * BYTES_PER_CANVAS_PIXEL)).coerceAtMost(1.0)
@@ -316,6 +328,9 @@ internal class AndroidAssSubtitleRenderer(
     }
 }
 
-// Native composition, JNI bytes, managed pixels and Compose Bitmap can briefly overlap.
-private const val BYTES_PER_CANVAS_PIXEL = 24L
+// The native RGBA composition, its JNI copy and the managed bitmap can briefly overlap; the Compose
+// image shares the bitmap. At 24, which counted that bitmap twice and more, the subtitle share of the
+// playback budget held 1080p scripts to about 848x477, and they were scaled up blurred.
+private const val BYTES_PER_CANVAS_PIXEL = 12L
+private const val MAX_CANVAS_PIXELS = 1920L * 1080L
 private const val CACHE_BYTES = 1024L * 1024L

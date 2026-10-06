@@ -5,7 +5,8 @@ PlayerRoot grew from about 3,000 to 3,700 lines in three weeks, and at that size
 content lambda into a DEX that Android 17 refused to verify, so the release crashed before its
 first frame. This gate measures every function body in production Kotlin and fails when
 
-  * a function not listed in the baseline is longer than MAX_LINES, or
+  * a function not listed in the baseline is longer than its limit (MAX_LINES, or the tighter
+    PATH_LIMITS value for its source tree), or
   * a listed function is longer than its recorded ceiling.
 
 Shrinking is always allowed; run with --update after a split to lower the ceilings (never to raise
@@ -20,6 +21,9 @@ import subprocess
 import sys
 
 MAX_LINES = 1_500
+# YCore's player loops grew into single functions of 300 to 750 lines, past what a reviewer can
+# hold in view. New YCore functions get a tighter limit; the baselined ones may only shrink.
+PATH_LIMITS = (("/kotlin/com/yfuse/core2/", 200),)
 ROOTS = ("composeApp/src", "tvApp/src", "watchTogetherServer/src/main", "watchTogetherProtocol/src")
 EXCLUDED_PARTS = ("Test/", "/test/", "androidInstrumentedTest", "/build/")
 FUNCTION = re.compile(
@@ -134,6 +138,14 @@ def function_lengths(path):
     return results
 
 
+def limit_for(rel):
+    """The most lines a function in [rel] may have without a baseline entry."""
+    for part, limit in PATH_LIMITS:
+        if part in rel:
+            return limit
+    return MAX_LINES
+
+
 def production_files(repo):
     files = subprocess.run(["git", "ls-files", *ROOTS], cwd=repo, capture_output=True, text=True, check=True)
     for rel in files.stdout.split():
@@ -163,7 +175,7 @@ def main():
     measured = {}
     for rel in production_files(repo):
         for name, line, length in function_lengths(os.path.join(repo, rel)):
-            if length > MAX_LINES or f"{rel}::{name}" in ceilings:
+            if length > limit_for(rel) or f"{rel}::{name}" in ceilings:
                 key = f"{rel}::{name}"
                 measured[key] = max(measured.get(key, 0), length)
                 print(f"{length:6d}  {rel}:{line}  {name}")
@@ -181,8 +193,9 @@ def main():
     failures = []
     for key, length in sorted(measured.items()):
         ceiling = ceilings.get(key)
-        if ceiling is None and length > MAX_LINES:
-            failures.append(f"{key}: {length} lines, over the {MAX_LINES}-line limit for new functions")
+        limit = limit_for(key.split("::", 1)[0])
+        if ceiling is None and length > limit:
+            failures.append(f"{key}: {length} lines, over the {limit}-line limit for new functions")
         elif ceiling is not None and length > ceiling:
             failures.append(f"{key}: {length} lines, over its recorded ceiling of {ceiling}")
     if failures:

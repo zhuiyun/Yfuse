@@ -5,6 +5,7 @@ import com.yfuse.core.offline.offlinePlaybackUri
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDrmConfiguration
 import com.yfuse.core.playback.PlaybackDrmScheme
+import com.yfuse.core2.api.hasSameActiveSourceAs
 import com.yfuse.feature.player.PlayerExternalSubtitle
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.PlayerMediaVersion
@@ -44,6 +45,30 @@ class AndroidCore2TrialTest {
     }
 
     @Test
+    fun aQueueRefreshMappedWithoutTheLoopbackRouteMatchesTheOpenEntry() {
+        val item = mediaItem("https://host/Videos/1/master.m3u8?api_key=secret&UserId=user")
+        val opened =
+            listOf(item)
+                .toCore2MediaItems(
+                    customUserAgent = "player",
+                    appVersion = { "1" },
+                    localize = { _, _ -> "http://127.0.0.1:1234/media/session" },
+                ).single()
+        val refreshed = listOf(item).toCore2MediaItems(customUserAgent = "player", appVersion = { "1" }).single()
+
+        assertEquals(opened.sourceKey, refreshed.sourceKey)
+        assertTrue(opened.hasSameActiveSourceAs(refreshed))
+        assertFalse(
+            opened.hasSameActiveSourceAs(
+                listOf(mediaItem("https://host/Videos/2/master.m3u8"))
+                    .toCore2MediaItems(customUserAgent = "player", appVersion = { "1" })
+                    .single()
+                    .copy(id = opened.id),
+            ),
+        )
+    }
+
+    @Test
     fun native_disc_source_matrix_admits_saf_bdmv_but_not_remote_directory_trees() {
         assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Bdmv, "file"))
         assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Bdmv, "content"))
@@ -70,6 +95,21 @@ class AndroidCore2TrialTest {
         assertTrue(items.canUseCore2Trial(startIndex = 2))
         assertTrue(items.canUseCore2Trial(startIndex = 3))
         assertTrue(items.canUseCore2Trial(startIndex = 4))
+    }
+
+    @Test
+    fun only_the_item_being_opened_decides_whether_ycore_takes_the_queue() {
+        val items =
+            listOf(
+                mediaItem("https://media.example.test/episode1.mkv"),
+                mediaItem("ftp://media.example.test/episode2.mkv"),
+                mediaItem("https://media.example.test/episode3.mkv"),
+            )
+
+        // A later episode YCore cannot open no longer keeps the season off YCore.
+        assertTrue(items.canUseCore2Trial(startIndex = 0))
+        assertFalse(items.canUseCore2Trial(startIndex = 1))
+        assertTrue(items.canUseCore2Trial(startIndex = 2))
     }
 
     @Test

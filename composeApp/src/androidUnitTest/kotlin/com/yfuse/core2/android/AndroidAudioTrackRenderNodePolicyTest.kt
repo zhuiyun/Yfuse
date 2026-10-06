@@ -1,6 +1,7 @@
 package com.yfuse.core2.android
 
 import android.media.AudioFormat
+import com.yfuse.core2.audio.YAudioChannelRole
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -34,6 +35,38 @@ class AndroidAudioTrackRenderNodePolicyTest {
                 AudioFormat.CHANNEL_OUT_LOW_FREQUENCY
 
         assertEquals(threePointOne, audioTrackChannelMask(declaredMask = threePointOne, channelCount = 4))
+    }
+
+    @Test
+    fun `effects know which channel holds dialogue, bass and surround`() {
+        assertEquals(
+            listOf(
+                YAudioChannelRole.Front,
+                YAudioChannelRole.Front,
+                YAudioChannelRole.Centre,
+                YAudioChannelRole.Lfe,
+                YAudioChannelRole.Surround,
+                YAudioChannelRole.Surround,
+                YAudioChannelRole.Surround,
+                YAudioChannelRole.Surround,
+            ),
+            audioChannelRoles(AudioFormat.CHANNEL_OUT_7POINT1_SURROUND, channelCount = 8),
+        )
+        assertEquals(listOf(YAudioChannelRole.Front), audioChannelRoles(AudioFormat.CHANNEL_OUT_MONO, channelCount = 1))
+        // A mask for another count says nothing reliable about the channels.
+        assertEquals(
+            List(6) { YAudioChannelRole.Front },
+            audioChannelRoles(AudioFormat.CHANNEL_OUT_STEREO, channelCount = 6),
+        )
+    }
+
+    @Test
+    fun `decoders are asked to fold only layouts no output mask carries`() {
+        assertEquals(null, audioOutputChannelCap(2))
+        assertEquals(null, audioOutputChannelCap(8))
+        assertEquals(8, audioOutputChannelCap(9))
+        assertEquals(8, audioOutputChannelCap(24))
+        assertEquals(null, audioOutputChannelCap(0))
     }
 
     @Test
@@ -120,6 +153,14 @@ class AndroidAudioTrackRenderNodePolicyTest {
     fun `startup threshold does not require filling the two second buffer`() {
         assertEquals(1_920, nativeDirectAudioStartThresholdFrames(48_000, 96_000))
         assertEquals(1_764, nativeDirectAudioStartThresholdFrames(44_100, 88_200))
+    }
+
+    @Test
+    fun `once playing the pre S buffer grows back to half a second`() {
+        // The 40 ms startup cut, kept for the whole session, underran on any pause in feeding.
+        assertEquals(24_000, nativeDirectAudioPlayingBufferFrames(48_000, 96_000))
+        assertEquals(22_050, nativeDirectAudioPlayingBufferFrames(44_100, 88_200))
+        assertEquals(4_096, nativeDirectAudioPlayingBufferFrames(48_000, 4_096))
     }
 
     @Test

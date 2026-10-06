@@ -129,6 +129,17 @@ internal fun subtitleTags(tags: String): SubtitleTags {
     return SubtitleTags(language, forced, rank)
 }
 
+/**
+ * A subtitle's name or label marks traditional Chinese: `Film.cht.srt`, `zh-TW`, a picker label
+ * such as `繁英双语`, or a server's `Chinese Traditional`.
+ */
+fun subtitleLabelSuggestsTraditional(label: String?): Boolean {
+    if (label.isNullOrBlank()) return false
+    return '繁' in label ||
+        label.contains("traditional", ignoreCase = true) ||
+        subtitleTags(label).rank == RANK_CHINESE_TRADITIONAL
+}
+
 private data class Candidate(
     val entry: FileSourceEntry,
     val tags: SubtitleTags,

@@ -9,12 +9,14 @@ internal sealed interface YSoftwareVideoDecodeResult {
 
     data object Ended : YSoftwareVideoDecodeResult
 
+    /** Four bytes per pixel in RGBA order, or BGRA when [redBlueSwapped] (older native libraries). */
     data class Frame(
         val data: ByteBuffer,
         val presentationTimeUs: Long,
         val width: Int,
         val height: Int,
         val strideBytes: Int,
+        val redBlueSwapped: Boolean = false,
     ) : YSoftwareVideoDecodeResult
 }
 
@@ -83,13 +85,14 @@ internal class AndroidFfmpegSoftwareDecoderNode(
                     val width = result[SOFTWARE_FRAME_FIRST].toInt()
                     val height = result[SOFTWARE_FRAME_SECOND].toInt()
                     val stride = result[SOFTWARE_FRAME_THIRD].toInt()
-                    require(width > 0 && height > 0 && stride >= width * BYTES_PER_BGRA_PIXEL)
+                    require(width > 0 && height > 0 && stride >= width * BYTES_PER_PIXEL)
                     return YSoftwareVideoDecodeResult.Frame(
                         data = videoBuffer.frameSlice(size),
                         presentationTimeUs = result[SOFTWARE_FRAME_PTS].timestampOrZero(),
                         width = width,
                         height = height,
                         strideBytes = stride,
+                        redBlueSwapped = !demuxer.softwareVideoRgba,
                     )
                 }
                 else -> error("Unknown FFmpeg software video status")
@@ -175,5 +178,5 @@ private const val SOFTWARE_FRAME_EOF = 2L
 private const val SOFTWARE_FRAME_GROW = -1L
 private const val MAX_VIDEO_FRAME_BYTES = 128 * 1024 * 1024
 private const val MAX_AUDIO_FRAME_BYTES = 8 * 1024 * 1024
-private const val BYTES_PER_BGRA_PIXEL = 4
+private const val BYTES_PER_PIXEL = 4
 private const val MAX_GROW_RETRIES = 2

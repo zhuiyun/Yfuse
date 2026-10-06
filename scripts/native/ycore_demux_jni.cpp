@@ -14,6 +14,7 @@
 #include <mutex>
 #include <new>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 #include <unistd.h>
@@ -23,9 +24,11 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavcodec/codec_par.h>
+#include <libavcodec/jni.h>
 #include <libavcodec/packet.h>
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
+#include <libavutil/buffer.h>
 #include <libavutil/common.h>
 #include <libavutil/dict.h>
 #include <libavutil/dovi_meta.h>
@@ -33,6 +36,8 @@ extern "C" {
 #include <libavutil/error.h>
 #include <libavutil/mastering_display_metadata.h>
 #include <libavutil/mem.h>
+#include <libavutil/opt.h>
+#include <libavutil/pixdesc.h>
 #include <ass/ass.h>
 #include <libbluray/bluray.h>
 #include <libbluray/filesystem.h>
@@ -42,7 +47,9 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
+#include "ycore_parallel_rows.h"
 #include "ycore_tone_map.h"
+#include "ycore_disc_language.h"
 #include "ycore_disc_uri.h"
 #include "ycore_overlay_plane.h"
 
@@ -100,7 +107,14 @@ constexpr int kSoftwareFrameAgain = 0;
 constexpr int kSoftwareFrameData = 1;
 constexpr int kSoftwareFrameEof = 2;
 constexpr int kSoftwareFrameGrowBuffer = -1;
-constexpr int kSoftwareDecoderApiVersion = 2;
+// Version 3: video frames are RGBA (Android ARGB_8888 memory order; v2 wrote BGRA), YUV matrix and
+// range follow the stream, and isolated undecodable packets are dropped instead of thrown.
+constexpr int kSoftwareDecoderApiVersion = 3;
+// A damaged TS segment or a broken frame at a splice is dropped the way ffmpeg and mpv drop it.
+// Only this many failures in a row, with no frame decoded in between, mean the decoder cannot
+// play the stream at all.
+constexpr int kMaxConsecutiveSoftwareDecodeErrors = 64;
+constexpr int kMaxSoftwareConversionThreads = 4;
 constexpr int kDiscApiVersion = 2;
 constexpr int kAssRendererApiVersion = 2;
 // Version 2: session handles are positive registry ids. Version 1 (artifacts without this
@@ -223,17 +237,60 @@ std::mutex g_demux_sessions_mutex;
 std::unordered_map<int64_t, DemuxSession*> g_demux_sessions;
 std::atomic<int64_t> g_next_demux_session_id{1};
 
+/** What a cached SwsContext was built for; any difference needs a new context. */
+struct ScalerSetup {
+    int width = 0;
+    int height = 0;
+    int source_format = AV_PIX_FMT_NONE;
+    int target_format = AV_PIX_FMT_NONE;
+    int colorspace = 0;
+    int source_full_range = 0;
+
+    bool same_as(const ScalerSetup& other) const {
+        return width == other.width && height == other.height &&
+            source_format == other.source_format && target_format == other.target_format &&
+            colorspace == other.colorspace && source_full_range == other.source_full_range;
+    }
+};
+
 struct SoftwareDecoder {
     AVCodecContext* codec = nullptr;
     AVFrame* frame = nullptr;
     SwsContext* scaler = nullptr;
+    ScalerSetup scaler_setup;
     SwrContext* resampler = nullptr;
+    AVChannelLayout resampler_layout = {};
+    int resampler_format = AV_SAMPLE_FMT_NONE;
+    int resampler_rate = 0;
     std::vector<uint16_t> tone_map_rgb48;
+    std::unique_ptr<ycore_tone_map::Mapper> tone_mapper;
+    ycore_tone_map::Transfer tone_mapper_transfer = ycore_tone_map::Transfer::Pq;
+    double tone_mapper_peak_nits = 0.0;
+    std::unique_ptr<ycore_parallel::RowWorkers> row_workers;
+    int consecutive_decode_errors = 0;
     bool frame_pending = false;
     bool tone_map_hdr_to_sdr = false;
 
-    ~SoftwareDecoder() {
+    void reset_resampler() {
         swr_free(&resampler);
+        av_channel_layout_uninit(&resampler_layout);
+        resampler_format = AV_SAMPLE_FMT_NONE;
+        resampler_rate = 0;
+    }
+
+    /** Discards decoder state for a seek; configuration, scaler and tables stay. */
+    void flush() {
+        avcodec_flush_buffers(codec);
+        av_frame_unref(frame);
+        frame_pending = false;
+        consecutive_decode_errors = 0;
+        reset_resampler();
+    }
+
+    ~SoftwareDecoder() {
+        // Helpers join before the tables and buffers they read are released.
+        row_workers.reset();
+        reset_resampler();
         sws_freeContext(scaler);
         if (frame) av_frame_free(&frame);
         if (codec) avcodec_free_context(&codec);
@@ -610,15 +667,36 @@ std::string ffmpeg_error(int error) {
     return std::string(buffer);
 }
 
-bool is_remote_source(const std::string& source) {
+std::string source_scheme(const std::string& source) {
     const size_t separator = source.find(':');
-    if (separator == std::string::npos) return false;
+    if (separator == std::string::npos) return {};
     std::string scheme = source.substr(0, separator);
     std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char value) {
         return static_cast<char>(std::tolower(value));
     });
+    return scheme;
+}
+
+bool is_remote_source(const std::string& source) {
+    const std::string scheme = source_scheme(source);
     return scheme == "http" || scheme == "https" || scheme == "smb" || scheme == "webdav";
 }
+
+/**
+ * Sources FFmpeg must never open itself. This build has no smb protocol, and FFmpeg's
+ * android_content protocol reads through the application context libmpv registers and deletes
+ * again when its player is destroyed, so using it after that aborts the process. YCore's loopback
+ * proxy serves both; one that reaches here was never localized.
+ */
+bool needs_ycore_transport(const std::string& source) {
+    const std::string scheme = source_scheme(source);
+    return scheme == "smb" || scheme == "content" || scheme == "android_content";
+}
+
+// A remote playlist can name any URL FFmpeg understands, local files included. Each source kind is
+// held to the protocols it needs; nested opens (segments, keys) inherit the list.
+constexpr const char* kRemoteProtocolWhitelist = "http,https,tls,tcp,crypto,data,httpproxy";
+constexpr const char* kLocalProtocolWhitelist = "file,crypto,data";
 
 constexpr const char* kProbeSizeBytes = "2097152";
 constexpr const char* kProbeAnalyzeDurationUs = "1000000";
@@ -645,7 +723,11 @@ int failure_status(int error, bool remote_source) {
     if (error == AVERROR_HTTP_UNAUTHORIZED || error == AVERROR_HTTP_FORBIDDEN) {
         return kFailureAuthorization;
     }
-    if (error == AVERROR_INVALIDDATA || error == AVERROR_DEMUXER_NOT_FOUND) {
+    // Unsupported, not unreachable: reporting these as network faults sent users to check a
+    // server that was answering fine.
+    if (error == AVERROR_INVALIDDATA || error == AVERROR_DEMUXER_NOT_FOUND ||
+        error == AVERROR_PROTOCOL_NOT_FOUND || error == AVERROR_DECODER_NOT_FOUND ||
+        error == AVERROR_PATCHWELCOME || error == AVERROR(ENOSYS)) {
         return kFailureContainer;
     }
     if (!remote_source) return kFailureContainer;
@@ -1337,6 +1419,45 @@ const char* android_ass_fallback_font() {
     return nullptr;
 }
 
+/**
+ * Fonts for scripts the default (CJK) font lacks. libass reads a fonts directory's every file into
+ * memory, once per library: given /system/fonts that was 100 MB or more for each ASS track. The
+ * default font is opened from its path instead, and only these small files are read, within a
+ * total cap; a device that lacks one simply goes without it.
+ */
+void add_android_script_fonts(ASS_Library* library) {
+    static constexpr const char* kScriptFonts[] = {
+        "/system/fonts/Roboto-Regular.ttf",
+        "/system/fonts/NotoNaskhArabic-Regular.ttf",
+        "/system/fonts/NotoSansHebrew-Regular.ttf",
+        "/system/fonts/NotoSansThai-Regular.ttf",
+        "/system/fonts/NotoSansDevanagari-Regular.otf",
+        "/system/fonts/NotoSansDevanagari-VF.ttf",
+    };
+    constexpr long kMaxFontBytes = 4L * 1024L * 1024L;
+    constexpr long kMaxTotalBytes = 8L * 1024L * 1024L;
+    if (!library) return;
+    long total = 0;
+    for (const char* path : kScriptFonts) {
+        FILE* file = std::fopen(path, "rb");
+        if (!file) continue;
+        std::vector<char> bytes;
+        if (std::fseek(file, 0, SEEK_END) == 0) {
+            const long size = std::ftell(file);
+            if (size > 0 && size <= kMaxFontBytes && total + size <= kMaxTotalBytes &&
+                std::fseek(file, 0, SEEK_SET) == 0) {
+                bytes.resize(static_cast<size_t>(size));
+                if (std::fread(bytes.data(), 1, bytes.size(), file) != bytes.size()) bytes.clear();
+            }
+        }
+        std::fclose(file);
+        if (bytes.empty()) continue;
+        total += static_cast<long>(bytes.size());
+        const char* name = std::strrchr(path, '/');
+        ass_add_font(library, name ? name + 1 : path, bytes.data(), static_cast<int>(bytes.size()));
+    }
+}
+
 void configure_ass_fonts(ASS_Renderer* renderer) {
     if (!renderer) return;
     ass_set_fonts(
@@ -1365,7 +1486,7 @@ ASS_Track* ass_subtitle_track(JNIEnv* env, DemuxSession* session, jint index) {
             throw_illegal_state(env, "Unable to initialize libass");
             return nullptr;
         }
-        ass_set_fonts_dir(session->ass_library, "/system/fonts");
+        add_android_script_fonts(session->ass_library);
     }
     if (!session->ass_renderer) {
         session->ass_renderer = ass_renderer_init(session->ass_library);
@@ -1458,6 +1579,148 @@ double hdr_mastering_peak_nits(const AVCodecParameters* parameters) {
     return 1000.0;
 }
 
+void release_borrowed_buffer(void*, uint8_t*) {}
+
+int software_conversion_threads() {
+    // Half the cores: the codec's own frame threads are busy on the rest.
+    const unsigned cores = std::thread::hardware_concurrency();
+    return std::clamp(static_cast<int>(cores / 2U), 1, kMaxSoftwareConversionThreads);
+}
+
+/** The YUV matrix of a decoded frame, resolving untagged streams the way mpv and MediaCodec do. */
+int scaler_colorspace(const AVFrame* frame, const AVCodecParameters* parameters) {
+    const AVColorSpace space =
+        frame->colorspace != AVCOL_SPC_UNSPECIFIED ? frame->colorspace : parameters->color_space;
+    switch (space) {
+        case AVCOL_SPC_BT709:
+            return SWS_CS_ITU709;
+        case AVCOL_SPC_FCC:
+            return SWS_CS_FCC;
+        case AVCOL_SPC_BT470BG:
+        case AVCOL_SPC_SMPTE170M:
+            return SWS_CS_ITU601;
+        case AVCOL_SPC_SMPTE240M:
+            return SWS_CS_SMPTE240M;
+        case AVCOL_SPC_BT2020_NCL:
+        case AVCOL_SPC_BT2020_CL:
+            return SWS_CS_BT2020;
+        default:
+            // swscale alone would decode every untagged stream as BT.601, which shifts the reds
+            // and greens of untagged HD video.
+            return frame->width >= 1280 || frame->height > 576 ? SWS_CS_ITU709 : SWS_CS_ITU601;
+    }
+}
+
+int scaler_source_full_range(const AVFrame* frame, const AVCodecParameters* parameters) {
+    // The deprecated YUVJ formats carry full range in the format itself; matching by name keeps
+    // this building once FFmpeg drops their enum values.
+    const char* name = av_get_pix_fmt_name(static_cast<AVPixelFormat>(frame->format));
+    if (name && std::strncmp(name, "yuvj", 4) == 0) return 1;
+    const AVColorRange range =
+        frame->color_range != AVCOL_RANGE_UNSPECIFIED ? frame->color_range : parameters->color_range;
+    return range == AVCOL_RANGE_JPEG ? 1 : 0;
+}
+
+/** The decoder's scaler for this frame shape and colour setup, rebuilt only when either changes. */
+SwsContext* prepare_scaler(
+    SoftwareDecoder* decoder,
+    const AVFrame* frame,
+    AVPixelFormat target_format,
+    int colorspace,
+    int source_full_range) {
+    ScalerSetup setup;
+    setup.width = frame->width;
+    setup.height = frame->height;
+    setup.source_format = frame->format;
+    setup.target_format = target_format;
+    setup.colorspace = colorspace;
+    setup.source_full_range = source_full_range;
+    if (decoder->scaler && decoder->scaler_setup.same_as(setup)) return decoder->scaler;
+
+    sws_freeContext(decoder->scaler);
+    decoder->scaler = nullptr;
+    SwsContext* scaler = sws_alloc_context();
+    if (!scaler) return nullptr;
+    // Options rather than struct fields: the pinned stable FFmpeg and master differ in which
+    // SwsContext fields are public.
+    bool configured =
+        av_opt_set_int(scaler, "srcw", frame->width, 0) >= 0 &&
+        av_opt_set_int(scaler, "srch", frame->height, 0) >= 0 &&
+        av_opt_set_int(scaler, "src_format", frame->format, 0) >= 0 &&
+        av_opt_set_int(scaler, "dstw", frame->width, 0) >= 0 &&
+        av_opt_set_int(scaler, "dsth", frame->height, 0) >= 0 &&
+        av_opt_set_int(scaler, "dst_format", target_format, 0) >= 0 &&
+        av_opt_set_int(scaler, "sws_flags", SWS_BILINEAR, 0) >= 0 &&
+        av_opt_set_int(scaler, "src_range", source_full_range, 0) >= 0 &&
+        av_opt_set_int(scaler, "dst_range", 1, 0) >= 0;
+    // Slice threads are an optimisation; without them the conversion runs on the calling thread.
+    if (configured) av_opt_set_int(scaler, "threads", software_conversion_threads(), 0);
+    configured = configured && sws_init_context(scaler, nullptr, nullptr) >= 0;
+    const int* source_coefficients = sws_getCoefficients(colorspace);
+    const int* target_coefficients = sws_getCoefficients(SWS_CS_DEFAULT);
+    configured =
+        configured && source_coefficients && target_coefficients &&
+        sws_setColorspaceDetails(
+            scaler,
+            source_coefficients,
+            source_full_range,
+            target_coefficients,
+            1,
+            0,
+            1 << 16,
+            1 << 16) >= 0;
+    if (!configured) {
+        sws_freeContext(scaler);
+        return nullptr;
+    }
+    decoder->scaler = scaler;
+    decoder->scaler_setup = setup;
+    return scaler;
+}
+
+/**
+ * Converts `frame` into caller memory. sws_scale_frame, unlike sws_scale, spreads the rows over
+ * the scaler's slice threads; it wants a reference-counted target, so the destination is wrapped
+ * in a buffer that borrows it for the duration of the call.
+ */
+bool scale_frame_into(
+    SwsContext* scaler,
+    const AVFrame* frame,
+    AVPixelFormat target_format,
+    uint8_t* destination,
+    int linesize,
+    size_t bytes) {
+    AVFrame* target = av_frame_alloc();
+    if (!target) return false;
+    target->buf[0] = av_buffer_create(destination, bytes, release_borrowed_buffer, nullptr, 0);
+    if (!target->buf[0]) {
+        av_frame_free(&target);
+        return false;
+    }
+    target->data[0] = destination;
+    target->linesize[0] = linesize;
+    target->width = frame->width;
+    target->height = frame->height;
+    target->format = target_format;
+    const int result = sws_scale_frame(scaler, target, frame);
+    av_frame_free(&target);
+    return result >= 0;
+}
+
+ycore_parallel::RowWorkers* software_row_workers(SoftwareDecoder* decoder) {
+    if (!decoder->row_workers) {
+        try {
+            decoder->row_workers = std::make_unique<ycore_parallel::RowWorkers>(
+                software_conversion_threads() - 1,
+                "YCoreToneMap");
+        } catch (const std::exception&) {
+            // No helper threads available: the decoding thread maps every row itself.
+            decoder->row_workers = std::make_unique<ycore_parallel::RowWorkers>(0);
+        }
+    }
+    return decoder->row_workers.get();
+}
+
 bool tone_map_hdr_frame(
     JNIEnv* env,
     SoftwareDecoder* decoder,
@@ -1493,54 +1756,24 @@ bool tone_map_hdr_frame(
         throw_illegal_state(env, "Unable to allocate the FFmpeg HDR tone-map buffer");
         return false;
     }
-    decoder->scaler = sws_getCachedContext(
-        decoder->scaler,
-        width,
-        height,
-        static_cast<AVPixelFormat>(decoder->frame->format),
-        width,
-        height,
+    // HDR10 and HLG are BT.2020 non-constant luminance whatever the matrix tag says.
+    SwsContext* scaler = prepare_scaler(
+        decoder,
+        decoder->frame,
         AV_PIX_FMT_RGB48LE,
-        SWS_BILINEAR,
-        nullptr,
-        nullptr,
-        nullptr);
-    if (!decoder->scaler) {
+        SWS_CS_BT2020,
+        scaler_source_full_range(decoder->frame, stream->codecpar));
+    if (!scaler) {
         throw_illegal_state(env, "FFmpeg HDR tone-map scaler is unavailable");
         return false;
     }
-    const int* source_coefficients = sws_getCoefficients(SWS_CS_BT2020);
-    const int* target_coefficients = sws_getCoefficients(SWS_CS_ITU709);
-    const int source_full_range = decoder->frame->color_range == AVCOL_RANGE_JPEG ? 1 : 0;
-    if (!source_coefficients || !target_coefficients ||
-        sws_setColorspaceDetails(
-            decoder->scaler,
-            source_coefficients,
-            source_full_range,
-            target_coefficients,
-            1,
-            0,
-            1 << 16,
-            1 << 16) < 0) {
-        throw_illegal_state(env, "FFmpeg HDR tone-map colorspace configuration failed");
-        return false;
-    }
-    uint8_t* intermediate_data[] = {
-        reinterpret_cast<uint8_t*>(decoder->tone_map_rgb48.data()),
-        nullptr,
-        nullptr,
-        nullptr,
-    };
-    const int intermediate_linesize[] = {width * 6, 0, 0, 0};
-    const int scaled = sws_scale(
-        decoder->scaler,
-        decoder->frame->data,
-        decoder->frame->linesize,
-        0,
-        height,
-        intermediate_data,
-        intermediate_linesize);
-    if (scaled != height) {
+    if (!scale_frame_into(
+            scaler,
+            decoder->frame,
+            AV_PIX_FMT_RGB48LE,
+            reinterpret_cast<uint8_t*>(decoder->tone_map_rgb48.data()),
+            width * 6,
+            decoder->tone_map_rgb48.size() * sizeof(uint16_t))) {
         throw_illegal_state(env, "FFmpeg HDR tone-map conversion was incomplete");
         return false;
     }
@@ -1550,20 +1783,36 @@ bool tone_map_hdr_frame(
         ? ycore_tone_map::Transfer::Pq
         : ycore_tone_map::Transfer::Hlg;
     const double mastering_peak_nits = hdr_mastering_peak_nits(stream->codecpar);
-    for (size_t pixel = 0; pixel < pixel_count; ++pixel) {
-        const size_t source_offset = pixel * 3U;
-        const ycore_tone_map::BgraPixel output = ycore_tone_map::bt2020_to_sdr(
-            decoder->tone_map_rgb48[source_offset],
-            decoder->tone_map_rgb48[source_offset + 1U],
-            decoder->tone_map_rgb48[source_offset + 2U],
-            tone_map_transfer,
-            mastering_peak_nits);
-        const size_t target_offset = pixel * 4U;
-        destination[target_offset] = output.blue;
-        destination[target_offset + 1U] = output.green;
-        destination[target_offset + 2U] = output.red;
-        destination[target_offset + 3U] = output.alpha;
+    if (!decoder->tone_mapper ||
+        decoder->tone_mapper_transfer != tone_map_transfer ||
+        decoder->tone_mapper_peak_nits != mastering_peak_nits) {
+        try {
+            decoder->tone_mapper =
+                std::make_unique<ycore_tone_map::Mapper>(tone_map_transfer, mastering_peak_nits);
+        } catch (const std::bad_alloc&) {
+            throw_illegal_state(env, "Unable to allocate the FFmpeg HDR tone-map tables");
+            return false;
+        }
+        decoder->tone_mapper_transfer = tone_map_transfer;
+        decoder->tone_mapper_peak_nits = mastering_peak_nits;
     }
+    const ycore_tone_map::Mapper& mapper = *decoder->tone_mapper;
+    const uint16_t* rgb48 = decoder->tone_map_rgb48.data();
+    software_row_workers(decoder)->run(height, [&](int first_row, int end_row) {
+        for (int row = first_row; row < end_row; ++row) {
+            const uint16_t* source = rgb48 + static_cast<size_t>(row) * static_cast<size_t>(width) * 3U;
+            uint8_t* target = destination + static_cast<size_t>(row) * static_cast<size_t>(width) * 4U;
+            for (int column = 0; column < width; ++column) {
+                const ycore_tone_map::RgbaPixel output = mapper.map(source[0], source[1], source[2]);
+                target[0] = output.red;
+                target[1] = output.green;
+                target[2] = output.blue;
+                target[3] = output.alpha;
+                source += 3;
+                target += 4;
+            }
+        }
+    });
     return true;
 }
 
@@ -1681,6 +1930,27 @@ jlongArray make_packet_result(
         env->SetLongArrayRegion(result, 0, sizeof(values) / sizeof(values[0]), values);
     }
     return result;
+}
+
+// The PCM layout Android plays for [channels], in Android's channel order (the Kotlin side picks the
+// matching mask by count): converting into it puts a 6.1 or 2.1 source's channels where the
+// speakers are rather than where their index lands, and folds more than eight channels into 7.1,
+// which every device takes.
+constexpr double kLfeDownmixLevel = 0.7071067811865476;
+
+void android_output_layout(int channels, AVChannelLayout* layout) {
+    uint64_t mask = AV_CH_LAYOUT_7POINT1;
+    switch (channels) {
+        case 1: mask = AV_CH_LAYOUT_MONO; break;
+        case 2: mask = AV_CH_LAYOUT_STEREO; break;
+        case 3: mask = AV_CH_LAYOUT_SURROUND; break;
+        case 4: mask = AV_CH_LAYOUT_QUAD; break;
+        case 5: mask = AV_CH_LAYOUT_5POINT0_BACK; break;
+        case 6: mask = AV_CH_LAYOUT_5POINT1_BACK; break;
+        case 7: mask = AV_CH_LAYOUT_5POINT1_BACK | AV_CH_BACK_CENTER; break;
+        default: break;
+    }
+    av_channel_layout_from_mask(layout, mask);
 }
 
 jlongArray make_software_frame_result(
@@ -1957,6 +2227,10 @@ jlong open_session(
     if (!headers_valid || env->ExceptionCheck()) return 0;
 
     g_last_open_failure.clear();
+    if (needs_ycore_transport(source)) {
+        record_open_failure("ycore_transport_required", AVERROR_PROTOCOL_NOT_FOUND);
+        return open_failure_status(AVERROR_PROTOCOL_NOT_FOUND, false, kOpenStageOpenInput);
+    }
     auto session = std::make_unique<DemuxSession>();
     session->cancellation = std::move(cancellation);
     int64_t disc_source_id = 0;
@@ -1991,6 +2265,12 @@ jlong open_session(
         av_dict_set(&options, "respect_retry_after", "1", 0);
         av_dict_set(&options, "rw_timeout", "15000000", 0);
     }
+
+    av_dict_set(
+        &options,
+        "protocol_whitelist",
+        session->remote_source ? kRemoteProtocolWhitelist : kLocalProtocolWhitelist,
+        0);
 
     if (probe_only || startup_analysis) {
         // A truth probe only needs stream parameters. Keep FFmpeg from reading its default
@@ -2294,9 +2574,36 @@ jlongArray native_track_audio_info(JNIEnv* env, jclass, jlong handle, jint index
     return result;
 }
 
+// Blu-ray M2TS carries no language descriptors; the playlist's stream table names each PID's
+// language instead. Every clip of a title shares one stream layout, so the first clip answers.
+jstring disc_stream_language(JNIEnv* env, const BlurayIo& disc, int pid) {
+    if (!disc.source || pid <= 0) return nullptr;
+    char language[4] = {};
+    {
+        std::lock_guard<std::mutex> lock(disc.source->mutex);
+        const BLURAY_TITLE_INFO* title = disc.title_info;
+        if (!title || title->clip_count == 0 || !title->clips) return nullptr;
+        const BLURAY_CLIP_INFO& clip = title->clips[0];
+        const BLURAY_STREAM_INFO* stream =
+            ycore_disc::find_stream_by_pid(clip.audio_streams, clip.audio_stream_count, pid);
+        if (!stream) stream = ycore_disc::find_stream_by_pid(clip.pg_streams, clip.pg_stream_count, pid);
+        if (!stream) {
+            stream = ycore_disc::find_stream_by_pid(clip.sec_audio_streams, clip.sec_audio_stream_count, pid);
+        }
+        if (!stream || !ycore_disc::iso639_language(stream->lang, language)) return nullptr;
+    }
+    return env->NewStringUTF(language);
+}
+
 jstring native_track_language(JNIEnv* env, jclass, jlong handle, jint index) {
-    AVStream* stream = checked_stream(env, from_handle(handle), index);
-    return stream ? dictionary_value(env, stream->metadata, "language") : nullptr;
+    DemuxSession* session = from_handle(handle);
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream) return nullptr;
+    const AVDictionaryEntry* entry = av_dict_get(stream->metadata, "language", nullptr, 0);
+    if ((entry && entry->value && entry->value[0]) || !session->disc) {
+        return nullable_string(env, entry ? entry->value : nullptr);
+    }
+    return disc_stream_language(env, *session->disc, stream->id);
 }
 
 jstring native_track_title(JNIEnv* env, jclass, jlong handle, jint index) {
@@ -2763,7 +3070,7 @@ jlong native_create_ass_renderer(
     session->library = ass_library_init();
     if (!session->library) { throw_illegal_state(env, "Unable to initialize libass"); return 0; }
     ass_set_extract_fonts(session->library, 1);
-    ass_set_fonts_dir(session->library, "/system/fonts");
+    add_android_script_fonts(session->library);
     const jsize font_count = font_data ? env->GetArrayLength(font_data) : 0;
     if (font_count > 128 || (font_count && (!font_names || env->GetArrayLength(font_names) != font_count))) {
         throw_illegal_argument(env, "Invalid ASS font attachments"); return 0;
@@ -2940,6 +3247,39 @@ jint native_demux_read_control_api_version(JNIEnv*, jclass) {
     return 1;
 }
 
+/**
+ * Counts a decode failure as one dropped packet. Returns false, with an exception pending, once
+ * the decoder has failed too many packets in a row or is out of memory.
+ */
+bool absorb_decode_error(JNIEnv* env, SoftwareDecoder* decoder, int error, const char* stage) {
+    if (error != AVERROR(ENOMEM) &&
+        ++decoder->consecutive_decode_errors <= kMaxConsecutiveSoftwareDecodeErrors) {
+        return true;
+    }
+    throw_illegal_state(
+        env,
+        std::string("FFmpeg software ") + stage + " failed: " + ffmpeg_error(error) + " (" +
+            std::to_string(decoder->consecutive_decode_errors) + " consecutive)");
+    return false;
+}
+
+/**
+ * Receives the next decoded frame into decoder->frame. Frame-threaded decoders report a damaged
+ * packet here rather than from send; that packet is skipped and the next one is tried. Returns
+ * 0 with a frame, AVERROR(EAGAIN) or AVERROR_EOF, or another error with an exception pending.
+ */
+int receive_decoded_frame(JNIEnv* env, SoftwareDecoder* decoder, const char* stage) {
+    while (true) {
+        const int error = avcodec_receive_frame(decoder->codec, decoder->frame);
+        if (error >= 0) {
+            decoder->consecutive_decode_errors = 0;
+            return 0;
+        }
+        if (error == AVERROR(EAGAIN) || error == AVERROR_EOF) return error;
+        if (!absorb_decode_error(env, decoder, error, stage)) return error;
+    }
+}
+
 void native_configure_software_decoder(
     JNIEnv* env,
     jclass,
@@ -2995,8 +3335,9 @@ jint native_send_software_packet(
     const int error = avcodec_send_packet(decoder->codec, packet);
     av_packet_free(&packet);
     if (error == AVERROR(EAGAIN)) return 1;
-    if (error < 0 && error != AVERROR_EOF) {
-        throw_illegal_state(env, "FFmpeg software packet decode failed: " + ffmpeg_error(error));
+    // The decoder consumed a packet it could not decode; it stays usable for the next one.
+    if (error < 0 && error != AVERROR_EOF &&
+        !absorb_decode_error(env, decoder, error, "packet decode")) {
         return error;
     }
     return 0;
@@ -3018,17 +3359,14 @@ jlongArray native_receive_software_video_frame(
     SoftwareDecoder* decoder = software_decoder(env, session, index);
     if (!decoder || env->ExceptionCheck()) return nullptr;
     if (!decoder->frame_pending) {
-        const int error = avcodec_receive_frame(decoder->codec, decoder->frame);
+        const int error = receive_decoded_frame(env, decoder, "video receive");
         if (error == AVERROR(EAGAIN)) {
             return make_software_frame_result(env, kSoftwareFrameAgain, 0, kNoTimestamp, 0, 0, 0);
         }
         if (error == AVERROR_EOF) {
             return make_software_frame_result(env, kSoftwareFrameEof, 0, kNoTimestamp, 0, 0, 0);
         }
-        if (error < 0) {
-            throw_illegal_state(env, "FFmpeg software video receive failed: " + ffmpeg_error(error));
-            return nullptr;
-        }
+        if (error < 0) return nullptr;
         decoder->frame_pending = true;
     }
 
@@ -3064,33 +3402,19 @@ jlongArray native_receive_software_video_frame(
     if (decoder->tone_map_hdr_to_sdr) {
         if (!tone_map_hdr_frame(env, decoder, stream, destination)) return nullptr;
     } else {
-        decoder->scaler = sws_getCachedContext(
-            decoder->scaler,
-            width,
-            height,
-            static_cast<AVPixelFormat>(decoder->frame->format),
-            width,
-            height,
-            AV_PIX_FMT_BGRA,
-            SWS_BILINEAR,
-            nullptr,
-            nullptr,
-            nullptr);
-        if (!decoder->scaler) {
+        // RGBA is the byte order of Android's ARGB_8888 bitmaps; copyPixelsFromBuffer takes it
+        // as is.
+        SwsContext* scaler = prepare_scaler(
+            decoder,
+            decoder->frame,
+            AV_PIX_FMT_RGBA,
+            scaler_colorspace(decoder->frame, stream->codecpar),
+            scaler_source_full_range(decoder->frame, stream->codecpar));
+        if (!scaler) {
             throw_illegal_state(env, "FFmpeg software video scaler is unavailable");
             return nullptr;
         }
-        uint8_t* output_data[] = {destination, nullptr, nullptr, nullptr};
-        const int output_linesize[] = {width * 4, 0, 0, 0};
-        const int scaled = sws_scale(
-            decoder->scaler,
-            decoder->frame->data,
-            decoder->frame->linesize,
-            0,
-            height,
-            output_data,
-            output_linesize);
-        if (scaled != height) {
+        if (!scale_frame_into(scaler, decoder->frame, AV_PIX_FMT_RGBA, destination, width * 4, required)) {
             throw_illegal_state(env, "FFmpeg software video conversion was incomplete");
             return nullptr;
         }
@@ -3123,17 +3447,14 @@ jlongArray native_receive_software_audio_frame(
     SoftwareDecoder* decoder = software_decoder(env, session, index);
     if (!decoder || env->ExceptionCheck()) return nullptr;
     if (!decoder->frame_pending) {
-        const int error = avcodec_receive_frame(decoder->codec, decoder->frame);
+        const int error = receive_decoded_frame(env, decoder, "audio receive");
         if (error == AVERROR(EAGAIN)) {
             return make_software_frame_result(env, kSoftwareFrameAgain, 0, kNoTimestamp, 0, 0, 0);
         }
         if (error == AVERROR_EOF) {
             return make_software_frame_result(env, kSoftwareFrameEof, 0, kNoTimestamp, 0, 0, 0);
         }
-        if (error < 0) {
-            throw_illegal_state(env, "FFmpeg software audio receive failed: " + ffmpeg_error(error));
-            return nullptr;
-        }
+        if (error < 0) return nullptr;
         decoder->frame_pending = true;
     }
 
@@ -3152,27 +3473,59 @@ jlongArray native_receive_software_audio_frame(
         throw_illegal_state(env, "FFmpeg software audio format is invalid");
         return nullptr;
     }
-    AVChannelLayout output_layout = {};
-    av_channel_layout_copy(&output_layout, &input_layout);
-    swr_free(&decoder->resampler);
-    int error = swr_alloc_set_opts2(
-        &decoder->resampler,
-        &output_layout,
-        AV_SAMPLE_FMT_S16,
-        sample_rate,
-        &input_layout,
-        static_cast<AVSampleFormat>(decoder->frame->format),
-        sample_rate,
-        0,
-        nullptr);
-    av_channel_layout_uninit(&input_layout);
-    av_channel_layout_uninit(&output_layout);
-    if (error < 0 || !decoder->resampler || (error = swr_init(decoder->resampler)) < 0) {
-        throw_illegal_state(env, "FFmpeg software audio resampler open failed: " + ffmpeg_error(error));
-        return nullptr;
+    // One converter per stream layout, not per frame: rebuilding it for every frame cost an
+    // allocation and an init on the audio thread.
+    const AVSampleFormat input_format = static_cast<AVSampleFormat>(decoder->frame->format);
+    if (!decoder->resampler ||
+        decoder->resampler_format != input_format ||
+        decoder->resampler_rate != sample_rate ||
+        av_channel_layout_compare(&decoder->resampler_layout, &input_layout) != 0) {
+        decoder->reset_resampler();
+        AVChannelLayout output_layout = {};
+        android_output_layout(channels, &output_layout);
+        int error = swr_alloc_set_opts2(
+            &decoder->resampler,
+            &output_layout,
+            AV_SAMPLE_FMT_S16,
+            sample_rate,
+            &input_layout,
+            input_format,
+            sample_rate,
+            0,
+            nullptr);
+        av_channel_layout_uninit(&output_layout);
+        if (error >= 0 && decoder->resampler) {
+            // 24-bit and float sources lose their low bits in the S16 the audio track takes;
+            // dither keeps that from turning into distortion correlated with quiet passages.
+            av_opt_set_int(decoder->resampler, "dither_method", SWR_DITHER_TRIANGULAR, 0);
+            // Folded into a layout without an LFE channel (2.1 into 3.0), the LFE joins the
+            // fronts at -3 dB instead of vanishing; layouts that keep it pass it straight through.
+            av_opt_set_double(decoder->resampler, "lfe_mix_level", kLfeDownmixLevel, 0);
+            error = swr_init(decoder->resampler);
+        }
+        if (error < 0 || !decoder->resampler) {
+            decoder->reset_resampler();
+            av_channel_layout_uninit(&input_layout);
+            throw_illegal_state(env, "FFmpeg software audio resampler open failed: " + ffmpeg_error(error));
+            return nullptr;
+        }
+        if (av_channel_layout_copy(&decoder->resampler_layout, &input_layout) < 0) {
+            decoder->reset_resampler();
+            av_channel_layout_uninit(&input_layout);
+            throw_illegal_state(env, "Unable to record the FFmpeg software audio layout");
+            return nullptr;
+        }
+        decoder->resampler_format = input_format;
+        decoder->resampler_rate = sample_rate;
     }
+    av_channel_layout_uninit(&input_layout);
+    AVChannelLayout output_layout = {};
+    android_output_layout(channels, &output_layout);
+    const int output_channels = output_layout.nb_channels;
+    av_channel_layout_uninit(&output_layout);
     const int output_samples = swr_get_out_samples(decoder->resampler, decoder->frame->nb_samples);
-    const int required = av_samples_get_buffer_size(nullptr, channels, output_samples, AV_SAMPLE_FMT_S16, 1);
+    const int required =
+        av_samples_get_buffer_size(nullptr, output_channels, output_samples, AV_SAMPLE_FMT_S16, 1);
     if (required <= 0 || static_cast<size_t>(required) > kMaxSoftwareAudioFrameBytes) {
         throw_illegal_state(env, "FFmpeg software audio frame exceeds the safety limit");
         return nullptr;
@@ -3190,7 +3543,7 @@ jlongArray native_receive_software_audio_frame(
             kSoftwareFrameGrowBuffer,
             required,
             pts_us,
-            channels,
+            output_channels,
             sample_rate,
             output_samples);
     }
@@ -3205,7 +3558,7 @@ jlongArray native_receive_software_audio_frame(
         throw_illegal_state(env, "FFmpeg software audio conversion failed: " + ffmpeg_error(converted));
         return nullptr;
     }
-    const int output_bytes = converted * channels * static_cast<int>(sizeof(int16_t));
+    const int output_bytes = converted * output_channels * static_cast<int>(sizeof(int16_t));
     av_frame_unref(decoder->frame);
     decoder->frame_pending = false;
     return make_software_frame_result(
@@ -3213,7 +3566,7 @@ jlongArray native_receive_software_audio_frame(
         kSoftwareFrameData,
         output_bytes,
         pts_us,
-        channels,
+        output_channels,
         sample_rate,
         converted);
 }
@@ -3228,10 +3581,7 @@ void native_flush_software_decoder(
     if (env->ExceptionCheck()) return;
     SoftwareDecoder* decoder = session->software_decoders[index].get();
     if (!decoder) return;
-    avcodec_flush_buffers(decoder->codec);
-    av_frame_unref(decoder->frame);
-    decoder->frame_pending = false;
-    swr_free(&decoder->resampler);
+    decoder->flush();
 }
 
 jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
@@ -3293,11 +3643,7 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
         if (track) ass_flush_events(track);
     }
     for (const std::unique_ptr<SoftwareDecoder>& decoder : session->software_decoders) {
-        if (!decoder) continue;
-        avcodec_flush_buffers(decoder->codec);
-        av_frame_unref(decoder->frame);
-        decoder->frame_pending = false;
-        swr_free(&decoder->resampler);
+        if (decoder) decoder->flush();
     }
     if (session->packet_pending) {
         av_packet_unref(session->packet);
@@ -3367,6 +3713,10 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK || !env) {
         return JNI_ERR;
     }
+    // FFmpeg's JNI helpers need the VM before first use whether or not libmpv ever loads; the same
+    // VM may be registered again by libmpv. No application context is handed over: content://
+    // goes through YCore's proxy, never FFmpeg's android_content protocol.
+    av_jni_set_java_vm(vm, nullptr);
     jclass bridge = env->FindClass("com/yfuse/core2/android/FfmpegNativeBridge");
     if (!bridge) return JNI_ERR;
     const int result = env->RegisterNatives(

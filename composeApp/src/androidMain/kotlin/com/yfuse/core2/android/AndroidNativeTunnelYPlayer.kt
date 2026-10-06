@@ -14,6 +14,7 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.api.invalidateOutputEvidence
+import com.yfuse.core2.demux.shownVideoSize
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -359,6 +360,14 @@ internal class AndroidNativeTunnelYPlayer(
             )
             prepared = true
             val snapshot = session.snapshot()
+            // The surface takes the shape of non-square pixels; nothing in a tunnel stretches them.
+            val (shownWidth, shownHeight) =
+                shownVideoSize(
+                    width = decision.probe.playbackRequest.video.width,
+                    height = decision.probe.playbackRequest.video.height,
+                    rotationDegrees = 0,
+                    pixelAspectRatio = decision.probe.pixelAspectRatio ?: 1.0,
+                )
             mutableState.updateState {
                 it.copy(
                     phase = YPlaybackPhase.Ready,
@@ -381,8 +390,8 @@ internal class AndroidNativeTunnelYPlayer(
                                     .joinToString(" + "),
                             renderer = "Tunnel sideband + HW_AV_SYNC AudioTrack",
                             videoCodec = decision.probe.videoMime,
-                            videoWidth = decision.probe.playbackRequest.video.width,
-                            videoHeight = decision.probe.playbackRequest.video.height,
+                            videoWidth = shownWidth,
+                            videoHeight = shownHeight,
                             frameRate = decision.probe.playbackRequest.video.frameRate,
                             renderedFrameRate = null,
                             audioCodec = decision.probe.audioMime.orEmpty(),

@@ -110,8 +110,15 @@ class Core2NativeBaselineTest {
         )
         assertEquals(
             Core2NativeBaselineBlock.UnsupportedScheme,
-            evaluateCore2NativeBaseline(source(scheme = "smb")),
+            evaluateCore2NativeBaseline(source(scheme = "ftp")),
         )
+    }
+
+    @Test
+    fun smb_and_webdav_are_read_by_ycore_transports() {
+        listOf("smb", "webdav", "webdavs").forEach { scheme ->
+            assertNull(evaluateCore2NativeBaseline(source(scheme = scheme)), "scheme $scheme")
+        }
     }
 
     @Test

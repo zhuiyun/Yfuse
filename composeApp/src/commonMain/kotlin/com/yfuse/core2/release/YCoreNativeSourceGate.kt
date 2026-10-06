@@ -26,6 +26,12 @@ data class Core2NativeBaselineSource(
     val drmSupported: Boolean = false,
     val dolbyVision: Boolean,
     val dolbyVisionSupported: Boolean = false,
+    /**
+     * A 文件来源 file: an SMB or WebDAV share has no server MediaSource to name its codecs, and
+     * the extension is only a hint. YCore reads such files with its own transports and probes
+     * them before routing, failing closed there, exactly as it does for files on this device.
+     */
+    val probedBeforeRouting: Boolean = false,
 )
 
 /**
@@ -41,8 +47,9 @@ data class Core2NativeBaselineSource(
  */
 fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeBaselineBlock? {
     val probedOnDevice = !source.hasMetadata && source.scheme.lowercase() in CORE2_NATIVE_LOCAL_SCHEMES
+    val probedByYCore = probedOnDevice || source.probedBeforeRouting
     return when {
-        !source.hasMetadata && !probedOnDevice -> Core2NativeBaselineBlock.MissingMetadata
+        !source.hasMetadata && !probedByYCore -> Core2NativeBaselineBlock.MissingMetadata
         source.scheme.lowercase() !in CORE2_NATIVE_BASELINE_SCHEMES ->
             Core2NativeBaselineBlock.UnsupportedScheme
         source.serverTranscode -> Core2NativeBaselineBlock.ServerTranscode
@@ -50,8 +57,8 @@ fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeB
         source.disc && !source.discSupported -> Core2NativeBaselineBlock.Disc
         source.drm && !source.drmSupported -> Core2NativeBaselineBlock.Drm
         source.dolbyVision && !source.dolbyVisionSupported -> Core2NativeBaselineBlock.DolbyVision
-        // No container or codec is named until YCore opens the local file.
-        probedOnDevice -> null
+        // No container or codec is named until YCore opens the file itself.
+        probedByYCore -> null
         !source.adaptiveManifest &&
             !source.disc &&
             source.container.normalizedContainer() !in CORE2_NATIVE_BASELINE_CONTAINERS ->
@@ -93,8 +100,10 @@ private fun String?.normalizedVideoCodec(): String {
     }
 }
 
+// smb and webdav are read by YCore's own transports on every route (the FFmpeg routes through
+// its loopback proxy), never by a protocol of the bundled libraries.
 private val CORE2_NATIVE_BASELINE_SCHEMES =
-    setOf("http", "https", "file", "content", "android.resource")
+    setOf("http", "https", "file", "content", "android.resource", "smb", "webdav", "webdavs")
 
 /** Sources whose bytes are on this device, where YCore can read them before choosing a route. */
 private val CORE2_NATIVE_LOCAL_SCHEMES = setOf("file", "content", "android.resource")
