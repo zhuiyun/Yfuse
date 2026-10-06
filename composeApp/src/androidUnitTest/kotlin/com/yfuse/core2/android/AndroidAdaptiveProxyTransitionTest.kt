@@ -98,11 +98,18 @@ class AndroidAdaptiveProxyTransitionTest {
                     #EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",URI="subs.m3u8"
                     """.trimIndent(),
                 ).replace("RESOLUTION=", "AUDIO=\"audio\",SUBTITLES=\"subs\",RESOLUTION=")
-        resources["/low.m3u8"] = hlsMedia("low").replace("low-init.mp4", "high-init.mp4")
+        listOf("low", "high").forEach { name ->
+            resources["/$name.m3u8"] =
+                hlsMedia(name)
+                    .replace(
+                        "#EXT-X-ENDLIST",
+                        (3..64).joinToString("\n") { "#EXTINF:2,\n$name-$it.m4s" } + "\n#EXT-X-ENDLIST",
+                    ).replace("low-init.mp4", "high-init.mp4")
+            val payload = (if (name == "high") "H" else "L").repeat(256 * 1024)
+            (1..64).forEach { resources["/$name-$it.m4s"] = payload }
+        }
         resources["/audio.m3u8"] = hlsMedia("audio")
         resources["/subs.m3u8"] = hlsMedia("subs")
-        resources["/high-1.m4s"] = "H".repeat(256 * 1024)
-        resources["/low-1.m4s"] = "L".repeat(256 * 1024)
         val upstream = FixtureUpstream(resources)
         upstream.segmentReadNs.set(1_000_000_000L)
         withProxy(upstream) { proxy ->
@@ -122,18 +129,18 @@ class AndroidAdaptiveProxyTransitionTest {
             val video = master.lineSequence().first { it.isNotBlank() && !it.startsWith('#') }
             val media = readUrl(video).decodeToString()
             assertEquals("HIGH_INIT", readUrl(hlsInitialization(media)).decodeToString())
-            val segment = media.lineSequence().first { it.isNotBlank() && !it.startsWith('#') }
+            val segments = media.lineSequence().filter { it.isNotBlank() && !it.startsWith('#') }.toList()
+            var nextSegment = 0
             proxy.updatePlaybackFeedback(YAdaptivePlaybackFeedback(0L, true, 1f, 1L))
             var low = false
-            val downDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
-            while (!low && System.nanoTime() < downDeadline) low = readUrl(segment).first() == 'L'.code.toByte()
+            // Repeated reads of one URI must stay byte-identical. ABR acts on the next segment.
+            while (!low && nextSegment < 16) low = readUrl(segments[nextSegment++]).first() == 'L'.code.toByte()
             assertTrue(low, "The separated-rendition master must downshift")
             upstream.segmentReadNs.set(25_000_000L)
             var high = false
-            val upDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
-            while (!high && System.nanoTime() < upDeadline) {
+            while (!high && nextSegment < segments.size) {
                 proxy.updatePlaybackFeedback(YAdaptivePlaybackFeedback(60_000_000L, true, 1f, 1L))
-                high = readUrl(segment).first() == 'H'.code.toByte()
+                high = readUrl(segments[nextSegment++]).first() == 'H'.code.toByte()
             }
             assertTrue(high, "A recovered link must restore the higher rendition")
             assertNull(proxy.pollPlaybackTransition(root, 0L))

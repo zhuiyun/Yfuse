@@ -1033,6 +1033,7 @@ android {
         }
         getByName("androidTest") {
             kotlin.directories += "src/androidInstrumentedTest/kotlin"
+            assets.directories += "src/androidInstrumentedTest/assets"
         }
         listOf("benchmark", "profile").forEach { variant ->
             getByName(variant) {
