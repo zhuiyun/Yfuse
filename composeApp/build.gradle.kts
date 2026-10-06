@@ -362,8 +362,8 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
         }
         // API 2 libraries (BGRA frames) stay installable: the Kotlin bridge reads the version at
         // runtime and swaps their channels while drawing.
-        require(Regex("(?m)^ycore-software-decoder-api=[23]$").containsMatchIn(provenance)) {
-            "Standalone YCore provenance is missing ycore-software-decoder-api=2 or 3"
+        require(Regex("(?m)^ycore-software-decoder-api=[234]$").containsMatchIn(provenance)) {
+            "Standalone YCore provenance is missing ycore-software-decoder-api=2, 3 or 4"
         }
         // GPU API 2 executors stay usable; the bridge enables API 3 additions by version.
         require(Regex("(?m)^ycore-gpu-api=[23]$").containsMatchIn(provenance)) {

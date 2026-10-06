@@ -82,7 +82,11 @@ internal suspend fun loadAndroidMatroskaChapters(
                     bytes.copyOf(count)
                 }
             } finally {
-                withContext(NonCancellable) { closer.cancelAndJoin() }
+                withContext(NonCancellable) {
+                    closer.cancelAndJoin()
+                    // The watchdog may have fired just before the last range was opened.
+                    transport.close()
+                }
             }
         }
     }

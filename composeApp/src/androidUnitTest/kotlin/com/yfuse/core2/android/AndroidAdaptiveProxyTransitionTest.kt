@@ -85,6 +85,63 @@ class AndroidAdaptiveProxyTransitionTest {
     }
 
     @Test
+    fun separated_audio_and_subtitles_survive_downshift_and_recovery() {
+        val resources = hlsResources().toMutableMap()
+        resources["/master.m3u8"] =
+            resources
+                .getValue("/master.m3u8")
+                .replace(
+                    "#EXTM3U",
+                    """
+                    #EXTM3U
+                    #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",DEFAULT=YES,URI="audio.m3u8"
+                    #EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",URI="subs.m3u8"
+                    """.trimIndent(),
+                ).replace("RESOLUTION=", "AUDIO=\"audio\",SUBTITLES=\"subs\",RESOLUTION=")
+        resources["/low.m3u8"] = hlsMedia("low").replace("low-init.mp4", "high-init.mp4")
+        resources["/audio.m3u8"] = hlsMedia("audio")
+        resources["/subs.m3u8"] = hlsMedia("subs")
+        resources["/high-1.m4s"] = "H".repeat(256 * 1024)
+        resources["/low-1.m4s"] = "L".repeat(256 * 1024)
+        val upstream = FixtureUpstream(resources)
+        upstream.segmentReadNs.set(1_000_000_000L)
+        withProxy(upstream) { proxy ->
+            val root =
+                proxy.localUrl(
+                    "https://media.example.test/master.m3u8",
+                    upstreamHeaders = mapOf("X-Fixture-Identity" to "renditions"),
+                    cacheable = false,
+                    cacheIdentity = null,
+                )
+            val target = assertNotNull(runBlocking { proxy.resolvePlaybackTarget(root, 0L) })
+            val master = readUrl(target.uri).decodeToString()
+            assertTrue("TYPE=AUDIO" in master && "TYPE=SUBTITLES" in master)
+            Regex("#EXT-X-MEDIA:.*URI=\"([^\"]+)\"").findAll(master).forEach {
+                assertTrue(readUrl(it.groupValues[1]).decodeToString().startsWith("#EXTM3U"))
+            }
+            val video = master.lineSequence().first { it.isNotBlank() && !it.startsWith('#') }
+            val media = readUrl(video).decodeToString()
+            assertEquals("HIGH_INIT", readUrl(hlsInitialization(media)).decodeToString())
+            val segment = media.lineSequence().first { it.isNotBlank() && !it.startsWith('#') }
+            proxy.updatePlaybackFeedback(YAdaptivePlaybackFeedback(0L, true, 1f, 1L))
+            var low = false
+            val downDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (!low && System.nanoTime() < downDeadline) low = readUrl(segment).first() == 'L'.code.toByte()
+            assertTrue(low, "The separated-rendition master must downshift")
+            upstream.segmentReadNs.set(25_000_000L)
+            var high = false
+            val upDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (!high && System.nanoTime() < upDeadline) {
+                proxy.updatePlaybackFeedback(YAdaptivePlaybackFeedback(60_000L, true, 1f, 1L))
+                high = readUrl(segment).first() == 'H'.code.toByte()
+            }
+            assertTrue(high, "A recovered link must restore the higher rendition")
+            assertNull(proxy.pollPlaybackTransition(root, 0L))
+            assertTrue(upstream.requests.all { it.headers["X-Fixture-Identity"] == "renditions" })
+        }
+    }
+
+    @Test
     fun cancelling_manifest_resolution_closes_the_inflight_transport_without_publishing_a_target() {
         val upstream = FixtureUpstream(hlsResources(), blockedPath = "/master.m3u8")
         withProxy(upstream) { proxy ->
@@ -284,6 +341,7 @@ class AndroidAdaptiveProxyTransitionTest {
          * long the scheduler really parked the thread.
          */
         val networkClockNs = AtomicLong()
+        val segmentReadNs = AtomicLong(SLOW_SEGMENT_READ_NS)
 
         fun transport(): YMediaTransport =
             object : YMediaTransport {
@@ -313,7 +371,7 @@ class AndroidAdaptiveProxyTransitionTest {
                         if (path == blockedPath) alternateRead.countDown()
                         return -1
                     }
-                    if (path.endsWith(".m4s")) networkClockNs.addAndGet(SLOW_SEGMENT_READ_NS)
+                    if (path.endsWith(".m4s")) networkClockNs.addAndGet(segmentReadNs.get())
                     val count = minOf(length, bytes.size - position)
                     bytes.copyInto(destination, offset, position, position + count)
                     position += count
