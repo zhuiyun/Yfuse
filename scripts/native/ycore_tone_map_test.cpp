@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+#include <limits>
 
 namespace {
 
@@ -54,6 +55,20 @@ int channel_distance(const RgbaPixel& first, const RgbaPixel& second) {
         std::abs(first.blue - second.blue),
         std::abs(first.alpha - second.alpha),
     });
+}
+
+void per_picture_peak_changes_do_not_rebuild_transfer_tables() {
+    Mapper mapper(Transfer::Pq, 4000.0);
+    const uint16_t gray = code(nits_to_pq(600.0));
+    const auto static_pixel = mapper.map(gray, gray, gray);
+    mapper.set_peak_nits(600.0);
+    const auto scene_pixel = mapper.map(gray, gray, gray);
+    CHECK(scene_pixel.red > static_pixel.red);
+    CHECK(scene_pixel.red >= 254);
+    mapper.set_peak_nits(4000.0);
+    CHECK(mapper.map(gray, gray, gray).red == static_pixel.red);
+    mapper.set_peak_nits(std::numeric_limits<double>::quiet_NaN());
+    CHECK(mapper.map(gray, gray, gray).red == Mapper(Transfer::Pq, 1000.0).map(gray, gray, gray).red);
 }
 
 void black_and_peaks() {
@@ -162,6 +177,7 @@ void row_workers_cover_every_row_once() {
 
 int main() {
     black_and_peaks();
+    per_picture_peak_changes_do_not_rebuild_transfer_tables();
     mid_tones();
     hue_and_order();
     gray_ramps_are_monotonic();

@@ -1530,9 +1530,7 @@ internal class AndroidEnhancedPlaybackSession(
                         val preparedUnit = preparedVideoAccessUnit(sample)
                         val hdr10PlusPayload = preparedUnit.hdr10PlusPayload
                         hdr10PlusPayload?.let(videoDecoder::setHdr10PlusMetadata)
-                        hdr10PlusPayload?.let { payload ->
-                            gpuVideoOutput?.queueHdr10PlusMetadata(sample.presentationTimeUs, payload)
-                        }
+                        gpuVideoOutput?.queueHdr10PlusMetadata(sample.presentationTimeUs, hdr10PlusPayload)
                         yPlaybackStage(
                             category = YPlaybackFailureCategory.Decoder,
                             stage = YPlaybackFailureStage.VideoDecoderQueue,
@@ -1579,7 +1577,7 @@ internal class AndroidEnhancedPlaybackSession(
                     data = transformVideoSample(sample.data),
                     hdr10PlusPayload =
                         video
-                            ?.takeIf { it.hdrType == YHdrType.Hdr10Plus }
+                            ?.takeIf { it.codec == YVideoCodec.H265 }
                             ?.samplePacking
                             ?.let { YBitstream.hdr10PlusItuT35Payload(sample.data, it) },
                 )

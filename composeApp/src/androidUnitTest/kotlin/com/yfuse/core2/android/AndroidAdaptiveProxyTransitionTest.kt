@@ -132,7 +132,7 @@ class AndroidAdaptiveProxyTransitionTest {
             var high = false
             val upDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
             while (!high && System.nanoTime() < upDeadline) {
-                proxy.updatePlaybackFeedback(YAdaptivePlaybackFeedback(60_000L, true, 1f, 1L))
+                proxy.updatePlaybackFeedback(YAdaptivePlaybackFeedback(60_000_000L, true, 1f, 1L))
                 high = readUrl(segment).first() == 'H'.code.toByte()
             }
             assertTrue(high, "A recovered link must restore the higher rendition")

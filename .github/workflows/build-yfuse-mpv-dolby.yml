@@ -11,6 +11,7 @@ on:
       - scripts/build-ycore-demux.sh
       - scripts/test-ycore-extradata-budget.sh
       - scripts/test-ycore-demux-interrupt.sh
+      - scripts/test-ycore-deinterlace.sh
       - scripts/test-ycore-gpu-capability.sh
       - scripts/test-ycore-overlay-plane.sh
       - scripts/native-test-build.sh
@@ -43,6 +44,7 @@ on:
       - scripts/test-ycore-disc-uri.sh
       - scripts/test-ycore-extradata-budget.sh
       - scripts/test-ycore-demux-interrupt.sh
+      - scripts/test-ycore-deinterlace.sh
       - scripts/test-ycore-gpu-capability.sh
       - scripts/test-ycore-overlay-plane.sh
       - scripts/native-test-build.sh
@@ -109,6 +111,7 @@ jobs:
           python3 scripts/ycore-release-evidence.py --self-test
           bash -n scripts/run-ycore-device-gates.sh
           bash scripts/test-ycore-tone-map.sh
+          bash scripts/test-ycore-deinterlace.sh
           bash scripts/test-ycore-disc-uri.sh
           bash scripts/test-ycore-extradata-budget.sh
           bash scripts/test-ycore-demux-interrupt.sh
