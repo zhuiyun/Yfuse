@@ -1,5 +1,8 @@
 package com.yfuse.core.filesource
 
+import com.yfuse.core2.android.decodeSubtitleFile
+import com.yfuse.core2.subtitle.YSubtitleCharset
+import com.yfuse.core2.subtitle.detectSubtitleCharset
 import java.io.File
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -91,25 +94,25 @@ internal class FileSourceSubtitleCache(
 /**
  * Re-encodes a subtitle as UTF-8, the one text encoding the player's loaders assume.
  *
- * Chinese subtitles are still very often GBK, and traditional ones Big5; read as UTF-8 either is
- * a screen of replacement characters. A BOM — UTF-8 or UTF-16 — is trusted as is, valid UTF-8 is
- * left alone, and anything else is decoded as Big5 when the name or the bytes say traditional,
- * as GB18030 (a superset of GBK and GB2312) otherwise.
+ * Chinese subtitles are still very often GBK, traditional ones Big5, Japanese ones Shift_JIS; read
+ * as UTF-8 any of them is a screen of replacement characters. Valid UTF-8 and text behind a UTF-16
+ * BOM are left alone, since every loader reads them; anything else is decoded in the encoding
+ * [detectSubtitleCharset] reads off the bytes, with a 繁 or `cht` in the name settling Big5
+ * against GBK.
  */
 internal fun utf8SubtitleBytes(
     data: ByteArray,
     fileName: String,
 ): ByteArray {
-    if (data.startsWithBytes(UTF8_BOM) || data.startsWithBytes(UTF16LE_BOM) || data.startsWithBytes(UTF16BE_BOM)) {
-        return data
-    }
-    if (data.decodesStrictly(Charsets.UTF_8)) return data
-    val gb18030 = Charset.forName("GB18030")
-    val big5 = Charset.forName("Big5")
-    val traditional = subtitleTags(fileBaseName(fileName)).language in TRADITIONAL_LABELS || data.looksLikeBig5()
-    val order = if (traditional) listOf(big5, gb18030) else listOf(gb18030, big5)
-    val charset = order.firstOrNull { data.decodesStrictly(it) } ?: order.first()
-    return String(data, charset).encodeToByteArray()
+    val name = fileBaseName(fileName)
+    val readableAsIs =
+        when (detectSubtitleCharset(data, subtitleLabelSuggestsTraditional(name))) {
+            YSubtitleCharset.Utf8 -> data.decodesStrictly(Charsets.UTF_8)
+            YSubtitleCharset.Utf16Le, YSubtitleCharset.Utf16Be ->
+                data.startsWithBytes(UTF16LE_BOM) || data.startsWithBytes(UTF16BE_BOM)
+            else -> false
+        }
+    return if (readableAsIs) data else decodeSubtitleFile(data, name).encodeToByteArray()
 }
 
 private fun ByteArray.decodesStrictly(charset: Charset): Boolean =
@@ -124,35 +127,8 @@ private fun ByteArray.decodesStrictly(charset: Charset): Boolean =
         false
     }
 
-/**
- * Big5 and GBK share their lead bytes, so either decodes the other without an error. What tells
- * them apart is the trail byte: Big5 uses 0x40–0x7E for a large share of its characters, while
- * GB2312 — the simplified text GBK subtitles are almost always written in — never does.
- */
-private fun ByteArray.looksLikeBig5(): Boolean {
-    var pairs = 0
-    var lowTrails = 0
-    var index = 0
-    while (index < size - 1) {
-        val lead = this[index].toInt() and 0xFF
-        if (lead >= 0x81) {
-            val trail = this[index + 1].toInt() and 0xFF
-            pairs++
-            if (trail in 0x40..0x7E) lowTrails++
-            index += 2
-        } else {
-            index++
-        }
-    }
-    return pairs >= MIN_PAIRS_FOR_GUESS && lowTrails * 100 >= pairs * BIG5_LOW_TRAIL_PERCENT
-}
-
 private fun ByteArray.startsWithBytes(prefix: ByteArray): Boolean =
     size >= prefix.size && prefix.indices.all { this[it] == prefix[it] }
 
-private val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
 private val UTF16LE_BOM = byteArrayOf(0xFF.toByte(), 0xFE.toByte())
 private val UTF16BE_BOM = byteArrayOf(0xFE.toByte(), 0xFF.toByte())
-private val TRADITIONAL_LABELS = setOf("繁体中文", "繁英双语")
-private const val MIN_PAIRS_FOR_GUESS = 8
-private const val BIG5_LOW_TRAIL_PERCENT = 15

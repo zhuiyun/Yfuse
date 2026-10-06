@@ -42,6 +42,12 @@ interface YPlayer {
     /** Positive values make audio later relative to video; values are bounded to +/- five seconds. */
     fun setAudioDelayMs(delayMs: Long): Boolean = delayMs == 0L
 
+    /** Applies [YAudioEffect] modes to its own decoded audio, without leaving the native player. */
+    val supportsAudioEffects: Boolean get() = false
+
+    /** [YAudioEffect.Off] is always accepted; true when [effect] is applied, or will be once audio plays. */
+    fun setAudioEffect(effect: YAudioEffect): Boolean = effect == YAudioEffect.Off
+
     fun selectTrack(
         type: YTrackType,
         id: String,
@@ -168,6 +174,13 @@ data class YMediaItem(
     val allowNextItemPreparation: Boolean = true,
     /** Initial user intent, resolved against real tracks before choosing the playback route. */
     val initialTrackSelection: YInitialTrackSelection? = null,
+    /**
+     * Fingerprint of the upstream source taken before any loopback localization.
+     *
+     * A localized [uri] names a proxy route that is minted per open, so two mappings of the same
+     * entry never share it. Queue updates compare this key instead and keep the active address.
+     */
+    val sourceKey: String? = null,
 ) {
     init {
         require(cacheMaximumBytes >= 0L)
@@ -270,6 +283,66 @@ internal fun List<YMediaItem>.appendingDistinct(items: List<YMediaItem>): List<Y
     if (items.any { item -> !ids.add(item.id) }) return null
     return this + items
 }
+
+/**
+ * Stable fingerprint of an upstream source: its address and the request headers that select it.
+ *
+ * FNV-1a over the canonical text keeps the key short and free of the raw address, which may carry
+ * an access token in its query.
+ */
+fun yMediaSourceKey(
+    uri: String,
+    headers: Map<String, String>,
+): String {
+    var hash = FNV_OFFSET_BASIS
+
+    fun mix(text: String) {
+        text.encodeToByteArray().forEach { byte ->
+            hash = (hash xor (byte.toLong() and 0xffL)) * FNV_PRIME
+        }
+        hash = (hash xor 0x0aL) * FNV_PRIME
+    }
+    mix(uri.trim())
+    headers.entries
+        .sortedBy { (name, _) -> name.lowercase() }
+        .forEach { (name, value) -> mix("${name.lowercase()}:$value") }
+    return hash.toULong().toString(16).padStart(16, '0')
+}
+
+/**
+ * True when [other] reads the same bytes as this entry, so a queue update may keep the open source.
+ *
+ * Entries mapped through different loopback routes still match by [YMediaItem.sourceKey]; entries
+ * without one fall back to the exact address and headers.
+ */
+internal fun YMediaItem.hasSameActiveSourceAs(other: YMediaItem): Boolean {
+    if (id != other.id) return false
+    if (drmConfiguration != other.drmConfiguration) return false
+    if (transportCredentials != other.transportCredentials) return false
+    val key = sourceKey
+    val otherKey = other.sourceKey
+    return if (key != null && otherKey != null) {
+        key == otherKey
+    } else {
+        uri == other.uri && headers == other.headers
+    }
+}
+
+/**
+ * A refreshed queue that keeps the address of every entry already in [active]: the open source and
+ * any loopback route already minted for a queued entry stay valid, while titles, hints and track
+ * intent come from the refresh. Entries new to the queue are taken as given.
+ */
+internal fun List<YMediaItem>.retainingActiveSources(active: List<YMediaItem>): List<YMediaItem> =
+    map { refreshed ->
+        active
+            .firstOrNull { current -> current.hasSameActiveSourceAs(refreshed) }
+            ?.let { current -> refreshed.copy(uri = current.uri, headers = current.headers) }
+            ?: refreshed
+    }
+
+private const val FNV_OFFSET_BASIS = -0x340d631b7bdddcdbL
+private const val FNV_PRIME = 0x100000001b3L
 
 private const val MIN_END_VALIDATION_DURATION_MS = 60_000L
 private const val MIN_END_TOLERANCE_MS = 15_000L
@@ -496,6 +569,8 @@ data class YPlayerState(
     val secondarySubtitleTrackId: String? = null,
     val secondarySubtitleOffsetMs: Long = 0L,
     val discNavigation: PlaybackDiscNavigationState = PlaybackDiscNavigationState(),
+    /** The current item's chapters as its container declares them, unfiltered; empty when it has none. */
+    val chapters: List<YChapter> = emptyList(),
     val error: String? = null,
     val errorCategory: YPlaybackFailureCategory? = null,
     val diagnostics: YPlayerDiagnostics = YPlayerDiagnostics(),

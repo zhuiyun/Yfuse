@@ -9,6 +9,7 @@ import android.os.SystemClock
 import android.view.Surface
 import android.view.WindowManager
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YDualDolbyEvidenceState
 import com.yfuse.core2.api.YFrameRateSample
@@ -46,6 +47,7 @@ import com.yfuse.core2.dolby.verifyDolbyVisionFelComposition
 import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
 import com.yfuse.core2.network.YPlaybackBufferGate
+import com.yfuse.core2.recovery.passthroughRestorable
 import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.render.YRenderedFrameRateSampler
@@ -120,7 +122,7 @@ internal data class YEnhancedPlaybackSnapshot(
  *
  * This class intentionally contains no Compose/UI code. The demuxer yields compressed samples;
  * hardware and platform-software codecs go through MediaCodec, while the terminal compatibility
- * route decodes through the optional FFmpeg extension and presents bounded BGRA/PCM frames. All
+ * route decodes through the optional FFmpeg extension and presents bounded RGBA/PCM frames. All
  * methods must be called serially from one playback worker.
  */
 internal class AndroidEnhancedPlaybackSession(
@@ -238,6 +240,21 @@ internal class AndroidEnhancedPlaybackSession(
         audioRenderer.setAudioDelayMs(value)
         if (value != 0L && isAudioPassthrough()) {
             switchPassthroughToPcm(currentPositionUs(), countFailure = false)
+        } else {
+            restorePassthroughIfAvailable()
+        }
+    }
+
+    private var audioEffect = YAudioEffect.Off
+
+    /** Effects process PCM, so a bitstreamed track decodes while one is on; kept across opens. */
+    fun setAudioEffect(value: YAudioEffect) {
+        audioEffect = value
+        audioRenderer.setAudioEffect(value)
+        if (value != YAudioEffect.Off && isAudioPassthrough()) {
+            switchPassthroughToPcm(currentPositionUs(), countFailure = false)
+        } else {
+            restorePassthroughIfAvailable()
         }
     }
 
@@ -373,7 +390,10 @@ internal class AndroidEnhancedPlaybackSession(
             )
         }
         val initialAudioOutputPath =
-            if (audioDelayMs != 0L && audioSelection?.outputPath == YAudioOutputPath.Passthrough) {
+            if (
+                (audioDelayMs != 0L || audioEffect != YAudioEffect.Off) &&
+                audioSelection?.outputPath == YAudioOutputPath.Passthrough
+            ) {
                 YAudioOutputPath.DecodePcm
             } else {
                 audioSelection?.outputPath ?: YAudioOutputPath.None
@@ -440,6 +460,7 @@ internal class AndroidEnhancedPlaybackSession(
                         trackId = videoTrack.id,
                         toneMapHdrToSdr = plan.softwareVideoToneMap,
                     )
+                    softwareVideoRenderer.geometry = effectiveVideo.geometry
                     softwareVideoRenderer.attach(surface)
                 }
             } else {
@@ -462,7 +483,11 @@ internal class AndroidEnhancedPlaybackSession(
                 videoParameterSetsPending = parameterSetsMissing && keyframeParameterSets == null
                 val videoFormat =
                     yVideoFormatStage(ENHANCED_VIDEO_FORMAT_DETAIL) {
-                        AndroidMediaFormatFactory.video(effectiveVideo, keyframeParameterSets)
+                        AndroidMediaFormatFactory.video(
+                            effectiveVideo,
+                            keyframeParameterSets,
+                            displayRotation = plan.route != YPlaybackRoute.GpuEnhanced,
+                        )
                     }
                 val decoderSurface =
                     if (plan.route == YPlaybackRoute.GpuEnhanced) {
@@ -750,6 +775,35 @@ internal class AndroidEnhancedPlaybackSession(
             return
         }
         if (audioRendererConfigured && !isAudioPassthrough()) audioRenderer.setSpeed(value)
+        restorePassthroughIfAvailable()
+    }
+
+    /** Gives passthrough back once speed is 1.0 and the delay 0 again; see [passthroughRestorable]. */
+    private fun restorePassthroughIfAvailable() {
+        val track = audioTrack ?: return
+        val format = track.audio ?: return
+        if (!prepared) return
+        val capabilities = capabilityProvider.current()
+        val devicePath =
+            capabilities.audioOutputPath(
+                YAudioRequirement(
+                    codec = format.codec,
+                    channelCount = format.channelCount,
+                    sampleRate = format.sampleRate,
+                ),
+            )
+        val restorable =
+            passthroughRestorable(
+                currentPath = audioOutputPath,
+                devicePath = devicePath,
+                protectedContent = false,
+                passthroughRejected = track.id in rejectedPassthroughTracks,
+                speed = speed,
+                audioDelayMs = audioDelayMs,
+                audioEffectActive = audioEffect != YAudioEffect.Off,
+            )
+        // Re-selecting the same track re-plans its path, and restores the PCM one if the sink fails.
+        if (restorable) selectAudioTrack(track.id, capabilities)
     }
 
     fun setOutputSurface(next: Surface) {
@@ -830,7 +884,11 @@ internal class AndroidEnhancedPlaybackSession(
         var nextPath =
             if (
                 devicePath == YAudioOutputPath.Passthrough &&
-                (audioDelayMs != 0L || requiresPcmAudioPath(false, passthroughRejected, speed))
+                (
+                    audioDelayMs != 0L ||
+                        audioEffect != YAudioEffect.Off ||
+                        requiresPcmAudioPath(false, passthroughRejected, speed)
+                )
             ) {
                 YAudioOutputPath.DecodePcm
             } else {
@@ -1018,7 +1076,11 @@ internal class AndroidEnhancedPlaybackSession(
                 // taken from a keyframe when the container record carried none.
                 val videoFormat =
                     yVideoFormatStage(ENHANCED_VIDEO_FORMAT_DETAIL) {
-                        AndroidMediaFormatFactory.video(requireNotNull(effectiveVideoTrack), videoInBandParameterSets)
+                        AndroidMediaFormatFactory.video(
+                            requireNotNull(effectiveVideoTrack),
+                            videoInBandParameterSets,
+                            displayRotation = gpuVideoOutput == null,
+                        )
                     }
                 yPlaybackStage(
                     category = YPlaybackFailureCategory.Decoder,
@@ -1617,7 +1679,7 @@ internal class AndroidEnhancedPlaybackSession(
                     stage = YPlaybackFailureStage.AudioRenderer,
                     safeDetail = "Enhanced PCM sink configure",
                 ) {
-                    audioRenderer.configure(output.format)
+                    audioRenderer.configureIfChanged(output.format)
                 }
                 audioRendererConfigured = true
                 captureAudioRoutingGeneration()
@@ -1774,6 +1836,11 @@ internal class AndroidEnhancedPlaybackSession(
                 droppedFrames++
             }
             is YVideoFrameReleaseDecision.Render -> {
+                val gpu = gpuVideoOutput
+                if (gpu != null && decision.tooEarlyToPresentOnArrival(nowNs)) {
+                    pendingVideoOutput = output
+                    return false
+                }
                 pendingVideoOutput = null
                 yPlaybackStage(
                     category = YPlaybackFailureCategory.Renderer,
@@ -1781,6 +1848,9 @@ internal class AndroidEnhancedPlaybackSession(
                     safeDetail = "Enhanced video frame release",
                 ) {
                     videoOutputEpoch.submitted(output.presentationTimeUs)
+                    // Recorded first: the image can reach the renderer's thread before
+                    // releaseOutput returns.
+                    gpu?.recordFrame(decision.releaseTimeNs, output.presentationTimeUs)
                     videoDecoder.releaseOutput(output, render = true, renderTimeNs = decision.releaseTimeNs)
                     surfaceCompletion.frameReleased(decision.releaseTimeNs)
                 }

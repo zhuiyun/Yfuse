@@ -267,12 +267,18 @@ class PlaybackRoadmapTest {
 
     @Test
     fun deviceProfileAdvertisesStyledAndBitmapSubtitleDelivery() {
-        val formats = DeviceProfileDto.yfuseAndroid().SubtitleProfiles.associate { it.Format to it.Method }
+        val methods =
+            DeviceProfileDto
+                .yfuseAndroid()
+                .SubtitleProfiles
+                .groupBy({ it.Format }, { it.Method })
+                .mapValues { it.value.toSet() }
 
-        assertEquals("Embed", formats["ass"])
-        assertEquals("Embed", formats["ssa"])
-        assertEquals("Embed", formats["pgs"])
-        assertEquals("External", formats["srt"])
+        // Styled text arrives as it is, embedded or as a sidecar, never converted to SRT.
+        assertEquals(setOf("Embed", "External"), methods["ass"])
+        assertEquals(setOf("Embed", "External"), methods["ssa"])
+        assertEquals(setOf("Embed"), methods["pgs"])
+        assertEquals(setOf("External"), methods["srt"])
     }
 
     @Test

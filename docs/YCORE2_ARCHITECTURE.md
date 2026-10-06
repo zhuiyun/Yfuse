@@ -12,6 +12,40 @@ the historical 1.0.23 native-only delivery. The migration plan and early device 
 describe earlier milestones. Source fixes and remaining evidence needs are tracked in
 [the September audit follow-up](YCORE_AUDIT_FIXES_20260912.md).
 
+## Kernel audit follow-up (2026-10-05)
+
+A full review of the kernel was followed by these source changes on branch
+`ccr-442aac01-j6nvy8`. Native changes take effect when the YCore native AAR is rebuilt and pinned;
+until then the Kotlin side keeps working with the published native API.
+
+- Correctness: Core2 no longer runs behind the Media3 cache proxy in full builds; route memory
+  learns only from route faults and fades; the Android 8-11 audio buffer holds steady and the pump
+  never waits on the demuxer; FFmpeg routes read SMB and documents through YCore's own transports;
+  the software route shows true colours, survives damaged packets and tone-maps HDR in real time;
+  the GPU route survives seeks, presents on time and counts only shown frames; native crashes name
+  their thread, frames and owner, and each native build keeps its unstripped libraries.
+- Picture: anamorphic and rotated video keep their shape on every route; deinterlacing and
+  HDR10+ on the FFmpeg path remain open.
+- Audio: passthrough returns once speed, audio delay or an audio effect is back to neutral; AAC in
+  MPEG-TS, Opus and MPEG Layer II decode on the FFmpeg routes; the clock follows timestamp jumps; a
+  repeated decoder format no longer discards buffered audio; PCM survives the audio server dropping
+  its track. 音量增强 / 响度均衡 / 夜间人声 run inside YCore (`YAudioEffectProcessor`, zero latency,
+  ending in a peak limiter) instead of switching to mpv.
+- Subtitles: sidecars in GBK, Big5, Shift_JIS, EUC-KR and other legacy encodings are detected;
+  SAMI, MicroDVD and TTML sidecars join SRT, WebVTT and ASS/SSA; DVB subtitles display on the
+  FFmpeg routes; ASS renders at full resolution and libass no longer loads all of /system/fonts.
+- Sources: servers ignoring byte ranges play as streams; SMB reads share one connection and login;
+  HLS playlists with a byte-order mark, inline `data:` resources, AES-128 session keys or separate
+  audio renditions play; the block cache prunes directories of titles it no longer holds; one
+  unplayable episode no longer keeps a queue off YCore; an audio route change never returns
+  playback to a route that failed.
+- Features: Matroska chapters mark the progress bar for files no server describes; Blu-ray audio
+  and subtitle tracks carry their playlist languages.
+- Engineering: native unit tests keep their checks in release builds and run under ASan/UBSan;
+  YCore functions have a 200-line size limit with the current long ones baselined; the native
+  build records the license FFmpeg was configured under; the `ycore-native` C ABI, used only by
+  the experimental HarmonyOS port, has fixed-width fields and a stated threading contract.
+
 ## Original migration decision (historical)
 
 YCore 2.0 follows the parallel-migration model:
@@ -284,7 +318,11 @@ A Core2 change may merge only when:
 
 ## Historical production switch
 
-**Historical rollout state (superseded by native-only production):** Legacy remained authoritative,
+This section records the opt-in rollout as it stood on 2026-08-29. Where it disagrees with the
+sections above (the GPU route, subtitle formats, fallback targets), they describe the current code.
+
+**Historical rollout state (superseded: Core2 is now the default under Auto, see the current
+production status):** Legacy remained authoritative,
 while users could explicitly enable
 `YCore 2.0 播放内核` in advanced playback settings. The switch is persisted separately from the selected
 Legacy engine so disabling or failing the trial never changes the user's Exo/mpv/MDK preference.

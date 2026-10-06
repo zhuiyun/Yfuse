@@ -33,6 +33,7 @@ import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackPerformanceMemory
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.WatchTogetherState
+import com.yfuse.core2.android.resetYCoreLearning
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
@@ -141,7 +142,7 @@ internal fun PlayerRootControls(
                 resumedFromMs = initialResumeNoticeMs,
                 autoNext = autoNext,
                 trickplay = currentTrickplay,
-                chapters = currentItem?.chapters.orEmpty(),
+                chapters = currentItem?.chapters.orEmpty().ifEmpty { state.chapters },
                 skip = skip.state,
             ),
         transportActions =
@@ -809,6 +810,7 @@ internal fun PlayerRootControls(
                 onResetAdaptiveLearning = {
                     failureMemory.clear()
                     performanceMemory.clear()
+                    resetYCoreLearning(context)
                     Toast
                         .makeText(context, "YCore 学习数据已重置", Toast.LENGTH_SHORT)
                         .show()

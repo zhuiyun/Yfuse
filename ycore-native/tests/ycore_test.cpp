@@ -1,3 +1,6 @@
+// The checks below are assert()s, which must run in every build, release flags included.
+#undef NDEBUG
+
 #include "ycore/ycore.h"
 #include "ycore/ycore_build.h"
 
@@ -74,7 +77,7 @@ int32_t fake_speed(void *context, float speed) {
     return YCORE_OK;
 }
 
-int32_t fake_track(void *context, ycore_track_type_t, const char *) {
+int32_t fake_track(void *context, int32_t, const char *) {
     auto *fake = static_cast<FakeEngine *>(context);
     ++fake->track_count;
     return fake->track_result;
@@ -468,6 +471,32 @@ void test_rejected_speed_does_not_replace_the_last_accepted_value() {
     ycore_session_destroy(session);
 }
 
+void test_state_text_is_copied_under_the_session_lock() {
+    FakeEngine engine;
+    ycore_session_t *session = ycore_session_create();
+    auto system = registration("system-player", YCORE_ROUTE_SYSTEM, 10, YCORE_CAP_REMOTE_URL, &engine);
+    assert(ycore_session_register_engine(session, &system) == YCORE_OK);
+    auto media = request();
+    assert(ycore_session_open(session, &media) == YCORE_OK);
+
+    char engine_name[YCORE_ENGINE_NAME_MAX] = {};
+    assert(ycore_session_copy_state_engine(session, engine_name, sizeof(engine_name)) == 13);
+    assert(std::strcmp(engine_name, "system-player") == 0);
+    // Cut to the buffer, still terminated, and the full length is reported.
+    char short_name[7] = {};
+    assert(ycore_session_copy_state_engine(session, short_name, sizeof(short_name)) == 13);
+    assert(std::strcmp(short_name, "system") == 0);
+    char reason[YCORE_DIAGNOSTIC_TEXT_MAX] = {};
+    const int32_t reason_length = ycore_session_copy_state_reason(session, reason, sizeof(reason));
+    assert(reason_length == static_cast<int32_t>(std::strlen(ycore_session_state_reason(session))));
+    assert(std::strcmp(reason, ycore_session_state_reason(session)) == 0);
+    // A null buffer only measures; with room claimed it is an error, as is a null session.
+    assert(ycore_session_copy_state_engine(session, nullptr, 0) == 13);
+    assert(ycore_session_copy_state_engine(session, nullptr, 8) == YCORE_ERROR_INVALID_ARGUMENT);
+    assert(ycore_session_copy_state_reason(nullptr, reason, sizeof(reason)) == YCORE_ERROR_INVALID_ARGUMENT);
+    ycore_session_destroy(session);
+}
+
 }  // namespace
 
 int main() {
@@ -486,5 +515,6 @@ int main() {
     test_track_restore_failure_is_reported();
     test_new_media_clears_tracks_and_output_evidence();
     test_rejected_speed_does_not_replace_the_last_accepted_value();
+    test_state_text_is_copied_under_the_session_lock();
     return 0;
 }

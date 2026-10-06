@@ -63,6 +63,13 @@ internal class AndroidVulkanVideoOutput
         private val pendingHdr10Plus =
             ConcurrentSkipListMap<Long, com.yfuse.core2.hdr.YHdr10PlusSceneMetadata>()
 
+        /**
+         * Release timestamp (the image's) to media timestamp. HDR10+ metadata is queued by media
+         * time while images arrive stamped on the monotonic clock; looking metadata up with the
+         * image time never matched, so no scene metadata ever reached the renderer.
+         */
+        private val releasedFrames = ConcurrentSkipListMap<Long, Long>()
+
         val decoderSurface: Surface get() = imageReader.surface
         val isReady: Boolean get() = renderer.get() != 0L && decoderSurface.isValid
         val currentFeatureMask: Long get() = featureMask.get()
@@ -88,62 +95,79 @@ internal class AndroidVulkanVideoOutput
 
         fun setTargetSurface(target: Surface): Boolean {
             if (!target.isValid) return false
-            val replacement =
-                AndroidYCoreGpuNativeBridge.createRenderer(
-                    target,
-                    activeColorConfig.get().outputTransfer,
-                )
-            if (replacement == 0L) return false
-            synchronized(rendererLock) {
-                targetSurface.set(target)
-                AndroidYCoreGpuNativeBridge.destroyRenderer(renderer.getAndSet(replacement))
-                featureMask.set(AndroidYCoreGpuNativeBridge.rendererFeatureMask(replacement))
-                gpuDurationNs.set(0L)
-                presentedFrames.set(0)
-                attemptedFrames.set(0)
-            }
-            return true
+            return synchronized(rendererLock) { replaceRendererLocked(target) }
         }
 
         /** A new producer Surface prevents already-queued old images from proving a new seek. */
         fun resetOutputEvidence(switchDecoderSurface: (Surface) -> Unit): Boolean {
             val replacement = createPrivateImageReader(decoderWidth.get(), decoderHeight.get())
-            val newRenderer =
-                AndroidYCoreGpuNativeBridge.createRenderer(
-                    targetSurface.get(),
-                    activeColorConfig.get().outputTransfer,
-                )
-            if (newRenderer == 0L) {
-                replacement.close()
-                return false
-            }
             attachImageListener(replacement)
             try {
                 switchDecoderSurface(replacement.surface)
             } catch (failure: Throwable) {
                 replacement.setOnImageAvailableListener(null, null)
                 replacement.close()
-                AndroidYCoreGpuNativeBridge.destroyRenderer(newRenderer)
                 throw failure
             }
             val previous: ImageReader
+            val ready: Boolean
             synchronized(rendererLock) {
                 previous = imageReader
                 imageReader = replacement
-                AndroidYCoreGpuNativeBridge.destroyRenderer(renderer.getAndSet(newRenderer))
                 pendingHdr10Plus.clear()
+                releasedFrames.clear()
                 activeColorConfig.updateAndGet { it.copy(hdr10PlusSceneMetadata = null) }
-                featureMask.set(AndroidYCoreGpuNativeBridge.rendererFeatureMask(newRenderer))
-                gpuDurationNs.set(0L)
-                presentedFrames.set(0)
-                attemptedFrames.set(0)
                 frameIndex.set(0)
+                // An API 3 executor forgets the old reader's buffers and its evidence in place;
+                // an older one is rebuilt on the same window.
+                ready =
+                    if (AndroidYCoreGpuNativeBridge.resetRenderer(renderer.get())) {
+                        resetEvidenceLocked(renderer.get())
+                        true
+                    } else {
+                        replaceRendererLocked(targetSurface.get())
+                    }
             }
             handler.post {
                 previous.setOnImageAvailableListener(null, null)
                 runCatching(previous::close)
             }
-            return true
+            return ready
+        }
+
+        /** Records which media frame was released for presentation at [releaseTimeNs]. */
+        fun recordFrame(
+            releaseTimeNs: Long,
+            presentationTimeUs: Long,
+        ) {
+            releasedFrames[releaseTimeNs] = presentationTimeUs
+            while (releasedFrames.size > MAX_RELEASED_FRAME_RECORDS) releasedFrames.pollFirstEntry()
+        }
+
+        /**
+         * Swaps in a renderer for [target]. A window accepts one Vulkan connection at a time, so
+         * the old renderer is destroyed first: creating the replacement while it still held the
+         * same window failed with NATIVE_WINDOW_IN_USE, which made every GPU seek, resume and
+         * track switch fail. Caller holds [rendererLock].
+         */
+        private fun replaceRendererLocked(target: Surface): Boolean {
+            AndroidYCoreGpuNativeBridge.destroyRenderer(renderer.getAndSet(0L))
+            val replacement =
+                AndroidYCoreGpuNativeBridge.createRenderer(
+                    target,
+                    activeColorConfig.get().outputTransfer,
+                )
+            targetSurface.set(target)
+            renderer.set(replacement)
+            resetEvidenceLocked(replacement)
+            return replacement != 0L
+        }
+
+        private fun resetEvidenceLocked(handle: Long) {
+            featureMask.set(AndroidYCoreGpuNativeBridge.rendererFeatureMask(handle))
+            gpuDurationNs.set(0L)
+            presentedFrames.set(0)
+            attemptedFrames.set(0)
         }
 
         fun updateDecodedFormat(
@@ -266,7 +290,8 @@ internal class AndroidVulkanVideoOutput
                                 val handle = renderer.get()
                                 if (handle == 0L) return@synchronized
                                 attemptedFrames.incrementAndGet()
-                                applyHdr10PlusForTimestamp(image.timestamp / 1_000L)
+                                mediaTimeUs(image.timestamp)?.let { applyHdr10PlusForTimestamp(it) }
+                                AndroidYCoreGpuNativeBridge.setDesiredPresentTime(handle, image.timestamp)
                                 val mask =
                                     AndroidYCoreGpuNativeBridge.renderHardwareBuffer(
                                         renderer = handle,
@@ -274,7 +299,15 @@ internal class AndroidVulkanVideoOutput
                                         config = activeColorConfig.get(),
                                         frameIndex = frameIndex.getAndIncrement(),
                                     )
-                                featureMask.set(mask)
+                                // An API 3 result marks presentation for this frame only; the
+                                // renderer's standing capabilities come from its feature mask.
+                                featureMask.set(
+                                    if (AndroidYCoreGpuNativeBridge.timedPresentation) {
+                                        AndroidYCoreGpuNativeBridge.rendererFeatureMask(handle)
+                                    } else {
+                                        mask
+                                    },
+                                )
                                 gpuDurationNs.set(AndroidYCoreGpuNativeBridge.lastGpuDurationNs(handle))
                                 if (mask and YNativeGpuFeature.DecodedFramePresented.mask != 0L) {
                                     presentedFrames.incrementAndGet()
@@ -294,6 +327,15 @@ internal class AndroidVulkanVideoOutput
                 AndroidYCoreGpuNativeBridge.destroyRenderer(renderer.getAndSet(0L))
             }
             thread.quitSafely()
+        }
+
+        private fun mediaTimeUs(imageTimestampNs: Long): Long? {
+            val entry =
+                releasedFrames.floorEntry(imageTimestampNs + RELEASE_TIMESTAMP_TOLERANCE_NS)
+                    ?: return null
+            if (imageTimestampNs - entry.key > RELEASE_TIMESTAMP_TOLERANCE_NS) return null
+            releasedFrames.headMap(entry.key, false).clear()
+            return entry.value
         }
 
         private fun applyHdr10PlusForTimestamp(presentationTimeUs: Long) {
@@ -329,6 +371,10 @@ private const val MAX_MEASUREMENT_FRAMES = 48
 private const val MAX_P010_PROBE_FRAMES = 12
 private const val MAX_PENDING_DYNAMIC_METADATA = 96
 private const val MAX_DYNAMIC_METADATA_DISTANCE_US = 1_000_000L
+private const val MAX_RELEASED_FRAME_RECORDS = 64
+
+// MediaCodec stamps the image with the release time it was given; allow for rounding on the way.
+private const val RELEASE_TIMESTAMP_TOLERANCE_NS = 2_000_000L
 private val PRODUCER_FENCE_TIMEOUT: Duration = Duration.ofMillis(250)
 
 private fun MediaFormat.integerOrNull(key: String): Int? =

@@ -36,7 +36,7 @@ data class YNativeGpuRuntimeProbe(
     val supportsWarmup: Boolean
         get() =
             platformApiLevel >= MIN_ANDROID_HARDWARE_BUFFER_API &&
-                nativeApiVersion == NATIVE_GPU_API_VERSION &&
+                nativeApiVersion >= NATIVE_GPU_API_VERSION &&
                 WARMUP_FEATURES.all(::supports)
 
     /** A real decoded frame and measured output are mandatory before Vulkan becomes a media route. */
@@ -72,7 +72,7 @@ data class YNativeGpuRuntimeProbe(
     fun firstMissingRequirement(): YNativeGpuRequirement? =
         when {
             platformApiLevel < MIN_ANDROID_HARDWARE_BUFFER_API -> YNativeGpuRequirement.AndroidApi
-            nativeApiVersion != NATIVE_GPU_API_VERSION -> YNativeGpuRequirement.NativeApi
+            nativeApiVersion < NATIVE_GPU_API_VERSION -> YNativeGpuRequirement.NativeApi
             !supports(YNativeGpuFeature.VulkanLoader) -> YNativeGpuRequirement.VulkanLoader
             !supports(YNativeGpuFeature.VulkanInstance) -> YNativeGpuRequirement.VulkanInstance
             !supports(YNativeGpuFeature.PhysicalDevice) -> YNativeGpuRequirement.PhysicalDevice
@@ -143,5 +143,9 @@ private val STATIC_COLOR_PIPELINE_FEATURES =
         YNativeGpuFeature.DisplayTiming,
     )
 
+/** Oldest native GPU executor this app drives; later versions only add entry points. */
 const val NATIVE_GPU_API_VERSION = 2
+
+/** Per-frame presentation results, desired present times and in-place renderer reset. */
+const val NATIVE_GPU_TIMED_PRESENT_API_VERSION = 3
 const val MIN_ANDROID_HARDWARE_BUFFER_API = 28

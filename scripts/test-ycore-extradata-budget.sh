@@ -2,11 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="${YCORE_TEST_BUILD_DIR:-$ROOT/.native-build/extradata-budget-test}"
-CXX="${CXX:-c++}"
-mkdir -p "$BUILD_DIR"
-"$CXX" -std=c++17 -Wall -Wextra -Werror \
-  "$ROOT/scripts/native/ycore_extradata_budget_test.cpp" \
-  -o "$BUILD_DIR/ycore-extradata-budget-test"
-"$BUILD_DIR/ycore-extradata-budget-test"
+# shellcheck source=scripts/native-test-build.sh
+source "$ROOT/scripts/native-test-build.sh"
+
+ycore_native_test ycore-extradata-budget-test "$ROOT/scripts/native/ycore_extradata_budget_test.cpp"
 echo "[ycore-extradata-budget] tests passed"

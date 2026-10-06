@@ -70,7 +70,7 @@ internal fun rememberLocalSubtitlePicker(
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {
-                            if (owner == latestTarget) messageCallback("无法读取字幕，请选择有效的 SRT、ASS、SSA 或 VTT 文件。")
+                            if (owner == latestTarget) messageCallback(UNREADABLE_SUBTITLE_MESSAGE)
                         }
                     }
             } else if (uri != null && owner != null) {
@@ -89,3 +89,5 @@ internal fun rememberLocalSubtitlePicker(
         }
     }
 }
+
+private const val UNREADABLE_SUBTITLE_MESSAGE = "无法读取字幕，请选择有效的 SRT、ASS、SSA、VTT、SMI、TTML 或 MicroDVD 字幕文件。"

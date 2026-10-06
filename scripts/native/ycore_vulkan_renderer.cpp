@@ -17,6 +17,7 @@
 #include <memory>
 #include <mutex>
 #include <cstddef>
+#include <ctime>
 #include <vector>
 
 #include "ycore_gpu_capability.h"
@@ -33,6 +34,9 @@ constexpr uint64_t kMaximumMeasuredGpuFrameNs = 50'000'000ULL;
 constexpr uint64_t kMaximumAverageGpuFrameNs = 25'000'000ULL;
 constexpr uint64_t kMaximumP95GpuFrameNs = 40'000'000ULL;
 constexpr size_t kMaximumImportedFrameCacheSize = 12;
+// A frame is released to the renderer at most a refresh or two ahead of time; anything further out
+// is a clock mismatch and presents at once rather than stalling the swapchain.
+constexpr int64_t kMaximumPresentLeadNs = 500'000'000LL;
 constexpr size_t kFramesInFlight = 3;
 constexpr int32_t kTransferSdr = 0;
 constexpr int32_t kTransferPq = 1;
@@ -191,8 +195,51 @@ public:
             frame_slots_[0].command_buffer != VK_NULL_HANDLE;
     }
 
+    /**
+     * Renders one decoded frame. The result carries the renderer's capability bits, and the
+     * swapchain/decoded-frame presentation bits only when this frame actually reached the
+     * swapchain: a frame that failed to import, acquire or present must not count as shown.
+     */
     uint64_t render(JNIEnv* env, jobject hardware_buffer, const FrameParameters& parameters) {
         std::lock_guard<std::mutex> lock(mutex_);
+        frame_presented_ = false;
+        const uint64_t mask = render_locked(env, hardware_buffer, parameters);
+        desired_present_time_ns_ = 0;
+        // A size change right after presenting rebuilds the swapchain and clears the standing
+        // presentation bits; the frame itself was still shown.
+        return frame_presented_ ? mask | kFramePresentationBits : mask & ~kFramePresentationBits;
+    }
+
+    /** CLOCK_MONOTONIC time the next frame should not appear before; 0 presents at once. */
+    void set_desired_present_time(int64_t time_ns) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        desired_present_time_ns_ = time_ns > 0 ? time_ns : 0;
+    }
+
+    /**
+     * Forgets imported decoder buffers and presentation evidence, as after a seek onto a new
+     * decoder Surface, while keeping the window connection and swapchain. Recreating the renderer
+     * instead needs the window released first, and costs a swapchain and pipeline build.
+     */
+    bool reset() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!ready() || vkDeviceWaitIdle(device_) != VK_SUCCESS) return false;
+        for (auto& slot : frame_slots_) {
+            slot.imported_frame.reset();
+            slot.query_pending = false;
+        }
+        imported_frame_cache_.clear();
+        feature_mask_ &= ~(kFramePresentationBits | ycore::gpu::kOutputMeasured);
+        presented_frames_ = timestamp_samples_ = slow_timestamp_samples_ = past_presentations_ = 0;
+        timestamp_durations_ns_.clear();
+        return true;
+    }
+
+private:
+    static constexpr uint64_t kFramePresentationBits =
+        ycore::gpu::kSwapchainPresented | ycore::gpu::kDecodedFramePresented;
+
+    uint64_t render_locked(JNIEnv* env, jobject hardware_buffer, const FrameParameters& parameters) {
         if (!ready() || hardware_buffer == nullptr) return feature_mask_;
         if (surface_extent_changed() && !recreate_swapchain()) return feature_mask_;
         auto frame = import_frame(env, hardware_buffer, parameters);
@@ -219,7 +266,6 @@ public:
             return feature_mask_;
         }
         if (acquire != VK_SUCCESS && acquire != VK_SUBOPTIMAL_KHR) return feature_mask_;
-        const bool recreate_after_present = acquire == VK_SUBOPTIMAL_KHR;
         // Any failure after acquisition must retire that swapchain and its signaled binary
         // semaphores. A plain return leaks acquisition and poisons the next use of this slot.
         auto abandon_acquired_image = [this, &slot](void*) {
@@ -348,7 +394,7 @@ public:
 
         VkPresentTimeGOOGLE present_time{};
         present_time.presentID = ++present_id_;
-        present_time.desiredPresentTime = 0;
+        present_time.desiredPresentTime = desired_present_time();
         VkPresentTimesInfoGOOGLE present_times{};
         present_times.sType = VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE;
         present_times.swapchainCount = 1;
@@ -365,7 +411,8 @@ public:
         if (presented == VK_ERROR_OUT_OF_DATE_KHR) return feature_mask_;
         if (presented != VK_SUCCESS && presented != VK_SUBOPTIMAL_KHR) return feature_mask_;
         acquisition.release();
-        feature_mask_ |= ycore::gpu::kSwapchainPresented | ycore::gpu::kDecodedFramePresented;
+        feature_mask_ |= kFramePresentationBits;
+        frame_presented_ = true;
         ++presented_frames_;
 
         collect_presentation_timing();
@@ -377,14 +424,35 @@ public:
             display_timing_ && past_presentations_ > 0) {
             feature_mask_ |= ycore::gpu::kOutputMeasured;
         }
-        if (recreate_after_present || presented == VK_SUBOPTIMAL_KHR) recreate_swapchain();
+        // Android reports SUBOPTIMAL whenever the swapchain transform differs from the window's
+        // rotation hint, which the identity transform below always does on a rotated display.
+        // Rebuilding for that on every frame also wiped the presentation evidence; only a size
+        // change needs a new swapchain.
+        if ((acquire == VK_SUBOPTIMAL_KHR || presented == VK_SUBOPTIMAL_KHR) && surface_extent_changed()) {
+            recreate_swapchain();
+        }
         return feature_mask_;
     }
 
+public:
     uint64_t feature_mask() const { return feature_mask_; }
     uint64_t last_gpu_duration_ns() const { return last_gpu_duration_ns_; }
 
 private:
+    /**
+     * The frame's own release timestamp, so the compositor shows it on time rather than on the
+     * next refresh after Vulkan finishes. Implausible values present at once.
+     */
+    uint64_t desired_present_time() const {
+        if (!display_timing_ || desired_present_time_ns_ <= 0) return 0;
+        timespec now{};
+        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return 0;
+        const int64_t now_ns = static_cast<int64_t>(now.tv_sec) * 1'000'000'000LL + now.tv_nsec;
+        const int64_t lead_ns = desired_present_time_ns_ - now_ns;
+        if (lead_ns <= 0 || lead_ns > kMaximumPresentLeadNs) return 0;
+        return static_cast<uint64_t>(desired_present_time_ns_);
+    }
+
     bool create(int32_t output_transfer) {
         const auto instance_extensions = enumerate_instance_extensions();
         if (!contains_extension(instance_extensions, VK_KHR_SURFACE_EXTENSION_NAME) ||
@@ -555,7 +623,14 @@ private:
         info.imageArrayLayers = 1;
         info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        info.preTransform = capabilities.currentTransform;
+        // Declaring the window's current transform promises content pre-rotated into the panel's
+        // orientation, which the shaders do not draw: a portrait-natural phone held landscape
+        // showed the picture sideways. With no transform the compositor rotates the layer, as it
+        // does for an ordinary video Surface.
+        info.preTransform =
+            (capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) != 0
+            ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
+            : capabilities.currentTransform;
         info.compositeAlpha = composite;
         info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
         info.clipped = VK_TRUE;
@@ -945,10 +1020,17 @@ private:
             y_chroma = VK_CHROMA_LOCATION_COSITED_EVEN;
         }
         if (pipeline_initialization_attempted_) {
-            return pipeline_ != VK_NULL_HANDLE && input_format_ == format.format &&
+            if (pipeline_ != VK_NULL_HANDLE && input_format_ == format.format &&
                 input_external_format_ == format.externalFormat && input_ycbcr_model_ == model &&
                 input_ycbcr_range_ == range && input_x_chroma_ == x_chroma &&
-                input_y_chroma_ == y_chroma;
+                input_y_chroma_ == y_chroma) {
+                return true;
+            }
+            // The decoder's output format or the stream's colour description changed (a
+            // resolution switch, colour info arriving after the first frame). The conversion is
+            // baked into an immutable sampler, so everything built on it is rebuilt; refusing
+            // instead left every later frame unimportable.
+            if (!release_ycbcr_pipeline()) return false;
         }
         pipeline_initialization_attempted_ = true;
         input_format_ = format.format;
@@ -986,6 +1068,22 @@ private:
         sampler.maxLod = 1.0F;
         if (vkCreateSampler(device_, &sampler, nullptr, &ycbcr_sampler_) != VK_SUCCESS) return false;
         return create_pipeline();
+    }
+
+    bool release_ycbcr_pipeline() {
+        if (vkDeviceWaitIdle(device_) != VK_SUCCESS) return false;
+        for (auto& slot : frame_slots_) {
+            slot.imported_frame.reset();
+            slot.query_pending = false;
+        }
+        // Image views of imported frames were created against the old conversion.
+        imported_frame_cache_.clear();
+        destroy_pipeline_resources();
+        if (ycbcr_sampler_ != VK_NULL_HANDLE) vkDestroySampler(device_, ycbcr_sampler_, nullptr);
+        if (ycbcr_conversion_ != VK_NULL_HANDLE) destroy_ycbcr_conversion_(device_, ycbcr_conversion_, nullptr);
+        ycbcr_sampler_ = VK_NULL_HANDLE;
+        ycbcr_conversion_ = VK_NULL_HANDLE;
+        return true;
     }
 
     void collect_presentation_timing() {
@@ -1086,6 +1184,8 @@ private:
     }
 
     bool acquisition_failed_ = false;
+    bool frame_presented_ = false;
+    int64_t desired_present_time_ns_ = 0;
     mutable std::mutex mutex_;
     ANativeWindow* window_ = nullptr;
     VkInstance instance_ = VK_NULL_HANDLE;
@@ -1202,6 +1302,20 @@ Java_com_yfuse_core2_android_AndroidYCoreGpuNativeBridge_nativeRenderHardwareBuf
         if (env->ExceptionCheck()) env->ExceptionClear();
     }
     return static_cast<jlong>(renderer->render(env, hardware_buffer, parameters));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_yfuse_core2_android_AndroidYCoreGpuNativeBridge_nativeSetDesiredPresentTime(
+    JNIEnv*, jobject, jlong handle, jlong time_ns) {
+    auto* renderer = from_handle(handle);
+    if (renderer != nullptr) renderer->set_desired_present_time(time_ns);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_yfuse_core2_android_AndroidYCoreGpuNativeBridge_nativeResetRenderer(
+    JNIEnv*, jobject, jlong handle) {
+    auto* renderer = from_handle(handle);
+    return renderer != nullptr && renderer->reset() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jlong JNICALL

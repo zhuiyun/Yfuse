@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.model.PlaybackChapter
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.PlaybackFailureKind
@@ -305,6 +306,11 @@ data class PlaybackState(
     val secondarySubtitleOffsetMs: Long = 0L,
     /** DVD/Blu-ray title, chapter and menu state; empty for ordinary files. */
     val discNavigation: PlaybackDiscNavigationState = PlaybackDiscNavigationState(),
+    /**
+     * Named chapters the engine read from the container itself. A server's chapters for the item
+     * come first; these mark files no server describes, such as 文件来源 ones.
+     */
+    val chapters: List<PlaybackChapter> = emptyList(),
     val error: String? = null,
     /**
      * What kind of failure [error] describes, as the backend knew it.

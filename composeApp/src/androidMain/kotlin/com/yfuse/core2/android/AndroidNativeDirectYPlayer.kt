@@ -11,6 +11,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.diagnosticOrigin
 import com.yfuse.core.logging.diagnosticRootCause
 import com.yfuse.core.logging.diagnosticTypeName
+import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YMediaSourceHints
@@ -36,11 +37,11 @@ import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.demux.YAudioTrackFormat
-import com.yfuse.core2.demux.shownVideoSize
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
 import com.yfuse.core2.recovery.YPlaybackFailureReporter
+import com.yfuse.core2.recovery.passthroughRestorable
 import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.render.YRenderedFrameRateSampler
@@ -219,6 +220,14 @@ internal class AndroidNativeDirectYPlayer(
     override fun setAudioDelayMs(delayMs: Long): Boolean {
         if (released) return false
         submit(Command.SetAudioDelay(delayMs.coerceIn(-5_000L, 5_000L)))
+        return true
+    }
+
+    override val supportsAudioEffects: Boolean get() = true
+
+    override fun setAudioEffect(effect: YAudioEffect): Boolean {
+        if (released) return false
+        submit(Command.SetAudioEffect(effect))
         return true
     }
 
@@ -719,6 +728,7 @@ internal class AndroidNativeDirectYPlayer(
                 is Command.Seek -> seekTo(command.positionUs)
                 is Command.SetSpeed -> updateSpeed(command.speed)
                 is Command.SetAudioDelay -> updateAudioDelay(command.delayMs)
+                is Command.SetAudioEffect -> updateAudioEffect(command.effect)
                 is Command.SetVideoOutput -> setSurface(command.output)
                 is Command.SelectAudioTrack -> selectAudioTrack(command.trackIndex)
                 is Command.SelectSubtitleTrack ->
@@ -1075,13 +1085,9 @@ internal class AndroidNativeDirectYPlayer(
                     .maxOrNull()
                     ?: 0L
             val tracks = audioTracks()
-            // MediaCodec turns the picture by the track's rotation as it draws to the surface.
-            val (shownWidth, shownHeight) =
-                shownVideoSize(
-                    width = videoFormat?.intOrZero(MediaFormat.KEY_WIDTH) ?: 0,
-                    height = videoFormat?.intOrZero(MediaFormat.KEY_HEIGHT) ?: 0,
-                    rotationDegrees = videoFormat?.intOrZero(MediaFormat.KEY_ROTATION) ?: 0,
-                )
+            // MediaCodec turns the picture by the track's rotation as it draws to the surface, but
+            // stretches nothing: the surface itself takes the shape of non-square pixels.
+            val (shownWidth, shownHeight) = videoFormat?.shownSize() ?: (0 to 0)
             mutableState.update { current ->
                 current.copy(
                     phase = YPlaybackPhase.Ready,
@@ -1436,6 +1442,7 @@ internal class AndroidNativeDirectYPlayer(
             }
             if (audioRendererConfigured && !isAudioPassthrough()) audioRenderer.setSpeed(value)
             mutableState.update { current -> current.copy(speed = value) }
+            restorePassthroughIfAvailable()
         }
 
         private var audioDelayMs = 0L
@@ -1447,6 +1454,62 @@ internal class AndroidNativeDirectYPlayer(
                 val position = currentPositionUs()
                 switchPassthroughToPcm(countFailure = false)
                 seekTo(position)
+            } else {
+                restorePassthroughIfAvailable()
+            }
+        }
+
+        private var audioEffect = YAudioEffect.Off
+
+        /** Effects process PCM, so a bitstreamed track decodes while one is on. */
+        private fun updateAudioEffect(value: YAudioEffect) {
+            audioEffect = value
+            audioRenderer.setAudioEffect(value)
+            if (value != YAudioEffect.Off && isAudioPassthrough()) {
+                val position = currentPositionUs()
+                switchPassthroughToPcm(countFailure = false)
+                seekTo(position)
+            } else {
+                restorePassthroughIfAvailable()
+            }
+        }
+
+        /** Gives passthrough back once speed is 1.0 and the delay 0 again; see [passthroughRestorable]. */
+        private fun restorePassthroughIfAvailable() {
+            val coreFormat = audioTrackFormat ?: return
+            if (!prepared || audioInputFormat == null) return
+            val devicePath =
+                plannedAudioOutputPath
+                    ?: capabilityProvider.current().audioOutputPath(
+                        YAudioRequirement(
+                            codec = coreFormat.codec,
+                            channelCount = coreFormat.channelCount,
+                            sampleRate = coreFormat.sampleRate,
+                        ),
+                    )
+            val restorable =
+                passthroughRestorable(
+                    currentPath = audioOutputPath,
+                    devicePath = devicePath,
+                    protectedContent = drmBinding != null,
+                    passthroughRejected = audioTrackIndex?.let(rejectedPassthroughTracks::contains) == true,
+                    speed = speed,
+                    audioDelayMs = audioDelayMs,
+                    audioEffectActive = audioEffect != YAudioEffect.Off,
+                )
+            if (!restorable) return
+            val positionUs = currentPositionUs()
+            releaseAudioPath()
+            configureAudioPath(audioInputFormat)
+            seekTo(positionUs)
+            mutableState.update { current ->
+                current.copy(
+                    diagnostics =
+                        current.diagnostics.copy(
+                            audioOutput = waitingAudioOutputLabel(),
+                            audioOutputVerified = false,
+                        ),
+                )
             }
         }
 
@@ -1770,26 +1833,30 @@ internal class AndroidNativeDirectYPlayer(
             return when (val output = dequeued) {
                 YAudioCodecOutputResult.TryAgain -> false
                 is YAudioCodecOutputResult.FormatChanged -> {
-                    nativeDirectStage(
-                        YPlaybackFailureCategory.AudioSink,
-                        YPlaybackFailureStage.AudioRenderer,
-                        "NativeDirect PCM sink configure",
-                    ) {
-                        audioRenderer.configure(output.format)
-                        audioRendererConfigured = true
-                        captureAudioRoutingGeneration()
-                        audioRenderer.setSpeed(speed)
-                        audioRenderer.setAudioDelayMs(audioDelayMs)
-                        if (requestedPlay) audioRenderer.play()
-                    }
-                    mutableState.update { current ->
-                        current.copy(
-                            diagnostics =
-                                current.diagnostics.copy(
-                                    audioOutput = "等待 PCM 输出",
-                                    audioOutputVerified = false,
-                                ),
-                        )
+                    val rebuilt =
+                        nativeDirectStage(
+                            YPlaybackFailureCategory.AudioSink,
+                            YPlaybackFailureStage.AudioRenderer,
+                            "NativeDirect PCM sink configure",
+                        ) {
+                            audioRenderer.configureIfChanged(output.format).also {
+                                audioRendererConfigured = true
+                                captureAudioRoutingGeneration()
+                                audioRenderer.setSpeed(speed)
+                                audioRenderer.setAudioDelayMs(audioDelayMs)
+                                if (requestedPlay) audioRenderer.play()
+                            }
+                        }
+                    if (rebuilt) {
+                        mutableState.update { current ->
+                            current.copy(
+                                diagnostics =
+                                    current.diagnostics.copy(
+                                        audioOutput = "等待 PCM 输出",
+                                        audioOutputVerified = false,
+                                    ),
+                            )
+                        }
                     }
                     true
                 }
@@ -1933,17 +2000,30 @@ internal class AndroidNativeDirectYPlayer(
                 videoDecoder.dequeueOutput()
             }
 
+        /**
+         * The shown size once the decoder states a pixel aspect ratio, which it reads from the
+         * bitstream, when the container (MPEG-TS, AVI) stated none; a container's own ratio stays.
+         */
+        private fun decodedShownSize(output: MediaFormat): Pair<Int, Int>? {
+            val input = videoFormat?.takeIf { it.statedPixelAspectRatio() == null } ?: return null
+            val decoded = output.statedPixelAspectRatio() ?: return null
+            return input.shownSize(decoded)
+        }
+
         private fun drainVideo(): Boolean {
             if (!videoConfigured || videoOutputEnded) return false
             val output =
                 pendingVideoOutput ?: when (val dequeued = dequeueVideoOutput()) {
                     YCodecOutputResult.TryAgain -> return false
                     is YCodecOutputResult.FormatChanged -> {
+                        val shownSize = decodedShownSize(dequeued.format)
                         mutableState.update { current ->
                             current.copy(
                                 diagnostics =
                                     current.diagnostics.copy(
                                         videoOutput = "硬解已配置 · 等待首帧",
+                                        videoWidth = shownSize?.first ?: current.diagnostics.videoWidth,
+                                        videoHeight = shownSize?.second ?: current.diagnostics.videoHeight,
                                     ),
                             )
                         }
@@ -2023,6 +2103,10 @@ internal class AndroidNativeDirectYPlayer(
                         droppedFrames++
                     }
                     is YVideoFrameReleaseDecision.Render -> {
+                        if (videoDecoder.anime4KActive && decision.tooEarlyToPresentOnArrival(nowNs)) {
+                            pendingVideoOutput = output
+                            return false
+                        }
                         pendingVideoOutput = null
                         videoOutputEpoch.submitted(output.presentationTimeUs)
                         releaseVideoOutput(output, render = true, renderTimeNs = decision.releaseTimeNs)
@@ -2462,6 +2546,7 @@ internal class AndroidNativeDirectYPlayer(
                     coreFormat != null &&
                     (
                         audioDelayMs != 0L ||
+                            audioEffect != YAudioEffect.Off ||
                             requiresPcmAudioPath(
                                 protectedContent = drmBinding != null,
                                 passthroughRejected =
@@ -3268,6 +3353,10 @@ internal class AndroidNativeDirectYPlayer(
             val delayMs: Long,
         ) : Command
 
+        data class SetAudioEffect(
+            val effect: YAudioEffect,
+        ) : Command
+
         data class ExternalSubtitleReady(
             val result: AndroidExternalSubtitleSession.Completion,
         ) : Command
@@ -3497,6 +3586,8 @@ private fun AndroidNativeDirectYPlayer.Command.canBeReplacedBy(next: AndroidNati
         is AndroidNativeDirectYPlayer.Command.Seek -> next is AndroidNativeDirectYPlayer.Command.Seek
         is AndroidNativeDirectYPlayer.Command.SetSpeed -> next is AndroidNativeDirectYPlayer.Command.SetSpeed
         is AndroidNativeDirectYPlayer.Command.SetAudioDelay -> next is AndroidNativeDirectYPlayer.Command.SetAudioDelay
+        is AndroidNativeDirectYPlayer.Command.SetAudioEffect ->
+            next is AndroidNativeDirectYPlayer.Command.SetAudioEffect
         is AndroidNativeDirectYPlayer.Command.SetVideoOutput ->
             next is AndroidNativeDirectYPlayer.Command.SetVideoOutput
         is AndroidNativeDirectYPlayer.Command.SelectAudioTrack ->

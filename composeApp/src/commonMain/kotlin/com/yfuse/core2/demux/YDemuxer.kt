@@ -11,6 +11,7 @@ import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.subtitle.YSubtitleDecodeResult
 import com.yfuse.core2.subtitle.YSubtitleFormat
+import kotlin.math.roundToInt
 
 /** Stable track id owned by one demux session. */
 @JvmInline
@@ -61,19 +62,80 @@ data class YVideoGeometry(
     val cropBottom: Int = 0,
 ) {
     val normalizedRotationDegrees: Int = ((rotationDegrees % 360) + 360) % 360
+
+    /** Width over height of one stored pixel; see [pixelAspectRatioOf]. */
+    val pixelAspectRatio: Double
+        get() = pixelAspectRatioOf(pixelAspectRatioNumerator, pixelAspectRatioDenominator)
 }
 
 /**
- * The size a picture is shown at. A stream turned a quarter is shown on its side — a phone clip
- * stored 1920×1080 with a 90° flag stands upright at 1080×1920 — and the player's surface is laid
- * out from the size a route reports, so the stored size squeezed the turned picture into a
- * landscape box.
+ * Width over height of one stored pixel, from a stated ratio. DVD, HDV and much broadcast video
+ * store pixels that are not square: a 16:9 DVD is 720×480 pixels of 32:27. An unknown ratio (0:1)
+ * and one no real video uses — beyond 1:4 or 4:1, which only broken metadata states — count as
+ * square.
+ */
+fun pixelAspectRatioOf(
+    numerator: Int,
+    denominator: Int,
+): Double {
+    if (numerator <= 0 || denominator <= 0) return 1.0
+    return plausiblePixelAspectRatio(numerator.toDouble() / denominator)
+}
+
+/** [ratio] when real video could use it, else square; see [pixelAspectRatioOf]. */
+fun plausiblePixelAspectRatio(ratio: Double): Double =
+    if (ratio.isFinite() && ratio in MIN_PIXEL_ASPECT_RATIO..MAX_PIXEL_ASPECT_RATIO) ratio else 1.0
+
+/**
+ * The pixel aspect ratio a container or decoder states, or null when it states none: a `sar`
+ * pair (an MP4 `pasp` box, a decoder's reading of the bitstream), else a display size given beside
+ * the stored [width]×[height] (Matroska, in pixels or any unit, since only the ratio matters).
+ */
+fun statedPixelAspectRatio(
+    sarWidth: Int?,
+    sarHeight: Int?,
+    displayWidth: Int?,
+    displayHeight: Int?,
+    width: Int,
+    height: Int,
+): Double? {
+    if (sarWidth != null && sarHeight != null && sarWidth > 0 && sarHeight > 0) {
+        return pixelAspectRatioOf(sarWidth, sarHeight)
+    }
+    if (displayWidth == null || displayHeight == null || displayWidth <= 0 || displayHeight <= 0) return null
+    if (width <= 0 || height <= 0) return null
+    return plausiblePixelAspectRatio(displayWidth.toDouble() * height / (displayHeight.toDouble() * width))
+}
+
+/**
+ * The size a picture is shown at, which the player's surface is laid out from.
+ *
+ * Pixels that are not square are squared first, the way mpv does: widened for a ratio above one
+ * (720×480 at 32:27 is shown 853×480), heightened below it. Then a stream turned a quarter is
+ * shown on its side — a phone clip stored 1920×1080 with a 90° flag stands upright at 1080×1920.
+ * Reporting the stored size instead squeezed anamorphic DVDs into 3:2 and turned pictures into
+ * a landscape box.
  */
 fun shownVideoSize(
     width: Int,
     height: Int,
     rotationDegrees: Int,
-): Pair<Int, Int> = if (rotationDegrees.mod(180) == 90) height to width else width to height
+    pixelAspectRatio: Double = 1.0,
+): Pair<Int, Int> {
+    var shownWidth = width
+    var shownHeight = height
+    if (width > 0 && height > 0 && pixelAspectRatio > 0.0) {
+        if (pixelAspectRatio > 1.0) {
+            shownWidth = (width * pixelAspectRatio).roundToInt()
+        } else if (pixelAspectRatio < 1.0) {
+            shownHeight = (height / pixelAspectRatio).roundToInt()
+        }
+    }
+    return if (rotationDegrees.mod(180) == 90) shownHeight to shownWidth else shownWidth to shownHeight
+}
+
+private const val MIN_PIXEL_ASPECT_RATIO = 0.25
+private const val MAX_PIXEL_ASPECT_RATIO = 4.0
 
 data class YVideoTrackFormat(
     val codec: YVideoCodec,

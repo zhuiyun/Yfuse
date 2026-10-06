@@ -7,8 +7,12 @@ import android.os.Build
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.playback.NativeCrashAttribution
 import com.yfuse.core.playback.NativePlaybackComponent
+import com.yfuse.core.playback.attributedComponent
 import com.yfuse.core.playback.classifyNativePlaybackCrash
+import com.yfuse.core.playback.parseNativeCrashTombstone
+import com.yfuse.core.playback.redactedSummary
 import java.io.InputStream
 import java.security.MessageDigest
 
@@ -19,8 +23,12 @@ import java.security.MessageDigest
 internal object AndroidNativeCrashMonitor {
     private const val PREFS = "yfuse_native_crash_v1"
     private const val FAILURE_THRESHOLD = 2
-    private const val MAX_TRACE_BYTES = 256 * 1024
+
+    // A protobuf tombstone lists every thread with registers and memory near them before the
+    // memory map and logs; the crashing thread can sit well past the first few hundred KiB.
+    private const val MAX_TRACE_BYTES = 4 * 1024 * 1024
     private const val ACTIVE_MAX_AGE_MS = 12L * 60L * 60L * 1_000L
+    private const val KEY_LAST_CRASH = "last.crash"
 
     private lateinit var appContext: Context
     private val ownership = NativeCrashContextOwnership()
@@ -147,6 +155,9 @@ internal object AndroidNativeCrashMonitor {
                 .forEach { component ->
                     appendLine("nativeCrash.${component.name}.count=${totals[component] ?: 0}")
                 }
+            prefs().getString(KEY_LAST_CRASH, null)?.lineSequence()?.forEach { line ->
+                appendLine("nativeCrash.last: $line")
+            }
         }
     }
 
@@ -178,17 +189,35 @@ internal object AndroidNativeCrashMonitor {
         val active = activeKey(preferences)
         val activeStarted = preferences.getLong("active.started", 0L)
         val recent = active != null && newest.timestamp - activeStarted in 0L..ACTIVE_MAX_AGE_MS
-        val traceComponent =
-            runCatching { newest.traceInputStream?.use(::readBoundedTrace) }
-                .getOrNull()
-                ?.let(::classifyNativePlaybackCrash)
-                ?: NativePlaybackComponent.Unknown
+        val trace = runCatching { newest.traceInputStream?.use(::readBoundedTrace) }.getOrNull()
+        val report = trace?.let(::parseNativeCrashTombstone)
+        // Only the crashing thread decides. An unreadable trace keeps the old whole-text match.
+        val (traceComponent, traceAttribution) =
+            report?.attributedComponent()
+                ?: (
+                    (trace?.decodeToString()?.let(::classifyNativePlaybackCrash) ?: NativePlaybackComponent.Unknown) to
+                        NativeCrashAttribution.Unknown
+                )
         val attributed =
             active?.takeIf { recent }?.copy(
                 component =
                     traceComponent.takeIf { it != NativePlaybackComponent.Unknown }
                         ?: active.component,
             )
+        val attribution =
+            when {
+                traceComponent != NativePlaybackComponent.Unknown -> traceAttribution
+                attributed != null -> NativeCrashAttribution.ActiveSession
+                else -> NativeCrashAttribution.Unknown
+            }
+        val summary =
+            buildString {
+                append("component=").append(attributed?.component ?: traceComponent)
+                append(" attribution=").append(attribution)
+                append(" trace=").append(traceState(report != null, trace != null))
+                report?.let { append('\n').append(it.redactedSummary()) }
+            }
+        preferences.edit().putString(KEY_LAST_CRASH, summary).apply()
         if (attributed != null && attributed.component != NativePlaybackComponent.Unknown) {
             val key = countKey(attributed)
             val count = (preferences.getInt(key, 0) + 1).coerceAtMost(100)
@@ -205,6 +234,8 @@ internal object AndroidNativeCrashMonitor {
                         "count" to count.toString(),
                         "media" to preferences.getString("active.media", "").orEmpty(),
                         "scheme" to preferences.getString("active.scheme", "").orEmpty(),
+                        "attribution" to attribution.name,
+                        "crash" to summary,
                     ),
             )
         }
@@ -262,17 +293,27 @@ internal object AndroidNativeCrashMonitor {
             PlayerEngine.Exo -> NativePlaybackComponent.Unknown
         }
 
-    private fun readBoundedTrace(input: InputStream): String {
-        val buffer = ByteArray(8 * 1024)
-        val output = StringBuilder()
+    private fun traceState(
+        parsed: Boolean,
+        read: Boolean,
+    ): String =
+        when {
+            parsed -> "parsed"
+            read -> "unparsed"
+            else -> "none"
+        }
+
+    private fun readBoundedTrace(input: InputStream): ByteArray {
+        val buffer = ByteArray(64 * 1024)
+        val output = java.io.ByteArrayOutputStream()
         var remaining = MAX_TRACE_BYTES
         while (remaining > 0) {
             val read = input.read(buffer, 0, minOf(buffer.size, remaining))
             if (read <= 0) break
-            output.append(buffer.decodeToString(endIndex = read))
+            output.write(buffer, 0, read)
             remaining -= read
         }
-        return output.toString()
+        return output.toByteArray()
     }
 
     private fun PlayerMediaItem.privacySafeMediaFingerprint(): String =
