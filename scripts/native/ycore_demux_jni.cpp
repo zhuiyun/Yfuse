@@ -35,6 +35,8 @@ extern "C" {
 #include <libavutil/display.h>
 #include <libavutil/error.h>
 #include <libavutil/mastering_display_metadata.h>
+#include <libavutil/hdr_dynamic_metadata.h>
+#include <libavutil/imgutils.h>
 #include <libavutil/mem.h>
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
@@ -49,6 +51,7 @@ extern "C" {
 
 #include "ycore_parallel_rows.h"
 #include "ycore_tone_map.h"
+#include "ycore_deinterlace.h"
 #include "ycore_disc_language.h"
 #include "ycore_disc_uri.h"
 #include "ycore_overlay_plane.h"
@@ -109,7 +112,7 @@ constexpr int kSoftwareFrameEof = 2;
 constexpr int kSoftwareFrameGrowBuffer = -1;
 // Version 3: video frames are RGBA (Android ARGB_8888 memory order; v2 wrote BGRA), YUV matrix and
 // range follow the stream, and isolated undecodable packets are dropped instead of thrown.
-constexpr int kSoftwareDecoderApiVersion = 3;
+constexpr int kSoftwareDecoderApiVersion = 4;
 // A damaged TS segment or a broken frame at a splice is dropped the way ffmpeg and mpv drop it.
 // Only this many failures in a row, with no frame decoded in between, mean the decoder cannot
 // play the stream at all.
@@ -256,12 +259,15 @@ struct ScalerSetup {
 struct SoftwareDecoder {
     AVCodecContext* codec = nullptr;
     AVFrame* frame = nullptr;
+    AVFrame* field_frame = nullptr;
+    int output_field = 0;
     SwsContext* scaler = nullptr;
     ScalerSetup scaler_setup;
     SwrContext* resampler = nullptr;
     AVChannelLayout resampler_layout = {};
     int resampler_format = AV_SAMPLE_FMT_NONE;
     int resampler_rate = 0;
+    AVSampleFormat resampler_output_format = AV_SAMPLE_FMT_NONE;
     std::vector<uint16_t> tone_map_rgb48;
     std::unique_ptr<ycore_tone_map::Mapper> tone_mapper;
     ycore_tone_map::Transfer tone_mapper_transfer = ycore_tone_map::Transfer::Pq;
@@ -276,12 +282,15 @@ struct SoftwareDecoder {
         av_channel_layout_uninit(&resampler_layout);
         resampler_format = AV_SAMPLE_FMT_NONE;
         resampler_rate = 0;
+        resampler_output_format = AV_SAMPLE_FMT_NONE;
     }
 
     /** Discards decoder state for a seek; configuration, scaler and tables stay. */
     void flush() {
         avcodec_flush_buffers(codec);
         av_frame_unref(frame);
+        if (field_frame) av_frame_unref(field_frame);
+        output_field = 0;
         frame_pending = false;
         consecutive_decode_errors = 0;
         reset_resampler();
@@ -292,6 +301,7 @@ struct SoftwareDecoder {
         row_workers.reset();
         reset_resampler();
         sws_freeContext(scaler);
+        if (field_frame) av_frame_free(&field_frame);
         if (frame) av_frame_free(&frame);
         if (codec) avcodec_free_context(&codec);
     }
@@ -1579,6 +1589,38 @@ double hdr_mastering_peak_nits(const AVCodecParameters* parameters) {
     return 1000.0;
 }
 
+/** Scene statistics travel with the decoded picture, including SEI first seen after open. */
+double hdr_frame_peak_nits(const AVFrame* frame, const AVCodecParameters* parameters) {
+    const AVFrameSideData* dynamic = av_frame_get_side_data(frame, AV_FRAME_DATA_DYNAMIC_HDR_PLUS);
+    if (dynamic && dynamic->data && dynamic->size >= sizeof(AVDynamicHDRPlus)) {
+        const auto* metadata = reinterpret_cast<const AVDynamicHDRPlus*>(dynamic->data);
+        if (metadata->num_windows >= 1 && metadata->num_windows <= 3) {
+            // Window zero covers the full picture. Its linear MaxSCL values are relative to
+            // 10,000 nits. An authored curve for a different HDR display is not an SDR curve.
+            double peak = 0.0;
+            for (const AVRational value : metadata->params[0].maxscl) {
+                const double nits = value.den > 0 ? av_q2d(value) * 10000.0 : 0.0;
+                if (std::isfinite(nits) && nits > 0.0 && nits <= 10000.0) peak = std::max(peak, nits);
+            }
+            if (peak > 0.0) return peak;
+        }
+    }
+    const AVFrameSideData* light = av_frame_get_side_data(frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
+    if (light && light->data && light->size >= sizeof(AVContentLightMetadata)) {
+        const auto* metadata = reinterpret_cast<const AVContentLightMetadata*>(light->data);
+        if (metadata->MaxCLL > 0) return metadata->MaxCLL;
+    }
+    const AVFrameSideData* mastering = av_frame_get_side_data(frame, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
+    if (mastering && mastering->data && mastering->size >= sizeof(AVMasteringDisplayMetadata)) {
+        const auto* metadata = reinterpret_cast<const AVMasteringDisplayMetadata*>(mastering->data);
+        if (metadata->has_luminance && metadata->max_luminance.den > 0) {
+            const double peak = av_q2d(metadata->max_luminance);
+            if (std::isfinite(peak) && peak > 0.0) return peak;
+        }
+    }
+    return hdr_mastering_peak_nits(parameters);
+}
+
 void release_borrowed_buffer(void*, uint8_t*) {}
 
 int software_conversion_threads() {
@@ -1725,7 +1767,8 @@ bool tone_map_hdr_frame(
     JNIEnv* env,
     SoftwareDecoder* decoder,
     AVStream* stream,
-    uint8_t* destination) {
+    uint8_t* destination,
+    const AVFrame* pixels) {
     const int width = decoder->frame->width;
     const int height = decoder->frame->height;
     const size_t pixel_count = static_cast<size_t>(width) * static_cast<size_t>(height);
@@ -1759,7 +1802,7 @@ bool tone_map_hdr_frame(
     // HDR10 and HLG are BT.2020 non-constant luminance whatever the matrix tag says.
     SwsContext* scaler = prepare_scaler(
         decoder,
-        decoder->frame,
+        pixels,
         AV_PIX_FMT_RGB48LE,
         SWS_CS_BT2020,
         scaler_source_full_range(decoder->frame, stream->codecpar));
@@ -1769,7 +1812,7 @@ bool tone_map_hdr_frame(
     }
     if (!scale_frame_into(
             scaler,
-            decoder->frame,
+            pixels,
             AV_PIX_FMT_RGB48LE,
             reinterpret_cast<uint8_t*>(decoder->tone_map_rgb48.data()),
             width * 6,
@@ -1782,10 +1825,9 @@ bool tone_map_hdr_frame(
         transfer == AVCOL_TRC_SMPTE2084
         ? ycore_tone_map::Transfer::Pq
         : ycore_tone_map::Transfer::Hlg;
-    const double mastering_peak_nits = hdr_mastering_peak_nits(stream->codecpar);
+    const double mastering_peak_nits = hdr_frame_peak_nits(decoder->frame, stream->codecpar);
     if (!decoder->tone_mapper ||
-        decoder->tone_mapper_transfer != tone_map_transfer ||
-        decoder->tone_mapper_peak_nits != mastering_peak_nits) {
+        decoder->tone_mapper_transfer != tone_map_transfer) {
         try {
             decoder->tone_mapper =
                 std::make_unique<ycore_tone_map::Mapper>(tone_map_transfer, mastering_peak_nits);
@@ -1796,6 +1838,7 @@ bool tone_map_hdr_frame(
         decoder->tone_mapper_transfer = tone_map_transfer;
         decoder->tone_mapper_peak_nits = mastering_peak_nits;
     }
+    decoder->tone_mapper->set_peak_nits(mastering_peak_nits);
     const ycore_tone_map::Mapper& mapper = *decoder->tone_mapper;
     const uint16_t* rgb48 = decoder->tone_map_rgb48.data();
     software_row_workers(decoder)->run(height, [&](int first_row, int end_row) {
@@ -3343,6 +3386,72 @@ jint native_send_software_packet(
     return 0;
 }
 
+/** Bob each source plane before chroma resampling, preserving 10/12/16-bit values and field order. */
+const AVFrame* software_video_pixels(JNIEnv* env, SoftwareDecoder* decoder) {
+    const AVFrame* source = decoder->frame;
+    if (!(source->flags & AV_FRAME_FLAG_INTERLACED) || source->height < 2) return source;
+    const AVPixelFormat format = static_cast<AVPixelFormat>(source->format);
+    const AVPixFmtDescriptor* descriptor = av_pix_fmt_desc_get(format);
+    if (!descriptor || (descriptor->flags & (AV_PIX_FMT_FLAG_HWACCEL | AV_PIX_FMT_FLAG_BITSTREAM | AV_PIX_FMT_FLAG_PAL))) {
+        throw_illegal_state(env, "Unsupported interlaced software pixel format");
+        return nullptr;
+    }
+    const int bytes = av_image_get_buffer_size(format, source->width, source->height, 32);
+    if (bytes <= 0 || static_cast<size_t>(bytes) > kMaxSoftwareVideoFrameBytes) {
+        throw_illegal_state(env, "Software deinterlace buffer exceeds the safety limit");
+        return nullptr;
+    }
+    if (!decoder->field_frame) decoder->field_frame = av_frame_alloc();
+    AVFrame* target = decoder->field_frame;
+    if (!target) {
+        throw_illegal_state(env, "Unable to allocate software deinterlace frame");
+        return nullptr;
+    }
+    if (!target->buf[0]) {
+        target->format = source->format;
+        target->width = source->width;
+        target->height = source->height;
+        if (av_frame_get_buffer(target, 32) < 0 || av_frame_copy_props(target, source) < 0) {
+            throw_illegal_state(env, "Unable to allocate software deinterlace planes");
+            return nullptr;
+        }
+        target->flags &= ~(AV_FRAME_FLAG_INTERLACED | AV_FRAME_FLAG_TOP_FIELD_FIRST);
+    }
+    const int parity = ycore_deinterlace::parity(
+        (source->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST) != 0, decoder->output_field);
+    const int planes = av_pix_fmt_count_planes(format);
+    for (int plane = 0; plane < planes; ++plane) {
+        bool words = false;
+        for (int component = 0; component < descriptor->nb_components; ++component) {
+            if (descriptor->comp[component].plane != plane) continue;
+            words = words || descriptor->comp[component].depth > 8;
+            if (descriptor->comp[component].depth + descriptor->comp[component].shift > 16) {
+                throw_illegal_state(env, "Unsupported packed interlaced software pixels");
+                return nullptr;
+            }
+        }
+        const int row_bytes = av_image_get_linesize(format, source->width, plane);
+        const bool chroma = !(descriptor->flags & AV_PIX_FMT_FLAG_RGB) && (plane == 1 || plane == 2);
+        const int height = chroma ? AV_CEIL_RSHIFT(source->height, descriptor->log2_chroma_h) : source->height;
+        if (row_bytes <= 0 || !source->data[plane] || !target->data[plane]) {
+            throw_illegal_state(env, "Incomplete software deinterlace plane");
+            return nullptr;
+        }
+        ycore_deinterlace::plane(source->data[plane], source->linesize[plane],
+            target->data[plane], target->linesize[plane], row_bytes, height, parity,
+            words, (descriptor->flags & AV_PIX_FMT_FLAG_BE) != 0);
+    }
+    return target;
+}
+
+int64_t software_video_duration_us(const AVFrame* frame, AVStream* stream, AVFormatContext* format) {
+    if (frame->duration > 0) return av_rescale_q(frame->duration, stream->time_base, AV_TIME_BASE_Q);
+    const AVRational rate = av_guess_frame_rate(format, stream, nullptr);
+    if (rate.num > 0 && rate.den > 0) return av_rescale_q(1, av_inv_q(rate), AV_TIME_BASE_Q);
+    // Without an authored duration/rate there is no safe timestamp for an additional field.
+    return 0;
+}
+
 jlongArray native_receive_software_video_frame(
     JNIEnv* env,
     jclass,
@@ -3368,6 +3477,7 @@ jlongArray native_receive_software_video_frame(
         }
         if (error < 0) return nullptr;
         decoder->frame_pending = true;
+        decoder->output_field = 0;
     }
 
     const int width = decoder->frame->width;
@@ -3388,7 +3498,9 @@ jlongArray native_receive_software_video_frame(
         throw_illegal_argument(env, "FFmpeg software video target must be a direct ByteBuffer");
         return nullptr;
     }
-    const jlong pts_us = timestamp_us(decoder->frame->best_effort_timestamp, stream->time_base);
+    const int64_t duration_us = software_video_duration_us(decoder->frame, stream, session->format);
+    const jlong pts_us = ycore_deinterlace::field_pts(
+        timestamp_us(decoder->frame->best_effort_timestamp, stream->time_base), duration_us, decoder->output_field);
     if (static_cast<uint64_t>(capacity) < required) {
         return make_software_frame_result(
             env,
@@ -3399,14 +3511,16 @@ jlongArray native_receive_software_video_frame(
             height,
             static_cast<jlong>(width) * 4L);
     }
+    const AVFrame* pixels = software_video_pixels(env, decoder);
+    if (!pixels) return nullptr;
     if (decoder->tone_map_hdr_to_sdr) {
-        if (!tone_map_hdr_frame(env, decoder, stream, destination)) return nullptr;
+        if (!tone_map_hdr_frame(env, decoder, stream, destination, pixels)) return nullptr;
     } else {
         // RGBA is the byte order of Android's ARGB_8888 bitmaps; copyPixelsFromBuffer takes it
         // as is.
         SwsContext* scaler = prepare_scaler(
             decoder,
-            decoder->frame,
+            pixels,
             AV_PIX_FMT_RGBA,
             scaler_colorspace(decoder->frame, stream->codecpar),
             scaler_source_full_range(decoder->frame, stream->codecpar));
@@ -3414,13 +3528,21 @@ jlongArray native_receive_software_video_frame(
             throw_illegal_state(env, "FFmpeg software video scaler is unavailable");
             return nullptr;
         }
-        if (!scale_frame_into(scaler, decoder->frame, AV_PIX_FMT_RGBA, destination, width * 4, required)) {
+        if (!scale_frame_into(scaler, pixels, AV_PIX_FMT_RGBA, destination, width * 4, required)) {
             throw_illegal_state(env, "FFmpeg software video conversion was incomplete");
             return nullptr;
         }
     }
-    av_frame_unref(decoder->frame);
-    decoder->frame_pending = false;
+    const bool another_field = (decoder->frame->flags & AV_FRAME_FLAG_INTERLACED) &&
+        height >= 2 && decoder->output_field == 0 && duration_us > 1 && pts_us != kNoTimestamp;
+    if (another_field) {
+        decoder->output_field = 1;
+    } else {
+        av_frame_unref(decoder->frame);
+        if (decoder->field_frame) av_frame_unref(decoder->field_frame);
+        decoder->frame_pending = false;
+        decoder->output_field = 0;
+    }
     return make_software_frame_result(
         env,
         kSoftwareFrameData,
@@ -3431,12 +3553,12 @@ jlongArray native_receive_software_video_frame(
         static_cast<jlong>(width) * 4L);
 }
 
-jlongArray native_receive_software_audio_frame(
+jlongArray receive_software_audio_frame(
     JNIEnv* env,
-    jclass,
     jlong handle,
     jint index,
-    jobject target) {
+    jobject target,
+    AVSampleFormat output_format) {
     DemuxSession* session = from_handle(handle);
     AVStream* stream = checked_stream(env, session, index);
     if (!stream) return nullptr;
@@ -3478,6 +3600,7 @@ jlongArray native_receive_software_audio_frame(
     const AVSampleFormat input_format = static_cast<AVSampleFormat>(decoder->frame->format);
     if (!decoder->resampler ||
         decoder->resampler_format != input_format ||
+        decoder->resampler_output_format != output_format ||
         decoder->resampler_rate != sample_rate ||
         av_channel_layout_compare(&decoder->resampler_layout, &input_layout) != 0) {
         decoder->reset_resampler();
@@ -3486,7 +3609,7 @@ jlongArray native_receive_software_audio_frame(
         int error = swr_alloc_set_opts2(
             &decoder->resampler,
             &output_layout,
-            AV_SAMPLE_FMT_S16,
+            output_format,
             sample_rate,
             &input_layout,
             input_format,
@@ -3495,8 +3618,7 @@ jlongArray native_receive_software_audio_frame(
             nullptr);
         av_channel_layout_uninit(&output_layout);
         if (error >= 0 && decoder->resampler) {
-            // 24-bit and float sources lose their low bits in the S16 the audio track takes;
-            // dither keeps that from turning into distortion correlated with quiet passages.
+            // The legacy S16 entry point retains dither; float PCM preserves the source precision.
             av_opt_set_int(decoder->resampler, "dither_method", SWR_DITHER_TRIANGULAR, 0);
             // Folded into a layout without an LFE channel (2.1 into 3.0), the LFE joins the
             // fronts at -3 dB instead of vanishing; layouts that keep it pass it straight through.
@@ -3516,6 +3638,7 @@ jlongArray native_receive_software_audio_frame(
             return nullptr;
         }
         decoder->resampler_format = input_format;
+        decoder->resampler_output_format = output_format;
         decoder->resampler_rate = sample_rate;
     }
     av_channel_layout_uninit(&input_layout);
@@ -3525,7 +3648,7 @@ jlongArray native_receive_software_audio_frame(
     av_channel_layout_uninit(&output_layout);
     const int output_samples = swr_get_out_samples(decoder->resampler, decoder->frame->nb_samples);
     const int required =
-        av_samples_get_buffer_size(nullptr, output_channels, output_samples, AV_SAMPLE_FMT_S16, 1);
+        av_samples_get_buffer_size(nullptr, output_channels, output_samples, output_format, 1);
     if (required <= 0 || static_cast<size_t>(required) > kMaxSoftwareAudioFrameBytes) {
         throw_illegal_state(env, "FFmpeg software audio frame exceeds the safety limit");
         return nullptr;
@@ -3558,7 +3681,7 @@ jlongArray native_receive_software_audio_frame(
         throw_illegal_state(env, "FFmpeg software audio conversion failed: " + ffmpeg_error(converted));
         return nullptr;
     }
-    const int output_bytes = converted * output_channels * static_cast<int>(sizeof(int16_t));
+    const int output_bytes = converted * output_channels * av_get_bytes_per_sample(output_format);
     av_frame_unref(decoder->frame);
     decoder->frame_pending = false;
     return make_software_frame_result(
@@ -3569,6 +3692,15 @@ jlongArray native_receive_software_audio_frame(
         output_channels,
         sample_rate,
         converted);
+}
+
+// Keep the S16 entry point for callers using the older software-audio contract.
+jlongArray native_receive_software_audio_frame(JNIEnv* env, jclass, jlong handle, jint index, jobject target) {
+    return receive_software_audio_frame(env, handle, index, target, AV_SAMPLE_FMT_S16);
+}
+
+jlongArray native_receive_software_float_audio_frame(JNIEnv* env, jclass, jlong handle, jint index, jobject target) {
+    return receive_software_audio_frame(env, handle, index, target, AV_SAMPLE_FMT_FLT);
 }
 
 void native_flush_software_decoder(
@@ -3723,6 +3855,19 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
         bridge,
         kMethods,
         sizeof(kMethods) / sizeof(kMethods[0]));
+    if (result == JNI_OK) {
+        jmethodID float_audio = env->GetMethodID(bridge, "nativeReceiveSoftwareFloatAudioFrame", "(JILjava/nio/ByteBuffer;)[J");
+        if (float_audio) {
+            const JNINativeMethod method = {"nativeReceiveSoftwareFloatAudioFrame", "(JILjava/nio/ByteBuffer;)[J",
+                reinterpret_cast<void*>(native_receive_software_float_audio_frame)};
+            if (env->RegisterNatives(bridge, &method, 1) != JNI_OK) {
+                env->DeleteLocalRef(bridge);
+                return JNI_ERR;
+            }
+        } else {
+            env->ExceptionClear();
+        }
+    }
     env->DeleteLocalRef(bridge);
     return result == JNI_OK ? JNI_VERSION_1_6 : JNI_ERR;
 }

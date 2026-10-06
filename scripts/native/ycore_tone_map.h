@@ -169,8 +169,7 @@ class Mapper {
 public:
     Mapper(Transfer transfer, double mastering_peak_nits)
         : transfer_(transfer) {
-        const double extended_white = source_peak_over_reference_white(transfer, mastering_peak_nits);
-        extended_white_squared_ = static_cast<float>(extended_white * extended_white);
+        set_peak_nits(mastering_peak_nits);
         for (std::size_t index = 0; index < kTransferEntries; ++index) {
             const double encoded = static_cast<double>(index) / static_cast<double>(kTransferEntries - 1);
             transfer_lut_[index] =
@@ -193,6 +192,13 @@ public:
                     (kHlgNominalPeakNits / kSdrReferenceWhiteNits));
             }
         }
+    }
+
+    /** Changes the scene shoulder without rebuilding the transfer/encoding lookup tables. */
+    void set_peak_nits(double peak_nits) {
+        const double finite_peak = std::isfinite(peak_nits) ? peak_nits : 1000.0;
+        const double white = source_peak_over_reference_white(transfer_, finite_peak);
+        extended_white_squared_ = static_cast<float>(white * white);
     }
 
     RgbaPixel map(uint16_t red_code, uint16_t green_code, uint16_t blue_code) const {

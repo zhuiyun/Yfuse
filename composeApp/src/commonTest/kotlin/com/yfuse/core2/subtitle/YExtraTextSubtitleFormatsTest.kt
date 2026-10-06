@@ -61,7 +61,7 @@ class YExtraTextSubtitleFormatsTest {
         val ttml =
             """
             <?xml version="1.0" encoding="UTF-8"?>
-            <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttp="http://www.w3.org/ns/ttml#parameter" ttp:frameRate="25">
+            <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttp="http://www.w3.org/ns/ttml#parameter" ttp:frameRate="25" xmlns:tts="http://www.w3.org/ns/ttml#styling">
               <body><div>
                 <p begin="00:00:01.500" end="00:00:03.000">First <span tts:color="yellow">line</span><br/>second</p>
                 <p begin="4s" dur="1500ms">Offset &amp; duration</p>

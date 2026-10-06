@@ -234,7 +234,10 @@ fun externalTextSubtitleFormat(
     return when {
         prefix.startsWith("WEBVTT", ignoreCase = true) -> YSubtitleFormat.WebVtt
         prefix.startsWith("<SAMI", ignoreCase = true) -> YSubtitleFormat.Smi
-        prefix.contains("<tt", ignoreCase = true) && prefix.contains("ttml", ignoreCase = true) -> YSubtitleFormat.Ttml
+        TTML_ROOT_NAME.containsMatchIn(
+            prefix,
+        ) &&
+            (prefix.contains("ttml") || prefix.contains("ttaf1")) -> YSubtitleFormat.Ttml
         MICRO_DVD_LINE.matchesAt(prefix, 0) -> YSubtitleFormat.MicroDvd
         prefix.startsWith("[Script Info]", ignoreCase = true) ||
             prefix.contains("\n[Events]", ignoreCase = true) -> YSubtitleFormat.Ass
@@ -342,3 +345,5 @@ private const val ASS_PACKET_FIELD_COUNT = 9
 private const val DEFAULT_PACKET_DURATION_US = 5_000_000L
 
 private val MICRO_DVD_LINE = Regex("\\{\\d+\\}\\{\\d*\\}")
+
+private val TTML_ROOT_NAME = Regex("<(?:[A-Za-z_][A-Za-z0-9_.-]*:)?tt(?:\\s|>)")

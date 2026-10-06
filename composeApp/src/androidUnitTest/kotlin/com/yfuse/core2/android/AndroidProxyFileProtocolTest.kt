@@ -57,23 +57,26 @@ class AndroidProxyFileProtocolTest {
             )
         for ((source, expectBlocks) in sources) {
             val directory = Files.createTempDirectory("ycore-proxy-document").toFile()
-            val upstream = MemoryTransport(payload)
+            val requests = CopyOnWriteArrayList<YMediaTransportRequest>()
             val proxy =
                 AndroidYCoreHttpProxy(
                     userAgent = "Yfuse-test",
                     cacheMaximumBytes = 64L * 1024L * 1024L,
-                    createTransport = { upstream },
+                    createTransport = { MemoryTransport(payload, requests) },
                     cacheDirectory = directory,
                     isMeteredNetwork = { false },
                 )
 
             fun blocks() = directory.walkTopDown().count { it.isFile && it.name.startsWith("block-") }
             try {
+                // Active playback requests a complete block after startup. Paused header-only
+                // slices deliberately rely on cancellable speculative fills and need not persist.
+                proxy.updatePlaybackFeedback(YAdaptivePlaybackFeedback(0L, true, 1f, 0L))
                 val local = proxy.localUrl(source, cacheable = true, cacheIdentity = identity)
                 assertContentEquals(payload, read(local, range = "bytes=0-"))
                 assertEquals(
                     if (source.startsWith("content")) YSourceProtocol.Local else YSourceProtocol.Https,
-                    upstream.requests.first().protocol,
+                    requests.first().protocol,
                 )
                 // Blocks are committed off the serving thread; give the remote control time to land.
                 val deadline = System.nanoTime() + 5_000_000_000L
@@ -219,6 +222,7 @@ class AndroidProxyFileProtocolTest {
     /** Answers every request, ranged or not, with the whole body, as a progressive transcode does. */
     private class WholeBodyTransport(
         private val payload: ByteArray,
+        val requests: CopyOnWriteArrayList<YMediaTransportRequest> = CopyOnWriteArrayList(),
     ) : YMediaTransport {
         override val supportedProtocols = YSourceProtocol.entries.toSet()
         override val features = setOf(YTransportFeature.ByteRange, YTransportFeature.RandomAccess)
@@ -252,10 +256,10 @@ class AndroidProxyFileProtocolTest {
     /** Serves [payload] for any address, honouring the requested start offset. */
     private class MemoryTransport(
         private val payload: ByteArray,
+        val requests: CopyOnWriteArrayList<YMediaTransportRequest> = CopyOnWriteArrayList(),
     ) : YMediaTransport {
         override val supportedProtocols = YSourceProtocol.entries.toSet()
         override val features = setOf(YTransportFeature.ByteRange, YTransportFeature.RandomAccess)
-        val requests = CopyOnWriteArrayList<YMediaTransportRequest>()
         private var position = 0
 
         override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse {

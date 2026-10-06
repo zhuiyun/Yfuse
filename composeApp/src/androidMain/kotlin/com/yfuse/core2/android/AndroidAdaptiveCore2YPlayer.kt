@@ -38,6 +38,7 @@ import com.yfuse.core2.api.preferenceIn
 import com.yfuse.core2.api.retainingActiveSources
 import com.yfuse.core2.api.trackSelectionSkipReason
 import com.yfuse.core2.capability.YAudioOutputPath
+import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.learning.YLearnedRouteAdvice
 import com.yfuse.core2.learning.YPlaybackLearningEngine
@@ -629,6 +630,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         var child: YPlayer? = null
         var secondarySubtitleOffsetMs = 0L
         var childCollector: Job? = null
+        var chapterLoader: Job? = null
         var output: YVideoOutput? = null
 
         /** The output the active child was last given, so a queued duplicate is not re-applied. */
@@ -708,6 +710,8 @@ internal class AndroidAdaptiveCore2YPlayer(
         val codecResetCounts = mutableMapOf<Int, Int>()
 
         suspend fun stopChild(waitForRelease: Boolean = true) {
+            chapterLoader?.cancel()
+            chapterLoader = null
             nextItemPreloadJob?.cancel()
             nextItemPreloadJob = null
             finalizeChildLearning?.invoke()
@@ -1560,7 +1564,9 @@ internal class AndroidAdaptiveCore2YPlayer(
             val childFailureKey = pendingFailureKey
             val childAudioOnly = pendingAudioOnly
             val childVerifiedRoute = pendingVerifiedRoute
-            val childChapters = pendingChapters
+            var childChapters = pendingChapters
+            private var chaptersReadStarted = false
+            private val chapterItem = queueItems[currentIndex]
             val childInputHdrType = pendingInputHdrType ?: queueItems[currentIndex].hintedHdrType()
             var failureRecorded = false
             var successRecorded = false
@@ -1632,11 +1638,37 @@ internal class AndroidAdaptiveCore2YPlayer(
                 learningRecorded = true
             }
 
+            private fun loadChaptersAfterFirstOutput() {
+                if (chaptersReadStarted ||
+                    childChapters.isNotEmpty() ||
+                    childFailureKey?.container != YContainer.Matroska
+                ) {
+                    return
+                }
+                chaptersReadStarted = true
+                chapterLoader =
+                    scope.launch {
+                        val chapters =
+                            try {
+                                loadAndroidMatroskaChapters(context, chapterItem)
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
+                        if (!released && activeChild === next && chapters.isNotEmpty()) {
+                            childChapters = chapters
+                            mutableState.value = mutableState.value.copy(chapters = chapters)
+                        }
+                    }
+            }
+
             fun onState(localChildState: YPlayerState) {
                 if (released || activeChild !== next) return
                 if (localChildState.diagnostics.videoOutputVerified ||
                     localChildState.diagnostics.audioOutputVerified
                 ) {
+                    loadChaptersAfterFirstOutput()
                     attachedProbeBudget?.let(probes::complete)
                     // An in-place recovery of this child may run on a renewed deadline.
                     activeProbeBudget?.let(probes::complete)

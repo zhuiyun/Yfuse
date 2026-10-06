@@ -31,6 +31,7 @@ internal sealed interface YSoftwareAudioDecodeResult {
         val channelCount: Int,
         val sampleRate: Int,
         val sampleCount: Int,
+        val sampleFormat: AndroidPcmSampleFormat = AndroidPcmSampleFormat.Signed16,
     ) : YSoftwareAudioDecodeResult
 }
 
@@ -123,13 +124,20 @@ internal class AndroidFfmpegSoftwareDecoderNode(
                     val sampleRate = result[SOFTWARE_FRAME_SECOND].toInt()
                     val samples = result[SOFTWARE_FRAME_THIRD].toInt()
                     require(channels in 1..32 && sampleRate in 1..768_000 && samples > 0)
-                    require(size == channels * samples * Short.SIZE_BYTES)
+                    val sampleFormat =
+                        if (demuxer.softwareAudioFloat) {
+                            AndroidPcmSampleFormat.Float32
+                        } else {
+                            AndroidPcmSampleFormat.Signed16
+                        }
+                    require(size.toLong() == channels.toLong() * samples * sampleFormat.bytes)
                     return YSoftwareAudioDecodeResult.Frame(
                         data = audioBuffer.frameSlice(size),
                         presentationTimeUs = result[SOFTWARE_FRAME_PTS].timestampOrZero(),
                         channelCount = channels,
                         sampleRate = sampleRate,
                         sampleCount = samples,
+                        sampleFormat = sampleFormat,
                     )
                 }
                 else -> error("Unknown FFmpeg software audio status")

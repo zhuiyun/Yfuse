@@ -12,7 +12,6 @@ import android.view.Surface
 import androidx.annotation.RequiresApi
 import com.yfuse.core2.demux.YColorMatrix
 import com.yfuse.core2.demux.YColorRange
-import com.yfuse.core2.hdr.YHdr10PlusParser
 import com.yfuse.core2.render.YGpuColorPipelineConfig
 import com.yfuse.core2.render.YGpuColorTransfer
 import com.yfuse.core2.render.YNativeGpuFeature
@@ -60,8 +59,7 @@ internal class AndroidVulkanVideoOutput
         private val presentedFrames = AtomicInteger(0)
         private val attemptedFrames = AtomicInteger(0)
         private val frameIndex = AtomicInteger(0)
-        private val pendingHdr10Plus =
-            ConcurrentSkipListMap<Long, com.yfuse.core2.hdr.YHdr10PlusSceneMetadata>()
+        private val pendingHdr10Plus = Hdr10PlusFrameMetadata()
 
         /**
          * Release timestamp (the image's) to media timestamp. HDR10+ metadata is queued by media
@@ -256,11 +254,9 @@ internal class AndroidVulkanVideoOutput
 
         fun queueHdr10PlusMetadata(
             presentationTimeUs: Long,
-            ituT35Payload: ByteArray,
+            ituT35Payload: ByteArray?,
         ) {
-            val parsed = YHdr10PlusParser.parse(ituT35Payload) ?: return
-            pendingHdr10Plus[presentationTimeUs.coerceAtLeast(0L)] = parsed
-            while (pendingHdr10Plus.size > MAX_PENDING_DYNAMIC_METADATA) pendingHdr10Plus.pollFirstEntry()
+            pendingHdr10Plus.queue(presentationTimeUs, ituT35Payload)
         }
 
         init {
@@ -290,7 +286,7 @@ internal class AndroidVulkanVideoOutput
                                 val handle = renderer.get()
                                 if (handle == 0L) return@synchronized
                                 attemptedFrames.incrementAndGet()
-                                mediaTimeUs(image.timestamp)?.let { applyHdr10PlusForTimestamp(it) }
+                                applyHdr10PlusForTimestamp(mediaTimeUs(image.timestamp))
                                 AndroidYCoreGpuNativeBridge.setDesiredPresentTime(handle, image.timestamp)
                                 val mask =
                                     AndroidYCoreGpuNativeBridge.renderHardwareBuffer(
@@ -338,14 +334,9 @@ internal class AndroidVulkanVideoOutput
             return entry.value
         }
 
-        private fun applyHdr10PlusForTimestamp(presentationTimeUs: Long) {
-            val entry =
-                pendingHdr10Plus.floorEntry(presentationTimeUs)
-                    ?: pendingHdr10Plus.ceilingEntry(presentationTimeUs)
-                    ?: return
-            if (kotlin.math.abs(entry.key - presentationTimeUs) > MAX_DYNAMIC_METADATA_DISTANCE_US) return
-            activeColorConfig.updateAndGet { it.copy(hdr10PlusSceneMetadata = entry.value) }
-            pendingHdr10Plus.headMap(entry.key, true).clear()
+        private fun applyHdr10PlusForTimestamp(presentationTimeUs: Long?) {
+            val metadata = presentationTimeUs?.let(pendingHdr10Plus::take)
+            activeColorConfig.updateAndGet { it.copy(hdr10PlusSceneMetadata = metadata) }
         }
     }
 
@@ -369,8 +360,6 @@ private fun createPrivateImageReader(
 private const val MAX_GPU_IMAGES = 4
 private const val MAX_MEASUREMENT_FRAMES = 48
 private const val MAX_P010_PROBE_FRAMES = 12
-private const val MAX_PENDING_DYNAMIC_METADATA = 96
-private const val MAX_DYNAMIC_METADATA_DISTANCE_US = 1_000_000L
 private const val MAX_RELEASED_FRAME_RECORDS = 64
 
 // MediaCodec stamps the image with the release time it was given; allow for rounding on the way.

@@ -1,9 +1,11 @@
 package com.yfuse.core2.demux
 
 import com.yfuse.core2.api.YChapter
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 
 class YMatroskaChaptersTest {
     @Test
@@ -78,6 +80,48 @@ class YMatroskaChaptersTest {
         assertEquals(YMatroskaChaptersResult.Truncated, YMatroskaChapterParser.parse(full.copyOf(full.size - 5)))
         assertEquals(YMatroskaChaptersResult.Invalid, YMatroskaChapterParser.parse(byteArrayOf(0x47, 0x40, 0x00, 0x10)))
     }
+
+    @Test
+    fun nestedChaptersKeepTheirTitlePathAndDoNotDuplicateTheParentStart() {
+        val chapters =
+            element(
+                0x1043A770,
+                element(
+                    0x45B9,
+                    atom(0, "Part", extra = atom(0, "Opening") + atom(10_000_000_000, "Scene")),
+                ),
+            )
+        val result = assertIs<YMatroskaChaptersResult.Found>(YMatroskaChapterParser.parseChapterElement(chapters))
+        assertEquals(listOf(YChapter(0, "Part / Opening"), YChapter(10_000, "Part / Scene")), result.chapters)
+    }
+
+    @Test
+    fun aDistantChapterElementIsReadByExactRangeWithoutScanningClusters() =
+        runBlocking {
+            val chapters = element(0x1043A770, element(0x45B9, atom(0, "Remote")))
+            val prefix =
+                file(
+                    element(
+                        0x114D9B74,
+                        element(0x4DBB, element(0x53AB, id(0x1043A770)), uint(0x53AC, 9_000_000)),
+                    ),
+                    elementHeader(0x1941A469, 8_000_000),
+                )
+            val target = ebmlHeader().size + 12 + 9_000_000L
+            val reads = mutableListOf<Pair<Long, Int>>()
+            val result =
+                readYMatroskaChapters { offset, length ->
+                    reads += offset to length
+                    when (offset) {
+                        0L -> prefix
+                        target -> chapters.copyOf(minOf(length, chapters.size))
+                        else -> error("Unexpected unbounded scan")
+                    }
+                }
+            assertEquals(listOf(YChapter(0, "Remote")), result)
+            assertEquals(listOf(0L to 131_072, target to 12, target to chapters.size), reads)
+            assertNull(YMatroskaChapterParser.chapterElementSize(elementHeader(0x1043A770, 5_000_000)))
+        }
 
     private fun atom(
         startNs: Long,

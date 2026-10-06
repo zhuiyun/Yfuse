@@ -68,8 +68,8 @@ FFMPEG_LICENSE="$(manifest_value ycore-demux-ffmpeg-license)"
 echo "FFmpeg license (as configured): ${FFMPEG_LICENSE:-not recorded by this build}"
 [[ "$(manifest_value ycore-demux-source)" == "scripts/native/ycore_demux_jni.cpp" ]] ||
   fail "native provenance points at an unexpected YCore source"
-[[ "$(manifest_value ycore-software-decoder-api)" == "3" ]] ||
-  fail "YCore software decoder API v3 (RGBA output, stream colour matrix, damaged-packet tolerance) is missing"
+[[ "$(manifest_value ycore-software-decoder-api)" == "4" ]] ||
+  fail "YCore software decoder API v4 (float PCM, RGBA output, stream colour matrix, damaged-packet tolerance) is missing"
 [[ "$(manifest_value ycore-tone-map-source)" == "scripts/native/ycore_tone_map.h" ]] ||
   fail "YCore HDR tone-map provenance is missing"
 [[ "$(manifest_value ycore-libass)" == "0.17.4" ]] || fail "unexpected libass revision"

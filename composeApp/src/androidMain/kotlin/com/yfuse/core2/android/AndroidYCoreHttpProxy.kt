@@ -22,6 +22,7 @@ import com.yfuse.core2.adaptive.YDashResourceKind
 import com.yfuse.core2.adaptive.YDashSegmentTemplate
 import com.yfuse.core2.adaptive.YHlsAlignedSegment
 import com.yfuse.core2.adaptive.YHlsPlaybackCapabilities
+import com.yfuse.core2.adaptive.YHlsPlaybackSet
 import com.yfuse.core2.adaptive.YHlsPlaylist
 import com.yfuse.core2.adaptive.YHlsResourceKind
 import com.yfuse.core2.adaptive.YHlsVariantMediaPlaylist
@@ -202,6 +203,7 @@ internal class AndroidYCoreHttpProxy(
         val hlsAbrResource: HlsAbrResourceRoute? = null,
         val mediaBitRateBitsPerSecond: Long = 0L,
         val playbackTarget: AdaptiveTargetConfiguration? = null,
+        val pinnedHls: PinnedHlsPlayback? = null,
         val credentialOrigin: String = upstreamUri,
     )
 
@@ -230,12 +232,18 @@ internal class AndroidYCoreHttpProxy(
         val selectedRepresentationId: String,
     )
 
+    private class PinnedHlsPlayback(
+        val playback: HlsPlaybackManifest,
+    )
+
     private data class HlsPlaybackManifest(
         val text: String,
         val uri: String,
         val media: YHlsPlaylist.Media,
         val abrSession: HlsAbrSession? = null,
         val alignedSegments: Map<Long, YHlsAlignedSegment> = emptyMap(),
+        val masterSet: YHlsPlaybackSet? = null,
+        val liveVariants: List<YAdaptiveVariant> = emptyList(),
     )
 
     private data class HlsAbrResourceRoute(
@@ -250,6 +258,7 @@ internal class AndroidYCoreHttpProxy(
         val dash: YDashManifest? = null,
         val hlsMaster: YHlsPlaylist.Master? = null,
         val hlsRootText: String? = null,
+        val hlsPlaybackSet: YHlsPlaybackSet? = null,
         initialHls: Pair<YAdaptiveVariant, HlsPlaybackManifest>? = null,
     ) {
         val gate = YAdaptiveReopenGate()
@@ -338,7 +347,12 @@ internal class AndroidYCoreHttpProxy(
                         this,
                         revision,
                         variantId,
-                        hls = playback.copy(abrSession = session, alignedSegments = aligned),
+                        hls =
+                            playback.copy(
+                                abrSession = session,
+                                alignedSegments = aligned,
+                                masterSet = hlsPlaybackSet?.copy(initialVariant = variant, variants = listOf(variant)),
+                            ),
                     )
                 durationMs =
                     playback.media.segments
@@ -371,7 +385,7 @@ internal class AndroidYCoreHttpProxy(
 
     private class HlsAbrSession(
         initialVariantId: String,
-        private val initialPlaylist: YHlsVariantMediaPlaylist,
+        private var initialPlaylist: YHlsVariantMediaPlaylist,
         private val isMeteredNetwork: () -> Boolean,
         private val latestFeedback: () -> TimedAdaptivePlaybackFeedback?,
         private val requestReopen: ((String) -> Unit)? = null,
@@ -392,6 +406,12 @@ internal class AndroidYCoreHttpProxy(
                     .associateBy(YHlsAlignedSegment::sequence)
             reopenVariants =
                 compatibleYHlsReopenVariants(initialPlaylist, discoveredVariants.values.toList()).map { it.variant }
+        }
+
+        @Synchronized
+        fun refreshInitial(media: YHlsPlaylist.Media) {
+            initialPlaylist = initialPlaylist.copy(playlist = media)
+            addVariant(initialPlaylist)
         }
 
         @Synchronized
@@ -661,7 +681,7 @@ internal class AndroidYCoreHttpProxy(
                         "HLS session keys require the native DRM route"
                     }
                     val master = parseYHlsPlaylist(text, route.upstreamUri) as? YHlsPlaylist.Master
-                    if (master == null || text.hasSeparateYCoreHlsRenditions()) {
+                    if (master == null) {
                         unmanagedManifestRoots.add(rootUri)
                         return@withContext null
                     }
@@ -686,6 +706,7 @@ internal class AndroidYCoreHttpProxy(
                         route,
                         hlsMaster = master.copy(variants = playbackSet.variants),
                         hlsRootText = text,
+                        hlsPlaybackSet = playbackSet.takeIf { text.hasSeparateYCoreHlsRenditions() },
                         initialHls = selected to HlsPlaybackManifest(selectedText, selected.uri, selectedMedia),
                     )
                 }
@@ -1127,62 +1148,39 @@ internal class AndroidYCoreHttpProxy(
         route: Route,
         method: String,
     ) {
-        val pinned = route.playbackTarget?.hls
+        val pinned = (route.pinnedHls?.playback ?: route.playbackTarget?.hls)?.let { refreshLiveHls(it, route) }
         val rootText = pinned?.text ?: loadBounded(route.upstreamUri, MAX_HLS_MANIFEST_BYTES, route).decodeToString()
         require(route.drmProtected || !rootText.hasDrmHlsSessionKey()) {
             "HLS session keys require the native DRM route"
         }
         val root = pinned?.media ?: parseYHlsPlaylist(rootText, route.upstreamUri)
+        if (pinned?.masterSet != null) {
+            serveHlsRenditionMaster(
+                socket,
+                route,
+                method,
+                pinned,
+                route.playbackTarget
+                    ?.presentation
+                    ?.hlsRootText
+                    .orEmpty(),
+            )
+            return
+        }
         if (root is YHlsPlaylist.Master && rootText.hasSeparateYCoreHlsRenditions()) {
-            val conditions =
-                YAdaptiveSelectionConditions(
-                    estimatedBandwidthBitsPerSecond = INITIAL_BANDWIDTH_BITS_PER_SECOND,
-                    bufferedDurationUs = STARTUP_BUFFER_US,
-                    maximumWidth = route.maximumWidth,
-                    maximumHeight = route.maximumHeight,
-                    metered = isMeteredNetwork(),
+            val set =
+                selectYHlsPlaybackSet(
+                    root,
+                    route.startupSelectionConditions(),
+                    YHlsPlaybackCapabilities(route.allowDolbyVisionHls, route.allowDolbyAtmosHls),
                 )
             val playback =
-                selectYHlsPlaybackSet(
-                    master = root,
-                    conditions = conditions,
-                    capabilities =
-                        YHlsPlaybackCapabilities(
-                            dolbyVisionOutput = route.allowDolbyVisionHls,
-                            dolbyAtmosOutput = route.allowDolbyAtmosHls,
-                        ),
-                )
-            val selectedMaster =
-                buildYHlsPlaybackMaster(playback.initialVariantOnly()) { upstreamUri, _ ->
-                    localUrl(
-                        upstreamUri = upstreamUri,
-                        upstreamHeaders = route.upstreamHeaders,
-                        credentialOrigin = route.credentialOrigin,
-                        credentials = route.credentials,
-                        cacheable = false,
-                        cacheIdentity = route.cacheIdentity?.forStableAdaptiveUri(upstreamUri),
-                        maximumWidth = route.maximumWidth,
-                        maximumHeight = route.maximumHeight,
-                        hlsManifest = true,
-                        dashManifest = false,
-                        drmProtected = route.drmProtected,
-                        allowDolbyVisionHls = route.allowDolbyVisionHls,
-                        allowDolbyAtmosHls = route.allowDolbyAtmosHls,
-                    )
-                }
-            val localizedMaster =
-                selectedMaster
-                    .withLocalizedHlsSessionKeysFrom(rootText, route)
-                    .encodeToByteArray()
-            writeHeaders(
-                socket = socket,
-                status = 200,
-                reason = "OK",
-                contentType = HLS_CONTENT_TYPE,
-                contentLength = localizedMaster.size.toLong(),
-            )
-            if (method == "GET") socket.getOutputStream().write(localizedMaster)
-            socket.getOutputStream().flush()
+                loadHlsPlaybackManifest(
+                    root,
+                    route,
+                    allowLive = true,
+                ).copy(masterSet = set.initialVariantOnly())
+            serveHlsRenditionMaster(socket, route, method, playback, rootText)
             return
         }
         val playback =
@@ -1251,9 +1249,71 @@ internal class AndroidYCoreHttpProxy(
         socket.getOutputStream().flush()
     }
 
+    private fun serveHlsRenditionMaster(
+        socket: Socket,
+        route: Route,
+        method: String,
+        playback: HlsPlaybackManifest,
+        rootText: String,
+    ) {
+        val selected = requireNotNull(playback.masterSet).initialVariantOnly()
+        val video = PinnedHlsPlayback(playback.copy(masterSet = null))
+        val master =
+            buildYHlsPlaybackMaster(selected) { uri, kind ->
+                if (kind == YHlsResourceKind.VariantPlaylist) {
+                    localRouteUrl(route.copy(upstreamUri = uri, pinnedHls = video), "/video.m3u8")
+                } else {
+                    localUrl(
+                        upstreamUri = uri,
+                        upstreamHeaders = route.upstreamHeaders,
+                        credentials = route.credentials,
+                        credentialOrigin = route.credentialOrigin,
+                        cacheable = false,
+                        cacheIdentity = route.cacheIdentity?.forStableAdaptiveUri(uri),
+                        maximumWidth = route.maximumWidth,
+                        maximumHeight = route.maximumHeight,
+                        hlsManifest = true,
+                        drmProtected = route.drmProtected,
+                    )
+                }
+            }.withLocalizedHlsSessionKeysFrom(rootText, route).encodeToByteArray()
+        writeHeaders(socket, 200, "OK", HLS_CONTENT_TYPE, master.size.toLong())
+        if (method == "GET") socket.getOutputStream().write(master)
+        socket.getOutputStream().flush()
+    }
+
+    private fun refreshLiveHls(
+        playback: HlsPlaybackManifest,
+        route: Route,
+    ): HlsPlaybackManifest {
+        if (!playback.media.isLive || playback.masterSet != null) return playback
+        val text = loadBounded(playback.uri, MAX_HLS_MANIFEST_BYTES, route).decodeToString()
+        val media = text.requireExecutableHlsMedia(playback.uri, route.drmProtected)
+        val session = playback.abrSession
+        if (session == null || playback.liveVariants.isEmpty()) return playback.copy(text = text, media = media)
+        session.refreshInitial(media)
+        val initial = playback.liveVariants.first { it.uri == playback.uri }
+        val aligned = alignYHlsVariantSegments(listOf(YHlsVariantMediaPlaylist(initial, media)), initial.id)
+        playback.liveVariants.filter { it.id != initial.id }.forEach { variant ->
+            manifestDiscovery.submit(session to variant.id) { budget ->
+                val candidate =
+                    loadBounded(variant.uri, MAX_HLS_MANIFEST_BYTES, route, budget)
+                        .decodeToString()
+                        .requireExecutableHlsMedia(variant.uri, route.drmProtected)
+                budget.publishIfActive { session.addVariant(YHlsVariantMediaPlaylist(variant, candidate)) }
+            }
+        }
+        return playback.copy(
+            text = text,
+            media = media,
+            alignedSegments = aligned.associateBy(YHlsAlignedSegment::sequence),
+        )
+    }
+
     private fun loadHlsPlaybackManifest(
         root: YHlsPlaylist.Master,
         route: Route,
+        allowLive: Boolean = false,
     ): HlsPlaybackManifest {
         val playbackSet =
             selectYHlsPlaybackSet(
@@ -1264,7 +1324,7 @@ internal class AndroidYCoreHttpProxy(
         val selected = playbackSet.initialVariant
         val selectedText = loadBounded(selected.uri, MAX_HLS_MANIFEST_BYTES, route).decodeToString()
         val selectedMedia = selectedText.requireExecutableHlsMedia(selected.uri, route.drmProtected)
-        if (selectedMedia.isLive || selectedText.hasLowLatencyHlsParts()) {
+        if ((selectedMedia.isLive && !allowLive) || selectedText.hasLowLatencyHlsParts()) {
             return HlsPlaybackManifest(selectedText, selected.uri, selectedMedia)
         }
         val eligibleAlternates =
@@ -1295,6 +1355,7 @@ internal class AndroidYCoreHttpProxy(
             media = selectedMedia,
             abrSession = session,
             alignedSegments = aligned.associateBy(YHlsAlignedSegment::sequence),
+            liveVariants = if (selectedMedia.isLive) listOf(selected) + eligibleAlternates else emptyList(),
         )
     }
 

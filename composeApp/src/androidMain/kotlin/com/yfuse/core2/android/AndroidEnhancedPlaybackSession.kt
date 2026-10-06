@@ -167,6 +167,9 @@ internal class AndroidEnhancedPlaybackSession(
     private var pendingEncodedAudioData: java.nio.ByteBuffer? = null
     private var pendingSoftwareVideoOutput: YSoftwareVideoDecodeResult.Frame? = null
     private var pendingSoftwareAudioOutput: YSoftwareAudioDecodeResult.Frame? = null
+    private var pendingSoftwareAudioPrepared = false
+    private var softwareAudioDrainStartedNs = 0L
+    private val softwarePcmOutput = SoftwarePcmOutput(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
     private var softwareDecoder: AndroidFfmpegSoftwareDecoderNode? = null
     private val softwareVideoRenderer = AndroidSoftwareVideoRenderNode()
     private var gpuVideoOutput: AndroidVulkanVideoOutput? = null
@@ -619,7 +622,7 @@ internal class AndroidEnhancedPlaybackSession(
             // After the decoder that feeds it, in the same order as close().
             runCatching { gpuVideoOutput?.close() }
             gpuVideoOutput = null
-            runCatching { softwareDecoder?.release() }
+            releaseSoftwareDecoder()
             softwareDecoder = null
             runCatching(demuxReadAhead::close)
             throw throwable
@@ -1398,7 +1401,7 @@ internal class AndroidEnhancedPlaybackSession(
         runCatching(softwareVideoRenderer::release)
         runCatching { gpuVideoOutput?.close() }
         gpuVideoOutput = null
-        runCatching { softwareDecoder?.release() }
+        releaseSoftwareDecoder()
         softwareDecoder = null
         frameRateManager.clear()
         runCatching(demuxReadAhead::close)
@@ -1527,9 +1530,7 @@ internal class AndroidEnhancedPlaybackSession(
                         val preparedUnit = preparedVideoAccessUnit(sample)
                         val hdr10PlusPayload = preparedUnit.hdr10PlusPayload
                         hdr10PlusPayload?.let(videoDecoder::setHdr10PlusMetadata)
-                        hdr10PlusPayload?.let { payload ->
-                            gpuVideoOutput?.queueHdr10PlusMetadata(sample.presentationTimeUs, payload)
-                        }
+                        gpuVideoOutput?.queueHdr10PlusMetadata(sample.presentationTimeUs, hdr10PlusPayload)
                         yPlaybackStage(
                             category = YPlaybackFailureCategory.Decoder,
                             stage = YPlaybackFailureStage.VideoDecoderQueue,
@@ -1576,7 +1577,7 @@ internal class AndroidEnhancedPlaybackSession(
                     data = transformVideoSample(sample.data),
                     hdr10PlusPayload =
                         video
-                            ?.takeIf { it.hdrType == YHdrType.Hdr10Plus }
+                            ?.takeIf { it.codec == YVideoCodec.H265 }
                             ?.samplePacking
                             ?.let { YBitstream.hdr10PlusItuT35Payload(sample.data, it) },
                 )
@@ -1863,6 +1864,11 @@ internal class AndroidEnhancedPlaybackSession(
         return true
     }
 
+    private fun releaseSoftwareDecoder() {
+        runCatching { softwareDecoder?.release() }
+        softwarePcmOutput.release()
+    }
+
     private fun drainSoftwareAudio(): Boolean {
         pendingSoftwareAudioOutput?.let { return writePendingSoftwareAudioOutput(it) }
         return when (val output = requireNotNull(softwareDecoder).receiveAudio()) {
@@ -1872,30 +1878,10 @@ internal class AndroidEnhancedPlaybackSession(
                 true
             }
             is YSoftwareAudioDecodeResult.Frame -> {
-                if (!audioRendererConfigured) {
-                    val format =
-                        MediaFormat
-                            .createAudioFormat(
-                                MediaFormat.MIMETYPE_AUDIO_RAW,
-                                output.sampleRate,
-                                output.channelCount,
-                            ).apply {
-                                setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
-                            }
-                    yPlaybackStage(
-                        category = YPlaybackFailureCategory.AudioSink,
-                        stage = YPlaybackFailureStage.AudioRenderer,
-                        safeDetail = "FFmpeg software PCM sink configure",
-                    ) {
-                        audioRenderer.configure(format)
-                    }
-                    audioRendererConfigured = true
-                    captureAudioRoutingGeneration()
-                    audioRenderer.setSpeed(speed)
-                    if (outputActive) audioRenderer.play()
-                }
                 if (output.presentationTimeUs >= seekAudioTargetUs) {
                     pendingSoftwareAudioOutput = output
+                    pendingSoftwareAudioPrepared = false
+                    softwareAudioDrainStartedNs = 0L
                     writePendingSoftwareAudioOutput(output)
                 } else {
                     true
@@ -1905,15 +1891,25 @@ internal class AndroidEnhancedPlaybackSession(
     }
 
     private fun writePendingSoftwareAudioOutput(output: YSoftwareAudioDecodeResult.Frame): Boolean {
+        val prepared =
+            if (pendingSoftwareAudioPrepared) {
+                output
+            } else {
+                if (!prepareSoftwareAudioOutput(output)) return false
+                softwarePcmOutput.convert(output).also {
+                    pendingSoftwareAudioOutput = it
+                    pendingSoftwareAudioPrepared = true
+                }
+            }
         val written =
             yPlaybackStage(
                 category = YPlaybackFailureCategory.AudioSink,
                 stage = YPlaybackFailureStage.AudioRenderer,
                 safeDetail = "FFmpeg software PCM non-blocking write",
             ) {
-                audioRenderer.writeNonBlocking(output.data, output.presentationTimeUs)
+                audioRenderer.writeNonBlocking(prepared.data, prepared.presentationTimeUs)
             }
-        return when (decodedAudioDrainProgress(written, output.data.remaining())) {
+        return when (decodedAudioDrainProgress(written, prepared.data.remaining())) {
             YDecodedAudioDrainProgress.Backpressured -> false
             YDecodedAudioDrainProgress.Pending -> true
             YDecodedAudioDrainProgress.Complete -> {
@@ -1922,6 +1918,46 @@ internal class AndroidEnhancedPlaybackSession(
                 true
             }
         }
+    }
+
+    private fun prepareSoftwareAudioOutput(output: YSoftwareAudioDecodeResult.Frame): Boolean {
+        if (audioRendererConfigured && softwarePcmOutput.matches(output)) return true
+        if (audioRendererConfigured && audioRenderer.hasPendingPcm()) {
+            if (!outputActive) return false
+            val now = System.nanoTime()
+            if (softwareAudioDrainStartedNs == 0L) softwareAudioDrainStartedNs = now
+            check(
+                now - softwareAudioDrainStartedNs < 5_000_000_000L,
+            ) { "Old PCM output did not drain before format change" }
+            return false
+        }
+        yPlaybackStage(
+            category = YPlaybackFailureCategory.AudioSink,
+            stage = YPlaybackFailureStage.AudioRenderer,
+            safeDetail = "FFmpeg software PCM sink configure",
+        ) {
+            softwarePcmOutput.configure(output) { encoding ->
+                val pcmEncoding =
+                    when (encoding) {
+                        AndroidPcmSampleFormat.Float32 -> AudioFormat.ENCODING_PCM_FLOAT
+                        AndroidPcmSampleFormat.Signed24Packed -> AudioFormat.ENCODING_PCM_24BIT_PACKED
+                        else -> AudioFormat.ENCODING_PCM_16BIT
+                    }
+                val format =
+                    MediaFormat.createAudioFormat(
+                        MediaFormat.MIMETYPE_AUDIO_RAW,
+                        output.sampleRate,
+                        output.channelCount,
+                    )
+                format.setInteger(MediaFormat.KEY_PCM_ENCODING, pcmEncoding)
+                audioRenderer.configureIfChanged(format)
+            }
+        }
+        audioRendererConfigured = true
+        captureAudioRoutingGeneration()
+        audioRenderer.setSpeed(speed)
+        if (outputActive) audioRenderer.play()
+        return true
     }
 
     private fun drainSoftwareVideo(): Boolean {
