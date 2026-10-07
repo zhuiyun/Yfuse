@@ -366,7 +366,7 @@ private fun PersonalCenterPage(
                         }
                     }
                 }
-                item { PersonalNotice("个人数据加密合并，保留删除记录；服务器配置与设置备份仍需手动操作。") }
+                item { PersonalNotice("个人内容自动加密合并，保留删除记录；服务器配置与设置备份仍需手动操作。") }
                 item {
                     Section(title = "播放进度") {
                         SettingsCard {

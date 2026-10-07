@@ -252,6 +252,7 @@ class AppModuleGraphTest {
         /**
          * Every binding of the single appModule before it was split by feature, in its declaration
          * order, recorded from that module: kind, type, qualifier, and whether it closes with the graph.
+         * A binding added since joins the list beside its neighbours.
          */
         val BINDINGS_BEFORE_THE_SPLIT =
             listOf(
@@ -320,6 +321,7 @@ class AppModuleGraphTest {
                 "Singleton com.yfuse.core.account.PlaybackVaultCipher",
                 "Singleton com.yfuse.core.sync.playback.PlaybackSyncManager",
                 "Singleton com.yfuse.app.ProductSession",
+                "Singleton com.yfuse.core.account.PersonalAutoSync",
                 "Singleton com.yfuse.core.trakt.TraktRepository onClose",
                 "Singleton com.yfuse.core.handoff.HandoffPlaybackRegistry",
                 "Singleton com.yfuse.core.handoff.AccountHandoffApi",

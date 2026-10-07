@@ -272,13 +272,27 @@ class AccountRepository(
         }
 
     /** Merges personal assets only, preserving cloud server/settings fields and CAS conflicts. */
-    suspend fun syncPersonalNow(): Result<Unit> {
+    suspend fun syncPersonalNow(): Result<Unit> = syncPersonal(automatic = false)
+
+    /**
+     * The same merge, run by [PersonalAutoSync] rather than asked for. It writes only when this
+     * device holds something the cloud lacks, since an unchanged upload would still bump the
+     * version every device sees, and never into an empty cloud. The account card's message is not
+     * its to set: 个人中心 shows how it went.
+     */
+    suspend fun syncPersonalAutomatically(): Result<Unit> = syncPersonal(automatic = true)
+
+    private suspend fun syncPersonal(automatic: Boolean): Result<Unit> {
         val library = personal ?: return Result.failure(IllegalStateException("个人资料未初始化"))
         library.beginSync()
         return guarded(
-            onFailure = {
-                library.failSync(it.message ?: "同步失败，请重试")
-                recordFailure(it)
+            onFailure = { error ->
+                library.failSync(error.message ?: "同步失败，请重试")
+                if (automatic) {
+                    (_state.value as? AccountState.SignedIn)?.let { _state.value = it.copy(syncing = false) }
+                } else {
+                    recordFailure(error)
+                }
             },
         ) {
             requireSignedIn()
@@ -288,29 +302,48 @@ class AccountRepository(
                 repeat(3) { attempt ->
                     if (completed) return@repeat
                     val remote = authorized { api.getSync(it) }
+                    if (automatic && remote.payload == null) {
+                        // Filling an empty cloud uploads this device's servers and settings too, and
+                        // would undo a 清空云端; that first upload stays someone's choice.
+                        library.failSync("云端暂无同步数据，点「立即同步」或在账号页「上传本机」后开始自动同步")
+                        completed = true
+                        return@repeat
+                    }
                     val cloudSnapshot = remote.payload?.let { decryptSnapshotLocked(remote, vaultKey) }
                     cloudSnapshot?.personal?.let(library::mergeRemote)
                     val sent = library.snapshot()
-                    // With nothing in the cloud yet, this device's own settings are the base.
-                    val base = cloudSnapshot ?: withContext(mutationDispatcher) { captureSnapshot() }
-                    try {
-                        uploadLocked(
-                            remote.version,
-                            vaultKey,
-                            remote.payload,
-                            "个人清单、历史和追剧已合并同步",
-                            base.copy(personal = sent),
-                        )
-                        library.finishSync(sent, nowEpochMs())
-                        completed = true
-                    } catch (error: AccountApiException) {
-                        if (error.status != HttpStatusCode.Conflict || attempt == 2) throw error
+                    if (automatic && sent == cloudSnapshot?.personal) {
+                        noteCloudVersion(remote.version)
+                    } else {
+                        // With nothing in the cloud yet, this device's own settings are the base.
+                        val base = cloudSnapshot ?: withContext(mutationDispatcher) { captureSnapshot() }
+                        try {
+                            uploadLocked(
+                                remote.version,
+                                vaultKey,
+                                remote.payload,
+                                "个人清单、历史和追剧已合并同步".takeUnless { automatic },
+                                base.copy(personal = sent),
+                            )
+                        } catch (error: AccountApiException) {
+                            if (error.status != HttpStatusCode.Conflict || attempt == 2) throw error
+                            return@repeat
+                        }
                     }
+                    library.finishSync(sent, nowEpochMs())
+                    completed = true
                 }
             } finally {
                 vaultKey.fill(0)
             }
         }
+    }
+
+    /** The cloud version an automatic merge found; a message about an older one would mislead. */
+    private fun noteCloudVersion(version: Long) {
+        val current = _state.value as? AccountState.SignedIn ?: return
+        if (current.cloudHasData && current.syncVersion == version) return
+        _state.value = current.copy(syncVersion = version, cloudHasData = true, message = null)
     }
 
     private suspend fun decryptSnapshotLocked(
@@ -729,7 +762,8 @@ class AccountRepository(
         baseVersion: Long,
         vaultKey: ByteArray,
         remotePayload: EncryptedSyncPayload?,
-        successMessage: String = "已安全同步",
+        /** Null for an automatic merge: it announces nothing, and the old message named the old version. */
+        successMessage: String? = "已安全同步",
         snapshotOverride: CloudSyncSnapshotV1? = null,
     ) {
         val signedIn = requireSignedIn()

@@ -31,6 +31,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PersonalCloudSyncTest {
@@ -197,6 +199,64 @@ class PersonalCloudSyncTest {
             }
         }
 
+    @Test
+    fun automaticMergeWritesOnlyWhatTheCloudLacksAndLeavesTheAccountCardAlone() =
+        runTest {
+            val cloud = SyncServer()
+            val phone = Fixture(AccountApi(cloud.client))
+            val tv = Fixture(AccountApi(cloud.client))
+            val movie = PersonalMediaRef("tmdb:603", "黑客帝国", "Movie")
+            try {
+                phone.account.register("viewer", "secret-password".toCharArray()).getOrThrow()
+                phone.personal.setFavorite(movie, true)
+                val created = signedIn(phone).message
+                // The first document would carry this device's servers too, so a person uploads it.
+                phone.account.syncPersonalAutomatically().getOrThrow()
+                assertEquals(0, cloud.acceptedUploads)
+                assertEquals(created, signedIn(phone).message)
+                assertNotNull(phone.personal.state.value.error)
+                phone.account.syncPersonalNow().getOrThrow()
+                phone.account.syncPersonalAutomatically().getOrThrow()
+                assertEquals(1, cloud.acceptedUploads)
+
+                tv.account.login("viewer", "secret-password".toCharArray()).getOrThrow()
+                val ready = signedIn(tv).message
+                tv.account.syncPersonalAutomatically().getOrThrow()
+                assertEquals(
+                    movie,
+                    tv.personal.state.value.favorites
+                        .single()
+                        .media,
+                )
+                assertEquals(1, cloud.acceptedUploads)
+                assertEquals(ready, signedIn(tv).message)
+
+                tv.personal.setWatchLater(movie.copy(mediaKey = "tmdb:604", title = "黑客帝国 2"), true)
+                tv.account.syncPersonalAutomatically().getOrThrow()
+                assertEquals(2, cloud.acceptedUploads)
+                // "云端版本 1 已就绪" no longer describes the cloud.
+                assertNull(signedIn(tv).message)
+                phone.account.syncPersonalAutomatically().getOrThrow()
+                assertEquals(1, phone.personal.state.value.watchLater.size)
+                assertEquals(2, signedIn(phone).syncVersion)
+                assertEquals(2, cloud.acceptedUploads)
+
+                cloud.unavailable = true
+                phone.personal.setFavorite(movie, false)
+                assertTrue(phone.account.syncPersonalAutomatically().isFailure)
+                assertNull(signedIn(phone).message)
+                assertFalse(signedIn(phone).syncing)
+                assertNotNull(phone.personal.state.value.error)
+                assertTrue(phone.personal.state.value.pendingSync)
+            } finally {
+                phone.media.close()
+                tv.media.close()
+                cloud.client.close()
+            }
+        }
+
+    private fun signedIn(fixture: Fixture) = assertIs<AccountState.SignedIn>(fixture.account.state.value)
+
     /** The account server's sync endpoint, which refuses ciphertext past its limit like the real one. */
     private class SyncServer {
         val json =
@@ -205,6 +265,9 @@ class PersonalCloudSyncTest {
                 ignoreUnknownKeys = true
             }
         var acceptedUploads = 0
+
+        /** Answers every sync request 503, as the account service does while it is down. */
+        var unavailable = false
         private var remote = SyncResponse(0)
         private val auth =
             AuthResponse(
@@ -221,6 +284,12 @@ class PersonalCloudSyncTest {
                     when {
                         request.url.encodedPath.startsWith("/api/v1/auth/") ->
                             respond(json.encodeToString(auth), headers = headers)
+                        unavailable ->
+                            respond(
+                                "{\"error\":{\"code\":\"unavailable\",\"message\":\"账号服务暂时不可用\"}}",
+                                HttpStatusCode.ServiceUnavailable,
+                                headers,
+                            )
                         request.method.value == "GET" -> respond(json.encodeToString(remote), headers = headers)
                         else -> {
                             val body = request.body.toByteArray().decodeToString()
@@ -228,7 +297,7 @@ class PersonalCloudSyncTest {
                             val ciphertext = put.payload.ciphertext.base64UrlToBytes()
                             if (ciphertext.size > MAX_SYNC_CIPHERTEXT_BYTES) {
                                 respond(
-                                    "{\"error\":\"request_too_large\",\"message\":\"请求内容过大\"}",
+                                    "{\"error\":{\"code\":\"request_too_large\",\"message\":\"请求内容过大\"}}",
                                     HttpStatusCode.PayloadTooLarge,
                                     headers,
                                 )
