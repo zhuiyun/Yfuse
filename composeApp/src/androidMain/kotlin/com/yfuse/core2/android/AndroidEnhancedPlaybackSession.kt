@@ -773,6 +773,7 @@ internal class AndroidEnhancedPlaybackSession(
         speed = value
         refreshAdaptiveBufferPlan(demuxReadAhead.snapshot(), force = true)
         wallClock.setSpeed(value, position, System.nanoTime())
+        videoDecoder.setPlaybackSpeed(value)
         if (isAudioPassthrough() && requiresPcmAudioPath(false, false, value)) {
             switchPassthroughToPcm(position, countFailure = false)
             return
