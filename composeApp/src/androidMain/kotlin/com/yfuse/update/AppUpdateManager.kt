@@ -2121,24 +2121,36 @@ internal fun apkMatchesInstalledUpdate(
         )
     }.getOrDefault(false)
 
-private val SIGNING_FLAGS: Int =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        PackageManager.GET_SIGNING_CERTIFICATES
-    } else {
-        @Suppress("DEPRECATION")
-        PackageManager.GET_SIGNATURES
+private val SIGNING_FLAGS: Int = updateSigningFlags(Build.VERSION.SDK_INT)
+
+/**
+ * Flags that read the signing certificates of both the installed app and a downloaded APK.
+ *
+ * Android 9 and 10 collect an archive's certificates in getPackageArchiveInfo only when
+ * GET_SIGNATURES is set. With GET_SIGNING_CERTIFICATES alone the archive's signingInfo stayed
+ * null, so every downloaded update looked unsigned, was deleted, and was downloaded again.
+ */
+@Suppress("DEPRECATION")
+internal fun updateSigningFlags(sdkInt: Int): Int =
+    when {
+        sdkInt >= Build.VERSION_CODES.R -> PackageManager.GET_SIGNING_CERTIFICATES
+        sdkInt >= Build.VERSION_CODES.P ->
+            PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES
+        else -> PackageManager.GET_SIGNATURES
     }
 
 @Suppress("DEPRECATION")
 private fun PackageManager.signerDigests(info: PackageInfo): Set<String> {
     val signatures =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            val signingInfo = info.signingInfo ?: return emptySet()
-            if (signingInfo.hasMultipleSigners()) {
-                signingInfo.apkContentsSigners
-            } else {
-                signingInfo.signingCertificateHistory
-            }
+            // An Android 9/10 archive may carry only the legacy signatures (see updateSigningFlags).
+            info.signingInfo?.let { signingInfo ->
+                if (signingInfo.hasMultipleSigners()) {
+                    signingInfo.apkContentsSigners
+                } else {
+                    signingInfo.signingCertificateHistory
+                }
+            } ?: info.signatures
         } else {
             info.signatures
         } ?: return emptySet()
