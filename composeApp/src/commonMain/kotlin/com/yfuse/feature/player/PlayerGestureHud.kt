@@ -15,8 +15,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -47,13 +48,14 @@ private val GestureHudBelowCentreKeys = CenterKeySize / 2 + 32.dp
  */
 @Composable
 internal fun PlayerGestureHud(
-    hud: () -> String?,
+    hud: () -> GestureHudReading?,
     centreKeysShown: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val calm = calmMotion()
-    val hudLine = gestureHudLine(hud(), centreKeysShown)
+    val reading = hud()
+    val hudLine = reading?.takeIf { gestureHudLine(it.text, centreKeysShown) != null }
     // Kept while a line leaves, so it fades out where it was rather than jumping.
     val hudBelowKeys = remember { booleanArrayOf(false) }
     if (hudLine != null) hudBelowKeys[0] = centreKeysShown
@@ -85,18 +87,23 @@ internal fun PlayerGestureHud(
         label = "gesture-hud",
     ) { value ->
         if (value != null) {
+            // A drag rewrites the reading on every move; announcing each one queued dozens of
+            // stale levels in TalkBack. Only the value the finger let go on is spoken.
+            val announcement = value.text.takeIf { value.settled }
             Text(
-                value,
+                value.text,
                 style = AppTypography.body.strong,
                 color = Color.White,
                 modifier =
                     Modifier
                         .lightOnChange(
-                            value,
+                            value.text,
                             LightEffect.Trail,
-                            emitWhen = value.startsWith("音量 ") || value.startsWith("亮度 "),
-                        ).semantics { liveRegion = LiveRegionMode.Polite }
-                        .glass(
+                            emitWhen = value.kind == GestureHudKind.Volume || value.kind == GestureHudKind.Brightness,
+                        ).clearAndSetSemantics {
+                            liveRegion = LiveRegionMode.Polite
+                            if (announcement != null) contentDescription = announcement
+                        }.glass(
                             shape = AppShapes.pill,
                             fill = Color.Black.copy(alpha = 0.56f),
                             border = Color.White.copy(alpha = 0.24f),

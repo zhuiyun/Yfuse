@@ -204,7 +204,7 @@ internal fun BoxScope.PlayerPictureStatus(
     // track, this is the only readout there is. Only the 播放 and 暂停 those keys already say are left
     // out ([gestureHudLine]).
     PlayerGestureHud(
-        hud = { gestureState.hud },
+        hud = { gestureState.reading },
         centreKeysShown = showPausedKey || showEndedKeys,
         modifier = Modifier.align(Alignment.Center),
     )

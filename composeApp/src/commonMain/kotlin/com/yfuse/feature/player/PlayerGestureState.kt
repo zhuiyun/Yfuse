@@ -64,12 +64,30 @@ internal class PlayerGestureState(
     private val burst: DoubleTapSeekBurst = DoubleTapSeekBurst(),
 ) {
     /** What the gesture HUD says — 快进 30 秒, 音量 40%, where a scrub will land — or null when it is clear. */
-    var hud: String? by mutableStateOf(null)
+    var reading: GestureHudReading? by mutableStateOf(null)
         private set
 
-    /** Puts [message] on the HUD; null clears it. */
-    fun say(message: String?) {
-        hud = message
+    /** The HUD's text alone. */
+    val hud: String? get() = reading?.text
+
+    /** Puts [message] on the HUD as a reading of [kind]; null clears it. */
+    fun say(
+        message: String?,
+        kind: GestureHudKind = GestureHudKind.Message,
+    ) {
+        reading = message?.let { GestureHudReading(it, kind) }
+    }
+
+    /** A reading a drag rewrites on every move; [settleHud] marks its last one final. */
+    private fun follow(
+        message: String,
+        kind: GestureHudKind,
+    ) {
+        reading = GestureHudReading(message, kind, settled = false)
+    }
+
+    private fun settleHud() {
+        reading = reading?.let { if (it.settled) it else it.copy(settled = true) }
     }
 
     // -------------------------------------------------------- 双击快进快退
@@ -103,7 +121,7 @@ internal class PlayerGestureState(
         val moved = burst.add(direction, stepMs, taps)
         pulsePosition = at
         pulseRevision++
-        hud = "${if (direction < 0) "快退" else "快进"} ${burst.totalMs / 1_000L} 秒"
+        say("${if (direction < 0) "快退" else "快进"} ${burst.totalMs / 1_000L} 秒")
         return doubleTapSeekTarget(positionMs, durationMs, direction * moved)
     }
 
@@ -123,7 +141,7 @@ internal class PlayerGestureState(
     fun startBoost(x: Float): Float {
         boostOriginX = x
         boostGear = SPEED_BOOST_DEFAULT_GEAR
-        hud = null
+        reading = null
         return SPEED_BOOST_GEARS[SPEED_BOOST_DEFAULT_GEAR]
     }
 
@@ -233,7 +251,7 @@ internal class PlayerGestureState(
                 // Brightness/volume drags stay available to guests; only the
                 // horizontal scrub is the host's to make.
                 if (watchGuest) {
-                    hud = "房主控制播放"
+                    say("房主控制播放")
                     return null
                 }
                 // Nothing to scrub along before the duration is known, and the release
@@ -244,7 +262,10 @@ internal class PlayerGestureState(
                 dragSeekMs = (dragSeekMs + step).coerceIn(0L, span)
                 val delta = dragSeekMs - positionMs
                 val sign = if (delta < 0L) "-" else "+"
-                hud = "$sign${abs(delta).asClock()} · ${dragSeekMs.asClock()} / ${span.asClock()}"
+                follow(
+                    "$sign${abs(delta).asClock()} · ${dragSeekMs.asClock()} / ${span.asClock()}",
+                    GestureHudKind.Seek,
+                )
                 pictureScrubMs = dragSeekMs
                 null
             }
@@ -258,11 +279,11 @@ internal class PlayerGestureState(
                 // 亮度与音量左右互换 flips which half answers with which.
                 if ((dragStartX < width / 2f) != swapBrightnessVolume) {
                     val target = (brightnessAtDragStart + delta).coerceIn(0.02f, 1f)
-                    hud = "亮度 ${(target * 100).toInt()}%"
+                    follow("亮度 ${(target * 100).toInt()}%", GestureHudKind.Brightness)
                     PictureLevel.Brightness(target)
                 } else {
                     val target = (volumeAtDragStart + delta).coerceIn(0f, 1f)
-                    hud = "音量 ${(target * 100).toInt()}%"
+                    follow("音量 ${(target * 100).toInt()}%", GestureHudKind.Volume)
                     PictureLevel.Volume(target)
                 }
             }
@@ -279,18 +300,19 @@ internal class PlayerGestureState(
     ) {
         if (watchGuest) {
             episodeArmed = EpisodeSwipe.None
-            hud = "房主控制播放"
+            say("房主控制播放")
             return
         }
         episodeArmed = episodeSwipe(dragTotalY, height.toFloat(), hasNext, hasPrevious)
-        hud =
+        say(
             when {
                 episodeArmed == EpisodeSwipe.Next -> "松手播放下一集"
                 episodeArmed == EpisodeSwipe.Previous -> "松手回到上一集"
                 dragTotalY < 0f && !hasNext -> "已是最后一集"
                 dragTotalY > 0f && !hasPrevious -> "已是第一集"
                 else -> null
-            }
+            },
+        )
     }
 
     /**
@@ -303,7 +325,7 @@ internal class PlayerGestureState(
         hasPrevious: Boolean,
     ): EpisodeSwipe? {
         if (!changesEpisode || dragAxis != DragAxis.Vertical) return null
-        hud = null
+        reading = null
         return episodeSwipe(dragTotalY, height.toFloat(), hasNext, hasPrevious)
     }
 
@@ -316,12 +338,14 @@ internal class PlayerGestureState(
         watchGuest: Boolean,
     ): Long? {
         pictureScrubMs = null
+        // The reading the finger let go on is the one worth announcing.
+        settleHud()
         return dragSeekMs.takeIf { dragAxis == DragAxis.Horizontal && durationMs > 0 && !watchGuest }
     }
 
     /** The drag was taken away rather than let go: nothing lands, and the HUD clears. */
     fun cancelDrag() {
-        hud = null
+        reading = null
         pictureScrubMs = null
     }
 
@@ -364,7 +388,7 @@ internal class PlayerGestureState(
     fun secondFinger(): Boolean {
         val boostEnded = endBoost()
         pictureScrubMs = null
-        hud = null
+        reading = null
         return boostEnded
     }
 }
