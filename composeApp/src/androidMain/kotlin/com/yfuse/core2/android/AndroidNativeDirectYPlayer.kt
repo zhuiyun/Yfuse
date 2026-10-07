@@ -1427,6 +1427,7 @@ internal class AndroidNativeDirectYPlayer(
             speed = value
             applyBufferPlan(measuredThroughputBitsPerSecond = demux.snapshot().throughputBitsPerSecond, force = true)
             wallClock.setSpeed(value, positionUs, System.nanoTime())
+            videoDecoder.setPlaybackSpeed(value)
             if (isAudioPassthrough() && value != 1f) {
                 switchPassthroughToPcm(countFailure = false)
                 seekTo(positionUs)
@@ -2887,7 +2888,10 @@ internal class AndroidNativeDirectYPlayer(
                     if (reused != null) {
                         videoDecoder.release()
                         videoDecoder = reused
+                        videoDecoder.setPlaybackSpeed(speed)
                     } else {
+                        // A node handed over or freshly created has not seen this player's speed.
+                        videoDecoder.setPlaybackSpeed(speed)
                         videoDecoder.configure(
                             format = format,
                             surface = surface,
