@@ -24,6 +24,6 @@ The authoring environment's network policy blocks dl.google.com and github.com, 
 
 ## Signing confirmation
 
-Pending: the release owner's explicit MDK usage/distribution-rights confirmation for this 1.1.5 (267) package-only delivery, to be recorded in `.github/mdk-distribution-approval.json` with the unchanged pinned SDK checksum.
+At 2026-10-07 16:52:58 (Asia/Shanghai), the release owner explicitly confirmed the MDK usage/distribution rights for the existing SDK in this 1.1.5 (267) package-only delivery. `.github/mdk-distribution-approval.json` records this version, unchanged pinned SDK checksum and package-only scope. The confirmation does not authorize publishing. Retries retain 1.1.5 (267).
 
 Packaging must also pass exact-commit quality gates, production certificate and APK metadata checks, and signed APK startup smoke on Android 35–37.

@@ -1,9 +1,9 @@
 {
-  "versionName": "1.1.4",
-  "versionCode": 266,
+  "versionName": "1.1.5",
+  "versionCode": 267,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-07T10:27:25+08:00",
+  "confirmedAt": "2026-10-07T16:52:58+08:00",
   "confirmedBy": "release owner"
 }
