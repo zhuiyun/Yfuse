@@ -11,7 +11,10 @@ permissions:
 
 concurrency:
   group: quality-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push to a pull request supersedes the older run. On master every commit has to keep
+  # its own verdict: the release workflow waits on the gates of the exact commit it packages, and a
+  # version bump followed by a quick second push used to cancel those gates and fail the release.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   fast-jvm:
