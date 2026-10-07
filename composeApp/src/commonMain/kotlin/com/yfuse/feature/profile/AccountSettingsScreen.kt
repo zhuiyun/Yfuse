@@ -801,7 +801,8 @@ internal fun InviteCredentialSheet(
             DialogProperties(
                 usePlatformDefaultWidth = false,
                 decorFitsSystemWindows = false,
-                securePolicy = SecureFlagPolicy.SecureOff,
+                // The code is a one-time credential: keep it out of screenshots and the recents preview.
+                securePolicy = SecureFlagPolicy.SecureOn,
             ),
     ) {
         Column(Modifier.fillMaxWidth()) {
@@ -867,7 +868,7 @@ internal fun InviteCredentialSheet(
                 Text("一次性邀请码", style = AppTypography.caption.medium, color = palette.sub2)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    formatInviteCodeForDisplay("00fkGXQc35Ma6egzQ5lcLuWlqAxAKgSGJk7lfc7qAvk"),
+                    formatInviteCodeForDisplay(invite.code),
                     modifier = Modifier.fillMaxWidth(),
                     style = AppTypography.body.strong.copy(fontFamily = FontFamily.Monospace),
                     color = accent.accent,
