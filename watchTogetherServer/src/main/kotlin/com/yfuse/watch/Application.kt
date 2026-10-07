@@ -18,7 +18,6 @@ import com.yfuse.watch.protocol.WatchWireMessage
 import com.yfuse.watch.protocol.WatchWireParticipant
 import com.yfuse.watch.protocol.WatchWirePlaylistEntry
 import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
@@ -581,12 +580,11 @@ internal fun Application.watchTogetherModule(
             )
         }
     }
+    // Account, migration and QoE handlers set `no-store` themselves; the calendar feed is the one
+    // `/api` response meant to be cached, so no blanket prefix rule belongs here.
     intercept(ApplicationCallPipeline.Plugins) {
         call.response.header("X-Content-Type-Options", "nosniff")
         call.response.header("Referrer-Policy", "no-referrer")
-        if (call.request.path().startsWith("/account")) {
-            call.response.header(HttpHeaders.CacheControl, "no-store")
-        }
     }
     routing {
         calendarScheduleRoutes(calendarScheduleSigner, calendarScheduleStore)
