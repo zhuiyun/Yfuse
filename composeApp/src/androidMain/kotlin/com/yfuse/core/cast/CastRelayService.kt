@@ -10,7 +10,7 @@ import android.content.Intent
 import android.net.wifi.WifiManager
 import android.os.IBinder
 import android.os.PowerManager
-import com.yfuse.MainActivity
+import com.yfuse.appEntryIntent
 import com.yfuse.core.logging.AppLog
 import com.yfuse.feature.player.PlaybackForegroundTransitionGate
 import kotlinx.coroutines.CoroutineScope
@@ -106,7 +106,9 @@ class CastRelayService : Service() {
             PendingIntent.getActivity(
                 this,
                 0,
-                Intent(this, MainActivity::class.java),
+                // Choosing another launcher icon disables MainActivity itself; the AppEntry alias
+                // is never switched off, so the "正在投屏" notification always opens the app.
+                appEntryIntent(this),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
         val stopCast =
