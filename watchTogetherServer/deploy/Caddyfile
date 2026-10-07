@@ -15,6 +15,9 @@ https://47.112.219.60 {
 	@account path /api/*
 	header @account Cache-Control "no-store"
 
+	# Process metrics stay on the box: the service sees every proxied request as 127.0.0.1.
+	respond /watch/metrics* 404
+
 	reverse_proxy 127.0.0.1:8080 {
 		# Overwrite, never append: the backend trusts this header from the local proxy,
 		# and Caddy's default appends the peer to whatever the peer sent.
@@ -31,6 +34,9 @@ yfuse.zhuiyun.site {
 	header Strict-Transport-Security "max-age=86400"
 	@account path /api/*
 	header @account Cache-Control "no-store"
+
+	# Process metrics stay on the box: the service sees every proxied request as 127.0.0.1.
+	respond /watch/metrics* 404
 
 	reverse_proxy 127.0.0.1:8080 {
 		# Overwrite, never append: the backend trusts this header from the local proxy,
@@ -50,6 +56,8 @@ http://47.112.219.60 {
 	header @account Cache-Control "no-store"
 	header @account Pragma "no-cache"
 	respond @account `{"error":{"code":"https_required","message":"账号接口仅接受 HTTPS 请求"}}` 426
+
+	respond /watch/metrics* 404
 
 	@watch path /watch
 	header @watch Content-Type "application/json; charset=utf-8"

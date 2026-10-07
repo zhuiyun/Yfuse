@@ -10,7 +10,6 @@ import com.yfuse.watch.account.AccountWorkRejectedException
 import com.yfuse.watch.account.AuthenticatedAccount
 import com.yfuse.watch.account.PlaybackRelayStoreProvider
 import com.yfuse.watch.account.accountRoutes
-import com.yfuse.watch.account.isLoopbackHost
 import com.yfuse.watch.migration.MigrationRelayBackend
 import com.yfuse.watch.migration.migrationRelayRoutes
 import com.yfuse.watch.protocol.WatchProtocol
@@ -450,7 +449,7 @@ internal fun Application.watchTogetherModule(
             ?: DEFAULT_MAX_ACTIVE_ROOMS_PER_ACCOUNT,
     /** Slows room-code guessing; injectable so tests can trip it quickly. */
     joinFailureLimiter: WatchJoinFailureLimiter = WatchJoinFailureLimiter(),
-    /** Bearer token that unlocks `/watch/metrics` off-box; null limits it to loopback. */
+    /** Bearer token for `/watch/metrics`; null limits it to on-box callers that bypass the proxy. */
     metricsToken: String? = System.getenv("WATCH_METRICS_TOKEN")?.trim()?.takeIf { it.length >= 16 },
     maxWatchConnections: Int =
         System
@@ -610,17 +609,7 @@ internal fun Application.watchTogetherModule(
             )
         }
         get("/watch/metrics") {
-            val presented =
-                call.request.headers["Authorization"]
-                    ?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }
-                    ?.substringAfter(' ')
-                    ?.trim()
-            val allowed =
-                when {
-                    metricsToken != null -> presented != null && constantTimeEquals(presented, metricsToken)
-                    else -> isLoopbackHost(call.request.origin.remoteHost)
-                }
-            if (!allowed) {
+            if (!metricsRequestAllowed(call.request.origin.remoteHost, call.request.headers, metricsToken)) {
                 call.respondText("forbidden", status = HttpStatusCode.Forbidden)
                 return@get
             }
