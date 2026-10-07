@@ -147,6 +147,12 @@ class MpvVideoEngine(
     private val dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
     private val videoCacheBytes: Long = 0L,
+    /**
+     * Whether two text subtitles are hidden in mpv and drawn by [MpvSurface] from [subtitleText].
+     * YCore's compatibility route presents through Core2Surface, which never reads that text, so
+     * there mpv keeps drawing both itself.
+     */
+    private val stackTextSubtitlesInOverlay: Boolean = true,
 ) : VideoEngine,
     AndroidSerializedPlayerRelease {
     @Volatile
@@ -236,6 +242,9 @@ class MpvVideoEngine(
     private var mpv: MPVLib? = null
     private var subtitleUseMargins = true
 
+    /** False until the first Surface creates the libmpv instance; property calls before it are dropped. */
+    internal val nativeInstanceReady: Boolean get() = mpv != null
+
     @Volatile
     private var released = false
 
@@ -305,7 +314,7 @@ class MpvVideoEngine(
         primary: String?,
         secondary: String?,
     ) {
-        val stack = mpvCanStackSubtitles(tracks, primary, secondary)
+        val stack = stackTextSubtitlesInOverlay && mpvCanStackSubtitles(tracks, primary, secondary)
         if (mutableSubtitleText.value.stacked != stack) {
             instance.setPropertyString("sub-visibility", if (stack) "no" else "yes")
             instance.setPropertyString("secondary-sub-visibility", if (stack) "no" else "yes")

@@ -24,6 +24,7 @@ import com.yfuse.feature.player.VideoEngine
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.StateFlow
+import kotlin.concurrent.Volatile
 
 /**
  * Temporary reverse bridge used while PlayerRoot presentation still speaks [VideoEngine].
@@ -78,6 +79,8 @@ internal class YPlayerVideoEngineAdapter(
     // Core2 subtitles are presented by Core2Surface above the direct video Surface. Reporting
     // these capabilities here prevents the legacy compatibility layer from rebuilding Core2 as
     // MPV even though the requested presentation change has already been applied by Compose.
+    // A route whose backend draws subtitles itself (the libmpv compatibility executor) publishes
+    // no cues for Compose, so the same settings are also handed to it; see YNativeSubtitleStyle.
     override val supportsSubtitleOffset: Boolean = true
 
     override val supportsSubtitleScale: Boolean = true
@@ -88,15 +91,30 @@ internal class YPlayerVideoEngineAdapter(
 
     override val supportsSubtitleAppearance: Boolean = true
 
-    override fun setSubtitleOffsetMs(offsetMs: Long): Boolean = true
+    private val nativeSubtitles = player as? YNativeSubtitleStyleTarget
 
-    override fun setSubtitleScale(scale: Float): Boolean = true
+    @Volatile
+    private var nativeSubtitleStyle = YNativeSubtitleStyle()
 
+    private fun styleNativeSubtitles(change: (YNativeSubtitleStyle) -> YNativeSubtitleStyle): Boolean {
+        val target = nativeSubtitles ?: return true
+        val next = change(nativeSubtitleStyle)
+        nativeSubtitleStyle = next
+        return target.setNativeSubtitleStyle(next)
+    }
+
+    override fun setSubtitleOffsetMs(offsetMs: Long): Boolean = styleNativeSubtitles { it.copy(offsetMs = offsetMs) }
+
+    override fun setSubtitleScale(scale: Float): Boolean = styleNativeSubtitles { it.copy(scale = scale) }
+
+    // The player screen folds brightness into the appearance it sends whenever appearance is
+    // supported, which it always is here; a separate brightness has nothing left to carry.
     override fun setSubtitleBrightness(brightness: Float): Boolean = true
 
-    override fun setSubtitlePosition(position: Float): Boolean = true
+    override fun setSubtitlePosition(position: Float): Boolean = styleNativeSubtitles { it.copy(position = position) }
 
-    override fun setSubtitleAppearance(appearance: com.yfuse.feature.player.SubtitleAppearance): Boolean = true
+    override fun setSubtitleAppearance(appearance: com.yfuse.feature.player.SubtitleAppearance): Boolean =
+        styleNativeSubtitles { it.copy(appearance = appearance) }
 
     override fun selectItem(index: Int) = player.selectItem(index)
 

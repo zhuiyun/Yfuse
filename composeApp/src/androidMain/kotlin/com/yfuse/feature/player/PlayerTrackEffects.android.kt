@@ -140,12 +140,13 @@ internal fun PlayerTrackEffects(
             requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
         }
     }
+    // Scale, position and appearance go to every engine, YCore included: YCore's compatibility
+    // route draws its subtitles inside mpv, which only learns the style from these calls. Exo and
+    // YCore's own routes style their captions in Compose and simply acknowledge them.
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.scale) {
-        if (engineKind != PlayerEngine.Exo) {
-            val applied = backendExtensions.setSubtitleScale(subtitleControls.scale)
-            if (!applied && subtitleControls.scale != 1f) {
-                requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
-            }
+        val applied = backendExtensions.setSubtitleScale(subtitleControls.scale)
+        if (!applied && subtitleControls.scale != 1f) {
+            requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
         }
     }
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.brightness) {
@@ -160,11 +161,9 @@ internal fun PlayerTrackEffects(
         }
     }
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.position) {
-        if (engineKind != PlayerEngine.Exo) {
-            val applied = backendExtensions.setSubtitlePosition(subtitleControls.position)
-            if (!applied && subtitleControls.position != DEFAULT_SUBTITLE_POSITION) {
-                requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
-            }
+        val applied = backendExtensions.setSubtitlePosition(subtitleControls.position)
+        if (!applied && subtitleControls.position != DEFAULT_SUBTITLE_POSITION) {
+            requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
         }
     }
     LaunchedEffect(
@@ -173,14 +172,12 @@ internal fun PlayerTrackEffects(
         subtitleControls.appearance,
         subtitleControls.brightness,
     ) {
-        if (engineKind != PlayerEngine.Exo) {
-            val applied =
-                backendExtensions.setSubtitleAppearance(
-                    subtitleControls.appearance.withBrightness(subtitleControls.brightness),
-                )
-            if (!applied && subtitleControls.appearance != SubtitleAppearance()) {
-                requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
-            }
+        val applied =
+            backendExtensions.setSubtitleAppearance(
+                subtitleControls.appearance.withBrightness(subtitleControls.brightness),
+            )
+        if (!applied && subtitleControls.appearance != SubtitleAppearance()) {
+            requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
         }
     }
     LaunchedEffect(backendExtensions, scaleMode) {

@@ -1297,11 +1297,22 @@ class ExoVideoEngine(
 
     override val supportsSecondarySubtitleTrack: Boolean = true
 
+    // ExoSurface styles PlayerView's SubtitleView and the stacked captions from the player's own
+    // choices, so these are honoured without the engine doing anything; answering false sent the
+    // session to MPV for a style Exo was already showing.
     override val supportsSubtitleScale: Boolean = true
 
     override val supportsSubtitleBrightness: Boolean = true
 
     override val supportsSubtitlePosition: Boolean = true
+
+    override val supportsSubtitleAppearance: Boolean = true
+
+    override fun setSubtitleScale(scale: Float): Boolean = true
+
+    override fun setSubtitlePosition(position: Float): Boolean = true
+
+    override fun setSubtitleAppearance(appearance: SubtitleAppearance): Boolean = true
 
     override fun selectSecondarySubtitleTrack(id: String): Boolean {
         if (id == EngineTrack.OFF) {

@@ -17,6 +17,17 @@ import kotlin.test.assertTrue
 
 class LegacyYPlayerAdapterTest {
     @Test
+    fun `the secondary subtitle a legacy engine shows is part of the unified state`() {
+        val engine = FakeVideoEngine()
+        val player = LegacyYPlayerAdapter(engine)
+        engine.mutableState.value =
+            PlaybackState(secondarySubtitleTrackId = "3", secondarySubtitleOffsetMs = -250L)
+
+        assertEquals("3", player.state.value.secondarySubtitleTrackId)
+        assertEquals(-250L, player.state.value.secondarySubtitleOffsetMs)
+    }
+
+    @Test
     fun `legacy state is exposed through the unified player contract`() {
         val engine = FakeVideoEngine()
         val player = LegacyYPlayerAdapter(engine)

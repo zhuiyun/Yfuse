@@ -130,6 +130,8 @@ private fun PlaybackState.toYPlayerState(playbackRequested: Boolean): YPlayerSta
         itemCount = itemCount,
         audioTracks = audioTracks.map { it.toYTrack(YTrackType.Audio) },
         subtitleTracks = subtitleTracks.map { it.toYTrack(YTrackType.Subtitle) },
+        secondarySubtitleTrackId = secondarySubtitleTrackId,
+        secondarySubtitleOffsetMs = secondarySubtitleOffsetMs,
         discNavigation = discNavigation,
         error = error,
         errorCategory = errorKind?.toYPlaybackFailureCategory(),
