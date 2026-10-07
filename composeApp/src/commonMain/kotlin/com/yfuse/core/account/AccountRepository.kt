@@ -21,6 +21,7 @@ import com.yfuse.core.sync.CloudSyncSnapshotV1
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.applyCloudSyncSnapshot
 import com.yfuse.core.sync.captureCloudSyncSnapshot
+import com.yfuse.core.sync.largestPartName
 import com.yfuse.deviceModel
 import io.ktor.client.network.sockets.ConnectTimeoutException
 import io.ktor.client.network.sockets.SocketTimeoutException
@@ -298,7 +299,7 @@ class AccountRepository(
                             vaultKey,
                             remote.payload,
                             "个人清单、历史和追剧已合并同步",
-                            json.encodeToString(base.copy(personal = sent)),
+                            base.copy(personal = sent),
                         )
                         library.finishSync(sent, nowEpochMs())
                         completed = true
@@ -327,8 +328,7 @@ class AccountRepository(
                 )
             }
         return try {
-            require(plaintext.size <= MAX_SYNC_PLAINTEXT_BYTES) { "云端同步数据过大" }
-            json.decodeFromString<CloudSyncSnapshotV1>(plaintext.decodeToString())
+            json.decodeFromString<CloudSyncSnapshotV1>(decodeSyncDocument(plaintext))
         } finally {
             plaintext.fill(0)
         }
@@ -730,7 +730,7 @@ class AccountRepository(
         vaultKey: ByteArray,
         remotePayload: EncryptedSyncPayload?,
         successMessage: String = "已安全同步",
-        plaintextOverride: String? = null,
+        snapshotOverride: CloudSyncSnapshotV1? = null,
     ) {
         val signedIn = requireSignedIn()
         // The wrap only opens with the account password, so the copy the server already holds is
@@ -743,18 +743,24 @@ class AccountRepository(
         // Keep the previous message in place. Dropping it here and restoring it a moment later
         // collapses and re-expands the card, which reads as the whole screen flashing.
         _state.value = signedIn.copy(syncing = true)
-        val plaintext = plaintextOverride ?: capturePlaintext()
-        require(plaintext.encodeToByteArray().size <= MAX_SYNC_PLAINTEXT_BYTES) {
-            "同步数据过大，请减少弹幕绑定或服务器数量"
-        }
+        val snapshot = snapshotOverride ?: withContext(mutationDispatcher) { captureSnapshot() }
         val nextVersion = baseVersion + 1
         val encrypted =
             withContext(cryptoDispatcher) {
-                crypto.encrypt(
-                    key = vaultKey,
-                    plaintext = plaintext.encodeToByteArray(),
-                    aad = syncAad(signedIn.session.user.id, nextVersion, KEY_VERSION),
-                )
+                val plaintext =
+                    requireNotNull(encodeSyncDocument(json.encodeToString(snapshot))) {
+                        "同步数据压缩后仍超出云端 ${MAX_SYNC_CIPHERTEXT_BYTES / 1024} KB 上限，" +
+                            "其中${snapshot.largestPartName(json)}占用最多"
+                    }
+                try {
+                    crypto.encrypt(
+                        key = vaultKey,
+                        plaintext = plaintext,
+                        aad = syncAad(signedIn.session.user.id, nextVersion, KEY_VERSION),
+                    )
+                } finally {
+                    plaintext.fill(0)
+                }
             }
         val payload =
             EncryptedSyncPayload(
@@ -801,8 +807,7 @@ class AccountRepository(
                 )
             }
         try {
-            require(plaintextBytes.size <= MAX_SYNC_PLAINTEXT_BYTES) { "云端同步数据过大" }
-            val snapshot = json.decodeFromString<CloudSyncSnapshotV1>(plaintextBytes.decodeToString())
+            val snapshot = json.decodeFromString<CloudSyncSnapshotV1>(decodeSyncDocument(plaintextBytes))
             withContext(mutationDispatcher) {
                 val localChanged =
                     expectedLocalPlaintext != null &&
@@ -1178,9 +1183,6 @@ class AccountRepository(
         const val SYNC_SCHEMA_VERSION = 1
         const val WRAP_VERSION = RecoveryKeyEnvelope.CURRENT_VERSION
         const val WRAP_KDF = "PBKDF2-HMAC-SHA256"
-
-        // The server accepts at most 256 KiB of ciphertext; AES-GCM appends a 16-byte tag.
-        const val MAX_SYNC_PLAINTEXT_BYTES = 256 * 1024 - VaultCrypto.GCM_TAG_SIZE_BYTES
         const val ACCESS_REFRESH_SKEW_MS = 30_000L
         val USERNAME_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9_.-]{2,39}")
     }
