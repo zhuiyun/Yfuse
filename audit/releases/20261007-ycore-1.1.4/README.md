@@ -17,6 +17,8 @@ All ten fixes from `audit/ycore-fixes-20261006/README.md`: PCM timing and partia
 
 The source tree passed the Android/TV, native and CodeQL gates before #222 merged; emulator tests reported 57 passes and three optional external-media/soak skips. Packaging must also pass exact-commit quality gates, production certificate and APK metadata checks, and signed APK startup smoke on Android 35–37.
 
-## Signing prerequisite
+## Signing confirmation
 
-The existing `.github/mdk-distribution-approval.json` confirms only 1.1.3 (265). It is deliberately unchanged: the release owner has not yet explicitly confirmed the MDK usage/distribution rights for 1.1.4 (266). The current full-package workflow requires that per-release acknowledgement before signing. No new APK has been built or delivered yet.
+At 2026-10-07 10:27:25 (Asia/Shanghai), the release owner explicitly confirmed the MDK usage/distribution rights for the existing SDK in this 1.1.4 (266) package-only delivery. `.github/mdk-distribution-approval.json` records this version, unchanged pinned SDK checksum and package-only scope. Retries retain 1.1.4 (266).
+
+The production-signed APK still needs the package workflow and Android 35–37 startup checks before delivery.
