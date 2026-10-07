@@ -109,6 +109,16 @@ def main() -> int:
                 has_leanback_launcher = True
     if not has_leanback_launcher:
         fail("MAIN + LEANBACK_LAUNCHER activity is required")
+    # Theme.NoDisplay requires finish() before onResume. The shared ExternalPlaybackActivity
+    # suspends on a metadata lookup first, so a NoDisplay theme crashed the whole process
+    # whenever a TV file manager opened a video with Yfuse; the phone manifest already learned it.
+    no_display = sorted(
+        activity.get(ANDROID + "name", "?")
+        for activity in application.findall("activity")
+        if activity.get(ANDROID + "theme", "").endswith("Theme.NoDisplay")
+    )
+    if no_display:
+        fail("Theme.NoDisplay activities cannot host suspending work: " + ", ".join(no_display))
 
     width, height = png_size(args.banner)
     if (width, height) != (320, 180):
