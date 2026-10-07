@@ -10,6 +10,7 @@ import com.yfuse.core2.android.AndroidExternalSubtitleLoader
 import com.yfuse.core2.android.AndroidLoadedExternalSubtitle
 import com.yfuse.core2.android.AndroidSerializedPlayerRelease
 import com.yfuse.core2.android.AndroidSurfaceVideoOutput
+import com.yfuse.core2.android.AndroidVideoOutputDetach
 import com.yfuse.core2.android.EXTERNAL_SUBTITLE_TRACK_ID
 import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YMediaItem
@@ -31,6 +32,7 @@ import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.PlayerMediaVersion
 import com.yfuse.feature.player.SubtitleAppearance
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
@@ -167,6 +169,7 @@ private class AndroidMpvCore2FallbackPlayer(
     private val delegate: YPlayer = LegacyYPlayerAdapter(engine),
 ) : YPlayer by delegate,
     YNativeSubtitleStyleTarget,
+    AndroidVideoOutputDetach,
     AndroidSerializedPlayerRelease {
     private val subtitleRevision = MutableStateFlow(0L)
 
@@ -262,6 +265,12 @@ private class AndroidMpvCore2FallbackPlayer(
 
             else -> false
         }
+
+    /** mpv stops its video output and lets go of the Surface on the calling thread. */
+    override fun detachVideoOutput(detached: CompletableDeferred<Unit>) {
+        setVideoOutput(null)
+        detached.complete(Unit)
+    }
 
     /** Re-sends what may have arrived before mpv existed; mpv properties are idempotent. */
     private fun applyDeferredSettings() {

@@ -61,6 +61,7 @@ import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -122,6 +123,7 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val onRelease: () -> Unit = {},
 ) : YPlayer,
     YNativeSubtitleStyleTarget,
+    AndroidVideoOutputDetach,
     AndroidSerializedPlayerRelease {
     private val nativeOnly = fallbackRouteFactory == null
     private val queueLock = Any()
@@ -273,6 +275,16 @@ internal class AndroidAdaptiveCore2YPlayer(
         requestedVideoOutput = output
         commands.trySend(Command.SetVideoOutput(output))
         return true
+    }
+
+    /** The detach travels the command loop to the child, which confirms once its codec let go. */
+    override fun detachVideoOutput(detached: CompletableDeferred<Unit>) {
+        if (released) {
+            detached.complete(Unit)
+            return
+        }
+        requestedVideoOutput = null
+        if (!commands.trySend(Command.SetVideoOutput(null, detached)).isSuccess) detached.complete(Unit)
     }
 
     override fun play() {
@@ -632,6 +644,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             var pending = commands.tryReceive().getOrNull()
             while (pending != null) {
                 if (pending is Command.NextItemPreloaded) pending.route.sources.close()
+                if (pending is Command.SetVideoOutput) pending.detached?.complete(Unit)
                 pending = commands.tryReceive().getOrNull()
             }
             try {
@@ -2447,20 +2460,33 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
 
         private suspend fun updateVideoOutput(command: Command.SetVideoOutput) {
-            output = command.output
-            val active = child
-            if (active != null) {
-                // The attach may already have handed this very output over.
-                if (output != childVideoOutput) {
-                    active.setVideoOutput(output)
-                    childVideoOutput = output
+            // A confirmed detach is completed here unless the child takes it over: by the child
+            // once its codec has let go, or right away when no child renders.
+            var detachHandedOver = false
+            try {
+                output = command.output
+                val active = child
+                if (active != null) {
+                    // The attach may already have handed this very output over.
+                    if (output != childVideoOutput) {
+                        val detached = command.detached
+                        if (output == null && detached != null && active is AndroidVideoOutputDetach) {
+                            active.detachVideoOutput(detached)
+                            detachHandedOver = true
+                        } else {
+                            active.setVideoOutput(output)
+                        }
+                        childVideoOutput = output
+                    }
+                } else if (
+                    output != null &&
+                    mutableState.value.phase != YPlaybackPhase.Idle &&
+                    mutableState.value.phase != YPlaybackPhase.Failed
+                ) {
+                    rebuild(pendingPositionMs)
                 }
-            } else if (
-                output != null &&
-                mutableState.value.phase != YPlaybackPhase.Idle &&
-                mutableState.value.phase != YPlaybackPhase.Failed
-            ) {
-                rebuild(pendingPositionMs)
+            } finally {
+                if (!detachHandedOver) command.detached?.complete(Unit)
             }
         }
 
@@ -2815,6 +2841,8 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         data class SetVideoOutput(
             val output: YVideoOutput?,
+            /** Completed once the old output can no longer be rendered into; see [detachVideoOutput]. */
+            val detached: CompletableDeferred<Unit>? = null,
         ) : Command
 
         data class SelectItem(
