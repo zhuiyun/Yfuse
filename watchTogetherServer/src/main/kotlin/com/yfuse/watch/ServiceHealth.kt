@@ -19,6 +19,8 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.application
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -72,6 +74,40 @@ internal suspend fun serviceHealth(
     )
 }
 
+/**
+ * Shares one probe between every `/health` caller for [ttlMs]. Each probe takes a slot on the
+ * account pool (four workers, shared with sign-in and sync), so a monitor polling once a second
+ * per site — or anyone hammering the public URL — used to queue real account work behind health
+ * checks. Concurrent callers wait for the probe already running instead of starting their own.
+ */
+internal class ServiceHealthCache(
+    private val ttlMs: Long = HEALTH_CACHE_TTL_MS,
+    private val monotonicMs: () -> Long = { System.nanoTime() / 1_000_000L },
+) {
+    private class Sample(
+        val takenAtMs: Long,
+        val response: ServiceHealthResponse,
+    )
+
+    private val probe = Mutex()
+
+    @Volatile
+    private var latest: Sample? = null
+
+    init {
+        require(ttlMs >= 0L)
+    }
+
+    suspend fun get(compute: suspend () -> ServiceHealthResponse): ServiceHealthResponse {
+        fresh()?.let { return it }
+        return probe.withLock {
+            fresh() ?: compute().also { latest = Sample(monotonicMs(), it) }
+        }
+    }
+
+    private fun fresh(): ServiceHealthResponse? = latest?.takeIf { monotonicMs() - it.takenAtMs < ttlMs }?.response
+}
+
 /** Account routes register the exact backend used by production requests. */
 internal fun Route.registerAccountHealthDependency(accountBackend: AccountBackend) {
     application.attributes.put(HEALTH_ACCOUNT_BACKEND, accountBackend)
@@ -96,6 +132,7 @@ internal fun Route.installServiceHealthEndpoint(
 
 private fun Application.installHealthInterceptor() {
     val app = this
+    val cache = ServiceHealthCache()
     intercept(ApplicationCallPipeline.Call) {
         if (call.request.httpMethod != HttpMethod.Get || call.request.path() != "/health") {
             return@intercept
@@ -105,7 +142,7 @@ private fun Application.installHealthInterceptor() {
         val migrationExecutor = app.attributes.getOrNull(HEALTH_MIGRATION_EXECUTOR)
         val health =
             if (accountBackend != null && migrationBackend != null && migrationExecutor != null) {
-                serviceHealth(accountBackend, migrationBackend, migrationExecutor)
+                cache.get { serviceHealth(accountBackend, migrationBackend, migrationExecutor) }
             } else {
                 ServiceHealthResponse(
                     status = "degraded",
@@ -178,6 +215,9 @@ private val HEALTH_MIGRATION_EXECUTOR =
 private val HEALTH_HANDLER_INSTALLED =
     AttributeKey<Boolean>("yfuse.health.handlerInstalled")
 private val healthJson = Json { encodeDefaults = true }
+
+/** Long enough to absorb monitors and floods, short enough that a failure shows within seconds. */
+private const val HEALTH_CACHE_TTL_MS = 3_000L
 
 private const val HEALTH_PROBE_ACCESS_TOKEN =
     "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
