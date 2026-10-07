@@ -16,10 +16,14 @@ import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.ServersData
+import com.yfuse.core.personal.PersonalCollection
+import com.yfuse.core.personal.PersonalEntry
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.personal.PersonalSnapshot
 import com.yfuse.core.personal.validatePersonalSnapshot
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 /** Everything in this document is encrypted before it leaves the device. */
 @Serializable
@@ -125,6 +129,23 @@ fun captureCloudSyncSnapshot(
         calendarFollows = calendarFollows?.followed?.value.orEmpty(),
         personal = personal?.snapshot(),
     )
+
+/**
+ * The part of this snapshot that takes the most room, by the name the app shows for it, for
+ * the message shown when even the compressed document is more than the cloud keeps.
+ */
+internal fun CloudSyncSnapshotV1.largestPartName(json: Json): String {
+    val entries = personal?.entries.orEmpty().groupBy(PersonalEntry::collection)
+    return listOf(
+        "服务器" to json.encodeToString(servers),
+        "弹幕绑定" to json.encodeToString(danmaku.bindings),
+        "片头片尾标记" to json.encodeToString(skipTimesBySeries.orEmpty()),
+        "追剧" to json.encodeToString(calendarFollows) + json.encodeToString(personal?.follows.orEmpty()),
+        "观看历史" to json.encodeToString(entries[PersonalCollection.History].orEmpty()),
+        "收藏" to json.encodeToString(entries[PersonalCollection.Favorite].orEmpty()),
+        "稍后观看" to json.encodeToString(entries[PersonalCollection.WatchLater].orEmpty()),
+    ).maxBy { (_, encoded) -> encoded.length }.first
+}
 
 /** Applies a successfully authenticated and decrypted snapshot through typed preference APIs. */
 fun applyCloudSyncSnapshot(

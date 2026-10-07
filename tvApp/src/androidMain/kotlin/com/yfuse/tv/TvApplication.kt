@@ -16,6 +16,7 @@ import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import com.russhwolf.settings.SharedPreferencesSettings
 import com.yfuse.core.account.AccountRepository
+import com.yfuse.core.account.PersonalAutoSync
 import com.yfuse.core.cast.initializeCastApplicationContext
 import com.yfuse.core.data.AndroidCalendarLocalStore
 import com.yfuse.core.data.DiagnosticPreferences
@@ -132,6 +133,7 @@ open class TvApplication :
 
                 koinApplication.koin.get<AccountRepository>().start()
                 koinApplication.koin.get<PlaybackSyncManager>().start()
+                koinApplication.koin.get<PersonalAutoSync>().start()
                 koinApplication.koin.get<PlaybackReportingCoordinator>().flushPending()
                 TvContinueWatchingRuntime.refresh(this)
                 applicationScope.launch {
