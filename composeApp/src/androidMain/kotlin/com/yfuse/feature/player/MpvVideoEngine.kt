@@ -165,7 +165,12 @@ class MpvVideoEngine(
 
     /** Entries pushed off their original file onto the server's transcode, and past that
      *  onto its progressive MP4. Kept per index so one bad episode doesn't transcode the
-     *  rest of the season. */
+     *  rest of the season.
+     *
+     *  These sets, [pendingProgressiveSwitches] and [fallbackJob] change on mpv's event thread
+     *  (END_FILE steps down the ladder), on the fallback coroutine and on the caller's thread
+     *  (queue updates iterate them), so every access that changes or iterates them holds this
+     *  engine's monitor, as MDK does. */
     private val transcodedIndices =
         items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
             index.takeIf { item.startsWithServerTranscode() }
@@ -1236,6 +1241,7 @@ class MpvVideoEngine(
 
     override fun currentPositionMs(): Long = _state.value.positionMs
 
+    @Synchronized
     override fun retry() {
         resetFrameEvidence()
         // As in selectItem: a failure after the retry gets an answer from the ladder.
@@ -1376,6 +1382,7 @@ class MpvVideoEngine(
      * Returns false once the chain is spent, which is what tells the caller to stop retrying
      * and report the failure.
      */
+    @Synchronized
     override fun switchToTranscode(reason: String?): Boolean {
         val index = _state.value.currentIndex
         resetFrameEvidence()
@@ -1450,20 +1457,22 @@ class MpvVideoEngine(
                 val cleaned =
                     item.playSessionId.isBlank() ||
                         withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
-                val stillCurrent = !released && _state.value.currentIndex == index
-                if (!pendingProgressiveSwitches.settle(index, stillCurrent)) return@launch
-                if (!cleaned) {
-                    _state.update {
-                        it.copy(
-                            error = "无法清理旧的服务器转码，正在尝试其他播放器",
-                            buffering = false,
-                            fallbacksExhausted = true,
-                        )
+                synchronized(this@MpvVideoEngine) {
+                    val stillCurrent = !released && _state.value.currentIndex == index
+                    if (!pendingProgressiveSwitches.settle(index, stillCurrent)) return@launch
+                    if (!cleaned) {
+                        _state.update {
+                            it.copy(
+                                error = "无法清理旧的服务器转码，正在尝试其他播放器",
+                                buffering = false,
+                                fallbacksExhausted = true,
+                            )
+                        }
+                        return@launch
                     }
-                    return@launch
+                    progressiveIndices += index
+                    loadFileOrFail(currentUrl())
                 }
-                progressiveIndices += index
-                loadFileOrFail(currentUrl())
             }
         return true
     }
