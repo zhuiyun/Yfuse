@@ -199,10 +199,18 @@ the jar. Compare it with the commit you meant to deploy before calling the relea
 test "$(curl -sS https://47.112.219.60/watch/version | jq -r .gitSha)" = "$(git rev-parse HEAD)"
 ```
 
-Process metrics are at `/watch/metrics` in Prometheus text format. Without configuration the
-endpoint only answers loopback (`curl http://127.0.0.1:8080/watch/metrics` on the box); set
-`WATCH_METRICS_TOKEN` (at least 16 characters) in `/etc/yfuse-watch/environment` to scrape it
-through Caddy with `Authorization: Bearer …`. Every HTTP request and socket lifetime is logged
+Process metrics are at `/watch/metrics` in Prometheus text format, on the box only. Caddy runs
+on the same host, so every request it forwards reaches the service from `127.0.0.1`; a loopback
+check alone would make the endpoint public. Two rules keep it private:
+
+- Caddy answers `/watch/metrics*` with `404` on every site, so it is never proxied.
+- Without `WATCH_METRICS_TOKEN` the service answers only a loopback caller that sent no proxy
+  header (`X-Forwarded-For`, `Forwarded`, `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Real-IP`):
+  `curl http://127.0.0.1:8080/watch/metrics` on the box. With `WATCH_METRICS_TOKEN` (at least 16
+  characters, in `/etc/yfuse-watch/environment`) every caller, local or not, must send
+  `Authorization: Bearer …`; use that for an on-box scraper.
+
+Every HTTP request and socket lifetime is logged
 as one structured line on stderr (`journalctl -u yfuse-update`), with the path but never the
 query string or any token.
 
