@@ -458,18 +458,22 @@ class AndroidMediaExtractorReadAheadNodeTest {
     fun `the staging buffer is allocated once, not once per fill`() {
         val extractor = FakeExtractorSource(sampleCount = 4_096, sampleDurationUs = 100_000L)
         val node = AndroidMediaExtractorReadAheadNode(extractor)
-        node.open(SOURCE)
-        node.configureSampleCapacity(SAMPLE_BYTES * 4)
-        node.selectTracks(setOf(VIDEO_TRACK))
-        node.awaitQueued(minimumSamples = 8)
+        try {
+            node.open(SOURCE)
+            node.configureSampleCapacity(SAMPLE_BYTES * 4)
+            node.selectTracks(setOf(VIDEO_TRACK))
+            // Empty polls do not consume samples. Wait for each sample so this forces refills
+            // even when the caller runs all its polls before the extractor owner is scheduled.
+            repeat(64) {
+                node.awaitQueued(minimumSamples = 1)
+                assertTrue(node.pollSample() is YQueuedExtractorResult.Sample, "sample $it")
+            }
+        } finally {
+            // Join the owner before reading its identity set, and release its direct buffer.
+            node.close()
+        }
 
-        // Draining forces a fill per consumed sample; a per-fill allocation would show up here as
-        // one distinct staging buffer per sample.
-        repeat(64) { node.pollSample() }
-        // Each of those polls asked for a refill; wait for the owner to have run them, not for a timer.
-        node.awaitOwner("refills after 64 polls") { extractor.readCount.get() > 40 }
-
-        assertTrue(extractor.readCount.get() > 40, "reads ${extractor.readCount.get()}")
+        assertTrue(extractor.readCount.get() >= 64, "reads ${extractor.readCount.get()}")
         assertEquals(1, extractor.distinctTargets.size, "staging buffers ${extractor.distinctTargets.size}")
     }
 

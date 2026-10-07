@@ -22,3 +22,7 @@ The source tree passed the Android/TV, native and CodeQL gates before #222 merge
 At 2026-10-07 10:27:25 (Asia/Shanghai), the release owner explicitly confirmed the MDK usage/distribution rights for the existing SDK in this 1.1.4 (266) package-only delivery. `.github/mdk-distribution-approval.json` records this version, unchanged pinned SDK checksum and package-only scope. Retries retain 1.1.4 (266).
 
 The production-signed APK still needs the package workflow and Android 35–37 startup checks before delivery.
+
+## Packaging regression fixture
+
+The initial package PR's quality run (37514951912) exposed an existing scheduling-dependent assertion in `AndroidMediaExtractorReadAheadNodeTest`: 64 nonblocking polls can consume fewer than 64 samples, leaving the producer at its watermark before the test's expected read count. The regression now waits for and asserts 64 actual samples, closes the owner, then checks a single staging-buffer identity. No application behavior or signing checks are weakened.
