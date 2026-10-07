@@ -4,20 +4,86 @@ import kotlinx.serialization.Serializable
 
 internal const val INVITE_ISSUE_CAPABILITY = "invite:issue"
 
+/**
+ * Registration in one of two shapes. Protocol 1 (builds up to 1.1.5) sends [password] itself.
+ * Protocol 2 never lets the password leave the device: the client stretches it with
+ * [kdfSalt]/[kdfIterations] into a master key, sends only the [authKey] derived from it, and
+ * stores the vault key wrapped with a second, never-sent key from the same master ([vault]).
+ */
 @Serializable
 internal data class RegisterRequest(
     val username: String,
-    val password: String,
+    val password: String? = null,
     val nickname: String? = null,
     val avatarId: Int? = null,
     val inviteCode: String? = null,
     val deviceName: String? = null,
+    val authKey: String? = null,
+    val kdfSalt: String? = null,
+    val kdfIterations: Int? = null,
+    val vault: VaultEnvelope? = null,
 )
 
+/** Protocol 1 sends [password]; protocol 2 sends the derived [authKey] instead. */
 @Serializable
 internal data class LoginRequest(
     val username: String,
-    val password: String,
+    val password: String? = null,
+    val deviceName: String? = null,
+    val authKey: String? = null,
+)
+
+@Serializable
+internal data class PreloginRequest(
+    val username: String,
+)
+
+/**
+ * How a client must prove the password for [PreloginRequest.username]. Unknown usernames get
+ * protocol 2 parameters derived from a server secret, so the answer does not reveal whether a
+ * protocol-2 account exists; protocol 1 accounts answer without parameters until they upgrade.
+ */
+@Serializable
+internal data class PreloginResponse(
+    val authProtocol: Int,
+    val kdf: String? = null,
+    val kdfIterations: Int? = null,
+    val kdfSalt: String? = null,
+)
+
+/**
+ * The account's vault key wrapped by the client with a key the server never receives. Stored
+ * apart from the sync document, so every device of an account opens the same vault even before
+ * the first upload and after 清空云端.
+ */
+@Serializable
+internal data class VaultEnvelope(
+    val keyVersion: Int,
+    val wrapVersion: Int,
+    val nonce: String,
+    val wrappedKey: String,
+)
+
+@Serializable
+internal data class VaultResponse(
+    val vault: VaultEnvelope? = null,
+)
+
+/**
+ * Replaces the credentials and the vault key in one step: the protocol 1 → 2 upgrade proves
+ * [currentPassword], a protocol 2 password change proves [currentAuthKey]. A new vault key is
+ * mandatory, so a password that was ever seen by anyone else no longer opens future data, and
+ * an existing sync document must come back re-encrypted under it in [sync].
+ */
+@Serializable
+internal data class RekeyRequest(
+    val currentPassword: String? = null,
+    val currentAuthKey: String? = null,
+    val authKey: String,
+    val kdfSalt: String,
+    val kdfIterations: Int,
+    val vault: VaultEnvelope,
+    val sync: PutSyncRequest? = null,
     val deviceName: String? = null,
 )
 
@@ -30,7 +96,8 @@ internal data class RefreshRequest(
 
 @Serializable
 internal data class DeleteAccountRequest(
-    val password: String,
+    val password: String? = null,
+    val authKey: String? = null,
 )
 
 @Serializable
@@ -78,6 +145,9 @@ internal data class AuthResponse(
     val accessExpiresAtEpochMs: Long,
     val refreshToken: String,
     val refreshExpiresAtEpochMs: Long,
+    /** Omitted (the default) for protocol 1 accounts, which older clients expect. */
+    val authProtocol: Int = AUTH_PROTOCOL_PASSWORD,
+    val vault: VaultEnvelope? = null,
 )
 
 @Serializable
@@ -101,6 +171,8 @@ internal data class AccountExportResponse(
     val user: UserResponse,
     /** Still an opaque AES-GCM envelope; the account server never exports plaintext sync data. */
     val encryptedSync: SyncResponse,
+    /** Protocol 2 accounts: the wrapped key [encryptedSync] is encrypted under. */
+    val vault: VaultEnvelope? = null,
 )
 
 /**
@@ -158,12 +230,60 @@ internal data class StoredUser(
     val updatedAtEpochMs: Long,
 )
 
+/**
+ * For protocol 1 the digest is PBKDF2 of the password itself. For protocol 2 it is a PBKDF2
+ * verifier of the client's auth key, and [kdfSalt]/[kdfIterations] are what the client needs
+ * to derive that key again.
+ */
 internal data class StoredCredentials(
     val user: StoredUser,
     val passwordSalt: ByteArray,
     val passwordHash: ByteArray,
     val passwordIterations: Int,
+    val authProtocol: Int = AUTH_PROTOCOL_PASSWORD,
+    val kdfSalt: ByteArray? = null,
+    val kdfIterations: Int? = null,
 )
+
+internal data class StoredVault(
+    val userId: String,
+    val keyVersion: Int,
+    val wrapVersion: Int,
+    val nonce: ByteArray,
+    val wrappedKey: ByteArray,
+    val updatedAtEpochMs: Long,
+)
+
+/** Protocol 2 credentials replacing whatever the account had. */
+internal data class ReplacementCredentials(
+    val verifier: PasswordDigest,
+    val kdfSalt: ByteArray,
+    val kdfIterations: Int,
+)
+
+internal sealed interface RekeyWriteResult {
+    data class Changed(
+        val vault: StoredVault,
+    ) : RekeyWriteResult
+
+    data class VersionConflict(
+        val currentVersion: Long,
+    ) : RekeyWriteResult
+
+    data class KeyVersionConflict(
+        val currentKeyVersion: Int,
+    ) : RekeyWriteResult
+
+    /** The account has a sync document that was not re-encrypted under the new key. */
+    data object SyncRequired : RekeyWriteResult
+
+    data object CredentialsChanged : RekeyWriteResult
+
+    data object SessionInvalid : RekeyWriteResult
+}
+
+internal const val AUTH_PROTOCOL_PASSWORD = 1
+internal const val AUTH_PROTOCOL_DERIVED_KEY = 2
 
 internal data class NewSession(
     val id: String,
@@ -255,6 +375,11 @@ internal sealed interface SyncWriteResult {
     ) : SyncWriteResult
 
     data object NonceReused : SyncWriteResult
+
+    /** The vault was re-keyed; a document under any other key version would be unreadable. */
+    data class KeyVersionConflict(
+        val currentKeyVersion: Int,
+    ) : SyncWriteResult
 
     data object SessionInvalid : SyncWriteResult
 }

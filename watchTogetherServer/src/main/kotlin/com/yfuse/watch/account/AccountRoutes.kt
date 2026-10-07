@@ -36,6 +36,12 @@ internal fun Route.accountRoutes(
     tmdbProxyRoutes(backend, rateLimiter)
     route("/api/v1") {
         route("/auth") {
+            post("/prelogin") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.Prelogin) {
+                    val request = call.receiveLimitedJson<PreloginRequest>()
+                    call.respondLimitedJson(backend.execute { prelogin(request) })
+                }
+            }
             post("/register") {
                 call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.Credentials) {
                     val request = call.receiveLimitedJson<RegisterRequest>()
@@ -138,6 +144,26 @@ internal fun Route.accountRoutes(
                     call.respondLimitedJson(response)
                 }
             }
+            post("/rekey") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.PasswordChange) {
+                    val accessToken = call.requireBearerToken()
+                    val request = call.receiveLimitedJson<RekeyRequest>()
+                    val response = backend.execute { rekey(accessToken, request) }
+                    // Records under the retired key can never be read again. Push drops them as
+                    // well, so a failure here only delays the cleanup.
+                    response.vault?.let { vault ->
+                        runCatching {
+                            backend.execute {
+                                PlaybackRelayStoreProvider.instance.purgeKeyVersionsBelow(
+                                    response.user.id,
+                                    vault.keyVersion,
+                                )
+                            }
+                        }.onFailure { call.application.log.warn("Playback relay cleanup after rekey failed") }
+                    }
+                    call.respondLimitedJson(response)
+                }
+            }
             get("/sync") {
                 call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.SyncRead) {
                     val accessToken = call.requireBearerToken()
@@ -190,6 +216,7 @@ internal fun Route.accountRoutes(
                                     userId = account.userId,
                                     request = request,
                                     nowEpochMs = System.currentTimeMillis(),
+                                    keyVersion = playbackKeyVersion(account.userId),
                                 )
                             }
                         } catch (_: IllegalArgumentException) {
@@ -249,6 +276,7 @@ internal suspend fun ApplicationCall.handleAccountEndpoint(
                 AccountProblem.InvitationInvalid -> HttpStatusCode.Forbidden
                 AccountProblem.CurrentPasswordInvalid -> HttpStatusCode.Forbidden
                 AccountProblem.Forbidden -> HttpStatusCode.Forbidden
+                AccountProblem.ClientUpgradeRequired -> HttpStatusCode.Forbidden
             }
         if (status == HttpStatusCode.Unauthorized) {
             response.headers.append(HttpHeaders.WWWAuthenticate, "Bearer")

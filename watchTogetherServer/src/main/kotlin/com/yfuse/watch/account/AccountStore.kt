@@ -19,7 +19,32 @@ internal interface AccountStore : AutoCloseable {
         maxUsers: Int,
         invitationDigest: ByteArray? = null,
         invitationKind: InvitationKind? = null,
+        vault: StoredVault? = null,
     ): RegistrationWriteResult
+
+    /** A cheap pre-check so a guessed invite never costs a password hash; registration rechecks. */
+    fun inviteAvailable(
+        invitationDigest: ByteArray,
+        invitationKind: InvitationKind,
+        nowEpochMs: Long,
+    ): Boolean
+
+    fun getVault(userId: String): StoredVault?
+
+    /** A per-database secret that makes decoy prelogin parameters stable and unguessable. */
+    fun preloginSecret(): ByteArray
+
+    fun rekey(
+        userId: String,
+        authenticatedSessionId: String,
+        expectedCurrent: PasswordDigest,
+        replacement: ReplacementCredentials,
+        vault: StoredVault,
+        sync: StoredSyncRecord?,
+        syncBaseVersion: Long?,
+        replacementSession: NewSession,
+        nowEpochMs: Long,
+    ): RekeyWriteResult
 
     fun issueInvite(
         authenticatedSessionId: String,
@@ -277,7 +302,33 @@ internal class SqliteAccountStore private constructor(
                     """.trimIndent(),
                 )
             }
+            connection.createStatement().use { statement ->
+                statement.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS account_vaults (
+                        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                        key_version INTEGER NOT NULL CHECK(key_version > 0),
+                        wrap_version INTEGER NOT NULL,
+                        nonce BLOB NOT NULL CHECK(length(nonce) = 12),
+                        wrapped_key BLOB NOT NULL CHECK(length(wrapped_key) = 48),
+                        updated_at_ms INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                statement.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS account_server_meta (
+                        meta_key TEXT PRIMARY KEY,
+                        meta_value BLOB NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
             migrateInviteRedemptionAuthorityLocked()
+            // Protocol 2 accounts reuse password_salt/hash/iterations for the auth-key verifier.
+            ensureColumnLocked("users", "auth_protocol", "INTEGER NOT NULL DEFAULT 1")
+            ensureColumnLocked("users", "kdf_salt", "BLOB")
+            ensureColumnLocked("users", "kdf_iterations", "INTEGER")
             ensureColumnLocked("sync_records", "wrap_version", "INTEGER")
             ensureColumnLocked("sync_records", "wrap_kdf", "TEXT")
             ensureColumnLocked("sync_records", "wrap_iterations", "INTEGER")
@@ -363,9 +414,11 @@ internal class SqliteAccountStore private constructor(
         maxUsers: Int,
         invitationDigest: ByteArray?,
         invitationKind: InvitationKind?,
+        vault: StoredVault?,
     ): RegistrationWriteResult =
         synchronized(lock) {
             val user = credentials.user
+            require(vault == null || vault.userId == user.id)
             transaction {
                 if (invitationDigest != null && invitationKind == InvitationKind.Issued) {
                     val available =
@@ -425,8 +478,9 @@ internal class SqliteAccountStore private constructor(
                         """
                         INSERT INTO users (
                             id, username, username_normalized, password_salt, password_hash,
-                            password_iterations, nickname, avatar_id, created_at_ms, updated_at_ms
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            password_iterations, nickname, avatar_id, created_at_ms, updated_at_ms,
+                            auth_protocol, kdf_salt, kdf_iterations
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """.trimIndent(),
                     ).use { statement ->
                         statement.setString(1, user.id)
@@ -439,8 +493,12 @@ internal class SqliteAccountStore private constructor(
                         statement.setInt(8, user.avatarId)
                         statement.setLong(9, user.createdAtEpochMs)
                         statement.setLong(10, user.updatedAtEpochMs)
+                        statement.setInt(11, credentials.authProtocol)
+                        statement.setBytes(12, credentials.kdfSalt)
+                        statement.setNullableInt(13, credentials.kdfIterations)
                         statement.executeUpdate()
                     }
+                vault?.let(::upsertVaultLocked)
                 if (invitationDigest != null && invitationKind == InvitationKind.Issued) {
                     val consumed =
                         connection
@@ -736,24 +794,26 @@ internal class SqliteAccountStore private constructor(
                         .prepareStatement(
                             """
                             UPDATE sessions
-                            SET id = ?, access_token_hash = ?, refresh_token_hash = ?,
+                            SET access_token_hash = ?, refresh_token_hash = ?,
                                 access_expires_at_ms = ?, refresh_expires_at_ms = ?, created_at_ms = ?,
                                 device_name = COALESCE(?, device_name), last_seen_at_ms = ?,
                                 previous_refresh_token_hash = ?
                             WHERE id = ? AND refresh_token_hash = ? AND revoked_at_ms IS NULL
                             """.trimIndent(),
                         ).use { statement ->
-                            statement.setString(1, replacement.id)
-                            statement.setBytes(2, replacement.accessTokenHash)
-                            statement.setBytes(3, replacement.refreshTokenHash)
-                            statement.setLong(4, replacement.accessExpiresAtEpochMs)
-                            statement.setLong(5, replacement.refreshExpiresAtEpochMs)
-                            statement.setLong(6, replacement.createdAtEpochMs)
-                            statement.setString(7, replacement.deviceName)
-                            statement.setLong(8, nowEpochMs)
-                            statement.setBytes(9, currentRefreshHash)
-                            statement.setString(10, current.sessionId)
-                            statement.setBytes(11, currentRefreshHash)
+                            // The session keeps its id across rotations: remote-control pairings,
+                            // hand-offs and Trakt device flows are bound to it, and a new id on every
+                            // fifteen-minute refresh used to drop the phone remote and fail them with 403.
+                            statement.setBytes(1, replacement.accessTokenHash)
+                            statement.setBytes(2, replacement.refreshTokenHash)
+                            statement.setLong(3, replacement.accessExpiresAtEpochMs)
+                            statement.setLong(4, replacement.refreshExpiresAtEpochMs)
+                            statement.setLong(5, replacement.createdAtEpochMs)
+                            statement.setString(6, replacement.deviceName)
+                            statement.setLong(7, nowEpochMs)
+                            statement.setBytes(8, currentRefreshHash)
+                            statement.setString(9, current.sessionId)
+                            statement.setBytes(10, currentRefreshHash)
                             statement.executeUpdate()
                         }
                 if (changed != 1) {
@@ -986,6 +1046,13 @@ internal class SqliteAccountStore private constructor(
                     return@transaction SyncWriteResult.VersionConflict(current.version)
                 }
                 check(record.version == baseVersion + 1L)
+                // Checked here as well as in the service: a re-key committed after the service read
+                // the vault must still turn away a document encrypted under the retired key.
+                getVaultLocked(record.userId)?.let { vault ->
+                    if (vault.keyVersion != record.keyVersion) {
+                        return@transaction SyncWriteResult.KeyVersionConflict(vault.keyVersion)
+                    }
+                }
 
                 cleanupNonceHistoryLocked(record.updatedAtEpochMs)
                 val nonceSeen =
@@ -1164,6 +1231,158 @@ internal class SqliteAccountStore private constructor(
             }
         }
 
+    override fun inviteAvailable(
+        invitationDigest: ByteArray,
+        invitationKind: InvitationKind,
+        nowEpochMs: Long,
+    ): Boolean =
+        synchronized(lock) {
+            when (invitationKind) {
+                InvitationKind.Issued ->
+                    connection
+                        .prepareStatement(
+                            """
+                            SELECT 1 FROM account_invites
+                            WHERE invite_hash = ?
+                              AND redeemed_at_ms IS NULL
+                              AND revoked_at_ms IS NULL
+                              AND expires_at_ms > ?
+                            LIMIT 1
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setBytes(1, invitationDigest)
+                            statement.setLong(2, nowEpochMs)
+                            statement.executeQuery().use(ResultSet::next)
+                        }
+                InvitationKind.Static ->
+                    !connection
+                        .prepareStatement(
+                            "SELECT 1 FROM account_invite_redemptions WHERE invite_hash = ? LIMIT 1",
+                        ).use { statement ->
+                            statement.setBytes(1, invitationDigest)
+                            statement.executeQuery().use(ResultSet::next)
+                        }
+            }
+        }
+
+    override fun getVault(userId: String): StoredVault? = synchronized(lock) { getVaultLocked(userId) }
+
+    override fun preloginSecret(): ByteArray =
+        synchronized(lock) {
+            readMetaLocked(PRELOGIN_SECRET_KEY)?.let { return@synchronized it }
+            val generated = ByteArray(PRELOGIN_SECRET_BYTES).also(java.security.SecureRandom()::nextBytes)
+            connection
+                .prepareStatement(
+                    "INSERT OR IGNORE INTO account_server_meta(meta_key, meta_value) VALUES (?, ?)",
+                ).use { statement ->
+                    statement.setString(1, PRELOGIN_SECRET_KEY)
+                    statement.setBytes(2, generated)
+                    statement.executeUpdate()
+                }
+            checkNotNull(readMetaLocked(PRELOGIN_SECRET_KEY)) { "prelogin secret was not stored" }
+        }
+
+    override fun rekey(
+        userId: String,
+        authenticatedSessionId: String,
+        expectedCurrent: PasswordDigest,
+        replacement: ReplacementCredentials,
+        vault: StoredVault,
+        sync: StoredSyncRecord?,
+        syncBaseVersion: Long?,
+        replacementSession: NewSession,
+        nowEpochMs: Long,
+    ): RekeyWriteResult =
+        synchronized(lock) {
+            require(vault.userId == userId && replacementSession.userId == userId)
+            require(sync == null || (sync.userId == userId && syncBaseVersion != null))
+            transaction {
+                if (!isActiveSessionLocked(authenticatedSessionId, userId, nowEpochMs)) {
+                    return@transaction RekeyWriteResult.SessionInvalid
+                }
+                val currentSync = getSyncStateLocked(userId)
+                // Protocol 1 accounts always encrypted playback records under key version 1, so
+                // the first vault starts at 2 even without a sync document: otherwise records
+                // under the retired key would share the new key's version and survive the purge.
+                val currentKeyVersion =
+                    getVaultLocked(userId)?.keyVersion ?: maxOf(currentSync.record?.keyVersion ?: 0, 1)
+                if (vault.keyVersion <= currentKeyVersion) {
+                    return@transaction RekeyWriteResult.KeyVersionConflict(currentKeyVersion)
+                }
+                if (sync == null) {
+                    // Leaving the document under the retired key would make it unreadable forever.
+                    if (currentSync.record != null) return@transaction RekeyWriteResult.SyncRequired
+                } else {
+                    if (currentSync.version != syncBaseVersion) {
+                        return@transaction RekeyWriteResult.VersionConflict(currentSync.version)
+                    }
+                    check(sync.version == currentSync.version + 1L && sync.keyVersion == vault.keyVersion)
+                }
+                val changed =
+                    connection
+                        .prepareStatement(
+                            """
+                            UPDATE users
+                            SET password_salt = ?, password_hash = ?, password_iterations = ?,
+                                auth_protocol = ?, kdf_salt = ?, kdf_iterations = ?, updated_at_ms = ?
+                            WHERE id = ?
+                              AND password_salt = ?
+                              AND password_hash = ?
+                              AND password_iterations = ?
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setBytes(1, replacement.verifier.salt)
+                            statement.setBytes(2, replacement.verifier.hash)
+                            statement.setInt(3, replacement.verifier.iterations)
+                            statement.setInt(4, AUTH_PROTOCOL_DERIVED_KEY)
+                            statement.setBytes(5, replacement.kdfSalt)
+                            statement.setInt(6, replacement.kdfIterations)
+                            statement.setLong(7, nowEpochMs)
+                            statement.setString(8, userId)
+                            statement.setBytes(9, expectedCurrent.salt)
+                            statement.setBytes(10, expectedCurrent.hash)
+                            statement.setInt(11, expectedCurrent.iterations)
+                            statement.executeUpdate()
+                        }
+                if (changed != 1) return@transaction RekeyWriteResult.CredentialsChanged
+                upsertVaultLocked(vault)
+                if (sync != null) {
+                    // The new key version starts a fresh nonce namespace.
+                    connection
+                        .prepareStatement("DELETE FROM sync_nonce_history WHERE user_id = ?")
+                        .use { statement ->
+                            statement.setString(1, userId)
+                            statement.executeUpdate()
+                        }
+                    if (currentSync.record == null) insertSyncRecordLocked(sync) else updateSyncRecordLocked(sync)
+                    upsertSyncRevisionLocked(userId, sync.version, sync.updatedAtEpochMs)
+                    connection
+                        .prepareStatement(
+                            """
+                            INSERT INTO sync_nonce_history(user_id, key_version, nonce, recorded_at_ms)
+                            VALUES (?, ?, ?, ?)
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setString(1, userId)
+                            statement.setInt(2, sync.keyVersion)
+                            statement.setBytes(3, sync.nonce)
+                            statement.setLong(4, sync.updatedAtEpochMs)
+                            statement.executeUpdate()
+                        }
+                }
+                // Every other device still holds the retired key; signing them out makes them
+                // fetch the new vault with the password instead of writing data nobody can read.
+                connection
+                    .prepareStatement("DELETE FROM sessions WHERE user_id = ?")
+                    .use { statement ->
+                        statement.setString(1, userId)
+                        statement.executeUpdate()
+                    }
+                insertSessionLocked(replacementSession)
+                RekeyWriteResult.Changed(vault)
+            }
+        }
+
     override fun close() {
         synchronized(lock) {
             if (!connection.isClosed) connection.close()
@@ -1189,6 +1408,55 @@ internal class SqliteAccountStore private constructor(
                 statement.setString(1, userId)
                 statement.executeQuery().use { result ->
                     if (result.next()) result.readCredentials() else null
+                }
+            }
+
+    private fun getVaultLocked(userId: String): StoredVault? =
+        connection
+            .prepareStatement(
+                """
+                SELECT key_version, wrap_version, nonce, wrapped_key, updated_at_ms
+                FROM account_vaults WHERE user_id = ? LIMIT 1
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, userId)
+                statement.executeQuery().use { result ->
+                    if (result.next()) result.readVault(userId) else null
+                }
+            }
+
+    private fun upsertVaultLocked(vault: StoredVault) {
+        connection
+            .prepareStatement(
+                """
+                INSERT INTO account_vaults(
+                    user_id, key_version, wrap_version, nonce, wrapped_key, updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    key_version = excluded.key_version,
+                    wrap_version = excluded.wrap_version,
+                    nonce = excluded.nonce,
+                    wrapped_key = excluded.wrapped_key,
+                    updated_at_ms = excluded.updated_at_ms
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, vault.userId)
+                statement.setInt(2, vault.keyVersion)
+                statement.setInt(3, vault.wrapVersion)
+                statement.setBytes(4, vault.nonce)
+                statement.setBytes(5, vault.wrappedKey)
+                statement.setLong(6, vault.updatedAtEpochMs)
+                check(statement.executeUpdate() == 1) { "vault was not stored" }
+            }
+    }
+
+    private fun readMetaLocked(key: String): ByteArray? =
+        connection
+            .prepareStatement("SELECT meta_value FROM account_server_meta WHERE meta_key = ? LIMIT 1")
+            .use { statement ->
+                statement.setString(1, key)
+                statement.executeQuery().use { result ->
+                    if (result.next()) result.getBytes("meta_value") else null
                 }
             }
 
@@ -1622,8 +1890,13 @@ internal class SqliteAccountStore private constructor(
             $USER_COLUMNS,
             u.password_salt AS user_password_salt,
             u.password_hash AS user_password_hash,
-            u.password_iterations AS user_password_iterations
+            u.password_iterations AS user_password_iterations,
+            u.auth_protocol AS user_auth_protocol,
+            u.kdf_salt AS user_kdf_salt,
+            u.kdf_iterations AS user_kdf_iterations
         """
+        private const val PRELOGIN_SECRET_KEY = "prelogin_secret"
+        private const val PRELOGIN_SECRET_BYTES = 32
 
         fun open(
             databaseFile: File,
@@ -1719,4 +1992,17 @@ private fun ResultSet.readCredentials(): StoredCredentials =
         passwordSalt = getBytes("user_password_salt"),
         passwordHash = getBytes("user_password_hash"),
         passwordIterations = getInt("user_password_iterations"),
+        authProtocol = getInt("user_auth_protocol"),
+        kdfSalt = getBytes("user_kdf_salt"),
+        kdfIterations = getNullableInt("user_kdf_iterations"),
+    )
+
+private fun ResultSet.readVault(userId: String): StoredVault =
+    StoredVault(
+        userId = userId,
+        keyVersion = getInt("key_version"),
+        wrapVersion = getInt("wrap_version"),
+        nonce = getBytes("nonce"),
+        wrappedKey = getBytes("wrapped_key"),
+        updatedAtEpochMs = getLong("updated_at_ms"),
     )

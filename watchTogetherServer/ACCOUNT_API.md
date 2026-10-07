@@ -60,20 +60,22 @@ reported as `500 response_too_large` instead of a generic internal error.
 
 | Method and path | Request | Response |
 | --- | --- | --- |
-| `POST /api/v1/auth/register` | `{username,password,nickname?,avatarId?,inviteCode?,deviceName?}` | `201 AuthResponse` |
-| `POST /api/v1/auth/login` | `{username,password,deviceName?}` | `200 AuthResponse` |
+| `POST /api/v1/auth/prelogin` | `{username}` | `200 PreloginResponse` (protocol 2, below) |
+| `POST /api/v1/auth/register` | `{username,password,nickname?,avatarId?,inviteCode?,deviceName?}` or the protocol 2 body | `201 AuthResponse` |
+| `POST /api/v1/auth/login` | `{username,password,deviceName?}` or `{username,authKey,deviceName?}` | `200 AuthResponse` |
 | `POST /api/v1/auth/refresh` | `{refreshToken,deviceName?}` | `200 AuthResponse` with rotated tokens |
 | `POST /api/v1/auth/logout` | Bearer access token | `204` |
 | `GET /api/v1/account/profile` | Bearer access token | `200 UserResponse` |
 | `POST /api/v1/account/invites` | Bearer with `invite:issue` | `201 {code,expiresAtEpochMs}` |
 | `PUT /api/v1/account/profile` | Bearer plus `{nickname?,avatarId?}` | `200 UserResponse` |
-| `PUT /api/v1/account/password` | Bearer plus the password-change body below | `200 AuthResponse` |
+| `PUT /api/v1/account/password` | Bearer plus the password-change body below (protocol 1 only) | `200 AuthResponse` |
+| `POST /api/v1/account/rekey` | Bearer plus `RekeyRequest` (protocol 2, below) | `200 AuthResponse` |
 | `GET /api/v1/account/sessions` | Bearer | Active device sessions, including current marker |
 | `DELETE /api/v1/account/sessions/{id}` | Bearer | Revoke one owned session |
 | `POST /api/v1/account/sessions/revoke-others` | Bearer | Revoke all except current |
 | `POST /api/v1/account/sessions/revoke-all` | Bearer | Revoke every session |
-| `GET /api/v1/account/export` | Bearer | Profile and opaque encrypted sync envelope |
-| `DELETE /api/v1/account` | Bearer plus `{password}` | Permanently delete account |
+| `GET /api/v1/account/export` | Bearer | Profile, opaque encrypted sync envelope and wrapped vault |
+| `DELETE /api/v1/account` | Bearer plus `{password}` (protocol 1) or `{authKey}` (protocol 2) | Permanently delete account |
 
 Profile updates only change fields supplied in the request. Concurrent nickname-only and
 avatar-only updates preserve both changes; omitted fields retain their value at write time.
@@ -97,8 +99,12 @@ avatar-only updates preserve both changes; omitted fields retain their value at 
 }
 ```
 
+Protocol 2 accounts add `"authProtocol":2` and the wrapped `vault` to the responses of register,
+login and rekey; protocol 1 responses are unchanged.
+
 Access tokens live for 15 minutes and refresh tokens for 30 days. Refresh atomically rotates
-both values, immediately invalidating the old pair. Logout revokes that session, including its
+both values, immediately invalidating the old pair. The session id is kept: device management,
+phone-remote pairing and hand-off are bound to it, and a new id every 15 minutes dropped them. Logout revokes that session, including its
 refresh token. At most ten recent active sessions are retained per user. SQLite stores only
 SHA-256 token digests, never bearer or refresh-token plaintext.
 
@@ -119,11 +125,96 @@ Protocol v5 does not permit anonymous room creation or joining and does not down
 Deploy and verify the v5 server before publishing a v5 client; the Android release workflow
 enforces this server-first order through `/watch/version`.
 
-Passwords use JCA `PBKDF2WithHmacSHA256`, 600,000 iterations, a random 16-byte salt, and a
-32-byte output. Invalid login responses do not distinguish an unknown username from a wrong
-password. Failed logins are additionally limited across IPs by a SHA-256 digest of the
+Protocol 1 passwords use JCA `PBKDF2WithHmacSHA256`, 600,000 iterations, a random 16-byte
+salt, and a 32-byte output. Invalid login responses do not distinguish an unknown username from
+a wrong password. A password login for an unknown name is not hashed: prelogin already tells
+protocol 1 accounts apart, and the dummy 600,000-round hash let anyone spend server CPU with
+made-up names. Failed logins are additionally limited across IPs by a SHA-256 digest of the
 normalized username (10 failures per five minutes), applying the same response behavior to
-existing and unknown usernames.
+existing and unknown usernames. Registration checks the invite code, user cap and name before
+any hashing.
+
+## Protocol 2: the password never leaves the device
+
+Builds after 1.1.5 stretch the password on the device and send the server only a key derived
+from it. The account's vault key is wrapped with a second key from the same derivation, which
+the server never receives, and is stored apart from the sync document, so every device of an
+account opens the same vault even before the first upload and after 清空云端.
+
+The client first asks how to prove the password:
+
+```json
+POST /api/v1/auth/prelogin {"username":"alice"}
+→ {"authProtocol":2,"kdf":"PBKDF2-HMAC-SHA256","kdfIterations":600000,"kdfSalt":"base64url-16-bytes"}
+→ {"authProtocol":1}
+```
+
+`authProtocol: 1` means the account still logs in with the password (see the upgrade below).
+Unknown names get protocol 2 parameters derived from a per-server secret (HMAC-SHA256 of the
+normalized name, stored in `account_server_meta`), stable per name, so the answer does not say
+whether a protocol 2 account exists. A server without this endpoint answers `404`; clients then
+use protocol 1.
+
+The client derives:
+
+```text
+master   = PBKDF2-HMAC-SHA256(password, kdfSalt, kdfIterations, 32 bytes)
+authKey  = HKDF-Expand-SHA256(master, info "yfuse-auth-v2", 32 bytes)   sent as canonical base64url
+wrapKey  = HKDF-Expand-SHA256(master, info "yfuse-wrap-v2", 32 bytes)   never sent
+vault    = AES-256-GCM(wrapKey, vaultKey, aad "yfuse-vault:v2:{keyVersion}")
+```
+
+The vault is created before registration assigns a user id, so its AAD carries only the key
+version; a vault moved to another account fails anyway, because that account's password and
+salt give a different `wrapKey`.
+
+Registration sends `{username, authKey, kdfSalt, kdfIterations, vault:{keyVersion:1,
+wrapVersion:2, nonce, wrappedKey}, nickname?, avatarId?, inviteCode?, deviceName?}`; login sends
+`{username, authKey, deviceName?}`. The server stores a PBKDF2 verifier of `authKey` (10,000
+rounds: the device already did 600,000, and keeping logins cheap keeps them from being a lever
+on server CPU) and returns the vault with every `AuthResponse`. `kdfIterations` must be between
+100,000 and 2,000,000; the vault nonce is 12 bytes and the wrapped key 48 bytes (32 + GCM tag).
+
+A protocol 2 account never accepts the password itself: a password login, a protocol 1
+password change or a password-proved account deletion returns `403 client_upgrade_required`
+(login, password change) or `403 current_password_invalid` (deletion), with a message asking
+the user to update the app.
+
+Sync documents of a protocol 2 account carry no wrapper fields (`400 sync_key_wrap_forbidden`)
+and must use the vault's `keyVersion` (`409 sync_key_version_conflict`, checked again inside the
+write transaction). Playback relay records must use it as well; records under older key versions
+are deleted.
+
+### Upgrade and password change: rekey
+
+`POST /api/v1/account/rekey` replaces the credentials and the vault key in one transaction. The
+upgrade of a protocol 1 account proves `currentPassword`; a protocol 2 password change proves
+`currentAuthKey`:
+
+```json
+{
+  "currentPassword": "only for protocol 1",
+  "currentAuthKey": "only for protocol 2",
+  "authKey": "base64url-32-bytes",
+  "kdfSalt": "base64url-16-bytes",
+  "kdfIterations": 600000,
+  "vault": {"keyVersion": 2, "wrapVersion": 2, "nonce": "...", "wrappedKey": "..."},
+  "sync": {"baseVersion": 7, "payload": {"schemaVersion": 1, "keyVersion": 2, "...": "..."}},
+  "deviceName": "Pixel"
+}
+```
+
+The new `vault.keyVersion` must be higher than both the current vault's and the current sync
+document's (`409 vault_key_version_conflict`), so a key that was ever derived from a leaked
+password stops opening new data. If a sync document exists, `sync` must carry it re-encrypted
+under the new key with `baseVersion` equal to the current revision (`409
+sync_reencryption_required`, `409 sync_version_conflict`). The transaction updates the
+credentials, stores the vault, writes the document as `baseVersion + 1`, deletes every session
+and creates one replacement session, which the response returns. Other devices still hold the
+retired key and must sign in again; playback relay records under the retired key are deleted.
+
+Deploy this server before releasing a client that uses protocol 2. Old clients keep working
+with protocol 1 accounts; once an account has upgraded they ask the user to update.
 
 ### Password change
 
@@ -229,8 +320,8 @@ The payload nonce must never repeat for the same user and key version. The serve
 known reuse with `409 sync_nonce_reused`. Nonce history is bounded to 4,096 recent entries per
 user and is age-cleaned after 180 days, so the client remains responsible for nonce uniqueness.
 
-The client generates a random 256-bit vault key and wraps it with a key derived from the login
-password. This lets a password change replace the wrapper without re-encrypting the full sync
+Under protocol 1 the client generates a random 256-bit vault key and wraps it with a key
+derived from the login password. This lets a password change replace the wrapper without re-encrypting the full sync
 payload. It is not an independent recovery password and does not provide automatic recovery:
 the client must know the current login password and possess/decrypt the existing wrapper before
 changing it. The server receives login passwords over TLS for authentication and stores the
@@ -252,13 +343,15 @@ authenticated user inside the account service where applicable:
 | Operation | Limit |
 | --- | --- |
 | Register and login combined, per IP | 10 requests/minute |
+| Prelogin, per IP | 30 requests/minute |
 | Refresh, per IP | 30 requests/minute |
 | Logout, per IP | 30 requests/minute |
 | Profile `GET`, per IP | 120 requests/minute |
 | Profile `PUT`, per IP | 30 requests/minute |
 | Sync `GET`, per IP and per user | 120 requests/minute |
 | Sync `PUT` and `DELETE` combined, per IP and per user | 30 requests/minute |
-| Password change, per IP and per user | 5 requests/15 minutes |
+| Password change, rekey and account deletion combined, per IP | 5 requests/15 minutes |
+| Password change and rekey combined, per user | 5 requests/15 minutes |
 | Failed login, per normalized username across IPs | 10 failures/5 minutes |
 | TMDB proxy `GET /api/v1/tmdb/...`, per IP | 900 requests/minute |
 | TMDB proxy, per user across devices | 480 requests/minute (`429 tmdb_rate_limited`) |

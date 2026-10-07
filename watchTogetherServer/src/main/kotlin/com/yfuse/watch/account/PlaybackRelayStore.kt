@@ -163,17 +163,23 @@ internal class PlaybackRelayStore private constructor(
             )
         }
 
+    /**
+     * [keyVersion] is the account's current vault key version; an entity under any other key
+     * could never be read by the devices that pull it.
+     */
     fun push(
         userId: String,
         request: PlaybackPushRequest,
         nowEpochMs: Long,
+        keyVersion: Int = 1,
     ): PlaybackPushResponse =
         synchronized(lock) {
             require(request.items.size in 1..MAX_PUSH_ITEMS) { "playback batch size invalid" }
-            val normalized = request.items.map(::validatePutItem)
+            val normalized = request.items.map { validatePutItem(it, keyVersion) }
             val previousAutoCommit = connection.autoCommit
             connection.autoCommit = false
             try {
+                deleteKeyVersionsBelowLocked(userId, keyVersion)
                 var cursor = cursorLocked(userId)
                 val accepted = mutableListOf<PlaybackAcceptedEntity>()
                 val conflicts = mutableListOf<EncryptedPlaybackEntity>()
@@ -228,14 +234,39 @@ internal class PlaybackRelayStore private constructor(
             }
         }
 
-    private fun validatePutItem(item: PlaybackPutItem): PlaybackPutItem {
+    /** Drops entities encrypted under a retired vault key; the cursor stays monotonic. */
+    fun purgeKeyVersionsBelow(
+        userId: String,
+        keyVersion: Int,
+    ) {
+        synchronized(lock) { deleteKeyVersionsBelowLocked(userId, keyVersion) }
+    }
+
+    private fun deleteKeyVersionsBelowLocked(
+        userId: String,
+        keyVersion: Int,
+    ) {
+        connection
+            .prepareStatement(
+                "DELETE FROM playback_sync_entities WHERE user_id = ? AND key_version < ?",
+            ).use { statement ->
+                statement.setString(1, userId)
+                statement.setInt(2, keyVersion)
+                statement.executeUpdate()
+            }
+    }
+
+    private fun validatePutItem(
+        item: PlaybackPutItem,
+        keyVersion: Int,
+    ): PlaybackPutItem {
         require(item.baseCursor >= 0L) { "playback base cursor invalid" }
         val entity = item.entity
         require(ENTITY_KEY_PATTERN.matches(entity.entityKey)) { "playback entity key invalid" }
         require(entity.mutationId.length in 8..128 && entity.mutationId.all { !it.isWhitespace() }) {
             "playback mutation id invalid"
         }
-        require(entity.schemaVersion == 1 && entity.algorithm == "AES-256-GCM" && entity.keyVersion == 1) {
+        require(entity.schemaVersion == 1 && entity.algorithm == "AES-256-GCM" && entity.keyVersion == keyVersion) {
             "playback crypto metadata invalid"
         }
         val nonce = entity.nonce.decodeBase64Url()

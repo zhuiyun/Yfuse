@@ -4,6 +4,7 @@ import com.yfuse.watch.protocol.PlaybackMissingEntity
 import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -264,6 +265,43 @@ class PlaybackRelayStoreTest {
                     .single()
                     .mutationId,
             )
+        }
+    }
+
+    @Test
+    fun aRekeyedAccountOnlyAcceptsAndKeepsEntitiesUnderItsCurrentKey() {
+        PlaybackRelayStore.inMemoryForTests().use { store ->
+            val retired = entity('A', "mutation-retired", 1)
+            store.push("user-a", PlaybackPushRequest(listOf(PlaybackPutItem(0L, retired))), 1_000L)
+            store.push("user-b", PlaybackPushRequest(listOf(PlaybackPutItem(0L, retired))), 1_000L)
+
+            assertFailsWith<IllegalArgumentException> {
+                store.push("user-a", PlaybackPushRequest(listOf(PlaybackPutItem(0L, retired))), 2_000L, keyVersion = 2)
+            }
+            val current = entity('B', "mutation-current", 2).copy(keyVersion = 2)
+            val response =
+                store.push("user-a", PlaybackPushRequest(listOf(PlaybackPutItem(0L, current))), 3_000L, keyVersion = 2)
+
+            assertEquals(2L, response.accepted.single().cursor)
+            assertEquals(listOf(current.entityKey), store.pull("user-a", 0L, 10).changes.map { it.entityKey })
+            assertEquals(1, store.entityCountForTests("user-b"), "Another account's records are not touched")
+        }
+    }
+
+    @Test
+    fun purgeDropsOnlyRetiredKeyVersions() {
+        PlaybackRelayStore.inMemoryForTests().use { store ->
+            store.push(
+                "user-a",
+                PlaybackPushRequest(listOf(PlaybackPutItem(0L, entity('A', "mutation-one", 1)))),
+                1_000L,
+            )
+
+            store.purgeKeyVersionsBelow("user-a", 1)
+            assertEquals(1, store.entityCountForTests("user-a"))
+            store.purgeKeyVersionsBelow("user-a", 2)
+            assertEquals(0, store.entityCountForTests("user-a"))
+            assertEquals(1L, store.pull("user-a", 0L, 10).cursor, "The cursor never moves backwards")
         }
     }
 
