@@ -1010,7 +1010,7 @@ class AccountRepository(
 
     suspend fun revokeSession(sessionId: String): Result<Unit> =
         guarded {
-            val current = requireSignedIn()
+            requireSignedIn()
             personal?.requireServerManagement()
             val target =
                 authorized(api::sessions).firstOrNull { it.id == sessionId }
@@ -1020,7 +1020,8 @@ class AccountRepository(
                 clearAccountSecrets()
                 setSignedOut()
             } else {
-                _state.value = current.copy(message = "设备已退出")
+                // Read after the requests: the state taken before them may be out of date by now.
+                _state.value = requireSignedIn().copy(message = "设备已退出")
             }
         }
 

@@ -1714,7 +1714,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             }
                         if (!released && activeChild === next && chapters.isNotEmpty()) {
                             childChapters = chapters
-                            mutableState.value = mutableState.value.copy(chapters = chapters)
+                            mutableState.update { it.copy(chapters = chapters) }
                         }
                     }
             }

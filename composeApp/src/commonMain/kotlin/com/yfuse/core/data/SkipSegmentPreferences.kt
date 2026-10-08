@@ -7,6 +7,7 @@ import com.yfuse.core.model.PlaybackSegmentType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.MapSerializer
@@ -200,7 +201,7 @@ class SkipSegmentPreferences(
 
     fun clear(seriesId: String) {
         if (seriesId !in _bySeries.value) return
-        _bySeries.value = _bySeries.value - seriesId
+        _bySeries.update { it - seriesId }
         persist()
     }
 
