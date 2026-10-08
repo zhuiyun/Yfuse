@@ -457,10 +457,11 @@ internal fun Application.watchTogetherModule(
     calendarScheduleSigner: CalendarScheduleSigner? = CalendarScheduleSigner.fromEnvironment(),
     /** Shared schedule database; user Emby credentials never enter this store. */
     calendarScheduleStore: CalendarScheduleStore = NoOpCalendarScheduleStore,
-    /** Durable room state; null keeps rooms in memory only, as tests do. */
+    /** Durable room state and 手机遥控 pairing tokens; null keeps both in memory only, as tests do. */
     roomStateStore: WatchStateStore? = null,
     /** 手机遥控's pairings; injectable so tests can look at them. */
-    remoteControlRelay: RemoteControlRelay<WebSocketSession> = RemoteControlRelay(),
+    remoteControlRelay: RemoteControlRelay<WebSocketSession> =
+        RemoteControlRelay(pairingTokens = RemotePairingTokens(roomStateStore)),
     /** How long a renewable socket waits for a fresh token after its own was revoked or replaced. */
     watchAuthRenewalGraceMs: Long = WATCH_REAUTH_RENEWAL_GRACE_MS,
     /** Injectable so tests can observe coalescing without waiting. */
