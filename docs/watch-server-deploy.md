@@ -42,6 +42,13 @@ else holds either way.
 `ExecStart` is the launcher Gradle's `application` plugin generates, so what gets deployed
 is an `installDist` tree (`bin/` + `lib/`), not a single jar.
 
+The unit runs the JVM with `-XX:+ExitOnOutOfMemoryError`, so an out-of-memory error restarts the
+service instead of leaving it half alive, and keeps one heap dump at
+`/var/lib/yfuse/watch-oom.hprof` (never overwritten; delete it once diagnosed, and treat it as
+secret — it holds whatever was in memory). The unit is sandboxed down to the `@system-service`
+system calls; if a JDK upgrade ever trips the filter, the call fails with `EPERM` and shows in
+`journalctl -u yfuse-update`.
+
 ## Deploying
 
 ### 1. Build
