@@ -744,7 +744,6 @@ class PlayerActivity :
         notificationController.createChannel()
         registerMediaActionReceiver()
         registerScreenStateReceiver()
-        requestNotificationPermissionIfNeeded()
 
         val koin = GlobalContext.get()
         remoteCastManager = koin.get()
@@ -1696,11 +1695,20 @@ class PlayerActivity :
         mediaReceiverRegistered = true
     }
 
-    private fun requestNotificationPermissionIfNeeded() {
+    private var notificationPermissionAsked = false
+
+    /**
+     * Asked when a notification that needs it is about to be posted - a cast's live update - and at
+     * most once per player. The playback notification itself belongs to the MediaSession and is
+     * exempt, so starting a video never stops on a permission dialog any more.
+     */
+    internal fun requestNotificationPermissionIfNeeded() {
+        if (notificationPermissionAsked || isFinishing) return
         if (
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
+            notificationPermissionAsked = true
             requestPermissions(
                 arrayOf(Manifest.permission.POST_NOTIFICATIONS),
                 NOTIFICATION_PERMISSION_REQUEST,
