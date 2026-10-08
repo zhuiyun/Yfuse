@@ -23,7 +23,9 @@ import com.yfuse.core.sync.CloudSyncSnapshotV1
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.applyCloudSyncSnapshot
 import com.yfuse.core.sync.captureCloudSyncSnapshot
+import com.yfuse.core.sync.encodeCloudSyncDocument
 import com.yfuse.core.sync.largestPartName
+import com.yfuse.core.sync.requireWritableByThisBuild
 import com.yfuse.deviceModel
 import io.ktor.client.network.sockets.ConnectTimeoutException
 import io.ktor.client.network.sockets.SocketTimeoutException
@@ -47,6 +49,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 
 /**
  * Owns the account session and the client-encrypted sync document.
@@ -495,12 +499,14 @@ class AccountRepository(
                         completed = true
                         return@repeat
                     }
-                    val cloudSnapshot = remote.payload?.let { decryptSnapshotLocked(remote, vaultKey) }
+                    val cloud = remote.payload?.let { decryptSnapshotLocked(remote, vaultKey) }
+                    val cloudSnapshot = cloud?.snapshot
                     cloudSnapshot?.personal?.let(library::mergeRemote)
                     val sent = library.snapshot()
                     if (automatic && sent == cloudSnapshot?.personal) {
                         noteCloudVersion(remote.version)
                     } else {
+                        cloudSnapshot?.requireWritableByThisBuild()
                         // With nothing in the cloud yet, this device's own settings are the base.
                         val base = cloudSnapshot ?: withContext(mutationDispatcher) { captureSnapshot() }
                         try {
@@ -509,7 +515,8 @@ class AccountRepository(
                                 vaultKey,
                                 remote.payload,
                                 "个人清单、历史和追剧已合并同步".takeUnless { automatic },
-                                base.copy(personal = sent),
+                                base.copy(personal = sent, formatLevel = CloudSyncSnapshotV1.CURRENT_FORMAT_LEVEL),
+                                cloud?.fields,
                             )
                         } catch (error: AccountApiException) {
                             if (error.status != HttpStatusCode.Conflict || attempt == 2) throw error
@@ -533,10 +540,16 @@ class AccountRepository(
         _state.value = current.copy(syncVersion = version, cloudHasData = true, message = null)
     }
 
+    /** The cloud's document, typed and as the fields it holds, which may include newer builds' ones. */
+    private class OpenedCloudDocument(
+        val snapshot: CloudSyncSnapshotV1,
+        val fields: JsonObject,
+    )
+
     private suspend fun decryptSnapshotLocked(
         remote: SyncResponse,
         vaultKey: ByteArray,
-    ): CloudSyncSnapshotV1 {
+    ): OpenedCloudDocument {
         val payload = requireNotNull(remote.payload)
         payload.requireSupportedMetadata()
         requireLocalKeyVersion(payload)
@@ -549,7 +562,8 @@ class AccountRepository(
                 )
             }
         return try {
-            json.decodeFromString<CloudSyncSnapshotV1>(decodeSyncDocument(plaintext))
+            val fields = json.parseToJsonElement(decodeSyncDocument(plaintext)).jsonObject
+            OpenedCloudDocument(json.decodeFromJsonElement(CloudSyncSnapshotV1.serializer(), fields), fields)
         } finally {
             plaintext.fill(0)
         }
@@ -562,15 +576,17 @@ class AccountRepository(
             val remote = authorized { api.getSync(it) }
             val vaultKey = requireVaultKey()
             try {
-                if (personal != null && remote.payload != null) {
-                    decryptSnapshotLocked(remote, vaultKey).personal?.let(personal::mergeRemote)
-                }
+                val cloud =
+                    if (personal != null && remote.payload != null) decryptSnapshotLocked(remote, vaultKey) else null
+                cloud?.snapshot?.requireWritableByThisBuild()
+                cloud?.snapshot?.personal?.let { personal?.mergeRemote(it) }
                 val sentPersonal = personal?.snapshot()
                 uploadLocked(
                     baseVersion = remote.version,
                     vaultKey = vaultKey,
                     remotePayload = remote.payload,
                     successMessage = "已用本机数据覆盖云端",
+                    previousFields = cloud?.fields,
                 )
                 sentPersonal?.let {
                     personal?.finishSync(it, nowEpochMs())
@@ -1194,6 +1210,8 @@ class AccountRepository(
         /** Null for an automatic merge: it announces nothing, and the old message named the old version. */
         successMessage: String? = "已安全同步",
         snapshotOverride: CloudSyncSnapshotV1? = null,
+        /** The cloud copy's fields, so the ones this build does not know are carried forward. */
+        previousFields: JsonObject? = null,
     ) {
         val signedIn = requireSignedIn()
         val derivedKeys = usesDerivedKeys()
@@ -1214,7 +1232,7 @@ class AccountRepository(
         val encrypted =
             withContext(cryptoDispatcher) {
                 val plaintext =
-                    requireNotNull(encodeSyncDocument(json.encodeToString(snapshot))) {
+                    requireNotNull(encodeSyncDocument(encodeCloudSyncDocument(json, snapshot, previousFields))) {
                         "同步数据压缩后仍超出云端 ${MAX_SYNC_CIPHERTEXT_BYTES / 1024} KB 上限，" +
                             "其中${snapshot.largestPartName(json)}占用最多"
                     }

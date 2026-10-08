@@ -25,8 +25,13 @@ import com.yfuse.feature.json
 import com.yfuse.feature.testRepo
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -288,6 +293,39 @@ class CloudSyncSnapshotTest {
 
         assertFalse(result.isSuccess)
         assertEquals("Local-UA", target.userAgent.customValue.value)
+    }
+
+    @Test
+    fun upload_carries_forward_fields_only_a_newer_build_knows() {
+        val previous =
+            buildJsonObject {
+                put("skipMode", "Auto")
+                put("watchParties", "kept")
+                put("formatLevel", 1)
+            }
+
+        val encoded =
+            json
+                .parseToJsonElement(encodeCloudSyncDocument(json, CloudSyncSnapshotV1(skipMode = "Button"), previous))
+                .jsonObject
+
+        assertEquals(JsonPrimitive("kept"), encoded["watchParties"])
+        // Fields this build knows are its own, whatever the cloud copy held.
+        assertEquals(JsonPrimitive("Button"), encoded["skipMode"])
+        assertEquals(
+            encodeCloudSyncDocument(json, CloudSyncSnapshotV1(), null),
+            json.encodeToString(CloudSyncSnapshotV1.serializer(), CloudSyncSnapshotV1()),
+        )
+    }
+
+    @Test
+    fun a_document_from_a_newer_format_is_never_uploaded_over() {
+        CloudSyncSnapshotV1(formatLevel = CloudSyncSnapshotV1.CURRENT_FORMAT_LEVEL).requireWritableByThisBuild()
+        CloudSyncSnapshotV1().requireWritableByThisBuild()
+        assertFailsWith<IllegalArgumentException> {
+            CloudSyncSnapshotV1(formatLevel = CloudSyncSnapshotV1.CURRENT_FORMAT_LEVEL + 1).requireWritableByThisBuild()
+        }
+        assertEquals(CloudSyncSnapshotV1.CURRENT_FORMAT_LEVEL, Fixture().capture().formatLevel)
     }
 
     private fun settingsWithPending(itemId: String): MapSettings =

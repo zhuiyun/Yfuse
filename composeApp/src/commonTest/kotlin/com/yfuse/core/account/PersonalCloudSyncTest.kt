@@ -11,9 +11,12 @@ import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.personal.PersonalMediaRef
+import com.yfuse.core.security.AesGcmPayload
 import com.yfuse.core.security.TestSecureStore
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.base64UrlToBytes
+import com.yfuse.core.security.toBase64Url
+import com.yfuse.core.sync.CloudSyncSnapshotV1
 import com.yfuse.core.sync.ServerSyncManager
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -26,6 +29,9 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -293,6 +299,41 @@ class PersonalCloudSyncTest {
             }
         }
 
+    @Test
+    fun aNewerBuildsDocumentKeepsWhatThisBuildCannotRead() =
+        runTest {
+            val cloud = SyncServer()
+            val phone = Fixture(AccountApi(cloud.client))
+            val movie = PersonalMediaRef("tmdb:603", "黑客帝国", "Movie")
+            try {
+                phone.account.register("viewer", "secret-password".toCharArray()).getOrThrow()
+                phone.personal.setFavorite(movie, true)
+                phone.account.syncPersonalNow().getOrThrow()
+                val key = assertNotNull(phone.secure.get("vault_key"))
+
+                // A newer build added a top-level field; this build's merge carries it forward.
+                cloud.rewrite(key) { JsonObject(it + ("watchParties" to JsonPrimitive("kept"))) }
+                phone.personal.setWatchLater(movie.copy(mediaKey = "tmdb:604", title = "黑客帝国 2"), true)
+                phone.account.syncPersonalAutomatically().getOrThrow()
+                assertEquals(JsonPrimitive("kept"), cloud.open(key)["watchParties"])
+
+                // One that raised the format level is merged from but never uploaded over.
+                val uploads = cloud.acceptedUploads
+                cloud.rewrite(key) {
+                    JsonObject(it + ("formatLevel" to JsonPrimitive(CloudSyncSnapshotV1.CURRENT_FORMAT_LEVEL + 1)))
+                }
+                phone.personal.setFavorite(movie.copy(mediaKey = "tmdb:605", title = "黑客帝国 3"), true)
+                assertTrue(phone.account.syncPersonalAutomatically().isFailure)
+                assertTrue(phone.account.uploadNow().isFailure)
+                assertEquals(uploads, cloud.acceptedUploads)
+                assertEquals(2, phone.personal.state.value.favorites.size)
+                assertTrue(phone.personal.state.value.pendingSync)
+            } finally {
+                phone.media.close()
+                cloud.client.close()
+            }
+        }
+
     /** The account server's sync endpoint, which refuses ciphertext past its limit like the real one. */
     private class SyncServer {
         val json =
@@ -305,6 +346,43 @@ class PersonalCloudSyncTest {
 
         /** Runs as each read arrives, before it is answered. */
         var onRead: () -> Unit = {}
+
+        /** Replaces the stored document with [edit] of it, as another build's upload would. */
+        fun rewrite(
+            key: ByteArray,
+            edit: (JsonObject) -> JsonObject,
+        ) {
+            val current = checkNotNull(remote.payload)
+            val next = remote.version + 1
+            val sealed =
+                VaultCrypto().encrypt(
+                    key,
+                    json.encodeToString(JsonObject.serializer(), edit(open(key))).encodeToByteArray(),
+                    aad(next, current.keyVersion),
+                )
+            remote =
+                SyncResponse(
+                    next,
+                    current.copy(nonce = sealed.nonce.toBase64Url(), ciphertext = sealed.ciphertext.toBase64Url()),
+                    3_000,
+                )
+        }
+
+        fun open(key: ByteArray): JsonObject {
+            val payload = checkNotNull(remote.payload)
+            val plaintext =
+                VaultCrypto().decrypt(
+                    key,
+                    AesGcmPayload(payload.nonce.base64UrlToBytes(), payload.ciphertext.base64UrlToBytes()),
+                    aad(remote.version, payload.keyVersion),
+                )
+            return json.parseToJsonElement(plaintext.decodeToString()).jsonObject
+        }
+
+        private fun aad(
+            version: Long,
+            keyVersion: Int,
+        ) = "yfuse-sync:v1:owner:$version:$keyVersion".encodeToByteArray()
 
         /** Answers every sync request 503, as the account service does while it is down. */
         var unavailable = false
@@ -369,13 +447,14 @@ class PersonalCloudSyncTest {
         api: AccountApi,
     ) {
         private val settings = MapSettings()
+        val secure = TestSecureStore()
         val personal = PersonalLibraryRepository(settings)
         val registry = ServerRegistry(settings, TestSecureStore(), personal = personal)
         val media = HttpClient(MockEngine { error("Unexpected media request") })
         val account =
             AccountRepository(
                 api,
-                TestSecureStore(),
+                secure,
                 VaultCrypto(),
                 registry,
                 ThemePreferences(settings),
