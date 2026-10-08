@@ -80,6 +80,13 @@ class AccountRepository(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
     private val protocolMemory = AccountProtocolMemory(secureStore, crypto)
+
+    /**
+     * The cloud version whose 个人内容 this device has merged, for the automatic check to ask
+     * whether anything moved since. Only a personal merge or upload sets it: a version merely
+     * read, or restored by 下载云端, may lack the 个人内容 this device still has to send.
+     */
+    private var personalMergedAtVersion: Long? = null
     private val restoreAttempts = MutableStateFlow(0L)
     private val json =
         Json {
@@ -468,7 +475,19 @@ class AccountRepository(
                 var completed = false
                 repeat(3) { attempt ->
                     if (completed) return@repeat
-                    val remote = authorized { api.getSync(it) }
+                    // Taken before pendingSync is read: a change landing after this stays pending.
+                    val held =
+                        if (automatic && attempt == 0 && personalMergedAtVersion != null) library.snapshot() else null
+                    val known = personalMergedAtVersion?.takeIf { held != null && !library.state.value.pendingSync }
+                    val remote = authorized { api.getSync(it, known) }
+                    if (remote.unchanged) {
+                        // Nothing new in the cloud, nothing new here: no download, no upload.
+                        require(known != null && held != null) { "服务器同步响应无效" }
+                        noteCloudVersion(remote.version)
+                        library.finishSync(held, nowEpochMs())
+                        completed = true
+                        return@repeat
+                    }
                     if (automatic && remote.payload == null) {
                         // Filling an empty cloud uploads this device's servers and settings too, and
                         // would undo a 清空云端; that first upload stays someone's choice.
@@ -498,6 +517,7 @@ class AccountRepository(
                         }
                     }
                     library.finishSync(sent, nowEpochMs())
+                    personalMergedAtVersion = requireSignedIn().syncVersion
                     completed = true
                 }
             } finally {
@@ -552,7 +572,10 @@ class AccountRepository(
                     remotePayload = remote.payload,
                     successMessage = "已用本机数据覆盖云端",
                 )
-                sentPersonal?.let { personal?.finishSync(it, nowEpochMs()) }
+                sentPersonal?.let {
+                    personal?.finishSync(it, nowEpochMs())
+                    personalMergedAtVersion = requireSignedIn().syncVersion
+                }
                 Unit
             } finally {
                 vaultKey.fill(0)
@@ -586,6 +609,7 @@ class AccountRepository(
             personal?.requireServerManagement()
             val cleared = authorized { api.clearSync(it) }
             require(cleared.payload == null) { "服务器清空响应无效" }
+            personalMergedAtVersion = null
             _state.value =
                 requireSignedIn().copy(
                     syncVersion = cleared.version,
@@ -801,6 +825,7 @@ class AccountRepository(
                 acceptAuth(auth)
                 storeDerivedVault(user.id, vaultKey, keyVersion)
                 protocolMemory.rememberDerivedKey(user.username)
+                personalMergedAtVersion = null
                 _state.value =
                     requireSignedIn().copy(
                         syncVersion = if (sync != null) remote.version + 1 else remote.version,
@@ -1287,6 +1312,7 @@ class AccountRepository(
     }
 
     private fun acceptAuth(auth: AuthResponse) {
+        if ((_state.value as? AccountState.SignedIn)?.session?.user?.id != auth.user.id) personalMergedAtVersion = null
         secureStore.put(KEY_REFRESH_TOKEN, auth.refreshToken.encodeToByteArray())
         secureStore.remove(KEY_PENDING_REFRESH)
         watch.setProfile(auth.user.nickname, auth.user.avatarId)
@@ -1327,6 +1353,7 @@ class AccountRepository(
     }
 
     private fun setSignedOut() {
+        personalMergedAtVersion = null
         personal?.bindAccount(null)
         _state.value = AccountState.SignedOut
         accessTokenSource.markUnavailable()

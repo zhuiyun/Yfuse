@@ -272,13 +272,17 @@ leaves the revision unchanged.
 
 | Method and path | Request | Response |
 | --- | --- | --- |
-| `GET /api/v1/account/sync` | Bearer access token | `200 SyncResponse` |
+| `GET /api/v1/account/sync[?knownVersion=N]` | Bearer access token | `200 SyncResponse` |
 | `PUT /api/v1/account/sync` | Bearer plus `PutSyncRequest` | `200 SyncResponse` |
 | `DELETE /api/v1/account/sync` | Bearer access token | `200 SyncResponse` tombstone |
 
 `GET` returns `{"version":0}` only before the first write or delete. After deletion it returns a
-tombstone such as `{"version":4,"updatedAtEpochMs":...}` with no `payload`. `PUT` performs an
-optimistic write against this monotonic revision:
+tombstone such as `{"version":4,"updatedAtEpochMs":...}` with no `payload`. With
+`knownVersion=N` (a positive integer, else `400 sync_version_invalid`), a payload still at revision
+`N` is answered `{"version":N,"updatedAtEpochMs":...,"unchanged":true}` without the payload, so a
+device's periodic check costs no download. Any other state, a tombstone included, is answered in
+full; a client must treat the absence of `unchanged` as a full answer, which is also what a server
+predating the parameter sends. `PUT` performs an optimistic write against this monotonic revision:
 
 ```json
 {

@@ -686,10 +686,22 @@ internal class AccountService(
         }
     }
 
-    fun getSync(accessToken: String): SyncResponse {
+    /**
+     * [knownVersion] is the version the caller already holds; when the document is still at it,
+     * the answer carries no payload, so an idle device's periodic check does not download the
+     * whole encrypted document every time.
+     */
+    fun getSync(
+        accessToken: String,
+        knownVersion: Long? = null,
+    ): SyncResponse {
         val user = authenticate(accessToken).user
         enforceRateLimit(syncUserRateLimiter.check(user.id, AccountRateLimitBucket.SyncRead))
-        return store.getSyncState(user.id).toResponse()
+        val state = store.getSyncState(user.id)
+        if (knownVersion != null && state.record != null && knownVersion == state.version) {
+            return SyncResponse(version = state.version, updatedAtEpochMs = state.updatedAtEpochMs, unchanged = true)
+        }
+        return state.toResponse()
     }
 
     fun putSync(

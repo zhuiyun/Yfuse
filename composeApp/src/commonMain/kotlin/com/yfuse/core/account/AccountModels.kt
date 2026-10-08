@@ -188,6 +188,8 @@ data class SyncResponse(
     val version: Long,
     val payload: EncryptedSyncPayload? = null,
     val updatedAtEpochMs: Long? = null,
+    /** The document is still the `knownVersion` asked about, so none was sent. */
+    val unchanged: Boolean = false,
 )
 
 @Serializable

@@ -10,6 +10,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
@@ -213,10 +214,18 @@ class AccountApi(
                 setBody(request)
             }.decoded()
 
-    suspend fun getSync(accessToken: String): SyncResponse =
+    /**
+     * With [knownVersion], a service that still holds that version answers [SyncResponse.unchanged]
+     * without the document; one from before that answers in full, as for any other call.
+     */
+    suspend fun getSync(
+        accessToken: String,
+        knownVersion: Long? = null,
+    ): SyncResponse =
         client
             .get("$origin/api/v1/account/sync") {
                 bearerAuth(accessToken)
+                knownVersion?.let { parameter("knownVersion", it) }
             }.decoded()
 
     suspend fun putSync(

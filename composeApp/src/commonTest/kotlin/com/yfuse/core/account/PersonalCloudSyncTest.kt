@@ -258,6 +258,41 @@ class PersonalCloudSyncTest {
 
     private fun signedIn(fixture: Fixture) = assertIs<AccountState.SignedIn>(fixture.account.state.value)
 
+    @Test
+    fun anIdleDeviceChecksTheCloudWithoutDownloadingTheDocument() =
+        runTest {
+            val cloud = SyncServer()
+            val phone = Fixture(AccountApi(cloud.client))
+            val movie = PersonalMediaRef("tmdb:603", "黑客帝国", "Movie")
+            try {
+                phone.account.register("viewer", "secret-password".toCharArray()).getOrThrow()
+                phone.personal.setFavorite(movie, true)
+                phone.account.syncPersonalNow().getOrThrow()
+                val served = cloud.documentsServed
+
+                phone.account.syncPersonalAutomatically().getOrThrow()
+                phone.account.syncPersonalAutomatically().getOrThrow()
+                assertEquals(served, cloud.documentsServed, "Nothing moved, so nothing is downloaded")
+                assertFalse(phone.personal.state.value.pendingSync)
+
+                // A change made while the check is out stays pending instead of passing as synced.
+                cloud.onRead = { phone.personal.setFavorite(movie.copy(mediaKey = "tmdb:605", title = "黑客帝国 3"), true) }
+                phone.account.syncPersonalAutomatically().getOrThrow()
+                cloud.onRead = {}
+                assertTrue(phone.personal.state.value.pendingSync)
+
+                // A change here still merges with the full document.
+                phone.personal.setWatchLater(movie.copy(mediaKey = "tmdb:604", title = "黑客帝国 2"), true)
+                phone.account.syncPersonalAutomatically().getOrThrow()
+                assertEquals(served + 1, cloud.documentsServed)
+                assertEquals(2, cloud.acceptedUploads)
+                assertFalse(phone.personal.state.value.pendingSync)
+            } finally {
+                phone.media.close()
+                cloud.client.close()
+            }
+        }
+
     /** The account server's sync endpoint, which refuses ciphertext past its limit like the real one. */
     private class SyncServer {
         val json =
@@ -266,6 +301,10 @@ class PersonalCloudSyncTest {
                 ignoreUnknownKeys = true
             }
         var acceptedUploads = 0
+        var documentsServed = 0
+
+        /** Runs as each read arrives, before it is answered. */
+        var onRead: () -> Unit = {}
 
         /** Answers every sync request 503, as the account service does while it is down. */
         var unavailable = false
@@ -292,7 +331,19 @@ class PersonalCloudSyncTest {
                                 HttpStatusCode.ServiceUnavailable,
                                 headers,
                             )
-                        request.method.value == "GET" -> respond(json.encodeToString(remote), headers = headers)
+                        request.method.value == "GET" -> {
+                            onRead()
+                            val known = request.url.parameters["knownVersion"]?.toLong()
+                            if (known != null && remote.payload != null && known == remote.version) {
+                                respond(
+                                    json.encodeToString(SyncResponse(remote.version, unchanged = true)),
+                                    headers = headers,
+                                )
+                            } else {
+                                if (remote.payload != null) documentsServed++
+                                respond(json.encodeToString(remote), headers = headers)
+                            }
+                        }
                         else -> {
                             val body = request.body.toByteArray().decodeToString()
                             val put = json.decodeFromString<PutSyncRequest>(body)

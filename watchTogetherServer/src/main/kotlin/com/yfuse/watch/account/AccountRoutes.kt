@@ -169,7 +169,16 @@ internal fun Route.accountRoutes(
             get("/sync") {
                 call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.SyncRead) {
                     val accessToken = call.requireBearerToken()
-                    call.respondLimitedJson(backend.execute { getSync(accessToken) })
+                    val knownVersion =
+                        call.request.queryParameters["knownVersion"]?.let { raw ->
+                            raw.toLongOrNull()?.takeIf { it > 0L }
+                                ?: throw AccountServiceException(
+                                    AccountProblem.InvalidRequest,
+                                    "sync_version_invalid",
+                                    "同步版本无效",
+                                )
+                        }
+                    call.respondLimitedJson(backend.execute { getSync(accessToken, knownVersion) })
                 }
             }
             put("/sync") {
