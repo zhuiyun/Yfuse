@@ -1171,6 +1171,24 @@ class MpvVideoEngine(
         pauseAtEndOfCurrentItem = enabled
     }
 
+    /** The video track mpv played before 熄屏继续播放声音 turned it off; null while it plays. */
+    @Volatile
+    private var suspendedVideoTrack: String? = null
+
+    override fun setVideoSuspended(suspended: Boolean) {
+        withMpv { instance ->
+            if (suspended) {
+                if (suspendedVideoTrack != null) return@withMpv
+                suspendedVideoTrack = instance.getPropertyString("vid")?.takeUnless { it == "no" } ?: "auto"
+                instance.setPropertyString("vid", "no")
+            } else {
+                val track = suspendedVideoTrack ?: return@withMpv
+                suspendedVideoTrack = null
+                instance.setPropertyString("vid", track)
+            }
+        }
+    }
+
     override fun appendItems(items: List<PlayerMediaItem>): Boolean =
         updateQueue(this.items + items, _state.value.currentIndex)
 

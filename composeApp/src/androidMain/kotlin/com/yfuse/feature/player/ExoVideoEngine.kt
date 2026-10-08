@@ -1340,6 +1340,13 @@ class ExoVideoEngine(
         player.pauseAtEndOfMediaItems = enabled || !autoNext
     }
 
+    override fun setVideoSuspended(suspended: Boolean) {
+        val parameters = player.trackSelectionParameters
+        if (parameters.disabledTrackTypes.contains(C.TRACK_TYPE_VIDEO) == suspended) return
+        player.trackSelectionParameters =
+            parameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, suspended).build()
+    }
+
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
         failureHistory.remove(index)

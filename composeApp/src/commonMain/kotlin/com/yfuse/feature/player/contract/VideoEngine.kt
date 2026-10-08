@@ -474,6 +474,13 @@ interface VideoEngine {
     /** Temporarily prevents automatic queue advance after the current entry finishes. */
     fun setPauseAtEndOfCurrentItem(enabled: Boolean) = Unit
 
+    /**
+     * 熄屏继续播放声音: stop decoding the picture nobody can see while the sound plays on, and bring
+     * it back when the player is visible again. Engines that already let go of video with their
+     * Surface need not do anything.
+     */
+    fun setVideoSuspended(suspended: Boolean) = Unit
+
     /** Jumps to another entry in the queue — next/previous and the episode list. */
     fun selectItem(index: Int)
 

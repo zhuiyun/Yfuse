@@ -120,6 +120,8 @@ internal class YPlayerVideoEngineAdapter(
 
     override fun setPauseAtEndOfCurrentItem(enabled: Boolean) = player.setPauseAtEndOfCurrentItem(enabled)
 
+    override fun setVideoSuspended(suspended: Boolean) = player.setVideoSuspended(suspended)
+
     override fun selectDiscTitle(index: Int): Boolean = player.selectDiscTitle(index)
 
     override fun selectDiscChapter(index: Int): Boolean = player.selectDiscChapter(index)

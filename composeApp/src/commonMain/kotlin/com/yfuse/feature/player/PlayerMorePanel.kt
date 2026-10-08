@@ -321,6 +321,13 @@ internal fun MorePanel(
                     checked = autoNextEnabled,
                     onToggle = onToggleAutoNext,
                 )
+                // The same switch as 设置 → 播放 as well; it decides what the next screen-off does.
+                val backgroundAudio by animePreferences.backgroundAudio.collectAsState()
+                PopupToggleHeader(
+                    label = "熄屏继续播放声音",
+                    checked = backgroundAudio,
+                    onToggle = { animePreferences.setBackgroundAudio(!backgroundAudio) },
+                )
                 shortDramaMode?.let { mode ->
                     GroupLabel("短剧模式")
                     SegmentedRow(

@@ -82,6 +82,8 @@ internal class LegacyYPlayerAdapter(
 
     override fun setPauseAtEndOfCurrentItem(enabled: Boolean) = engine.setPauseAtEndOfCurrentItem(enabled)
 
+    override fun setVideoSuspended(suspended: Boolean) = engine.setVideoSuspended(suspended)
+
     override fun selectDiscTitle(index: Int): Boolean = engine.selectDiscTitle(index)
 
     override fun selectDiscChapter(index: Int): Boolean = engine.selectDiscChapter(index)

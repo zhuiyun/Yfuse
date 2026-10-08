@@ -375,6 +375,19 @@ internal class AndroidAdaptiveCore2YPlayer(
     @Volatile
     private var pauseAtEndOfCurrentItem = false
 
+    /**
+     * 熄屏继续播放声音. YCore's own routes drop their video decoder with the Surface; the libmpv
+     * compatibility child would keep decoding video, so it is told, and so is every child attached
+     * while it holds.
+     */
+    @Volatile
+    private var videoSuspended = false
+
+    override fun setVideoSuspended(suspended: Boolean) {
+        videoSuspended = suspended
+        activeChild?.setVideoSuspended(suspended)
+    }
+
     override fun setPauseAtEndOfCurrentItem(enabled: Boolean) {
         pauseAtEndOfCurrentItem = enabled
     }
@@ -1569,6 +1582,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             if (!next.setAudioDelayMs(audioDelayMs)) reportRejectedSetting(next, "audioDelay")
             if (!next.setAudioEffect(audioEffect)) reportRejectedSetting(next, "audioEffect")
             nativeSubtitleStyle?.let { style -> (next as? YNativeSubtitleStyleTarget)?.setNativeSubtitleStyle(style) }
+            if (videoSuspended) next.setVideoSuspended(true)
             // NativeDirect gets the caller's newest output rather than the command copy, which may
             // still be queued behind this very start (see requestedVideoOutput): before prepare()
             // it only records the Surface and then configures its decoder with it. The enhanced

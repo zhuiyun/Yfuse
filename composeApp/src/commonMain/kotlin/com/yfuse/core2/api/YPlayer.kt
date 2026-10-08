@@ -73,6 +73,13 @@ interface YPlayer {
     fun setPauseAtEndOfCurrentItem(enabled: Boolean) = Unit
 
     /**
+     * Audio-only playback with the screen off: stop decoding video until [suspended] is false.
+     * YCore's own routes release their video decoder with the Surface and keep the sound, so the
+     * default does nothing.
+     */
+    fun setVideoSuspended(suspended: Boolean) = Unit
+
+    /**
      * UI-resolved credits boundary; null uses natural duration. This never initiates a skip.
      *
      * [allowMeteredNetwork] lets the next item prepare on mobile data (never under Data Saver).
