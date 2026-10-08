@@ -145,22 +145,11 @@ fi
 ```
 
 The same snapshot runs nightly once the timer is installed, so a deploy never starts from a
-box that has no recent backup:
+box that has no recent backup. See [Backups](#backups) for the one-time setup of the backup
+user, encryption and the off-host copy.
 
-```bash
-sudo install -d -o yfuse -g yfuse -m 0755 /opt/yfuse-watch/deploy
-sudo install -m 0755 watchTogetherServer/deploy/yfuse-backup.sh /opt/yfuse-watch/deploy/
-sudo install -m 0644 watchTogetherServer/deploy/yfuse-backup.service /etc/systemd/system/
-sudo install -m 0644 watchTogetherServer/deploy/yfuse-backup.timer /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now yfuse-backup.timer
-sudo systemctl start yfuse-backup.service && ls -l /var/lib/yfuse/backups
-```
-
-Set `YFUSE_BACKUP_REMOTE=user@host:/path` in `/etc/yfuse-watch/backup.env` to rsync each
-night's verified snapshots off-host; `YFUSE_BACKUP_KEEP_DAYS` (default 14) bounds the local
-set. Retain at least the newest known-good snapshot off-host according to the operator's
-recovery policy. A binary rollback does not undo a future schema/data migration; restore
-the matching verified snapshot only during an explicit recovery window.
+A binary rollback does not undo a future schema/data migration; restore the matching verified
+snapshot only during an explicit recovery window.
 
 ```bash
 sudo ln -sfn "$release" /opt/yfuse-watch/current.new
@@ -268,3 +257,85 @@ blast radiuses apart.
 The build itself is the easy half; the gate worth having is the one that proves the new
 binary is the one now serving. `/watch/version` reports the build's git SHA, so a workflow
 can assert it after the restart instead of trusting that the upload landed.
+
+## Backups
+
+`yfuse-backup.timer` runs `deploy/yfuse-backup.sh` nightly. For each database it takes an online
+`.backup`, checks `PRAGMA integrity_check`, compresses it with gzip, encrypts it with
+[age](https://age-encryption.org) when recipients are configured, copies it off-host with rsync
+only if it is encrypted, and prunes the local set by count per database and by total size.
+
+### One-time setup
+
+The job runs as its own `yfuse-backup` user. It reads the databases through the `yfuse` group,
+and it alone owns the backup directory and the off-host SSH key: a compromised service cannot
+read that key or rewrite past backups, and the backup job cannot write the live databases.
+
+```bash
+sudo apt-get install -y sqlite3 age rsync
+sudo useradd --system --home-dir /var/lib/yfuse-backup --create-home \
+  --shell /usr/sbin/nologin --groups yfuse yfuse-backup
+sudo install -d -o yfuse-backup -g yfuse-backup -m 0700 /var/backups/yfuse
+# The service unit now uses StateDirectoryMode=0750 and UMask=0027; fix up existing files once.
+sudo chmod 0750 /var/lib/yfuse
+sudo find /var/lib/yfuse -maxdepth 1 -name '*.db*' -exec chmod g+r {} +
+
+sudo install -d -o yfuse -g yfuse -m 0755 /opt/yfuse-watch/deploy
+sudo install -m 0755 watchTogetherServer/deploy/yfuse-backup.sh /opt/yfuse-watch/deploy/
+sudo install -m 0644 watchTogetherServer/deploy/yfuse-backup.service /etc/systemd/system/
+sudo install -m 0644 watchTogetherServer/deploy/yfuse-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now yfuse-backup.timer
+sudo systemctl start yfuse-backup.service && sudo ls -l /var/backups/yfuse
+```
+
+Encryption: generate the age identity **off the server** (a workstation or password manager) and
+put only its public recipient on the box. The private key never touches the server; losing it
+loses every encrypted backup, so keep two copies.
+
+```bash
+age-keygen -o yfuse-backup-identity.txt          # on the workstation; prints the recipient
+echo 'age1…' | sudo tee /etc/yfuse-watch/backup.age-recipients
+```
+
+`/etc/yfuse-watch/backup.env`:
+
+```bash
+YFUSE_BACKUP_AGE_RECIPIENTS=/etc/yfuse-watch/backup.age-recipients
+YFUSE_BACKUP_REMOTE=backup@offsite.example:/srv/yfuse-backups   # refused unless encrypted
+YFUSE_BACKUP_KEEP_COUNT=14       # snapshots kept per database
+YFUSE_BACKUP_MAX_TOTAL_MB=2048   # cap on /var/backups/yfuse; tonight's set is always kept
+```
+
+The off-host SSH key lives in `/var/lib/yfuse-backup/.ssh` (mode 0600, owned by
+`yfuse-backup`); restrict it on the remote side to rsync into one directory. The job refuses to
+copy anything off-host while no recipient is configured: a plaintext copy never leaves the box.
+
+The job needs the service to be running: with WAL, a read-only reader relies on the `-shm` file
+the service keeps. While the service is stopped, take snapshots as `yfuse` instead (step 4).
+
+### Restore drill
+
+Do this at least once a quarter, and after any change to the backup setup, on a machine other
+than the production server. A backup nobody has restored is a hope, not a backup.
+
+```bash
+# 1. Fetch the newest set from the off-host copy and decrypt it with the off-server identity.
+for f in account calendar migration-relay qoe watch-state; do
+  newest="$(ls -1 "$f"-*.db.gz.age 2>/dev/null | sort | tail -n 1)" || true
+  [ -n "$newest" ] || continue
+  age --decrypt -i yfuse-backup-identity.txt "$newest" | gunzip > "drill/$f.db"
+  sqlite3 "drill/$f.db" 'PRAGMA integrity_check;'      # must print: ok
+done
+# 2. Start the same build against the copies on a spare port and check it is healthy.
+ACCOUNT_DB_PATH=drill/account.db CALENDAR_DB_PATH=drill/calendar.db \
+MIGRATION_RELAY_DB_PATH=drill/migration-relay.db QOE_DB_PATH=drill/qoe.db \
+WATCH_STATE_DB_PATH=drill/watch-state.db UPDATE_ROOT=drill/update PORT=18080 \
+  watchTogetherServer/build/install/watchTogetherServer/bin/watchTogetherServer &
+curl --fail http://127.0.0.1:18080/health
+# 3. Sign in with a known test account against the drill instance, then stop it.
+```
+
+Record the date, the snapshot stamp and the outcome. For a real restore, stop
+`yfuse-update.service`, move the damaged database aside (keep it), copy the restored file into
+`/var/lib/yfuse` with `install -o yfuse -g yfuse -m 0640`, remove any stale `-wal`/`-shm` next to
+it, and start the service again.

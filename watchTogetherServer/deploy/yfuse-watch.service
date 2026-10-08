@@ -48,9 +48,10 @@ RestrictSUIDSGID=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadOnlyPaths=/srv/yfuse-update /opt/yfuse-watch
 StateDirectory=yfuse
-StateDirectoryMode=0700
+# Group-readable for yfuse-backup only (see the deploy guide); nothing else is in the group.
+StateDirectoryMode=0750
 ReadWritePaths=/var/lib/yfuse
-UMask=0077
+UMask=0027
 
 [Install]
 WantedBy=multi-user.target
