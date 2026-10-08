@@ -57,7 +57,8 @@ class PlaybackProxyLimitsTest {
     @Test
     fun workers_reject_excess_work_without_retaining_a_shutdown_queue() {
         // One worker for the playback slot and one for the triage slot.
-        val workers = PlaybackProxyAdmission(1, PlaybackProxyConnections(1)).workers("proxy-limit-test")
+        val workers =
+            PlaybackProxyAdmission(1, PlaybackProxyConnections(1), maximumPending = 1).workers("proxy-limit-test")
         val entered = CountDownLatch(2)
         val release = CountDownLatch(1)
         try {
