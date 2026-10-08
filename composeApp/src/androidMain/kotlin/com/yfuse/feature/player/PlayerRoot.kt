@@ -1215,6 +1215,11 @@ internal fun PlayerRoot(
             onPlaybackProgress,
         )
 
+        // 本集改用兼容内核: the switch a setting the engine cannot honour asked for, and its undoing
+        // once the queue moves to another entry.
+        val engineSwitchPrompt = remember { EngineSwitchPrompt() }
+        var itemEngineOverride by remember { mutableStateOf<ItemEngineOverride?>(null) }
+        DisposableEffect(engineSwitchPrompt) { onDispose { engineSwitchPrompt.dismiss() } }
         val switching =
             rememberPlayerSourceSwitching(
                 stateSource = runtimeState,
@@ -1286,21 +1291,37 @@ internal fun PlayerRoot(
                 choices.sessionEngineSelection == PlaybackEngineSelection.Auto && !core2NativeOnlyActive,
             onSecondarySubtitleTrackChanged = { choices.secondarySubtitleTrackId = it },
             onPendingSubtitleLanguageApplied = { choices.pendingSubtitleLanguage = null },
-            onRequestMpv = {
-                if (engine is YPlayerVideoEngineAdapter) {
-                    // A control that Core2 cannot execute must leave the trial path for this session;
-                    // changing only `kind` would immediately construct Core2 again in Auto mode.
-                    capturePlaybackHandover()
-                    build.core2DisabledForSession = true
-                    choices.sessionEngineSelection = PlaybackEngineSelection.LockMpv
-                    build.kind = PlayerEngine.Mpv
-                    build.engineGeneration++
-                } else {
-                    switching.selectEngineStrategy(PlaybackEngineSelection.LockMpv)
-                }
+            onUnsupportedSetting = { setting ->
+                val itemId = currentItem?.id
+                engineSwitchPrompt.ask(
+                    context = context,
+                    itemId = itemId,
+                    setting = setting,
+                    onSwitch = {
+                        if (itemId != null && itemEngineOverride == null) {
+                            itemEngineOverride =
+                                switchToCompatibilityForItem(
+                                    itemId = itemId,
+                                    leaveCore2 = engine is YPlayerVideoEngineAdapter,
+                                    build = build,
+                                    choices = choices,
+                                    capturePlaybackHandover = ::capturePlaybackHandover,
+                                    selectEngineStrategy = switching.selectEngineStrategy,
+                                )
+                        }
+                    },
+                    onKeep = { setting.reset(choices) },
+                )
             },
             subtitlePeekActive = choices.subtitlePeek != null,
         )
+
+        LaunchedEffect(currentItem?.id) {
+            val replaced = itemEngineOverride ?: return@LaunchedEffect
+            if (currentItem == null || currentItem.id == replaced.itemId) return@LaunchedEffect
+            itemEngineOverride = null
+            restoreItemEngine(replaced, build, choices, ::capturePlaybackHandover, switching.selectEngineStrategy)
+        }
 
         PlayerHandoverValidation(
             engine = engine,

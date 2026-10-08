@@ -388,7 +388,7 @@ internal fun PlayerRootControls(
                                 choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
                                 !core2NativeOnlyActive
                             ) {
-                                "调整后将自动切换到支持该功能的播放内核。"
+                                "当前内核不支持此项；调整后会先询问是否本集改用兼容内核。"
                             } else if (core2NativeOnlyActive) {
                                 "YCore Native 纯内核模式不允许兼容内核接管此项调节。"
                             } else {
