@@ -312,6 +312,16 @@ renderer 仍强制 HTTPS。
 排队和缓存数量；浏览器已断开时返回 503，此时应重启 sidecar。部署镜像使用锁文件执行
 `npm ci`；调度与取消逻辑可在此目录运行 `npm test` 验证。
 
+浏览器的所有连接（含重定向和子资源）都经过 sidecar 进程内的出站代理：代理自己解析域名，
+只要任一解析结果落在 127/8、0/8、10/8、172.16/12、192.168/16、169.254/16、100.64/10（含阿里云
+元数据地址 100.100.100.200）、::1、fc00::/7、fe80::/10 等私有或保留地址就拒绝，并直接连接它
+检查过的那个地址，只开放 80/443 端口；回环同样走代理，QUIC 与非代理 UDP（WebRTC）被关闭。
+Chromium 保留自身沙箱（不再使用 `--no-sandbox`），容器以非 root 的 `pwuser` 运行，
+`compose.yaml` 去掉全部 capability、根文件系统只读、仅 `/tmp` 为 tmpfs、禁止提权，并加载
+随仓库提供的 Playwright seccomp 配置 `seccomp_profile.json`（来自 Playwright v1.63.0
+`utils/docker/seccomp_profile.json`，在 Docker 默认规则上允许沙箱所需的用户命名空间）。若宿主机
+内核禁止非特权用户命名空间，Chromium 会启动失败而不是退回无沙箱运行。
+
 `GET /api/v1/calendar/schedules` 从 SQLite 读取 current revision，继续返回 Ed25519 签名载荷并
 支持 ETag/304。App 每小时检查一次 revision，只有变化时下载并验签，随后写入已有的本地日历
 缓存；用户自己的 Emby/Jellyfin 凭据、库存和观看状态仍只在客户端处理。首次升级若数据库为空，

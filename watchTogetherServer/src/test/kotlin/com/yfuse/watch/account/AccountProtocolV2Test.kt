@@ -28,6 +28,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class AccountProtocolV2Test {
     @Test
@@ -145,6 +146,34 @@ class AccountProtocolV2Test {
 
             val again = login("""{"username":"carol","authKey":"${authKey(3)}"}""").json()
             assertEquals(vaultJson(1, 9), again.getValue("vault"))
+        }
+
+    @Test
+    fun a_device_that_already_holds_the_current_version_downloads_nothing() =
+        accountApp {
+            val token = registerV2("judy", authKey(1), kdfSalt(1)).string("accessToken")
+            assertEquals(HttpStatusCode.OK, putSync(token, syncBody(0, nonce = 1, keyVersion = 1)).status)
+
+            val unchanged = client.get("/api/v1/account/sync?knownVersion=1") { secureBearer(token) }.json()
+            assertEquals(1L, unchanged.long("version"))
+            assertTrue(
+                unchanged
+                    .getValue("unchanged")
+                    .jsonPrimitive.content
+                    .toBoolean(),
+            )
+            assertFalse(unchanged.containsKey("payload"))
+
+            val newer = client.get("/api/v1/account/sync?knownVersion=7") { secureBearer(token) }.json()
+            assertTrue(newer.containsKey("payload"))
+            assertFalse(newer.containsKey("unchanged"))
+
+            val invalid = client.get("/api/v1/account/sync?knownVersion=abc") { secureBearer(token) }
+            assertEquals(HttpStatusCode.BadRequest, invalid.status)
+
+            client.delete("/api/v1/account/sync") { secureBearer(token) }
+            val cleared = client.get("/api/v1/account/sync?knownVersion=2") { secureBearer(token) }.json()
+            assertFalse(cleared.containsKey("unchanged"), "A cleared cloud is never reported as unchanged")
         }
 
     @Test

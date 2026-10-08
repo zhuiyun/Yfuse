@@ -4,9 +4,38 @@ After=yfuse-update.service
 
 [Service]
 Type=oneshot
-User=yfuse
-Group=yfuse
+# A user of its own (see docs/watch-server-deploy.md, "Backups"): it reads the databases through
+# the yfuse group, and owns the backup directory and the off-host credentials, so the service
+# user can neither read the off-host key nor rewrite past backups.
+User=yfuse-backup
+Group=yfuse-backup
+SupplementaryGroups=yfuse
 EnvironmentFile=-/etc/yfuse-watch/backup.env
 ExecStart=/opt/yfuse-watch/deploy/yfuse-backup.sh
 Nice=10
 IOSchedulingClass=idle
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# The databases are only read; snapshots and rsync's known_hosts are the only writes.
+ReadOnlyPaths=/var/lib/yfuse
+ReadWritePaths=/var/backups/yfuse /var/lib/yfuse-backup

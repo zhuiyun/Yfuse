@@ -37,6 +37,15 @@ internal class RoomStore(
 
     fun find(code: String): Room? = rooms[code]
 
+    /** Every room, for persistence; each is read under its own lock by the caller. */
+    fun allRooms(): List<Room> = rooms.values.toList()
+
+    /** Rooms brought back after a restart; codes already taken (or past [MAX_ROOMS]) are skipped. */
+    fun restore(restored: List<Room>): List<Room> =
+        synchronized(creationLock) {
+            restored.filter { room -> rooms.size < MAX_ROOMS && rooms.putIfAbsent(room.code, room) == null }
+        }
+
     fun mutateIfCurrent(
         room: Room,
         block: (Room) -> Unit,
@@ -88,7 +97,7 @@ internal class RoomStore(
                             Timeline(
                                 mediaKey = mediaKey,
                                 anchorPositionMs = 0L,
-                                anchorAtServerMs = System.currentTimeMillis(),
+                                anchorAtServerMs = WatchClock.nowMs(),
                             ),
                         playlist = initialPlaylist.toMutableList(),
                     )

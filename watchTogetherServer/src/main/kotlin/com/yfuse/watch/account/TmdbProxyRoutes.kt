@@ -3,7 +3,9 @@ package com.yfuse.watch.account
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
+import io.ktor.server.plugins.origin
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
@@ -21,9 +23,18 @@ internal fun Route.tmdbProxyRoutes(
 ) {
     get("/api/v1/tmdb/{path...}") {
         call.handleAccountEndpoint(limiter, AccountRateLimitBucket.TmdbProxy) {
-            val account = backend.validateAccessToken(call.requireBearerToken())
             val path = call.parameters.getAll("path").orEmpty()
-            when (val result = proxy.fetch(account, path, call.request.queryParameters)) {
+            val query = call.request.queryParameters
+            // No Authorization at all is a signed-out read; a bad or expired bearer stays a 401, so
+            // a signed-in app still renews its session instead of quietly reading anonymously.
+            val result =
+                if (call.request.headers[HttpHeaders.Authorization] == null) {
+                    proxy.fetchAnonymous(call.clientIdentity(), path, query)
+                        ?: proxy.fetch(backend.validateAccessToken(call.requireBearerToken()), path, query)
+                } else {
+                    proxy.fetch(backend.validateAccessToken(call.requireBearerToken()), path, query)
+                }
+            when (result) {
                 is TmdbProxyResult.Relayed -> {
                     call.response.headers.append(TMDB_PROXY_CACHE_HEADER, if (result.fromCache) "hit" else "miss")
                     call.respondText(result.body, ContentType.Application.Json, HttpStatusCode.fromValue(result.status))
@@ -37,3 +48,13 @@ internal fun Route.tmdbProxyRoutes(
         }
     }
 }
+
+/** The address the per-IP limiter already resolved; a bad forwarding header never gets this far. */
+private fun ApplicationCall.clientIdentity(): String =
+    when (
+        val resolved =
+            resolveAccountClientIdentity(request.origin.remoteHost, request.headers.getAll("X-Forwarded-For"))
+    ) {
+        is ClientIdentityResolution.Resolved -> resolved.value
+        ClientIdentityResolution.InvalidForwardedFor -> "unknown"
+    }

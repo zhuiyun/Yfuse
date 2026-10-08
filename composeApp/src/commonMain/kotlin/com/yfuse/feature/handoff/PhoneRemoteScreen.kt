@@ -69,6 +69,8 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.remote.PhoneRemoteClient
 import com.yfuse.core.remote.PhoneRemoteState
+import com.yfuse.core.remote.RemotePairingTokenStore
+import com.yfuse.core.security.SecureStore
 import com.yfuse.feature.profile.SettingsBackButton
 import com.yfuse.feature.profile.SettingsBackInset
 import com.yfuse.feature.profile.SettingsHeaderTop
@@ -105,6 +107,7 @@ internal fun PhoneRemoteScreen(
             PhoneRemoteClient(
                 accessToken = { tokens.validAccessTokenFor(ACCOUNT_BASE_URL) },
                 refreshAccessToken = { tokens.refreshAccessTokenFor(ACCOUNT_BASE_URL) },
+                pairingTokens = RemotePairingTokenStore.secure(GlobalContext.get().get<SecureStore>()),
             )
         }
     DisposableEffect(client, televisionSessionId) {

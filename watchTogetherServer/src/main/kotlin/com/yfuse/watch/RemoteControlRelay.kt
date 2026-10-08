@@ -3,6 +3,7 @@ package com.yfuse.watch
 import com.yfuse.watch.account.AuthenticatedAccount
 import com.yfuse.watch.protocol.RemoteSignInServer
 import com.yfuse.watch.protocol.WatchProtocol
+import com.yfuse.watch.protocol.WatchWireCredential
 import com.yfuse.watch.protocol.WatchWireMessage
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.WebSocketSession
@@ -43,6 +44,9 @@ internal enum class RemoteRefusal(
     Unavailable("电视不在线或未开启手机遥控", "remote_unavailable"),
     Busy("这台电视已连接多部手机", "remote_busy"),
     NotJoined("请先连接电视", "remote_not_joined"),
+
+    /** The television asks before a phone may press anything, and has not let this one in. */
+    NotAdmitted("电视尚未允许这部手机遥控", "remote_not_admitted"),
     RateLimited("操作太快，请稍后再试", "remote_rate_limited"),
     NotAsking("电视没有在等待手机登录，请先在电视的「添加服务器」里选择「用手机登录」", "remote_sign_in_unavailable"),
     SignInBusy("另一部手机正在为这台电视登录", "remote_sign_in_busy"),
@@ -95,9 +99,13 @@ internal sealed interface RemoteAdmission<out S> {
         val remaining: Int,
     ) : RemoteAdmission<S>
 
-    /** A television let [phones] in: each of them, and no other, is told. */
+    /**
+     * A television let [phones] in: each of them, and no other, is told. [grants] are the phones
+     * among them to hand a new pairing token, by the pairing it binds ([remotePairingKey]).
+     */
     data class Admitted<S>(
         val phones: List<S>,
+        val grants: Map<String, List<S>> = emptyMap(),
     ) : RemoteAdmission<S>
 
     /**
@@ -179,6 +187,8 @@ internal sealed interface RemoteDeparture<out S> {
  * Generic over the socket so the bookkeeping is testable without a network.
  */
 internal class RemoteControlRelay<S : Any>(
+    /** Binds a television's admission of a phone to a token only that phone holds. */
+    val pairingTokens: RemotePairingTokens = RemotePairingTokens(),
     private val maxHosts: Int = MAX_REMOTE_HOSTS,
     private val maxControllersPerHost: Int = MAX_REMOTE_CONTROLLERS_PER_HOST,
     private val maxInputsPerWindow: Int = MAX_REMOTE_INPUTS_PER_WINDOW,
@@ -204,6 +214,10 @@ internal class RemoteControlRelay<S : Any>(
     private class Controller(
         val host: HostKey,
         val phone: RemotePhone,
+        /** The stable id a pairing token for this phone is bound to; null when it cannot hold one. */
+        val pairingDeviceId: String?,
+        /** It presented the token on record for [pairingDeviceId]; nothing new to hand it. */
+        var verified: Boolean,
     ) {
         val recentInputsAtMs = ArrayDeque<Long>()
 
@@ -274,7 +288,11 @@ internal class RemoteControlRelay<S : Any>(
         return RemoteAdmission.Hosted(replaced, host.controllers.size)
     }
 
-    /** [phone] is who the joining socket says it is; a socket already on this television stays who it was. */
+    /**
+     * [phone] is who the joining socket says it is, as the television is to see it; a socket
+     * already on this television stays who it was. [pairingDeviceId] is the stable id a pairing
+     * token would be bound to, and [verified] whether the phone already proved it holds that token.
+     */
     @Synchronized
     fun join(
         userId: String,
@@ -282,6 +300,8 @@ internal class RemoteControlRelay<S : Any>(
         targetSessionId: String,
         socket: S,
         phone: RemotePhone,
+        pairingDeviceId: String? = null,
+        verified: Boolean = false,
     ): RemoteAdmission<S> {
         if (socket in hostedBy || socket in signers) return RemoteAdmission.Refused(RemoteRefusal.WrongRole)
         val key = HostKey(userId, targetSessionId)
@@ -302,7 +322,7 @@ internal class RemoteControlRelay<S : Any>(
         }
         if (host.controllers.size >= maxControllersPerHost) return RemoteAdmission.Refused(RemoteRefusal.Busy)
         host.controllers += socket
-        controllers[socket] = Controller(key, phone)
+        controllers[socket] = Controller(key, phone, pairingDeviceId, verified)
         return RemoteAdmission.Joined(
             host.socket,
             host.controllers.size,
@@ -320,6 +340,9 @@ internal class RemoteControlRelay<S : Any>(
     ): RemoteAdmission<S> {
         val controller = controllers[socket] ?: return RemoteAdmission.Refused(RemoteRefusal.NotJoined)
         val host = hosts[controller.host] ?: return RemoteAdmission.Refused(RemoteRefusal.Unavailable)
+        // The television's own check was the only one; a phone that did not wait for its answer
+        // must not reach the screen, whatever the television's app does with the key.
+        if (host.asks && !controller.admitted) return RemoteAdmission.Refused(RemoteRefusal.NotAdmitted)
         val recent = controller.recentInputsAtMs
         while (recent.isNotEmpty() && nowMs - recent.first() >= inputWindowMs) recent.removeFirst()
         if (recent.size >= maxInputsPerWindow) return RemoteAdmission.Refused(RemoteRefusal.RateLimited)
@@ -363,7 +386,15 @@ internal class RemoteControlRelay<S : Any>(
                 controller?.admitted = true
                 controller != null
             }
-        return RemoteAdmission.Admitted(entering)
+        // Each phone that can hold a token and has not shown one gets one, bound to this pairing.
+        val grants =
+            entering
+                .filter { phone -> controllers[phone]?.let { !it.verified && it.pairingDeviceId != null } == true }
+                .groupBy { phone ->
+                    remotePairingKey(key.userId, key.sessionId, checkNotNull(controllers[phone]?.pairingDeviceId))
+                }
+        grants.values.flatten().forEach { phone -> controllers[phone]?.verified = true }
+        return RemoteAdmission.Admitted(entering, grants)
     }
 
     /**
@@ -549,20 +580,47 @@ internal suspend fun RemoteControlRelay<WebSocketSession>.handle(
             // A phone that names itself must do so in the shape a television may keep; one that
             // names none is an older app, and gets a stand-in for this connection.
             val declared = message.remoteDeviceId
+            val phoneCapabilities = message.capabilities
             if (
                 target == null ||
                 strayRoomFields ||
                 message.remoteKey != null ||
                 message.text != null ||
-                (declared != null && !WatchProtocol.isStableRemoteDeviceId(declared))
+                (declared != null && !WatchProtocol.isStableRemoteDeviceId(declared)) ||
+                (phoneCapabilities != null && !WatchProtocol.isValidDeclaredCapabilities(phoneCapabilities))
             ) {
                 return socket.refuse(RemoteRefusal.WrongRole)
             }
             // The name is only shown: one the relay would not take as a name is left out, not refused.
+            val name = message.name?.takeIf(WatchProtocol::isValidOptionalName)
+            val holdsTokens = WatchProtocol.CAPABILITY_REMOTE_PAIRING_TOKEN in phoneCapabilities.orEmpty()
+            val check =
+                declared?.let {
+                    pairingTokens.check(
+                        remotePairingKey(account.userId, target, it),
+                        message.credential?.pairingToken,
+                    )
+                } ?: PairingCheck.Unknown
+            // An id with a token on record, claimed without it, reaches the television as an unknown
+            // phone: the television asks, and a phone it lets in this way is paired afresh.
             val phone =
-                declared?.let { RemotePhone(it, message.name?.takeIf(WatchProtocol::isValidOptionalName)) }
-                    ?: RemotePhone.unnamed()
-            when (val admission = join(account.userId, account.sessionId, target, socket, phone)) {
+                when {
+                    declared == null -> RemotePhone.unnamed()
+                    check == PairingCheck.Mismatch -> RemotePhone.unnamed().copy(name = name)
+                    else -> RemotePhone(declared, name)
+                }
+            when (
+                val admission =
+                    join(
+                        userId = account.userId,
+                        ownSessionId = account.sessionId,
+                        targetSessionId = target,
+                        socket = socket,
+                        phone = phone,
+                        pairingDeviceId = declared?.takeIf { holdsTokens },
+                        verified = check == PairingCheck.Verified,
+                    )
+            ) {
                 is RemoteAdmission.Joined -> {
                     socket.remoteSend(
                         WatchWireMessage(
@@ -679,8 +737,21 @@ internal suspend fun RemoteControlRelay<WebSocketSession>.handle(
             }
             when (val admission = admit(socket, deviceId)) {
                 // Only the phone let in hears it; the television already knows, and the others wait on.
-                is RemoteAdmission.Admitted ->
-                    admission.phones.forEach { phone -> phone.deliver(WatchWireMessage(type = "remoteAdmitted")) }
+                is RemoteAdmission.Admitted -> {
+                    val tokens = HashMap<WebSocketSession, String>()
+                    admission.grants.forEach { (key, phones) ->
+                        val token = pairingTokens.issue(key)
+                        phones.forEach { phone -> tokens[phone] = token }
+                    }
+                    admission.phones.forEach { phone ->
+                        phone.deliver(
+                            WatchWireMessage(
+                                type = "remoteAdmitted",
+                                credential = tokens[phone]?.let { WatchWireCredential(pairingToken = it) },
+                            ),
+                        )
+                    }
+                }
                 is RemoteAdmission.Refused -> socket.refuse(admission.reason)
                 else -> Unit
             }
@@ -742,7 +813,14 @@ internal suspend fun WebSocketSession.deliver(message: WatchWireMessage): Boolea
 
 internal suspend fun WebSocketSession.refuse(reason: RemoteRefusal) {
     runCatching {
-        remoteSend(WatchWireMessage(type = "error", message = reason.message, errorCode = reason.errorCode))
+        remoteSend(
+            WatchWireMessage(
+                type = "error",
+                message = reason.message,
+                errorCode = reason.errorCode,
+                retryable = WatchProtocol.isRetryableErrorCode(reason.errorCode),
+            ),
+        )
     }
 }
 
