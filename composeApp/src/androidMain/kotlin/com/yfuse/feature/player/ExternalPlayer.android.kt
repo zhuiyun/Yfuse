@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -41,4 +42,50 @@ internal fun openExternalPlayer(
     } catch (_: ActivityNotFoundException) {
         false
     }
+}
+
+private const val HANDOFF_PREFERENCES = "player_external_handoff"
+private const val CREDENTIAL_HANDOFF_ACKNOWLEDGED = "credential_handoff_acknowledged"
+
+/**
+ * [openExternalPlayer], asking first - once per device - when [mediaUrl] carries the viewer's
+ * sign-in (an Emby/Jellyfin api_key, a Plex token, a password in the address). The other app can
+ * use it for as long as it stays valid, so the viewer should know before it leaves.
+ *
+ * Handing over a loopback address of Yfuse's own proxy instead would keep the credential here, but
+ * that proxy lives only as long as this player - and Yfuse's process, which the system may end once
+ * the other app is in front - so the other player's playback would stop partway. The confirmation is
+ * the option that always works.
+ */
+internal fun openExternalPlayerConfirmingCredential(
+    context: Context,
+    mediaUrl: String,
+    title: String,
+    positionMs: Long,
+    headers: Map<String, String>,
+    onUnavailable: () -> Unit,
+) {
+    val open = {
+        if (!openExternalPlayer(context, mediaUrl, title, positionMs, headers)) onUnavailable()
+    }
+    if (!mediaUrlCarriesCredential(mediaUrl)) {
+        open()
+        return
+    }
+    val preferences = context.getSharedPreferences(HANDOFF_PREFERENCES, Context.MODE_PRIVATE)
+    if (preferences.getBoolean(CREDENTIAL_HANDOFF_ACKNOWLEDGED, false)) {
+        open()
+        return
+    }
+    AlertDialog
+        .Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        .setTitle("外部播放器会拿到登录凭据")
+        .setMessage(
+            "这个视频链接带有你的服务器登录凭据。交给外部播放器后，在凭据有效期间那个应用都能用它访问你的媒体库。" +
+                "只在你信任它时继续；这台设备以后不再询问。",
+        ).setPositiveButton("继续") { _, _ ->
+            preferences.edit().putBoolean(CREDENTIAL_HANDOFF_ACKNOWLEDGED, true).apply()
+            open()
+        }.setNegativeButton("取消", null)
+        .show()
 }

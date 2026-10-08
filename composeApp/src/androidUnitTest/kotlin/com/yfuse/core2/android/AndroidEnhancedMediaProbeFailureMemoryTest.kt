@@ -47,6 +47,31 @@ class AndroidEnhancedMediaProbeFailureMemoryTest {
     }
 
     @Test
+    fun runningOutOfMemoryIsNeverRememberedAsASourceFailure() {
+        var opens = 0
+        val probe =
+            AndroidEnhancedMediaProbe(
+                clock = { 0L },
+                probeSource = {
+                    opens++
+                    if (opens == 1) probeThrowableFailure(OutOfMemoryError("probe")) { null } else success()
+                },
+            )
+
+        val failure = assertIs<YCore2ProbeResult.Failure>(probe.probe(item))
+        assertEquals(YCore2ProbeFailure.RuntimeFault, failure.reason)
+        assertIs<YCore2ProbeResult.Success>(probe.probe(item))
+        assertEquals(2, opens)
+    }
+
+    @Test
+    fun anOrdinaryProbeErrorStillReadsAsAnUnavailableSource() {
+        val failure = probeThrowableFailure(IllegalStateException("demux")) { null }
+
+        assertEquals(YCore2ProbeFailure.SourceUnavailable, failure.reason)
+    }
+
+    @Test
     fun laterSuccessReplacesTheRememberedFailure() {
         var now = 0L
         var fail = true

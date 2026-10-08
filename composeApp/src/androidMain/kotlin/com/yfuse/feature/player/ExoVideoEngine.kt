@@ -1297,11 +1297,22 @@ class ExoVideoEngine(
 
     override val supportsSecondarySubtitleTrack: Boolean = true
 
+    // ExoSurface styles PlayerView's SubtitleView and the stacked captions from the player's own
+    // choices, so these are honoured without the engine doing anything; answering false sent the
+    // session to MPV for a style Exo was already showing.
     override val supportsSubtitleScale: Boolean = true
 
     override val supportsSubtitleBrightness: Boolean = true
 
     override val supportsSubtitlePosition: Boolean = true
+
+    override val supportsSubtitleAppearance: Boolean = true
+
+    override fun setSubtitleScale(scale: Float): Boolean = true
+
+    override fun setSubtitlePosition(position: Float): Boolean = true
+
+    override fun setSubtitleAppearance(appearance: SubtitleAppearance): Boolean = true
 
     override fun selectSecondarySubtitleTrack(id: String): Boolean {
         if (id == EngineTrack.OFF) {
@@ -1327,6 +1338,13 @@ class ExoVideoEngine(
 
     override fun setPauseAtEndOfCurrentItem(enabled: Boolean) {
         player.pauseAtEndOfMediaItems = enabled || !autoNext
+    }
+
+    override fun setVideoSuspended(suspended: Boolean) {
+        val parameters = player.trackSelectionParameters
+        if (parameters.disabledTrackTypes.contains(C.TRACK_TYPE_VIDEO) == suspended) return
+        player.trackSelectionParameters =
+            parameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, suspended).build()
     }
 
     override fun selectItem(index: Int) {
@@ -1584,14 +1602,18 @@ class ExoVideoEngine(
         }
     }
 
-    override fun switchToTranscode(reason: String?): Boolean {
+    override fun switchToTranscode(
+        reason: String?,
+        viewerRequested: Boolean,
+    ): Boolean {
         val index = player.currentMediaItemIndex
         val item = items.getOrNull(index)
         return takeStreamStep(
             index,
             item,
             reason,
-            PlaybackFallbackLadder.nextExoStreamStep(streamRung(index), item, reason),
+            PlaybackFallbackLadder.nextExoStreamStep(streamRung(index), item, viewerRequested),
+            viewerRequested,
         )
     }
 
@@ -1609,9 +1631,10 @@ class ExoVideoEngine(
         item: PlayerMediaItem?,
         reason: String?,
         step: PlaybackStreamStep,
+        viewerRequested: Boolean = false,
     ): Boolean =
         when (step) {
-            PlaybackStreamStep.Transcode -> item != null && startServerTranscode(index, item, reason)
+            PlaybackStreamStep.Transcode -> item != null && startServerTranscode(index, item, reason, viewerRequested)
             PlaybackStreamStep.Progressive -> item != null && startProgressiveTranscode(index, item)
             PlaybackStreamStep.InProgress -> true
             PlaybackStreamStep.Exhausted -> false
@@ -1621,6 +1644,7 @@ class ExoVideoEngine(
         index: Int,
         item: PlayerMediaItem,
         reason: String?,
+        viewerRequested: Boolean = false,
     ): Boolean {
         transcodedIndices += index
         val position = player.currentPosition
@@ -1642,6 +1666,7 @@ class ExoVideoEngine(
                         videoReadiness = PlaybackOutputReadiness.Waiting,
                         audioReadiness = PlaybackOutputReadiness.Waiting,
                         fallbackReason = fallbackReason,
+                        viewerRequestedTranscode = viewerRequested,
                         bufferedDurationMs = 0L,
                     ),
             )

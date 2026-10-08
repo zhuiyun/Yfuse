@@ -3,14 +3,26 @@ package com.yfuse.feature.player
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlin.concurrent.Volatile
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DiscNavigationBackendTest {
+    /** Menu commands run on the disc worker; waits, in real time, until it has none in flight. */
+    private suspend fun awaitMenuIdle() =
+        withContext(Dispatchers.Default) {
+            withTimeout(5_000L) { ActiveDiscNavigation.menuBusy.first { busy -> !busy } }
+        }
+
     @Test
     fun engine_adapter_keeps_navigation_optional_and_separate_from_video_lifecycle() {
         val engine = FakeDiscEngine()
@@ -52,27 +64,51 @@ class DiscNavigationBackendTest {
     }
 
     @Test
-    fun menu_commands_are_routed_only_when_a_real_runtime_reports_an_active_menu() {
-        val owner = Any()
-        val backend = FakeInteractiveMenuBackend()
-        ActiveDiscNavigation.bind(owner, backend)
+    fun menu_commands_are_routed_only_when_a_real_runtime_reports_an_active_menu() =
+        runTest {
+            val owner = Any()
+            val backend = FakeInteractiveMenuBackend()
+            ActiveDiscNavigation.bind(owner, backend)
 
-        assertTrue(ActiveDiscNavigation.status.interactiveMenuReady)
-        assertFalse(ActiveDiscNavigation.menuActive)
-        assertFalse(ActiveDiscNavigation.routeActiveMenuCommand(PlaybackDiscMenuCommand.Down))
-        assertTrue(backend.commands.isEmpty())
+            assertTrue(ActiveDiscNavigation.status.interactiveMenuReady)
+            assertFalse(ActiveDiscNavigation.menuActive)
+            assertFalse(ActiveDiscNavigation.routeActiveMenuCommand(PlaybackDiscMenuCommand.Down))
+            assertTrue(backend.commands.isEmpty())
 
-        backend.setMenuActive(true)
-        assertTrue(ActiveDiscNavigation.menuActive)
-        assertTrue(ActiveDiscNavigation.routeActiveMenuCommand(PlaybackDiscMenuCommand.Down))
-        assertEquals(listOf(PlaybackDiscMenuCommand.Down), backend.commands)
-        assertTrue(ActiveDiscNavigation.routeActiveMenuPoint(320, 240, activate = true))
-        assertEquals(Triple(320, 240, true), backend.lastPoint)
+            backend.setMenuActive(true)
+            assertTrue(ActiveDiscNavigation.menuActive)
+            assertTrue(ActiveDiscNavigation.routeActiveMenuCommand(PlaybackDiscMenuCommand.Down))
+            awaitMenuIdle()
+            assertEquals(listOf(PlaybackDiscMenuCommand.Down), backend.commands)
+            assertTrue(ActiveDiscNavigation.routeActiveMenuPoint(320, 240, activate = true))
+            awaitMenuIdle()
+            assertEquals(Triple(320, 240, true), backend.lastPoint)
 
-        ActiveDiscNavigation.unbind(owner)
-        assertTrue(backend.closed)
-        assertFalse(ActiveDiscNavigation.menuActive)
-    }
+            ActiveDiscNavigation.unbind(owner)
+            assertTrue(backend.closed)
+            assertFalse(ActiveDiscNavigation.menuActive)
+        }
+
+    @Test
+    fun a_disc_runtime_stuck_in_a_read_never_blocks_the_caller_or_queues_more_presses() =
+        runTest {
+            val owner = Any()
+            val backend = FakeInteractiveMenuBackend().apply { setMenuActive(true) }
+            backend.blocked = true
+            ActiveDiscNavigation.bind(owner, backend)
+
+            // Returns while the runtime is still "reading"; before, this ran on the main thread.
+            assertTrue(ActiveDiscNavigation.routeActiveMenuCommand(PlaybackDiscMenuCommand.Down))
+            assertTrue(ActiveDiscNavigation.menuBusy.value)
+            // The press is the menu's, so back does not fall through to closing the player...
+            assertTrue(ActiveDiscNavigation.routeActiveMenuCommand(PlaybackDiscMenuCommand.Back))
+
+            backend.blocked = false
+            awaitMenuIdle()
+            // ...but it is not queued behind the stuck read either.
+            assertEquals(listOf(PlaybackDiscMenuCommand.Down), backend.commands)
+            ActiveDiscNavigation.unbind(owner)
+        }
 
     @Test
     fun composite_backend_keeps_title_control_on_engine_and_menu_angle_control_on_native_runtime() {
@@ -153,7 +189,14 @@ private class FakeInteractiveMenuBackend : DiscNavigationBackend {
         return index in 0..2
     }
 
+    /** While set, a menu command waits as a native runtime blocked on a network read does. */
+    @Volatile
+    var blocked: Boolean = false
+
     override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean {
+        while (blocked) {
+            // Spins on the disc worker, never on the test's thread.
+        }
         commands += command
         return true
     }

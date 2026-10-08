@@ -81,4 +81,40 @@ class PlaybackLifecyclePolicyTest {
             ),
         )
     }
+
+    @Test
+    fun background_audio_keeps_the_sound_where_the_player_would_pause() {
+        listOf(
+            // The screen going off, even over a PiP window.
+            Triple(false, true, true),
+            Triple(false, false, false),
+            // The app going to the background.
+            Triple(true, false, false),
+        ).forEach { (screenInteractive, inPictureInPicture, pictureInPictureWasVisible) ->
+            assertEquals(
+                PlayerStopAction.KeepPlayingAudio,
+                playerStopAction(
+                    screenInteractive = screenInteractive,
+                    inPictureInPicture = inPictureInPicture,
+                    pictureInPictureWasVisible = pictureInPictureWasVisible,
+                    changingConfigurations = false,
+                    backgroundAudio = true,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun background_audio_still_lets_a_closed_picture_in_picture_close_the_player() {
+        assertEquals(
+            PlayerStopAction.FinishClosedPictureInPicture,
+            playerStopAction(
+                screenInteractive = true,
+                inPictureInPicture = false,
+                pictureInPictureWasVisible = true,
+                changingConfigurations = false,
+                backgroundAudio = true,
+            ),
+        )
+    }
 }

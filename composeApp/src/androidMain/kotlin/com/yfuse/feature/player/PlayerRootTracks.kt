@@ -1,7 +1,6 @@
 package com.yfuse.feature.player
 
 import android.os.SystemClock
-import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -278,12 +277,7 @@ internal fun PlayerRequestedTrackEffects(
         choices.audioControls = choices.audioControls.copy(delayMs = received.audioOffsetMs ?: 0L)
         handoffBridge?.clearPreferences(received)
         if (missing.isNotEmpty()) {
-            Toast
-                .makeText(
-                    context,
-                    "接力设置未完整恢复：${missing.distinct().joinToString("、")}，可在播放器中重新选择。",
-                    Toast.LENGTH_LONG,
-                ).show()
+            PlayerNotices.show("接力设置未完整恢复：${missing.distinct().joinToString("、")}，可在播放器中重新选择。", longer = true)
         }
     }
 }

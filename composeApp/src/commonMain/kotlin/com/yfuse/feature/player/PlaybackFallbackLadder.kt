@@ -101,14 +101,14 @@ internal object PlaybackFallbackLadder {
         }
 
     /**
-     * One step down the stream ladder for [item] standing on [rung] (mpv, MDK). [reason] is why the
-     * step is asked for; a viewer's own request (用户手动…) is the only thing that takes a local
-     * Dolby title off its original file.
+     * One step down the stream ladder for [item] standing on [rung] (mpv, MDK). [viewerRequested]
+     * marks the viewer's own request (转码播放), the only thing that takes a local Dolby title off
+     * its original file.
      */
     fun nextStreamStep(
         rung: PlaybackStreamRung,
         item: PlayerMediaItem?,
-        reason: String?,
+        viewerRequested: Boolean,
     ): PlaybackStreamStep =
         when (rung) {
             PlaybackStreamRung.Progressive -> PlaybackStreamStep.Exhausted
@@ -116,7 +116,7 @@ internal object PlaybackFallbackLadder {
             PlaybackStreamRung.Transcode -> item.progressiveOrExhausted()
             PlaybackStreamRung.Original ->
                 when {
-                    item == null || !item.allowsServerTranscodeFallback(reason) -> PlaybackStreamStep.Exhausted
+                    item == null || !item.allowsServerTranscodeFallback(viewerRequested) -> PlaybackStreamStep.Exhausted
                     item.transcodeUrl.isNotBlank() -> PlaybackStreamStep.Transcode
                     // No HLS stream: the MP4 is the next rung.
                     else -> item.progressiveOrExhausted()
@@ -132,9 +132,9 @@ internal object PlaybackFallbackLadder {
     fun nextExoStreamStep(
         rung: PlaybackStreamRung,
         item: PlayerMediaItem?,
-        reason: String?,
+        viewerRequested: Boolean,
     ): PlaybackStreamStep =
-        when (val step = nextStreamStep(rung, item, reason)) {
+        when (val step = nextStreamStep(rung, item, viewerRequested)) {
             PlaybackStreamStep.Progressive -> progressiveStreamStep(rung, item)
             else -> step
         }
@@ -143,8 +143,8 @@ internal object PlaybackFallbackLadder {
      * Straight to the progressive MP4, Exo's way onto that rung: taken for a manifest no HLS retry
      * can fix, and in place of [nextStreamStep]'s own MP4 answer. Off the original file it needs the
      * server's approval like every other step: a server that refused transcoding refuses the MP4
-     * too, so asking for it only delayed the failure the source ladder answers. It asks without the
-     * viewer's reason, so a local Dolby original stays off the MP4 even on the viewer's request.
+     * too, so asking for it only delayed the failure the source ladder answers. It asks as if the
+     * viewer had not, so a local Dolby original stays off the MP4 even on the viewer's request.
      */
     fun progressiveStreamStep(
         rung: PlaybackStreamRung,
@@ -155,7 +155,7 @@ internal object PlaybackFallbackLadder {
             PlaybackStreamRung.ProgressivePending -> PlaybackStreamStep.InProgress
             PlaybackStreamRung.Transcode -> item.progressiveOrExhausted()
             PlaybackStreamRung.Original ->
-                if (item == null || !item.allowsServerTranscodeFallback(reason = null)) {
+                if (item == null || !item.allowsServerTranscodeFallback(viewerRequested = false)) {
                     PlaybackStreamStep.Exhausted
                 } else {
                     item.progressiveOrExhausted()

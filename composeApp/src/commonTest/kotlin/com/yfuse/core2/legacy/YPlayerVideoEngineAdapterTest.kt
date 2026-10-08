@@ -14,6 +14,7 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
+import com.yfuse.feature.player.SubtitleAppearance
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -269,6 +270,44 @@ class YPlayerVideoEngineAdapterTest {
         assertTrue(engine.setSubtitlePosition(0.88f))
         assertFalse(engine.supportsAudioDelay)
         assertFalse(engine.setAudioDelayMs(500L))
+    }
+
+    @Test
+    fun `subtitle settings reach a route that draws its subtitles itself`() {
+        val player = StyledFakeYPlayer()
+        val engine = YPlayerVideoEngineAdapter(player)
+        val appearance = SubtitleAppearance(textColorArgb = 0xFFFFFF00L)
+
+        assertTrue(engine.setSubtitleOffsetMs(1_500L))
+        assertTrue(engine.setSubtitleScale(1.4f))
+        assertTrue(engine.setSubtitlePosition(0.8f))
+        assertTrue(engine.setSubtitleAppearance(appearance))
+
+        assertEquals(
+            YNativeSubtitleStyle(offsetMs = 1_500L, scale = 1.4f, position = 0.8f, appearance = appearance),
+            player.styles.last(),
+        )
+        assertEquals(4, player.styles.size)
+    }
+
+    @Test
+    fun `a refused native subtitle style is reported instead of acknowledged`() {
+        val player = StyledFakeYPlayer().apply { accept = false }
+        val engine = YPlayerVideoEngineAdapter(player)
+
+        assertFalse(engine.setSubtitleOffsetMs(1_500L))
+    }
+
+    private class StyledFakeYPlayer :
+        YPlayer by FakeYPlayer(),
+        YNativeSubtitleStyleTarget {
+        val styles = mutableListOf<YNativeSubtitleStyle>()
+        var accept = true
+
+        override fun setNativeSubtitleStyle(style: YNativeSubtitleStyle): Boolean {
+            styles += style
+            return accept
+        }
     }
 
     private class FakeYPlayer : YPlayer {

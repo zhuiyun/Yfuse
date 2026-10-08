@@ -10,6 +10,43 @@ import kotlin.test.assertTrue
 
 class ExternalPlaybackTest {
     @Test
+    fun links_into_this_device_or_the_lan_are_recognised_for_a_confirmation() {
+        listOf(
+            "http://127.0.0.1:9978/proxy/video.mp4",
+            "http://localhost/v.mp4",
+            "http://[::1]:8080/live/index.m3u8",
+            "http://[fe80::1%25wlan0]/v.mp4",
+            "http://[fd12:3456::1]/v.mp4",
+            "http://[::ffff:192.168.1.2]/v.mp4",
+            "http://10.0.0.5/v.mp4",
+            "http://172.20.1.1/v.mp4",
+            "http://192.168.1.1/admin",
+            "http://169.254.10.10/v.mp4",
+            "http://100.100.1.1/v.mp4",
+            "https://user:secret@nas.local:5005/dav/film.mkv",
+            "http://nas/film.mkv",
+            "http://router.home.arpa/",
+        ).forEach { url -> assertTrue(externalStreamTargetsLocalNetwork(url), url) }
+        listOf(
+            "https://media.example.com/film.mkv",
+            "https://[2001:db8::7]/v.mp4",
+            "http://8.8.8.8/v.mp4",
+            "http://172.32.0.1/v.mp4",
+            "http://192.169.0.1/v.mp4",
+        ).forEach { url -> assertFalse(externalStreamTargetsLocalNetwork(url), url) }
+    }
+
+    @Test
+    fun a_media_address_with_a_sign_in_credential_is_recognised() {
+        assertTrue(mediaUrlCarriesCredential("https://emby.example/Videos/1/stream?Static=true&api_key=abc"))
+        assertTrue(mediaUrlCarriesCredential("https://plex.example/library/parts/1/file.mkv?X-Plex-Token=abc"))
+        assertTrue(mediaUrlCarriesCredential("https://user:secret@dav.example/film.mkv"))
+        assertFalse(mediaUrlCarriesCredential("https://cdn.example/film.mkv?Static=true"))
+        assertFalse(mediaUrlCarriesCredential("https://cdn.example/film.mkv?api_key="))
+        assertFalse(mediaUrlCarriesCredential("content://com.example.documents/film.mkv"))
+    }
+
+    @Test
     fun web_address_is_trimmed_and_only_its_scheme_is_normalised() {
         assertEquals(
             ExternalStreamUrl.Accepted("https://Media.Example.com/Films/A%20B.mkv?Token=Q"),

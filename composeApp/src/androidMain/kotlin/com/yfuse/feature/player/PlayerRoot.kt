@@ -2,7 +2,6 @@ package com.yfuse.feature.player
 
 import android.graphics.Rect
 import android.os.SystemClock
-import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -310,7 +309,10 @@ internal fun PlayerRoot(
                     }
                 }
             versionedItems.map { item ->
-                val transcoded = sources.forcedTranscodes[item.id]?.let(item::withForcedServerTranscode) ?: item
+                val transcoded =
+                    sources.forcedTranscodes[item.id]?.let { forced ->
+                        item.withForcedServerTranscode(forced.reason, forced.byViewer)
+                    } ?: item
                 transcoded.withImportedSubtitles(sources.importedSubtitles)
             }
         }
@@ -818,7 +820,7 @@ internal fun PlayerRoot(
             val pauseCast = latestCastStateForSleep.hasActiveSession
             sleepTimer.finish()
             if (pauseCast) scope.launch { castManager.pause() }
-            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            PlayerNotices.show(message)
         }
 
         // The item whose next-up card was dismissed. The card only hid itself before; the engine
@@ -857,12 +859,7 @@ internal fun PlayerRoot(
             player.seekTo(decision.positionMs)
             if (decision.resumePlayback) player.play() else player.pause()
             completedCastHandoffRevision = castState.sessionRevision
-            Toast
-                .makeText(
-                    context,
-                    "${decision.reason ?: "投屏连接已断开"}，已回到本机 ${decision.positionMs / 1000} 秒",
-                    Toast.LENGTH_LONG,
-                ).show()
+            PlayerNotices.show("${decision.reason ?: "投屏连接已断开"}，已回到本机 ${decision.positionMs / 1000} 秒", longer = true)
         }
         val watchStateSource = watchTogether.state.collectAsState()
         val watchState by watchStateSource
@@ -935,7 +932,7 @@ internal fun PlayerRoot(
             if (!backendExtensions.selectSecondarySubtitleTrack(secondary.id)) {
                 player.selectTrack(YTrackType.Subtitle, oldPrimary?.id ?: EngineTrack.OFF)
                 oldSecondary?.let(backendExtensions::selectSecondarySubtitleTrack)
-                Toast.makeText(context, "当前内核无法应用此双字幕方案", Toast.LENGTH_SHORT).show()
+                PlayerNotices.show("当前内核无法应用此双字幕方案")
                 return
             }
             choices.handoverItemId = currentItem?.id
@@ -1135,15 +1132,19 @@ internal fun PlayerRoot(
         // YCore cannot rewrite an open source in place. A server transcode asked for by hand or by the
         // plan restarts the session at the same position with the entry transcoded, the handover an
         // engine switch already performs.
-        backendExtensions.transcodeRebuild = transcode@{ reason ->
+        backendExtensions.transcodeRebuild = transcode@{ reason, viewerRequested ->
             val snapshot = latestState
             val item = latestActiveItems.getOrNull(snapshot.currentIndex) ?: return@transcode false
             if (item.startsWithServerTranscode()) return@transcode false
             if (item.transcodeUrl.isBlank() && item.fallbackTranscodeUrl.isBlank()) return@transcode false
             capturePlaybackHandover()
             player.pause()
+            val shownReason =
+                reason.orEmpty().ifBlank {
+                    if (viewerRequested) VIEWER_TRANSCODE_REASON else "播放失败，已切换服务器转码"
+                }
             sources.forcedTranscodes =
-                sources.forcedTranscodes + (item.id to reason.orEmpty().ifBlank { "用户手动选择服务器转码" })
+                sources.forcedTranscodes + (item.id to ForcedTranscode(shownReason, viewerRequested))
             build.engineGeneration++
             true
         }
@@ -1164,7 +1165,7 @@ internal fun PlayerRoot(
                                 build.engineGeneration++
                                 true
                             } else {
-                                Toast.makeText(context, "本片已导入 8 条字幕，请重新打开影片后再导入。", Toast.LENGTH_LONG).show()
+                                PlayerNotices.show("本片已导入 8 条字幕，请重新打开影片后再导入。", longer = true)
                                 false
                             }
                         } else {
@@ -1214,6 +1215,11 @@ internal fun PlayerRoot(
             onPlaybackProgress,
         )
 
+        // 本集改用兼容内核: the switch a setting the engine cannot honour asked for, and its undoing
+        // once the queue moves to another entry.
+        val engineSwitchPrompt = remember { EngineSwitchPrompt() }
+        var itemEngineOverride by remember { mutableStateOf<ItemEngineOverride?>(null) }
+        DisposableEffect(engineSwitchPrompt) { onDispose { engineSwitchPrompt.dismiss() } }
         val switching =
             rememberPlayerSourceSwitching(
                 stateSource = runtimeState,
@@ -1285,21 +1291,37 @@ internal fun PlayerRoot(
                 choices.sessionEngineSelection == PlaybackEngineSelection.Auto && !core2NativeOnlyActive,
             onSecondarySubtitleTrackChanged = { choices.secondarySubtitleTrackId = it },
             onPendingSubtitleLanguageApplied = { choices.pendingSubtitleLanguage = null },
-            onRequestMpv = {
-                if (engine is YPlayerVideoEngineAdapter) {
-                    // A control that Core2 cannot execute must leave the trial path for this session;
-                    // changing only `kind` would immediately construct Core2 again in Auto mode.
-                    capturePlaybackHandover()
-                    build.core2DisabledForSession = true
-                    choices.sessionEngineSelection = PlaybackEngineSelection.LockMpv
-                    build.kind = PlayerEngine.Mpv
-                    build.engineGeneration++
-                } else {
-                    switching.selectEngineStrategy(PlaybackEngineSelection.LockMpv)
-                }
+            onUnsupportedSetting = { setting ->
+                val itemId = currentItem?.id
+                engineSwitchPrompt.ask(
+                    context = context,
+                    itemId = itemId,
+                    setting = setting,
+                    onSwitch = {
+                        if (itemId != null && itemEngineOverride == null) {
+                            itemEngineOverride =
+                                switchToCompatibilityForItem(
+                                    itemId = itemId,
+                                    leaveCore2 = engine is YPlayerVideoEngineAdapter,
+                                    build = build,
+                                    choices = choices,
+                                    capturePlaybackHandover = ::capturePlaybackHandover,
+                                    selectEngineStrategy = switching.selectEngineStrategy,
+                                )
+                        }
+                    },
+                    onKeep = { setting.reset(choices) },
+                )
             },
             subtitlePeekActive = choices.subtitlePeek != null,
         )
+
+        LaunchedEffect(currentItem?.id) {
+            val replaced = itemEngineOverride ?: return@LaunchedEffect
+            if (currentItem == null || currentItem.id == replaced.itemId) return@LaunchedEffect
+            itemEngineOverride = null
+            restoreItemEngine(replaced, build, choices, ::capturePlaybackHandover, switching.selectEngineStrategy)
+        }
 
         PlayerHandoverValidation(
             engine = engine,
@@ -1569,7 +1591,7 @@ private fun PlaybackDeviceCapabilities.diagnosticLabel(): String {
 }
 
 /**
- * Toast for a terminal failure in the native-only runtime, which has no compatibility engine to
+ * Notice for a terminal failure in the native-only runtime, which has no compatibility engine to
  * hand over to. A source the server could not deliver is not an engine failure: telling the user
  * the kernel "did not switch" hid the fact that the server behind their tunnel was unreachable.
  */
@@ -1577,5 +1599,5 @@ internal fun core2NativeOnlyFailureToast(kind: PlaybackFailureKind?): String =
     when (kind) {
         PlaybackFailureKind.Network -> "片源连接失败，请检查服务器或网络后重试"
         PlaybackFailureKind.Authorization -> "片源授权已失效，请刷新播放地址后重试"
-        else -> "YCore Native 播放失败，纯内核模式未切换兼容内核"
+        else -> "原生内核播放失败；纯原生模式不会改用兼容内核"
     }

@@ -11,20 +11,31 @@ package com.yfuse.feature.player
 internal enum class PlayerStopAction {
     Pause,
     KeepPlaying,
+
+    /** 熄屏继续播放声音: the picture goes, the sound carries on. */
+    KeepPlayingAudio,
     FinishClosedPictureInPicture,
     IgnoreConfigurationChange,
 }
 
+/**
+ * [backgroundAudio] is 熄屏继续播放声音: where the player would otherwise pause - the screen going
+ * off, the app going to the background - only the picture stops. Closing a PiP window is still
+ * closing the player.
+ */
 internal fun playerStopAction(
     screenInteractive: Boolean,
     inPictureInPicture: Boolean,
     pictureInPictureWasVisible: Boolean,
     changingConfigurations: Boolean,
-): PlayerStopAction =
-    when {
-        !screenInteractive -> PlayerStopAction.Pause
+    backgroundAudio: Boolean = false,
+): PlayerStopAction {
+    val hidden = if (backgroundAudio) PlayerStopAction.KeepPlayingAudio else PlayerStopAction.Pause
+    return when {
+        !screenInteractive -> hidden
         changingConfigurations -> PlayerStopAction.IgnoreConfigurationChange
         inPictureInPicture -> PlayerStopAction.KeepPlaying
         pictureInPictureWasVisible -> PlayerStopAction.FinishClosedPictureInPicture
-        else -> PlayerStopAction.Pause
+        else -> hidden
     }
+}

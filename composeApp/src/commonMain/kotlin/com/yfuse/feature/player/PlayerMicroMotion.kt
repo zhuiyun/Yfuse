@@ -26,15 +26,35 @@ internal fun transportShowsPause(
     settledPlaying: Boolean?,
 ): Boolean = if (buffering) settledPlaying ?: true else playing
 
+/** What a gesture HUD reading is about. Its kind, never its wording, decides motion and light. */
+internal enum class GestureHudKind {
+    /** Anything said once: a refusal, a picked track, 快进 10 秒. */
+    Message,
+    Seek,
+    Volume,
+    Brightness,
+}
+
+/**
+ * One reading of the gesture HUD. [settled] is false while a drag rewrites it on every move; only a
+ * settled reading is announced to accessibility services.
+ */
+internal data class GestureHudReading(
+    val text: String,
+    val kind: GestureHudKind = GestureHudKind.Message,
+    val settled: Boolean = true,
+)
+
 /**
  * Keeps rapidly changing numeric HUD text in one animated surface. Only a change of gesture kind
  * (seek, volume, brightness, transport) should replay the entrance animation.
  */
-internal fun gestureHudMotionKey(value: String?): String =
-    when {
-        value == null -> "hidden"
-        value.startsWith("音量") -> "volume"
-        value.startsWith("亮度") -> "brightness"
-        value.contains(" / ") || value.startsWith("跳转") -> "seek"
-        else -> value
+internal fun gestureHudMotionKey(reading: GestureHudReading?): String {
+    if (reading == null) return "hidden"
+    return when (reading.kind) {
+        GestureHudKind.Volume -> "volume"
+        GestureHudKind.Brightness -> "brightness"
+        GestureHudKind.Seek -> "seek"
+        GestureHudKind.Message -> reading.text
     }
+}

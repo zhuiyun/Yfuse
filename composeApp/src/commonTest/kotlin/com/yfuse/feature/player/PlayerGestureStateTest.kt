@@ -172,6 +172,17 @@ class PlayerGestureStateTest {
     }
 
     @Test
+    fun aDragIsAnnouncedOnceItsFingerLetsGo() {
+        startDrag(x = 800f)
+        drag(dx = 0f, dy = 125f)
+        assertEquals(GestureHudReading("音量 25%", GestureHudKind.Volume, settled = false), gestures.reading)
+
+        gestures.endDrag(durationMs = hour, watchGuest = false)
+
+        assertEquals(GestureHudReading("音量 25%", GestureHudKind.Volume, settled = true), gestures.reading)
+    }
+
+    @Test
     fun anUprightDragSetsBrightnessOnTheLeftAndVolumeOnTheRightUnlessSwapped() {
         startDrag(x = 200f)
         // A quarter of the picture's height up.

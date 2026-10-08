@@ -160,9 +160,12 @@ internal fun viewerSubtitleChoice(
         subtitleTracks.firstOrNull { it.selected }
     }
 
-private fun EngineTrack.isForcedSubtitle(): Boolean =
-    label.contains("forced", ignoreCase = true) ||
-        label.contains("强制")
+/**
+ * The engine's own forced flag. Only an engine that cannot tell (null) has its label read, which is
+ * all such a track has to go on; a label is never allowed to contradict the container.
+ */
+internal fun EngineTrack.isForcedSubtitle(): Boolean =
+    forced ?: (label.contains("forced", ignoreCase = true) || label.contains("强制"))
 
 /**
  * One key per spoken language, whatever the file tagged it with: `eng`, `en` and `English` all
