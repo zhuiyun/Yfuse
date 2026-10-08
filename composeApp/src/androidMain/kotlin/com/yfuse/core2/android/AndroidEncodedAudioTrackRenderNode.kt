@@ -149,25 +149,6 @@ internal class AndroidEncodedAudioTrackRenderNode(
         }
     }
 
-    @Synchronized
-    fun write(
-        data: ByteBuffer,
-        presentationTimeUs: Long,
-    ): Int {
-        val audioTrack = checkNotNull(track) { "Encoded AudioTrack has not been configured" }
-        if (basePresentationTimeUs == null && data.hasRemaining()) {
-            basePresentationTimeUs = presentationTimeUs.coerceAtLeast(0L)
-        }
-        var total = 0
-        while (data.hasRemaining()) {
-            val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_BLOCKING)
-            check(written >= 0) { "Encoded AudioTrack.write failed with code $written" }
-            if (written == 0) continue
-            total += written
-        }
-        return total
-    }
-
     /**
      * Writes only the bytes accepted immediately by the encoded sink.
      *
