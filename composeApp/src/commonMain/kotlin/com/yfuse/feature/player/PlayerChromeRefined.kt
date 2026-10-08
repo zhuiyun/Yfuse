@@ -90,6 +90,7 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AMBIENT_SCRIM_TINT
@@ -756,44 +757,52 @@ private fun RefinedBottomBarContent(
                 playKeyModifier = playKeyModifier,
             )
         }
-        val episodesKey: @Composable RowScope.() -> Unit = {
+        val episodesKey: @Composable RowScope.(BarKeySpec) -> Unit = { spec ->
             AnimatedVisibility(
                 visible = hasEpisodes,
                 enter = barControlEnter(reduceMotion),
                 exit = barControlExit(reduceMotion),
             ) {
-                CircleControl(
-                    icon = AppIcons.EpisodeList,
-                    description = "选集",
-                    size = 26.dp,
-                    iconSize = 12.dp,
-                    onClick = onOpenEpisodes,
-                )
+                BarKeyLabelled("选集", spec) {
+                    CircleControl(
+                        icon = AppIcons.EpisodeList,
+                        description = "选集",
+                        size = spec.ring,
+                        iconSize = spec.icon,
+                        onClick = onOpenEpisodes,
+                    )
+                }
             }
         }
-        val keys: @Composable RowScope.() -> Unit = {
+        val keys: @Composable RowScope.(BarKeySpec) -> Unit = { spec ->
             // In a 短剧's upright window 选集 is the key reached for most, so it leads there.
-            if (compact) episodesKey()
-            CircleControl(AppIcons.Subtitle, "字幕", 26.dp, 12.dp, onClick = onOpenSubtitles)
-            CircleControl(AppIcons.AudioTrack, "音轨", 26.dp, 12.dp, onClick = onOpenAudio)
+            if (compact) episodesKey(spec)
+            BarKeyLabelled("字幕", spec) {
+                CircleControl(AppIcons.Subtitle, "字幕", spec.ring, spec.icon, onClick = onOpenSubtitles)
+            }
+            BarKeyLabelled("音轨", spec) {
+                CircleControl(AppIcons.AudioTrack, "音轨", spec.ring, spec.icon, onClick = onOpenAudio)
+            }
             // 弹幕 is switched far more often than it is set up, so a tap switches it and the
             // panel waits behind a held press. Off is struck through: the lit fill alone, a 12%
-            // wash behind a 12dp glyph, was lost against the picture, and a tap looked like nothing.
-            CircleControl(
-                icon = if (danmakuEnabled) AppIcons.Danmaku else AppIcons.DanmakuOff,
-                description = if (danmakuEnabled) "弹幕，已开启" else "弹幕，已关闭",
-                size = 26.dp,
-                iconSize = 12.dp,
-                active = danmakuEnabled,
-                crossfadeIcon = true,
-                onClick = onToggleDanmaku,
-                onLongClick = {
-                    tips?.markUsed(Tips.PLAYER_DANMAKU_KEY)
-                    onOpenDanmaku()
-                },
-                onLongClickLabel = "弹幕设置",
-            )
-            RefinedSpeedControl(speed, onOpenSpeed)
+            // wash behind a small glyph, was lost against the picture, and a tap looked like nothing.
+            BarKeyLabelled("弹幕", spec) {
+                CircleControl(
+                    icon = if (danmakuEnabled) AppIcons.Danmaku else AppIcons.DanmakuOff,
+                    description = if (danmakuEnabled) "弹幕，已开启" else "弹幕，已关闭",
+                    size = spec.ring,
+                    iconSize = spec.icon,
+                    active = danmakuEnabled,
+                    crossfadeIcon = true,
+                    onClick = onToggleDanmaku,
+                    onLongClick = {
+                        tips?.markUsed(Tips.PLAYER_DANMAKU_KEY)
+                        onOpenDanmaku()
+                    },
+                    onLongClickLabel = "弹幕设置",
+                )
+            }
+            BarKeyLabelled("倍速", spec) { RefinedSpeedControl(speed, onOpenSpeed, spec.ring) }
             // Which of these three exist is decided by the item, and the item changes under
             // the bar every time the queue advances: a source list resolves, a series gains
             // 片头 markers, a film has no 选集. Each one used to blink into the cluster and
@@ -803,56 +812,130 @@ private fun RefinedBottomBarContent(
                 enter = barControlEnter(reduceMotion),
                 exit = barControlExit(reduceMotion),
             ) {
-                CircleControl(
-                    AppIcons.PlaybackSource,
-                    "播放服务器",
-                    26.dp,
-                    12.dp,
-                    onClick = onOpenSources,
-                )
+                BarKeyLabelled("服务器", spec) {
+                    CircleControl(
+                        AppIcons.PlaybackSource,
+                        "播放服务器",
+                        spec.ring,
+                        spec.icon,
+                        onClick = onOpenSources,
+                    )
+                }
             }
             AnimatedVisibility(
                 visible = skipSettingsAvailable,
                 enter = barControlEnter(reduceMotion),
                 exit = barControlExit(reduceMotion),
             ) {
-                CircleControl(
-                    AppIcons.SkipMarkers,
-                    "标记片头片尾",
-                    26.dp,
-                    12.dp,
-                    onClick = onOpenSkipSettings,
-                )
+                BarKeyLabelled("片头片尾", spec) {
+                    CircleControl(
+                        AppIcons.SkipMarkers,
+                        "标记片头片尾",
+                        spec.ring,
+                        spec.icon,
+                        onClick = onOpenSkipSettings,
+                    )
+                }
             }
-            if (!compact) episodesKey()
+            if (!compact) episodesKey(spec)
         }
-        if (compact) {
-            // An upright phone is about 400dp across and the landscape row needs some 600: the
-            // transport takes a line of its own and the keys share the next one evenly.
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                transport()
-                Spacer(Modifier.height(6.dp))
+        val largeText = LocalAccessibilityOptions.current.largeText || LocalDensity.current.fontScale >= 1.3f
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val spec = barKeySpec(maxWidth, compact, largeText)
+            if (compact) {
+                // An upright phone is about 400dp across and the landscape row needs some 600: the
+                // transport takes a line of its own and the keys share the next one evenly.
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    transport()
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) { keys(spec) }
+                }
+            } else {
                 Row(
                     Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
-                    content = keys,
-                )
-            }
-        } else {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                transport()
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    content = keys,
-                )
+                ) {
+                    transport()
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(if (spec.labels) 8.dp else 5.dp),
+                        verticalAlignment = if (spec.labels) Alignment.Top else Alignment.CenterVertically,
+                    ) { keys(spec) }
+                }
             }
         }
+    }
+}
+
+/** How big the bar's keys are drawn, and whether a short label sits under each. */
+internal data class BarKeySpec(
+    val ring: Dp,
+    val icon: Dp,
+    val labels: Boolean = false,
+)
+
+/** The most keys the row can hold: 字幕, 音轨, 弹幕, 倍速, 服务器, 片头片尾 and 选集. */
+private const val BAR_KEY_COUNT = 7
+
+/** The transport beside them: five 28 dp rings with their touch padding, 10 dp apart. */
+private val BarTransportWidth = 250.dp
+
+/**
+ * The bar keys' size for a bar [width] wide. A 12 dp glyph in a 26 dp ring was legible to nobody
+ * at arm's length: keys now take an 18 dp glyph in a 32 dp ring, and 20 in 36 under 大号文字. A
+ * window too narrow for that - a small phone held sideways, an upright one under 大号文字 - steps
+ * down a size at a time rather than pushing a key off the row. A landscape bar with room to spare
+ * names each key underneath.
+ */
+internal fun barKeySpec(
+    width: Dp,
+    compact: Boolean,
+    largeText: Boolean,
+): BarKeySpec {
+    fun needed(ring: Dp): Dp {
+        val keys = (ring + ControlTouchPadding * 2) * BAR_KEY_COUNT
+        return if (compact) keys else BarTransportWidth + keys + 5.dp * (BAR_KEY_COUNT - 1)
+    }
+    val sizes =
+        listOfNotNull(
+            BarKeySpec(36.dp, 20.dp).takeIf { largeText },
+            BarKeySpec(32.dp, 18.dp),
+            BarKeySpec(30.dp, 16.dp),
+            BarKeySpec(28.dp, 14.dp),
+        )
+    val fitting = sizes.firstOrNull { needed(it.ring) <= width } ?: BarKeySpec(26.dp, 12.dp)
+    // Labels are wider than their keys (片头片尾 is four characters): only a wide sideways bar.
+    val labels = !compact && width >= needed(fitting.ring) + BarLabelAllowance
+    return fitting.copy(labels = labels)
+}
+
+private val BarLabelAllowance = 220.dp
+
+/** [key] with its [label] underneath when [spec] has room for labels; read once, by the key itself. */
+@Composable
+private fun BarKeyLabelled(
+    label: String,
+    spec: BarKeySpec,
+    key: @Composable () -> Unit,
+) {
+    if (!spec.labels) {
+        key()
+        return
+    }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        key()
+        Text(
+            label,
+            style = AppTypography.caption.regular,
+            color = Color.White.copy(alpha = 0.82f),
+            maxLines = 1,
+            // The key already says it; the label is for eyes only.
+            modifier = Modifier.offset(y = (-4).dp).clearAndSetSemantics {},
+        )
     }
 }
 
@@ -995,12 +1078,13 @@ private fun AnimatedContentTransitionScope<*>.barSwapTransform(reduceMotion: Boo
 private fun RefinedSpeedControl(
     speed: Float,
     onClick: () -> Unit,
+    ringSize: Dp,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val figure = if (speed % 1f == 0f) "${speed.toInt()}" else "$speed"
     val label = "$figure×"
-    // The same ring as its neighbours: 26 dp in reach of a thumb, larger across a room.
-    val ring = chromeKeySize(26.dp)
+    // The same ring as its neighbours ([barKeySpec]), larger across a room.
+    val ring = chromeKeySize(ringSize)
     Box(
         Modifier
             // Named for what it sets, with the rate as its state: read out, 「1.25×」 alone was a
