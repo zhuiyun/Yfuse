@@ -45,6 +45,7 @@ import io.ktor.websocket.readText
 import io.ktor.websocket.send
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
@@ -52,6 +53,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -131,6 +133,9 @@ private const val MAX_PARTICIPANTS_PER_ROOM = 12
 private const val MAX_MEMBERSHIPS_PER_ROOM = 64
 private const val MAX_REMOVED_ACCOUNT_IDS_PER_ROOM = 256
 private const val MAX_MESSAGES_PER_WINDOW = 240
+
+/** Rooms that emptied past their grace are released this often even when nobody says hello. */
+private const val ROOM_SWEEP_INTERVAL_MS = 60_000L
 
 /** A paced-out `sync` reaches the room as one trailing timeline broadcast after this. */
 private const val TRAILING_SYNC_DELAY_MS = 1_000L
@@ -502,10 +507,14 @@ internal fun Application.watchTogetherModule(
     calendarScheduleSigner: CalendarScheduleSigner? = CalendarScheduleSigner.fromEnvironment(),
     /** Shared schedule database; user Emby credentials never enter this store. */
     calendarScheduleStore: CalendarScheduleStore = NoOpCalendarScheduleStore,
+    /** Durable room state; null keeps rooms in memory only, as tests do. */
+    roomStateStore: WatchStateStore? = null,
     /** 手机遥控's pairings; injectable so tests can look at them. */
     remoteControlRelay: RemoteControlRelay<WebSocketSession> = RemoteControlRelay(),
     /** Injectable so tests can observe coalescing without waiting. */
     roomUpdateMinIntervalMs: Long = ROOM_UPDATE_MIN_INTERVAL_MS,
+    /** Injectable so tests can see an emptied room released without a `hello`. */
+    roomSweepIntervalMs: Long = ROOM_SWEEP_INTERVAL_MS,
 ) {
     require(roomGraceMs >= 0L) { "roomGraceMs must not be negative" }
     require(maxActiveRoomsPerIp in 1..MAX_ROOMS) {
@@ -526,6 +535,26 @@ internal fun Application.watchTogetherModule(
     val appScope: CoroutineScope = this
     val roomUpdates = RoomUpdateBroadcaster(appScope, roomUpdateMinIntervalMs)
     val broadcastRoomUpdate: suspend (Room) -> Unit = roomUpdates::request
+    val roomPersister = roomStateStore?.let(::RoomStatePersister)
+    if (roomPersister != null) {
+        // Rooms used to live only in memory, so every deploy ended every room. Members whose
+        // saved capabilities still match rejoin the same room once the relay is back.
+        runCatching { roomStore.restore(roomPersister.restore()) }
+            .onSuccess { restored ->
+                restored.forEach { room -> appScope.scheduleHostHandover(room, hostGraceMs, broadcastRoomUpdate) }
+                if (restored.isNotEmpty()) ServerLog.info("watch_rooms_restored", "rooms" to restored.size)
+            }.onFailure { failure -> ServerLog.error("watch_rooms_restore_failed", throwable = failure) }
+        monitor.subscribe(ApplicationStopped) {
+            try {
+                roomPersister.sync(roomStore.allRooms(), everything = true)
+            } catch (failure: Exception) {
+                ServerLog.error("watch_rooms_save_failed", throwable = failure)
+            } finally {
+                roomStateStore.close()
+            }
+        }
+    }
+    appScope.launchRoomMaintenance(roomStore, roomPersister, roomSweepIntervalMs)
     // Import the previous JSON publication exactly once when a production database is empty.
     if (calendarScheduleStore !== NoOpCalendarScheduleStore) {
         runCatching {
@@ -2066,6 +2095,33 @@ private fun CoroutineScope.scheduleTrailingSync(room: Room) {
         }
         val timeline = synchronized(room) { room.timeline.takeIf { room.participants.isNotEmpty() } }
         if (timeline != null) broadcastSync(room, timeline)
+    }
+}
+
+/**
+ * Releases rooms whose grace ran out even when nobody says hello — they used to be swept only on
+ * the next `hello` — and keeps their persisted state in step.
+ */
+private fun CoroutineScope.launchRoomMaintenance(
+    roomStore: RoomStore,
+    persister: RoomStatePersister?,
+    sweepIntervalMs: Long,
+) = launch(Dispatchers.IO) {
+    val intervalMs = if (persister != null) minOf(ROOM_PERSIST_INTERVAL_MS, sweepIntervalMs) else sweepIntervalMs
+    var lastSweepAtMs = monotonicMs()
+    while (isActive) {
+        delay(intervalMs)
+        if (monotonicMs() - lastSweepAtMs >= sweepIntervalMs) {
+            roomStore.sweepExpiredRooms()
+            lastSweepAtMs = monotonicMs()
+        }
+        if (persister != null) {
+            try {
+                persister.sync(roomStore.allRooms())
+            } catch (failure: Exception) {
+                ServerLog.warn("watch_rooms_save_failed", "reason" to failure::class.simpleName)
+            }
+        }
     }
 }
 

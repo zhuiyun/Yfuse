@@ -19,6 +19,7 @@ Environment=ACCOUNT_MAX_USERS=100
 Environment=ACCOUNT_INVITE_ISSUER_USERNAMES=zhuiyun
 Environment=ACCOUNT_ISSUED_INVITE_TTL_HOURS=24
 Environment=MIGRATION_RELAY_DB_PATH=/var/lib/yfuse/migration-relay.db
+Environment=WATCH_STATE_DB_PATH=/var/lib/yfuse/watch-state.db
 EnvironmentFile=/etc/yfuse-watch/environment
 Environment=WATCH_TRUST_PROXY_HEADERS=true
 Environment="JAVA_OPTS=-Xms32m -Xmx256m"

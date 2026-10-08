@@ -21,10 +21,18 @@ Read off `watchTogetherServer/deploy/yfuse-watch.service`, which is the source o
 | Update files | `/srv/yfuse-update/yfuse` (read-only to the service) |
 | Account DB | `/var/lib/yfuse/account.db` |
 | Calendar DB | `/var/lib/yfuse/calendar.db` (public schedule revisions only) |
+| Watch state DB | `/var/lib/yfuse/watch-state.db` (rooms and 手机遥控 pairing tokens) |
 
 The repository template is named `deploy/yfuse-watch.service` for clarity, but production
 installs it as `/etc/systemd/system/yfuse-update.service` to preserve the existing unit identity.
 Do not start a second `yfuse-watch.service`; both units would contend for port 8080.
+
+Watch rooms and 手机遥控 pairing tokens are written to the watch state database every two
+seconds and on shutdown, so a deploy no longer ends every room: rooms saved within the last
+30 minutes are restored at start, members rejoin them with the capabilities their apps kept,
+and the host has the usual 20-second grace to come back before a member who was already in the
+room takes over. Only capability digests are stored, never a capability or token. Deleting the
+file is safe; it only ends the rooms.
 
 `current` is a path the unit points at rather than a build output, so the deployment shape
 is "unpack a new directory, then move `current` onto it". The steps below assume it is a

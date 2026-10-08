@@ -4,6 +4,8 @@ import com.yfuse.watch.account.AccountProblem
 import com.yfuse.watch.account.AccountServiceException
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocketSession
+import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
@@ -15,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonPrimitive
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -166,5 +169,113 @@ class WatchRoomGuardsTest {
             carolBack.awaitType("welcome")
             carolBack.close()
             host.close()
+        }
+
+    @Test
+    fun rooms_and_memberships_survive_a_restart_of_the_relay() {
+        val file = Files.createTempFile("watch-state", ".db").toFile()
+        try {
+            var code: String? = null
+            var resume: String? = null
+            var hostResume: String? = null
+            var hostCapability: String? = null
+            testApplication {
+                application { watchTogetherModule(roomStateStore = SqliteWatchStateStore.sqlite(file)) }
+                val sockets = createClient { install(WebSockets) }
+                val host = sockets.webSocketSession("/watch")
+                host.hello(
+                    "host",
+                    extra = ""","playlist":[{"id":"e1","mediaKey":"tmdb:603","title":"One"}]""",
+                )
+                val welcome = host.awaitType("welcome")
+                code = welcome.field("roomCode")
+                hostResume = welcome.field("resumeCapability")
+                hostCapability = welcome.field("hostCapability")
+                val guest = sockets.webSocketSession("/watch")
+                guest.hello("guest", roomCode = code)
+                resume = guest.awaitType("welcome").field("resumeCapability")
+                host.send("""{"type":"sync","positionMs":42000,"paused":true,"rate":1.0}""")
+                guest.awaitType("sync")
+            }
+            // A new process with the same database: the room comes back, members rejoin it.
+            testApplication {
+                application { watchTogetherModule(roomStateStore = SqliteWatchStateStore.sqlite(file)) }
+                val sockets = createClient { install(WebSockets) }
+                val guest = sockets.webSocketSession("/watch")
+                guest.hello("guest", roomCode = code, extra = ""","resumeCapability":"$resume"""")
+                val back = guest.awaitType("welcome")
+                assertEquals(code, back.field("roomCode"))
+                assertEquals("42000", back.field("positionMs"))
+                assertEquals("1", back.field("participantCount"))
+                assertFalse(back.getValue("isHost").jsonPrimitive.boolean)
+                val host = sockets.webSocketSession("/watch")
+                host.hello(
+                    "host",
+                    roomCode = code,
+                    extra = ""","resumeCapability":"$hostResume","hostCapability":"$hostCapability"""",
+                )
+                assertTrue(
+                    host
+                        .awaitType("welcome")
+                        .getValue("isHost")
+                        .jsonPrimitive.boolean,
+                )
+                // A stranger without a capability is still just a new guest.
+                val stranger = sockets.webSocketSession("/watch")
+                stranger.hello("stranger", roomCode = code)
+                assertFalse(
+                    stranger
+                        .awaitType("welcome")
+                        .getValue("isHost")
+                        .jsonPrimitive.boolean,
+                )
+            }
+        } finally {
+            file.delete()
+            java.io.File(file.path + "-wal").delete()
+            java.io.File(file.path + "-shm").delete()
+        }
+    }
+
+    @Test
+    fun rooms_older_than_the_restore_window_are_dropped_at_startup() {
+        SqliteWatchStateStore.inMemory().use { store ->
+            var now = 1_000_000L
+            val persister = RoomStatePersister(store, restoreTtlMs = 60_000L, now = { now })
+            val room =
+                Room(
+                    code = "ABC234",
+                    creatorIp = "198.51.100.1",
+                    creatorAccountUserId = "host-account",
+                    hostId = "host",
+                    hostCapabilityDigest = ByteArray(32),
+                    timeline = Timeline("tmdb:603", 0L, 0L),
+                )
+            persister.sync(listOf(room))
+            now += 59_000L
+            assertEquals(
+                listOf("ABC234"),
+                RoomStatePersister(store, restoreTtlMs = 60_000L, now = {
+                    now
+                }).restore().map { it.code },
+            )
+            now += 2_000L
+            assertTrue(RoomStatePersister(store, restoreTtlMs = 60_000L, now = { now }).restore().isEmpty())
+        }
+    }
+
+    @Test
+    fun emptied_rooms_are_released_without_waiting_for_the_next_hello() =
+        testApplication {
+            application { watchTogetherModule(roomGraceMs = 50L, roomSweepIntervalMs = 100L) }
+            val sockets = createClient { install(WebSockets) }
+            val host = sockets.webSocketSession("/watch")
+            host.hello("host")
+            host.awaitType("welcome")
+            assertTrue(client.get("/watch/metrics").bodyAsText().contains("yfuse_watch_rooms_active 1"))
+            host.close()
+            withTimeout(3_000L) {
+                while (!client.get("/watch/metrics").bodyAsText().contains("yfuse_watch_rooms_active 0")) delay(50L)
+            }
         }
 }
