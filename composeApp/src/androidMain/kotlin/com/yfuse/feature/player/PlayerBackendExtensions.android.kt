@@ -106,7 +106,8 @@ internal class PlayerBackendExtensions(
     /** Off the main thread: both the disc runtime and the engine's native menu can block on reads. */
     fun showDiscMenu(): Boolean {
         val engineMenu = { engine.sendDiscMenuCommand(PlaybackDiscMenuCommand.ShowMenu) }
-        return ActiveDiscNavigation.sendMenuCommand(PlaybackDiscMenuCommand.ShowMenu, fallback = engineMenu) ||
-            ActiveDiscNavigation.dispatchMenuWork(engineMenu)
+        if (ActiveDiscNavigation.sendMenuCommand(PlaybackDiscMenuCommand.ShowMenu, fallback = engineMenu)) return true
+        // Work handed to the menu worker cannot report back, so an engine without a disc menu says so here.
+        return engine.state.value.discNavigation.menuSupported && ActiveDiscNavigation.dispatchMenuWork(engineMenu)
     }
 }
