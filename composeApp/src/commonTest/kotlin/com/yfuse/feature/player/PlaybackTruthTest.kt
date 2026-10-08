@@ -56,6 +56,32 @@ class PlaybackTruthTest {
     }
 
     @Test
+    fun only_the_viewers_own_transcode_is_reported_as_asked_for_whatever_its_wording() {
+        val item = PlayerMediaItem(id = "movie", url = "direct", transcodeUrl = "safe-hls", title = "电影")
+
+        val viewer = item.withForcedServerTranscode("任意说明", byViewer = true)
+        val device = item.withForcedServerTranscode(VIEWER_TRANSCODE_REASON)
+
+        assertTrue(initialPlaybackDiagnostics("Exo", "硬件", viewer).viewerRequestedTranscode)
+        assertFalse(initialPlaybackDiagnostics("Exo", "硬件", device).viewerRequestedTranscode)
+    }
+
+    @Test
+    fun a_cast_session_never_claims_this_devices_dual_dolby_output_whatever_the_engine_label() {
+        val live =
+            PlaybackDiagnostics(
+                engine = "Cast",
+                videoReadiness = PlaybackOutputReadiness.Rendering,
+                audioReadiness = PlaybackOutputReadiness.Rendering,
+                dolbyVisionOutput = true,
+                dolbyAtmosOutput = true,
+            )
+
+        assertTrue(live.hasNativeDualDolbyOutput())
+        assertFalse(live.copy(remoteCast = true).hasNativeDualDolbyOutput())
+    }
+
+    @Test
     fun dolby_badges_require_runtime_output_evidence_not_source_metadata() {
         assertTrue(
             PlaybackDiagnostics(
@@ -212,8 +238,8 @@ class PlaybackTruthTest {
 
         assertFalse(item.startsWithServerTranscode())
         assertFalse(item.playbackMediaProbe().hasServerTranscode)
-        assertFalse(item.allowsServerTranscodeFallback("解码失败"))
-        assertTrue(item.allowsServerTranscodeFallback("用户手动选择服务器转码"))
+        assertFalse(item.allowsServerTranscodeFallback(viewerRequested = false))
+        assertTrue(item.allowsServerTranscodeFallback(viewerRequested = true))
     }
 
     @Test

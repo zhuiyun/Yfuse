@@ -804,7 +804,7 @@ internal fun PlayerRootControls(
                 },
                 onTranscode = {
                     if (!core2NativeOnlyActive && !state.transcoding) {
-                        backendExtensions.switchToTranscode("用户手动选择服务器转码")
+                        backendExtensions.switchToTranscode(VIEWER_TRANSCODE_REASON, viewerRequested = true)
                     }
                 },
                 onResetAdaptiveLearning = {

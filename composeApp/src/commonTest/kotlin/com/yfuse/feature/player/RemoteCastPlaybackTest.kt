@@ -44,6 +44,7 @@ class RemoteCastPlaybackTest {
         assertEquals(120_000L, remote.durationMs)
         assertEquals(50_000L, remote.bufferedPositionMs)
         assertEquals("远程投屏 · 客厅电视", remote.diagnostics.engine)
+        assertTrue(remote.diagnostics.remoteCast)
         assertEquals("服务器转码", remote.diagnostics.playMethod)
         assertNull(remote.diagnostics.renderedFrameRate)
     }

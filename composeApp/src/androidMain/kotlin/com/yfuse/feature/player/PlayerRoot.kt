@@ -310,7 +310,10 @@ internal fun PlayerRoot(
                     }
                 }
             versionedItems.map { item ->
-                val transcoded = sources.forcedTranscodes[item.id]?.let(item::withForcedServerTranscode) ?: item
+                val transcoded =
+                    sources.forcedTranscodes[item.id]?.let { forced ->
+                        item.withForcedServerTranscode(forced.reason, forced.byViewer)
+                    } ?: item
                 transcoded.withImportedSubtitles(sources.importedSubtitles)
             }
         }
@@ -1135,15 +1138,19 @@ internal fun PlayerRoot(
         // YCore cannot rewrite an open source in place. A server transcode asked for by hand or by the
         // plan restarts the session at the same position with the entry transcoded, the handover an
         // engine switch already performs.
-        backendExtensions.transcodeRebuild = transcode@{ reason ->
+        backendExtensions.transcodeRebuild = transcode@{ reason, viewerRequested ->
             val snapshot = latestState
             val item = latestActiveItems.getOrNull(snapshot.currentIndex) ?: return@transcode false
             if (item.startsWithServerTranscode()) return@transcode false
             if (item.transcodeUrl.isBlank() && item.fallbackTranscodeUrl.isBlank()) return@transcode false
             capturePlaybackHandover()
             player.pause()
+            val shownReason =
+                reason.orEmpty().ifBlank {
+                    if (viewerRequested) VIEWER_TRANSCODE_REASON else "播放失败，已切换服务器转码"
+                }
             sources.forcedTranscodes =
-                sources.forcedTranscodes + (item.id to reason.orEmpty().ifBlank { "用户手动选择服务器转码" })
+                sources.forcedTranscodes + (item.id to ForcedTranscode(shownReason, viewerRequested))
             build.engineGeneration++
             true
         }

@@ -542,6 +542,8 @@ data class PlayerMediaItem(
     val drmConfiguration: PlaybackDrmConfiguration? = null,
     /** Local preflight reason when the device forces the prepared server stream before rendering. */
     val forcedTranscodeReason: String? = null,
+    /** [forcedTranscodeReason] is the viewer's own 转码播放 rather than a device or recovery decision. */
+    val forcedTranscodeByViewer: Boolean = false,
     /** Original raw optical URI retained in memory when a legacy native route replaces [url]. */
     val rawDiscUri: String? = null,
     val trickplay: TrickplayStoryboard? = null,

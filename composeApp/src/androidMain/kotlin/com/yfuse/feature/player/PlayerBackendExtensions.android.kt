@@ -67,10 +67,14 @@ internal class PlayerBackendExtensions(
      * Set by the player screen: restarts the session at the same position with the current entry
      * transcoded, for an engine that cannot switch an open source in place.
      */
-    var transcodeRebuild: ((String?) -> Boolean)? = null
+    var transcodeRebuild: ((reason: String?, viewerRequested: Boolean) -> Boolean)? = null
 
-    fun switchToTranscode(reason: String? = null): Boolean =
-        engine.switchToTranscode(reason) || transcodeRebuild?.invoke(reason) == true
+    fun switchToTranscode(
+        reason: String? = null,
+        viewerRequested: Boolean = false,
+    ): Boolean =
+        engine.switchToTranscode(reason, viewerRequested) ||
+            transcodeRebuild?.invoke(reason, viewerRequested) == true
 
     fun appendItems(items: List<PlayerMediaItem>): Boolean = engine.appendItems(items)
 

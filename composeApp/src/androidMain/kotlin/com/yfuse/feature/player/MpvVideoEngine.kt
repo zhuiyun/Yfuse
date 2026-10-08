@@ -1383,7 +1383,10 @@ class MpvVideoEngine(
      * and report the failure.
      */
     @Synchronized
-    override fun switchToTranscode(reason: String?): Boolean {
+    override fun switchToTranscode(
+        reason: String?,
+        viewerRequested: Boolean,
+    ): Boolean {
         val index = _state.value.currentIndex
         resetFrameEvidence()
         val item = items.getOrNull(index) ?: return false
@@ -1393,7 +1396,7 @@ class MpvVideoEngine(
                 progressive = index in progressiveIndices,
                 progressivePending = index in pendingProgressiveSwitches,
             )
-        val next = PlaybackFallbackLadder.nextStreamStep(rung, item, reason)
+        val next = PlaybackFallbackLadder.nextStreamStep(rung, item, viewerRequested)
         when (next) {
             PlaybackStreamStep.InProgress -> return true
             PlaybackStreamStep.Exhausted -> return false
@@ -1438,6 +1441,7 @@ class MpvVideoEngine(
                             } else {
                                 "HLS 转码不可用，已改用 MP4 转码"
                             },
+                        viewerRequestedTranscode = viewerRequested,
                         bufferedDurationMs = 0L,
                         outputEvidence = it.diagnostics.outputEvidence.nextLoadAttempt(PlaybackVideoRenderApi.OpenGl),
                     ),
@@ -1538,6 +1542,7 @@ class MpvVideoEngine(
                 val language = instance.getPropertyString("track-list/$i/lang")
                 val title = instance.getPropertyString("track-list/$i/title")
                 val codec = instance.getPropertyString("track-list/$i/codec")
+                val forced = if (type == "sub") instance.getPropertyBoolean("track-list/$i/forced") else null
                 val bucket = if (type == "audio") audio else subtitles
                 bucket +=
                     EngineTrack(
@@ -1548,6 +1553,7 @@ class MpvVideoEngine(
                         language = language,
                         selected = id.toString() == if (type == "audio") selectedAudio else selectedSubtitle,
                         codec = codec,
+                        forced = forced,
                     )
             }
 

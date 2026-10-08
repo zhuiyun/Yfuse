@@ -1595,14 +1595,18 @@ class ExoVideoEngine(
         }
     }
 
-    override fun switchToTranscode(reason: String?): Boolean {
+    override fun switchToTranscode(
+        reason: String?,
+        viewerRequested: Boolean,
+    ): Boolean {
         val index = player.currentMediaItemIndex
         val item = items.getOrNull(index)
         return takeStreamStep(
             index,
             item,
             reason,
-            PlaybackFallbackLadder.nextExoStreamStep(streamRung(index), item, reason),
+            PlaybackFallbackLadder.nextExoStreamStep(streamRung(index), item, viewerRequested),
+            viewerRequested,
         )
     }
 
@@ -1620,9 +1624,10 @@ class ExoVideoEngine(
         item: PlayerMediaItem?,
         reason: String?,
         step: PlaybackStreamStep,
+        viewerRequested: Boolean = false,
     ): Boolean =
         when (step) {
-            PlaybackStreamStep.Transcode -> item != null && startServerTranscode(index, item, reason)
+            PlaybackStreamStep.Transcode -> item != null && startServerTranscode(index, item, reason, viewerRequested)
             PlaybackStreamStep.Progressive -> item != null && startProgressiveTranscode(index, item)
             PlaybackStreamStep.InProgress -> true
             PlaybackStreamStep.Exhausted -> false
@@ -1632,6 +1637,7 @@ class ExoVideoEngine(
         index: Int,
         item: PlayerMediaItem,
         reason: String?,
+        viewerRequested: Boolean = false,
     ): Boolean {
         transcodedIndices += index
         val position = player.currentPosition
@@ -1653,6 +1659,7 @@ class ExoVideoEngine(
                         videoReadiness = PlaybackOutputReadiness.Waiting,
                         audioReadiness = PlaybackOutputReadiness.Waiting,
                         fallbackReason = fallbackReason,
+                        viewerRequestedTranscode = viewerRequested,
                         bufferedDurationMs = 0L,
                     ),
             )
