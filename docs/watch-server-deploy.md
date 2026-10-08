@@ -226,6 +226,15 @@ strict wire validation, and session-generation checks. Version 4 predates mandat
 authentication and remains rejected. Deploy and verify the v6 server before publishing a v6
 client, and keep the minimum at v5 until the installed v5 population has aged out.
 
+Three optional capabilities ride on v6 without a version bump, and `/watch/version` lists them:
+`roomRevision` (room snapshots carry a revision; a client that lists it in `hello` gets room
+updates without an unchanged playlist), `reauthenticate` (a socket that lists it renews its
+account access in-band instead of being closed at token expiry; it needs the account store to
+keep the session id stable across refreshes) and `remotePairingToken` (手机遥控 admissions are
+enforced by the relay and bound to a token the phone presents). Apps that do not list them get
+exactly the old behaviour, and new apps work against an older relay, so the order of server and
+app releases does not matter; deploy the server first anyway, so the new apps use them at once.
+
 The legacy HTTP site may serve only old update metadata and APKs. Its `/api/*` and `/watch`
 matchers must return `426` before the catch-all reverse proxy, so access tokens and watch-room
 WebSocket upgrades cannot cross a plaintext public hop.
