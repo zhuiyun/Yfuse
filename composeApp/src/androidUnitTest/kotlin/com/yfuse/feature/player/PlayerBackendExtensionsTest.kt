@@ -27,7 +27,7 @@ class PlayerBackendExtensionsTest {
         assertTrue(extensions.setSubtitleBrightness(0.8f))
         assertTrue(extensions.setSubtitlePosition(0.75f))
         extensions.setPauseAtEndOfCurrentItem(true)
-        assertTrue(extensions.switchToTranscode("decoder"))
+        assertTrue(extensions.switchToTranscode("decoder", viewerRequested = true))
 
         assertEquals(125L, engine.audioDelayMs)
         assertEquals("7", engine.secondarySubtitleId)
@@ -37,6 +37,7 @@ class PlayerBackendExtensionsTest {
         assertEquals(0.75f, engine.subtitlePosition)
         assertTrue(engine.pauseAtEnd)
         assertEquals("decoder", engine.transcodeReason)
+        assertTrue(engine.transcodeViewerRequested)
     }
 
     @Test
@@ -69,6 +70,7 @@ private class FakeBackendEngine : VideoEngine {
     var subtitlePosition: Float? = null
     var pauseAtEnd: Boolean = false
     var transcodeReason: String? = null
+    var transcodeViewerRequested = false
 
     override fun play() = Unit
 
@@ -122,8 +124,12 @@ private class FakeBackendEngine : VideoEngine {
 
     override fun retry() = Unit
 
-    override fun switchToTranscode(reason: String?): Boolean {
+    override fun switchToTranscode(
+        reason: String?,
+        viewerRequested: Boolean,
+    ): Boolean {
         transcodeReason = reason
+        transcodeViewerRequested = viewerRequested
         return true
     }
 

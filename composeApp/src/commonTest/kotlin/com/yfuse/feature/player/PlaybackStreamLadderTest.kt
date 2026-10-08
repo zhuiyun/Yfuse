@@ -106,7 +106,6 @@ class PlaybackStreamLadderTest {
     fun a_local_dolby_original_leaves_only_on_the_viewers_own_request() {
         for (dolby in listOf(ladderItem(dolbyVision = true), ladderItem(dolbyAtmos = true))) {
             assertEveryEngine(PlaybackStreamStep.Exhausted, StreamSets.original, dolby)
-            assertEveryEngine(PlaybackStreamStep.Exhausted, StreamSets.original, dolby, "解码失败")
             assertEveryEngine(PlaybackStreamStep.Transcode, StreamSets.original, dolby, manualRequest)
         }
         // A disc image is not decoded locally as Dolby, so it is no exception.
