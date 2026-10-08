@@ -2,11 +2,8 @@ package com.yfuse.watch
 
 import com.yfuse.watch.account.AccountBackend
 import com.yfuse.watch.account.AccountExecutionPolicy
-import com.yfuse.watch.account.AccountProblem
 import com.yfuse.watch.account.AccountRateLimiter
-import com.yfuse.watch.account.AccountServiceException
 import com.yfuse.watch.account.AccountWorkExecutor
-import com.yfuse.watch.account.AccountWorkRejectedException
 import com.yfuse.watch.account.AuthenticatedAccount
 import com.yfuse.watch.account.PlaybackRelayStoreProvider
 import com.yfuse.watch.account.accountRoutes
@@ -43,12 +40,10 @@ import io.ktor.websocket.WebSocketSession
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.currentCoroutineContext
@@ -57,11 +52,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import java.io.File
-import java.sql.SQLTransientException
 import java.util.concurrent.ThreadLocalRandom
 
 /**
@@ -164,8 +157,8 @@ private const val PROFILE_UPDATE_COOLDOWN_MS = 1_000L
 private const val ACCOUNT_REVALIDATION_MS = 10_000L
 private const val ACCOUNT_AUTH_RETRY_BASE_MS = 100L
 private const val ACCOUNT_AUTH_RETRY_MAX_MS = 5_000L
-private const val ACCOUNT_AUTH_RETRY_MAX_EXPONENT = 6
-private const val ACCOUNT_AUTH_ATTEMPT_TIMEOUT_MS = 10_000L
+internal const val ACCOUNT_AUTH_RETRY_MAX_EXPONENT = 6
+internal const val ACCOUNT_AUTH_ATTEMPT_TIMEOUT_MS = 10_000L
 private const val ACCOUNT_INITIAL_AUTH_MAX_TRANSIENT_FAILURES = 8
 private val graphemeRegex = Regex("\\X")
 
@@ -280,49 +273,6 @@ internal class WatchConnectionGate(
         if (remaining == 0) counts.remove(key) else counts[key] = remaining
     }
 }
-
-private sealed interface WatchAccountAuthentication {
-    data class Accepted(
-        val account: AuthenticatedAccount,
-    ) : WatchAccountAuthentication
-
-    data object Rejected : WatchAccountAuthentication
-
-    data object TemporarilyUnavailable : WatchAccountAuthentication
-
-    data object Failed : WatchAccountAuthentication
-}
-
-private suspend fun authenticateWatchAccount(
-    authenticator: suspend (String) -> AuthenticatedAccount,
-    accessToken: String,
-): WatchAccountAuthentication =
-    try {
-        WatchAccountAuthentication.Accepted(
-            withTimeout(ACCOUNT_AUTH_ATTEMPT_TIMEOUT_MS) {
-                authenticator(accessToken)
-            },
-        )
-    } catch (failure: AccountServiceException) {
-        if (failure.problem == AccountProblem.Unauthorized) {
-            WatchAccountAuthentication.Rejected
-        } else {
-            WatchAccountAuthentication.Failed
-        }
-    } catch (_: AccountWorkRejectedException) {
-        WatchAccountAuthentication.TemporarilyUnavailable
-    } catch (_: TimeoutCancellationException) {
-        WatchAccountAuthentication.TemporarilyUnavailable
-    } catch (_: SQLTransientException) {
-        WatchAccountAuthentication.TemporarilyUnavailable
-    } catch (failure: CancellationException) {
-        throw failure
-    } catch (_: Exception) {
-        WatchAccountAuthentication.Failed
-    }
-
-private fun nextWatchAuthFailureCount(current: Int): Int =
-    (current + 1).coerceAtMost(ACCOUNT_AUTH_RETRY_MAX_EXPONENT + 1)
 
 /** Full-jitter exponential retry, bounded so an account outage cannot create a retry storm. */
 internal fun watchAuthTransientRetryDelayMs(failureCount: Int): Long {
@@ -511,6 +461,8 @@ internal fun Application.watchTogetherModule(
     roomStateStore: WatchStateStore? = null,
     /** 手机遥控's pairings; injectable so tests can look at them. */
     remoteControlRelay: RemoteControlRelay<WebSocketSession> = RemoteControlRelay(),
+    /** How long a renewable socket waits for a fresh token after its own was revoked or replaced. */
+    watchAuthRenewalGraceMs: Long = WATCH_REAUTH_RENEWAL_GRACE_MS,
     /** Injectable so tests can observe coalescing without waiting. */
     roomUpdateMinIntervalMs: Long = ROOM_UPDATE_MIN_INTERVAL_MS,
     /** Injectable so tests can see an emptied room released without a `hello`. */
@@ -753,86 +705,21 @@ internal fun Application.watchTogetherModule(
                 return@webSocket
             }
             if (!requireWatchAuthentication) connectionLease.promote()
+            val socketAuth =
+                WatchSocketAuth(
+                    initialToken = accessToken.orEmpty(),
+                    account = authenticatedAccount,
+                    revalidator = watchAccountRevalidator,
+                    retryDelayMs = watchAuthRetryDelayMs,
+                    clock = watchAuthClock,
+                    revalidationMs = watchAuthRevalidationMs,
+                    renewalGraceMs = watchAuthRenewalGraceMs,
+                )
+            // Revocation is still enforced on silent sockets; a socket whose client renews in-band
+            // simply keeps going past its first token's expiry.
             val authWatchdog =
                 if (requireWatchAuthentication) {
-                    launch {
-                        var transientFailures = 0
-                        while (true) {
-                            val untilExpiry =
-                                authenticatedAccount.accessExpiresAtEpochMs -
-                                    watchAuthClock()
-                            if (untilExpiry <= 0L) {
-                                close(
-                                    CloseReason(
-                                        CloseReason.Codes.VIOLATED_POLICY,
-                                        "account_auth_expired",
-                                    ),
-                                )
-                                break
-                            }
-                            val delayMs =
-                                if (transientFailures == 0) {
-                                    watchAuthRevalidationMs
-                                } else {
-                                    watchAuthRetryDelayMs(transientFailures).coerceAtLeast(1L)
-                                }
-                            delay(minOf(delayMs, untilExpiry))
-                            if (watchAuthClock() >= authenticatedAccount.accessExpiresAtEpochMs) {
-                                close(
-                                    CloseReason(
-                                        CloseReason.Codes.VIOLATED_POLICY,
-                                        "account_auth_expired",
-                                    ),
-                                )
-                                break
-                            }
-                            when (
-                                val authentication =
-                                    authenticateWatchAccount(
-                                        watchAccountRevalidator,
-                                        checkNotNull(accessToken),
-                                    )
-                            ) {
-                                is WatchAccountAuthentication.Accepted -> {
-                                    if (
-                                        authentication.account.sessionId !=
-                                        authenticatedAccount.sessionId ||
-                                        authentication.account.userId != authenticatedAccount.userId
-                                    ) {
-                                        close(
-                                            CloseReason(
-                                                CloseReason.Codes.VIOLATED_POLICY,
-                                                "account_auth_expired",
-                                            ),
-                                        )
-                                        break
-                                    }
-                                    transientFailures = 0
-                                }
-                                WatchAccountAuthentication.Rejected -> {
-                                    close(
-                                        CloseReason(
-                                            CloseReason.Codes.VIOLATED_POLICY,
-                                            "account_auth_expired",
-                                        ),
-                                    )
-                                    break
-                                }
-                                WatchAccountAuthentication.TemporarilyUnavailable -> {
-                                    transientFailures = nextWatchAuthFailureCount(transientFailures)
-                                }
-                                WatchAccountAuthentication.Failed -> {
-                                    close(
-                                        CloseReason(
-                                            CloseReason.Codes.INTERNAL_ERROR,
-                                            "account_auth_unavailable",
-                                        ),
-                                    )
-                                    break
-                                }
-                            }
-                        }
-                    }
+                    launch { close(socketAuth.watch { notice -> sendMessage(notice) }) }
                 } else {
                     null
                 }
@@ -881,6 +768,19 @@ internal fun Application.watchTogetherModule(
 
                     if (message.type !in WatchProtocol.CLIENT_MESSAGE_TYPES) {
                         return@consumeEach sendError("消息类型无效", "message_type_invalid")
+                    }
+                    // Account renewal belongs to the socket, whatever it is used for.
+                    if (requireWatchAuthentication &&
+                        WatchProtocol.CAPABILITY_REAUTHENTICATE in message.capabilities.orEmpty()
+                    ) {
+                        socketAuth.declareRenewable()?.let { sendMessage(it) }
+                    }
+                    if (message.type == "reauthenticate") {
+                        if (!requireWatchAuthentication) {
+                            return@consumeEach sendError("当前连接无需续期登录", "reauth_unsupported")
+                        }
+                        sendMessage(socketAuth.reauthenticate(message.credential?.accessToken))
+                        return@consumeEach
                     }
                     // 手机遥控 sockets are their own kind: hosting or controlling never joins a room,
                     // and a room member never carries a remote.
