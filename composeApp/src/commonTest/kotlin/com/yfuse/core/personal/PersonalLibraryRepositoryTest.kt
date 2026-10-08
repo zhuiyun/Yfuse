@@ -93,7 +93,7 @@ class PersonalLibraryRepositoryTest {
         runTest {
             var now = 1_000L
             val settings = MapSettings()
-            val personal = PersonalLibraryRepository(settings, nowEpochMs = { now })
+            val personal = PersonalLibraryRepository(settings, nowEpochMs = { now }, monotonicMs = { now })
             personal.bindAccount("owner")
             val registry = ServerRegistry(settings, TestSecureStore(), personal = personal)
             val adult = SavedServer("adult", "https://media.example", "影院", "adult", "家长", "token")
