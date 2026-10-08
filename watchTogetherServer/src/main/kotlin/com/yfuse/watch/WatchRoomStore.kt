@@ -88,7 +88,7 @@ internal class RoomStore(
                             Timeline(
                                 mediaKey = mediaKey,
                                 anchorPositionMs = 0L,
-                                anchorAtServerMs = System.currentTimeMillis(),
+                                anchorAtServerMs = WatchClock.nowMs(),
                             ),
                         playlist = initialPlaylist.toMutableList(),
                     )
