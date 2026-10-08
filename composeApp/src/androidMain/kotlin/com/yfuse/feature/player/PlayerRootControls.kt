@@ -864,18 +864,18 @@ internal fun PlayerRootControls(
                                             "User-Agent" to it,
                                         )
                                     }.orEmpty()
-                            if (!openExternalPlayer(
-                                    context = context,
-                                    mediaUrl = mediaUrl,
-                                    title = item.title,
-                                    positionMs = livePlayback.value.positionMs,
-                                    headers = handoverHeaders,
-                                )
-                            ) {
-                                Toast
-                                    .makeText(context, "未找到可处理此视频的外部播放器", Toast.LENGTH_SHORT)
-                                    .show()
-                            }
+                            openExternalPlayerConfirmingCredential(
+                                context = context,
+                                mediaUrl = mediaUrl,
+                                title = item.title,
+                                positionMs = livePlayback.value.positionMs,
+                                headers = handoverHeaders,
+                                onUnavailable = {
+                                    Toast
+                                        .makeText(context, "未找到可处理此视频的外部播放器", Toast.LENGTH_SHORT)
+                                        .show()
+                                },
+                            )
                         }
                     },
             ),
