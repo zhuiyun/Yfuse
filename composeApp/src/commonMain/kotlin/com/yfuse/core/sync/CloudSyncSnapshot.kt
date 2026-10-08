@@ -20,7 +20,8 @@ import com.yfuse.core.personal.PersonalCollection
 import com.yfuse.core.personal.PersonalEntry
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.personal.PersonalSnapshot
-import com.yfuse.core.personal.validatePersonalSnapshot
+import com.yfuse.core.personal.mergePersonalSnapshots
+import com.yfuse.core.personal.sanitizePersonalSnapshot
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -190,7 +191,17 @@ fun applyCloudSyncSnapshot(
         val motionTheme = MotionTheme.entries.firstOrNull { it.name == snapshot.appearance.motionTheme }
         val skipMode = SkipMode.entries.named(snapshot.skipMode, SkipMode.Button)
         val normalizedDanmaku = danmaku.validateSnapshot(snapshot.danmaku).getOrThrow()
-        snapshot.personal?.let(::validatePersonalSnapshot)
+        // Worked out before anything is applied: a 个人内容 document that cannot merge must not
+        // leave the servers and settings below already replaced.
+        snapshot.personal?.let { remote ->
+            if (personal !=
+                null
+            ) {
+                mergePersonalSnapshots(personal.snapshot(), remote)
+            } else {
+                sanitizePersonalSnapshot(remote)
+            }
+        }
 
         registry.replaceFromSync(snapshot.servers).getOrThrow()
         theme.setMode(mode)

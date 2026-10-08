@@ -2,6 +2,7 @@ package com.yfuse.core.personal
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.data.FollowedSeries
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.base64UrlToBytes
 import com.yfuse.core.security.toBase64Url
@@ -442,9 +443,14 @@ class PersonalLibraryRepository(
         value: PersonalSnapshot,
         progressOnly: Boolean = false,
     ) {
-        validatePersonalSnapshot(value)
-        persist(value)
-        snapshot = value
+        // 观看历史 used to stop recording for good once a thousand rows had piled up, because the
+        // tombstones of cleared history counted too. Old tombstones and the oldest history now make
+        // room; only rows a person curated still have to be tidied by hand.
+        val bounded = boundPersonalSnapshot(value, dropLiveCurated = false)
+        if (bounded == snapshot) return
+        validatePersonalSnapshot(bounded)
+        persist(bounded)
+        snapshot = bounded
         _state.value = _state.value.copy(error = null)
         publish(pending = true)
         if (!progressOnly) _contentRevision.value++
@@ -501,10 +507,30 @@ class PersonalLibraryRepository(
         settings.putString(dataKey(), json.encodeToString(value))
     }
 
-    private fun load(): PersonalSnapshot =
-        settings.getStringOrNull(dataKey())?.let { raw ->
-            runCatching { json.decodeFromString<PersonalSnapshot>(raw).also(::validatePersonalSnapshot) }.getOrNull()
-        } ?: PersonalSnapshot()
+    /**
+     * A stored library that no longer reads used to be replaced by an empty one, and the next save
+     * overwrote the original. What still parses is repaired the way a merge repairs a remote
+     * document; what does not is set aside under a quarantine key before starting over.
+     */
+    private fun load(): PersonalSnapshot {
+        val raw = settings.getStringOrNull(dataKey()) ?: return PersonalSnapshot()
+        return runCatching {
+            boundPersonalSnapshot(
+                sanitizePersonalSnapshot(json.decodeFromString<PersonalSnapshot>(raw)),
+                dropLiveCurated = true,
+            ).also(::validatePersonalSnapshot)
+        }.getOrElse { error ->
+            if (error is CancellationException) throw error
+            runCatching { settings.putString("${dataKey()}.quarantine", raw) }
+            AppLog.warning(
+                category = "personal",
+                event = "library_quarantined",
+                message = "Stored personal library could not be read; kept aside and started empty",
+                attributes = mapOf("reason" to (error::class.simpleName ?: "unknown")),
+            )
+            PersonalSnapshot()
+        }
+    }
 
     private fun dataKey(owner: String = accountId): String = "personal.library.v1.${owner.ifEmpty { "anonymous" }}"
 

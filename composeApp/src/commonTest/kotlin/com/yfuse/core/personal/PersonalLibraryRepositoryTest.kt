@@ -278,13 +278,14 @@ class PersonalLibraryRepositoryTest {
         personal.setFavorite(local, true)
         personal.setFavorite(local.copy(title = "不同作品", serverId = "server-b"), true)
         assertEquals(2, personal.state.value.favorites.size)
+        val before = personal.snapshot()
         val malicious =
-            personal.snapshot().let { snapshot ->
-                snapshot.copy(
-                    entries = snapshot.entries.map { it.copy(stamp = PersonalStamp(Long.MAX_VALUE, "remote")) },
-                )
-            }
-        assertFailsWith<IllegalArgumentException> { personal.mergeRemote(malicious) }
+            before.copy(
+                entries = before.entries.map { it.copy(stamp = PersonalStamp(Long.MAX_VALUE, "remote")) },
+            )
+        // Rows no build could have written are dropped instead of stopping every later sync.
+        personal.mergeRemote(malicious)
+        assertEquals(before.entries.toSet(), personal.snapshot().entries.toSet())
         personal.setFavorite(media, true)
         assertEquals(3, personal.state.value.favorites.size)
     }
@@ -386,8 +387,118 @@ class PersonalLibraryRepositoryTest {
                         ),
                     ),
             )
-        assertFailsWith<IllegalArgumentException> { personal.mergeRemote(incoming) }
-        assertEquals(original, personal.snapshot())
-        assertEquals(original, PersonalLibraryRepository(settings).snapshot())
+        // A merge must not fail, so the union is bounded: the oldest curated row gives way.
+        personal.mergeRemote(incoming)
+        val merged = personal.snapshot()
+        assertEquals(MAX_PERSONAL_ENTRIES, merged.entries.size)
+        assertTrue(merged.entries.any { it.collection == PersonalCollection.WatchLater && it.media == media })
+        assertFalse(merged.entries.any { it.stamp == PersonalStamp(1, "seed") })
+        assertEquals(merged, PersonalLibraryRepository(settings).snapshot())
     }
+
+    @Test
+    fun clearedHistoryNoLongerBlocksNewHistoryOnceTheLibraryIsFull() {
+        val personal = PersonalLibraryRepository(MapSettings())
+        personal.mergeRemote(PersonalSnapshot(entries = history(MAX_PERSONAL_ENTRIES, "phone")))
+        personal.clearHistory()
+        assertTrue(
+            personal.state.value.history
+                .isEmpty(),
+        )
+        assertEquals(MAX_PERSONAL_ENTRIES, personal.snapshot().entries.size, "Every cleared row left a tombstone")
+
+        val tonight = media.copy(mediaKey = "tmdb:999999", title = "今晚")
+        personal.recordHistory(tonight, 60_000, 2_700_000, false)
+
+        assertEquals(
+            listOf(tonight),
+            personal.state.value.history
+                .map { it.media },
+        )
+        assertNull(personal.state.value.error)
+        assertEquals(MAX_PERSONAL_ENTRIES, personal.snapshot().entries.size)
+    }
+
+    @Test
+    fun fullHistoryKeepsTheMostRecentEpisodes() {
+        val personal = PersonalLibraryRepository(MapSettings())
+        personal.mergeRemote(PersonalSnapshot(entries = history(MAX_PERSONAL_ENTRIES, "phone")))
+
+        val tonight = media.copy(mediaKey = "tmdb:999999", title = "今晚")
+        personal.recordHistory(tonight, 60_000, 2_700_000, false)
+
+        val history =
+            personal.state.value.history
+                .map { it.media.mediaKey }
+        assertEquals(MAX_PERSONAL_ENTRIES, history.size)
+        assertTrue("tmdb:999999" in history)
+        assertFalse("tmdb:1" in history, "The oldest episode made room")
+    }
+
+    @Test
+    fun twoFullLibrariesMergeToTheSameBoundedResultOnBothDevices() {
+        val phone = history(MAX_PERSONAL_ENTRIES, "phone")
+        val tablet = history(MAX_PERSONAL_ENTRIES, "tablet", offset = MAX_PERSONAL_ENTRIES)
+        val left = mergePersonalSnapshots(PersonalSnapshot(entries = phone), PersonalSnapshot(entries = tablet))
+        val right = mergePersonalSnapshots(PersonalSnapshot(entries = tablet), PersonalSnapshot(entries = phone))
+
+        assertEquals(left, right)
+        assertEquals(MAX_PERSONAL_ENTRIES, left.entries.size)
+        assertEquals(PersonalStamp(MAX_PERSONAL_ENTRIES.toLong() + 1, "tablet"), left.entries.minOf { it.stamp })
+    }
+
+    @Test
+    fun aStoredLibraryThatNoLongerReadsIsSetAsideNotOverwritten() {
+        val settings = MapSettings()
+        settings.putString("personal.library.v1.anonymous", "{not json")
+
+        val personal = PersonalLibraryRepository(settings)
+        personal.setFavorite(media, true)
+
+        assertEquals("{not json", settings.getStringOrNull("personal.library.v1.anonymous.quarantine"))
+        assertEquals(1, personal.state.value.favorites.size)
+    }
+
+    @Test
+    fun aStoredLibraryWithOneBadRowKeepsTheRest() {
+        val settings = MapSettings()
+        PersonalLibraryRepository(settings).apply {
+            setFavorite(media, true)
+            setWatchLater(media.copy(mediaKey = "tmdb:604", title = "续集"), true)
+        }
+        val stored = settings.getStringOrNull("personal.library.v1.anonymous").orEmpty()
+        settings.putString("personal.library.v1.anonymous", stored.replace("\"续集\"", "\"\""))
+
+        val reopened = PersonalLibraryRepository(settings)
+
+        assertEquals(
+            listOf(media),
+            reopened.state.value.favorites
+                .map { it.media },
+        )
+        assertTrue(
+            reopened.state.value.watchLater
+                .isEmpty(),
+        )
+        assertNull(settings.getStringOrNull("personal.library.v1.anonymous.quarantine"))
+    }
+
+    private fun history(
+        count: Int,
+        deviceId: String,
+        offset: Int = 0,
+    ): List<PersonalEntry> =
+        (1..count).map { index ->
+            PersonalEntry(
+                DEFAULT_PERSONAL_PROFILE,
+                PersonalCollection.History,
+                media.copy(
+                    mediaKey = "tmdb:${index + offset}",
+                    tmdbId = index + offset,
+                    title = "第 ${index + offset} 集",
+                ),
+                PersonalStamp((index + offset).toLong(), deviceId),
+                watchedAtEpochMs = (index + offset).toLong(),
+            )
+        }
 }
