@@ -7,6 +7,7 @@ import android.os.Build
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.api.YChapter
 import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YDolbyVisionNalEvidence
@@ -60,7 +61,28 @@ internal enum class YCore2ProbeFailure {
     NoPlayableTrack,
     NoVideoTrack,
     UnknownVideoCodec,
+
+    /**
+     * The process, not the source, failed: out of memory or stack while probing. Like [Busy] it
+     * carries no evidence about the source and is never remembered as a failure of it.
+     */
+    RuntimeFault,
 }
+
+/**
+ * What a probe that threw reports. A [VirtualMachineError] (OutOfMemoryError, StackOverflowError)
+ * says the process was short of memory at that moment; classing it as an unavailable source made
+ * later starts skip a route that works as soon as memory is back.
+ */
+internal fun probeThrowableFailure(
+    error: Throwable,
+    sourceFailure: () -> YPlaybackException?,
+): YCore2ProbeResult.Failure =
+    if (error is VirtualMachineError) {
+        YCore2ProbeResult.Failure(YCore2ProbeFailure.RuntimeFault)
+    } else {
+        YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable, sourceFailure())
+    }
 
 internal sealed interface YCore2ProbeResult {
     data class Success(
@@ -380,7 +402,7 @@ internal class AndroidCore2MediaProbe(
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
             budget?.ensureActive()
-            YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable, error.mediaSourceFailure())
+            probeThrowableFailure(error) { error.mediaSourceFailure() }
         } finally {
             if (!retained) demux.release()
         }

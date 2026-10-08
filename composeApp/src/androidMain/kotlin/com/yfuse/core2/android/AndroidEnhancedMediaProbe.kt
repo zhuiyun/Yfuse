@@ -121,7 +121,10 @@ internal class AndroidEnhancedMediaProbe(
                 is YCore2ProbeResult.Failure -> {
                     // Busy means another probe held the lane and this one never looked at the
                     // source. Caching it skipped the deep probe for the next 30 seconds of starts.
-                    if (result.reason != YCore2ProbeFailure.Busy) {
+                    // A runtime fault (out of memory) says as little about the source.
+                    if (result.reason != YCore2ProbeFailure.Busy &&
+                        result.reason != YCore2ProbeFailure.RuntimeFault
+                    ) {
                         failureCache[failureKey] =
                             TimedProbeFailure(result, retryAfterNs = clock() + FAILED_ENHANCED_PROBE_RETRY_NS)
                         while (failureCache.size > MAX_CACHED_ENHANCED_PROBES) {
@@ -324,7 +327,7 @@ internal class AndroidEnhancedMediaProbe(
                         "sourceScheme" to item.uri.substringBefore(':').lowercase(),
                     ),
             )
-            YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable, typed?.mediaSourceFailure())
+            probeThrowableFailure(failure) { typed?.mediaSourceFailure() }
         } finally {
             demuxCancellation?.close()
             proxyCancellation?.close()
