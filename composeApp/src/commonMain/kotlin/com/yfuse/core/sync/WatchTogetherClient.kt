@@ -20,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -92,6 +93,9 @@ class WatchTogetherClient internal constructor(
     @Volatile private var authenticationRetryUsed = false
 
     @Volatile private var reconnectingSinceEpochMs: Long? = null
+
+    /** Newest room snapshot revision seen on the current connection; null before one arrives. */
+    @Volatile private var roomRevision: Long? = null
 
     private val _state = MutableStateFlow(WatchTogetherState())
     val state: StateFlow<WatchTogetherState> = _state.asStateFlow()
@@ -623,7 +627,9 @@ class WatchTogetherClient internal constructor(
                     throwable = failure,
                     attributes = mapOf("roomGone" to roomGone.toString()),
                 )
-                clearPersistedRoom()
+                // A passing refusal (pacing, a full room) says nothing about the room itself: keep
+                // what 回到房间 needs to try again later.
+                if (failure !is RoomTemporarilyUnavailableException) clearPersistedRoom()
                 _state.value =
                     WatchTogetherState(
                         error = failure?.message?.takeIf(String::isNotBlank) ?: "一起看连接失败",
@@ -687,12 +693,21 @@ class WatchTogetherClient internal constructor(
                     close(CloseReason(CloseReason.Codes.NORMAL, "superseded"))
                     return@webSocket
                 }
+                roomRevision = null
+                val liveness = WatchSocketLiveness()
+                val renewal =
+                    WatchAccessRenewal(
+                        initialToken = accessToken,
+                        currentToken = { accountTokens.validAccessTokenFor(endpoint) },
+                        refreshToken = { accountTokens.refreshAccessTokenFor(endpoint) },
+                    )
                 send(
                     json.encodeToString(
                         WatchWireMessage.serializer(),
                         WatchWireMessage(
                             type = "hello",
                             protocolVersion = WatchProtocol.VERSION,
+                            capabilities = WATCH_CLIENT_CAPABILITIES,
                             clientId = preferences.clientId,
                             name = pendingName,
                             avatarId = pendingAvatarId,
@@ -703,9 +718,21 @@ class WatchTogetherClient internal constructor(
                         ),
                     ),
                 )
+                val session = this
                 val pingJob =
                     launch {
                         while (isActive) {
+                            if (liveness.isStale()) {
+                                AppLog.warning(
+                                    category = "watch_together",
+                                    event = "connection_stale",
+                                    message = "Watch-together relay stopped answering pings",
+                                )
+                                // A half-open socket never ends its read loop by itself; ending the
+                                // session hands over to the reconnect loop.
+                                session.cancel(WatchConnectionStaleException())
+                                return@launch
+                            }
                             val sentAt = clock.startPing()
                             runCatching {
                                 send(
@@ -718,9 +745,16 @@ class WatchTogetherClient internal constructor(
                             delay(PING_INTERVAL_MS)
                         }
                     }
+                val renewalJob =
+                    launch {
+                        renewal.run { message ->
+                            send(json.encodeToString(WatchWireMessage.serializer(), message))
+                        }
+                    }
                 try {
                     var welcomedThisAttempt = false
                     for (frame in incoming) {
+                        liveness.heard()
                         if (frame !is Frame.Text) continue
                         val frameText = frame.readText()
                         val decoded =
@@ -803,6 +837,8 @@ class WatchTogetherClient internal constructor(
                                     sendPlaybackStatus()
                                 }
                             }
+
+                            "reauthenticated" -> renewal.renewed(wire.authExpiresAtMs, wire.serverAtMs)
 
                             "controlRequested" -> {
                                 val requesterId = wire.clientId ?: continue
@@ -897,8 +933,14 @@ class WatchTogetherClient internal constructor(
                                             "duringHandshake" to (!welcomedThisAttempt).toString(),
                                         ),
                                 )
+                                if (renewal.handles(wire)) continue
                                 if (!welcomedThisAttempt) {
-                                    throw RoomUnavailableException(wire.message ?: "房间不存在或已关闭")
+                                    val detail = wire.message ?: "房间不存在或已关闭"
+                                    // Pacing or a full room passes; only a real refusal gives the room up.
+                                    if (WatchProtocol.isRetryableError(wire)) {
+                                        throw RoomTemporarilyUnavailableException(detail)
+                                    }
+                                    throw RoomUnavailableException(detail)
                                 }
                                 when {
                                     wire.errorCode?.startsWith("chat_") == true -> {
@@ -934,6 +976,7 @@ class WatchTogetherClient internal constructor(
                     }
                 } finally {
                     pingJob.cancel()
+                    renewalJob.cancel()
                 }
             }
         } finally {
@@ -979,6 +1022,18 @@ class WatchTogetherClient internal constructor(
     }
 
     private fun applyRoomSnapshot(wire: WatchWireMessage) {
+        // Broadcasts can overtake each other on the way: room state older than what this
+        // connection already shows is dropped. The timeline below has its own sequence check.
+        val revision = wire.roomRevision
+        val seen = roomRevision
+        if (revision == null || seen == null || revision >= seen) {
+            if (revision != null) roomRevision = revision
+            applyRoomState(wire)
+        }
+        applyTimeline(wire)
+    }
+
+    private fun applyRoomState(wire: WatchWireMessage) {
         roomPlaylist.applySnapshot(wire)
         val previousCount = _state.value.participantCount
         wire.participantCount?.takeIf { it != previousCount && wire.type != "welcome" }?.let {
@@ -1047,6 +1102,9 @@ class WatchTogetherClient internal constructor(
                 controlRequested = if (handedOver || canControl) false else current.controlRequested,
             )
         }
+    }
+
+    private fun applyTimeline(wire: WatchWireMessage) {
         val mediaKey = wire.mediaKey ?: return
         val positionMs = wire.positionMs ?: return
         val paused = wire.paused ?: return
