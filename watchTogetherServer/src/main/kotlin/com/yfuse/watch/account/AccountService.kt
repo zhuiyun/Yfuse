@@ -36,8 +36,17 @@ class AccountBackend private constructor(
     internal val service: AccountService,
     private val store: AccountStore,
     private val workExecutor: AccountWorkExecutor,
+    /**
+     * Registration, sign-in and every password proof run PBKDF2 here, apart from the token checks,
+     * sync and health probes on [workExecutor]: a burst of password work used to take all four
+     * shared threads and answer `account_busy` to every signed-in device.
+     */
+    private val credentialExecutor: AccountWorkExecutor,
 ) : AutoCloseable {
     internal suspend fun <T> execute(block: AccountService.() -> T): T = workExecutor.execute { service.block() }
+
+    internal suspend fun <T> executeCredential(block: AccountService.() -> T): T =
+        credentialExecutor.execute { service.block() }
 
     suspend fun authenticateAccessToken(accessToken: String): AuthenticatedAccount =
         execute {
@@ -71,6 +80,7 @@ class AccountBackend private constructor(
     override fun close() {
         try {
             workExecutor.close()
+            credentialExecutor.close()
         } finally {
             store.close()
         }
@@ -87,6 +97,7 @@ class AccountBackend private constructor(
                 passwordHasher = Pbkdf2PasswordHasher(),
                 authKeyHasher = Pbkdf2PasswordHasher(Pbkdf2PasswordHasher.AUTH_KEY_VERIFIER_ITERATIONS),
                 workExecutor = AccountWorkExecutor(),
+                credentialExecutor = credentialWorkExecutor(),
                 usernameFailureLimiter = UsernameFailureLimiter(),
                 syncUserRateLimiter = AccountRateLimiter(),
                 registrationPolicy = registrationPolicy,
@@ -102,6 +113,7 @@ class AccountBackend private constructor(
                 passwordHasher = Pbkdf2PasswordHasher(),
                 authKeyHasher = Pbkdf2PasswordHasher(Pbkdf2PasswordHasher.AUTH_KEY_VERIFIER_ITERATIONS),
                 workExecutor = AccountWorkExecutor(),
+                credentialExecutor = credentialWorkExecutor(),
                 usernameFailureLimiter = UsernameFailureLimiter(),
                 syncUserRateLimiter = AccountRateLimiter(),
                 registrationPolicy = registrationPolicy,
@@ -111,6 +123,7 @@ class AccountBackend private constructor(
             passwordIterations: Int = 1_000,
             clock: () -> Long = System::currentTimeMillis,
             workExecutor: AccountWorkExecutor = AccountWorkExecutor(),
+            credentialExecutor: AccountWorkExecutor = credentialWorkExecutor(),
             usernameFailureLimiter: UsernameFailureLimiter = UsernameFailureLimiter(clock = clock),
             syncUserRateLimiter: AccountRateLimiter = AccountRateLimiter(clock = clock),
             nonceHistoryPerUserLimit: Int = 4_096,
@@ -132,6 +145,7 @@ class AccountBackend private constructor(
                 authKeyHasher = Pbkdf2PasswordHasher(passwordIterations),
                 clock = clock,
                 workExecutor = workExecutor,
+                credentialExecutor = credentialExecutor,
                 usernameFailureLimiter = usernameFailureLimiter,
                 syncUserRateLimiter = syncUserRateLimiter,
                 registrationPolicy = registrationPolicy,
@@ -142,6 +156,7 @@ class AccountBackend private constructor(
             passwordIterations: Int = 1_000,
             clock: () -> Long = System::currentTimeMillis,
             workExecutor: AccountWorkExecutor = AccountWorkExecutor(),
+            credentialExecutor: AccountWorkExecutor = credentialWorkExecutor(),
             usernameFailureLimiter: UsernameFailureLimiter = UsernameFailureLimiter(clock = clock),
             syncUserRateLimiter: AccountRateLimiter = AccountRateLimiter(clock = clock),
             nonceHistoryPerUserLimit: Int = 4_096,
@@ -164,6 +179,7 @@ class AccountBackend private constructor(
                 authKeyHasher = Pbkdf2PasswordHasher(passwordIterations),
                 clock = clock,
                 workExecutor = workExecutor,
+                credentialExecutor = credentialExecutor,
                 usernameFailureLimiter = usernameFailureLimiter,
                 syncUserRateLimiter = syncUserRateLimiter,
                 registrationPolicy = registrationPolicy,
@@ -175,6 +191,7 @@ class AccountBackend private constructor(
             authKeyHasher: PasswordHasher,
             clock: () -> Long = System::currentTimeMillis,
             workExecutor: AccountWorkExecutor,
+            credentialExecutor: AccountWorkExecutor,
             usernameFailureLimiter: UsernameFailureLimiter,
             syncUserRateLimiter: AccountRateLimiter,
             registrationPolicy: AccountRegistrationPolicy,
@@ -196,8 +213,13 @@ class AccountBackend private constructor(
                     ),
                 store = store,
                 workExecutor = workExecutor,
+                credentialExecutor = credentialExecutor,
             )
         }
+
+        /** Two hashes at a time, two more waiting; the rest are told to retry instead of queuing. */
+        private fun credentialWorkExecutor(): AccountWorkExecutor =
+            AccountWorkExecutor(AccountExecutionPolicy(workerThreads = 2, maxConcurrentOperations = 4))
     }
 }
 
@@ -325,11 +347,15 @@ internal class AccountService(
         return issued.toResponse(user, capabilitiesFor(user.id), proof.authProtocol, vault)
     }
 
-    fun login(request: LoginRequest): AuthResponse {
+    /** [client] is the rate-limit identity of the caller, when the HTTP layer knows it. */
+    fun login(
+        request: LoginRequest,
+        client: String? = null,
+    ): AuthResponse {
         val normalizedUsername =
             normalizeLoginUsername(request.username)
                 ?: invalidCredentials()
-        enforceRateLimit(usernameFailureLimiter.checkOrReserve(normalizedUsername))
+        enforceRateLimit(usernameFailureLimiter.checkOrReserve(normalizedUsername, client))
         val password = request.password
         val authKey = request.authKey
         val wellFormed =
@@ -339,7 +365,7 @@ internal class AccountService(
                 else -> false
             }
         if (!wellFormed) {
-            usernameFailureLimiter.recordFailure(normalizedUsername)
+            usernameFailureLimiter.recordFailure(normalizedUsername, client)
             invalidCredentials()
         }
         val credentials = store.findUserByNormalizedUsername(normalizedUsername)
@@ -349,7 +375,7 @@ internal class AccountService(
             // prelogin already tells protocol 1 accounts apart, and the 600k-round dummy hash
             // only let anyone spend this server's CPU with made-up names.
             if (authKey != null) authKeyHasher.hash(authKey).wipe()
-            usernameFailureLimiter.recordFailure(normalizedUsername)
+            usernameFailureLimiter.recordFailure(normalizedUsername, client)
             invalidCredentials()
         }
         val expectedDigest = credentials.digest()
@@ -363,7 +389,7 @@ internal class AccountService(
                     else -> false
                 }
             if (!verified) {
-                usernameFailureLimiter.recordFailure(normalizedUsername)
+                usernameFailureLimiter.recordFailure(normalizedUsername, client)
                 invalidCredentials()
             }
 
@@ -373,10 +399,10 @@ internal class AccountService(
                     issued.asNewSession(credentials.user.id, validateDeviceName(request.deviceName)),
                     expectedDigest,
                 ) ?: run {
-                    usernameFailureLimiter.recordFailure(normalizedUsername)
+                    usernameFailureLimiter.recordFailure(normalizedUsername, client)
                     invalidCredentials()
                 }
-            usernameFailureLimiter.clear(normalizedUsername)
+            usernameFailureLimiter.clear(normalizedUsername, client)
             val vault = if (credentials.authProtocol == AUTH_PROTOCOL_DERIVED_KEY) store.getVault(user.id) else null
             return issued.toResponse(user, capabilitiesFor(user.id), credentials.authProtocol, vault)
         } finally {

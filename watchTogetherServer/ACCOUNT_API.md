@@ -108,6 +108,11 @@ phone-remote pairing and hand-off are bound to it, and a new id every 15 minutes
 refresh token. At most ten recent active sessions are retained per user. SQLite stores only
 SHA-256 token digests, never bearer or refresh-token plaintext.
 
+Configured issuers (`ACCOUNT_INVITE_ISSUER_USERNAMES`) are pinned to the first account that
+holds each name; an account that registers a deleted issuer's name later does not inherit
+`invite:issue`. To grant it to the new holder, remove the name from the configuration, restart,
+add it back and restart again.
+
 Generated invites are random 256-bit Base64URL values, returned once and stored only as a
 SHA-256 digest with issuer, expiry, and redemption audit fields. They remain usable while
 public registration is closed and are consumed atomically with user/session creation. The
@@ -129,10 +134,13 @@ Protocol 1 passwords use JCA `PBKDF2WithHmacSHA256`, 600,000 iterations, a rando
 salt, and a 32-byte output. Invalid login responses do not distinguish an unknown username from
 a wrong password. A password login for an unknown name is not hashed: prelogin already tells
 protocol 1 accounts apart, and the dummy 600,000-round hash let anyone spend server CPU with
-made-up names. Failed logins are additionally limited across IPs by a SHA-256 digest of the
-normalized username (10 failures per five minutes), applying the same response behavior to
-existing and unknown usernames. Registration checks the invite code, user cap and name before
-any hashing.
+made-up names. Failed logins are additionally limited by a SHA-256 digest of the normalized
+username: 10 failures per five minutes from one client, and 50 across all clients, applying
+the same response behavior to existing and unknown usernames. A single shared count at 10 let
+anyone who knew a name lock its owner out. Rate limits count IPv6 clients by their /64.
+Registration checks the invite code, user cap and name before any hashing. Password hashing
+runs on two threads of its own (four requests at most, the rest get `503 account_busy`), so it
+cannot take the threads that token checks, sync and health probes use.
 
 ## Protocol 2: the password never leaves the device
 
@@ -352,7 +360,8 @@ authenticated user inside the account service where applicable:
 | Sync `PUT` and `DELETE` combined, per IP and per user | 30 requests/minute |
 | Password change, rekey and account deletion combined, per IP | 5 requests/15 minutes |
 | Password change and rekey combined, per user | 5 requests/15 minutes |
-| Failed login, per normalized username across IPs | 10 failures/5 minutes |
+| Failed login, per normalized username and client | 10 failures/5 minutes |
+| Failed login, per normalized username across clients | 50 failures/5 minutes |
 | TMDB proxy `GET /api/v1/tmdb/...`, per IP | 900 requests/minute |
 | TMDB proxy, per user across devices | 480 requests/minute (`429 tmdb_rate_limited`) |
 

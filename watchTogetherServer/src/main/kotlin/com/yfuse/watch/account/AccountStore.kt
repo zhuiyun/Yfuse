@@ -317,6 +317,17 @@ internal class SqliteAccountStore private constructor(
                 )
                 statement.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS account_permission_pins (
+                        permission TEXT NOT NULL,
+                        username_normalized TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        pinned_at_ms INTEGER NOT NULL,
+                        PRIMARY KEY(permission, username_normalized)
+                    )
+                    """.trimIndent(),
+                )
+                statement.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS account_server_meta (
                         meta_key TEXT PRIMARY KEY,
                         meta_value BLOB NOT NULL
@@ -608,24 +619,82 @@ internal class SqliteAccountStore private constructor(
                         statement.setString(1, INVITE_ISSUE_CAPABILITY)
                         statement.executeUpdate()
                     }
-                normalizedUsernames.forEach { normalizedUsername ->
-                    connection
-                        .prepareStatement(
-                            """
-                            INSERT OR IGNORE INTO account_permissions(
-                                user_id, permission, granted_at_ms, managed_by_config
-                            )
-                            SELECT id, ?, ?, 1 FROM users WHERE username_normalized = ?
-                            """.trimIndent(),
-                        ).use { statement ->
-                            statement.setString(1, INVITE_ISSUE_CAPABILITY)
-                            statement.setLong(2, nowEpochMs)
-                            statement.setString(3, normalizedUsername)
-                            statement.executeUpdate()
+                // A name dropped from the configuration releases its pin, so naming it again later
+                // grants whoever holds the name at that point.
+                connection
+                    .prepareStatement("SELECT username_normalized FROM account_permission_pins WHERE permission = ?")
+                    .use { statement ->
+                        statement.setString(1, INVITE_ISSUE_CAPABILITY)
+                        statement.executeQuery().use { result ->
+                            buildList { while (result.next()) add(result.getString(1)) }
                         }
+                    }.filterNot { it in normalizedUsernames }
+                    .forEach { released ->
+                        connection
+                            .prepareStatement(
+                                "DELETE FROM account_permission_pins WHERE permission = ? AND username_normalized = ?",
+                            ).use { statement ->
+                                statement.setString(1, INVITE_ISSUE_CAPABILITY)
+                                statement.setString(2, released)
+                                statement.executeUpdate()
+                            }
+                    }
+                normalizedUsernames.forEach { normalizedUsername ->
+                    grantConfiguredPermissionLocked(INVITE_ISSUE_CAPABILITY, normalizedUsername, nowEpochMs)
                 }
             }
         }
+    }
+
+    /**
+     * The configuration names an account by its username, but a deleted account's name can be
+     * registered again by someone else. The first account to hold a configured name is pinned,
+     * and the permission follows that account only.
+     */
+    private fun grantConfiguredPermissionLocked(
+        permission: String,
+        normalizedUsername: String,
+        nowEpochMs: Long,
+    ) {
+        val holder = findUserByNormalizedUsernameLocked(normalizedUsername)?.user?.id ?: return
+        val pinned =
+            connection
+                .prepareStatement(
+                    "SELECT user_id FROM account_permission_pins WHERE permission = ? AND username_normalized = ?",
+                ).use { statement ->
+                    statement.setString(1, permission)
+                    statement.setString(2, normalizedUsername)
+                    statement.executeQuery().use { result -> if (result.next()) result.getString(1) else null }
+                }
+        if (pinned == null) {
+            connection
+                .prepareStatement(
+                    """
+                    INSERT INTO account_permission_pins(permission, username_normalized, user_id, pinned_at_ms)
+                    VALUES (?, ?, ?, ?)
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setString(1, permission)
+                    statement.setString(2, normalizedUsername)
+                    statement.setString(3, holder)
+                    statement.setLong(4, nowEpochMs)
+                    statement.executeUpdate()
+                }
+        } else if (pinned != holder) {
+            return
+        }
+        connection
+            .prepareStatement(
+                """
+                INSERT OR IGNORE INTO account_permissions(user_id, permission, granted_at_ms, managed_by_config)
+                VALUES (?, ?, ?, 1)
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, holder)
+                statement.setString(2, permission)
+                statement.setLong(3, nowEpochMs)
+                statement.executeUpdate()
+            }
     }
 
     override fun findUserByNormalizedUsername(normalizedUsername: String): StoredCredentials? =
