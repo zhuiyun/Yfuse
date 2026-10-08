@@ -183,6 +183,12 @@ internal fun BoxScope.PlayerPictureStatus(
         episodeSwipe = episodeSwipe,
     )
 
+    // What used to go out as a system toast - engine switches, recoveries, refusals - below the
+    // top bar, clear of the subtitles and of the gesture HUD in the middle.
+    PlayerNoticeLine(
+        modifier = Modifier.align(Alignment.TopCenter).padding(start = 24.dp, top = 76.dp, end = 24.dp),
+    )
+
     // Where the title bar sits — it has stepped aside for the hold — and clear of the
     // subtitles at the bottom and the gesture HUD in the middle.
     SpeedBoostPill(

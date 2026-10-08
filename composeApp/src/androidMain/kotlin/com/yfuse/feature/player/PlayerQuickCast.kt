@@ -1,7 +1,6 @@
 package com.yfuse.feature.player
 
 import android.os.SystemClock
-import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -97,7 +96,7 @@ internal fun rememberPlayerQuickCast(
             haptics.play(HapticSignal.Confirm)
         } else {
             haptics.play(HapticSignal.Reject)
-            Toast.makeText(context, "$failure，继续在本机播放", Toast.LENGTH_SHORT).show()
+            PlayerNotices.show("$failure，继续在本机播放")
         }
     }
 

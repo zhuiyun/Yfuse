@@ -782,7 +782,7 @@ class PlayerActivity :
                 player = { activePlayer },
                 onLocked = {
                     runOnUiThread {
-                        Toast.makeText(this, "当前由房主控制播放", Toast.LENGTH_SHORT).show()
+                        PlayerNotices.show("当前由房主控制播放")
                     }
                 },
             )
@@ -1018,7 +1018,7 @@ class PlayerActivity :
         PendingPlayerLaunchRegistry.readFrom(intent)?.let { pendingId ->
             val replacement = PendingPlayerLaunchRegistry.consume(pendingId)
             if (replacement == null) {
-                Toast.makeText(this, "新的播放会话已过期，继续当前播放", Toast.LENGTH_SHORT).show()
+                PlayerNotices.show("新的播放会话已过期，继续当前播放")
                 return
             }
             launchViewModel.enriching?.store?.dispose()
@@ -1073,12 +1073,7 @@ class PlayerActivity :
                     event = "replacement_launch_expired",
                     message = "Replacement player launch data was missing or expired",
                 )
-                Toast
-                    .makeText(
-                        this,
-                        "新的播放会话已过期，继续当前播放",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                PlayerNotices.show("新的播放会话已过期，继续当前播放")
             }
         }
     }
