@@ -94,7 +94,10 @@ class PlaybackSyncManager(
             // Periodic progress is coalesced in memory, and a backgrounded process may not come
             // back. Launched rather than run here: this is a lifecycle callback on the main
             // thread and the write is a full encode of the local history.
-            scope.launch { store.flush() }
+            scope.launch {
+                store.flush()
+                personal?.flush()
+            }
             return
         }
         val now = nowEpochMs()

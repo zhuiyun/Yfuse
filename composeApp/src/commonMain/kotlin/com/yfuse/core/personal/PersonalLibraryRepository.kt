@@ -37,6 +37,10 @@ class PersonalLibraryRepository(
     private var snapshot = load()
     private var activeId = settings.getStringOrNull(activeKey()).orEmpty().ifBlank { DEFAULT_PERSONAL_PROFILE }
     private var generation = 0L
+
+    /** Playback progress already in [snapshot] but not yet in settings; see [change]. */
+    private var progressUnsaved = false
+    private var lastPersistAtMs = Long.MIN_VALUE
     private var publishedPin: PersonalPin? = null
     private val observers = mutableListOf<() -> Unit>()
     private val _policy = MutableStateFlow(PersonalAccessPolicy())
@@ -88,6 +92,8 @@ class PersonalLibraryRepository(
             // Session expiry must not be a way out of an active child profile.
             if (next.isEmpty() && policy.value.child) return@synchronized
             val adopting = accountId.isEmpty() && next.isNotEmpty() && settings.getStringOrNull(dataKey(next)) == null
+            // The departing account's held-back progress belongs under its own key.
+            if (progressUnsaved) persist(snapshot)
             accountId = next
             settings.putString(OWNER_KEY, accountId)
             snapshot = if (adopting) snapshot else load()
@@ -479,7 +485,17 @@ class PersonalLibraryRepository(
         val bounded = boundPersonalSnapshot(value, dropLiveCurated = false)
         if (bounded == snapshot) return
         validatePersonalSnapshot(bounded)
-        persist(bounded)
+        // Playback reports progress every 15 seconds, and each write encodes the whole library.
+        // Progress alone reaches settings at most once a minute; [flush], backgrounding and any
+        // other change carry the rest.
+        if (progressOnly &&
+            lastPersistAtMs != Long.MIN_VALUE &&
+            monotonicMs() - lastPersistAtMs in 0 until PROGRESS_PERSIST_INTERVAL_MS
+        ) {
+            progressUnsaved = true
+        } else {
+            persist(bounded)
+        }
         snapshot = bounded
         _state.value = _state.value.copy(error = null)
         publish(pending = true)
@@ -533,8 +549,16 @@ class PersonalLibraryRepository(
         observers.toList().forEach { it() }
     }
 
+    /** Writes held-back playback progress now: playback ended, or the app left the foreground. */
+    fun flush() =
+        synchronized(lock) {
+            if (progressUnsaved) persist(snapshot)
+        }
+
     private fun persist(value: PersonalSnapshot) {
         settings.putString(dataKey(), json.encodeToString(value))
+        progressUnsaved = false
+        lastPersistAtMs = monotonicMs()
     }
 
     /**
@@ -576,6 +600,7 @@ class PersonalLibraryRepository(
         const val DEVICE_KEY = "personal.device.v1"
         const val OWNER_KEY = "personal.owner.v1"
         const val PIN_ATTEMPTS_PREFIX = "personal.pin_attempts.v1."
+        const val PROGRESS_PERSIST_INTERVAL_MS = 60_000L
         const val MIN_NEW_PIN_DIGITS = 6
         const val PIN_ATTEMPTS_PER_WAIT = 5
         const val MAX_PIN_WAIT_MS = 24 * 60 * 60_000L

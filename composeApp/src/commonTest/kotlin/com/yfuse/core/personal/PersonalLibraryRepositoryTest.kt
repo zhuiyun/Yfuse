@@ -511,6 +511,42 @@ class PersonalLibraryRepositoryTest {
             assertEquals("PIN 不正确", wrong().exceptionOrNull()?.message, "Success starts the count again")
         }
 
+    @Test
+    fun playbackProgressReachesSettingsAtMostOnceAMinuteUntilFlushed() {
+        var sinceBoot = 1_000L
+        val settings = MapSettings()
+        val personal = PersonalLibraryRepository(settings, monotonicMs = { sinceBoot })
+        val episode = PersonalMediaRef("tmdb:1399/s1e1", "凛冬将至", "Episode")
+
+        fun stored() =
+            PersonalLibraryRepository(settings)
+                .state.value.history
+                .single()
+                .positionMs
+
+        personal.recordHistory(episode, 15_000, 3_600_000, false)
+        assertEquals(15_000, stored(), "A new entry is written at once")
+
+        sinceBoot += 15_000
+        personal.recordHistory(episode, 30_000, 3_600_000, false)
+        assertEquals(
+            30_000,
+            personal.state.value.history
+                .single()
+                .positionMs,
+        )
+        assertEquals(15_000, stored())
+        personal.flush()
+        assertEquals(30_000, stored())
+
+        sinceBoot += 15_000
+        personal.recordHistory(episode, 45_000, 3_600_000, false)
+        assertEquals(30_000, stored())
+        sinceBoot += 60_000
+        personal.recordHistory(episode, 60_000, 3_600_000, false)
+        assertEquals(60_000, stored())
+    }
+
     private fun history(
         count: Int,
         deviceId: String,
