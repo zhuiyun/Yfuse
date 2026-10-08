@@ -246,6 +246,43 @@ class PlaybackSyncStoreTest {
     }
 
     @Test
+    fun aFullStoreJudgesEachPulledItemAgainstWhatTheSamePullAlreadyChanged() {
+        val store = PlaybackSyncStore(MapSettings()) { 1_000L }
+
+        fun pulled(
+            itemId: String,
+            positionMs: Long,
+            playedAt: Long,
+        ) = PlaybackSyncStore.ServerProgressInput(itemId, positionMs, false, playedAt, 3_600_000L)
+        // The store keeps 512 records.
+        val full = (1..512).map { pulled("movie-$it", 60_000L, 1_000L + it) }
+        store.absorbServerProgressBatch("server-a", full, store.scopeToken)
+
+        store.absorbServerProgressBatch(
+            "server-a",
+            listOf(
+                // Older than everything kept: not imported.
+                pulled("older", 60_000L, 500L),
+                // The oldest record is watched again, so the oldest kept is now movie-2's 1,002 ...
+                pulled("movie-1", 120_000L, 9_000L),
+                // ... and an item from that same moment is no newer than it.
+                pulled("same-age", 60_000L, 1_002L),
+                // Imported, then moved on, within one pull.
+                pulled("new", 10_000L, 20_000L),
+                pulled("new", 20_000L, 30_000L),
+            ),
+            store.scopeToken,
+        )
+
+        assertEquals(null, store.stateForServerItem("server-a", "older"))
+        assertEquals(null, store.stateForServerItem("server-a", "same-age"))
+        assertEquals(120_000L, store.stateForServerItem("server-a", "movie-1")?.positionMs)
+        assertEquals(20_000L, store.stateForServerItem("server-a", "new")?.positionMs)
+        assertEquals(1, store.statesForServer("server-a").count { it.serverItemId == "new" })
+        assertEquals(null, store.stateForServerItem("server-a", "movie-2"), "The newest records are kept")
+    }
+
+    @Test
     fun serverCooldownCoversEveryQueuedTitleAndSurvivesRestart() {
         val settings = MapSettings()
         val store = PlaybackSyncStore(settings) { 1_000L }
