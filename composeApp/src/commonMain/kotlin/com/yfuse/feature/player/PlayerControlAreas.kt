@@ -145,6 +145,8 @@ internal data class PlayerSourceState(
     // Null when the active engine has no transcode fallback.
     val transcodeLabel: String? = null,
     val transcodeActive: Boolean = false,
+    // A previous player never released its decoder; 重启播放组件 is the way out.
+    val playbackComponentsStuck: Boolean = false,
 )
 
 @Immutable
@@ -158,6 +160,7 @@ internal data class PlayerSourceActions(
     val onNextDiscChapter: () -> Unit = {},
     val onShowDiscMenu: () -> Unit = {},
     val onExternalPlayer: (() -> Unit)? = null,
+    val onRestartPlaybackComponents: () -> Unit = {},
 )
 
 /** 更多's own pages and choices: 书签, 睡眠定时 and the series' 短剧模式. */

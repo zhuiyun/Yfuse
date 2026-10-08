@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core2.android.AndroidSerializedPlayerRelease
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
@@ -9,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,21 +21,36 @@ import kotlinx.coroutines.withTimeout
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
 
-/** Retirement outlives the UI that requested it. A timeout never grants a new decoder lease. */
+/**
+ * Retirement outlives the UI that requested it. A replacement waits for the outgoing decoder, and
+ * a failed or slow release keeps it waiting - but only for [abandonAfterMs] from the start of that
+ * release. One that never finished used to block every later playback until the process died; it
+ * is now given up on with a diagnostic, and [stuck] lets the player offer 重启播放组件 should the
+ * next start fail as well.
+ */
 internal class PlaybackEngineRetirements(
     private val scope: CoroutineScope,
     private val release: suspend (VideoEngine) -> Unit,
     private val completed: (VideoEngine) -> Boolean? = { null },
+    private val abandonAfterMs: Long = RETIREMENT_ABANDON_MS,
 ) {
     private class Retirement {
-        val result = CompletableDeferred<Unit>()
+        /** True once released, false once given up on. */
+        val settled = CompletableDeferred<Boolean>()
         val callbacks = mutableListOf<() -> Unit>()
 
         @Volatile var started = false
+
+        @Volatile var failure: Throwable? = null
     }
 
     private val pending = linkedMapOf<VideoEngine, Retirement>()
     private var construction: CompletableDeferred<Unit>? = null
+    private val abandoned = mutableSetOf<VideoEngine>()
+    private val mutableStuck = MutableStateFlow(false)
+
+    /** A retired engine was given up on and has still not released what it holds. */
+    val stuck: StateFlow<Boolean> = mutableStuck.asStateFlow()
 
     @Synchronized
     fun retire(
@@ -53,10 +70,49 @@ internal class PlaybackEngineRetirements(
                 release(engine)
                 check(completed(engine) != false) { "Previous playback resources are still releasing" }
                 notifyReleased(retirement)
-                retirement.result.complete(Unit)
+                retirement.settled.complete(true)
+                releasedLate(engine)
             } catch (error: Throwable) {
-                retirement.result.completeExceptionally(error)
+                // Still pending: a failed release keeps the next decoder waiting until it is given up on.
+                retirement.failure = error
             }
+        }
+        scope.launch {
+            delay(abandonAfterMs)
+            abandonIfUnreleased(engine, retirement)
+        }
+    }
+
+    private fun abandonIfUnreleased(
+        engine: VideoEngine,
+        retirement: Retirement,
+    ) {
+        synchronized(this) {
+            if (retirement.settled.isCompleted) return
+            if (retirement.started && completed(engine) == true && retirement.failure == null) return
+            if (pending[engine] === retirement) pending.remove(engine)
+            abandoned += engine
+            mutableStuck.value = true
+        }
+        AppLog.error(
+            category = "player.engine",
+            event = "engine_retirement_abandoned",
+            message = "A retired playback engine did not release in time; later playback stops waiting for it",
+            throwable = retirement.failure,
+            attributes =
+                mapOf(
+                    "engine" to (engine::class.simpleName ?: "VideoEngine"),
+                    "started" to retirement.started.toString(),
+                    "waitedMs" to abandonAfterMs.toString(),
+                ),
+        )
+        retirement.settled.complete(false)
+    }
+
+    /** One given up on that did finish after all no longer counts as stuck. */
+    private fun releasedLate(engine: VideoEngine) {
+        synchronized(this) {
+            if (abandoned.remove(engine)) mutableStuck.value = abandoned.isNotEmpty()
         }
     }
 
@@ -69,10 +125,15 @@ internal class PlaybackEngineRetirements(
                 continue
             }
             val entry = synchronized(this) { pending.entries.firstOrNull()?.let { it.key to it.value } } ?: return
-            if (!entry.second.started || completed(entry.first) != true) entry.second.result.await()
-            check(completed(entry.first) != false) { "Previous playback resources are still releasing" }
-            notifyReleased(entry.second)
-            synchronized(this) { pending.remove(entry.first) }
+            val (engine, retirement) = entry
+            val released =
+                if (retirement.started && completed(engine) == true && retirement.failure == null) {
+                    true
+                } else {
+                    retirement.settled.await()
+                }
+            if (released) notifyReleased(retirement)
+            synchronized(this) { if (pending[engine] === retirement) pending.remove(engine) }
         }
     }
 
@@ -96,6 +157,25 @@ internal class PlaybackEngineRetirements(
 private fun VideoEngine.serializedRelease(): AndroidSerializedPlayerRelease? =
     this as? AndroidSerializedPlayerRelease
         ?: (this as? YPlayerVideoEngineAdapter)?.player as? AndroidSerializedPlayerRelease
+
+/** Longer than any engine's own release join (5 s), so only a release that truly hangs is given up on. */
+private const val RETIREMENT_ABANDON_MS = 10_000L
+
+/**
+ * Why the presentation slot could not put a playback engine in place. The wording is the player's;
+ * the exception behind it goes to the diagnostics only.
+ */
+internal enum class PlaybackSlotFailure(
+    val message: String,
+) {
+    PreviousStillReleasing("上一个播放器仍在释放资源，请稍后重试"),
+    QueueChanged("播放列表已改变，请重试切换播放器"),
+    ConstructionFailed("播放器切换未完成，请重试"),
+}
+
+private class PlaybackSlotException(
+    val failure: PlaybackSlotFailure,
+) : IllegalStateException(failure.name)
 
 internal object AndroidPlaybackEngineRetirements {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -194,8 +274,8 @@ internal class PlaybackEngineSlot(
                     val latest = preparing.snapshot()
                     if (latest != snapshot) {
                         if (latest.items != snapshot.items) {
-                            check(created.updateQueue(latest.items, latest.handover.itemIndex)) {
-                                "播放列表已改变，请重试切换播放器"
+                            if (!created.updateQueue(latest.items, latest.handover.itemIndex)) {
+                                throw PlaybackSlotException(PlaybackSlotFailure.QueueChanged)
                             }
                         } else if (latest.handover.itemIndex != snapshot.handover.itemIndex) {
                             created.selectItem(latest.handover.itemIndex)
@@ -209,9 +289,18 @@ internal class PlaybackEngineSlot(
                     published = true
                 } catch (cancelled: CancellationException) {
                     if (closed || generation != token || !coroutineContext[Job]!!.isActive) throw cancelled
-                    preparing.failed("上一个播放器仍在释放资源，请稍后重试")
+                    preparing.failed(PlaybackSlotFailure.PreviousStillReleasing)
                 } catch (error: Throwable) {
-                    preparing.failed(error.message ?: "播放器切换未完成，请重试")
+                    val failure = (error as? PlaybackSlotException)?.failure ?: PlaybackSlotFailure.ConstructionFailed
+                    // An exception's own message is English internals; it belongs in the diagnostics.
+                    AppLog.error(
+                        category = "player.engine",
+                        event = "engine_slot_failed",
+                        message = "The playback engine could not be put in place",
+                        throwable = error.takeUnless { it is PlaybackSlotException },
+                        attributes = mapOf("failure" to failure.name),
+                    )
+                    preparing.failed(failure)
                 } finally {
                     try {
                         if (!published) {
@@ -282,8 +371,8 @@ internal class PreparingVideoEngine(
             ),
         )
 
-    fun failed(message: String) {
-        mutableState.update { it.copy(buffering = false, error = message, automaticFallbackBlocked = true) }
+    fun failed(failure: PlaybackSlotFailure) {
+        mutableState.update { it.copy(buffering = false, error = failure.message, automaticFallbackBlocked = true) }
     }
 
     override fun play() {

@@ -260,12 +260,19 @@ internal fun PlayerErrorLayer(
                 .mapIndexedNotNull { index, (label, selected) ->
                     if (selected) null else label to { sourceActions.onSelectEngine(index) }
                 }.take(MAX_ERROR_ALTERNATIVES)
+        // Saves the position and restarts the app's process: the only way to get back a decoder that
+        // a previous player never released.
+        val restart =
+            listOfNotNull(
+                ("重启播放组件" to sourceActions.onRestartPlaybackComponents)
+                    .takeIf { source.playbackComponentsStuck },
+            )
         PlaybackErrorOverlay(
             message = message,
             onRetry = onRetry,
             onExternalPlayer = sourceActions.onExternalPlayer,
             onBack = onBack,
-            alternatives = otherVersions + otherEngines,
+            alternatives = restart + otherVersions + otherEngines,
             onExplain = { showProblem = true },
         )
     }

@@ -2,6 +2,7 @@
 
 package com.yfuse.feature.player
 
+import android.app.Activity
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.WindowInsets
@@ -134,6 +135,7 @@ internal fun PlayerRootControls(
     val state by stateSource
     val castState by castStateSource
     val watchState by watchStateSource
+    val playbackComponentsStuck by AndroidPlaybackEngineRetirements.registry.stuck.collectAsState()
     PlayerControls(
         playback = livePlayback,
         transport =
@@ -789,9 +791,11 @@ internal fun PlayerRootControls(
                             } == true
                     },
                 transcodeActive = state.transcoding,
+                playbackComponentsStuck = playbackComponentsStuck,
             ),
         sourceActions =
             PlayerSourceActions(
+                onRestartPlaybackComponents = { (context as? Activity)?.let(::restartPlaybackComponents) },
                 onSelectSource = selectServer,
                 onSelectVersion = { versionId -> selectVersion(versionId) },
                 onSelectEngine = { index ->
