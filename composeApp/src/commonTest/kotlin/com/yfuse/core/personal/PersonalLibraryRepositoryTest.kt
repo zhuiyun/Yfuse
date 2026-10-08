@@ -483,6 +483,34 @@ class PersonalLibraryRepositoryTest {
         assertNull(settings.getStringOrNull("personal.library.v1.anonymous.quarantine"))
     }
 
+    @Test
+    fun guardianPinWaitsGrowAndCannotBeSkippedByChangingTheClockOrRestarting() =
+        runTest {
+            var wallClock = 1_700_000_000_000L
+            var sinceBoot = 5_000_000L
+            val personal =
+                PersonalLibraryRepository(MapSettings(), nowEpochMs = { wallClock }, monotonicMs = { sinceBoot })
+            assertTrue(personal.setGuardianPin("1234".toCharArray()).isFailure, "New PINs need six digits")
+            personal.setGuardianPin("583921".toCharArray()).getOrThrow()
+
+            suspend fun wrong() = personal.setGuardianPin("654321".toCharArray(), "000000".toCharArray())
+            repeat(5) { assertEquals("PIN 不正确", wrong().exceptionOrNull()?.message) }
+            assertEquals("PIN 尝试过多，请 1 分钟后再试", wrong().exceptionOrNull()?.message)
+            wallClock += 24 * 60 * 60_000L
+            assertEquals("PIN 尝试过多，请 1 分钟后再试", wrong().exceptionOrNull()?.message, "The clock is not the wait")
+
+            sinceBoot += 60_000L
+            repeat(5) { assertEquals("PIN 不正确", wrong().exceptionOrNull()?.message) }
+            assertEquals("PIN 尝试过多，请 2 分钟后再试", wrong().exceptionOrNull()?.message)
+
+            sinceBoot = 1_000L
+            assertEquals("PIN 尝试过多，请 2 分钟后再试", wrong().exceptionOrNull()?.message, "A restart starts it over")
+
+            sinceBoot += 2 * 60_000L
+            assertTrue(personal.setGuardianPin("654321".toCharArray(), "583921".toCharArray()).isSuccess)
+            assertEquals("PIN 不正确", wrong().exceptionOrNull()?.message, "Success starts the count again")
+        }
+
     private fun history(
         count: Int,
         deviceId: String,

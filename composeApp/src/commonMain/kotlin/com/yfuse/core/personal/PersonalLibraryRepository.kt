@@ -21,6 +21,8 @@ class PersonalLibraryRepository(
     private val settings: Settings,
     private val crypto: VaultCrypto = VaultCrypto(),
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
+    /** Time since the device started; it cannot be set, unlike [nowEpochMs]. */
+    private val monotonicMs: () -> Long = { System.nanoTime() / 1_000_000L },
 ) {
     private val lock = Any()
     internal val coordinationLock: Any get() = lock
@@ -132,7 +134,10 @@ class PersonalLibraryRepository(
         withContext(Dispatchers.Default) {
             runCatching {
                 val token = scopeToken
-                require(pin.size in 4..12 && pin.all(Char::isDigit)) { "PIN 需为 4–12 位数字" }
+                // Four digits fell to a patient child in an afternoon; existing short PINs still open.
+                require(pin.size in MIN_NEW_PIN_DIGITS..12 && pin.all(Char::isDigit)) {
+                    "PIN 需为 $MIN_NEW_PIN_DIGITS–12 位数字"
+                }
                 verifyGuardian(currentPin, required = synchronized(lock) { snapshot.guardianPin != null })
                 val salt = crypto.generateVaultKey().copyOf(16)
                 val hash = crypto.deriveRecoveryKey(pin, salt, VaultCrypto.MIN_PBKDF2_ITERATIONS)
@@ -400,7 +405,9 @@ class PersonalLibraryRepository(
         if (!required) return
         val owner = synchronized(lock) { accountId }
         val key = "$PIN_ATTEMPTS_PREFIX$owner"
-        check(nowEpochMs() >= settings.getLong("$key.blocked", 0)) { "PIN 尝试过多，请一分钟后再试" }
+        val now = monotonicMs()
+        val waitUntil = pinWaitDeadline(key, now)
+        check(now >= waitUntil) { "PIN 尝试过多，请 ${(waitUntil - now + 59_999) / 60_000} 分钟后再试" }
         val stored = synchronized(lock) { snapshot.guardianPin } ?: error("请先设置家长 PIN")
         require(pin.isNotEmpty()) { "请输入家长 PIN" }
         val actual = crypto.deriveRecoveryKey(pin, stored.salt.base64UrlToBytes(), stored.iterations)
@@ -420,14 +427,37 @@ class PersonalLibraryRepository(
         if (!matches) {
             val count = settings.getInt(key, 0) + 1
             settings.putInt(key, count)
-            if (count >= 5) {
-                settings.putLong("$key.blocked", nowEpochMs() + 60_000)
+            if (count >= PIN_ATTEMPTS_PER_WAIT) {
+                // Each further round of wrong guesses waits twice as long, up to a day.
+                val waits = settings.getInt("$key.waits", 0) + 1
+                settings.putInt("$key.waits", waits)
+                settings.putLong("$key.wait_started", now)
+                settings.putLong("$key.wait_ms", pinWaitMs(waits))
                 settings.putInt(key, 0)
             }
             error("PIN 不正确")
         }
-        settings.remove(key)
-        settings.remove("$key.blocked")
+        listOf(key, "$key.blocked", "$key.waits", "$key.wait_started", "$key.wait_ms").forEach(settings::remove)
+    }
+
+    /**
+     * When the current wait ends, on [monotonicMs]: a wall-clock deadline let anyone end it by
+     * setting the clock forward. A restart resets that clock, so it starts the wait over.
+     */
+    private fun pinWaitDeadline(
+        key: String,
+        now: Long,
+    ): Long {
+        val waitMs = settings.getLong("$key.wait_ms", 0)
+        if (waitMs <= 0) return 0
+        val started =
+            settings.getLong("$key.wait_started", 0).let { recorded ->
+                if (now >= recorded) recorded else now.also { settings.putLong("$key.wait_started", it) }
+            }
+        if (now < started + waitMs) return started + waitMs
+        settings.remove("$key.wait_ms")
+        settings.remove("$key.wait_started")
+        return 0
     }
 
     private fun nextStamp(): PersonalStamp =
@@ -546,5 +576,10 @@ class PersonalLibraryRepository(
         const val DEVICE_KEY = "personal.device.v1"
         const val OWNER_KEY = "personal.owner.v1"
         const val PIN_ATTEMPTS_PREFIX = "personal.pin_attempts.v1."
+        const val MIN_NEW_PIN_DIGITS = 6
+        const val PIN_ATTEMPTS_PER_WAIT = 5
+        const val MAX_PIN_WAIT_MS = 24 * 60 * 60_000L
+
+        fun pinWaitMs(waits: Int): Long = (60_000L shl (waits - 1).coerceIn(0, 20)).coerceAtMost(MAX_PIN_WAIT_MS)
     }
 }
