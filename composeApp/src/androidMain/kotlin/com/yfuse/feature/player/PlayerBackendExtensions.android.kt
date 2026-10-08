@@ -103,7 +103,10 @@ internal class PlayerBackendExtensions(
     fun selectDiscChapter(index: Int): Boolean =
         ActiveDiscNavigation.selectChapter(index) || engine.selectDiscChapter(index)
 
-    fun showDiscMenu(): Boolean =
-        ActiveDiscNavigation.sendMenuCommand(PlaybackDiscMenuCommand.ShowMenu) ||
-            engine.sendDiscMenuCommand(PlaybackDiscMenuCommand.ShowMenu)
+    /** Off the main thread: both the disc runtime and the engine's native menu can block on reads. */
+    fun showDiscMenu(): Boolean {
+        val engineMenu = { engine.sendDiscMenuCommand(PlaybackDiscMenuCommand.ShowMenu) }
+        return ActiveDiscNavigation.sendMenuCommand(PlaybackDiscMenuCommand.ShowMenu, fallback = engineMenu) ||
+            ActiveDiscNavigation.dispatchMenuWork(engineMenu)
+    }
 }

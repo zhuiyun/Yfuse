@@ -266,8 +266,9 @@ internal fun MorePanel(
                         }
                     }
                     if (disc.menuSupported) {
+                        val menuSlow by ActiveDiscNavigation.menuSlow.collectAsState()
                         OptionRow(
-                            "打开光盘菜单",
+                            if (menuSlow) "光盘菜单读取中…" else "打开光盘菜单",
                             disc.menuActive,
                             onClick = {
                                 if (
