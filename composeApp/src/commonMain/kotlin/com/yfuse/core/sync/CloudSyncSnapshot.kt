@@ -20,10 +20,14 @@ import com.yfuse.core.personal.PersonalCollection
 import com.yfuse.core.personal.PersonalEntry
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.personal.PersonalSnapshot
-import com.yfuse.core.personal.validatePersonalSnapshot
+import com.yfuse.core.personal.mergePersonalSnapshots
+import com.yfuse.core.personal.sanitizePersonalSnapshot
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.elementNames
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 
 /** Everything in this document is encrypted before it leaves the device. */
 @Serializable
@@ -40,10 +44,50 @@ data class CloudSyncSnapshotV1(
     val skipTimesBySeries: Map<String, SkipTimes>? = null,
     val calendarFollows: List<FollowedSeries> = emptyList(),
     val personal: PersonalSnapshot? = null,
+    /**
+     * What a build must understand to rewrite this document without losing part of it. Builds
+     * before this field write none and read as 0. A build that finds a higher level than its own
+     * [CURRENT_FORMAT_LEVEL] may still restore from the document but never uploads over it.
+     */
+    val formatLevel: Int = 0,
 ) {
     companion object {
         const val CURRENT_SCHEMA_VERSION: Int = 1
+
+        /**
+         * Raise this when a build adds a field inside something older builds re-encode (a
+         * 个人内容 row, a server, a settings group): their upload would drop it. A new top-level
+         * field needs no raise, since [encodeCloudSyncDocument] carries unknown ones forward.
+         */
+        const val CURRENT_FORMAT_LEVEL: Int = 1
     }
+}
+
+/** Whether this build may upload over [this] document; see [CloudSyncSnapshotV1.formatLevel]. */
+fun CloudSyncSnapshotV1.requireWritableByThisBuild() {
+    require(formatLevel <= CloudSyncSnapshotV1.CURRENT_FORMAT_LEVEL) {
+        "云端数据由更新版本的应用写入，请先更新本机应用再同步"
+    }
+}
+
+/**
+ * [snapshot] as JSON, plus the top-level fields of [previous] (the cloud's copy) that this build
+ * does not know. Older builds used to decode, merge and upload the document with only the
+ * fields they knew, so whatever a newer build had added disappeared from every device.
+ */
+fun encodeCloudSyncDocument(
+    json: Json,
+    snapshot: CloudSyncSnapshotV1,
+    previous: JsonObject?,
+): String {
+    val ours = json.encodeToJsonElement(CloudSyncSnapshotV1.serializer(), snapshot).jsonObject
+    val known =
+        CloudSyncSnapshotV1
+            .serializer()
+            .descriptor.elementNames
+            .toSet()
+    val carried = previous.orEmpty().filterKeys { it !in known }
+    return json.encodeToString(JsonObject.serializer(), JsonObject(ours + carried))
 }
 
 @Serializable
@@ -128,6 +172,7 @@ fun captureCloudSyncSnapshot(
         skipTimesBySeries = skip.bySeries.value,
         calendarFollows = calendarFollows?.followed?.value.orEmpty(),
         personal = personal?.snapshot(),
+        formatLevel = CloudSyncSnapshotV1.CURRENT_FORMAT_LEVEL,
     )
 
 /**
@@ -190,7 +235,17 @@ fun applyCloudSyncSnapshot(
         val motionTheme = MotionTheme.entries.firstOrNull { it.name == snapshot.appearance.motionTheme }
         val skipMode = SkipMode.entries.named(snapshot.skipMode, SkipMode.Button)
         val normalizedDanmaku = danmaku.validateSnapshot(snapshot.danmaku).getOrThrow()
-        snapshot.personal?.let(::validatePersonalSnapshot)
+        // Worked out before anything is applied: a 个人内容 document that cannot merge must not
+        // leave the servers and settings below already replaced.
+        snapshot.personal?.let { remote ->
+            if (personal !=
+                null
+            ) {
+                mergePersonalSnapshots(personal.snapshot(), remote)
+            } else {
+                sanitizePersonalSnapshot(remote)
+            }
+        }
 
         registry.replaceFromSync(snapshot.servers).getOrThrow()
         theme.setMode(mode)

@@ -58,6 +58,7 @@ internal data class ManifestTrackCandidate(
     /** Codec/channel hint used only when two genuine tracks would otherwise look identical. */
     val qualifier: String? = null,
     val codec: String? = null,
+    val forced: Boolean? = null,
 )
 
 /** Collapse only tracks proven to be repeated declarations of one HLS rendition. */
@@ -105,6 +106,7 @@ internal fun collapseManifestTrackDuplicates(candidates: List<ManifestTrackCandi
             language = candidate.language,
             selected = candidate.selected,
             codec = candidate.codec,
+            forced = candidate.forced,
         )
     }
 }
@@ -138,6 +140,7 @@ internal fun Tracks.toEngineTracks(
                         manifestName = rendition?.second,
                         qualifier = format.trackQualifier(type),
                         codec = format.sampleMimeType?.substringAfterLast('/') ?: format.codecs,
+                        forced = (format.selectionFlags and C.SELECTION_FLAG_FORCED) != 0,
                     )
             }
         }

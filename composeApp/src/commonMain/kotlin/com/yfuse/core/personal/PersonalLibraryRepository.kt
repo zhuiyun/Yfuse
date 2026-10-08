@@ -2,6 +2,7 @@ package com.yfuse.core.personal
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.data.FollowedSeries
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.base64UrlToBytes
 import com.yfuse.core.security.toBase64Url
@@ -10,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -20,6 +22,8 @@ class PersonalLibraryRepository(
     private val settings: Settings,
     private val crypto: VaultCrypto = VaultCrypto(),
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
+    /** Time since the device started; it cannot be set, unlike [nowEpochMs]. */
+    private val monotonicMs: () -> Long = { System.nanoTime() / 1_000_000L },
 ) {
     private val lock = Any()
     internal val coordinationLock: Any get() = lock
@@ -34,6 +38,10 @@ class PersonalLibraryRepository(
     private var snapshot = load()
     private var activeId = settings.getStringOrNull(activeKey()).orEmpty().ifBlank { DEFAULT_PERSONAL_PROFILE }
     private var generation = 0L
+
+    /** Playback progress already in [snapshot] but not yet in settings; see [change]. */
+    private var progressUnsaved = false
+    private var lastPersistAtMs = Long.MIN_VALUE
     private var publishedPin: PersonalPin? = null
     private val observers = mutableListOf<() -> Unit>()
     private val _policy = MutableStateFlow(PersonalAccessPolicy())
@@ -85,6 +93,8 @@ class PersonalLibraryRepository(
             // Session expiry must not be a way out of an active child profile.
             if (next.isEmpty() && policy.value.child) return@synchronized
             val adopting = accountId.isEmpty() && next.isNotEmpty() && settings.getStringOrNull(dataKey(next)) == null
+            // The departing account's held-back progress belongs under its own key.
+            if (progressUnsaved) persist(snapshot)
             accountId = next
             settings.putString(OWNER_KEY, accountId)
             snapshot = if (adopting) snapshot else load()
@@ -106,7 +116,7 @@ class PersonalLibraryRepository(
         }
 
     fun beginSync() {
-        _state.value = _state.value.copy(syncing = true, error = null)
+        _state.update { it.copy(syncing = true, error = null) }
     }
 
     fun finishSync(
@@ -116,12 +126,11 @@ class PersonalLibraryRepository(
         val pending = snapshot != sent
         settings.putBoolean(pendingKey(), pending)
         settings.putLong(lastSyncKey(), epochMs)
-        _state.value =
-            _state.value.copy(syncing = false, pendingSync = pending, lastSyncedAtEpochMs = epochMs, error = null)
+        _state.update { it.copy(syncing = false, pendingSync = pending, lastSyncedAtEpochMs = epochMs, error = null) }
     }
 
     fun failSync(message: String) {
-        _state.value = _state.value.copy(syncing = false, error = message)
+        _state.update { it.copy(syncing = false, error = message) }
     }
 
     suspend fun setGuardianPin(
@@ -131,7 +140,10 @@ class PersonalLibraryRepository(
         withContext(Dispatchers.Default) {
             runCatching {
                 val token = scopeToken
-                require(pin.size in 4..12 && pin.all(Char::isDigit)) { "PIN 需为 4–12 位数字" }
+                // Four digits fell to a patient child in an afternoon; existing short PINs still open.
+                require(pin.size in MIN_NEW_PIN_DIGITS..12 && pin.all(Char::isDigit)) {
+                    "PIN 需为 $MIN_NEW_PIN_DIGITS–12 位数字"
+                }
                 verifyGuardian(currentPin, required = synchronized(lock) { snapshot.guardianPin != null })
                 val salt = crypto.generateVaultKey().copyOf(16)
                 val hash = crypto.deriveRecoveryKey(pin, salt, VaultCrypto.MIN_PBKDF2_ITERATIONS)
@@ -399,7 +411,9 @@ class PersonalLibraryRepository(
         if (!required) return
         val owner = synchronized(lock) { accountId }
         val key = "$PIN_ATTEMPTS_PREFIX$owner"
-        check(nowEpochMs() >= settings.getLong("$key.blocked", 0)) { "PIN 尝试过多，请一分钟后再试" }
+        val now = monotonicMs()
+        val waitUntil = pinWaitDeadline(key, now)
+        check(now >= waitUntil) { "PIN 尝试过多，请 ${(waitUntil - now + 59_999) / 60_000} 分钟后再试" }
         val stored = synchronized(lock) { snapshot.guardianPin } ?: error("请先设置家长 PIN")
         require(pin.isNotEmpty()) { "请输入家长 PIN" }
         val actual = crypto.deriveRecoveryKey(pin, stored.salt.base64UrlToBytes(), stored.iterations)
@@ -419,14 +433,37 @@ class PersonalLibraryRepository(
         if (!matches) {
             val count = settings.getInt(key, 0) + 1
             settings.putInt(key, count)
-            if (count >= 5) {
-                settings.putLong("$key.blocked", nowEpochMs() + 60_000)
+            if (count >= PIN_ATTEMPTS_PER_WAIT) {
+                // Each further round of wrong guesses waits twice as long, up to a day.
+                val waits = settings.getInt("$key.waits", 0) + 1
+                settings.putInt("$key.waits", waits)
+                settings.putLong("$key.wait_started", now)
+                settings.putLong("$key.wait_ms", pinWaitMs(waits))
                 settings.putInt(key, 0)
             }
             error("PIN 不正确")
         }
-        settings.remove(key)
-        settings.remove("$key.blocked")
+        listOf(key, "$key.blocked", "$key.waits", "$key.wait_started", "$key.wait_ms").forEach(settings::remove)
+    }
+
+    /**
+     * When the current wait ends, on [monotonicMs]: a wall-clock deadline let anyone end it by
+     * setting the clock forward. A restart resets that clock, so it starts the wait over.
+     */
+    private fun pinWaitDeadline(
+        key: String,
+        now: Long,
+    ): Long {
+        val waitMs = settings.getLong("$key.wait_ms", 0)
+        if (waitMs <= 0) return 0
+        val started =
+            settings.getLong("$key.wait_started", 0).let { recorded ->
+                if (now >= recorded) recorded else now.also { settings.putLong("$key.wait_started", it) }
+            }
+        if (now < started + waitMs) return started + waitMs
+        settings.remove("$key.wait_ms")
+        settings.remove("$key.wait_started")
+        return 0
     }
 
     private fun nextStamp(): PersonalStamp =
@@ -442,10 +479,25 @@ class PersonalLibraryRepository(
         value: PersonalSnapshot,
         progressOnly: Boolean = false,
     ) {
-        validatePersonalSnapshot(value)
-        persist(value)
-        snapshot = value
-        _state.value = _state.value.copy(error = null)
+        // 观看历史 used to stop recording for good once a thousand rows had piled up, because the
+        // tombstones of cleared history counted too. Old tombstones and the oldest history now make
+        // room; only rows a person curated still have to be tidied by hand.
+        val bounded = boundPersonalSnapshot(value, dropLiveCurated = false)
+        if (bounded == snapshot) return
+        validatePersonalSnapshot(bounded)
+        // Playback reports progress every 15 seconds, and each write encodes the whole library.
+        // Progress alone reaches settings at most once a minute; [flush], backgrounding and any
+        // other change carry the rest.
+        if (progressOnly &&
+            lastPersistAtMs != Long.MIN_VALUE &&
+            monotonicMs() - lastPersistAtMs in 0 until PROGRESS_PERSIST_INTERVAL_MS
+        ) {
+            progressUnsaved = true
+        } else {
+            persist(bounded)
+        }
+        snapshot = bounded
+        _state.update { it.copy(error = null) }
         publish(pending = true)
         if (!progressOnly) _contentRevision.value++
     }
@@ -457,7 +509,7 @@ class PersonalLibraryRepository(
             true
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            _state.value = _state.value.copy(error = error.message ?: "个人数据保存失败，原有记录已保留")
+            _state.update { it.copy(error = error.message ?: "个人数据保存失败，原有记录已保留") }
             false
         }
 
@@ -471,8 +523,9 @@ class PersonalLibraryRepository(
         if (_policy.value != nextPolicy || publishedPin != snapshot.guardianPin) generation++
         publishedPin = snapshot.guardianPin
         _policy.value = nextPolicy
-        _state.value =
-            _state.value.copy(
+        // beginSync and failSync write without the lock, so every write here is a compare-and-set.
+        _state.update {
+            it.copy(
                 activeProfile = active,
                 profiles = profiles,
                 favorites =
@@ -494,17 +547,46 @@ class PersonalLibraryRepository(
                 pendingSync = pending,
                 lastSyncedAtEpochMs = settings.getLongOrNull(lastSyncKey()),
             )
+        }
         observers.toList().forEach { it() }
     }
 
+    /** Writes held-back playback progress now: playback ended, or the app left the foreground. */
+    fun flush() =
+        synchronized(lock) {
+            if (progressUnsaved) persist(snapshot)
+        }
+
     private fun persist(value: PersonalSnapshot) {
         settings.putString(dataKey(), json.encodeToString(value))
+        progressUnsaved = false
+        lastPersistAtMs = monotonicMs()
     }
 
-    private fun load(): PersonalSnapshot =
-        settings.getStringOrNull(dataKey())?.let { raw ->
-            runCatching { json.decodeFromString<PersonalSnapshot>(raw).also(::validatePersonalSnapshot) }.getOrNull()
-        } ?: PersonalSnapshot()
+    /**
+     * A stored library that no longer reads used to be replaced by an empty one, and the next save
+     * overwrote the original. What still parses is repaired the way a merge repairs a remote
+     * document; what does not is set aside under a quarantine key before starting over.
+     */
+    private fun load(): PersonalSnapshot {
+        val raw = settings.getStringOrNull(dataKey()) ?: return PersonalSnapshot()
+        return runCatching {
+            boundPersonalSnapshot(
+                sanitizePersonalSnapshot(json.decodeFromString<PersonalSnapshot>(raw)),
+                dropLiveCurated = true,
+            ).also(::validatePersonalSnapshot)
+        }.getOrElse { error ->
+            if (error is CancellationException) throw error
+            runCatching { settings.putString("${dataKey()}.quarantine", raw) }
+            AppLog.warning(
+                category = "personal",
+                event = "library_quarantined",
+                message = "Stored personal library could not be read; kept aside and started empty",
+                attributes = mapOf("reason" to (error::class.simpleName ?: "unknown")),
+            )
+            PersonalSnapshot()
+        }
+    }
 
     private fun dataKey(owner: String = accountId): String = "personal.library.v1.${owner.ifEmpty { "anonymous" }}"
 
@@ -520,5 +602,11 @@ class PersonalLibraryRepository(
         const val DEVICE_KEY = "personal.device.v1"
         const val OWNER_KEY = "personal.owner.v1"
         const val PIN_ATTEMPTS_PREFIX = "personal.pin_attempts.v1."
+        const val PROGRESS_PERSIST_INTERVAL_MS = 60_000L
+        const val MIN_NEW_PIN_DIGITS = 6
+        const val PIN_ATTEMPTS_PER_WAIT = 5
+        const val MAX_PIN_WAIT_MS = 24 * 60 * 60_000L
+
+        fun pinWaitMs(waits: Int): Long = (60_000L shl (waits - 1).coerceIn(0, 20)).coerceAtMost(MAX_PIN_WAIT_MS)
     }
 }

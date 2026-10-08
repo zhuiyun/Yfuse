@@ -1,10 +1,13 @@
 package com.yfuse.core.remote
 
 import com.yfuse.core.sync.AccountRequiredForWatchException
+import com.yfuse.core.sync.WatchAccessRenewal
 import com.yfuse.core.sync.backoffDelayMs
+import com.yfuse.core.sync.handles
 import com.yfuse.core.sync.isWatchAuthenticationFailure
 import com.yfuse.watch.protocol.RemoteControlKey
 import com.yfuse.watch.protocol.WatchProtocol
+import com.yfuse.watch.protocol.WatchWireCredential
 import com.yfuse.watch.protocol.WatchWireMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -63,6 +66,8 @@ class PhoneRemoteClient(
     private val retryDelayMs: (Int) -> Long = ::backoffDelayMs,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     identity: () -> RemotePhoneIdentity? = ::localRemotePhoneIdentity,
+    /** Where the tokens televisions' admissions gave this phone are kept between runs. */
+    private val pairingTokens: RemotePairingTokenStore = RemotePairingTokenStore.None,
 ) {
     private val me by lazy { runCatching(identity).getOrNull() }
     private val _state = MutableStateFlow<PhoneRemoteState>(PhoneRemoteState.Idle)
@@ -136,19 +141,28 @@ class PhoneRemoteClient(
         val relay = url ?: throw RemoteControlRefusedException("手机遥控服务地址无效", supported = false)
         val token = accessToken() ?: throw AccountRequiredForWatchException()
         val self = me
+        val deviceId = self?.deviceId?.takeIf(WatchProtocol::isStableRemoteDeviceId)
         connector.connect(relay, token) { channel ->
             channel.send(
                 WatchWireMessage(
                     type = "remoteJoin",
                     remoteSessionId = target,
                     // An id the relay would refuse would cost the whole join; better unnamed than that.
-                    remoteDeviceId = self?.deviceId?.takeIf(WatchProtocol::isStableRemoteDeviceId),
+                    remoteDeviceId = deviceId,
                     name = self?.name,
+                    capabilities = PHONE_CAPABILITIES,
+                    // Proves this is the phone the television let in, not another claiming its id.
+                    credential =
+                        deviceId
+                            ?.let { pairingTokens.load(target) }
+                            ?.let { WatchWireCredential(pairingToken = it) },
                 ),
             )
             coroutineScope {
                 var joined = false
                 var sending: Job? = null
+                val renewal = WatchAccessRenewal(token, accessToken, refreshAccessToken)
+                val renewing = launch { renewal.run { channel.send(it) } }
 
                 fun letIn() {
                     if (sending != null) return
@@ -176,19 +190,27 @@ class PhoneRemoteClient(
                                     if (asked) _state.value = PhoneRemoteState.Waiting else letIn()
                                 }
                             }
-                            "remoteAdmitted" -> if (joined) letIn()
+                            "remoteAdmitted" ->
+                                if (joined) {
+                                    message.credential?.pairingToken?.let { pairingTokens.save(target, it) }
+                                    letIn()
+                                }
+                            "reauthenticated" -> renewal.renewed(message.authExpiresAtMs, message.serverAtMs)
                             "remoteDisconnected" ->
                                 throw RemoteControlRefusedException(message.message ?: "电视已断开手机遥控")
                             // Before joining an error is the relay's answer; after, only a vanished
                             // television ends the session — pacing and a stray key are not worth it.
                             "error" ->
-                                if (!joined || message.errorCode in SESSION_ENDING_ERRORS) {
+                                if (!renewal.handles(message) &&
+                                    (!joined || message.errorCode in SESSION_ENDING_ERRORS)
+                                ) {
                                     throw message.remoteRefusal("无法连接电视")
                                 }
                         }
                     }
                 } finally {
                     sending?.cancel()
+                    renewing.cancel()
                 }
             }
         }
@@ -214,6 +236,8 @@ class PhoneRemoteClient(
         const val KEY_BUFFER = 16
         const val MAX_RECONNECTS = 3
         val SESSION_ENDING_ERRORS = setOf("remote_unavailable", "remote_not_joined")
+        val PHONE_CAPABILITIES =
+            listOf(WatchProtocol.CAPABILITY_REAUTHENTICATE, WatchProtocol.CAPABILITY_REMOTE_PAIRING_TOKEN)
     }
 }
 

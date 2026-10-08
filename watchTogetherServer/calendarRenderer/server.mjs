@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import { chromium } from "playwright";
+import { isSafeRequestUrl, startEgressProxy } from "./network-guard.mjs";
 import { RenderScheduler, withRenderContext, cancelOnDisconnect } from "./render-scheduler.mjs";
 
 const bindHost = process.env.YFUSE_RENDERER_HOST || "127.0.0.1";
@@ -41,23 +42,6 @@ function isAllowedUrl(value) {
     if (parsed.protocol !== "https:" || parsed.username || parsed.password) return false;
     const host = parsed.hostname.toLowerCase();
     return allowedHostSuffixes.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
-  } catch {
-    return false;
-  }
-}
-
-function isPrivateNetworkHost(hostname) {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host === "::1" || host === "0.0.0.0" || host.endsWith(".local")) return true;
-  if (/^(?:127|10)\./.test(host) || /^169\.254\./.test(host) || /^192\.168\./.test(host)) return true;
-  const private172 = host.match(/^172\.(\d{1,3})\./);
-  return private172 ? Number(private172[1]) >= 16 && Number(private172[1]) <= 31 : false;
-}
-
-function isSafeSubresourceUrl(value) {
-  try {
-    const parsed = new URL(value);
-    return ["http:", "https:"].includes(parsed.protocol) && !isPrivateNetworkHost(parsed.hostname);
   } catch {
     return false;
   }
@@ -128,9 +112,25 @@ function normalizeWeiboTimelinePost(post) {
   return { mblogid: String(postId), text_raw: text, pics: pictures };
 }
 
+// Every connection Chromium makes, redirects included, goes through this proxy, which resolves
+// the destination, refuses private addresses and connects to the address it checked. Loopback is
+// proxied too (Chromium would otherwise go direct), and non-proxied UDP (WebRTC, QUIC) is off.
+const egressProxy = await startEgressProxy({
+  onBlocked: (host) => {
+    if (debug) process.stderr.write(`renderer egress blocked: ${host}\n`);
+  }
+});
+// The Chromium sandbox stays on: the container runs as a non-root user under Playwright's seccomp
+// profile (see compose.yaml), which is what the sandbox needs to start.
 const launchOptions = {
   headless,
-  args: process.platform === "linux" ? ["--disable-dev-shm-usage", "--no-sandbox"] : []
+  proxy: { server: `http://127.0.0.1:${egressProxy.address().port}`, bypass: "<-loopback>" },
+  args: [
+    ...(process.platform === "linux" ? ["--disable-dev-shm-usage"] : []),
+    "--disable-quic",
+    "--force-webrtc-ip-handling-policy",
+    "--webrtc-ip-handling-policy=disable_non_proxied_udp"
+  ]
 };
 if (browserChannel) launchOptions.channel = browserChannel;
 const browser = await chromium.launch(launchOptions);
@@ -192,7 +192,8 @@ async function renderPage(url, requestSignal) {
       await page.route("**/*", async (route) => {
         const requestUrl = route.request().url();
         const resourceType = route.request().resourceType();
-        if (!isSafeSubresourceUrl(requestUrl)) {
+        // A first refusal before the proxy's: unknown names and private addresses are not fetched.
+        if (!(await isSafeRequestUrl(requestUrl))) {
           if (debug) process.stderr.write(`renderer blocked unsafe subresource: ${resourceType}\n`);
           return route.abort();
         }
@@ -282,6 +283,7 @@ server.listen(port, bindHost, () => {
 async function shutdown() {
   server.close();
   await browser.close();
+  egressProxy.close();
   process.exit(0);
 }
 

@@ -16,6 +16,11 @@ data class EngineTrack(
     val language: String?,
     val selected: Boolean,
     val codec: String? = null,
+    /**
+     * The container's own forced (foreign-dialogue-only) flag; null when the engine cannot tell,
+     * and only then may the label be consulted.
+     */
+    val forced: Boolean? = null,
 ) {
     val requiresStyledRenderer: Boolean
         get() =
@@ -193,6 +198,13 @@ data class PlaybackDiagnostics(
     val startupTimeMs: Long = 0L,
     /** Why playback is not using the original direct-play path. */
     val fallbackReason: String? = null,
+    /**
+     * The server transcode in use is the one the viewer asked for (转码播放), the only request that
+     * may take a local Dolby title off its original file. Never read from [fallbackReason]'s words.
+     */
+    val viewerRequestedTranscode: Boolean = false,
+    /** A cast receiver is playing; this device reports the receiver, never its own output. */
+    val remoteCast: Boolean = false,
     val bitrateBitsPerSecond: Long = 0L,
     val frameRate: Float = 0f,
     /** Renderer output per elapsed second, distinct from the source's [frameRate]. */
@@ -462,6 +474,13 @@ interface VideoEngine {
     /** Temporarily prevents automatic queue advance after the current entry finishes. */
     fun setPauseAtEndOfCurrentItem(enabled: Boolean) = Unit
 
+    /**
+     * 熄屏继续播放声音: stop decoding the picture nobody can see while the sound plays on, and bring
+     * it back when the player is visible again. Engines that already let go of video with their
+     * Surface need not do anything.
+     */
+    fun setVideoSuspended(suspended: Boolean) = Unit
+
     /** Jumps to another entry in the queue — next/previous and the episode list. */
     fun selectItem(index: Int)
 
@@ -485,8 +504,13 @@ interface VideoEngine {
      * decode is the single most common way playback fails, and on the native engines it
      * used to be a dead end: no automatic retry and, because the manual 转码播放 control was
      * gated on the engine being ExoPlayer, no way to ask for one either.
+     *
+     * [reason] is shown in diagnostics only; [viewerRequested] marks the viewer's own 转码播放.
      */
-    fun switchToTranscode(reason: String? = null): Boolean = false
+    fun switchToTranscode(
+        reason: String? = null,
+        viewerRequested: Boolean = false,
+    ): Boolean = false
 
     /**
      * Adds entries to the end of the queue without disturbing what is playing.

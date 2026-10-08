@@ -488,18 +488,23 @@ class PlaybackSyncManagerTest {
         val accountClient =
             createAccountClient(
                 MockEngine { request ->
-                    check(request.url.encodedPath == "/api/v1/auth/register")
-                    respondJson(
-                        Json.encodeToString(
-                            AuthResponse(
-                                user = AccountUser("account", "viewer_01", "viewer", 1, 0L, 0L),
-                                accessToken = "access",
-                                accessExpiresAtEpochMs = Long.MAX_VALUE,
-                                refreshToken = "refresh",
-                                refreshExpiresAtEpochMs = Long.MAX_VALUE,
+                    if (request.url.encodedPath == "/api/v1/auth/prelogin") {
+                        // A service from before account protocol 2.
+                        respond("", HttpStatusCode.NotFound)
+                    } else {
+                        check(request.url.encodedPath == "/api/v1/auth/register")
+                        respondJson(
+                            Json.encodeToString(
+                                AuthResponse(
+                                    user = AccountUser("account", "viewer_01", "viewer", 1, 0L, 0L),
+                                    accessToken = "access",
+                                    accessExpiresAtEpochMs = Long.MAX_VALUE,
+                                    refreshToken = "refresh",
+                                    refreshExpiresAtEpochMs = Long.MAX_VALUE,
+                                ),
                             ),
-                        ),
-                    )
+                        )
+                    }
                 },
             )
         val account =

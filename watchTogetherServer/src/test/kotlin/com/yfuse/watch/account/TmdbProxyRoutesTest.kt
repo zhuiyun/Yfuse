@@ -39,6 +39,7 @@ class TmdbProxyRoutesTest {
     private fun proxy(
         token: String? = SERVER_TOKEN,
         accountAttempts: Int = TmdbProxy.TMDB_ACCOUNT_RATE_POLICY.tmdbProxyAttemptsPerWindow,
+        anonymous: TmdbAnonymousPolicy? = null,
     ) = TmdbProxy(
         token = token,
         upstream = upstream,
@@ -47,6 +48,7 @@ class TmdbProxyRoutesTest {
                 AccountRateLimitPolicy(tmdbProxyAttemptsPerWindow = accountAttempts),
             ) { clock },
         now = { clock },
+        anonymous = anonymous,
     )
 
     @AfterTest
@@ -212,6 +214,76 @@ class TmdbProxyRoutesTest {
         }
 
     @Test
+    fun signed_out_reads_use_the_same_allowlist_and_cache_and_are_paced_per_address() =
+        proxyTest(proxy(anonymous = TmdbAnonymousPolicy(perClientPerMinute = 2, missesPerMinute = 100))) { _ ->
+            val first = client.tmdb("/movie/603", token = null)
+            assertEquals(HttpStatusCode.OK, first.status)
+            assertEquals("miss", first.headers[TMDB_PROXY_CACHE_HEADER])
+            assertEquals("hit", client.tmdb("/movie/603", token = null).headers[TMDB_PROXY_CACHE_HEADER])
+            val limited = client.tmdb("/movie/603", token = null)
+            assertEquals(HttpStatusCode.TooManyRequests, limited.status)
+            assertEquals("tmdb_rate_limited", limited.errorCode())
+            assertEquals("60", limited.headers[HttpHeaders.RetryAfter])
+            // Another address has its own allowance and shares the cache.
+            val neighbour = client.tmdb("/movie/603", token = null, ip = "203.0.113.7")
+            assertEquals("hit", neighbour.headers[TMDB_PROXY_CACHE_HEADER])
+            assertEquals(
+                HttpStatusCode.Forbidden,
+                client.tmdb("/account/1/watchlist", token = null, ip = "203.0.113.8").status,
+            )
+            // A bearer that is present but bad is still the account path's 401.
+            assertEquals(HttpStatusCode.Unauthorized, client.tmdb("/movie/603", token = "not-a-session").status)
+            assertEquals(1, upstreamCalls.size)
+        }
+
+    @Test
+    fun signed_out_ipv6_clients_are_paced_per_64() =
+        proxyTest(proxy(anonymous = TmdbAnonymousPolicy(perClientPerMinute = 1, missesPerMinute = 100))) { _ ->
+            assertEquals(HttpStatusCode.OK, client.tmdb("/movie/603", token = null, ip = "2001:db8:1:2::10").status)
+            assertEquals(
+                HttpStatusCode.TooManyRequests,
+                client.tmdb("/movie/603", token = null, ip = "2001:db8:1:2:ffff::99").status,
+            )
+            assertEquals(HttpStatusCode.OK, client.tmdb("/movie/603", token = null, ip = "2001:db8:1:3::10").status)
+            assertEquals(tmdbAnonymousClientKey("2001:db8:1:2::1"), tmdbAnonymousClientKey("2001:db8:1:2:abcd::1"))
+            assertEquals("198.51.100.4", tmdbAnonymousClientKey("198.51.100.4"))
+        }
+
+    @Test
+    fun signed_out_misses_share_one_budget_while_cached_answers_stay_free() =
+        proxyTest(proxy(anonymous = TmdbAnonymousPolicy(perClientPerMinute = 100, missesPerMinute = 2))) { _ ->
+            assertEquals(HttpStatusCode.OK, client.tmdb("/movie/1", token = null, ip = "203.0.113.1").status)
+            assertEquals(HttpStatusCode.OK, client.tmdb("/movie/2", token = null, ip = "203.0.113.2").status)
+            val spent = client.tmdb("/movie/3", token = null, ip = "203.0.113.3")
+            assertEquals(HttpStatusCode.TooManyRequests, spent.status)
+            assertEquals("60", spent.headers[HttpHeaders.RetryAfter])
+            assertEquals(
+                "hit",
+                client.tmdb("/movie/1", token = null, ip = "203.0.113.3").headers[TMDB_PROXY_CACHE_HEADER],
+            )
+            assertEquals(2, upstreamCalls.size)
+            clock += 60_000L
+            assertEquals(HttpStatusCode.OK, client.tmdb("/movie/3", token = null, ip = "203.0.113.3").status)
+        }
+
+    @Test
+    fun signed_out_reads_can_be_switched_off() =
+        proxyTest(
+            proxy(
+                anonymous =
+                    TmdbAnonymousPolicy.fromEnvironment { name ->
+                        "off".takeIf {
+                            name ==
+                                "TMDB_ANONYMOUS"
+                        }
+                    },
+            ),
+        ) { _ ->
+            assertEquals(HttpStatusCode.Unauthorized, client.tmdb("/movie/603", token = null).status)
+            assertTrue(upstreamCalls.isEmpty())
+        }
+
+    @Test
     fun the_server_token_never_reaches_a_response_or_the_log() {
         val log = ByteArrayOutputStream()
         val original = System.err
@@ -260,10 +332,11 @@ class TmdbProxyRoutesTest {
     private suspend fun HttpClient.tmdb(
         pathAndQuery: String,
         token: String?,
+        ip: String = CLIENT_IP,
     ): HttpResponse =
         get("/api/v1/tmdb$pathAndQuery") {
             header("X-Forwarded-Proto", "https")
-            header("X-Forwarded-For", CLIENT_IP)
+            header("X-Forwarded-For", ip)
             token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
         }
 

@@ -115,7 +115,7 @@ class PersonalCenterStoreTest {
             assertTrue(store.state.settingPin)
 
             store.accept(PersonalCenterIntent.SaveGuardianPin(currentPin = "", newPin = "12"))
-            assertEquals("PIN 需为 4–12 位数字", store.await { it.dialogError != null }.dialogError)
+            assertEquals("PIN 需为 6–12 位数字", store.await { it.dialogError != null }.dialogError)
             assertTrue(store.state.settingPin)
 
             store.accept(PersonalCenterIntent.SaveGuardianPin(currentPin = "", newPin = PIN))

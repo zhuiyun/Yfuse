@@ -18,6 +18,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
+import io.ktor.util.AttributeKey
 import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
@@ -36,17 +37,24 @@ internal fun Route.accountRoutes(
     tmdbProxyRoutes(backend, rateLimiter)
     route("/api/v1") {
         route("/auth") {
+            post("/prelogin") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.Prelogin) {
+                    val request = call.receiveLimitedJson<PreloginRequest>()
+                    call.respondLimitedJson(backend.execute { prelogin(request) })
+                }
+            }
             post("/register") {
                 call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.Credentials) {
                     val request = call.receiveLimitedJson<RegisterRequest>()
-                    val response = backend.execute { register(request) }
+                    val response = backend.executeCredential { register(request) }
                     call.respondLimitedJson(response, HttpStatusCode.Created)
                 }
             }
             post("/login") {
                 call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.Credentials) {
                     val request = call.receiveLimitedJson<LoginRequest>()
-                    val response = backend.execute { login(request) }
+                    val client = call.attributes.getOrNull(AccountClientIdentityKey)
+                    val response = backend.executeCredential { login(request, client) }
                     call.respondLimitedJson(response)
                 }
             }
@@ -118,7 +126,7 @@ internal fun Route.accountRoutes(
                 call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.PasswordChange) {
                     val accessToken = call.requireBearerToken()
                     val request = call.receiveLimitedJson<DeleteAccountRequest>()
-                    backend.execute { deleteAccount(accessToken, request) }
+                    backend.executeCredential { deleteAccount(accessToken, request) }
                     call.respond(HttpStatusCode.NoContent)
                 }
             }
@@ -134,14 +142,43 @@ internal fun Route.accountRoutes(
                 call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.PasswordChange) {
                     val accessToken = call.requireBearerToken()
                     val request = call.receiveLimitedJson<ChangePasswordRequest>()
-                    val response = backend.execute { changePassword(accessToken, request) }
+                    val response = backend.executeCredential { changePassword(accessToken, request) }
+                    call.respondLimitedJson(response)
+                }
+            }
+            post("/rekey") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.PasswordChange) {
+                    val accessToken = call.requireBearerToken()
+                    val request = call.receiveLimitedJson<RekeyRequest>()
+                    val response = backend.executeCredential { rekey(accessToken, request) }
+                    // Records under the retired key can never be read again. Push drops them as
+                    // well, so a failure here only delays the cleanup.
+                    response.vault?.let { vault ->
+                        runCatching {
+                            backend.execute {
+                                PlaybackRelayStoreProvider.instance.purgeKeyVersionsBelow(
+                                    response.user.id,
+                                    vault.keyVersion,
+                                )
+                            }
+                        }.onFailure { call.application.log.warn("Playback relay cleanup after rekey failed") }
+                    }
                     call.respondLimitedJson(response)
                 }
             }
             get("/sync") {
                 call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.SyncRead) {
                     val accessToken = call.requireBearerToken()
-                    call.respondLimitedJson(backend.execute { getSync(accessToken) })
+                    val knownVersion =
+                        call.request.queryParameters["knownVersion"]?.let { raw ->
+                            raw.toLongOrNull()?.takeIf { it > 0L }
+                                ?: throw AccountServiceException(
+                                    AccountProblem.InvalidRequest,
+                                    "sync_version_invalid",
+                                    "同步版本无效",
+                                )
+                        }
+                    call.respondLimitedJson(backend.execute { getSync(accessToken, knownVersion) })
                 }
             }
             put("/sync") {
@@ -190,6 +227,7 @@ internal fun Route.accountRoutes(
                                     userId = account.userId,
                                     request = request,
                                     nowEpochMs = System.currentTimeMillis(),
+                                    keyVersion = playbackKeyVersion(account.userId),
                                 )
                             }
                         } catch (_: IllegalArgumentException) {
@@ -224,9 +262,10 @@ internal suspend fun ApplicationCall.handleAccountEndpoint(
                             forwardedForValues = request.headers.getAll("X-Forwarded-For"),
                         )
                 ) {
-                    is ClientIdentityResolution.Resolved -> result.value
+                    is ClientIdentityResolution.Resolved -> rateLimitIdentity(result.value)
                     ClientIdentityResolution.InvalidForwardedFor -> throw InvalidForwardedForException()
                 }
+            attributes.put(AccountClientIdentityKey, clientIdentity)
             when (val decision = rateLimiter.check(clientIdentity, rateLimitBucket)) {
                 RateLimitDecision.Allowed -> Unit
                 is RateLimitDecision.Limited -> throw RateLimitedException(decision.retryAfterSeconds)
@@ -249,6 +288,7 @@ internal suspend fun ApplicationCall.handleAccountEndpoint(
                 AccountProblem.InvitationInvalid -> HttpStatusCode.Forbidden
                 AccountProblem.CurrentPasswordInvalid -> HttpStatusCode.Forbidden
                 AccountProblem.Forbidden -> HttpStatusCode.Forbidden
+                AccountProblem.ClientUpgradeRequired -> HttpStatusCode.Forbidden
             }
         if (status == HttpStatusCode.Unauthorized) {
             response.headers.append(HttpHeaders.WWWAuthenticate, "Bearer")
@@ -440,6 +480,9 @@ private class RateLimitedException(
 internal class ResponseTooLargeException : RuntimeException()
 
 private const val MAX_AUTHORIZATION_HEADER_BYTES = 256
+
+/** The caller's rate-limit identity, for handlers that limit by it as well (sign-in failures). */
+internal val AccountClientIdentityKey = AttributeKey<String>("yfuse.account.client")
 
 // Request bodies tolerate fields this build does not know: the APK and this service are deployed
 // independently, and rejecting a newer client's optional field as `invalid_json` locked every

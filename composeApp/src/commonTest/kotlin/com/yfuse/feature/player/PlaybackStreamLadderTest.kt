@@ -6,17 +6,17 @@ import kotlin.test.assertEquals
 
 /** The stream ladder inside Exo, mpv and MDK: the original file, the HLS transcode, the MP4. */
 class PlaybackStreamLadderTest {
-    private val manualRequest = "用户手动选择服务器转码"
+    private val manualRequest = true
 
     private fun assertEveryEngine(
         expected: PlaybackStreamStep,
         sets: StreamSets,
         item: PlayerMediaItem?,
-        reason: String? = null,
+        viewerRequested: Boolean = false,
     ) = forEachFallbackLadder { ladder ->
-        assertEquals(expected, ladder.exoNext(sets, item, reason), "exo")
-        assertEquals(expected, ladder.mpvNext(sets, item, reason), "mpv")
-        assertEquals(expected, ladder.mdkNext(sets, item, reason), "mdk")
+        assertEquals(expected, ladder.exoNext(sets, item, viewerRequested), "exo")
+        assertEquals(expected, ladder.mpvNext(sets, item, viewerRequested), "mpv")
+        assertEquals(expected, ladder.mdkNext(sets, item, viewerRequested), "mdk")
     }
 
     @Test
@@ -106,7 +106,6 @@ class PlaybackStreamLadderTest {
     fun a_local_dolby_original_leaves_only_on_the_viewers_own_request() {
         for (dolby in listOf(ladderItem(dolbyVision = true), ladderItem(dolbyAtmos = true))) {
             assertEveryEngine(PlaybackStreamStep.Exhausted, StreamSets.original, dolby)
-            assertEveryEngine(PlaybackStreamStep.Exhausted, StreamSets.original, dolby, "解码失败")
             assertEveryEngine(PlaybackStreamStep.Transcode, StreamSets.original, dolby, manualRequest)
         }
         // A disc image is not decoded locally as Dolby, so it is no exception.

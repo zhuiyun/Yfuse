@@ -17,6 +17,7 @@ import com.yfuse.core2.api.invalidateOutputEvidence
 import com.yfuse.core2.demux.shownVideoSize
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -49,7 +50,8 @@ internal class AndroidNativeTunnelYPlayer(
     private val allowAudioPassthrough: Boolean = true,
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
 ) : YPlayer,
-    AndroidSerializedPlayerRelease {
+    AndroidSerializedPlayerRelease,
+    AndroidVideoOutputDetach {
     private val mutableState =
         MutableStateFlow(
             YPlayerState(
@@ -102,6 +104,14 @@ internal class AndroidNativeTunnelYPlayer(
         if (released || output != null && output !is AndroidSurfaceVideoOutput) return false
         send(Command.SetVideoOutput(output as AndroidSurfaceVideoOutput?))
         return true
+    }
+
+    override fun detachVideoOutput(detached: CompletableDeferred<Unit>) {
+        if (released) {
+            detached.complete(Unit)
+            return
+        }
+        send(Command.SetVideoOutput(null, detached))
     }
 
     override fun play() {
@@ -530,7 +540,7 @@ internal class AndroidNativeTunnelYPlayer(
                                         } else {
                                             mutableState.value.positionMs * MICROS_PER_MILLISECOND
                                         }
-                                    session.close()
+                                    session.close().also { command.detached?.complete(Unit) }
                                     prepared = false
                                     mutableState.updateState {
                                         it.copy(
@@ -619,6 +629,8 @@ internal class AndroidNativeTunnelYPlayer(
 
         data class SetVideoOutput(
             val output: AndroidSurfaceVideoOutput?,
+            /** Completed once the session no longer renders into the previous Surface. */
+            val detached: CompletableDeferred<Unit>? = null,
         ) : Command
 
         data class SelectItem(

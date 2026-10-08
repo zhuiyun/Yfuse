@@ -109,6 +109,17 @@ class PlaybackPreferencesTest {
     }
 
     @Test
+    fun background_audio_defaults_off_and_persists_on() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertFalse(first.backgroundAudio.value)
+        first.setBackgroundAudio(true)
+
+        assertTrue(PlaybackPreferences(settings).backgroundAudio.value)
+    }
+
+    @Test
     fun playback_output_preferences_default_off_and_persist() {
         val settings = MapSettings()
         val first = PlaybackPreferences(settings)

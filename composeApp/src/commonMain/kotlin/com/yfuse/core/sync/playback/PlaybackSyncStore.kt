@@ -4,6 +4,7 @@ import com.russhwolf.settings.Settings
 import com.yfuse.core.logging.AppLog
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import java.util.TreeMap
 import kotlin.random.Random
 
 class PlaybackSyncStore(
@@ -65,6 +66,35 @@ class PlaybackSyncStore(
             settings.remove(KEY_SERVER_APPLIES)
             settings.putLong(KEY_CURSOR, 0L)
             settings.putString(KEY_ACCOUNT_USER_ID, userId)
+            true
+        }
+
+    /**
+     * Binds the relay partition to the account's vault key version. A re-key makes every record
+     * the relay held unreadable (and the service drops them), and the opaque entity keys change
+     * with the key, so the cursor restarts and every document is uploaded again under the new key.
+     * Returns true when that reset happened.
+     */
+    fun bindVaultKey(keyVersion: Int): Boolean =
+        synchronized(lock) {
+            require(keyVersion > 0)
+            val previous = settings.getIntOrNull(KEY_VAULT_KEY_VERSION)
+            if (previous == keyVersion) return@synchronized false
+            settings.putInt(KEY_VAULT_KEY_VERSION, keyVersion)
+            // An install that never recorded a version has only ever used the first key.
+            if (previous == null && keyVersion == FIRST_VAULT_KEY_VERSION) return@synchronized false
+            documents =
+                documents
+                    .map { stored ->
+                        if (stored.mutationId.startsWith(SERVER_MUTATION_PREFIX)) {
+                            // Mirrors of media-server progress never travel through the relay.
+                            stored.copy(remoteCursors = emptyMap())
+                        } else {
+                            stored.copy(remoteCursors = emptyMap(), dirty = true, mutationId = newId("rekey"))
+                        }
+                    }.toMutableList()
+            persistLocked()
+            settings.putLong(KEY_CURSOR, 0L)
             true
         }
 
@@ -275,53 +305,71 @@ class PlaybackSyncStore(
         durationMs: Long = 0L,
     ): Boolean =
         synchronized(lock) {
-            if (activeProfileId != com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE) return@synchronized false
-            if (serverId.isBlank() || itemId.isBlank()) return@synchronized false
-            val normalizedPosition = positionMs.coerceAtLeast(0L)
-            if (!played && normalizedPosition == 0L) return@synchronized false
-            val alreadyLocal =
+            seedServerProgressLocked(
+                serverId,
+                ServerProgressInput(itemId, positionMs, played, lastPlayedAtEpochMs, durationMs),
+                pull = null,
+            )
+        }
+
+    private fun seedServerProgressLocked(
+        serverId: String,
+        input: ServerProgressInput,
+        pull: ServerPullIndex?,
+    ): Boolean {
+        val itemId = input.itemId
+        if (activeProfileId != com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE) return false
+        if (serverId.isBlank() || itemId.isBlank()) return false
+        val normalizedPosition = input.positionMs.coerceAtLeast(0L)
+        if (!input.played && normalizedPosition == 0L) return false
+        val alreadyLocal =
+            if (pull != null) {
+                pull.positionOf(itemId) >= 0
+            } else {
                 documents.any {
                     it.document.state.profileId == activeProfileId &&
                         it.document.state.serverId == serverId &&
                         it.document.state.serverItemId == itemId
                 }
-            if (alreadyLocal) return@synchronized false
-            val playedAt = lastPlayedAtEpochMs?.takeIf { it > 0L } ?: 0L
-            if (documents.size >= MAX_LOCAL_DOCUMENTS &&
-                playedAt <= documents.minOf { it.document.state.lastPlayedAtEpochMs }
-            ) {
-                return@synchronized false
             }
-            val state =
-                PlaybackStateRecord(
-                    profileId = activeProfileId,
-                    mediaKey = "emby:$itemId",
-                    positionMs = normalizedPosition,
-                    durationMs = durationMs.coerceAtLeast(0L),
-                    played = played,
-                    lastPlayedAtEpochMs = playedAt,
-                    deviceId = deviceId,
-                    serverId = serverId,
-                    serverItemId = itemId,
-                    revision = 1L,
-                    mutationKind =
-                        if (played) {
-                            PlaybackMutationKind.AutoFinished
-                        } else {
-                            PlaybackMutationKind.AutoProgress
-                        },
-                )
-            replaceLocked(
-                index = -1,
-                value =
-                    StoredPlaybackDocument(
-                        document = PlaybackSyncDocument(state = state),
-                        dirty = false,
-                        mutationId = newId(SERVER_SEED_MUTATION),
-                    ),
-            )
-            true
+        if (alreadyLocal) return false
+        val playedAt = input.lastPlayedAtEpochMs?.takeIf { it > 0L } ?: 0L
+        if (documents.size >= MAX_LOCAL_DOCUMENTS &&
+            playedAt <= (pull?.oldestPlayedAt() ?: documents.minOf { it.document.state.lastPlayedAtEpochMs })
+        ) {
+            return false
         }
+        val state =
+            PlaybackStateRecord(
+                profileId = activeProfileId,
+                mediaKey = "emby:$itemId",
+                positionMs = normalizedPosition,
+                durationMs = input.durationMs.coerceAtLeast(0L),
+                played = input.played,
+                lastPlayedAtEpochMs = playedAt,
+                deviceId = deviceId,
+                serverId = serverId,
+                serverItemId = itemId,
+                revision = 1L,
+                mutationKind =
+                    if (input.played) {
+                        PlaybackMutationKind.AutoFinished
+                    } else {
+                        PlaybackMutationKind.AutoProgress
+                    },
+            )
+        replaceLocked(
+            index = -1,
+            value =
+                StoredPlaybackDocument(
+                    document = PlaybackSyncDocument(state = state),
+                    dirty = false,
+                    mutationId = newId(SERVER_SEED_MUTATION),
+                ),
+        )
+        pull?.appended(documents.lastIndex)
+        return true
+    }
 
     /**
      * Takes the media server's progress for an item as the truth wherever this device has
@@ -348,69 +396,74 @@ class PlaybackSyncStore(
         durationMs: Long = 0L,
     ): Boolean =
         synchronized(lock) {
-            if (activeProfileId != com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE) return@synchronized false
-            if (serverId.isBlank() || itemId.isBlank()) return@synchronized false
-            val index =
-                documents.indexOfLast {
-                    it.document.state.profileId == activeProfileId &&
-                        it.document.state.serverId == serverId &&
-                        it.document.state.serverItemId == itemId
-                }
-            if (index < 0) {
-                return@synchronized seedServerProgressIfAbsent(
-                    serverId,
-                    itemId,
-                    positionMs,
-                    played,
-                    lastPlayedAtEpochMs,
-                    durationMs,
-                )
-            }
-            val stored = documents[index]
-            if (stored.dirty) return@synchronized false
-            val normalizedPosition = positionMs.coerceAtLeast(0L)
-            val current = stored.document.state
-            val serverPlayedAt = lastPlayedAtEpochMs?.takeIf { it > 0L }
-            val imported = stored.mutationId.startsWith(SERVER_MUTATION_PREFIX)
-            if (!imported) {
-                val serverSawLaterPlayback =
-                    if (serverPlayedAt != null) {
-                        serverPlayedAt > current.lastPlayedAtEpochMs + SERVER_CLOCK_TOLERANCE_MS
-                    } else {
-                        !current.keepsShortResumeAgainst(played, normalizedPosition, durationMs)
-                    }
-                if (!serverSawLaterPlayback) return@synchronized false
-            }
-            val valuesChanged = current.positionMs != normalizedPosition || current.played != played
-            // An earlier pull dated imported records by its own clock; the server's date heals them.
-            val dateHealed = imported && serverPlayedAt != null && serverPlayedAt != current.lastPlayedAtEpochMs
-            if (!valuesChanged && !dateHealed) return@synchronized false
-            val state =
-                current.copy(
-                    positionMs = normalizedPosition,
-                    played = played,
-                    durationMs = current.durationMs.takeIf { it > 0L } ?: durationMs.coerceAtLeast(0L),
-                    lastPlayedAtEpochMs =
-                        serverPlayedAt ?: if (imported) current.lastPlayedAtEpochMs else nowEpochMs(),
-                    revision = current.revision + 1L,
-                    mutationKind =
-                        if (played) {
-                            PlaybackMutationKind.AutoFinished
-                        } else {
-                            PlaybackMutationKind.AutoProgress
-                        },
-                )
-            replaceLocked(
-                index = index,
-                value =
-                    stored.copy(
-                        document = stored.document.copy(state = state),
-                        dirty = false,
-                        mutationId = newId(SERVER_ABSORB_MUTATION),
-                    ),
+            absorbServerProgressLocked(
+                serverId,
+                ServerProgressInput(itemId, positionMs, played, lastPlayedAtEpochMs, durationMs),
+                pull = null,
             )
-            true
         }
+
+    private fun absorbServerProgressLocked(
+        serverId: String,
+        input: ServerProgressInput,
+        pull: ServerPullIndex?,
+    ): Boolean {
+        val itemId = input.itemId
+        if (activeProfileId != com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE) return false
+        if (serverId.isBlank() || itemId.isBlank()) return false
+        val index =
+            pull?.positionOf(itemId) ?: documents.indexOfLast {
+                it.document.state.profileId == activeProfileId &&
+                    it.document.state.serverId == serverId &&
+                    it.document.state.serverItemId == itemId
+            }
+        if (index < 0) return seedServerProgressLocked(serverId, input, pull)
+        val stored = documents[index]
+        if (stored.dirty) return false
+        val normalizedPosition = input.positionMs.coerceAtLeast(0L)
+        val current = stored.document.state
+        val serverPlayedAt = input.lastPlayedAtEpochMs?.takeIf { it > 0L }
+        val imported = stored.mutationId.startsWith(SERVER_MUTATION_PREFIX)
+        if (!imported) {
+            val serverSawLaterPlayback =
+                if (serverPlayedAt != null) {
+                    serverPlayedAt > current.lastPlayedAtEpochMs + SERVER_CLOCK_TOLERANCE_MS
+                } else {
+                    !current.keepsShortResumeAgainst(input.played, normalizedPosition, input.durationMs)
+                }
+            if (!serverSawLaterPlayback) return false
+        }
+        val valuesChanged = current.positionMs != normalizedPosition || current.played != input.played
+        // An earlier pull dated imported records by its own clock; the server's date heals them.
+        val dateHealed = imported && serverPlayedAt != null && serverPlayedAt != current.lastPlayedAtEpochMs
+        if (!valuesChanged && !dateHealed) return false
+        val state =
+            current.copy(
+                positionMs = normalizedPosition,
+                played = input.played,
+                durationMs = current.durationMs.takeIf { it > 0L } ?: input.durationMs.coerceAtLeast(0L),
+                lastPlayedAtEpochMs =
+                    serverPlayedAt ?: if (imported) current.lastPlayedAtEpochMs else nowEpochMs(),
+                revision = current.revision + 1L,
+                mutationKind =
+                    if (input.played) {
+                        PlaybackMutationKind.AutoFinished
+                    } else {
+                        PlaybackMutationKind.AutoProgress
+                    },
+            )
+        replaceLocked(
+            index = index,
+            value =
+                stored.copy(
+                    document = stored.document.copy(state = state),
+                    dirty = false,
+                    mutationId = newId(SERVER_ABSORB_MUTATION),
+                ),
+        )
+        pull?.replaced(stored, index)
+        return true
+    }
 
     /**
      * Jellyfin marks an item shorter than its MinResumeDurationSeconds played, at position 0,
@@ -449,16 +502,8 @@ class PlaybackSyncStore(
         batchingServerProgress = true
         serverProgressBatchChanged = false
         try {
-            progress.forEach { item ->
-                absorbServerProgress(
-                    serverId,
-                    item.itemId,
-                    item.positionMs,
-                    item.played,
-                    item.lastPlayedAtEpochMs,
-                    item.durationMs,
-                )
-            }
+            val pull = ServerPullIndex(serverId)
+            progress.forEach { item -> absorbServerProgressLocked(serverId, item, pull) }
         } finally {
             batchingServerProgress = false
             if (serverProgressBatchChanged) trimAndPersistDocumentsLocked()
@@ -832,6 +877,46 @@ class PlaybackSyncStore(
     }
 
     /**
+     * One server pull's view of [documents]: where each of the server's items sits, and how many
+     * documents carry each played-at time. A pull names every played item on the server, often
+     * thousands, and scanning every document for each of them held [lock] for seconds. Valid only
+     * while [batchingServerProgress] keeps [replaceLocked] from trimming and reordering the list.
+     */
+    private inner class ServerPullIndex(
+        private val serverId: String,
+    ) {
+        private val positions = HashMap<String, Int>()
+        private val playedAtCounts = TreeMap<Long, Int>()
+
+        init {
+            documents.indices.forEach(::appended)
+        }
+
+        /** Like indexOfLast: of two documents for one item, the later one. */
+        fun positionOf(itemId: String): Int = positions[itemId] ?: -1
+
+        fun oldestPlayedAt(): Long = playedAtCounts.firstKey()
+
+        fun appended(position: Int) {
+            val state = documents[position].document.state
+            if (state.profileId == activeProfileId && state.serverId == serverId) {
+                state.serverItemId?.let { positions[it] = position }
+            }
+            playedAtCounts.merge(state.lastPlayedAtEpochMs, 1, Int::plus)
+        }
+
+        fun replaced(
+            previous: StoredPlaybackDocument,
+            position: Int,
+        ) {
+            val before = previous.document.state.lastPlayedAtEpochMs
+            val remaining = playedAtCounts.getValue(before) - 1
+            if (remaining == 0) playedAtCounts.remove(before) else playedAtCounts[before] = remaining
+            playedAtCounts.merge(documents[position].document.state.lastPlayedAtEpochMs, 1, Int::plus)
+        }
+    }
+
+    /**
      * [deferrable] marks a write whose loss costs at most [DEFERRED_PERSIST_MAX_AGE_MS] of
      * progress. Persisting is a full re-serialization of up to [MAX_LOCAL_DOCUMENTS] documents
      * - hundreds of KB for a long-time user - and used to run on every ten-second tick. Such
@@ -963,6 +1048,8 @@ class PlaybackSyncStore(
         const val KEY_DEVICE_ID = "playback.cross_platform.device.v1"
         const val KEY_ACCOUNT_USER_ID = "playback.cross_platform.account_user.v1"
         const val KEY_SERVER_APPLIES = "playback.cross_platform.server_applies.v1"
+        const val KEY_VAULT_KEY_VERSION = "playback.cross_platform.vault_key_version.v1"
+        const val FIRST_VAULT_KEY_VERSION = 1
         const val MAX_LOCAL_DOCUMENTS = 512
 
         /** Mutation-id prefixes of records that only mirror the media server. */

@@ -87,6 +87,105 @@ internal fun parseExternalStreamUrl(input: String): ExternalStreamUrl {
 private fun String.isValidPort(): Boolean = length in 1..5 && all { it in '0'..'9' } && toInt() in 1..65_535
 
 /**
+ * Whether an http(s) [url] points at this device or the local network: loopback, private and
+ * link-local addresses, and names only a LAN resolves (`nas`, `*.local`, `*.lan`, `*.home.arpa`).
+ *
+ * Typed by the viewer, such an address is what they meant. Handed over by another app it is a
+ * request to make Yfuse fetch from inside the network on that app's behalf - a router page, another
+ * app's loopback server - so the viewer is asked first.
+ */
+internal fun externalStreamTargetsLocalNetwork(url: String): Boolean {
+    val host = externalStreamHost(url)?.lowercase()?.trimEnd('.') ?: return false
+    if (host.isEmpty()) return false
+    if (host == "localhost" || host.endsWith(".localhost")) return true
+    host.toIpv4Octets()?.let { return it.isLocalIpv4() }
+    if (':' in host) return host.isLocalIpv6()
+    return '.' !in host || LOCAL_NAME_SUFFIXES.any { host.endsWith(it) }
+}
+
+private val LOCAL_NAME_SUFFIXES = listOf(".local", ".lan", ".home", ".internal", ".intranet", ".home.arpa")
+
+/** The host of an http(s) address, without brackets, user info or port; null when there is none. */
+private fun externalStreamHost(url: String): String? {
+    val separator = url.indexOf("://")
+    if (separator <= 0) return null
+    val remainder = url.substring(separator + 3)
+    val authorityEnd = remainder.indexOfFirst { it == '/' || it == '?' || it == '#' }
+    val authority = if (authorityEnd < 0) remainder else remainder.substring(0, authorityEnd)
+    val hostAndPort = authority.substringAfterLast('@')
+    return if (hostAndPort.startsWith("[")) {
+        hostAndPort.substring(1).substringBefore(']')
+    } else {
+        hostAndPort.substringBefore(':')
+    }
+}
+
+private fun String.toIpv4Octets(): List<Int>? {
+    val parts = split('.')
+    if (parts.size != 4) return null
+    return parts.map { part -> part.toIntOrNull()?.takeIf { part.isNotEmpty() && it in 0..255 } ?: return null }
+}
+
+private fun List<Int>.isLocalIpv4(): Boolean {
+    val (a, b) = this
+    return a == 0 ||
+        a == 10 ||
+        a == 127 ||
+        (a == 100 && b in 64..127) ||
+        (a == 169 && b == 254) ||
+        (a == 172 && b in 16..31) ||
+        (a == 192 && b == 168)
+}
+
+private fun String.isLocalIpv6(): Boolean {
+    val address = substringBefore('%')
+    if (address == "::" || address == "::1") return true
+    // ::ffff:192.168.1.2 is that IPv4 address.
+    address
+        .substringAfterLast(':')
+        .toIpv4Octets()
+        ?.let { if (address.startsWith("::ffff:")) return it.isLocalIpv4() }
+    val first = address.substringBefore(':').toIntOrNull(16) ?: return false
+    // fc00::/7 unique local, fe80::/10 link local.
+    return (first and 0xFE00) == 0xFC00 || (first and 0xFFC0) == 0xFE80
+}
+
+/**
+ * Whether a media address carries a sign-in credential: an Emby/Jellyfin `api_key`, a Plex token,
+ * an access token, or a user name and password in the address itself. Handing it to another app
+ * hands over the account with it.
+ */
+internal fun mediaUrlCarriesCredential(url: String): Boolean {
+    val separator = url.indexOf("://")
+    if (separator > 0) {
+        val remainder = url.substring(separator + 3)
+        val authorityEnd = remainder.indexOfFirst { it == '/' || it == '?' || it == '#' }
+        val authority = if (authorityEnd < 0) remainder else remainder.substring(0, authorityEnd)
+        if ('@' in authority) return true
+    }
+    val query = url.substringAfter('?', missingDelimiterValue = "").substringBefore('#')
+    if (query.isEmpty()) return false
+    return query.split('&').any { parameter ->
+        val name = parameter.substringBefore('=').lowercase()
+        name in CREDENTIAL_QUERY_NAMES && parameter.substringAfter('=', missingDelimiterValue = "").isNotEmpty()
+    }
+}
+
+private val CREDENTIAL_QUERY_NAMES =
+    setOf(
+        "api_key",
+        "apikey",
+        "x-emby-token",
+        "x-mediabrowser-token",
+        "x-plex-token",
+        "access_token",
+        "accesstoken",
+        "token",
+        "auth",
+        "authorization",
+    )
+
+/**
  * The first `http(s)://` address inside shared text, or null.
  *
  * Share sheets rarely send a bare link: a title comes first, or 复制打开 follows without a space.

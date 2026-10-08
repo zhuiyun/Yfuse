@@ -21,10 +21,18 @@ Read off `watchTogetherServer/deploy/yfuse-watch.service`, which is the source o
 | Update files | `/srv/yfuse-update/yfuse` (read-only to the service) |
 | Account DB | `/var/lib/yfuse/account.db` |
 | Calendar DB | `/var/lib/yfuse/calendar.db` (public schedule revisions only) |
+| Watch state DB | `/var/lib/yfuse/watch-state.db` (rooms and 手机遥控 pairing tokens) |
 
 The repository template is named `deploy/yfuse-watch.service` for clarity, but production
 installs it as `/etc/systemd/system/yfuse-update.service` to preserve the existing unit identity.
 Do not start a second `yfuse-watch.service`; both units would contend for port 8080.
+
+Watch rooms and 手机遥控 pairing tokens are written to the watch state database every two
+seconds and on shutdown, so a deploy no longer ends every room: rooms saved within the last
+30 minutes are restored at start, members rejoin them with the capabilities their apps kept,
+and the host has the usual 20-second grace to come back before a member who was already in the
+room takes over. Only capability digests are stored, never a capability or token. Deleting the
+file is safe; it only ends the rooms.
 
 `current` is a path the unit points at rather than a build output, so the deployment shape
 is "unpack a new directory, then move `current` onto it". The steps below assume it is a
@@ -33,6 +41,13 @@ else holds either way.
 
 `ExecStart` is the launcher Gradle's `application` plugin generates, so what gets deployed
 is an `installDist` tree (`bin/` + `lib/`), not a single jar.
+
+The unit runs the JVM with `-XX:+ExitOnOutOfMemoryError`, so an out-of-memory error restarts the
+service instead of leaving it half alive, and keeps one heap dump at
+`/var/lib/yfuse/watch-oom.hprof` (never overwritten; delete it once diagnosed, and treat it as
+secret — it holds whatever was in memory). The unit is sandboxed down to the `@system-service`
+system calls; if a JDK upgrade ever trips the filter, the call fails with `EPERM` and shows in
+`journalctl -u yfuse-update`.
 
 ## Deploying
 
@@ -137,22 +152,11 @@ fi
 ```
 
 The same snapshot runs nightly once the timer is installed, so a deploy never starts from a
-box that has no recent backup:
+box that has no recent backup. See [Backups](#backups) for the one-time setup of the backup
+user, encryption and the off-host copy.
 
-```bash
-sudo install -d -o yfuse -g yfuse -m 0755 /opt/yfuse-watch/deploy
-sudo install -m 0755 watchTogetherServer/deploy/yfuse-backup.sh /opt/yfuse-watch/deploy/
-sudo install -m 0644 watchTogetherServer/deploy/yfuse-backup.service /etc/systemd/system/
-sudo install -m 0644 watchTogetherServer/deploy/yfuse-backup.timer /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now yfuse-backup.timer
-sudo systemctl start yfuse-backup.service && ls -l /var/lib/yfuse/backups
-```
-
-Set `YFUSE_BACKUP_REMOTE=user@host:/path` in `/etc/yfuse-watch/backup.env` to rsync each
-night's verified snapshots off-host; `YFUSE_BACKUP_KEEP_DAYS` (default 14) bounds the local
-set. Retain at least the newest known-good snapshot off-host according to the operator's
-recovery policy. A binary rollback does not undo a future schema/data migration; restore
-the matching verified snapshot only during an explicit recovery window.
+A binary rollback does not undo a future schema/data migration; restore the matching verified
+snapshot only during an explicit recovery window.
 
 ```bash
 sudo ln -sfn "$release" /opt/yfuse-watch/current.new
@@ -199,10 +203,18 @@ the jar. Compare it with the commit you meant to deploy before calling the relea
 test "$(curl -sS https://47.112.219.60/watch/version | jq -r .gitSha)" = "$(git rev-parse HEAD)"
 ```
 
-Process metrics are at `/watch/metrics` in Prometheus text format. Without configuration the
-endpoint only answers loopback (`curl http://127.0.0.1:8080/watch/metrics` on the box); set
-`WATCH_METRICS_TOKEN` (at least 16 characters) in `/etc/yfuse-watch/environment` to scrape it
-through Caddy with `Authorization: Bearer …`. Every HTTP request and socket lifetime is logged
+Process metrics are at `/watch/metrics` in Prometheus text format, on the box only. Caddy runs
+on the same host, so every request it forwards reaches the service from `127.0.0.1`; a loopback
+check alone would make the endpoint public. Two rules keep it private:
+
+- Caddy answers `/watch/metrics*` with `404` on every site, so it is never proxied.
+- Without `WATCH_METRICS_TOKEN` the service answers only a loopback caller that sent no proxy
+  header (`X-Forwarded-For`, `Forwarded`, `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Real-IP`):
+  `curl http://127.0.0.1:8080/watch/metrics` on the box. With `WATCH_METRICS_TOKEN` (at least 16
+  characters, in `/etc/yfuse-watch/environment`) every caller, local or not, must send
+  `Authorization: Bearer …`; use that for an on-box scraper.
+
+Every HTTP request and socket lifetime is logged
 as one structured line on stderr (`journalctl -u yfuse-update`), with the path but never the
 query string or any token.
 
@@ -213,6 +225,15 @@ bind membership to the authenticated user id, and retain authenticated resume, h
 strict wire validation, and session-generation checks. Version 4 predates mandatory account
 authentication and remains rejected. Deploy and verify the v6 server before publishing a v6
 client, and keep the minimum at v5 until the installed v5 population has aged out.
+
+Three optional capabilities ride on v6 without a version bump, and `/watch/version` lists them:
+`roomRevision` (room snapshots carry a revision; a client that lists it in `hello` gets room
+updates without an unchanged playlist), `reauthenticate` (a socket that lists it renews its
+account access in-band instead of being closed at token expiry; it needs the account store to
+keep the session id stable across refreshes) and `remotePairingToken` (手机遥控 admissions are
+enforced by the relay and bound to a token the phone presents). Apps that do not list them get
+exactly the old behaviour, and new apps work against an older relay, so the order of server and
+app releases does not matter; deploy the server first anyway, so the new apps use them at once.
 
 The legacy HTTP site may serve only old update metadata and APKs. Its `/api/*` and `/watch`
 matchers must return `426` before the catch-all reverse proxy, so access tokens and watch-room
@@ -252,3 +273,85 @@ blast radiuses apart.
 The build itself is the easy half; the gate worth having is the one that proves the new
 binary is the one now serving. `/watch/version` reports the build's git SHA, so a workflow
 can assert it after the restart instead of trusting that the upload landed.
+
+## Backups
+
+`yfuse-backup.timer` runs `deploy/yfuse-backup.sh` nightly. For each database it takes an online
+`.backup`, checks `PRAGMA integrity_check`, compresses it with gzip, encrypts it with
+[age](https://age-encryption.org) when recipients are configured, copies it off-host with rsync
+only if it is encrypted, and prunes the local set by count per database and by total size.
+
+### One-time setup
+
+The job runs as its own `yfuse-backup` user. It reads the databases through the `yfuse` group,
+and it alone owns the backup directory and the off-host SSH key: a compromised service cannot
+read that key or rewrite past backups, and the backup job cannot write the live databases.
+
+```bash
+sudo apt-get install -y sqlite3 age rsync
+sudo useradd --system --home-dir /var/lib/yfuse-backup --create-home \
+  --shell /usr/sbin/nologin --groups yfuse yfuse-backup
+sudo install -d -o yfuse-backup -g yfuse-backup -m 0700 /var/backups/yfuse
+# The service unit now uses StateDirectoryMode=0750 and UMask=0027; fix up existing files once.
+sudo chmod 0750 /var/lib/yfuse
+sudo find /var/lib/yfuse -maxdepth 1 -name '*.db*' -exec chmod g+r {} +
+
+sudo install -d -o yfuse -g yfuse -m 0755 /opt/yfuse-watch/deploy
+sudo install -m 0755 watchTogetherServer/deploy/yfuse-backup.sh /opt/yfuse-watch/deploy/
+sudo install -m 0644 watchTogetherServer/deploy/yfuse-backup.service /etc/systemd/system/
+sudo install -m 0644 watchTogetherServer/deploy/yfuse-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now yfuse-backup.timer
+sudo systemctl start yfuse-backup.service && sudo ls -l /var/backups/yfuse
+```
+
+Encryption: generate the age identity **off the server** (a workstation or password manager) and
+put only its public recipient on the box. The private key never touches the server; losing it
+loses every encrypted backup, so keep two copies.
+
+```bash
+age-keygen -o yfuse-backup-identity.txt          # on the workstation; prints the recipient
+echo 'age1…' | sudo tee /etc/yfuse-watch/backup.age-recipients
+```
+
+`/etc/yfuse-watch/backup.env`:
+
+```bash
+YFUSE_BACKUP_AGE_RECIPIENTS=/etc/yfuse-watch/backup.age-recipients
+YFUSE_BACKUP_REMOTE=backup@offsite.example:/srv/yfuse-backups   # refused unless encrypted
+YFUSE_BACKUP_KEEP_COUNT=14       # snapshots kept per database
+YFUSE_BACKUP_MAX_TOTAL_MB=2048   # cap on /var/backups/yfuse; tonight's set is always kept
+```
+
+The off-host SSH key lives in `/var/lib/yfuse-backup/.ssh` (mode 0600, owned by
+`yfuse-backup`); restrict it on the remote side to rsync into one directory. The job refuses to
+copy anything off-host while no recipient is configured: a plaintext copy never leaves the box.
+
+The job needs the service to be running: with WAL, a read-only reader relies on the `-shm` file
+the service keeps. While the service is stopped, take snapshots as `yfuse` instead (step 4).
+
+### Restore drill
+
+Do this at least once a quarter, and after any change to the backup setup, on a machine other
+than the production server. A backup nobody has restored is a hope, not a backup.
+
+```bash
+# 1. Fetch the newest set from the off-host copy and decrypt it with the off-server identity.
+for f in account calendar migration-relay qoe watch-state; do
+  newest="$(ls -1 "$f"-*.db.gz.age 2>/dev/null | sort | tail -n 1)" || true
+  [ -n "$newest" ] || continue
+  age --decrypt -i yfuse-backup-identity.txt "$newest" | gunzip > "drill/$f.db"
+  sqlite3 "drill/$f.db" 'PRAGMA integrity_check;'      # must print: ok
+done
+# 2. Start the same build against the copies on a spare port and check it is healthy.
+ACCOUNT_DB_PATH=drill/account.db CALENDAR_DB_PATH=drill/calendar.db \
+MIGRATION_RELAY_DB_PATH=drill/migration-relay.db QOE_DB_PATH=drill/qoe.db \
+WATCH_STATE_DB_PATH=drill/watch-state.db UPDATE_ROOT=drill/update PORT=18080 \
+  watchTogetherServer/build/install/watchTogetherServer/bin/watchTogetherServer &
+curl --fail http://127.0.0.1:18080/health
+# 3. Sign in with a known test account against the drill instance, then stop it.
+```
+
+Record the date, the snapshot stamp and the outcome. For a real restore, stop
+`yfuse-update.service`, move the damaged database aside (keep it), copy the restored file into
+`/var/lib/yfuse` with `install -o yfuse -g yfuse -m 0640`, remove any stale `-wal`/`-shm` next to
+it, and start the service again.

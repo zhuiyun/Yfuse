@@ -8,8 +8,11 @@ import com.yfuse.core2.android.AndroidCore2DiscRouteFactory
 import com.yfuse.core2.android.AndroidCore2FallbackRouteFactory
 import com.yfuse.core2.android.AndroidExternalSubtitleLoader
 import com.yfuse.core2.android.AndroidLoadedExternalSubtitle
+import com.yfuse.core2.android.AndroidSerializedPlayerRelease
 import com.yfuse.core2.android.AndroidSurfaceVideoOutput
+import com.yfuse.core2.android.AndroidVideoOutputDetach
 import com.yfuse.core2.android.EXTERNAL_SUBTITLE_TRACK_ID
+import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.api.YPlayer
@@ -27,7 +30,9 @@ import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.MpvVideoEngine
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.PlayerMediaVersion
+import com.yfuse.feature.player.SubtitleAppearance
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
@@ -68,7 +73,7 @@ internal class AndroidMpvCore2FallbackFactory(
         ) {
             return null
         }
-        return AndroidMpvCore2FallbackPlayer(
+        return createMpvCore2FallbackPlayer(
             context = appContext,
             item = item,
             sourceItem = null,
@@ -87,7 +92,7 @@ internal class AndroidMpvCore2FallbackFactory(
     ): YPlayer? {
         val disc = item.disc ?: return null
         val plan = core2DiscCompatibilityPlan(disc, forceSoftwareDecode)
-        return AndroidMpvCore2FallbackPlayer(
+        return createMpvCore2FallbackPlayer(
             context = appContext,
             item = item,
             sourceItem =
@@ -101,36 +106,17 @@ internal class AndroidMpvCore2FallbackFactory(
     }
 }
 
-private class AndroidMpvCore2FallbackPlayer(
+private fun createMpvCore2FallbackPlayer(
     context: Context,
     item: YMediaItem,
     sourceItem: PlayerMediaItem?,
     request: YPlayerOpenRequest,
-    private val plan: YPlaybackPlan,
+    plan: YPlaybackPlan,
     startSpeed: Float,
     optimizationMode: PlaybackOptimizationMode,
-) : YPlayer {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val subtitleRevision = MutableStateFlow(0L)
-
-    @Volatile
-    private var externalSubtitle =
-        item.externalSubtitle?.let { source ->
-            AndroidLoadedExternalSubtitle(
-                YTrack(
-                    EXTERNAL_SUBTITLE_TRACK_ID,
-                    YTrackType.Subtitle,
-                    source.language ?: "External subtitle",
-                    source.language,
-                ),
-                emptyList(),
-            )
-        }
-
-    @Volatile
-    private var externalSubtitleSelected = externalSubtitle != null
-
-    private val engine =
+): AndroidMpvCore2FallbackPlayer {
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val engine =
         MpvVideoEngine(
             context = context,
             items =
@@ -159,8 +145,59 @@ private class AndroidMpvCore2FallbackPlayer(
             customUserAgent = item.headers[USER_AGENT_HEADER].orEmpty(),
             optimizationMode = optimizationMode,
             scope = scope,
+            // Core2Surface draws cues, not mpv's sub-text; mpv keeps drawing both subtitles.
+            stackTextSubtitlesInOverlay = false,
         )
-    private val delegate = LegacyYPlayerAdapter(engine)
+    return AndroidMpvCore2FallbackPlayer(context, item, plan, scope, engine)
+}
+
+/**
+ * The libmpv compatibility tier as a YCore child.
+ *
+ * Everything not overridden here goes straight to [LegacyYPlayerAdapter], so 音频延迟, 音频增强,
+ * 副字幕, 碟片角度 and every later YPlayer control reach mpv instead of silently falling back to the
+ * interface defaults. The router hands a new child its settings before its first Surface, when
+ * mpv does not exist yet; [MpvVideoEngine] drops calls made then, so the latest values are kept
+ * here and applied once [setVideoOutput] has created the instance.
+ */
+private class AndroidMpvCore2FallbackPlayer(
+    context: Context,
+    item: YMediaItem,
+    private val plan: YPlaybackPlan,
+    private val scope: CoroutineScope,
+    private val engine: MpvVideoEngine,
+    private val delegate: YPlayer = LegacyYPlayerAdapter(engine),
+) : YPlayer by delegate,
+    YNativeSubtitleStyleTarget,
+    AndroidVideoOutputDetach,
+    AndroidSerializedPlayerRelease {
+    private val subtitleRevision = MutableStateFlow(0L)
+
+    @Volatile
+    private var externalSubtitle =
+        item.externalSubtitle?.let { source ->
+            AndroidLoadedExternalSubtitle(
+                YTrack(
+                    EXTERNAL_SUBTITLE_TRACK_ID,
+                    YTrackType.Subtitle,
+                    source.language ?: "External subtitle",
+                    source.language,
+                ),
+                emptyList(),
+            )
+        }
+
+    @Volatile
+    private var externalSubtitleSelected = externalSubtitle != null
+
+    @Volatile
+    private var audioDelayMs = 0L
+
+    @Volatile
+    private var audioEffect = YAudioEffect.Off
+
+    @Volatile
+    private var subtitleStyle: YNativeSubtitleStyle? = null
 
     override val state: StateFlow<YPlayerState> =
         MappedFallbackStateFlow(delegate.state, subtitleRevision) { state ->
@@ -211,8 +248,6 @@ private class AndroidMpvCore2FallbackPlayer(
         }
     }
 
-    override val playbackRequested: Boolean get() = delegate.playbackRequested
-
     override fun prepare() = Unit
 
     override fun setVideoOutput(output: YVideoOutput?): Boolean =
@@ -224,19 +259,64 @@ private class AndroidMpvCore2FallbackPlayer(
 
             is AndroidSurfaceVideoOutput -> {
                 engine.attach(output.surface)
+                applyDeferredSettings()
                 true
             }
 
             else -> false
         }
 
-    override fun play() = delegate.play()
+    /** mpv stops its video output and lets go of the Surface on the calling thread. */
+    override fun detachVideoOutput(detached: CompletableDeferred<Unit>) {
+        setVideoOutput(null)
+        detached.complete(Unit)
+    }
 
-    override fun pause() = delegate.pause()
+    /** Re-sends what may have arrived before mpv existed; mpv properties are idempotent. */
+    private fun applyDeferredSettings() {
+        if (!engine.nativeInstanceReady) return
+        if (audioDelayMs != 0L) delegate.setAudioDelayMs(audioDelayMs)
+        if (audioEffect != YAudioEffect.Off) delegate.setAudioEffect(audioEffect)
+        subtitleStyle?.let(::applySubtitleStyle)
+    }
 
-    override fun seekTo(positionMs: Long) = delegate.seekTo(positionMs)
+    override fun setAudioDelayMs(delayMs: Long): Boolean {
+        audioDelayMs = delayMs
+        return delegate.setAudioDelayMs(delayMs) || !engine.nativeInstanceReady
+    }
 
-    override fun setSpeed(speed: Float) = delegate.setSpeed(speed)
+    override fun setAudioEffect(effect: YAudioEffect): Boolean {
+        audioEffect = effect
+        return delegate.setAudioEffect(effect) || !engine.nativeInstanceReady
+    }
+
+    override fun setNativeSubtitleStyle(style: YNativeSubtitleStyle): Boolean {
+        subtitleStyle = style
+        return applySubtitleStyle(style) || !engine.nativeInstanceReady
+    }
+
+    @Volatile
+    private var customAppearanceSent = false
+
+    private fun applySubtitleStyle(style: YNativeSubtitleStyle): Boolean {
+        // Each property is attempted even when an earlier one fails, so one rejected value does
+        // not leave the rest of the style unapplied.
+        val offset = engine.setSubtitleOffsetMs(style.offsetMs)
+        val scale = engine.setSubtitleScale(style.scale)
+        val position = engine.setSubtitlePosition(style.position)
+        // Any appearance makes mpv restyle ASS subtitles, so authored styling stays untouched until
+        // the viewer picks a style; after that the default is the closest restore mpv offers.
+        val customAppearance = style.appearance != SubtitleAppearance()
+        val appearance =
+            if (!customAppearance && !customAppearanceSent) {
+                true
+            } else {
+                engine.setSubtitleAppearance(style.appearance).also { applied ->
+                    if (applied) customAppearanceSent = true
+                }
+            }
+        return offset && scale && position && appearance
+    }
 
     override fun selectTrack(
         type: YTrackType,
@@ -259,25 +339,27 @@ private class AndroidMpvCore2FallbackPlayer(
         subtitleRevision.update { it + 1L }
     }
 
-    override fun selectItem(index: Int) = delegate.selectItem(index)
-
-    override fun setPauseAtEndOfCurrentItem(enabled: Boolean) = delegate.setPauseAtEndOfCurrentItem(enabled)
-
-    override fun selectDiscTitle(index: Int): Boolean = delegate.selectDiscTitle(index)
-
-    override fun selectDiscChapter(index: Int): Boolean = delegate.selectDiscChapter(index)
-
-    override fun sendDiscMenuCommand(command: com.yfuse.core.playback.PlaybackDiscMenuCommand): Boolean =
-        delegate.sendDiscMenuCommand(command)
-
-    override fun currentPositionMs(): Long = delegate.currentPositionMs()
-
-    override fun retry() = delegate.retry()
+    @Volatile
+    private var released = false
 
     override fun release() {
+        if (released) return
+        released = true
         scope.cancel()
         engine.detach()
         delegate.release()
+    }
+
+    /**
+     * mpv destroys its native instance on a thread of its own after [release] returns. The router
+     * waits on this before it lets the next route allocate a decoder, as it does for its own
+     * children, instead of starting one beside a libmpv that still holds a hardware decoder.
+     */
+    override val releaseCompleted: Boolean get() = engine.releaseCompleted
+
+    override suspend fun releaseAndJoin() {
+        release()
+        engine.releaseAndJoin()
     }
 }
 

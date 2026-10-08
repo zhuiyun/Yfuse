@@ -304,8 +304,16 @@ class EmbyRepository(
         resource: PlexCloudResource,
         ownerAccountToken: String = accountToken,
     ): Result<AuthedServer> {
+        // A server shared with this account belongs to someone else. The plex.tv account token
+        // would let that server's owner act as this account everywhere, so it only ever goes to a
+        // server the account owns; a shared one must come with a token of its own.
+        val serverToken =
+            resource.accessToken
+                ?: accountToken.takeIf { resource.owned }
+                ?: return Result.failure(
+                    IllegalStateException("Plex 没有提供这台共享服务器的访问令牌，请让服务器主人重新共享后再试"),
+                )
         val account = plexCloud.currentUser(accountToken).getOrElse { return Result.failure(it) }
-        val serverToken = resource.accessToken ?: accountToken
         var lastError: Throwable? = null
         resource.rankedConnections().forEach { connection ->
             val authenticated = plex.authenticateWithToken(connection.uri, serverToken, account)

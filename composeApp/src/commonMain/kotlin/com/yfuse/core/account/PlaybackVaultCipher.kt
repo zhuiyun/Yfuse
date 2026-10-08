@@ -25,12 +25,23 @@ class PlaybackVaultCipher(
 
     fun currentUserId(): String? = (account.state.value as? AccountState.SignedIn)?.session?.user?.id
 
+    /** The vault key version records are encrypted under; it moves on with every re-key. */
+    fun currentKeyVersion(): Int =
+        secureStore.get(KEY_VAULT_KEY_VERSION)?.decodeToString()?.toIntOrNull() ?: FIRST_KEY_VERSION
+
+    /** False while signed out or before the vault key landed: nothing pulled could be read yet. */
+    fun hasKey(): Boolean {
+        val userId = currentUserId() ?: return false
+        return requireVaultKey(userId)?.also { it.fill(0) } != null
+    }
+
     fun encrypt(
         document: PlaybackSyncDocument,
         mutationId: String,
     ): EncryptedPlaybackEntity? {
         val signedIn = account.state.value as? AccountState.SignedIn ?: return null
         val key = requireVaultKey(signedIn.session.user.id) ?: return null
+        val keyVersion = currentKeyVersion()
         return try {
             val entityKey = opaqueEntityKey(key, profileMediaKey(document))
             val plaintext = json.encodeToString(document).encodeToByteArray()
@@ -44,6 +55,7 @@ class PlaybackVaultCipher(
                 EncryptedPlaybackEntity(
                     entityKey = entityKey,
                     mutationId = mutationId,
+                    keyVersion = keyVersion,
                     nonce = encrypted.nonce.toBase64Url(),
                     ciphertext = encrypted.ciphertext.toBase64Url(),
                 )
@@ -59,7 +71,11 @@ class PlaybackVaultCipher(
         val signedIn = account.state.value as? AccountState.SignedIn ?: return null
         val key = requireVaultKey(signedIn.session.user.id) ?: return null
         return try {
-            require(entity.schemaVersion == 1 && entity.algorithm == "AES-256-GCM" && entity.keyVersion == 1)
+            require(
+                entity.schemaVersion == 1 &&
+                    entity.algorithm == "AES-256-GCM" &&
+                    entity.keyVersion == currentKeyVersion(),
+            )
             val plaintext =
                 crypto.decrypt(
                     key = key,
@@ -132,6 +148,8 @@ class PlaybackVaultCipher(
     private companion object {
         const val KEY_VAULT_KEY = "vault_key"
         const val KEY_VAULT_USER_ID = "vault_user_id"
+        const val KEY_VAULT_KEY_VERSION = "vault_key_version"
+        const val FIRST_KEY_VERSION = 1
         const val HMAC_BLOCK_SIZE = 64
         const val MAX_PLAYBACK_PLAINTEXT_BYTES = 24 * 1024
     }

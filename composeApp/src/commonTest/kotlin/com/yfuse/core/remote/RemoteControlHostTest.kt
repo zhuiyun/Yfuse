@@ -45,7 +45,10 @@ class RemoteControlHostTest {
             val hostMessage = socket.sent.receive()
             assertEquals("remoteHost", hostMessage.type)
             // It says it asks, so a relay that knows has each phone wait for the answer.
-            assertEquals(listOf(WatchProtocol.CAPABILITY_REMOTE_PAIRING), hostMessage.capabilities)
+            assertEquals(
+                listOf(WatchProtocol.CAPABILITY_REMOTE_PAIRING, WatchProtocol.CAPABILITY_REAUTHENTICATE),
+                hostMessage.capabilities,
+            )
             socket.push(hosting)
             host.hosting.first { it }
             socket.push(connected("phone-a", "小米 14", phones = 1))

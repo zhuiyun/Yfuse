@@ -9,6 +9,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withTimeoutOrNull
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -49,8 +51,56 @@ internal sealed interface TmdbProxyResult {
 }
 
 /**
- * Read-only TMDB for signed-in Yfuse accounts, so the read token lives on this server instead of
- * in every APK.
+ * Signed-out reads ([TmdbProxy.fetchAnonymous]): how often one client may ask, and how many cache
+ * misses all signed-out clients together may cost the server's TMDB allowance per minute. Null
+ * (TMDB_ANONYMOUS=off) keeps the proxy for signed-in accounts only.
+ */
+internal class TmdbAnonymousPolicy(
+    val perClientPerMinute: Int = DEFAULT_PER_CLIENT_PER_MINUTE,
+    val missesPerMinute: Int = DEFAULT_MISSES_PER_MINUTE,
+) {
+    init {
+        require(perClientPerMinute > 0 && missesPerMinute > 0)
+    }
+
+    companion object {
+        /** A cold start with the calendar is about 80 reads; most later ones are cache hits. */
+        const val DEFAULT_PER_CLIENT_PER_MINUTE = 120
+
+        /** Shared by every signed-out client; TMDB allows the server's token about 40 a second. */
+        const val DEFAULT_MISSES_PER_MINUTE = 600
+
+        fun fromEnvironment(environment: (String) -> String? = System::getenv): TmdbAnonymousPolicy? {
+            if (environment("TMDB_ANONYMOUS")?.trim()?.lowercase() in setOf("off", "false", "0")) return null
+            return TmdbAnonymousPolicy(
+                perClientPerMinute =
+                    environment("TMDB_ANONYMOUS_PER_CLIENT_PER_MINUTE")?.trim()?.toIntOrNull()?.coerceIn(1, 10_000)
+                        ?: DEFAULT_PER_CLIENT_PER_MINUTE,
+                missesPerMinute =
+                    environment("TMDB_ANONYMOUS_MISSES_PER_MINUTE")?.trim()?.toIntOrNull()?.coerceIn(1, 100_000)
+                        ?: DEFAULT_MISSES_PER_MINUTE,
+            )
+        }
+    }
+}
+
+/**
+ * The key a signed-out client is paced by: its IPv4 address, or the /64 of its IPv6 address, which
+ * is what one subscriber is usually given; pacing single IPv6 addresses would let one client
+ * rotate through billions of them. [clientIdentity] is an address literal or `unknown`.
+ */
+internal fun tmdbAnonymousClientKey(clientIdentity: String): String {
+    if (':' !in clientIdentity) return clientIdentity
+    // A literal with a colon never triggers a DNS lookup.
+    val address =
+        runCatching { InetAddress.getByName(clientIdentity) }.getOrNull() as? Inet6Address ?: return clientIdentity
+    return address.address.copyOf(8).joinToString("", postfix = "::/64") { byte -> "%02x".format(byte) }
+}
+
+/**
+ * Read-only TMDB for Yfuse apps, so the read token lives on this server instead of in every APK.
+ * Signed-in accounts are paced per account; signed-out clients, when [anonymous] allows them, per
+ * address (IPv6 per /64) with a shared budget for the misses they cause.
  *
  * Only [tmdbProxyRequest]'s allowlist is forwarded. Each account has its own budget on top of the
  * per-IP one the route applies before authentication, successful answers are reused for a time
@@ -67,8 +117,24 @@ internal class TmdbProxy(
     private val now: () -> Long = System::currentTimeMillis,
     maxConcurrentUpstream: Int = MAX_CONCURRENT_UPSTREAM,
     private val upstreamQueueWaitMs: Long = UPSTREAM_QUEUE_WAIT_MS,
+    private val anonymous: TmdbAnonymousPolicy? = TmdbAnonymousPolicy.fromEnvironment(),
 ) {
     private val token = token.orEmpty().trim()
+    private val anonymousClients =
+        anonymous?.let {
+            AccountRateLimiter(
+                AccountRateLimitPolicy(
+                    tmdbProxyAttemptsPerWindow = it.perClientPerMinute,
+                    tmdbProxyWindowMs = 60_000L,
+                    maxTrackedEntries = MAX_ANONYMOUS_CLIENTS,
+                ),
+                now,
+            )
+        }
+    private val anonymousMisses =
+        anonymous?.let {
+            AccountRateLimiter(AccountRateLimitPolicy(tmdbProxyAttemptsPerWindow = it.missesPerMinute), now)
+        }
     private val upstreamPermits = Semaphore(maxConcurrentUpstream)
     private val unconfiguredLogged = AtomicBoolean(false)
 
@@ -84,6 +150,33 @@ internal class TmdbProxy(
             RateLimitDecision.Allowed -> Unit
             is RateLimitDecision.Limited -> return rateLimited(decision.retryAfterSeconds)
         }
+        return serve(path, query, missBudget = null)
+    }
+
+    /**
+     * A signed-out read from [clientIdentity] (see [tmdbAnonymousClientKey]), from the same
+     * allowlist and the same cache as signed-in ones. Null when signed-out reads are switched off.
+     */
+    suspend fun fetchAnonymous(
+        clientIdentity: String,
+        path: List<String>,
+        query: Parameters,
+    ): TmdbProxyResult? {
+        val clients = anonymousClients ?: return null
+        val key = tmdbAnonymousClientKey(clientIdentity)
+        when (val decision = clients.check(key, AccountRateLimitBucket.TmdbProxy)) {
+            RateLimitDecision.Allowed -> Unit
+            is RateLimitDecision.Limited -> return rateLimited(decision.retryAfterSeconds)
+        }
+        return serve(path, query, missBudget = anonymousMisses)
+    }
+
+    /** [missBudget] is charged for reads that would reach TMDB; cache hits are free. */
+    private suspend fun serve(
+        path: List<String>,
+        query: Parameters,
+        missBudget: AccountRateLimiter?,
+    ): TmdbProxyResult {
         if (token.isEmpty()) {
             if (unconfiguredLogged.compareAndSet(false, true)) ServerLog.warn("tmdb_proxy_unconfigured")
             return TmdbProxyResult.Refused(HttpStatusCode.ServiceUnavailable, "tmdb_unconfigured", "服务器尚未配置 TMDB")
@@ -92,6 +185,12 @@ internal class TmdbProxy(
             tmdbProxyRequest(path, query)
                 ?: return TmdbProxyResult.Refused(HttpStatusCode.Forbidden, "tmdb_request_not_allowed", "不支持的 TMDB 请求")
         cache.get(request.pathAndQuery, now())?.let { return TmdbProxyResult.Relayed(200, it, fromCache = true) }
+        missBudget?.let { budget ->
+            when (val decision = budget.check(ANONYMOUS_MISS_KEY, AccountRateLimitBucket.TmdbProxy)) {
+                RateLimitDecision.Allowed -> Unit
+                is RateLimitDecision.Limited -> return rateLimited(decision.retryAfterSeconds)
+            }
+        }
         val pausedForMs = upstreamPausedUntil - now()
         if (pausedForMs > 0L) return rateLimited((pausedForMs + 999L) / 1_000L)
         // A permit caps how many TMDB bodies (up to MAX_UPSTREAM_BODY_BYTES each) are in memory at once.
@@ -180,6 +279,10 @@ internal class TmdbProxy(
         private const val BUSY_RETRY_AFTER_SECONDS = 2L
         private const val DEFAULT_UPSTREAM_RETRY_AFTER_SECONDS = 10L
         private const val MAX_UPSTREAM_PAUSE_SECONDS = 120L
+
+        /** Signed-out clients tracked at once; past it new ones wait, as for every limiter here. */
+        private const val MAX_ANONYMOUS_CLIENTS = 20_000
+        private const val ANONYMOUS_MISS_KEY = "anonymous"
     }
 }
 

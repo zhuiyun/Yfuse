@@ -1,7 +1,9 @@
 package com.yfuse.core.remote
 
 import com.yfuse.core.sync.AccountRequiredForWatchException
+import com.yfuse.core.sync.WatchAccessRenewal
 import com.yfuse.core.sync.backoffDelayMs
+import com.yfuse.core.sync.handles
 import com.yfuse.core.sync.isWatchAuthenticationFailure
 import com.yfuse.watch.protocol.RemoteControlKey
 import com.yfuse.watch.protocol.RemoteSignInServer
@@ -310,9 +312,20 @@ class RemoteControlHost(
             // This television asks before a phone may press anything: a relay that knows to tells
             // each phone to wait, and passes on who is let in.
             channel.send(
-                WatchWireMessage(type = "remoteHost", capabilities = listOf(WatchProtocol.CAPABILITY_REMOTE_PAIRING)),
+                WatchWireMessage(
+                    type = "remoteHost",
+                    capabilities =
+                        listOf(
+                            WatchProtocol.CAPABILITY_REMOTE_PAIRING,
+                            WatchProtocol.CAPABILITY_REAUTHENTICATE,
+                        ),
+                ),
             )
             coroutineScope {
+                // This socket lives for hours; a relay that can renew its account access keeps it
+                // open past each token's expiry instead of dropping every phone on it.
+                val renewal = WatchAccessRenewal(token, accessToken, refreshAccessToken)
+                val renewing = launch { renewal.run { channel.send(it) } }
                 var answering: Job? = null
                 try {
                     while (true) {
@@ -341,6 +354,7 @@ class RemoteControlHost(
                                 changePairing { it.connected(message.phone(), message.phoneName(), trusted) }
                             "remoteDisconnected" ->
                                 pairing.update { it.disconnected(message.phone(), message.participantCount) }
+                            "reauthenticated" -> renewal.renewed(message.authExpiresAtMs, message.serverAtMs)
                             "remoteSignInOffer" -> offered(message)
                             "remoteSignInWithdrawn" -> withdrawn(message)
                             "remoteSignInSend" -> received(message)
@@ -353,11 +367,15 @@ class RemoteControlHost(
                                     if (admits(message)) _events.tryEmit(RemoteControlEvent.Text(text))
                                 }
                             // Before the relay has taken the session an error is its answer; after, it is noise.
-                            "error" -> if (!_hosting.value) throw message.remoteRefusal("电视未能开启手机遥控")
+                            "error" ->
+                                if (!renewal.handles(message) && !_hosting.value) {
+                                    throw message.remoteRefusal("电视未能开启手机遥控")
+                                }
                         }
                     }
                 } finally {
                     answering?.cancel()
+                    renewing.cancel()
                 }
             }
         }

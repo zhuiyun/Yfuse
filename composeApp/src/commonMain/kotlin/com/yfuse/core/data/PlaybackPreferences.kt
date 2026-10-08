@@ -260,6 +260,16 @@ class PlaybackPreferences(
         settings.putBoolean(KEY_SHOW_FRAME_RATE, enabled)
     }
 
+    private val _backgroundAudio = MutableStateFlow(settings.getBoolean(KEY_BACKGROUND_AUDIO, false))
+
+    /** 熄屏继续播放声音: audio carries on with the screen off or the player in the background. */
+    val backgroundAudio: StateFlow<Boolean> = _backgroundAudio.asStateFlow()
+
+    fun setBackgroundAudio(enabled: Boolean) {
+        _backgroundAudio.value = enabled
+        settings.putBoolean(KEY_BACKGROUND_AUDIO, enabled)
+    }
+
     private val _audioPassthrough =
         MutableStateFlow(
             PlaybackAudioPassthrough.fromStorage(settings.getStringOrNull(KEY_AUDIO_PASSTHROUGH)),
@@ -719,6 +729,7 @@ class PlaybackPreferences(
         const val KEY_YCORE_BUFFER_DURATION = "player.ycore.bufferDuration"
         const val KEY_FRAME_RATE_MATCH = "player.output.frameRateMatch"
         const val KEY_SHOW_FRAME_RATE = "player.showFrameRate"
+        const val KEY_BACKGROUND_AUDIO = "player.backgroundAudio"
         const val KEY_AUDIO_PASSTHROUGH = "player.output.audioPassthrough"
         const val KEY_MEDIA_VERSION_PREFERENCE = "player.mediaVersionPreference"
         const val KEY_OPTIMIZATION_MODE = "player.optimizationMode"

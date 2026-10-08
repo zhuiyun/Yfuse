@@ -5,6 +5,7 @@ import com.yfuse.core.logging.AppLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
@@ -211,13 +212,13 @@ class DanmakuPreferences(
         val normalized = word.trim().take(MAX_DANMAKU_SYNC_BLOCKED_WORD_CHARS)
         if (normalized.isEmpty() || _blockedWords.value.any { it.equals(normalized, true) }) return
         if (_blockedWords.value.size >= MAX_DANMAKU_SYNC_BLOCKED_WORDS) return
-        _blockedWords.value = _blockedWords.value + normalized
+        _blockedWords.update { it + normalized }
         persistList(KEY_BLOCKED, _blockedWords.value)
     }
 
     fun removeBlockedWord(word: String) {
         if (word !in _blockedWords.value) return
-        _blockedWords.value = _blockedWords.value - word
+        _blockedWords.update { it - word }
         persistList(KEY_BLOCKED, _blockedWords.value)
     }
 
@@ -248,7 +249,7 @@ class DanmakuPreferences(
                 url = url.trim(),
             )
         if (!source.url.isValidDanmakuSourceUrl()) return null
-        _sources.value = _sources.value + source
+        _sources.update { it + source }
         // Selecting the first one is not a preference, it is the only possible answer.
         if (_sources.value.size == 1) selectSource(source.id)
         persistSources()
@@ -278,10 +279,10 @@ class DanmakuPreferences(
 
     fun removeSource(id: String) {
         if (_sources.value.none { it.id == id }) return
-        _sources.value = _sources.value.filterNot { it.id == id }
+        _sources.update { sources -> sources.filterNot { it.id == id } }
         // Bindings name the source they came from; the ones pointing at this link are now
         // matches against nothing and would silently load nothing.
-        _bindings.value = _bindings.value.filterValues { it.sourceId != id }
+        _bindings.update { bindings -> bindings.filterValues { it.sourceId != id } }
         persistBindings()
         if (_activeSourceId.value == id) {
             selectSource(_sources.value.firstOrNull()?.id)
@@ -331,7 +332,7 @@ class DanmakuPreferences(
 
     fun unbind(itemId: String) {
         if (itemId !in _bindings.value) return
-        _bindings.value = _bindings.value - itemId
+        _bindings.update { it - itemId }
         persistBindings()
     }
 

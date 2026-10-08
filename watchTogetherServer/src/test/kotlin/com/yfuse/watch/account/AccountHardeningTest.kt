@@ -109,8 +109,9 @@ class AccountHardeningTest {
                 policy =
                     UsernameFailureLimitPolicy(
                         maxFailuresPerWindow = 2,
+                        crossClientFactor = 2,
                         windowMs = 60_000L,
-                        maxTrackedUsernames = 20,
+                        maxTrackedUsernames = 40,
                         cleanupIntervalMs = 1_000L,
                     ),
                 clock = { nowEpochMs },
@@ -128,21 +129,25 @@ class AccountHardeningTest {
             }
 
             assertEquals(HttpStatusCode.Created, registerHard("Alice", "198.51.100.1").status)
-            listOf("Alice" to "198.51.100.2", "alice" to "198.51.100.3").forEach { (username, ip) ->
-                val failed = loginHard(username, "Wrong-Pass-42", ip)
-                assertEquals(HttpStatusCode.Unauthorized, failed.status)
-                assertEquals("invalid_credentials", failed.errorCodeHard())
+            // One client's guesses hold that client off, not the account's owner elsewhere.
+            repeat(2) {
+                assertEquals("invalid_credentials", loginHard("Alice", "Wrong-Pass-42", "198.51.100.2").errorCodeHard())
             }
-            val existingLimited = loginHard("ALICE", TEST_PASSWORD, "198.51.100.4")
+            assertEquals(HttpStatusCode.TooManyRequests, loginHard("alice", TEST_PASSWORD, "198.51.100.2").status)
+            assertEquals(HttpStatusCode.OK, loginHard("ALICE", TEST_PASSWORD, "198.51.100.3").status)
+
+            // Across clients the name is still limited, the same way for unknown names.
+            listOf("198.51.100.4", "198.51.100.5", "198.51.100.6", "198.51.100.7").forEach { ip ->
+                assertEquals("invalid_credentials", loginHard("alice", "Wrong-Pass-42", ip).errorCodeHard())
+            }
+            val existingLimited = loginHard("ALICE", TEST_PASSWORD, "198.51.100.8")
             assertEquals(HttpStatusCode.TooManyRequests, existingLimited.status)
             assertEquals("rate_limited", existingLimited.errorCodeHard())
 
-            listOf("Ghost" to "198.51.100.5", "ghost" to "198.51.100.6").forEach { (username, ip) ->
-                val failed = loginHard(username, "Wrong-Pass-42", ip)
-                assertEquals(HttpStatusCode.Unauthorized, failed.status)
-                assertEquals("invalid_credentials", failed.errorCodeHard())
+            listOf("198.51.100.9", "198.51.100.10", "198.51.100.11", "198.51.100.12").forEach { ip ->
+                assertEquals("invalid_credentials", loginHard("ghost", "Wrong-Pass-42", ip).errorCodeHard())
             }
-            val unknownLimited = loginHard("GHOST", TEST_PASSWORD, "198.51.100.7")
+            val unknownLimited = loginHard("GHOST", TEST_PASSWORD, "198.51.100.13")
             assertEquals(HttpStatusCode.TooManyRequests, unknownLimited.status)
             assertEquals(existingLimited.bodyAsText(), unknownLimited.bodyAsText())
             assertEquals("60", unknownLimited.headers[HttpHeaders.RetryAfter])
@@ -150,10 +155,46 @@ class AccountHardeningTest {
             nowEpochMs += 60_000L
             assertEquals(
                 HttpStatusCode.OK,
-                loginHard("alice", TEST_PASSWORD, "198.51.100.8").status,
+                loginHard("alice", TEST_PASSWORD, "198.51.100.14").status,
             )
         }
     }
+
+    @Test
+    fun ipv6_clients_are_counted_by_their_64_bit_prefix() {
+        assertEquals("2001:db8:12:34::/64", rateLimitIdentity("2001:db8:12:34:aaaa:bbbb:cccc:dddd"))
+        assertEquals(rateLimitIdentity("2001:db8:12:34::1"), rateLimitIdentity("2001:db8:12:34:ffff::9"))
+        assertEquals("203.0.113.9", rateLimitIdentity("203.0.113.9"))
+        assertEquals("unknown", rateLimitIdentity("unknown"))
+    }
+
+    @Test
+    fun password_work_runs_apart_from_token_and_sync_work(): Unit =
+        runBlocking {
+            val credentialExecutor =
+                AccountWorkExecutor(AccountExecutionPolicy(workerThreads = 1, maxConcurrentOperations = 1))
+            val backend = AccountBackend.inMemoryForTests(credentialExecutor = credentialExecutor)
+            val release = CountDownLatch(1)
+            val entered = CompletableDeferred<Unit>()
+            val hashing =
+                async {
+                    backend.executeCredential {
+                        entered.complete(Unit)
+                        check(release.await(5, TimeUnit.SECONDS))
+                    }
+                }
+            try {
+                withTimeout(2_000L) { entered.await() }
+                assertEquals(42, withTimeout(2_000L) { backend.execute { 42 } })
+                assertIs<AccountWorkRejectedException>(
+                    runCatching { backend.executeCredential { Unit } }.exceptionOrNull(),
+                )
+            } finally {
+                release.countDown()
+                hashing.await()
+                backend.close()
+            }
+        }
 
     @Test
     fun sync_read_limits_apply_independently_per_user_and_per_ip() {

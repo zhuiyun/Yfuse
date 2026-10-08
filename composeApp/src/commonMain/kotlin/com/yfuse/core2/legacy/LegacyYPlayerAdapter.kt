@@ -82,6 +82,8 @@ internal class LegacyYPlayerAdapter(
 
     override fun setPauseAtEndOfCurrentItem(enabled: Boolean) = engine.setPauseAtEndOfCurrentItem(enabled)
 
+    override fun setVideoSuspended(suspended: Boolean) = engine.setVideoSuspended(suspended)
+
     override fun selectDiscTitle(index: Int): Boolean = engine.selectDiscTitle(index)
 
     override fun selectDiscChapter(index: Int): Boolean = engine.selectDiscChapter(index)
@@ -130,6 +132,8 @@ private fun PlaybackState.toYPlayerState(playbackRequested: Boolean): YPlayerSta
         itemCount = itemCount,
         audioTracks = audioTracks.map { it.toYTrack(YTrackType.Audio) },
         subtitleTracks = subtitleTracks.map { it.toYTrack(YTrackType.Subtitle) },
+        secondarySubtitleTrackId = secondarySubtitleTrackId,
+        secondarySubtitleOffsetMs = secondarySubtitleOffsetMs,
         discNavigation = discNavigation,
         error = error,
         errorCategory = errorKind?.toYPlaybackFailureCategory(),

@@ -17,10 +17,13 @@ import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerState
 import com.yfuse.feature.handoff.HandoffPlaybackBinding
 import com.yfuse.feature.trakt.TraktPlaybackReportingEffect
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import org.koin.core.context.GlobalContext
 
 /** Account integrations read the mounted item; they never start playback during composition. */
@@ -125,13 +128,16 @@ internal fun PlayerAccountBindings(
         var lastWriteMs = 0L
         var last = player.state.value
 
-        fun record() {
-            if (started) {
+        // Off the main thread: a write validates and re-publishes the whole personal library.
+        suspend fun record() {
+            if (!started) return
+            val state = last
+            withContext(Dispatchers.Default) {
                 history.recordHistory(
                     media,
-                    last.positionMs,
-                    last.durationMs,
-                    last.phase == YPlaybackPhase.Ended,
+                    state.positionMs,
+                    state.durationMs,
+                    state.phase == YPlaybackPhase.Ended,
                     owner,
                 )
             }
@@ -151,7 +157,10 @@ internal fun PlayerAccountBindings(
                 wasEnded = ended
             }
         } finally {
-            record()
+            withContext(NonCancellable) {
+                record()
+                withContext(Dispatchers.Default) { history.flush() }
+            }
         }
     }
 }

@@ -21,6 +21,7 @@ internal inline fun <T> yCoreStartupStage(
                         when (result.reason) {
                             YCore2ProbeFailure.Deadline -> "deadline"
                             YCore2ProbeFailure.Busy -> "busy"
+                            YCore2ProbeFailure.RuntimeFault -> "runtime_fault"
                             else -> "unavailable"
                         }
                     null -> "unavailable"

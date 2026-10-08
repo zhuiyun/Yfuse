@@ -1,16 +1,36 @@
 package com.yfuse.core.sync
 
+import com.yfuse.watch.protocol.WatchProtocol
+import com.yfuse.watch.protocol.WatchWireCredential
+import com.yfuse.watch.protocol.WatchWireMessage
 import io.ktor.client.plugins.ResponseException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.concurrent.Volatile
 import kotlin.random.Random
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 internal class RoomUnavailableException(
     message: String,
 ) : Exception(message)
+
+/**
+ * The relay refused to let this connection in for now — pacing, a full room, another device
+ * under the same id — and said so ([WatchProtocol.isRetryableError]). Unlike
+ * [RoomUnavailableException] the room is kept: a reconnect or 回到房间 later can still enter it.
+ */
+internal class RoomTemporarilyUnavailableException(
+    message: String,
+) : Exception(message)
+
+/** The relay stopped answering pings on a socket that still looks open. */
+internal class WatchConnectionStaleException : CancellationException("watch relay stopped answering")
 
 internal class AccountRequiredForWatchException : Exception("请先登录 Yfuse 账号后使用一起看")
 
@@ -182,6 +202,123 @@ internal class WatchChatAckTimeouts(
     }
 }
 
+/**
+ * Whether a watch socket still hears the relay. The app pings every [intervalMs] and the relay
+ * answers each with `pong`; a socket that has heard nothing for [missedIntervals] intervals is
+ * half-open — the network went away without closing it — and only looked connected, for minutes,
+ * until the operating system gave up on it. Any frame counts as hearing the relay.
+ */
+internal class WatchSocketLiveness(
+    private val intervalMs: Long = PING_INTERVAL_MS,
+    private val missedIntervals: Int = PONG_MISSED_INTERVALS,
+    private val timeSource: TimeSource = TimeSource.Monotonic,
+) {
+    @Volatile
+    private var lastHeard: TimeMark = timeSource.markNow()
+
+    fun heard() {
+        lastHeard = timeSource.markNow()
+    }
+
+    fun isStale(): Boolean = lastHeard.elapsedNow().inWholeMilliseconds >= intervalMs * missedIntervals
+}
+
+/**
+ * Keeps one relay socket's account access fresh without reconnecting, under
+ * [WatchProtocol.CAPABILITY_REAUTHENTICATE]: a relay that knows it says when the socket's access
+ * lapses ([renewed]), and this sends `reauthenticate` with a fresh token [leadMs] before then. A
+ * token some other part of the app already refreshed is sent as it is ([currentToken]); otherwise
+ * the account is refreshed ([refreshToken]). When the relay finds the socket's token replaced or
+ * revoked it says so ([required]) and this renews at once. A relay that says nothing never hears
+ * from it, and its sockets close at expiry and reconnect as before.
+ */
+internal class WatchAccessRenewal(
+    initialToken: String,
+    private val currentToken: suspend () -> String?,
+    private val refreshToken: suspend () -> String?,
+    private val leadMs: Long = WATCH_REAUTH_LEAD_MS,
+    private val retryMs: Long = WATCH_REAUTH_RETRY_MS,
+    private val timeSource: TimeSource = TimeSource.Monotonic,
+) {
+    private val wake = Channel<Unit>(Channel.CONFLATED)
+
+    @Volatile
+    private var sentToken: String = initialToken
+
+    @Volatile
+    private var dueAt: TimeMark? = null
+
+    @Volatile
+    private var urgent = false
+
+    /** `reauthenticated`: the socket lasts until [authExpiresAtMs] on the relay clock that stamped [serverAtMs]. */
+    fun renewed(
+        authExpiresAtMs: Long?,
+        serverAtMs: Long?,
+    ) {
+        if (authExpiresAtMs == null || serverAtMs == null) return
+        val untilDue = (authExpiresAtMs - serverAtMs - leadMs).coerceAtLeast(0L)
+        dueAt = timeSource.markNow() + untilDue.milliseconds
+        wake.trySend(Unit)
+    }
+
+    /** `reauth_required`: renew now. */
+    fun required() {
+        urgent = true
+        wake.trySend(Unit)
+    }
+
+    /** Another `reauth_*` error: try again soon when it may pass, else leave it to expiry. */
+    fun failed(retryable: Boolean) {
+        dueAt = if (retryable) timeSource.markNow() + retryMs.milliseconds else null
+        wake.trySend(Unit)
+    }
+
+    /** Runs for the socket's life, sending through [send]; never throws for a failed token fetch. */
+    suspend fun run(send: suspend (WatchWireMessage) -> Unit) {
+        while (true) {
+            if (!urgent) {
+                val due = dueAt
+                if (due == null) {
+                    wake.receive()
+                    continue
+                }
+                val waitMs = -due.elapsedNow().inWholeMilliseconds
+                if (waitMs > 0L) {
+                    withTimeoutOrNull(waitMs) { wake.receive() }
+                    continue
+                }
+            }
+            urgent = false
+            dueAt = null
+            val token =
+                try {
+                    currentToken()?.takeIf { it != sentToken } ?: refreshToken()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+            if (token == null) {
+                // Signed out or offline: try once more shortly; the relay closes the socket at
+                // expiry otherwise, and the usual reconnect takes over.
+                dueAt = timeSource.markNow() + retryMs.milliseconds
+                continue
+            }
+            sentToken = token
+            send(WatchWireMessage(type = "reauthenticate", credential = WatchWireCredential(accessToken = token)))
+        }
+    }
+}
+
+/** Feeds a `reauth_*` error to [renewal]; false for any other error. */
+internal fun WatchAccessRenewal.handles(error: WatchWireMessage): Boolean {
+    val code = error.errorCode ?: return false
+    if (!code.startsWith("reauth_")) return false
+    if (code == "reauth_required") required() else failed(WatchProtocol.isRetryableError(error))
+    return true
+}
+
 internal fun Throwable.isWatchAuthenticationFailure(): Boolean {
     if (this is WatchAuthenticationException || this is AccountRequiredForWatchException) return true
     if (this is ResponseException && response.status.value == 401) return true
@@ -210,6 +347,17 @@ internal fun String.toWebSocketUrl(): String? {
 }
 
 internal const val PING_INTERVAL_MS = 8_000L
+
+/** Pings without any answer before a socket counts as dead. */
+internal const val PONG_MISSED_INTERVALS = 3
+
+/** A socket's access is renewed this long before it lapses. */
+internal const val WATCH_REAUTH_LEAD_MS = 60_000L
+internal const val WATCH_REAUTH_RETRY_MS = 5_000L
+
+/** What the app tells the watch relay it understands, in its `hello`. */
+internal val WATCH_CLIENT_CAPABILITIES =
+    listOf(WatchProtocol.CAPABILITY_ROOM_REVISION, WatchProtocol.CAPABILITY_REAUTHENTICATE)
 internal const val MAX_CHAT_HISTORY = 50
 internal const val WATCH_OUTGOING_QUEUE_CAPACITY = 64
 internal const val MAX_LIVE_REACTIONS = 12

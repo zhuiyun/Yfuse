@@ -33,7 +33,8 @@ internal fun PlayerTrackEffects(
     automaticEngineSelection: Boolean,
     onSecondarySubtitleTrackChanged: (String?) -> Unit,
     onPendingSubtitleLanguageApplied: () -> Unit,
-    onRequestMpv: () -> Unit,
+    /** A setting the engine cannot honour; the player asks whether to switch for this entry. */
+    onUnsupportedSetting: (UnsupportedPlaybackSetting) -> Unit,
     /**
      * 没听清 is showing a subtitle for a replay. The primary restore below stands aside until it is
      * over — it would otherwise put the viewer's choice straight back over the temporary one — and
@@ -119,7 +120,10 @@ internal fun PlayerTrackEffects(
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.offsetMs) {
         val applied = backendExtensions.setSubtitleOffsetMs(subtitleControls.offsetMs)
         if (!applied && subtitleControls.offsetMs != 0L) {
-            requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
+            askIfAllowed(
+                engineKind,
+                automaticEngineSelection,
+            ) { onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitleOffset) }
         }
     }
     LaunchedEffect(
@@ -131,21 +135,31 @@ internal fun PlayerTrackEffects(
     ) {
         val applied = backendExtensions.setAudioDelayMs(audioControls.delayMs)
         if (!applied && audioControls.delayMs != 0L) {
-            requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
+            askIfAllowed(
+                engineKind,
+                automaticEngineSelection,
+            ) { onUnsupportedSetting(UnsupportedPlaybackSetting.AudioDelay) }
         }
     }
     LaunchedEffect(backendExtensions, engineKind, audioControls.enhancement) {
         val applied = backendExtensions.setAudioEnhancement(audioControls.enhancement)
         if (!applied && audioControls.enhancement != AudioEnhancementMode.Off) {
-            requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
+            askIfAllowed(
+                engineKind,
+                automaticEngineSelection,
+            ) { onUnsupportedSetting(UnsupportedPlaybackSetting.AudioEnhancement) }
         }
     }
+    // Scale, position and appearance go to every engine, YCore included: YCore's compatibility
+    // route draws its subtitles inside mpv, which only learns the style from these calls. Exo and
+    // YCore's own routes style their captions in Compose and simply acknowledge them.
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.scale) {
-        if (engineKind != PlayerEngine.Exo) {
-            val applied = backendExtensions.setSubtitleScale(subtitleControls.scale)
-            if (!applied && subtitleControls.scale != 1f) {
-                requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
-            }
+        val applied = backendExtensions.setSubtitleScale(subtitleControls.scale)
+        if (!applied && subtitleControls.scale != 1f) {
+            askIfAllowed(
+                engineKind,
+                automaticEngineSelection,
+            ) { onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitleScale) }
         }
     }
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.brightness) {
@@ -156,15 +170,18 @@ internal fun PlayerTrackEffects(
                 backendExtensions.setSubtitleBrightness(subtitleControls.brightness)
             }
         if (!applied && subtitleControls.brightness != 1f) {
-            requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
+            askIfAllowed(engineKind, automaticEngineSelection) {
+                onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitleBrightness)
+            }
         }
     }
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.position) {
-        if (engineKind != PlayerEngine.Exo) {
-            val applied = backendExtensions.setSubtitlePosition(subtitleControls.position)
-            if (!applied && subtitleControls.position != DEFAULT_SUBTITLE_POSITION) {
-                requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
-            }
+        val applied = backendExtensions.setSubtitlePosition(subtitleControls.position)
+        if (!applied && subtitleControls.position != DEFAULT_SUBTITLE_POSITION) {
+            askIfAllowed(
+                engineKind,
+                automaticEngineSelection,
+            ) { onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitlePosition) }
         }
     }
     LaunchedEffect(
@@ -173,13 +190,13 @@ internal fun PlayerTrackEffects(
         subtitleControls.appearance,
         subtitleControls.brightness,
     ) {
-        if (engineKind != PlayerEngine.Exo) {
-            val applied =
-                backendExtensions.setSubtitleAppearance(
-                    subtitleControls.appearance.withBrightness(subtitleControls.brightness),
-                )
-            if (!applied && subtitleControls.appearance != SubtitleAppearance()) {
-                requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
+        val applied =
+            backendExtensions.setSubtitleAppearance(
+                subtitleControls.appearance.withBrightness(subtitleControls.brightness),
+            )
+        if (!applied && subtitleControls.appearance != SubtitleAppearance()) {
+            askIfAllowed(engineKind, automaticEngineSelection) {
+                onUnsupportedSetting(UnsupportedPlaybackSetting.SubtitleAppearance)
             }
         }
     }
@@ -224,12 +241,16 @@ internal fun PlayerTrackEffects(
     }
 }
 
-private fun requestMpvIfAllowed(
+/**
+ * Only an automatic engine choice may be offered another engine; a locked one keeps its controls
+ * disabled instead. The switch itself is the viewer's call, asked by [onUnsupported]'s handler.
+ */
+private inline fun askIfAllowed(
     engineKind: PlayerEngine,
     automaticEngineSelection: Boolean,
-    onRequestMpv: () -> Unit,
+    onUnsupported: () -> Unit,
 ) {
-    if (engineKind != PlayerEngine.Mpv && automaticEngineSelection) onRequestMpv()
+    if (engineKind != PlayerEngine.Mpv && automaticEngineSelection) onUnsupported()
 }
 
 /**

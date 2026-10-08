@@ -90,6 +90,11 @@ internal object CalendarIngestionHealth {
             )
     }
 
+    /**
+     * The status endpoint is public, so it says what kind of failure stopped the round and nothing
+     * more. Exception text can carry upstream URLs, query strings with provider keys, file paths or
+     * SQL; the full failure goes to the server log instead.
+     */
     @Synchronized
     fun failed(failure: Throwable) {
         value =
@@ -97,7 +102,7 @@ internal object CalendarIngestionHealth {
                 state = "failed",
                 lastFinishedAt = Instant.now().toString(),
                 changed = false,
-                message = failure.message?.take(240) ?: failure::class.simpleName,
+                message = calendarFailureCategory(failure),
             )
     }
 
@@ -155,5 +160,30 @@ internal object CalendarIngestionHealth {
     }
 }
 
+/** A fixed vocabulary for [CalendarIngestionStatus.message]; the cause chain picks the most specific. */
+internal fun calendarFailureCategory(failure: Throwable): String {
+    var current: Throwable? = failure
+    var depth = 0
+    while (current != null && depth < MAX_FAILURE_CAUSE_DEPTH) {
+        when (current) {
+            is java.net.http.HttpTimeoutException,
+            is java.net.SocketTimeoutException,
+            is kotlinx.coroutines.TimeoutCancellationException,
+            -> return "timeout"
+            is java.sql.SQLException -> return "storage"
+            is kotlinx.serialization.SerializationException -> return "invalid_data"
+            is java.io.IOException -> return "network"
+        }
+        current = current.cause
+        depth++
+    }
+    return when (failure) {
+        is IllegalArgumentException -> "invalid_data"
+        is IllegalStateException -> "invalid_state"
+        else -> "internal"
+    }
+}
+
+private const val MAX_FAILURE_CAUSE_DEPTH = 8
 private const val MAX_STATUS_SHOW_DIAGNOSTICS = 200
 private const val MAX_STATUS_REASONS_PER_SHOW = 8

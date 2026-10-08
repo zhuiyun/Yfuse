@@ -132,6 +132,21 @@ class PlexIdentityIsolationTest {
         }
 
     @Test
+    fun aSharedServerWithoutItsOwnTokenNeverReceivesTheAccountToken() =
+        runTest {
+            val requests = mutableListOf<String>()
+            val repo =
+                testRepo { request ->
+                    requests += request.url.toString()
+                    error("Nothing may be sent for a shared server without its own token")
+                }
+            val shared = resource.copy(owned = false, accessToken = null)
+
+            assertTrue(repo.authenticatePlexCloudResource("account-token", shared).isFailure)
+            assertTrue(requests.isEmpty())
+        }
+
+    @Test
     fun manualLanTokensRemainOfflineAndNeverShareAnOwnerDerivedIdentity() =
         runTest {
             val repo =

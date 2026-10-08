@@ -142,6 +142,8 @@ internal class PlayerNotificationController(
         // playback service's foreground notification. [state] already follows the receiver then.
         runCatching { manager.notify(PlayerActivity.NOTIFICATION_ID, transportNotification(state, titles, cast)) }
         if (Build.VERSION.SDK_INT >= 36 && cast != null) {
+            // Unlike the media notification, a live update needs POST_NOTIFICATIONS.
+            activity.requestNotificationPermissionIfNeeded()
             registerStopReceiver()
             val playPause = mediaPendingIntent(PlayerActivity.ACTION_PLAY_PAUSE, 2)
             val live =

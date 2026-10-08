@@ -1,16 +1,28 @@
 package com.yfuse.watch
 
-/** Admission runs under the room lock, before a connection can replace any participant. */
+/**
+ * Admission runs under the room lock, before a connection can replace any participant. A
+ * rejection with a [closeReason] ends the socket; [retryLater] ones close as "try again later",
+ * since nothing the client sent was wrong.
+ */
 internal enum class RoomJoinRejection(
     val message: String,
     val code: String,
     val closeReason: String?,
+    val retryLater: Boolean = false,
 ) {
     Removed("你已被房主移出当前房间", "removed_by_host", "removed by host"),
-    IdentityConflict("客户端身份已绑定其他账号", "account_membership_conflict", "account membership conflict"),
+
+    /** Another account's device is online under the same public id; it may leave. */
+    ClientIdInUse("这个设备标识正被其他账号使用，请稍后再试", "client_id_in_use", "client id in use", retryLater = true),
     ResumeInvalid("重连凭据无效", "resume_auth_failed", "credential rejected"),
     HostInvalid("主持人凭据无效", "host_auth_failed", "credential rejected"),
-    Full("房间人数已满", "room_full", null),
+
+    /**
+     * Closed like the others: a socket kept open after a full room could go on probing codes
+     * with further `hello`s.
+     */
+    Full("房间人数已满", "room_full", "room full", retryLater = true),
 }
 
 internal fun Room.validateJoin(
@@ -22,9 +34,12 @@ internal fun Room.validateJoin(
     maxParticipants: Int,
     maxMemberships: Int,
 ): RoomJoinRejection? {
-    if (accountUserId in removedAccountUserIds || clientId in removedClientIds) return RoomJoinRejection.Removed
-    val membership = memberships[clientId]
-    if (membership != null && membership.accountUserId != accountUserId) return RoomJoinRejection.IdentityConflict
+    val key = memberKey(accountUserId, clientId)
+    if (accountUserId in removedAccountUserIds || key in removedMemberKeys) return RoomJoinRejection.Removed
+    // The wire names online members by client id, so two accounts cannot be online under one.
+    val online = participants[clientId]
+    if (online != null && online.accountUserId != accountUserId) return RoomJoinRejection.ClientIdInUse
+    val membership = memberships[key]
     if (membership != null &&
         !capabilityMatches(code, clientId, CapabilityKind.Resume, resumeCapability, membership.resumeCapabilityDigest)
     ) {
@@ -56,21 +71,21 @@ internal fun Room.removeMemberDevices(
     maxRemovalRecords: Int,
 ): List<Participant>? {
     val ownDevice = actor.accountUserId == target.accountUserId
-    val removedIds = if (ownDevice) removedClientIds else removedAccountUserIds
-    val removedId = if (ownDevice) target.id else target.accountUserId
+    val removedIds = if (ownDevice) removedMemberKeys else removedAccountUserIds
+    val removedId = if (ownDevice) target.memberKey else target.accountUserId
     if (removedId !in removedIds && removedIds.size >= maxRemovalRecords) return null
     removedIds.add(removedId)
     val removed =
         participants.values.filter {
-            if (ownDevice) it.id == target.id else it.accountUserId == target.accountUserId
+            if (ownDevice) it.memberKey == target.memberKey else it.accountUserId == target.accountUserId
         }
     removed.forEach {
         participants.remove(it.id)
-        moderatorIds.remove(it.id)
+        moderatorKeys.remove(it.memberKey)
     }
-    memberships.entries.removeAll { (_, member) ->
-        val removing = if (ownDevice) member.clientId == target.id else member.accountUserId == target.accountUserId
-        if (removing) moderatorIds.remove(member.clientId)
+    memberships.entries.removeAll { (key, member) ->
+        val removing = if (ownDevice) key == target.memberKey else member.accountUserId == target.accountUserId
+        if (removing) moderatorKeys.remove(key)
         removing
     }
     return removed

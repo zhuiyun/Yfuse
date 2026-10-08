@@ -612,6 +612,11 @@ internal class AndroidYCoreHttpProxy(
         credentialOrigin: String = upstreamUri,
     ): String {
         val protocol = upstreamUri.sourceProtocolOrNull()
+        // A manifest's resource (credentialOrigin is then its manifest's address) is checked before
+        // the pass-through below: a file:// entry handed back raw would be opened by the player.
+        require(upstreamUri == credentialOrigin || adaptiveChildStaysInSchemeFamily(credentialOrigin, upstreamUri)) {
+            "Adaptive resource leaves its manifest's scheme family"
+        }
         if (closed.get() || protocol == null) return upstreamUri
         // An explicit source preparation/retry starts a new failure observation window.
         synchronized(routesLock) { terminalSourceFailures.remove(upstreamUri) }
@@ -851,6 +856,8 @@ internal class AndroidYCoreHttpProxy(
         }
 
     private fun registerRoute(route: Route): String {
+        // Oldest by last use: a live playlist re-references the segments still in its window on every
+        // reload (localRouteUrl), so the ones that dropped out of it go first.
         while (routes.size >= MAX_ROUTES) {
             val oldest =
                 routes.entries.firstOrNull {
@@ -874,10 +881,18 @@ internal class AndroidYCoreHttpProxy(
         route: Route,
         pathSuffix: String,
     ): String {
+        // A resource a manifest named stays in that manifest's scheme family.
+        require(
+            route.upstreamUri == route.credentialOrigin ||
+                adaptiveChildStaysInSchemeFamily(route.credentialOrigin, route.upstreamUri),
+        ) { "Adaptive resource leaves its manifest's scheme family" }
         val routeId =
             synchronized(routesLock) {
                 check(!closed.get()) { "Playback proxy is closed" }
-                routeIds[route] ?: registerRoute(route)
+                routeIds[route]?.also { existing ->
+                    // Referenced again: it is in use, so it moves to the back of the eviction order.
+                    routes.remove(existing)?.let { routes[existing] = it }
+                } ?: registerRoute(route)
             }
         return "http://$LOOPBACK_HOST:${server.localPort}/$ROUTE_PREFIX/$routeId$pathSuffix"
     }
@@ -899,8 +914,9 @@ internal class AndroidYCoreHttpProxy(
                     break
                 }
             val acceptedAtNs = System.nanoTime()
-            val admission = connectionAdmission.tryAcquire()
-            if (admission == null) {
+            // A triage slot only: the playback slot is taken once serve() has read a valid request.
+            val pending = connectionAdmission.tryAcquirePending()
+            if (pending == null) {
                 // A bare close reads to FFmpeg as a failed network read and fails the open. A 503
                 // with Retry-After is an answer its HTTP layer understands; the socket closes after it.
                 runCatching { writeBusyResponse(socket) }
@@ -909,24 +925,24 @@ internal class AndroidYCoreHttpProxy(
             }
             val registration = requests.register { runCatching { socket.close() } }
             if (registration == null) {
-                admission.close()
+                pending.close()
                 continue
             }
             runCatching {
                 workers.execute {
                     try {
-                        socket.use { if (!closed.get()) serve(it, acceptedAtNs) }
+                        socket.use { if (!closed.get()) serve(it, acceptedAtNs, pending) }
                     } catch (_: Exception) {
                         // Closing a client can interrupt header reads before serve installs its response handling.
                     } finally {
                         responsesStarted.remove(socket)
                         registration.close()
-                        admission.close()
+                        pending.close()
                     }
                 }
             }.onFailure {
                 registration.close()
-                admission.close()
+                pending.close()
                 runCatching { socket.close() }
             }
         }
@@ -935,6 +951,7 @@ internal class AndroidYCoreHttpProxy(
     private fun serve(
         socket: Socket,
         acceptedAtNs: Long,
+        pending: Closeable,
     ) {
         val reader = PlaybackProxyHeaderReader(socket, headerTimeoutMs, acceptedAtNs)
         val requestLine = reader.readLine().orEmpty()
@@ -986,6 +1003,23 @@ internal class AndroidYCoreHttpProxy(
             writeEmptyResponse(socket, 404, "Not Found")
             return
         }
+        // A request for a route this proxy handed out: only now does it count against the playback
+        // slots, this proxy's and the process's.
+        val admission = connectionAdmission.tryAcquire()
+        pending.close()
+        if (admission == null) {
+            runCatching { writeBusyResponse(socket) }
+            return
+        }
+        admission.use { serveAdmitted(socket, reader, route, method) }
+    }
+
+    private fun serveAdmitted(
+        socket: Socket,
+        reader: PlaybackProxyHeaderReader,
+        route: Route,
+        method: String,
+    ) {
         val headers = reader.readHeaders()
         runCatching {
             if (route.hlsManifest) {
@@ -1900,8 +1934,12 @@ internal class AndroidYCoreHttpProxy(
         maximumBytes: Int,
         route: Route,
         discoveryBudget: YManifestDiscoveryBudget? = null,
-    ): ByteArray =
-        runBlocking {
+    ): ByteArray {
+        require(
+            upstreamUri == route.upstreamUri ||
+                adaptiveChildStaysInSchemeFamily(route.credentialOrigin, upstreamUri),
+        ) { "Adaptive playlist leaves its manifest's scheme family" }
+        return runBlocking {
             val transport = trackedTransport(mediaUri = null)
             val cancellation = discoveryBudget?.onCancel(transport::cancel)
             try {
@@ -1934,6 +1972,7 @@ internal class AndroidYCoreHttpProxy(
                 transport.close()
             }
         }
+    }
 
     private fun copySource(
         source: AndroidTransportMediaDataSource,
@@ -2275,7 +2314,12 @@ private const val ROUTE_PREFIX = "ycore-resource"
 private const val NETWORK_BUFFER_BYTES = 64 * 1024
 private const val MAX_HLS_MANIFEST_BYTES = 4 * 1024 * 1024
 private const val MAX_DASH_MANIFEST_BYTES = 8 * 1024 * 1024
-private const val MAX_ROUTES = 50_000
+
+/**
+ * One route per HLS segment: 50,000 let a long live session hold tens of megabytes of routes. Eviction
+ * takes the least recently referenced first, so this only has to cover one VOD title's playlists.
+ */
+private const val MAX_ROUTES = 8_192
 private const val MAX_HLS_RELOAD_QUERY_PARAMETERS = 8
 private const val INITIAL_BANDWIDTH_BITS_PER_SECOND = 25_000_000L
 private const val STARTUP_BUFFER_US = 10_000_000L

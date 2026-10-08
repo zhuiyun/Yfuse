@@ -5,6 +5,8 @@ import java.security.MessageDigest
 import java.util.Base64
 import java.util.Locale
 import java.util.UUID
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 internal enum class AccountProblem {
     InvalidRequest,
@@ -18,6 +20,7 @@ internal enum class AccountProblem {
     InvitationInvalid,
     CurrentPasswordInvalid,
     Forbidden,
+    ClientUpgradeRequired,
 }
 
 internal class AccountServiceException(
@@ -33,8 +36,17 @@ class AccountBackend private constructor(
     internal val service: AccountService,
     private val store: AccountStore,
     private val workExecutor: AccountWorkExecutor,
+    /**
+     * Registration, sign-in and every password proof run PBKDF2 here, apart from the token checks,
+     * sync and health probes on [workExecutor]: a burst of password work used to take all four
+     * shared threads and answer `account_busy` to every signed-in device.
+     */
+    private val credentialExecutor: AccountWorkExecutor,
 ) : AutoCloseable {
     internal suspend fun <T> execute(block: AccountService.() -> T): T = workExecutor.execute { service.block() }
+
+    internal suspend fun <T> executeCredential(block: AccountService.() -> T): T =
+        credentialExecutor.execute { service.block() }
 
     suspend fun authenticateAccessToken(accessToken: String): AuthenticatedAccount =
         execute {
@@ -68,6 +80,7 @@ class AccountBackend private constructor(
     override fun close() {
         try {
             workExecutor.close()
+            credentialExecutor.close()
         } finally {
             store.close()
         }
@@ -82,7 +95,9 @@ class AccountBackend private constructor(
             create(
                 store = SqliteAccountStore.open(databaseFile),
                 passwordHasher = Pbkdf2PasswordHasher(),
+                authKeyHasher = Pbkdf2PasswordHasher(Pbkdf2PasswordHasher.AUTH_KEY_VERIFIER_ITERATIONS),
                 workExecutor = AccountWorkExecutor(),
+                credentialExecutor = credentialWorkExecutor(),
                 usernameFailureLimiter = UsernameFailureLimiter(),
                 syncUserRateLimiter = AccountRateLimiter(),
                 registrationPolicy = registrationPolicy,
@@ -96,7 +111,9 @@ class AccountBackend private constructor(
             create(
                 store = SqliteAccountStore.inMemory(),
                 passwordHasher = Pbkdf2PasswordHasher(),
+                authKeyHasher = Pbkdf2PasswordHasher(Pbkdf2PasswordHasher.AUTH_KEY_VERIFIER_ITERATIONS),
                 workExecutor = AccountWorkExecutor(),
+                credentialExecutor = credentialWorkExecutor(),
                 usernameFailureLimiter = UsernameFailureLimiter(),
                 syncUserRateLimiter = AccountRateLimiter(),
                 registrationPolicy = registrationPolicy,
@@ -106,6 +123,7 @@ class AccountBackend private constructor(
             passwordIterations: Int = 1_000,
             clock: () -> Long = System::currentTimeMillis,
             workExecutor: AccountWorkExecutor = AccountWorkExecutor(),
+            credentialExecutor: AccountWorkExecutor = credentialWorkExecutor(),
             usernameFailureLimiter: UsernameFailureLimiter = UsernameFailureLimiter(clock = clock),
             syncUserRateLimiter: AccountRateLimiter = AccountRateLimiter(clock = clock),
             nonceHistoryPerUserLimit: Int = 4_096,
@@ -124,8 +142,10 @@ class AccountBackend private constructor(
                         activeSessionsPerUserLimit = activeSessionsPerUserLimit,
                     ),
                 passwordHasher = Pbkdf2PasswordHasher(passwordIterations),
+                authKeyHasher = Pbkdf2PasswordHasher(passwordIterations),
                 clock = clock,
                 workExecutor = workExecutor,
+                credentialExecutor = credentialExecutor,
                 usernameFailureLimiter = usernameFailureLimiter,
                 syncUserRateLimiter = syncUserRateLimiter,
                 registrationPolicy = registrationPolicy,
@@ -136,6 +156,7 @@ class AccountBackend private constructor(
             passwordIterations: Int = 1_000,
             clock: () -> Long = System::currentTimeMillis,
             workExecutor: AccountWorkExecutor = AccountWorkExecutor(),
+            credentialExecutor: AccountWorkExecutor = credentialWorkExecutor(),
             usernameFailureLimiter: UsernameFailureLimiter = UsernameFailureLimiter(clock = clock),
             syncUserRateLimiter: AccountRateLimiter = AccountRateLimiter(clock = clock),
             nonceHistoryPerUserLimit: Int = 4_096,
@@ -155,8 +176,10 @@ class AccountBackend private constructor(
                         activeSessionsPerUserLimit = activeSessionsPerUserLimit,
                     ),
                 passwordHasher = Pbkdf2PasswordHasher(passwordIterations),
+                authKeyHasher = Pbkdf2PasswordHasher(passwordIterations),
                 clock = clock,
                 workExecutor = workExecutor,
+                credentialExecutor = credentialExecutor,
                 usernameFailureLimiter = usernameFailureLimiter,
                 syncUserRateLimiter = syncUserRateLimiter,
                 registrationPolicy = registrationPolicy,
@@ -165,8 +188,10 @@ class AccountBackend private constructor(
         private fun create(
             store: AccountStore,
             passwordHasher: PasswordHasher,
+            authKeyHasher: PasswordHasher,
             clock: () -> Long = System::currentTimeMillis,
             workExecutor: AccountWorkExecutor,
+            credentialExecutor: AccountWorkExecutor,
             usernameFailureLimiter: UsernameFailureLimiter,
             syncUserRateLimiter: AccountRateLimiter,
             registrationPolicy: AccountRegistrationPolicy,
@@ -180,6 +205,7 @@ class AccountBackend private constructor(
                     AccountService(
                         store = store,
                         passwordHasher = passwordHasher,
+                        authKeyHasher = authKeyHasher,
                         clock = clock,
                         usernameFailureLimiter = usernameFailureLimiter,
                         syncUserRateLimiter = syncUserRateLimiter,
@@ -187,8 +213,13 @@ class AccountBackend private constructor(
                     ),
                 store = store,
                 workExecutor = workExecutor,
+                credentialExecutor = credentialExecutor,
             )
         }
+
+        /** Two hashes at a time, two more waiting; the rest are told to retry instead of queuing. */
+        private fun credentialWorkExecutor(): AccountWorkExecutor =
+            AccountWorkExecutor(AccountExecutionPolicy(workerThreads = 2, maxConcurrentOperations = 4))
     }
 }
 
@@ -204,6 +235,8 @@ data class AuthenticatedAccount(
 internal class AccountService(
     private val store: AccountStore,
     private val passwordHasher: PasswordHasher,
+    /** Verifies protocol 2 auth keys; they are already stretched on the device, so this is cheap. */
+    private val authKeyHasher: PasswordHasher = passwordHasher,
     private val tokenFactory: SessionTokenFactory = SessionTokenFactory(),
     private val clock: () -> Long = System::currentTimeMillis,
     private val usernameFailureLimiter: UsernameFailureLimiter,
@@ -213,30 +246,54 @@ internal class AccountService(
     private val refreshTtlMs: Long = DEFAULT_REFRESH_TTL_MS,
 ) {
     private val invitationDigests = registrationPolicy.invitationCodes.map(tokenFactory::digest)
+    private val preloginSecret by lazy(store::preloginSecret)
+
+    /**
+     * Tells a client how to prove the password. Unknown names get protocol 2 parameters derived
+     * from a server secret, stable per name, so they look like an account that has upgraded.
+     */
+    fun prelogin(request: PreloginRequest): PreloginResponse {
+        val normalizedUsername =
+            normalizeLoginUsername(request.username)
+                ?: invalidRequest("username_invalid", "用户名格式无效")
+        val credentials = store.findUserByNormalizedUsername(normalizedUsername)
+        try {
+            if (credentials?.authProtocol == AUTH_PROTOCOL_PASSWORD) {
+                return PreloginResponse(authProtocol = AUTH_PROTOCOL_PASSWORD)
+            }
+            val salt = credentials?.kdfSalt ?: decoyKdfSalt(normalizedUsername)
+            return PreloginResponse(
+                authProtocol = AUTH_PROTOCOL_DERIVED_KEY,
+                kdf = KDF_ALGORITHM,
+                kdfIterations = credentials?.kdfIterations ?: DEFAULT_KDF_ITERATIONS,
+                kdfSalt = base64Encoder.encodeToString(salt),
+            )
+        } finally {
+            credentials?.wipe()
+        }
+    }
 
     fun register(request: RegisterRequest): AuthResponse {
         val invitation = validateInvitation(request.inviteCode)
         if (!registrationPolicy.enabled && invitation == null) registrationClosed()
         val username = validateRegistrationUsername(request.username)
         val normalizedUsername = username.lowercase(Locale.ROOT)
-        if (invitation == null) {
-            when (
-                store.registrationAvailability(
-                    normalizedUsername,
-                    registrationPolicy.maxUsers,
-                )
-            ) {
-                RegistrationAvailability.Available -> Unit
-                RegistrationAvailability.UsernameUnavailable -> usernameUnavailable()
-                RegistrationAvailability.Closed -> registrationClosed()
-            }
+        val now = clock()
+        // Every check that needs no hashing runs first, so made-up invite codes and taken names
+        // cost the server nothing but a lookup.
+        if (invitation != null && !store.inviteAvailable(invitation.digest, invitation.kind, now)) {
+            invitationInvalid()
         }
-        validateRegistrationPassword(request.password)
+        when (store.registrationAvailability(normalizedUsername, registrationPolicy.maxUsers)) {
+            RegistrationAvailability.Available -> Unit
+            RegistrationAvailability.UsernameUnavailable -> usernameUnavailable()
+            RegistrationAvailability.Closed -> registrationClosed()
+        }
+        val proof = registrationProof(request)
         val nickname = request.nickname?.let(::validateNickname) ?: username
         val avatarId =
             request.avatarId?.let(::validateAvatarId)
                 ?: ((normalizedUsername.hashCode() and Int.MAX_VALUE) % AVATAR_COUNT)
-        val now = clock()
         val user =
             StoredUser(
                 id = UUID.randomUUID().toString(),
@@ -247,7 +304,12 @@ internal class AccountService(
                 createdAtEpochMs = now,
                 updatedAtEpochMs = now,
             )
-        val digest = passwordHasher.hash(request.password)
+        val vault = (proof as? RegistrationProof.DerivedKey)?.vault?.let { decodeVault(it, user.id, now) }
+        val digest =
+            when (proof) {
+                is RegistrationProof.Password -> passwordHasher.hash(proof.password)
+                is RegistrationProof.DerivedKey -> authKeyHasher.hash(proof.authKey)
+            }
         val issued = issueSession(now)
         val credentials =
             StoredCredentials(
@@ -255,6 +317,9 @@ internal class AccountService(
                 passwordSalt = digest.salt,
                 passwordHash = digest.hash,
                 passwordIterations = digest.iterations,
+                authProtocol = proof.authProtocol,
+                kdfSalt = (proof as? RegistrationProof.DerivedKey)?.kdfSalt,
+                kdfIterations = (proof as? RegistrationProof.DerivedKey)?.kdfIterations,
             )
         val result =
             try {
@@ -264,6 +329,7 @@ internal class AccountService(
                     registrationPolicy.maxUsers,
                     invitation?.digest,
                     invitation?.kind,
+                    vault,
                 )
             } finally {
                 digest.salt.fill(0)
@@ -278,35 +344,52 @@ internal class AccountService(
         }
         usernameFailureLimiter.clear(normalizedUsername)
         store.synchronizeInviteIssuerPermissions(registrationPolicy.inviteIssuerUsernames, now)
-        return issued.toResponse(user, capabilitiesFor(user.id))
+        return issued.toResponse(user, capabilitiesFor(user.id), proof.authProtocol, vault)
     }
 
-    fun login(request: LoginRequest): AuthResponse {
+    /** [client] is the rate-limit identity of the caller, when the HTTP layer knows it. */
+    fun login(
+        request: LoginRequest,
+        client: String? = null,
+    ): AuthResponse {
         val normalizedUsername =
             normalizeLoginUsername(request.username)
                 ?: invalidCredentials()
-        enforceRateLimit(usernameFailureLimiter.checkOrReserve(normalizedUsername))
-        if (!isPlausiblePassword(request.password)) {
-            usernameFailureLimiter.recordFailure(normalizedUsername)
+        enforceRateLimit(usernameFailureLimiter.checkOrReserve(normalizedUsername, client))
+        val password = request.password
+        val authKey = request.authKey
+        val wellFormed =
+            when {
+                password != null && authKey == null -> isPlausiblePassword(password)
+                authKey != null && password == null -> isWellFormedAuthKey(authKey)
+                else -> false
+            }
+        if (!wellFormed) {
+            usernameFailureLimiter.recordFailure(normalizedUsername, client)
             invalidCredentials()
         }
         val credentials = store.findUserByNormalizedUsername(normalizedUsername)
         if (credentials == null) {
-            // Burn the same password KDF class of work as an existing-user login. The result
-            // is deliberately discarded so username existence is not exposed by timing.
-            passwordHasher.hash(request.password).wipe()
-            usernameFailureLimiter.recordFailure(normalizedUsername)
+            // Prelogin presents unknown names as protocol 2 accounts, so an auth key costs what
+            // verifying a real one does. A password for an unknown name is not hashed at all:
+            // prelogin already tells protocol 1 accounts apart, and the 600k-round dummy hash
+            // only let anyone spend this server's CPU with made-up names.
+            if (authKey != null) authKeyHasher.hash(authKey).wipe()
+            usernameFailureLimiter.recordFailure(normalizedUsername, client)
             invalidCredentials()
         }
-        val expectedDigest =
-            PasswordDigest(
-                salt = credentials.passwordSalt,
-                hash = credentials.passwordHash,
-                iterations = credentials.passwordIterations,
-            )
+        val expectedDigest = credentials.digest()
         try {
-            if (!passwordHasher.verify(request.password, expectedDigest)) {
-                usernameFailureLimiter.recordFailure(normalizedUsername)
+            val verified =
+                when {
+                    credentials.authProtocol == AUTH_PROTOCOL_DERIVED_KEY ->
+                        authKeyHasher.verify(authKey ?: clientUpgradeRequired(), expectedDigest)
+                    password != null -> passwordHasher.verify(password, expectedDigest)
+                    // An auth key for a protocol 1 account: the client trusted a stale prelogin.
+                    else -> false
+                }
+            if (!verified) {
+                usernameFailureLimiter.recordFailure(normalizedUsername, client)
                 invalidCredentials()
             }
 
@@ -316,13 +399,14 @@ internal class AccountService(
                     issued.asNewSession(credentials.user.id, validateDeviceName(request.deviceName)),
                     expectedDigest,
                 ) ?: run {
-                    usernameFailureLimiter.recordFailure(normalizedUsername)
+                    usernameFailureLimiter.recordFailure(normalizedUsername, client)
                     invalidCredentials()
                 }
-            usernameFailureLimiter.clear(normalizedUsername)
-            return issued.toResponse(user, capabilitiesFor(user.id))
+            usernameFailureLimiter.clear(normalizedUsername, client)
+            val vault = if (credentials.authProtocol == AUTH_PROTOCOL_DERIVED_KEY) store.getVault(user.id) else null
+            return issued.toResponse(user, capabilitiesFor(user.id), credentials.authProtocol, vault)
         } finally {
-            expectedDigest.wipe()
+            credentials.wipe()
         }
     }
 
@@ -452,6 +536,7 @@ internal class AccountService(
             exportedAtEpochMs = clock(),
             user = authenticated.user.toResponse(capabilitiesFor(authenticated.user.id)),
             encryptedSync = store.getSyncState(authenticated.user.id).toResponse(),
+            vault = store.getVault(authenticated.user.id)?.toEnvelope(),
         )
     }
 
@@ -460,17 +545,17 @@ internal class AccountService(
         request: DeleteAccountRequest,
     ) {
         val authenticated = authenticate(accessToken)
-        if (!isPlausiblePassword(request.password)) currentPasswordInvalid()
         val credentials = store.findCredentialsByUserId(authenticated.user.id) ?: unauthorized()
-        val digest =
-            PasswordDigest(
-                credentials.passwordSalt,
-                credentials.passwordHash,
-                credentials.passwordIterations,
-            )
-        val verified = passwordHasher.verify(request.password, digest)
+        val digest = credentials.digest()
+        val verified =
+            try {
+                verifyCurrentProof(credentials, request.password, request.authKey)
+            } catch (failure: Throwable) {
+                credentials.wipe()
+                throw failure
+            }
         if (!verified) {
-            digest.wipe()
+            credentials.wipe()
             currentPasswordInvalid()
         }
         val result =
@@ -530,12 +615,13 @@ internal class AccountService(
         }
         val replacementWrap = decodePasswordChangeWrap(request)
         val credentials = store.findCredentialsByUserId(user.id) ?: unauthorized()
-        val expectedDigest =
-            PasswordDigest(
-                salt = credentials.passwordSalt,
-                hash = credentials.passwordHash,
-                iterations = credentials.passwordIterations,
-            )
+        if (credentials.authProtocol != AUTH_PROTOCOL_PASSWORD) {
+            // Protocol 2 changes the password through /account/rekey; this endpoint would put a
+            // password-wrapped key back into the sync document.
+            credentials.wipe()
+            clientUpgradeRequired()
+        }
+        val expectedDigest = credentials.digest()
         val verified =
             try {
                 passwordHasher.verify(request.currentPassword, expectedDigest)
@@ -600,10 +686,22 @@ internal class AccountService(
         }
     }
 
-    fun getSync(accessToken: String): SyncResponse {
+    /**
+     * [knownVersion] is the version the caller already holds; when the document is still at it,
+     * the answer carries no payload, so an idle device's periodic check does not download the
+     * whole encrypted document every time.
+     */
+    fun getSync(
+        accessToken: String,
+        knownVersion: Long? = null,
+    ): SyncResponse {
         val user = authenticate(accessToken).user
         enforceRateLimit(syncUserRateLimiter.check(user.id, AccountRateLimitBucket.SyncRead))
-        return store.getSyncState(user.id).toResponse()
+        val state = store.getSyncState(user.id)
+        if (knownVersion != null && state.record != null && knownVersion == state.version) {
+            return SyncResponse(version = state.version, updatedAtEpochMs = state.updatedAtEpochMs, unchanged = true)
+        }
+        return state.toResponse()
     }
 
     fun putSync(
@@ -632,25 +730,21 @@ internal class AccountService(
         ) {
             invalidRequest("sync_schema_downgrade", "同步密文版本不能降级")
         }
-        val envelope = resolveKeyWrap(decodedEnvelope, current.record)
+        val vault = store.getVault(user.id)
+        val envelope =
+            if (vault == null) {
+                resolveKeyWrap(decodedEnvelope, current.record)
+            } else {
+                // The vault record owns the key; a password-wrapped copy here would reintroduce
+                // the divergent keys that the vault exists to prevent.
+                if (decodedEnvelope.wrapVersion != null) {
+                    invalidRequest("sync_key_wrap_forbidden", "该账号的同步密钥由密钥库保存，同步数据不能携带密钥包裹")
+                }
+                if (decodedEnvelope.keyVersion != vault.keyVersion) keyVersionConflict()
+                decodedEnvelope
+            }
         val now = clock()
-        val record =
-            StoredSyncRecord(
-                userId = user.id,
-                version = request.baseVersion + 1L,
-                schemaVersion = envelope.schemaVersion,
-                algorithm = envelope.algorithm,
-                keyVersion = envelope.keyVersion,
-                nonce = envelope.nonce,
-                ciphertext = envelope.ciphertext,
-                wrapVersion = envelope.wrapVersion,
-                wrapKdf = envelope.wrapKdf,
-                wrapIterations = envelope.wrapIterations,
-                wrappedVaultKey = envelope.wrappedVaultKey,
-                wrapSalt = envelope.wrapSalt,
-                wrapNonce = envelope.wrapNonce,
-                updatedAtEpochMs = now,
-            )
+        val record = envelope.toRecord(user.id, request.baseVersion + 1L, now)
         return when (
             val result =
                 store.putSyncRecord(
@@ -672,9 +766,114 @@ internal class AccountService(
                 safeCode = "sync_nonce_reused",
                 safeMessage = "同一密钥版本不能重复使用 nonce",
             )
+            is SyncWriteResult.KeyVersionConflict -> keyVersionConflict()
             SyncWriteResult.SessionInvalid -> unauthorized()
         }
     }
+
+    /**
+     * Replaces the credentials and the vault key in one transaction: the protocol 1 → 2 upgrade
+     * and every protocol 2 password change. Every session, this one included, is replaced; the
+     * other devices still hold the retired key and must sign in again to fetch the new vault.
+     */
+    fun rekey(
+        accessToken: String,
+        request: RekeyRequest,
+    ): AuthResponse {
+        val authenticated = authenticate(accessToken)
+        val user = authenticated.user
+        enforceRateLimit(syncUserRateLimiter.check(user.id, AccountRateLimitBucket.PasswordChange))
+        if (!isWellFormedAuthKey(request.authKey)) invalidRequest("auth_key_invalid", "登录密钥格式无效")
+        val kdfIterations = validateKdfIterations(request.kdfIterations)
+        val kdfSalt = decodeBase64Url("kdfSalt", request.kdfSalt, KDF_SALT_BYTES, KDF_SALT_BYTES, "kdf_invalid")
+        val now = clock()
+        val vault = decodeVault(request.vault, user.id, now)
+        val sync =
+            request.sync?.let { put ->
+                if (put.baseVersion !in 0 until Long.MAX_VALUE) {
+                    invalidRequest("sync_version_invalid", "同步版本无效")
+                }
+                val envelope = decodeEnvelope(put.payload)
+                if (envelope.wrapVersion != null) {
+                    invalidRequest("sync_key_wrap_forbidden", "该账号的同步密钥由密钥库保存，同步数据不能携带密钥包裹")
+                }
+                if (envelope.keyVersion != vault.keyVersion) {
+                    invalidRequest("sync_key_version_invalid", "同步数据必须使用新的密钥版本")
+                }
+                envelope.toRecord(user.id, put.baseVersion + 1L, now)
+            }
+        val credentials = store.findCredentialsByUserId(user.id) ?: unauthorized()
+        val expectedDigest = credentials.digest()
+        val verified =
+            try {
+                verifyCurrentProof(credentials, request.currentPassword, request.currentAuthKey)
+            } catch (failure: Throwable) {
+                credentials.wipe()
+                throw failure
+            }
+        if (!verified) {
+            credentials.wipe()
+            currentPasswordInvalid()
+        }
+        val verifier =
+            try {
+                authKeyHasher.hash(request.authKey)
+            } catch (failure: Throwable) {
+                credentials.wipe()
+                throw failure
+            }
+        val issued = issueSession(now)
+        val result =
+            try {
+                store.rekey(
+                    userId = user.id,
+                    authenticatedSessionId = authenticated.sessionId,
+                    expectedCurrent = expectedDigest,
+                    replacement = ReplacementCredentials(verifier, kdfSalt, kdfIterations),
+                    vault = vault,
+                    sync = sync,
+                    syncBaseVersion = request.sync?.baseVersion,
+                    replacementSession = issued.asNewSession(user.id, validateDeviceName(request.deviceName)),
+                    nowEpochMs = now,
+                )
+            } finally {
+                credentials.wipe()
+                verifier.wipe()
+            }
+        return when (result) {
+            is RekeyWriteResult.Changed -> {
+                usernameFailureLimiter.clear(user.normalizedUsername)
+                issued.toResponse(
+                    user.copy(updatedAtEpochMs = now),
+                    capabilitiesFor(user.id),
+                    AUTH_PROTOCOL_DERIVED_KEY,
+                    result.vault,
+                )
+            }
+            is RekeyWriteResult.VersionConflict -> throw AccountServiceException(
+                problem = AccountProblem.VersionConflict,
+                safeCode = "sync_version_conflict",
+                safeMessage = "同步数据已被其他设备更新",
+                currentVersion = result.currentVersion,
+            )
+            is RekeyWriteResult.KeyVersionConflict -> throw AccountServiceException(
+                problem = AccountProblem.VersionConflict,
+                safeCode = "vault_key_version_conflict",
+                safeMessage = "密钥版本必须高于当前版本",
+                currentVersion = result.currentKeyVersion.toLong(),
+            )
+            RekeyWriteResult.SyncRequired -> throw AccountServiceException(
+                problem = AccountProblem.VersionConflict,
+                safeCode = "sync_reencryption_required",
+                safeMessage = "更换密钥时必须同时上传用新密钥加密的同步数据",
+            )
+            RekeyWriteResult.CredentialsChanged -> currentPasswordInvalid()
+            RekeyWriteResult.SessionInvalid -> unauthorized()
+        }
+    }
+
+    /** The key version playback records must be encrypted under: the vault's, or 1 before it exists. */
+    fun playbackKeyVersion(userId: String): Int = store.getVault(userId)?.keyVersion ?: 1
 
     fun deleteSync(accessToken: String): SyncResponse {
         val authenticated = authenticate(accessToken)
@@ -785,6 +984,120 @@ internal class AccountService(
         )
     }
 
+    private fun DecodedSyncEnvelope.toRecord(
+        userId: String,
+        version: Long,
+        updatedAtEpochMs: Long,
+    ): StoredSyncRecord =
+        StoredSyncRecord(
+            userId = userId,
+            version = version,
+            schemaVersion = schemaVersion,
+            algorithm = algorithm,
+            keyVersion = keyVersion,
+            nonce = nonce,
+            ciphertext = ciphertext,
+            wrapVersion = wrapVersion,
+            wrapKdf = wrapKdf,
+            wrapIterations = wrapIterations,
+            wrappedVaultKey = wrappedVaultKey,
+            wrapSalt = wrapSalt,
+            wrapNonce = wrapNonce,
+            updatedAtEpochMs = updatedAtEpochMs,
+        )
+
+    private fun registrationProof(request: RegisterRequest): RegistrationProof {
+        val password = request.password
+        val authKey = request.authKey
+        if (password != null && authKey == null) {
+            if (request.kdfSalt != null || request.kdfIterations != null || request.vault != null) {
+                invalidRequest("credentials_ambiguous", "注册请求只能使用一种登录凭据")
+            }
+            validateRegistrationPassword(password)
+            return RegistrationProof.Password(password)
+        }
+        if (authKey == null || password != null) {
+            invalidRequest("credentials_ambiguous", "注册请求只能使用一种登录凭据")
+        }
+        if (!isWellFormedAuthKey(authKey)) invalidRequest("auth_key_invalid", "登录密钥格式无效")
+        val kdfSalt = request.kdfSalt ?: invalidRequest("kdf_invalid", "缺少密钥派生参数")
+        val kdfIterations = validateKdfIterations(request.kdfIterations)
+        val vault = request.vault ?: invalidRequest("vault_required", "注册时必须提供加密密钥库")
+        return RegistrationProof.DerivedKey(
+            authKey = authKey,
+            kdfSalt = decodeBase64Url("kdfSalt", kdfSalt, KDF_SALT_BYTES, KDF_SALT_BYTES, "kdf_invalid"),
+            kdfIterations = kdfIterations,
+            vault = vault,
+        )
+    }
+
+    private fun validateKdfIterations(value: Int?): Int {
+        if (value == null || value !in MIN_WRAP_ITERATIONS..MAX_WRAP_ITERATIONS) {
+            invalidRequest("kdf_iterations_invalid", "密钥派生迭代次数无效")
+        }
+        return value
+    }
+
+    private fun decodeVault(
+        envelope: VaultEnvelope,
+        userId: String,
+        nowEpochMs: Long,
+    ): StoredVault {
+        if (envelope.keyVersion !in 1..MAX_KEY_VERSION) {
+            invalidRequest("vault_key_version_invalid", "密钥版本无效")
+        }
+        if (envelope.wrapVersion != VAULT_WRAP_VERSION) {
+            invalidRequest("vault_wrap_version_unsupported", "不支持的密钥包裹版本")
+        }
+        return StoredVault(
+            userId = userId,
+            keyVersion = envelope.keyVersion,
+            wrapVersion = envelope.wrapVersion,
+            nonce = decodeBase64Url("vault.nonce", envelope.nonce, NONCE_BYTES, NONCE_BYTES, "vault_invalid"),
+            wrappedKey =
+                decodeBase64Url(
+                    "vault.wrappedKey",
+                    envelope.wrappedKey,
+                    WRAPPED_VAULT_KEY_BYTES,
+                    WRAPPED_VAULT_KEY_BYTES,
+                    "vault_invalid",
+                ),
+            updatedAtEpochMs = nowEpochMs,
+        )
+    }
+
+    /** The password for a protocol 1 account or the auth key for a protocol 2 one, never both. */
+    private fun verifyCurrentProof(
+        credentials: StoredCredentials,
+        password: String?,
+        authKey: String?,
+    ): Boolean {
+        val digest = credentials.digest()
+        return if (credentials.authProtocol == AUTH_PROTOCOL_DERIVED_KEY) {
+            authKey != null && isWellFormedAuthKey(authKey) && authKeyHasher.verify(authKey, digest)
+        } else {
+            password != null && isPlausiblePassword(password) && passwordHasher.verify(password, digest)
+        }
+    }
+
+    private fun isWellFormedAuthKey(raw: String): Boolean {
+        if (raw.length != AUTH_KEY_ENCODED_CHARS || !BASE64_URL_PATTERN.matches(raw)) return false
+        val decoded = runCatching { base64Decoder.decode(raw) }.getOrNull() ?: return false
+        return try {
+            decoded.size == AUTH_KEY_BYTES && base64Encoder.encodeToString(decoded) == raw
+        } finally {
+            decoded.fill(0)
+        }
+    }
+
+    private fun decoyKdfSalt(normalizedUsername: String): ByteArray =
+        Mac
+            .getInstance("HmacSHA256")
+            .run {
+                init(SecretKeySpec(preloginSecret, "HmacSHA256"))
+                doFinal("yfuse-prelogin-v1\u0000$normalizedUsername".toByteArray(Charsets.UTF_8))
+            }.copyOf(KDF_SALT_BYTES)
+
     private fun decodePasswordChangeWrap(request: ChangePasswordRequest): StoredKeyWrap {
         validateKeyWrapMetadata(
             request.wrapVersion,
@@ -866,19 +1179,20 @@ internal class AccountService(
         raw: String,
         minBytes: Int,
         maxBytes: Int,
+        code: String = "sync_envelope_invalid",
     ): ByteArray {
         if (raw.isEmpty() || raw.length > encodedLengthUpperBound(maxBytes)) {
-            invalidRequest("sync_envelope_invalid", "$field 长度无效")
+            invalidRequest(code, "$field 长度无效")
         }
         if (!BASE64_URL_PATTERN.matches(raw)) {
-            invalidRequest("sync_envelope_invalid", "$field 必须是无填充 Base64URL")
+            invalidRequest(code, "$field 必须是无填充 Base64URL")
         }
         val decoded =
             runCatching { base64Decoder.decode(raw) }.getOrNull()
-                ?: invalidRequest("sync_envelope_invalid", "$field 编码无效")
+                ?: invalidRequest(code, "$field 编码无效")
         if (decoded.size !in minBytes..maxBytes || base64Encoder.encodeToString(decoded) != raw) {
             decoded.fill(0)
-            invalidRequest("sync_envelope_invalid", "$field 长度或编码无效")
+            invalidRequest(code, "$field 长度或编码无效")
         }
         return decoded
     }
@@ -1021,6 +1335,20 @@ internal class AccountService(
             safeMessage = "当前账号没有执行此操作的权限",
         )
 
+    private fun clientUpgradeRequired(): Nothing =
+        throw AccountServiceException(
+            problem = AccountProblem.ClientUpgradeRequired,
+            safeCode = "client_upgrade_required",
+            safeMessage = "此账号已升级加密方式，请将 Yfuse 更新到最新版本后再登录",
+        )
+
+    private fun keyVersionConflict(): Nothing =
+        throw AccountServiceException(
+            problem = AccountProblem.VersionConflict,
+            safeCode = "sync_key_version_conflict",
+            safeMessage = "同步密钥已在其他设备更换，请重新登录",
+        )
+
     private fun capabilitiesFor(userId: String): Set<String> = store.permissionsForUser(userId)
 
     private fun invalidRequest(
@@ -1070,6 +1398,8 @@ internal class AccountService(
         fun toResponse(
             user: StoredUser,
             capabilities: Set<String>,
+            authProtocol: Int = AUTH_PROTOCOL_PASSWORD,
+            vault: StoredVault? = null,
         ): AuthResponse =
             AuthResponse(
                 user = user.toResponse(capabilities),
@@ -1077,7 +1407,28 @@ internal class AccountService(
                 accessExpiresAtEpochMs = accessExpiresAtEpochMs,
                 refreshToken = refresh.plaintext,
                 refreshExpiresAtEpochMs = refreshExpiresAtEpochMs,
+                authProtocol = authProtocol,
+                vault = vault?.toEnvelope(),
             )
+    }
+
+    private sealed interface RegistrationProof {
+        val authProtocol: Int
+
+        class Password(
+            val password: String,
+        ) : RegistrationProof {
+            override val authProtocol = AUTH_PROTOCOL_PASSWORD
+        }
+
+        class DerivedKey(
+            val authKey: String,
+            val kdfSalt: ByteArray,
+            val kdfIterations: Int,
+            val vault: VaultEnvelope,
+        ) : RegistrationProof {
+            override val authProtocol = AUTH_PROTOCOL_DERIVED_KEY
+        }
     }
 
     private data class DecodedSyncEnvelope(
@@ -1121,6 +1472,12 @@ internal class AccountService(
         private const val WRAP_KDF = "PBKDF2-HMAC-SHA256"
         private const val MIN_WRAP_ITERATIONS = 100_000
         private const val MAX_WRAP_ITERATIONS = 2_000_000
+        private const val KDF_ALGORITHM = "PBKDF2-HMAC-SHA256"
+        private const val DEFAULT_KDF_ITERATIONS = 600_000
+        private const val KDF_SALT_BYTES = 16
+        private const val AUTH_KEY_BYTES = 32
+        private const val AUTH_KEY_ENCODED_CHARS = 43
+        private const val VAULT_WRAP_VERSION = 2
         private val USERNAME_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9_.-]{2,39}")
         private val INVITE_PATTERN = Regex("[A-Za-z0-9_-]{12,128}")
         private val SESSION_ID_PATTERN = Regex("[0-9a-fA-F-]{36}")
@@ -1180,3 +1537,20 @@ private fun PasswordDigest.wipe() {
     salt.fill(0)
     hash.fill(0)
 }
+
+/** Shares the credential arrays, so wiping either wipes both. */
+private fun StoredCredentials.digest(): PasswordDigest = PasswordDigest(passwordSalt, passwordHash, passwordIterations)
+
+private fun StoredCredentials.wipe() {
+    passwordSalt.fill(0)
+    passwordHash.fill(0)
+    kdfSalt?.fill(0)
+}
+
+private fun StoredVault.toEnvelope(): VaultEnvelope =
+    VaultEnvelope(
+        keyVersion = keyVersion,
+        wrapVersion = wrapVersion,
+        nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(nonce),
+        wrappedKey = Base64.getUrlEncoder().withoutPadding().encodeToString(wrappedKey),
+    )

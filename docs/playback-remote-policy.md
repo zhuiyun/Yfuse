@@ -16,8 +16,11 @@
 发布示例：
 
 ```powershell
-.\scripts\publish-playback-policy.ps1 -Revision 1 -ValidDays 7 -Disable ycore.gpu,mdk
+.\scripts\publish-playback-policy.ps1 -Server yfuse-deploy@47.112.219.60 -Revision 1 -ValidDays 7 -Disable ycore.gpu,mdk
 ```
+
+`-Server` 必填，且默认拒绝 `root@`：请使用对 `/srv/yfuse-update/yfuse` 有写权限的部署账号。脚本发布前
+会读取线上策略，`-Revision` 不大于线上 revision 时直接拒绝。
 
 恢复全部路径必须发布更大的 revision，并传入空的 `-Disable`。revision 单调递增且会在策略
 过期后继续保留，防止旧策略重放；单次有效期最多 31 天。策略应用情况和分内核 native

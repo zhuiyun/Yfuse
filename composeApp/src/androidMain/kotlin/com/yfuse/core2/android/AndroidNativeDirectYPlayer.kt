@@ -53,6 +53,7 @@ import com.yfuse.core2.sync.YAvSync
 import com.yfuse.core2.sync.YClockSnapshot
 import com.yfuse.core2.sync.YMediaClock
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
@@ -93,6 +94,7 @@ internal class AndroidNativeDirectYPlayer(
     private val videoHandoff: AndroidVideoDecoderHandoff? = null,
 ) : YPlayer,
     AndroidSerializedPlayerRelease,
+    AndroidVideoOutputDetach,
     YPlaybackFailureReporter {
     @Volatile
     private var videoHandoffRequested = false
@@ -165,6 +167,14 @@ internal class AndroidNativeDirectYPlayer(
         if (output != null && output !is AndroidSurfaceVideoOutput) return false
         submit(Command.SetVideoOutput(output as AndroidSurfaceVideoOutput?))
         return true
+    }
+
+    override fun detachVideoOutput(detached: CompletableDeferred<Unit>) {
+        if (released) {
+            detached.complete(Unit)
+            return
+        }
+        submit(Command.SetVideoOutput(null, detached))
     }
 
     override fun play() {
@@ -729,7 +739,7 @@ internal class AndroidNativeDirectYPlayer(
                 is Command.SetSpeed -> updateSpeed(command.speed)
                 is Command.SetAudioDelay -> updateAudioDelay(command.delayMs)
                 is Command.SetAudioEffect -> updateAudioEffect(command.effect)
-                is Command.SetVideoOutput -> setSurface(command.output)
+                is Command.SetVideoOutput -> setSurface(command.output).also { command.detached?.complete(Unit) }
                 is Command.SelectAudioTrack -> selectAudioTrack(command.trackIndex)
                 is Command.SelectSubtitleTrack ->
                     selectSubtitleTrack(command.trackIndex, command.externalTrackId, command.secondary)
@@ -1434,6 +1444,7 @@ internal class AndroidNativeDirectYPlayer(
             speed = value
             applyBufferPlan(measuredThroughputBitsPerSecond = demux.snapshot().throughputBitsPerSecond, force = true)
             wallClock.setSpeed(value, positionUs, System.nanoTime())
+            videoDecoder.setPlaybackSpeed(value)
             if (isAudioPassthrough() && value != 1f) {
                 switchPassthroughToPcm(countFailure = false)
                 seekTo(positionUs)
@@ -2895,7 +2906,10 @@ internal class AndroidNativeDirectYPlayer(
                     if (reused != null) {
                         videoDecoder.release()
                         videoDecoder = reused
+                        videoDecoder.setPlaybackSpeed(speed)
                     } else {
+                        // A node handed over or freshly created has not seen this player's speed.
+                        videoDecoder.setPlaybackSpeed(speed)
                         videoDecoder.configure(
                             format = format,
                             surface = surface,
@@ -3377,6 +3391,8 @@ internal class AndroidNativeDirectYPlayer(
 
         data class SetVideoOutput(
             val output: AndroidSurfaceVideoOutput?,
+            /** Completed once the decoder no longer renders into the previous Surface. */
+            val detached: CompletableDeferred<Unit>? = null,
         ) : Command
 
         data class SelectAudioTrack(
@@ -3588,8 +3604,9 @@ private fun AndroidNativeDirectYPlayer.Command.canBeReplacedBy(next: AndroidNati
         is AndroidNativeDirectYPlayer.Command.SetAudioDelay -> next is AndroidNativeDirectYPlayer.Command.SetAudioDelay
         is AndroidNativeDirectYPlayer.Command.SetAudioEffect ->
             next is AndroidNativeDirectYPlayer.Command.SetAudioEffect
+        // A confirmed detach is never dropped: someone is waiting for it.
         is AndroidNativeDirectYPlayer.Command.SetVideoOutput ->
-            next is AndroidNativeDirectYPlayer.Command.SetVideoOutput
+            next is AndroidNativeDirectYPlayer.Command.SetVideoOutput && detached == null
         is AndroidNativeDirectYPlayer.Command.SelectAudioTrack ->
             next is AndroidNativeDirectYPlayer.Command.SelectAudioTrack
         is AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack ->

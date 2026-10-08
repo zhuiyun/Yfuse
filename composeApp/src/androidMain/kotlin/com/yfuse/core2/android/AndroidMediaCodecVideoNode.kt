@@ -130,6 +130,27 @@ internal class AndroidMediaCodecVideoNode(
 
     val decoderName: String? get() = codec?.name
 
+    /** Playback speed the decoder has to keep up with; see [realtimeOperatingRate]. */
+    private var playbackSpeed = 1f
+
+    /** The stream frame rate the started codec's operating rate was derived from, if it got one. */
+    private var operatingFrameRate: Float? = null
+
+    /**
+     * Tells a started codec the rate it now has to sustain. A vendor that refuses the value throws
+     * from setParameters; the codec then simply keeps its own pace, as it did before.
+     */
+    fun setPlaybackSpeed(speed: Float) {
+        if (!speed.isFinite() || speed <= 0f || speed == playbackSpeed) return
+        playbackSpeed = speed
+        val frameRate = operatingFrameRate ?: return
+        val decoder = codec?.takeIf { started } ?: return
+        val rate = realtimeOperatingRate(frameRate, speed) ?: return
+        runCatching {
+            decoder.setParameters(Bundle().apply { putFloat(MediaFormat.KEY_OPERATING_RATE, rate) })
+        }
+    }
+
     fun configure(
         format: MediaFormat,
         surface: Surface,
@@ -137,8 +158,10 @@ internal class AndroidMediaCodecVideoNode(
         mediaCrypto: MediaCrypto? = null,
         isolateFrameTimestamps: Boolean = false,
         anime4KContext: Context? = null,
+        realtimeHints: Boolean = true,
     ) {
         release()
+        operatingFrameRate = null
         frameTimestampMapper = if (isolateFrameTimestamps) CodecFrameTimestampMapper() else null
         val mime =
             format.getString(MediaFormat.KEY_MIME)
@@ -183,6 +206,10 @@ internal class AndroidMediaCodecVideoNode(
         }
         var decoder: MediaCodec? = null
         val requestedDecoderName = secureDecoderName ?: decoderName
+        // Only where this attempt owns a copy of the format (see copyForCodecAttempt): before Q the
+        // hints would be written into the caller's format, and a retry could not take them out.
+        val hinted = realtimeHints && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        val hintedFrameRate = if (hinted) working.applyRealtimeDecodeHints(playbackSpeed) else null
         try {
             val candidate =
                 createPlannedVideoDecoder(
@@ -196,6 +223,7 @@ internal class AndroidMediaCodecVideoNode(
             candidate.start()
             codec = candidate
             started = true
+            operatingFrameRate = hintedFrameRate
         } catch (throwable: Throwable) {
             if (throwable is CancellationException) {
                 runCatching { decoder?.release() }
@@ -214,6 +242,19 @@ internal class AndroidMediaCodecVideoNode(
                 animeOutput = null
                 // Some codecs reject texture output although direct Surface output works.
                 configure(format, surface, decoderName, mediaCrypto, isolateFrameTimestamps, anime4KContext = null)
+                return
+            }
+            if (hinted) {
+                // Some vendor decoders refuse a priority or operating rate they consider out of range.
+                configure(
+                    format,
+                    surface,
+                    decoderName,
+                    mediaCrypto,
+                    isolateFrameTimestamps,
+                    null,
+                    realtimeHints = false,
+                )
                 return
             }
             throw throwable.toVideoDecoderConfigurationException(
@@ -702,6 +743,38 @@ private fun MediaCodecInfo.supportsProfile(
     runCatching {
         getCapabilitiesForType(mime).profileLevels.any { it.profile == profile }
     }.getOrDefault(false)
+
+/**
+ * Marks the decode real-time and asks for the rate playback at [speed] needs. Without them some
+ * vendor decoders run at a power-saving pace and drop frames at 1.5x or 2x. Returns the frame rate
+ * the operating rate came from, or null when the stream declares none.
+ */
+private fun MediaFormat.applyRealtimeDecodeHints(speed: Float): Float? {
+    setInteger(MediaFormat.KEY_PRIORITY, REALTIME_CODEC_PRIORITY)
+    val frameRate =
+        if (containsKey(MediaFormat.KEY_FRAME_RATE)) {
+            runCatching { getFloat(MediaFormat.KEY_FRAME_RATE) }
+                .recoverCatching { getInteger(MediaFormat.KEY_FRAME_RATE).toFloat() }
+                .getOrNull()
+        } else {
+            null
+        }
+    val rate = frameRate?.let { realtimeOperatingRate(it, speed) } ?: return null
+    setFloat(MediaFormat.KEY_OPERATING_RATE, rate)
+    return frameRate
+}
+
+/** Frames per second a decoder must sustain for [frameRate] content played at [speed]. */
+internal fun realtimeOperatingRate(
+    frameRate: Float,
+    speed: Float,
+): Float? {
+    if (!frameRate.isFinite() || frameRate <= 0f || !speed.isFinite() || speed <= 0f) return null
+    return frameRate * speed
+}
+
+/** MediaFormat.KEY_PRIORITY: 0 is real-time, 1 best effort. */
+private const val REALTIME_CODEC_PRIORITY = 0
 
 private fun MediaFormat.integerOrNull(key: String): Int? =
     if (containsKey(key)) {

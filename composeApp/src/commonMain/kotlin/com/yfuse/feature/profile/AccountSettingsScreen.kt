@@ -343,6 +343,8 @@ private fun SignedInAccountCard(
     var sessionCount by remember(user.id) { mutableStateOf<Int?>(null) }
     var confirmDeleteAccount by remember { mutableStateOf(false) }
     var deletePassword by remember { mutableStateOf("") }
+    var showUpgradeForm by remember { mutableStateOf(false) }
+    var upgradePassword by remember { mutableStateOf("") }
     // Invite plaintext is intentionally not saveable and is discarded as soon as its dialog
     // closes. The service cannot show the same code again.
     var issuedInvite by remember { mutableStateOf<IssuedInviteCode?>(null) }
@@ -359,6 +361,7 @@ private fun SignedInAccountCard(
         account.sessions().onSuccess { loaded ->
             sessionCount = deduplicateAccountSessions(loaded).size
         }
+        account.refreshEncryptionUpgradeOffer()
     }
 
     AccountCard {
@@ -530,6 +533,55 @@ private fun SignedInAccountCard(
                     }
                 },
             )
+            AccountSectionDivider()
+        }
+        if (state.encryptionUpgradeAvailable) {
+            SettingRow(
+                title = "升级登录加密",
+                supporting = "密码不再发送到服务器，升级后其他设备需要重新登录",
+                trailingLabel = if (showUpgradeForm) "收起" else "升级",
+                enabled = !busy && !state.syncing,
+                showChevron = false,
+                onClick = {
+                    showUpgradeForm = !showUpgradeForm
+                    upgradePassword = ""
+                    localError = null
+                },
+            )
+            if (showUpgradeForm) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    YfFormField(
+                        value = upgradePassword,
+                        onValueChange = { upgradePassword = it.take(128) },
+                        label = "当前密码",
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        enabled = !busy,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    YfButton(
+                        label = "确认升级",
+                        onClick = {
+                            busy = true
+                            localError = null
+                            val secret = upgradePassword.toCharArray()
+                            upgradePassword = ""
+                            scope.launch {
+                                account
+                                    .upgradeEncryption(secret)
+                                    .onSuccess {
+                                        showUpgradeForm = false
+                                        onNotice("账号已升级为更安全的登录方式")
+                                    }.onFailure { localError = it.message ?: "升级失败" }
+                                busy = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !busy && upgradePassword.isNotEmpty(),
+                        loading = busy,
+                    )
+                }
+            }
             AccountSectionDivider()
         }
         SettingRow(
@@ -801,7 +853,8 @@ internal fun InviteCredentialSheet(
             DialogProperties(
                 usePlatformDefaultWidth = false,
                 decorFitsSystemWindows = false,
-                securePolicy = SecureFlagPolicy.SecureOff,
+                // The code is a one-time credential: keep it out of screenshots and the recents preview.
+                securePolicy = SecureFlagPolicy.SecureOn,
             ),
     ) {
         Column(Modifier.fillMaxWidth()) {
@@ -867,7 +920,7 @@ internal fun InviteCredentialSheet(
                 Text("一次性邀请码", style = AppTypography.caption.medium, color = palette.sub2)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    formatInviteCodeForDisplay("00fkGXQc35Ma6egzQ5lcLuWlqAxAKgSGJk7lfc7qAvk"),
+                    formatInviteCodeForDisplay(invite.code),
                     modifier = Modifier.fillMaxWidth(),
                     style = AppTypography.body.strong.copy(fontFamily = FontFamily.Monospace),
                     color = accent.accent,
@@ -1170,7 +1223,7 @@ private fun EncryptionInfoCard() {
             Column(Modifier.weight(1f)) {
                 Text("加密说明", style = AppTypography.body.strong, color = palette.text)
                 Text(
-                    "AES-256-GCM · 密钥由账号密码派生",
+                    "AES-256-GCM · 密码只在本机派生密钥",
                     style = AppTypography.caption.regular,
                     color = palette.sub2,
                 )
@@ -1186,14 +1239,16 @@ private fun EncryptionInfoCard() {
             Spacer(Modifier.height(13.dp))
             Text(
                 "服务器令牌、弹幕源链接、绑定和同步设置会在本机使用 AES-256-GCM " +
-                    "加密后上传，服务器数据库只保存密文；加密密钥由账号密码派生。",
+                    "加密后上传，服务器数据库只保存密文。登录时密码只在本机派生出两把钥匙：" +
+                    "一把交给服务器核对身份，另一把打开同步密钥，服务器收不到密码本身。",
                 style = AppTypography.caption.regular,
                 color = palette.sub,
             )
             Spacer(Modifier.height(7.dp))
             Text(
-                "主要降低数据库或备份泄露风险；不防在线账号服务器被完全控制。同步只手动执行，" +
-                    "一起看设备 ID、缓存、离线文件、诊断日志和最近搜索不会同步。",
+                "服务器即使被完全控制也无法直接解密，但弱密码仍可能被离线猜出，请使用足够长的密码。" +
+                    "旧版本创建的账号会在本版本登录时自动升级。一起看设备 ID、缓存、离线文件、" +
+                    "诊断日志和最近搜索不会同步。",
                 style = AppTypography.caption.regular,
                 color = palette.sub2,
             )
