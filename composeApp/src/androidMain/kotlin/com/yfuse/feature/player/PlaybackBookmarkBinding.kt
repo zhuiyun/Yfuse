@@ -44,8 +44,12 @@ internal fun rememberPlaybackBookmarkBinding(
                 error = null
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (failure: Exception) {
-                error = failure.message ?: "书签保存失败，请重试"
+            } catch (refused: IllegalArgumentException) {
+                // The store's own checks say what to change, in words meant for the viewer.
+                error = refused.message ?: BOOKMARK_SAVE_FAILED
+            } catch (_: Exception) {
+                // Anything else is a storage or encoding failure whose text was never meant to be shown.
+                error = BOOKMARK_SAVE_FAILED
             }
         }
     }
@@ -63,3 +67,5 @@ internal fun rememberPlaybackBookmarkBinding(
             onDelete = { id -> update { remove(it, id) } },
         )
 }
+
+private const val BOOKMARK_SAVE_FAILED = "书签保存失败，请重试"
