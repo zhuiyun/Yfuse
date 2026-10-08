@@ -252,46 +252,6 @@ internal class AndroidAudioTrackRenderNode(
     fun videoClockPositionUs(fallbackPositionUs: Long): Long =
         clockSnapshot()?.let { audioDelayVideoPositionUs(it.positionUs, audioDelayMs) } ?: fallbackPositionUs
 
-    /** Writes the complete decoded PCM access unit or throws on an AudioTrack error. */
-    @Synchronized
-    fun write(
-        data: ByteBuffer,
-        presentationTimeUs: Long,
-    ): Int {
-        var audioTrack = checkNotNull(track) { "AudioTrack render node has not been configured" }
-        var total = 0
-        while (data.hasRemaining()) {
-            val timestampUs =
-                writeCursor.positionUs(
-                    data,
-                    presentationTimeUs,
-                    checkNotNull(pcmFrameBytes()),
-                    sampleRate,
-                )
-            val stage = effectStage
-            val input = stage?.input(data) ?: data
-            val written = audioTrack.write(input, input.remaining(), AudioTrack.WRITE_BLOCKING)
-            if (written == AudioTrack.ERROR_DEAD_OBJECT && canRebuildDeadTrack()) {
-                audioTrack = rebuildDeadTrack()
-                continue
-            }
-            check(written >= 0) { "AudioTrack.write failed with code $written" }
-            stage?.consumed(data, written)
-            writeCursor.consumed(data)
-            recordPcm(timestampUs, written)
-            if (written == 0) {
-                zeroWriteCount++
-                continue
-            }
-            deadTrackRebuilds = 0
-            writtenBytes += written
-            pcmTail.record(written)
-            total += written
-        }
-        restorePlayingBufferIfStarted(audioTrack)
-        return total
-    }
-
     /**
      * Writes only the PCM bytes accepted immediately by AudioTrack.
      *
