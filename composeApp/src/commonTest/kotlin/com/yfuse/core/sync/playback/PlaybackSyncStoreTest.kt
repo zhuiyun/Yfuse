@@ -340,6 +340,39 @@ class PlaybackSyncStoreTest {
     }
 
     @Test
+    fun aNewVaultKeyRestartsTheRelayAndUploadsEverythingButServerMirrors() {
+        val settings = MapSettings()
+        val store = PlaybackSyncStore(settings) { 1_000L }
+        assertFalse(store.bindVaultKey(1), "An install that never recorded a version used the first key")
+        store.markManual("tmdb:1", watched = true)
+        val uploaded = store.pending().single()
+        store.markUploaded(
+            "tmdb:1",
+            emptyList(),
+            entityKey = "old-entity",
+            mutationId = uploaded.mutationId,
+            cursor = 7L,
+        )
+        store.updateCursor(7L)
+        store.seedServerProgressIfAbsent(
+            serverId = "server-a",
+            itemId = "movie-1",
+            positionMs = 25_000L,
+            played = false,
+        )
+        assertTrue(store.pending().isEmpty())
+
+        assertTrue(store.bindVaultKey(2))
+
+        assertEquals(0L, store.cursor())
+        val again = store.pending().single()
+        assertEquals("tmdb:1", again.document.state.mediaKey)
+        assertTrue(again.remoteCursors.isEmpty(), "Entity keys change with the vault key")
+        assertFalse(store.bindVaultKey(2))
+        assertEquals(1, PlaybackSyncStore(settings).pending().size, "The reset is persisted")
+    }
+
+    @Test
     fun startupServerProgressSeedsOnlyMissingItemsWithoutCreatingUpload() {
         val store = PlaybackSyncStore(MapSettings()) { 1_000L }
 

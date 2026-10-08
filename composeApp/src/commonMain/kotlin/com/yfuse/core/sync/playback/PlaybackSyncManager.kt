@@ -298,6 +298,7 @@ class PlaybackSyncManager(
             }
             val userId = cipher.currentUserId() ?: return
             if (store.bindAccount(userId)) updatePendingState()
+            if (store.bindVaultKey(cipher.currentKeyVersion())) updatePendingState()
             val shouldPull =
                 pullRemote || synchronized(scheduleLock) { userId in startupPullPendingUserIds }
             drainServerApplyQueue()
@@ -376,13 +377,23 @@ class PlaybackSyncManager(
     }
 
     private suspend fun pullAll(accessToken: String) {
+        // Without the vault key nothing below could be read, and moving the cursor past it would
+        // lose those records for good.
+        if (!cipher.hasKey()) throw PlaybackVaultKeyUnavailableException()
         var pages = 0
         do {
             val response = cloud.pull(accessToken, store.cursor(), PULL_PAGE_SIZE)
+            var unreadable = 0
             response.changes.forEach { encrypted ->
+                // With the key in hand, a record that still does not open was written under a
+                // retired key or damaged in transit. One such record used to stop every later
+                // pull for good; it is skipped instead, and its owner uploads it again.
                 val document =
                     cipher.decrypt(encrypted)
-                        ?: throw PlaybackEntityDecryptException(encrypted.entityKey)
+                        ?: run {
+                            unreadable++
+                            return@forEach
+                        }
                 val applied =
                     store.applyRemote(
                         remote = document,
@@ -396,6 +407,14 @@ class PlaybackSyncManager(
                         serverIds = serverApplier.targetServerIds(applied.document),
                     )
                 }
+            }
+            if (unreadable > 0) {
+                AppLog.warning(
+                    category = "playback.sync",
+                    event = "pull_unreadable_skipped",
+                    message = "Skipped playback records that do not open with the current vault key",
+                    attributes = mapOf("count" to unreadable.toString()),
+                )
             }
             // The page is written once, and before the cursor moves past it.
             store.flush()
@@ -866,6 +885,8 @@ internal const val PLAYBACK_SERVER_ACCESS_DENIED_COOLDOWN_MS = 30 * 60_000L
 internal fun playbackSyncAllowsBackgroundApply(allowsBackgroundWork: Boolean?): Boolean = allowsBackgroundWork ?: true
 
 private class PlaybackPushNoProgressException : IllegalStateException("云端未确认播放记录，本地记录已保留，稍后重试")
+
+private class PlaybackVaultKeyUnavailableException : IllegalStateException("本机还没有账号加密密钥，云端播放记录暂不拉取，登录完成后会自动重试")
 
 private class PlaybackEntityDecryptException(
     entityKey: String,

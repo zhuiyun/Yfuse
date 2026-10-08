@@ -80,6 +80,49 @@ class AccountApi(
                 setBody(LoginRequest(username, password, deviceName))
             }.decoded()
 
+    /**
+     * Null only when the account service predates protocol 2 and has no such route (404); every
+     * other failure throws, so a network error is never taken as permission to send the password.
+     */
+    internal suspend fun prelogin(username: String): PreloginResponse? {
+        val response =
+            client.post("$origin/api/v1/auth/prelogin") {
+                contentType(ContentType.Application.Json)
+                setBody(PreloginRequest(username))
+            }
+        if (response.status == HttpStatusCode.NotFound) return null
+        return response.decoded()
+    }
+
+    internal suspend fun registerV2(request: RegisterRequestV2): AuthResponse =
+        client
+            .post("$origin/api/v1/auth/register") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }.decoded()
+
+    suspend fun loginV2(
+        username: String,
+        authKey: String,
+        deviceName: String? = null,
+    ): AuthResponse =
+        client
+            .post("$origin/api/v1/auth/login") {
+                contentType(ContentType.Application.Json)
+                setBody(LoginRequestV2(username, authKey, deviceName))
+            }.decoded()
+
+    internal suspend fun rekey(
+        accessToken: String,
+        request: RekeyRequest,
+    ): AuthResponse =
+        client
+            .post("$origin/api/v1/account/rekey") {
+                bearerAuth(accessToken)
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }.decoded()
+
     suspend fun refresh(
         refreshToken: String,
         deviceName: String? = null,
@@ -246,6 +289,18 @@ class AccountApi(
                 bearerAuth(accessToken)
                 contentType(ContentType.Application.Json)
                 setBody(DeleteAccountRequest(password))
+            }.decodedUnit()
+    }
+
+    suspend fun deleteAccountV2(
+        accessToken: String,
+        authKey: String,
+    ) {
+        client
+            .delete("$origin/api/v1/account") {
+                bearerAuth(accessToken)
+                contentType(ContentType.Application.Json)
+                setBody(DeleteAccountRequestV2(authKey))
             }.decodedUnit()
     }
 }

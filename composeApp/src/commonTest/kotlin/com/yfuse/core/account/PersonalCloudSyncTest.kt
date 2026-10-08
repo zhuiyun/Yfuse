@@ -61,6 +61,7 @@ class PersonalCloudSyncTest {
                     MockEngine { request ->
                         val headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString())
                         when (request.url.encodedPath) {
+                            "/api/v1/auth/prelogin" -> respond("", HttpStatusCode.NotFound)
                             "/api/v1/auth/register", "/api/v1/auth/login" ->
                                 respond(
                                     json.encodeToString(auth),
@@ -282,6 +283,7 @@ class PersonalCloudSyncTest {
                 MockEngine { request ->
                     val headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString())
                     when {
+                        request.url.encodedPath == "/api/v1/auth/prelogin" -> respond("", HttpStatusCode.NotFound)
                         request.url.encodedPath.startsWith("/api/v1/auth/") ->
                             respond(json.encodeToString(auth), headers = headers)
                         unavailable ->

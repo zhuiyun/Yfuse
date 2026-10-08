@@ -36,6 +36,75 @@ internal data class LoginRequest(
     val deviceName: String? = null,
 )
 
+/** Account protocol 2: asks how the password must be proved. */
+@Serializable
+internal data class PreloginRequest(
+    val username: String,
+)
+
+/**
+ * `authProtocol` 1 means the account still logs in with the password; 2 comes with the PBKDF2
+ * parameters the device stretches it with. Unknown names are answered like protocol 2 accounts.
+ */
+@Serializable
+internal data class PreloginResponse(
+    val authProtocol: Int,
+    val kdf: String? = null,
+    val kdfIterations: Int? = null,
+    val kdfSalt: String? = null,
+)
+
+/** The account's vault key, wrapped on the device with a key the account service never sees. */
+@Serializable
+data class VaultEnvelope(
+    val keyVersion: Int,
+    val wrapVersion: Int,
+    val nonce: String,
+    val wrappedKey: String,
+)
+
+@Serializable
+internal data class RegisterRequestV2(
+    val username: String,
+    val authKey: String,
+    val kdfSalt: String,
+    val kdfIterations: Int,
+    val vault: VaultEnvelope,
+    val nickname: String? = null,
+    val avatarId: Int? = null,
+    val inviteCode: String? = null,
+    val deviceName: String? = null,
+)
+
+@Serializable
+internal data class LoginRequestV2(
+    val username: String,
+    val authKey: String,
+    val deviceName: String? = null,
+)
+
+/**
+ * Replaces the credentials and the vault key at once: the protocol 1 → 2 upgrade proves
+ * [currentPassword], a protocol 2 password change proves [currentAuthKey]. An existing sync
+ * document travels along re-encrypted under the new key.
+ */
+@Serializable
+internal data class RekeyRequest(
+    val currentPassword: String? = null,
+    val currentAuthKey: String? = null,
+    val authKey: String,
+    val kdfSalt: String,
+    val kdfIterations: Int,
+    val vault: VaultEnvelope,
+    val sync: PutSyncRequest? = null,
+    val deviceName: String? = null,
+)
+
+@Serializable
+internal data class DeleteAccountRequestV2(
+    val authKey: String,
+)
+
 @Serializable
 internal data class RefreshRequest(
     val refreshToken: String,
@@ -92,6 +161,10 @@ data class AuthResponse(
     val accessExpiresAtEpochMs: Long,
     val refreshToken: String,
     val refreshExpiresAtEpochMs: Long,
+    /** 2 once the account logs in with a device-derived key; older services omit it. */
+    val authProtocol: Int = 1,
+    /** Protocol 2 only: the wrapped vault key every device of the account opens. */
+    val vault: VaultEnvelope? = null,
 )
 
 /** Opaque encrypted document. The server validates its shape but never decrypts it. */
@@ -137,6 +210,7 @@ data class AccountExport(
     val exportedAtEpochMs: Long,
     val user: AccountUser,
     val encryptedSync: SyncResponse,
+    val vault: VaultEnvelope? = null,
 )
 
 @Serializable
@@ -186,6 +260,8 @@ sealed interface AccountState {
         val syncing: Boolean = false,
         val lastSyncedAtEpochMs: Long? = null,
         val message: String? = null,
+        /** The service knows account protocol 2 and this account still signs in with its password. */
+        val encryptionUpgradeAvailable: Boolean = false,
     ) : AccountState
 }
 

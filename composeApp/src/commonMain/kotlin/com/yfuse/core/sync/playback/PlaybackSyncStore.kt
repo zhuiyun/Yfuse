@@ -68,6 +68,35 @@ class PlaybackSyncStore(
             true
         }
 
+    /**
+     * Binds the relay partition to the account's vault key version. A re-key makes every record
+     * the relay held unreadable (and the service drops them), and the opaque entity keys change
+     * with the key, so the cursor restarts and every document is uploaded again under the new key.
+     * Returns true when that reset happened.
+     */
+    fun bindVaultKey(keyVersion: Int): Boolean =
+        synchronized(lock) {
+            require(keyVersion > 0)
+            val previous = settings.getIntOrNull(KEY_VAULT_KEY_VERSION)
+            if (previous == keyVersion) return@synchronized false
+            settings.putInt(KEY_VAULT_KEY_VERSION, keyVersion)
+            // An install that never recorded a version has only ever used the first key.
+            if (previous == null && keyVersion == FIRST_VAULT_KEY_VERSION) return@synchronized false
+            documents =
+                documents
+                    .map { stored ->
+                        if (stored.mutationId.startsWith(SERVER_MUTATION_PREFIX)) {
+                            // Mirrors of media-server progress never travel through the relay.
+                            stored.copy(remoteCursors = emptyMap())
+                        } else {
+                            stored.copy(remoteCursors = emptyMap(), dirty = true, mutationId = newId("rekey"))
+                        }
+                    }.toMutableList()
+            persistLocked()
+            settings.putLong(KEY_CURSOR, 0L)
+            true
+        }
+
     fun cursor(): Long = settings.getLong(KEY_CURSOR, 0L).coerceAtLeast(0L)
 
     fun updateCursor(value: Long) {
@@ -963,6 +992,8 @@ class PlaybackSyncStore(
         const val KEY_DEVICE_ID = "playback.cross_platform.device.v1"
         const val KEY_ACCOUNT_USER_ID = "playback.cross_platform.account_user.v1"
         const val KEY_SERVER_APPLIES = "playback.cross_platform.server_applies.v1"
+        const val KEY_VAULT_KEY_VERSION = "playback.cross_platform.vault_key_version.v1"
+        const val FIRST_VAULT_KEY_VERSION = 1
         const val MAX_LOCAL_DOCUMENTS = 512
 
         /** Mutation-id prefixes of records that only mirror the media server. */
