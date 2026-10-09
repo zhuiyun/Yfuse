@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.api.YChapter
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioRequirement
@@ -70,6 +71,32 @@ class AndroidYCoreVerifiedRouteMemoryTest {
         assertEquals(record.copy(probe = probe.copy(dolbyVisionStreamEvidence = null)), decoded)
         // The record names the media only through its identity, never through a URL.
         assertFalse(encoded.contains("http"))
+    }
+
+    @Test
+    fun `the pixel aspect ratio and chapters are remembered, and version 1 records still read`() {
+        val anamorphic =
+            probe.copy(
+                dolbyVisionStreamEvidence = null,
+                pixelAspectRatio = 32.0 / 27.0,
+                chapters = listOf(YChapter(0L, "序章"), YChapter(90_000L, "Opening: part 1")),
+            )
+        val record = YVerifiedRouteRecord("local/film/1", anamorphic, verifiedAtEpochMs = 9L)
+        val encoded = encodeVerifiedRouteRecord(record, "36:1")
+
+        assertEquals(record, decodeVerifiedRouteRecord(encoded, "36:1"))
+        // A record written before version 2: the first 35 fields under version 1.
+        val versionOne =
+            "1" +
+                encoded
+                    .split('\t')
+                    .take(35)
+                    .drop(1)
+                    .joinToString("\t", prefix = "\t")
+        assertEquals(
+            record.copy(probe = anamorphic.copy(pixelAspectRatio = null, chapters = emptyList())),
+            decodeVerifiedRouteRecord(versionOne, "36:1"),
+        )
     }
 
     @Test

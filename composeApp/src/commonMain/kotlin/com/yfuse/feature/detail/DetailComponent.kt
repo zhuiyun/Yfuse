@@ -7,7 +7,9 @@ import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.russhwolf.settings.Settings
 import com.yfuse.app.AppDependencies
+import com.yfuse.core.cast.CastManager
 import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.FollowedSeries
@@ -23,6 +25,10 @@ import com.yfuse.core.data.smartFailoverServerIds
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.model.MediaTrailer
+import com.yfuse.core.model.Person
+import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.ThemeSong
 import com.yfuse.core.model.capabilities
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.OfflineBatchItem
@@ -42,11 +48,18 @@ import com.yfuse.feature.player.PlayerStoreFactory
 import com.yfuse.feature.player.PreparedPlaybackGate
 import com.yfuse.feature.player.PreparedPlaybackRegistry
 import com.yfuse.feature.player.PreparedPlayerStore
+import com.yfuse.feature.player.RecentCastTargets
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.stateIn
 import org.koin.core.context.GlobalContext
 
 class DetailComponent(
@@ -104,6 +117,22 @@ class DetailComponent(
         runCatching { GlobalContext.get().get<PlaybackSyncManager>() }.getOrNull()
     private var explicitFromStartPending = false
 
+    /** 投屏 from this page's top bar: where the next [DetailLabel.Play] goes instead of the player. */
+    private var pendingCast: DetailCastRequest? = null
+
+    /**
+     * 投屏 from this page. The cast manager and the remembered devices are the player's, fetched only
+     * once the page shows its 投屏 key — the television's detail page never does.
+     */
+    internal val castLauncher =
+        DetailCastLauncher(
+            scope = componentScope(lifecycle),
+            castManager = { runCatching { GlobalContext.get().get<CastManager>() }.getOrNull() },
+            recentTargets = { runCatching { RecentCastTargets(GlobalContext.get().get<Settings>()) }.getOrNull() },
+            queue = ::castQueue,
+            report = { message -> store.accept(DetailIntent.ShowMessage(message)) },
+        )
+
     /** 标记已看 and 收藏 on a 相关推荐 poster, from its 浮起菜单; the list is not reloaded for them. */
     val relatedFlags =
         LiftFlagWriter(
@@ -141,6 +170,24 @@ class DetailComponent(
         dependencies.searchRequests.submit(query)
     }
 
+    /**
+     * 演员页 for a face in this page's cast, as the server that lists them knows them. A credit
+     * without an id of its own — nothing to read a record or a filmography by — searches the name.
+     */
+    fun openPerson(person: Person) {
+        if (person.id.isBlank()) {
+            searchFor(person.name)
+        } else {
+            dependencies.searchRequests.openPerson(store.state.server?.id ?: serverId, person)
+        }
+    }
+
+    /** 主题曲 for [itemId]; an episode's or a season's comes from its show. */
+    internal suspend fun themeSongs(
+        server: SavedServer,
+        itemId: String,
+    ): List<ThemeSong> = repo.themeSongs(server, itemId)
+
     private val delegateStore =
         DetailStoreFactory(
             storeFactory,
@@ -163,6 +210,9 @@ class DetailComponent(
     val store: Store<DetailIntent, DetailState, DetailLabel> =
         object : Store<DetailIntent, DetailState, DetailLabel> by delegateStore {
             override fun accept(intent: DetailIntent) {
+                // A 投屏 still resolving gives way to any tap that plays here or changes what 播放
+                // would open: the latest tap wins, and no later play goes to the television by mistake.
+                if (intent.supersedesCast()) pendingCast = null
                 when (intent) {
                     DetailIntent.Play -> explicitFromStartPending = false
                     DetailIntent.PlayFromStart -> explicitFromStartPending = true
@@ -180,6 +230,53 @@ class DetailComponent(
                 delegateStore.accept(intent)
             }
         }
+
+    /**
+     * 预告片 for this page's title, read once its detail is known and kept while the page lives — the
+     * key under 播放 and the television's hero preview both read it. Empty while nothing has loaded,
+     * and for an episode, whose trailer would only be its show's.
+     */
+    internal val trailers: StateFlow<List<MediaTrailer>> =
+        delegateStore.states
+            .map { state ->
+                val server = state.server
+                val detail = state.detail?.takeUnless { it.type.equals("Episode", ignoreCase = true) }
+                if (server != null && detail != null) server to detail.id else null
+            }.distinctUntilChangedBy { subject -> subject?.let { (server, id) -> server.id to id } }
+            .mapLatest { subject -> subject?.let { (server, id) -> repo.trailers(server, id) }.orEmpty() }
+            .stateIn(componentScope(lifecycle), SharingStarted.Lazily, emptyList())
+
+    /**
+     * Plays on [request]'s television what 播放 would open here, without this phone's player: the
+     * same item, file and resume point, because it is the same [DetailIntent.Play] that resolves them
+     * — the recommended line, a selection still loading, the cloud's resume point and all. Only where
+     * the play goes differs, at the label.
+     */
+    internal fun castTo(request: DetailCastRequest) {
+        pendingCast = request
+        explicitFromStartPending = false
+        // Past the override, which would take this 播放 for the phone's own and drop the cast.
+        delegateStore.accept(DetailIntent.Play)
+    }
+
+    /**
+     * The queue a cast from here plays: the Store this page prepared for [key], claimed as a launching
+     * player claims it, or one built as [com.yfuse.feature.player.PlayerComponent] builds its own.
+     */
+    private fun castQueue(key: PlaybackPreloadKey): PreparedPlayerStore =
+        PreparedPlaybackRegistry.claim(key)
+            ?: PlayerStoreFactory(
+                storeFactory = storeFactory,
+                repo = repo,
+                registry = registry,
+                itemId = key.itemId,
+                startPositionTicks = key.startPositionTicks,
+                serverId = key.serverId,
+                mediaSourceId = key.mediaSourceId,
+                mediaVersionPreference = dependencies.playbackPreferences.mediaVersionPreference.value,
+                failoverRequest = dependencies.playbackFailoverRequest,
+                healthMonitor = dependencies.serverHealthMonitor,
+            ).create()
 
     /** Queues the selection and reports what was actually queued; null when nothing could be. */
     fun download(selection: OfflineDownloadSelection): OfflineEnqueueResult? {
@@ -414,9 +511,13 @@ class DetailComponent(
             preloadPreparedAt = null
         }
 
+        // Set by the first launch and kept: the player route pops itself while the player is still
+        // starting, so the page can come back once before the player has played anything.
+        var playbackLaunched = false
         store.labels
             .onEach {
                 if (it is DetailLabel.Play) {
+                    playbackLaunched = true
                     val fromStart = explicitFromStartPending
                     if (fromStart) {
                         mirrorRestarted(store.state)
@@ -428,11 +529,19 @@ class DetailComponent(
                             syncedStartPositionTicks(store.state, it.startPositionTicks)
                         }
                     explicitFromStartPending = false
+                    val cast = pendingCast
+                    pendingCast = null
                     sourceWarmup?.handoff()
                     sourceWarmup = null
                     preloadObserver?.cancel()
                     preloadObserver = null
-                    onPlay(it.serverId, it.itemId, launchTicks, it.mediaSourceId)
+                    if (cast == null) {
+                        onPlay(it.serverId, it.itemId, launchTicks, it.mediaSourceId)
+                    } else {
+                        // The same launch, played by the television; this phone's player never opens.
+                        val key = PlaybackPreloadKey(it.serverId, it.itemId, launchTicks, it.mediaSourceId)
+                        castLauncher.launch(cast, key)
+                    }
                 }
             }.launchIn(scope)
 
@@ -446,6 +555,7 @@ class DetailComponent(
             object : Lifecycle.Callbacks {
                 override fun onResume() {
                     pageVisible.value = true
+                    if (playbackLaunched) syncPlayPosition()
                 }
 
                 override fun onPause() {
@@ -637,6 +747,22 @@ class DetailComponent(
                 serverId = identity.serverId,
             ) ?: return fallbackTicks
         return syncedMs.coerceAtMost(Long.MAX_VALUE / TICKS_PER_MILLISECOND) * TICKS_PER_MILLISECOND
+    }
+
+    /**
+     * Back in front after a launch, 播放 says where it would resume now. The page waited behind the
+     * player without reloading its target, so 继续播放, the resume time and 从头 still described the
+     * position from before playing, while the key itself resumed from the new one. A title played to
+     * the end reads as 0: 播放 again, with nothing for 从头 to rewind.
+     */
+    private fun syncPlayPosition() {
+        val state = store.state
+        val server = state.playServer ?: return
+        val target = state.playTarget ?: return
+        val ticks = syncedStartPositionTicks(state, state.playPositionTicks)
+        if (ticks != state.playPositionTicks) {
+            store.accept(DetailIntent.SyncPlayPosition(server.id, target.id, ticks))
+        }
     }
 
     private fun playbackIdentity(state: DetailState): PlaybackIdentity? {

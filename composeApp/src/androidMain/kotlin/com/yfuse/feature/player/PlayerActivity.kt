@@ -23,12 +23,14 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Rational
 import android.view.KeyEvent
+import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.annotation.RequiresApi
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
@@ -38,7 +40,6 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.extensions.coroutines.states
-import com.yfuse.app.ProvideAppTips
 import com.yfuse.app.effectiveGlassStyle
 import com.yfuse.app.rememberAppAccessibilityOptions
 import com.yfuse.core.account.AccountAccessTokenSource
@@ -48,6 +49,7 @@ import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.data.PortraitVideoOrientation
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
@@ -60,18 +62,24 @@ import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassMaterials
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LoadingAnimation
+import com.yfuse.core.designsystem.LocalPulseSweepEnabled
 import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.ParticleStyle
 import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
 import com.yfuse.core.designsystem.PlayerHandoff
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.core.filesource.FileSourceProgressRecorder
+import com.yfuse.core.filesource.FileSourceProgressStore
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.model.ShortDramaMode
+import com.yfuse.core.model.episodeTitle
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.offline.OfflineMediaManager
+import com.yfuse.core.performance.AppJankMonitor
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.security.ServerSessionRecovery
 import com.yfuse.core.sync.WatchTogetherClient
@@ -79,6 +87,7 @@ import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core2.api.YPlayer
+import com.yfuse.feature.filesource.FileSourcePlaybackProgress
 import com.yfuse.tv.integration.CastConnectReceiverBridge
 import com.yfuse.tv.player.TvMediaSessionActions
 import com.yfuse.tv.player.TvMediaSessionAdapter
@@ -98,13 +107,24 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
+import kotlin.math.roundToInt
 
 /**
- * Fullscreen playback lives in its own activity. Phones retain the landscape-first experience,
- * while Android 16 large screens stay adaptive and may rotate or resize freely.
+ * Fullscreen playback lives in its own activity. Phones retain the landscape-first experience —
+ * an upright picture, a 短剧, plays upright — while Android 16 large screens stay adaptive and may
+ * rotate or resize freely.
  */
-class PlayerActivity : ComponentActivity() {
+class PlayerActivity :
+    ComponentActivity(),
+    PlayerOrientationHost {
     private var completedOfflineKey: String? = null
+
+    /** A phone: the player stands upright for an upright picture, see [phonePlayerOrientation]. */
+    private var reorientsPerEntry = false
+
+    /** The entry the orientation was last chosen for, with what playback had decoded of it. */
+    private var orientationItem: PlayerMediaItem? = null
+    private var orientationState: PlaybackState? = null
     private var personalAccessJob: Job? = null
 
     companion object {
@@ -116,7 +136,6 @@ class PlayerActivity : ComponentActivity() {
         internal const val ACTION_NEXT = "com.yfuse.player.NEXT"
         private const val ACTION_OPEN = "com.yfuse.player.OPEN"
         private const val EPISODE_REFRESH_COOLDOWN_MS = 5 * 60_000L
-        private const val EPISODE_REFRESH_NEAR_END_MS = 5 * 60_000L
 
         fun intent(
             context: Context,
@@ -205,9 +224,20 @@ class PlayerActivity : ComponentActivity() {
     private lateinit var audioManager: AudioManager
     private lateinit var audioFocusController: PlayerAudioFocusController
     private var remoteCastManager: CastManager? = null
+
+    /** Resume points for 文件来源 files, which have no server to remember them. */
+    private var fileSourceProgress: FileSourcePlaybackProgress? = null
     private var sessionTitles: List<String> = emptyList()
     private val mediaSessionPositionSync = MediaSessionPositionSync()
     private val pictureInPicture = MutableStateFlow(false)
+
+    /**
+     * Android Go phones and some televisions ship without picture-in-picture, and there every PiP
+     * call - setting the params included - throws IllegalStateException.
+     */
+    private val pictureInPictureSupported: Boolean by lazy {
+        packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    }
     private lateinit var mediaSessionAdapter: TvMediaSessionAdapter
     private lateinit var notificationController: PlayerNotificationController
     private val tvChromeController = TvPlayerChromeController()
@@ -393,13 +423,14 @@ class PlayerActivity : ComponentActivity() {
         waitingForSessions = ServerSessionRecovery.showIfNeeded(this)
         if (waitingForSessions) return
         // A tablet is held whichever way its owner likes; forcing landscape on it only forces a
-        // rotation. Phones keep the manifest's landscape. FULL_USER still honours the
-        // system rotation lock, so this never fights the quick-settings toggle.
-        if (resources.configuration.smallestScreenWidthDp >= TABLET_MIN_SMALLEST_WIDTH_DP &&
-            !isTelevisionDevice(this)
-        ) {
+        // rotation. Phones keep the manifest's landscape, except for an upright picture, which
+        // stands upright (applyPhoneOrientation). FULL_USER still honours the system rotation
+        // lock, so this never fights the quick-settings toggle.
+        val tablet = resources.configuration.smallestScreenWidthDp >= TABLET_MIN_SMALLEST_WIDTH_DP
+        if (tablet && !isTelevisionDevice(this)) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
         }
+        reorientsPerEntry = !tablet && !isTelevisionDevice(this)
         registerPictureInPictureActions()
 
         applyScreenOnPolicy()
@@ -446,6 +477,9 @@ class PlayerActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.systemBars())
         }
+        keepEdgeSwipesInThePicture(window.decorView)
+        // Frame overruns in the player go into the diagnostics like the shell's, by state.
+        AppJankMonitor.attach(this)
 
         if (launchViewModel.request == null) {
             val retainedPending = launchViewModel.pending
@@ -515,6 +549,7 @@ class PlayerActivity : ComponentActivity() {
             val particleLight = preferences?.particleLight?.collectAsState()?.value ?: ParticleLight.Gentle
             val particleStyle = preferences?.particleStyle?.collectAsState()?.value ?: ParticleStyle.Stardust
             val motionTheme = preferences?.motionTheme?.collectAsState()?.value ?: MotionTheme.Classic
+            val pulseSweep = preferences?.pulseSweep?.collectAsState()?.value ?: true
             YfuseTheme(
                 dark = true,
                 dialogAnimation = dialogAnimation,
@@ -528,31 +563,35 @@ class PlayerActivity : ComponentActivity() {
                 particleActive = false,
                 motionTheme = motionTheme,
             ) {
-                val leavePreparation = {
-                    if (!stopRequested) {
-                        stopRequested = true
-                        preparationJob?.cancel()
-                        val drawn =
-                            transition?.requestExit {
-                                transitionClosing = true
-                                finish()
-                            }
-                        if (drawn != true) finish()
+                // 搜索与导航动效 reaches the app shell's own pages only; this window provides it itself,
+                // as the player's does below.
+                CompositionLocalProvider(LocalPulseSweepEnabled provides pulseSweep) {
+                    val leavePreparation = {
+                        if (!stopRequested) {
+                            stopRequested = true
+                            preparationJob?.cancel()
+                            val drawn =
+                                transition?.requestExit {
+                                    transitionClosing = true
+                                    finish()
+                                }
+                            if (drawn != true) finish()
+                        }
                     }
+                    // The system back gesture leaves on the transition too, not only the button.
+                    PlatformPredictiveBackHandler(
+                        enabled = transition != null,
+                        onProgress = { transition?.onBackProgress(it) },
+                        onBack = leavePreparation,
+                        onCancel = { transition?.onBackCancel() },
+                    )
+                    PlayerPreparationContent(
+                        state = state,
+                        onRetry = { pending.store.accept(PlayerIntent.Retry) },
+                        onBack = leavePreparation,
+                    )
+                    PlayerTransitionLayer(transition, ready = state.error != null, inPictureInPicture = false)
                 }
-                // The system back gesture leaves on the transition too, not only the button.
-                PlatformPredictiveBackHandler(
-                    enabled = transition != null,
-                    onProgress = { transition?.onBackProgress(it) },
-                    onBack = leavePreparation,
-                    onCancel = { transition?.onBackCancel() },
-                )
-                PlayerPreparationContent(
-                    state = state,
-                    onRetry = { pending.store.accept(PlayerIntent.Retry) },
-                    onBack = leavePreparation,
-                )
-                PlayerTransitionLayer(transition, ready = state.error != null, inPictureInPicture = false)
             }
         }
         preparationJob?.cancel()
@@ -714,10 +753,12 @@ class PlayerActivity : ComponentActivity() {
         val initialEngine = launchRequest.engine
         val decoderMode = launchRequest.decoder
         val autoNext = launchRequest.autoNext
-        val startPlaybackRequested = launchViewModel.startPlaybackRequested()
+        val requestedOnLaunch = launchViewModel.startPlaybackRequested()
         val retainedResume = launchViewModel.resume
         val initialStartIndex = retainedResume?.first ?: launchRequest.startIndex
         val initialStartPositionMs = retainedResume?.second ?: launchRequest.startPositionMs
+        // A recreated queue may resume another entry with a different picture orientation.
+        applyPhoneOrientation(items.getOrNull(initialStartIndex), state = null)
         playbackItems.value = items
         pictureInPicture.value = isInPictureInPictureMode
         pipWasVisible = isInPictureInPictureMode
@@ -749,6 +790,10 @@ class PlayerActivity : ComponentActivity() {
         val skipSegmentPreferences = koin.get<SkipSegmentPreferences>()
         val danmakuRepository = koin.get<DanmakuRepository>()
         val offlineMediaManager = koin.get<OfflineMediaManager>()
+        fileSourceProgress =
+            koin.getOrNull<FileSourceProgressStore>()?.let { store ->
+                FileSourcePlaybackProgress(FileSourceProgressRecorder(store, SystemClock::elapsedRealtime))
+            }
         playbackPreferences = koin.get()
         val videoCacheBytes = playbackPreferences.videoCacheSize.value.bytes
         val yCoreBufferTargetUs = playbackPreferences.yCoreBufferDuration.value.targetDurationUs
@@ -767,6 +812,7 @@ class PlayerActivity : ComponentActivity() {
                     }
                 },
                 onPauseRequested = audioFocusController::cancelResume,
+                onPlayRequested = ::requestLocalPlaybackStart,
             )
         playbackGate = playbackController
         capabilityMonitorJob =
@@ -790,16 +836,20 @@ class PlayerActivity : ComponentActivity() {
             },
             close = ::stopPlaybackAndFinish,
         )
-        if (startPlaybackRequested && playbackAllowedByLifecycle()) ensureAudioFocus()
+        val startPlaybackRequested = requestedOnLaunch && requestLocalPlaybackStart()
         val playbackSinkFor =
             runCatching {
                 val registry = koin.get<ServerRegistry>()
                 val coordinator = koin.get<PlaybackReportingCoordinator>()
+                // An address opened from outside the libraries belongs to no server. The legacy
+                // default-server fallback for server-less web entries must not adopt it.
+                val externalLaunch = launchRequest.items.any { it.isExternalPlayback }
                 val resolver: (PlaybackReportingTarget) -> PlaybackEventSink? = { target ->
                     when (target) {
                         is PlaybackReportingTarget.SavedServer ->
                             target.id.takeIf { registry.serverById(it) != null }
-                        PlaybackReportingTarget.DefaultServer -> registry.defaultServer?.id
+                        PlaybackReportingTarget.DefaultServer ->
+                            registry.defaultServer?.id?.takeUnless { externalLaunch }
                         PlaybackReportingTarget.Disabled -> null
                     }?.let(coordinator::sinkFor)
                 }
@@ -829,6 +879,9 @@ class PlayerActivity : ComponentActivity() {
             val particleLight = preferences?.particleLight?.collectAsState()?.value ?: ParticleLight.Gentle
             val particleStyle = preferences?.particleStyle?.collectAsState()?.value ?: ParticleStyle.Stardust
             val motionTheme = preferences?.motionTheme?.collectAsState()?.value ?: MotionTheme.Classic
+            // The app shell provides 搜索与导航动效 to its pages, and this window is not one of them:
+            // without it here the ending's liquid split whatever the switch said.
+            val pulseSweep = preferences?.pulseSweep?.collectAsState()?.value ?: true
             YfuseTheme(
                 dark = true,
                 dialogAnimation = dialogAnimation,
@@ -842,120 +895,135 @@ class PlayerActivity : ComponentActivity() {
                 particleActive = !inPictureInPicture,
                 motionTheme = motionTheme,
             ) {
-                ProvideAppTips {
-                    PlayerRoot(
-                        transition = transition,
-                        items = liveItems,
-                        startIndex = initialStartIndex,
-                        startPositionMs = initialStartPositionMs,
-                        refreshedResume = refreshedResume,
-                        queueRevision = refreshedRevision,
-                        initialEngine = initialEngine,
-                        decoderMode = decoderMode,
-                        autoNext = autoNext,
-                        playbackPreferences = playbackPreferences,
-                        inPictureInPicture = inPictureInPicture,
-                        playbackSinkFor = playbackSinkFor,
-                        danmakuPreferences = danmakuPreferences,
-                        skipSegmentPreferences = skipSegmentPreferences,
-                        volumeKeyPresses = volumeKeyPresses,
-                        danmakuRepository = danmakuRepository,
-                        customUserAgent = customUserAgent,
-                        videoCacheBytes = videoCacheBytes,
-                        yCoreBufferTargetUs = yCoreBufferTargetUs,
-                        watchTogether = watchTogether,
-                        accountTokens = accountTokens,
-                        watchTogetherPreferences = watchTogetherPreferences,
-                        playbackGate = playbackController,
-                        onPlayerAttached = { player, appendItems, updateQueue ->
-                            activePlayer = player
-                            activeQueueAppender = appendItems
-                            activeQueueUpdater = updateQueue
-                            applyPendingEnrichment()
-                        },
-                        onPlayerDetached = { player ->
-                            if (activePlayer === player) {
-                                activePlayer = null
-                                activeQueueAppender = null
-                                activeQueueUpdater = null
-                            }
-                        },
-                        // Presentation changes only (transport, index, error, geometry): everything
-                        // here talks to the system — notification, media session, PiP params, the
-                        // foreground service — and must not run on the 500 ms position tick.
-                        onPlaybackState = stateChanged@{ state, item ->
-                            if (!launchViewModel.isPlaybackCurrent(launchGeneration)) return@stateChanged
-                            activeState = state
-                            rememberPlaybackResume(launchGeneration, state)
-                            applyScreenOnPolicy()
-                            if (state.ended && item?.serverId != null) {
-                                val completedKey = "${item.serverId}#${item.id}"
-                                if (completedOfflineKey != completedKey) {
-                                    completedOfflineKey = completedKey
-                                    offlineMediaManager.onPlaybackCompleted(item.serverId, item.id)
+                CompositionLocalProvider(LocalPulseSweepEnabled provides pulseSweep) {
+                    ProvidePlayerChrome(television = televisionDevice) {
+                        PlayerRoot(
+                            transition = transition,
+                            items = liveItems,
+                            startIndex = initialStartIndex,
+                            startPositionMs = initialStartPositionMs,
+                            refreshedResume = refreshedResume,
+                            queueRevision = refreshedRevision,
+                            initialEngine = initialEngine,
+                            decoderMode = decoderMode,
+                            autoNext = autoNext,
+                            playbackPreferences = playbackPreferences,
+                            inPictureInPicture = inPictureInPicture,
+                            playbackSinkFor = playbackSinkFor,
+                            danmakuPreferences = danmakuPreferences,
+                            skipSegmentPreferences = skipSegmentPreferences,
+                            volumeKeyPresses = volumeKeyPresses,
+                            danmakuRepository = danmakuRepository,
+                            customUserAgent = customUserAgent,
+                            videoCacheBytes = videoCacheBytes,
+                            yCoreBufferTargetUs = yCoreBufferTargetUs,
+                            watchTogether = watchTogether,
+                            accountTokens = accountTokens,
+                            watchTogetherPreferences = watchTogetherPreferences,
+                            playbackGate = playbackController,
+                            onPlayerAttached = { player, appendItems, updateQueue ->
+                                activePlayer = player
+                                activeQueueAppender = appendItems
+                                activeQueueUpdater = updateQueue
+                                applyPendingEnrichment()
+                            },
+                            onPlayerDetached = { player ->
+                                if (activePlayer === player) {
+                                    activePlayer = null
+                                    activeQueueAppender = null
+                                    activeQueueUpdater = null
                                 }
-                            } else if (!state.ended) {
-                                completedOfflineKey = null
-                            }
-                            if (item != null && state.currentIndex in sessionTitles.indices) {
-                                sessionTitles = playbackItems.value.map { it.title }
-                            }
-                            updateMediaSession(state)
-                            updatePictureInPictureParams()
-                            if (
-                                (state.playing || state.buffering) &&
-                                (
-                                    !isScreenInteractive() ||
-                                        activityHasStarted &&
-                                        !activityStarted &&
-                                        !isInPictureInPictureMode
-                                )
-                            ) {
-                                pausePlaybackForLifecycle("state_resumed_while_hidden")
-                            } else if (state.playing) {
-                                startPlaybackKeepAliveService()
-                            }
-                        },
-                        // Every tick: in-process position consumers, plus a ten-second (or post-seek)
-                        // media-session position refresh that does not rebuild the notification.
-                        onPlaybackProgress = progressChanged@{ state, item ->
-                            if (!launchViewModel.isPlaybackCurrent(launchGeneration)) return@progressChanged
-                            activeState = state
-                            applyPendingEnrichment()
-                            if (
-                                state.playing &&
-                                state.hasNext &&
-                                state.remainingMs in 1L..EPISODE_REFRESH_NEAR_END_MS
-                            ) {
-                                refreshEpisodes()
-                            }
-                            rememberPlaybackResume(launchGeneration, state)
-                            ActivePlayback.update(
-                                item?.title.orEmpty(),
-                                state,
-                            )
-                            val now = SystemClock.elapsedRealtime()
-                            if (mediaSessionPositionSync.shouldPublish(state, now)) {
-                                publishMediaSessionState(state, now)
-                            }
-                        },
-                        onVideoBounds = { bounds ->
-                            // Layout reports this on every pass - every frame of a transition - and each
-                            // params update builds three PendingIntents and makes a system call. Only a
-                            // moved rect changes the hint.
-                            if (bounds != videoBounds) {
-                                videoBounds = bounds
+                            },
+                            // Presentation changes only (transport, index, error, geometry): everything
+                            // here talks to the system — notification, media session, PiP params, the
+                            // foreground service — and must not run on the 500 ms position tick.
+                            onPlaybackState = stateChanged@{ state, item ->
+                                if (!launchViewModel.isPlaybackCurrent(launchGeneration)) return@stateChanged
+                                activeState = state
+                                rememberPlaybackResume(launchGeneration, state)
+                                applyScreenOnPolicy()
+                                applyPhoneOrientation(item, state)
+                                if (state.ended && item?.serverId != null) {
+                                    val completedKey = "${item.serverId}#${item.id}"
+                                    if (completedOfflineKey != completedKey) {
+                                        completedOfflineKey = completedKey
+                                        offlineMediaManager.onPlaybackCompleted(item.serverId, item.id)
+                                    }
+                                } else if (!state.ended) {
+                                    completedOfflineKey = null
+                                }
+                                fileSourceProgress?.onState(item, state)
+                                if (item != null && state.currentIndex in sessionTitles.indices) {
+                                    sessionTitles = playbackItems.value.map { it.title }
+                                }
+                                updateMediaSession(state)
                                 updatePictureInPictureParams()
-                            }
-                        },
-                        onBack = ::closePlayerAndReturn,
-                        onEnterPictureInPicture = ::enterPlayerPictureInPicture,
-                        onRefreshEpisodes = { refreshEpisodes(force = true) },
-                        onRemotePlayRequested = ::ensureAudioFocus,
-                        remoteChrome = tvChromeController.takeIf { televisionDevice },
-                        launchStartedElapsedMs = launchViewModel.launchStartedElapsedMs,
-                        startPlaybackRequested = startPlaybackRequested,
-                    )
+                                if (
+                                    (state.playing || state.buffering) &&
+                                    (
+                                        !isScreenInteractive() ||
+                                            activityHasStarted &&
+                                            !activityStarted &&
+                                            !isInPictureInPictureMode
+                                    )
+                                ) {
+                                    pausePlaybackForLifecycle("state_resumed_while_hidden")
+                                } else if (state.playing) {
+                                    startPlaybackKeepAliveService()
+                                }
+                            },
+                            // Every tick: in-process position consumers, plus a ten-second (or post-seek)
+                            // media-session position refresh that does not rebuild the notification.
+                            onPlaybackProgress = progressChanged@{ state, item ->
+                                if (!launchViewModel.isPlaybackCurrent(launchGeneration)) return@progressChanged
+                                activeState = state
+                                applyPendingEnrichment()
+                                if (
+                                    state.playing &&
+                                    state.hasNext &&
+                                    queueRefreshDue(
+                                        remainingMs = state.remainingMs,
+                                        durationMs = state.durationMs,
+                                        itemsAfterCurrent = playbackItems.value.lastIndex - state.currentIndex,
+                                    )
+                                ) {
+                                    refreshEpisodes()
+                                }
+                                rememberPlaybackResume(launchGeneration, state)
+                                ActivePlayback.update(
+                                    item?.title.orEmpty(),
+                                    state,
+                                )
+                                fileSourceProgress?.onProgress(item, state)
+                                val now = SystemClock.elapsedRealtime()
+                                if (mediaSessionPositionSync.shouldPublish(state, now)) {
+                                    publishMediaSessionState(state, now)
+                                }
+                            },
+                            onVideoBounds = { bounds ->
+                                // Layout reports this on every pass - every frame of a transition - and each
+                                // params update builds three PendingIntents and makes a system call. Only a
+                                // moved rect changes the hint.
+                                if (bounds != videoBounds) {
+                                    videoBounds = bounds
+                                    updatePictureInPictureParams()
+                                }
+                            },
+                            onBack = ::closePlayerAndReturn,
+                            // No 小窗 key on a television: a remote has no second app to keep it company.
+                            onEnterPictureInPicture =
+                                if (pictureInPictureSupported && !televisionDevice) {
+                                    ::enterPlayerPictureInPicture
+                                } else {
+                                    null
+                                },
+                            onRefreshEpisodes = { refreshEpisodes(force = true) },
+                            onRemotePlayRequested = ::requestLocalPlaybackStart,
+                            remoteChrome = tvChromeController.takeIf { televisionDevice },
+                            launchStartedElapsedMs = launchViewModel.launchStartedElapsedMs,
+                            startPlaybackRequested = startPlaybackRequested,
+                        )
+                    }
                 }
             }
         }
@@ -1055,7 +1123,7 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (activeState.playing && !isFinishing && !stopRequested) {
+        if (pictureInPictureSupported && activeState.playing && !isFinishing && !stopRequested) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 // Auto-enter is already configured; remove controls before Android captures the transition.
                 pictureInPicture.value = true
@@ -1102,6 +1170,7 @@ class PlayerActivity : ComponentActivity() {
             return
         }
         activityStarted = false
+        fileSourceProgress?.flush()
         // A picture-in-picture player is still on screen and still streaming, whether or not this
         // callback ran for it. Keeping the flag set is what stops MainActivity - restarted
         // underneath the PiP window - from resuming health probes and sync over the same link.
@@ -1138,6 +1207,7 @@ class PlayerActivity : ComponentActivity() {
         }
         runCatching { unregisterReceiver(pictureInPictureReceiver) }
         PlayerForegroundRegistry.setVisible(false)
+        fileSourceProgress?.flush()
         episodeRefreshJob?.cancel()
         capabilityMonitorJob?.cancel()
         outputRenegotiationJob?.cancel()
@@ -1145,7 +1215,9 @@ class PlayerActivity : ComponentActivity() {
         stopPlaybackKeepAliveService()
         abandonAudioFocus()
         if (::notificationController.isInitialized) {
-            notificationController.cancel()
+            // The television plays on after the player closes, so a cast's live update stays with the
+            // app until the session ends. A recreate hands nothing over: the new player takes it.
+            notificationController.cancel(handOverCast = !isChangingConfigurations)
         }
         if (mediaReceiverRegistered) {
             runCatching { unregisterReceiver(mediaActionReceiver) }
@@ -1214,8 +1286,30 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * The lower part of both side edges belongs to the picture. A sideways seek, or a brightness or
+     * volume drag, that started a thumb's width from the edge was Android's back gesture and left the
+     * player mid-film; the upper part of the edges, and 返回 in the title bar, still go back. Android
+     * honours at most 200 dp of exclusion per edge, and only inside its own gesture zone.
+     */
+    private fun keepEdgeSwipesInThePicture(root: View) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        root.addOnLayoutChangeListener { view, left, top, right, bottom, _, _, _, _ ->
+            val density = resources.displayMetrics.density
+            val width = right - left
+            val height = bottom - top
+            val band = minOf(height / 2, (EDGE_SWIPE_EXCLUSION_MAX_DP * density).toInt())
+            val edge = (EDGE_SWIPE_EXCLUSION_WIDTH_DP * density).toInt()
+            view.systemGestureExclusionRects =
+                listOf(
+                    Rect(0, height - band, edge, height),
+                    Rect(width - edge, height - band, width, height),
+                )
+        }
+    }
+
     private fun enterPlayerPictureInPicture() {
-        if (isFinishing || stopRequested || isInPictureInPictureMode) return
+        if (!pictureInPictureSupported || isFinishing || stopRequested || isInPictureInPictureMode) return
         val previousVisibility = pictureInPicture.value
         pictureInPicture.value = true
         var entered = false
@@ -1231,6 +1325,14 @@ class PlayerActivity : ComponentActivity() {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setSeamlessResizeEnabled(true)
                         }.build(),
                 )
+        } catch (error: IllegalStateException) {
+            // The feature flag can be present while multi-window is off; the window stays as it is.
+            AppLog.warning(
+                category = "player.pip",
+                event = "enter_refused",
+                message = "The system refused picture-in-picture",
+                throwable = error,
+            )
         } finally {
             if (!entered) pictureInPicture.value = previousVisibility
         }
@@ -1409,13 +1511,10 @@ class PlayerActivity : ComponentActivity() {
                 if (episodes.isEmpty()) return@launch
 
                 val existing = playbackItems.value.associateBy(PlayerMediaItem::id)
+                val playingId = playbackItems.value.getOrNull(activeState.currentIndex)?.id
                 val refreshedFromServer =
-                    episodes.map { episode ->
-                        val title =
-                            listOfNotNull(
-                                episode.indexNumber?.let { "第 $it 集" },
-                                episode.name.takeIf { it.isNotBlank() },
-                            ).joinToString("  ")
+                    episodes.queueEpisodes(playingId).map { episode ->
+                        val title = episodeTitle(episode.indexNumber, episode.name, separator = "  ") { "第 $it 集" }
                         val stillUrl =
                             EmbyImages.primary(
                                 server.baseUrl,
@@ -1613,12 +1712,15 @@ class PlayerActivity : ComponentActivity() {
                 addAction(ACTION_PLAY_PAUSE)
                 addAction(ACTION_NEXT)
             }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(mediaActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(mediaActionReceiver, filter)
-        }
+        // Below Android 13 the plain overload exported this receiver, so any app could pause or skip
+        // playback. Only this app's own notification actions send these; ContextCompat keeps it
+        // private on every version, as for the screen state receiver above.
+        ContextCompat.registerReceiver(
+            this,
+            mediaActionReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         mediaReceiverRegistered = true
     }
 
@@ -1635,6 +1737,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun updatePictureInPictureParams() {
+        if (!pictureInPictureSupported) return
         val params =
             PictureInPictureParams
                 .Builder()
@@ -1730,7 +1833,11 @@ class PlayerActivity : ComponentActivity() {
             state,
             sessionTitles,
             current?.playbackSegments.orEmpty(),
-            current?.chapters?.map { it.startMs }.orEmpty(),
+            current
+                ?.chapters
+                .orEmpty()
+                .ifEmpty { state.chapters }
+                .map { it.startMs },
         )
     }
 
@@ -1929,7 +2036,56 @@ class PlayerActivity : ComponentActivity() {
         )
     }
 
+    /**
+     * Turns a phone's player to the entry on screen: upright for an upright picture, landscape
+     * otherwise (see [phonePlayerOrientation]). Nothing changes in picture-in-picture or a shared
+     * window, where the system ignores the request, or while 旋转锁 or 桌面模式 pins the window.
+     */
+    private fun applyPhoneOrientation(
+        item: PlayerMediaItem?,
+        state: PlaybackState?,
+    ) {
+        if (!reorientsPerEntry) return
+        orientationItem = item
+        orientationState = state
+        if (isInPictureInPictureMode || isInMultiWindowMode) return
+        if (!phonePlayerMayReorient(requestedOrientation)) return
+        val target = phoneOrientationFor(item, state)
+        if (requestedOrientation != target) requestedOrientation = target
+    }
+
+    private fun phoneOrientationFor(
+        item: PlayerMediaItem?,
+        state: PlaybackState?,
+    ): Int {
+        val preferences = runCatching { GlobalContext.get().get<PlaybackPreferences>() }.getOrNull()
+        val portrait =
+            item?.portraitPicture()
+                ?: state?.takeIf { it.videoHeight > 0 }?.decodedPortraitPicture()
+        val shortDrama =
+            ShortDramaMode.fromStorage(
+                preferences?.rememberedSeriesPlayback(item?.serverId, item?.shortDramaKey())?.shortDrama,
+            )
+        return phonePlayerOrientation(
+            portraitPicture = portrait,
+            preference = preferences?.portraitVideoOrientation?.value ?: PortraitVideoOrientation.Auto,
+            shortDrama = shortDrama,
+        )
+    }
+
+    override fun unlockedOrientation(): Int? =
+        if (reorientsPerEntry) phoneOrientationFor(orientationItem, orientationState) else null
+
+    override fun reorientForCurrentEntry() = applyPhoneOrientation(orientationItem, orientationState)
+
     private fun activePictureInPictureAspectRatio(): Rational {
+        // The server's size knows the file's rotation, which only ExoPlayer applies to its decoded
+        // size: a 1920×1080 file tagged rotate=90 is an upright window, not a landscape one.
+        orientationItem?.activeVersion?.displayAspectRatio()?.let { aspect ->
+            val (ratioWidth, ratioHeight) =
+                pictureInPictureAspectRatioDimensions((aspect * ASPECT_PRECISION).roundToInt(), ASPECT_PRECISION)
+            return Rational(ratioWidth, ratioHeight)
+        }
         val width =
             activeState.diagnostics.videoWidth.takeIf { it > 0 }
                 ?: videoBounds?.width()
@@ -1980,6 +2136,8 @@ class PlayerActivity : ComponentActivity() {
         )
     }
 
+    private fun requestLocalPlaybackStart(): Boolean = playbackAllowedByLifecycle() && ensureAudioFocus()
+
     private fun ensureAudioFocus(): Boolean = audioFocusController.ensure()
 
     private fun abandonAudioFocus() {
@@ -2013,6 +2171,12 @@ private fun Long.toEmbyTicks(): Long =
     coerceIn(0L, Long.MAX_VALUE / EMBY_TICKS_PER_MILLISECOND) * EMBY_TICKS_PER_MILLISECOND
 
 private const val TABLET_MIN_SMALLEST_WIDTH_DP = 600
+
+/** Android's per-edge cap on gesture exclusion. */
+private const val EDGE_SWIPE_EXCLUSION_MAX_DP = 200
+
+/** Wide enough for the back gesture's zone at its most sensitive setting. */
+private const val EDGE_SWIPE_EXCLUSION_WIDTH_DP = 48
 private const val ACTION_PIP_CONTROL = "com.yfuse.player.PIP_CONTROL"
 private const val EXTRA_PIP_COMMAND = "command"
 private const val PIP_COMMAND_PLAY = "play"
@@ -2023,3 +2187,6 @@ private const val PIP_SEEK_STEP_MS = 10_000L
 private const val EMBY_TICKS_PER_MILLISECOND = 10_000L
 private const val MIN_PICTURE_IN_PICTURE_ASPECT_RATIO = 1.0 / 2.39
 private const val MAX_PICTURE_IN_PICTURE_ASPECT_RATIO = 2.39
+
+/** Display aspects become whole-number ratios at this precision before reduction. */
+private const val ASPECT_PRECISION = 1_000

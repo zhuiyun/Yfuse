@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "scope": "validation-prerequisites",
+  "profiles": [
+    "scripts"
+  ],
+  "status": "passed",
+  "checks": [
+    {
+      "name": "python",
+      "status": "passed",
+      "version": "3.10.8",
+      "executable": "D:\\Demo\\Yfuse\\build\\validation-env\\Scripts\\python.exe",
+      "remedy": "Use Python 3.10+; CI uses 3.13."
+    },
+    {
+      "name": "bash",
+      "status": "passed",
+      "executable": "C:/Program Files/Git/bin\\bash.EXE",
+      "version": "GNU bash, version 5.2.26(1)-release (x86_64-pc-msys)"
+    },
+    {
+      "name": "openssl",
+      "status": "passed",
+      "executable": "C:/Program Files/Git/usr/bin\\openssl.EXE",
+      "version": "OpenSSL 3.2.1 30 Jan 2024 (Library: OpenSSL 3.2.1 30 Jan 2024)"
+    },
+    {
+      "name": "jq",
+      "status": "passed",
+      "executable": "D:/Demo/Yfuse/build/validation-tools\\jq.EXE",
+      "version": "jq-1.8.1"
+    }
+  ],
+  "exitCode": 0,
+  "note": "Prerequisite presence does not prove compilation, device behavior or a release."
+}

@@ -112,15 +112,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Both APKs dex inside the Gradle daemon in one invocation; at the default 2 GB heap, D8
+          # ran out of memory once the shared code passed what one heap could hold alongside the
+          # tests. The phone's quality gate gives its builds the same room.
           ./gradlew \
             :tvApp:ktlintCheck :tvShared:ktlintCheck \
             :tvShared:testAndroidHostTest \
             :tvApp:assembleDebug \
             :tvApp:assembleRelease -PallowDebugSigning=true \
+            "-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8" \
             --stacktrace \
             --no-daemon
           # The R8 build is what ships; a debug APK proves nothing about shrinking.
           test -s tvApp/build/outputs/apk/release/tvApp-release.apk
+
+      - name: Reject DEX code ART would not verify
+        if: github.ref != 'refs/heads/codex/ycore-sign-20260830'
+        run: >-
+          scripts/verify-release-dex.sh
+          --mapping tvApp/build/outputs/mapping/release/mapping.txt
+          tvApp/build/outputs/apk/release/tvApp-release.apk
 
       - name: Verify packaged TV contract
         if: github.ref != 'refs/heads/codex/ycore-sign-20260830'

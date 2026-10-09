@@ -8,9 +8,9 @@ search surface from any tab.
 
 ## Supported Android devices
 
-The last delivered phone APK targets Android API 36, requires Android 8.0/API 26 or newer,
-and currently contains only the `arm64-v8a` ABI. It does not support 32-bit-only
-devices, x86/x86_64 Android emulators, or x86 Chromebooks.
+The phone APK targets Android API 37 (since the Android 17 migration below), requires
+Android 8.0/API 26 or newer, and currently contains only the `arm64-v8a` ABI. It does not
+support 32-bit-only devices, x86/x86_64 Android emulators, or x86 Chromebooks.
 
 ## Build
 
@@ -18,9 +18,9 @@ For reproducible script/CI checks and explicit partial/blocked Harmony results, 
 [the validation environment guide](docs/VALIDATION_ENVIRONMENT.md).
 
 The build uses AGP 9.1.1, Kotlin 2.4.20, and Android SDK Platform 37.0. Install
-`platforms;android-37.0` before building. The current phone, TV and performance-test
-source targets Android API 37; that migration is newer than the last delivered APK.
-See [the Android 17 migration and device validation checklist](docs/ANDROID17_MIGRATION_20260920.md).
+`platforms;android-37.0` before building. The phone, TV and performance-test source targets
+Android API 37, and packages built from it since the migration do too; physical-device checks
+are tracked in [the Android 17 migration and device validation checklist](docs/ANDROID17_MIGRATION_20260920.md).
 `:composeApp` and `:tvApp` own Android packaging, manifests, signing, and runtime
 dependencies. `:phoneShared` and `:tvShared` compile their existing KMP source trees
 using the Android KMP library plugin. See [the migration notes](docs/AGP9_MIGRATION_20260916.md).
@@ -60,9 +60,8 @@ dependencies, regenerate them with:
   --write-locks
 ```
 
-`ktlintCheck` uses committed per-module baselines. Existing debt is tolerated, while
-new violations fail CI. Baselines must only be regenerated in an explicit formatting
-debt cleanup review.
+`ktlintCheck` has no baseline: any violation fails CI. `./gradlew ktlintFormat` fixes
+most of them; naming and line-length violations need a hand edit.
 
 Run the client and relay unit tests with:
 

@@ -22,7 +22,7 @@ bool valid_header(uint32_t size, uint32_t minimum, uint32_t version) {
     return size >= minimum && version == YCORE_ABI_VERSION;
 }
 
-bool eligible_for_automatic_handover(ycore_failure_category_t category) {
+bool eligible_for_automatic_handover(int32_t category) {
     return category != YCORE_FAILURE_AUTHORIZATION && category != YCORE_FAILURE_DRM;
 }
 
@@ -52,9 +52,19 @@ struct OwnedRequest {
     }
 };
 
+int32_t copy_out(const char *text, char *buffer, uint32_t capacity) {
+    const size_t length = std::strlen(text);
+    if (buffer != nullptr && capacity > 0) {
+        const size_t copied = std::min<size_t>(length, capacity - 1);
+        std::memcpy(buffer, text, copied);
+        buffer[copied] = '\0';
+    }
+    return static_cast<int32_t>(length);
+}
+
 struct Engine {
     std::string name;
-    ycore_route_t route = YCORE_ROUTE_SYSTEM;
+    int32_t route = YCORE_ROUTE_SYSTEM;
     int32_t priority = 0;
     ycore_capabilities_t capabilities = 0;
     void *context = nullptr;
@@ -364,7 +374,7 @@ int32_t ycore_session_set_speed(ycore_session_t *session, float speed) {
 
 int32_t ycore_session_select_track(
     ycore_session_t *session,
-    ycore_track_type_t type,
+    int32_t type,
     const char *track_id) {
     if (session == nullptr || track_id == nullptr) return YCORE_ERROR_INVALID_ARGUMENT;
     std::lock_guard<std::recursive_mutex> lock(session->mutex);
@@ -544,6 +554,18 @@ const char *ycore_session_state_reason(ycore_session_t *session) {
     if (session == nullptr) return "";
     std::lock_guard<std::recursive_mutex> lock(session->mutex);
     return session->state.reason;
+}
+
+int32_t ycore_session_copy_state_engine(ycore_session_t *session, char *buffer, uint32_t capacity) {
+    if (session == nullptr || (buffer == nullptr && capacity > 0)) return YCORE_ERROR_INVALID_ARGUMENT;
+    std::lock_guard<std::recursive_mutex> lock(session->mutex);
+    return copy_out(session->state.engine, buffer, capacity);
+}
+
+int32_t ycore_session_copy_state_reason(ycore_session_t *session, char *buffer, uint32_t capacity) {
+    if (session == nullptr || (buffer == nullptr && capacity > 0)) return YCORE_ERROR_INVALID_ARGUMENT;
+    std::lock_guard<std::recursive_mutex> lock(session->mutex);
+    return copy_out(session->state.reason, buffer, capacity);
 }
 
 }  // extern "C"

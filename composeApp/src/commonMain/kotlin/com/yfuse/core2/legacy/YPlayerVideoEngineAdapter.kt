@@ -1,20 +1,23 @@
 package com.yfuse.core2.legacy
 
+import com.yfuse.core.model.PlaybackChapter
+import com.yfuse.core.model.namedPlaybackChapters
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackFailureKind
+import com.yfuse.core2.api.YChapter
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
+import com.yfuse.feature.player.AudioEnhancementMode
 import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.PlaybackAudioOutputMode
 import com.yfuse.feature.player.PlaybackDiagnostics
 import com.yfuse.feature.player.PlaybackDynamicRangeOutputMode
-import com.yfuse.feature.player.PlaybackEvidenceConfidence
 import com.yfuse.feature.player.PlaybackOutputEvidence
-import com.yfuse.feature.player.PlaybackOutputReadiness
+import com.yfuse.feature.player.PlaybackRenderEvidence
 import com.yfuse.feature.player.PlaybackState
 import com.yfuse.feature.player.PlaybackVideoRenderApi
 import com.yfuse.feature.player.VideoEngine
@@ -56,6 +59,10 @@ internal class YPlayerVideoEngineAdapter(
 
     override fun setAudioDelayMs(delayMs: Long): Boolean = player.setAudioDelayMs(delayMs)
 
+    override val supportsAudioEnhancement: Boolean get() = player.supportsAudioEffects
+
+    override fun setAudioEnhancement(mode: AudioEnhancementMode): Boolean = player.setAudioEffect(mode.toYAudioEffect())
+
     override fun selectAudioTrack(id: String) = player.selectTrack(YTrackType.Audio, id)
 
     override fun selectSubtitleTrack(id: String) = player.selectTrack(YTrackType.Subtitle, id)
@@ -92,6 +99,8 @@ internal class YPlayerVideoEngineAdapter(
     override fun setSubtitleAppearance(appearance: com.yfuse.feature.player.SubtitleAppearance): Boolean = true
 
     override fun selectItem(index: Int) = player.selectItem(index)
+
+    override fun setPauseAtEndOfCurrentItem(enabled: Boolean) = player.setPauseAtEndOfCurrentItem(enabled)
 
     override fun selectDiscTitle(index: Int): Boolean = player.selectDiscTitle(index)
 
@@ -159,8 +168,10 @@ private class ReverseMappedStateFlow<Source, Target>(
 private class LegacyPlaybackStateMapper {
     private var audioSource: List<YTrack>? = null
     private var subtitleSource: List<YTrack>? = null
+    private var chapterSource: Pair<List<YChapter>, Long>? = null
     private var audio: List<EngineTrack> = emptyList()
     private var subtitles: List<EngineTrack> = emptyList()
+    private var chapters: List<PlaybackChapter> = emptyList()
 
     fun map(state: YPlayerState): PlaybackState {
         if (audioSource != state.audioTracks) {
@@ -171,13 +182,24 @@ private class LegacyPlaybackStateMapper {
             subtitleSource = state.subtitleTracks
             subtitles = state.subtitleTracks.map(YTrack::toEngineTrack)
         }
-        return state.toLegacyPlaybackState(audio, subtitles)
+        // Position ticks keep the same list, so the progress bar is not handed a new one each time.
+        val chapterKey = state.chapters to state.durationMs
+        if (chapterSource != chapterKey) {
+            chapterSource = chapterKey
+            chapters =
+                namedPlaybackChapters(
+                    state.chapters.asSequence().map { it.startMs to it.title },
+                    runtimeMs = state.durationMs.takeIf { it > 0L },
+                )
+        }
+        return state.toLegacyPlaybackState(audio, subtitles, chapters)
     }
 }
 
 private fun YPlayerState.toLegacyPlaybackState(
     audio: List<EngineTrack>,
     subtitles: List<EngineTrack>,
+    chapters: List<PlaybackChapter>,
 ): PlaybackState =
     PlaybackState(
         playing = playing,
@@ -194,6 +216,7 @@ private fun YPlayerState.toLegacyPlaybackState(
         secondarySubtitleTrackId = secondarySubtitleTrackId,
         secondarySubtitleOffsetMs = secondarySubtitleOffsetMs,
         discNavigation = discNavigation,
+        chapters = chapters,
         error = error,
         errorKind = errorCategory?.toLegacyFailureKind(),
         ended = phase == YPlaybackPhase.Ended,
@@ -213,17 +236,15 @@ private fun YPlayerState.toLegacyPlaybackState(
                 videoOutput = diagnostics.videoOutput.ifBlank { "等待首帧" },
                 audioOutput = diagnostics.audioOutput.ifBlank { "等待音频输出" },
                 videoReadiness =
-                    when {
-                        diagnostics.videoOutputVerified -> PlaybackOutputReadiness.Rendering
-                        phase == YPlaybackPhase.Idle -> PlaybackOutputReadiness.Released
-                        else -> PlaybackOutputReadiness.Waiting
-                    },
+                    PlaybackRenderEvidence.readiness(
+                        verified = diagnostics.videoOutputVerified,
+                        released = phase == YPlaybackPhase.Idle,
+                    ),
                 audioReadiness =
-                    when {
-                        diagnostics.audioOutputVerified -> PlaybackOutputReadiness.Rendering
-                        phase == YPlaybackPhase.Idle -> PlaybackOutputReadiness.Released
-                        else -> PlaybackOutputReadiness.Waiting
-                    },
+                    PlaybackRenderEvidence.readiness(
+                        verified = diagnostics.audioOutputVerified,
+                        released = phase == YPlaybackPhase.Idle,
+                    ),
                 dolbyVisionOutput = diagnostics.dolbyVisionOutput,
                 dolbyVisionRpuApplied = diagnostics.dolbyVisionRpuApplied,
                 dolbyVisionEnhancementLayerComposed = diagnostics.dolbyVisionFelComposed,
@@ -260,18 +281,9 @@ private fun YPlayerState.toLegacyPlaybackState(
 internal fun com.yfuse.core2.api.YPlayerDiagnostics.toPlaybackOutputEvidence(
     phase: YPlaybackPhase,
 ): PlaybackOutputEvidence {
-    val videoReadiness =
-        when {
-            videoOutputVerified -> PlaybackOutputReadiness.Rendering
-            phase == YPlaybackPhase.Idle -> PlaybackOutputReadiness.Released
-            else -> PlaybackOutputReadiness.Waiting
-        }
-    val audioReadiness =
-        when {
-            audioOutputVerified -> PlaybackOutputReadiness.Rendering
-            phase == YPlaybackPhase.Idle -> PlaybackOutputReadiness.Released
-            else -> PlaybackOutputReadiness.Waiting
-        }
+    val released = phase == YPlaybackPhase.Idle
+    val videoReadiness = PlaybackRenderEvidence.readiness(videoOutputVerified, released)
+    val audioReadiness = PlaybackRenderEvidence.readiness(audioOutputVerified, released)
     val decoderParts = decoder.split(" + ", limit = 2)
     val videoTrackKnown =
         videoCodec.isNotBlank() || videoWidth > 0 || videoHeight > 0 || videoOutputVerified
@@ -280,10 +292,8 @@ internal fun com.yfuse.core2.api.YPlayerDiagnostics.toPlaybackOutputEvidence(
         sessionRevision = if (phase == YPlaybackPhase.Idle) 0L else outputEvidenceGeneration.coerceAtLeast(1L),
         videoReadiness = videoReadiness,
         audioReadiness = audioReadiness,
-        videoConfidence =
-            if (videoOutputVerified) PlaybackEvidenceConfidence.Confirmed else PlaybackEvidenceConfidence.Requested,
-        audioConfidence =
-            if (audioOutputVerified) PlaybackEvidenceConfidence.Confirmed else PlaybackEvidenceConfidence.Requested,
+        videoConfidence = PlaybackRenderEvidence.confidence(videoOutputVerified),
+        audioConfidence = PlaybackRenderEvidence.confidence(audioOutputVerified),
         // Prefer typed identities. A single legacy label with both tracks present is
         // ambiguous: audio may have started before the video Surface was attached.
         videoDecoder =

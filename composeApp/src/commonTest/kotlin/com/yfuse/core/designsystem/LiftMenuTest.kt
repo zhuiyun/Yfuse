@@ -162,6 +162,64 @@ class LiftMenuTest {
     }
 
     @Test
+    fun aRowUnderAFingerThatHasNotMovedARowAwayIsNotPicked() {
+        val recorder = Recorder()
+        // A poster at the foot of the screen: the menu lands under the finger, on the first row.
+        val lift = session(recorder, finger = Offset(100f, 230f))
+        // Past the touch slop, still on that row, but not a row's height from where it began.
+        assertFalse(lift.steer(Offset(100f, 242f), slop = 8f))
+        assertEquals(LiftHit.None, lift.hot)
+        lift.release()
+        assertTrue(recorder.events.isEmpty())
+        assertEquals(LiftExit.None, lift.exit)
+    }
+
+    @Test
+    fun onceARowAwayTheFingerPicksRowsEvenBackNearWhereItBegan() {
+        val recorder = Recorder()
+        val lift = session(recorder, finger = Offset(100f, 230f))
+        assertTrue(lift.steer(Offset(100f, 280f), slop = 8f))
+        assertEquals(LiftHit.Row(1), lift.hot)
+        assertTrue(lift.steer(Offset(100f, 240f), slop = 8f))
+        assertEquals(LiftHit.Row(0), lift.hot)
+        lift.release()
+        assertEquals(listOf("play"), recorder.events)
+    }
+
+    @Test
+    fun aDestructiveRowTakesATapRatherThanALetGo() {
+        val recorder = Recorder()
+        val menu =
+            LiftMenu(
+                title = "深海回声",
+                sections =
+                    listOf(
+                        listOf(
+                            ItemAction("播放", leavesPage = true) { recorder.events += "play" },
+                            ItemAction("从继续观看移除", destructive = true) { recorder.events += "remove" },
+                        ),
+                    ),
+            )
+        val lift =
+            LiftSession(menu, Rect(80f, 60f, 190f, 225f), Offset(100f, 100f), null, {}, {}).also {
+                it.placement = LiftPlacement(Rect(0f, 0f, 320f, 198f), Rect(0f, 208f, 320f, 320f), menuScrolls = false)
+                it.rowHeight = 48f
+                it.separatorHeight = 9f
+                it.padding = 6f
+            }
+        // Well past a row's travel, on the destructive row: nothing lights and letting go runs nothing.
+        assertFalse(lift.steer(Offset(100f, 280f), slop = 8f))
+        assertEquals(LiftHit.None, lift.hot)
+        lift.release()
+        assertTrue(recorder.events.isEmpty())
+        // The menu stays up, and a tap on the row does it.
+        lift.select(menu.actions[1])
+        assertEquals(LiftExit.SettleBack, lift.exit)
+        lift.finish()
+        assertEquals(listOf("remove"), recorder.events)
+    }
+
+    @Test
     fun aRowThatLeavesThePageRunsAtOnceAndTheLiftFadesInsteadOfSettling() {
         val recorder = Recorder()
         val lift = session(recorder)
@@ -466,13 +524,45 @@ class LiftMenuTest {
     }
 
     @Test
-    fun lettingGoOnTheCardAfterScrubbingStillOpensTheTitle() {
+    fun lettingGoOnTheCardAfterScrubbingOnlyPreviews() {
         val recorder = Recorder()
         val lift = scrubSession(FakeScrub(270), recorder)
         lift.steer(Offset(250f, 100f), slop = 8f)
+        assertTrue(lift.scrubFrame >= 0)
         lift.release()
+        assertTrue(recorder.events.isEmpty())
+        assertEquals(LiftExit.None, lift.exit)
+        assertFalse(lift.holding)
+        assertEquals(LiftHit.None, lift.hot)
+        assertEquals(-1, lift.scrubFrame)
+        // The menu stays up, and the card still opens the title when it is tapped.
+        lift.open()
         assertEquals(listOf("open"), recorder.events)
         assertEquals(LiftExit.FadeAway, lift.exit)
+    }
+
+    @Test
+    fun lettingGoOnAScrubbableCardWithoutScrubbingStillOpensTheTitle() {
+        val recorder = Recorder()
+        val lift = scrubSession(FakeScrub(270), recorder)
+        assertTrue(lift.steer(Offset(162f, 120f), slop = 8f))
+        assertEquals(LiftHit.Card, lift.hot)
+        lift.release()
+        assertEquals(listOf("open"), recorder.events)
+    }
+
+    @Test
+    fun aScrubThatWentOffTheCardAndBackStillOnlyPreviews() {
+        val recorder = Recorder()
+        val lift = scrubSession(FakeScrub(270), recorder)
+        lift.steer(Offset(250f, 100f), slop = 8f)
+        lift.steer(Offset(250f, 208f + 6f + 10f), slop = 8f)
+        assertEquals(LiftHit.Row(0), lift.hot)
+        lift.steer(Offset(120f, 150f), slop = 8f)
+        assertEquals(LiftHit.Card, lift.hot)
+        lift.release()
+        assertTrue(recorder.events.isEmpty())
+        assertEquals(LiftExit.None, lift.exit)
     }
 
     @Test
@@ -484,6 +574,28 @@ class LiftMenuTest {
         scrub.frames = 12
         assertTrue(lift.steer(Offset(210f, 100f), slop = 8f))
         assertEquals(7, lift.scrubFrame)
+    }
+
+    @Test
+    fun aPosterThatLeavesMidHoldTakesTheHighlightAndThePreviewWithIt() {
+        val recorder = Recorder()
+        val lift = session(recorder)
+        lift.steer(Offset(100f, 208f + 6f + 10f), slop = 8f)
+        assertEquals(LiftHit.Row(0), lift.hot)
+        lift.sourceDetached()
+        assertFalse(lift.holding)
+        assertEquals(LiftHit.None, lift.hot)
+        // The gesture's own clean-up finds nothing left to do, and nothing runs.
+        lift.stopHolding()
+        lift.release()
+        assertTrue(recorder.events.isEmpty())
+
+        val scrubbing = scrubSession(FakeScrub(270))
+        scrubbing.steer(Offset(200f, 100f), slop = 8f)
+        assertTrue(scrubbing.scrubFrame >= 0)
+        scrubbing.sourceDetached()
+        assertEquals(-1, scrubbing.scrubFrame)
+        assertEquals(LiftHit.None, scrubbing.hot)
     }
 
     @Test

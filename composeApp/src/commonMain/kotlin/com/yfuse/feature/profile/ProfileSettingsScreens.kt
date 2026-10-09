@@ -10,6 +10,7 @@ import com.yfuse.core.data.MediaVersionPreference
 import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.data.PortraitVideoOrientation
 import com.yfuse.core.data.SourcePreheatMode
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.YCoreBufferDuration
@@ -28,6 +29,7 @@ import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
+import com.yfuse.feature.player.speedLabel
 import org.koin.core.context.GlobalContext
 
 internal data class PlaybackOptionCopy(
@@ -183,22 +185,28 @@ internal fun PlaybackSettingsScreen(
     optimizationMode: PlaybackOptimizationMode,
     mediaVersionPreference: MediaVersionPreference,
     autoNext: Boolean,
+    detailThemeSong: Boolean,
     smartCrossServerSource: Boolean,
     progressSyncEnabled: Boolean,
     anonymousQoeSharing: Boolean,
     videoCacheSize: VideoCacheSize,
     sourcePreheat: SourcePreheatMode,
     skipSegments: String,
+    portraitVideo: PortraitVideoOrientation,
+    defaultSpeed: Float,
     onPlaybackMode: () -> Unit,
     onMediaVersionPreference: () -> Unit,
     onOpenAdvanced: () -> Unit,
     onAutoNext: (Boolean) -> Unit,
+    onDetailThemeSong: (Boolean) -> Unit,
     onSmartCrossServerSource: (Boolean) -> Unit,
     onProgressSync: (Boolean) -> Unit,
     onAnonymousQoeSharing: (Boolean) -> Unit,
     onVideoCache: () -> Unit,
     onSourcePreheat: () -> Unit,
     onSkipSegments: () -> Unit,
+    onPortraitVideo: () -> Unit,
+    onDefaultSpeed: () -> Unit,
 ) {
     SettingsPage(
         title = "播放",
@@ -216,10 +224,12 @@ internal fun PlaybackSettingsScreen(
                         embedded = true,
                         description =
                             if (progressSyncEnabled) {
+                                // Jellyfin marks anything under its MinResumeDurationSeconds (300 s
+                                // by default) played a few seconds in; the store keeps the local one.
                                 if (BackendAccess.Default.enabled) {
-                                    "同步到 Emby/Jellyfin 与 Yfuse 云端，支持跨设备续播"
+                                    "同步到 Emby/Jellyfin 与 Yfuse 云端，支持跨设备续播；5 分钟内的短集以本机续播点为准"
                                 } else {
-                                    "同步到 Emby/Jellyfin，支持媒体服务器续播"
+                                    "同步到 Emby/Jellyfin，支持媒体服务器续播；5 分钟内的短集以本机续播点为准"
                                 }
                             } else {
                                 if (BackendAccess.Default.enabled) {
@@ -237,6 +247,18 @@ internal fun PlaybackSettingsScreen(
             Section(title = "播放行为") {
                 SettingsCard {
                     SwitchRow("自动播放下一集", autoNext, true, onChange = onAutoNext)
+                    SettingsDivider()
+                    SettingRow("竖屏视频", portraitVideo.label, true, onPortraitVideo)
+                    SettingsDivider()
+                    SettingRow("默认倍速", speedLabel(defaultSpeed), true, onDefaultSpeed)
+                    SettingsDivider()
+                    SwitchRow(
+                        "详情页主题曲",
+                        detailThemeSong,
+                        true,
+                        description = "服务器有主题曲时，在详情页轻声播放；进入播放器即停",
+                        onChange = onDetailThemeSong,
+                    )
                     SettingsDivider()
                     SwitchRow(
                         "智能跨服选源",
@@ -495,6 +517,8 @@ internal fun WatchTogetherSettingsScreen(
 internal fun AppearanceSettingsScreen(
     libraryCarousel: Boolean,
     onLibraryCarousel: (Boolean) -> Unit,
+    navCollapseOnScroll: Boolean,
+    onNavCollapseOnScroll: (Boolean) -> Unit,
     onBack: () -> Unit,
     brandSummary: String,
     backgroundSummary: String,
@@ -540,6 +564,17 @@ internal fun AppearanceSettingsScreen(
                         icon = AppIcons.Grid,
                         iconTint = SettingTint.library,
                         onChange = onLibraryCarousel,
+                    )
+                    SettingsDivider()
+                    // Two ways to live with the bar: give the screen to reading, or keep navigation up.
+                    SwitchRow(
+                        "滚动时收起导航栏",
+                        navCollapseOnScroll,
+                        true,
+                        icon = AppIcons.Collapse,
+                        iconTint = SettingTint.general,
+                        description = "往下浏览时收成一个键，往回滑或点它就展开",
+                        onChange = onNavCollapseOnScroll,
                     )
                     SettingsDivider()
                     SettingRow(
@@ -686,3 +721,6 @@ internal fun AppearanceSettingsScreen(
         }
     }
 }
+
+/** What 默认倍速 offers. */
+internal val DEFAULT_SPEED_CHOICES = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)

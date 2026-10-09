@@ -38,12 +38,30 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.model.isShortRuntime
 import kotlin.math.ceil
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /** How long before the end 下一集 announces itself. */
 internal const val NEXT_UP_WINDOW_MS = 10_000L
+
+/** The shortest next-up window, for an episode of a minute or so. */
+private const val NEXT_UP_MIN_WINDOW_MS = 3_000L
+
+/**
+ * How long before the end of an episode of [durationMs] 下一集 announces itself: [NEXT_UP_WINDOW_MS],
+ * or for one under five minutes a twentieth of it, between three and ten seconds. Ten seconds of a
+ * 90-second 短剧 was a ninth of it under the card, and only five of them at double speed.
+ */
+internal fun nextUpWindowMs(durationMs: Long): Long =
+    if (isShortRuntime(durationMs) == true) {
+        (durationMs / NEXT_UP_SHORT_FRACTION).coerceIn(NEXT_UP_MIN_WINDOW_MS, NEXT_UP_WINDOW_MS)
+    } else {
+        NEXT_UP_WINDOW_MS
+    }
+
+private const val NEXT_UP_SHORT_FRACTION = 20L
 
 /** From here on the key says the next episode is about to start rather than that it will. */
 private const val NEXT_UP_SOON_SECONDS = 3
@@ -97,6 +115,8 @@ internal fun NextUpCard(
     onPlayNow: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The episode's own [nextUpWindowMs]: the ring drains over it. */
+    windowMs: Long = NEXT_UP_WINDOW_MS,
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
     val remaining = rememberNextUpRemaining(playbackKey, remainingMs, advancing, speed)
@@ -148,11 +168,11 @@ internal fun NextUpCard(
                     onClickLabel = "立即播放下一集",
                     onClick = onPlayNow,
                 ).touchTarget()
-                .size(38.dp),
+                .size(chromeKeySize(38.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Canvas(Modifier.fillMaxSize()) {
-                val progress = (remaining.value / NEXT_UP_WINDOW_MS).coerceIn(0f, 1f)
+                val progress = (remaining.value / windowMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
                 val stroke = 2.5.dp.toPx()
                 val radius = (size.minDimension - stroke) / 2f
                 drawCircle(

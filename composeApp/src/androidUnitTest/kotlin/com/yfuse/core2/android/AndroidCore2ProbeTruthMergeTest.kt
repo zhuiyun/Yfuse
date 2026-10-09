@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.api.YChapter
 import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.capability.YContainer
@@ -37,6 +38,21 @@ class AndroidCore2ProbeTruthMergeTest {
         assertFalse(combined.playbackRequest.platformAudioDemuxSupported)
         assertTrue(combined.playbackRequest.enhancedDemuxSupported)
         assertEquals(YAudioCodec.Ac3, combined.playbackRequest.audio?.codec)
+    }
+
+    @Test
+    fun enhancedTruthKeepsWhatOnlyThePlatformProbeReads() {
+        val platform =
+            probe(platformDemux = true, audioCodec = YAudioCodec.Unknown).copy(
+                pixelAspectRatio = 32.0 / 27.0,
+                chapters = listOf(YChapter(0L, "序章")),
+            )
+        val enhanced = probe(platformDemux = false, audioCodec = YAudioCodec.Ac3)
+
+        val combined = enhanced.preservingPlatformDemuxCapability(platform)
+
+        assertEquals(32.0 / 27.0, combined.pixelAspectRatio)
+        assertEquals(listOf(YChapter(0L, "序章")), combined.chapters)
     }
 
     @Test

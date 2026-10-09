@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "scope": "portable-ycore-standalone-tests-on-android",
+  "startedAtUtc": "2026-10-09T04:37:38.896934+00:00",
+  "status": "passed",
+  "targetAbi": "arm64-v8a",
+  "targetApi": 28,
+  "compiler": "${ANDROID_SDK_ROOT}/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe",
+  "log": "build/tmp/merge-native-tests.log",
+  "binary": "build/tmp/merge-native-tests",
+  "remotePath": "/data/local/tmp/yfuse-merge-20261009-native-test",
+  "appInstalled": false,
+  "appDataAccessed": false,
+  "assertionsEnabled": true,
+  "cleanupAttempted": true,
+  "cleanupConfirmed": true,
+  "limitations": "FakeEngine portable coordinator tests only; not an Android playback-library or media-decoding test.",
+  "sourceHashes": [
+    {
+      "path": "ycore-native/src/ycore.cpp",
+      "sha256": "a83a50077550ee4c5a0d8887a2ef82041fa865289a060d9bf49b4e18d83f4210"
+    },
+    {
+      "path": "ycore-native/src/ycore_build.cpp",
+      "sha256": "f530ec8f353b88fdb2590d5dfa218c93f58314fb0375a3c0c2d2caf3a95d6f0d"
+    },
+    {
+      "path": "ycore-native/tests/ycore_test.cpp",
+      "sha256": "180f8a3909b3a9bb8b8eb00a029709c27c00264d9d8cb54e374d149d7dda6a28"
+    },
+    {
+      "path": "ycore-native/include/ycore/ycore.h",
+      "sha256": "77b102fc6d5446685d6d162101accc823f36f513238da29804f0a75c8925c3f6"
+    },
+    {
+      "path": "ycore-native/include/ycore/ycore_build.h",
+      "sha256": "33fb9c0014f4395065a7f0010b2f3976142682f08eb386dc8f21cc2079132b2a"
+    }
+  ],
+  "compileCommand": [
+    "${ANDROID_SDK_ROOT}/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe",
+    "--target=aarch64-linux-android28",
+    "-std=c++17",
+    "-Wall",
+    "-Wextra",
+    "-Wpedantic",
+    "-Werror",
+    "-O0",
+    "-g",
+    "-UNDEBUG",
+    "-static-libstdc++",
+    "-pthread",
+    "-Iycore-native/include",
+    "ycore-native/src/ycore.cpp",
+    "ycore-native/src/ycore_build.cpp",
+    "ycore-native/tests/ycore_test.cpp",
+    "-o",
+    "${WORKSPACE}/build/tmp/merge-native-tests"
+  ],
+  "testFunctionCount": 19,
+  "testFunctions": [
+    "test_priority_and_capability_routing",
+    "test_handover_preserves_state",
+    "test_authorization_failure_does_not_change_backend",
+    "test_ffi_convenience_api",
+    "test_build_capabilities_do_not_claim_uncompiled_features",
+    "test_open_failure_falls_back",
+    "test_no_compatible_engine_is_explicit",
+    "test_handover_restores_tracks_output_and_pause_intent",
+    "test_handover_never_reopens_an_engine_this_request_exhausted",
+    "test_drm_failure_does_not_change_backend",
+    "test_initialization_failures_do_not_publish_ready",
+    "test_initialization_failure_tries_the_next_backend",
+    "test_track_restore_failure_is_reported",
+    "test_new_media_clears_tracks_and_output_evidence",
+    "test_rejected_speed_does_not_replace_the_last_accepted_value",
+    "test_rejected_output_does_not_replace_the_surface_restored_on_handover",
+    "test_retry_does_not_reopen_the_backend_it_just_retried",
+    "test_single_engine_retry_reopens_when_dedicated_retry_is_unavailable",
+    "test_state_text_is_copied_under_the_session_lock"
+  ],
+  "countMeaning": "19 calls in unchanged test main; no per-case output is emitted. Exit 0 confirms main completed with assertions enabled.",
+  "deviceAbi": "arm64-v8a",
+  "deviceApi": 28,
+  "compileExitCode": 0,
+  "binarySha256": "51416f229c04c04d0e120d9edeb9648b72635ac529c8f372cc6139aa95c50933",
+  "remotePreexisting": false,
+  "pushExitCode": 0,
+  "chmodExitCode": 0,
+  "runExitCode": 0,
+  "runStdout": "",
+  "runStderr": "",
+  "sourcesUnchangedDuringValidation": true,
+  "cleanupExitCode": 0,
+  "finishedAtUtc": "2026-10-09T04:37:41.721212+00:00"
+}

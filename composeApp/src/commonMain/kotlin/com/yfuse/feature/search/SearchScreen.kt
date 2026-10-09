@@ -102,6 +102,7 @@ import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberDelayedBusy
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.searchFieldArrival
 import com.yfuse.core.designsystem.shadow
@@ -114,12 +115,14 @@ import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.util.PosterCardSharer
 import com.yfuse.core.util.rememberPosterCardSharer
 import com.yfuse.feature.detail.DetailScreen
+import com.yfuse.feature.home.TmdbInfoScreen
 import com.yfuse.feature.library.favoriteLiftAction
 import com.yfuse.feature.library.liftRemainingLabel
 import com.yfuse.feature.library.mediaItemLiftMenu
 import com.yfuse.feature.library.playedLiftAction
 import com.yfuse.feature.library.posterShareCard
 import com.yfuse.feature.library.shareLiftAction
+import com.yfuse.feature.person.PersonScreen
 import com.yfuse.feature.player.PlayerScreen
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -128,6 +131,17 @@ import com.yfuse.core.designsystem.ThemeText as Text
 fun SearchScreen(component: SearchComponent) {
     val focusRequest by component.focusRequest.subscribeAsState()
     val stack by component.stack.subscribeAsState()
+    // I-18. The tab is composed afresh each time it is switched to — the dock's 搜索 key, most
+    // often. Arriving on a page with nothing searched is arriving to type, so the field takes
+    // focus as it already did from the launcher's shortcut. A search already on the page, a query
+    // or a playlist that came along with the switch, or a detail page on top keeps what is shown.
+    LaunchedEffect(Unit) {
+        val home = stack.active.instance as? SearchComponent.Child.Home ?: return@LaunchedEffect
+        val state = home.component.store.state
+        if (state.query.isEmpty() && !state.hasSearched && !state.loading && state.person == null) {
+            component.requestFocus()
+        }
+    }
     OfficialNavDisplay(
         backStack = stack.items,
         onBack = component::navigateBack,
@@ -145,6 +159,8 @@ fun SearchScreen(component: SearchComponent) {
                 )
             is SearchComponent.Child.Detail -> DetailScreen(instance.component)
             is SearchComponent.Child.Player -> PlayerScreen(instance.component)
+            is SearchComponent.Child.Person -> PersonScreen(instance.component)
+            is SearchComponent.Child.Info -> TmdbInfoScreen(instance.component)
         }
     }
 }
@@ -181,6 +197,13 @@ private fun SearchHomeScreen(
     val focusManager = LocalFocusManager.current
     val routeVisible = LocalRouteVisible.current
     val awaitingFirstResults = state.loading && state.groups.isEmpty()
+    // Both waits are earned and then held, on the clock every loader shares: a server that
+    // answers at once flashes neither the skeleton nor the orb, and a slower one keeps them up
+    // long enough to be read. Results that land during the skeleton's hold wait for it rather
+    // than appear beneath it; clearing the search is not a result, and takes it down at once.
+    val requestShown = rememberDelayedBusy(state.loading)
+    val skeletonShown = rememberDelayedBusy(awaitingFirstResults) && (awaitingFirstResults || state.hasSearched)
+    val holdingResults = awaitingFirstResults || skeletonShown
     // Every letter typed is a new state. The filtered and ranked lists are worked out once per
     // change to what they come from, not on each of the several reads a recomposition makes, and
     // the rows handed the same lists stay skippable.
@@ -192,10 +215,10 @@ private fun SearchHomeScreen(
         if (state.aggregated.isNotEmpty()) visibleAggregated.size else visibleGroups.sumOf { it.items.size }
     val resultHandoff =
         rememberSearchResultsHandoff(
-            state.resultsPhase(visibleResultCount),
-            loading = state.loading,
+            if (holdingResults) SearchResultsPhase.Loading else state.resultsPhase(visibleResultCount),
+            loading = requestShown,
             presentationKey = state.presentationKey(),
-            skeleton = awaitingFirstResults,
+            skeleton = skeletonShown,
         )
     var coverageExpanded by remember(state.searchedQuery) { mutableStateOf(false) }
     // Clears the floating dock as it is actually laid out, not a fixed 122dp that left the last
@@ -240,7 +263,7 @@ private fun SearchHomeScreen(
                         focusRequester = fieldFocusRequester,
                         motion = resultHandoff.field,
                         iconMotion = resultHandoff.icon,
-                        loading = state.loading,
+                        loading = requestShown,
                     )
                     Spacer(Modifier.height(8.dp))
                 }
@@ -262,12 +285,14 @@ private fun SearchHomeScreen(
                 }
             }
 
-            if (awaitingFirstResults) {
-                motionItem(key = "search-skeleton") { SearchSkeleton() }
+            if (skeletonShown) {
+                motionItem(key = "search-skeleton") {
+                    SearchSkeleton(compact = compactResults, perServer = !state.mergesServers)
+                }
             }
 
             // Nothing typed yet: the chip row alone, no empty results heading.
-            if ((state.hasSearched || state.error != null) && !awaitingFirstResults) {
+            if ((state.hasSearched || state.error != null) && !holdingResults) {
                 motionItem(key = "search-results-heading") {
                     Column(
                         Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff.item(key = "heading")),
@@ -392,6 +417,7 @@ private fun SearchHomeScreen(
                                 group = group,
                                 baseUrl = component.serverBaseUrl(group.serverId),
                                 accessToken = component.serverAccessToken(group.serverId),
+                                compact = compactResults,
                                 onOpenItem = {
                                     component.onOpenItem(group.serverId, it)
                                 },
@@ -535,7 +561,9 @@ private fun searchLiftMenu(
 
 /**
  * 筛选 — every filter the store already understands. Choices apply at once and the sheet stays
- * up, so several can be set in one visit; 清除筛选 resets them all.
+ * up, so several can be set in one visit; they last through new words and ✕ until 清除筛选
+ * resets them all. 媒体库 and 风格 belong to one server, so they appear once one is picked here,
+ * or straight away when there is only one.
  */
 @Composable
 private fun SearchFilterSheet(
@@ -601,14 +629,16 @@ private fun SearchFilterSheet(
         }
         SearchFilterLabel("年份")
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            item {
+            // Keyed by year, not position: a new year is prepended, which would otherwise shift
+            // every chip's identity and move the row's scroll anchor to a different year.
+            item(key = "year-any", contentType = "year-choice") {
                 SearchFilterChoice(
                     label = "不限",
                     selected = state.year == null,
                     onClick = { onIntent(SearchIntent.SetYear(null)) },
                 )
             }
-            items(state.yearOptions) { year ->
+            items(state.yearOptions, key = { year -> "year-$year" }, contentType = { "year-choice" }) { year ->
                 SearchFilterChoice(
                     label = year.toString(),
                     selected = state.year == year,
@@ -903,8 +933,9 @@ private fun PersonBanner(
 }
 
 /**
- * Which smart playlist the results come from. Its saved server, library and watch-state
- * filters have no control on this page, so this is where they are named and dropped.
+ * Which smart playlist the results come from, and the way out of it. Its filters show in 筛选
+ * like any others but belong to the playlist: 退出片单 drops them with it, as a new word or
+ * clearing the search does.
  */
 @Composable
 private fun PlaylistBanner(
@@ -939,12 +970,16 @@ private fun PlaylistBanner(
     }
 }
 
-/** One server's block of results — its name, its state, then its titles. */
+/**
+ * One server's block of results — its name, its state, then its titles, at the size 显示简介 /
+ * 紧凑结果 has chosen for every result row.
+ */
 @Composable
 private fun ServerGroup(
     group: ServerSearchGroup,
     baseUrl: String,
     accessToken: String,
+    compact: Boolean,
     onOpenItem: (String) -> Unit,
     liftMenu: (MediaItem) -> LiftMenu,
     onLoadMore: () -> Unit,
@@ -1006,6 +1041,7 @@ private fun ServerGroup(
                         accessToken = accessToken,
                         serverId = group.serverId,
                         item = item,
+                        compact = compact,
                         onClick = { onOpenItem(item.id) },
                         liftMenu = { liftMenu(item) },
                         modifier = Modifier.width(SearchResultCardWidth),
@@ -1019,6 +1055,7 @@ private fun ServerGroup(
                     accessToken = accessToken,
                     serverId = group.serverId,
                     item = item,
+                    compact = compact,
                     onClick = { onOpenItem(item.id) },
                     liftMenu = { liftMenu(item) },
                     modifier = Modifier.fillMaxWidth(),
@@ -1193,13 +1230,19 @@ private fun EmptyResults(
 }
 
 /**
- * Result-shaped placeholders while the servers answer.
+ * Result-shaped placeholders while the servers answer, in the shape the answer will take: the
+ * merged list's rows, or a server's heading over its reel of cards when results come grouped
+ * by server, each at the size 显示简介 / 紧凑结果 has chosen. A placeholder of any other shape
+ * is replaced by a page that jumps.
  *
  * The spinner this replaces was pinned 110dp below the status bar and floated over the
  * page, so it landed on top of whatever results were already there.
  */
 @Composable
-private fun SearchSkeleton() {
+private fun SearchSkeleton(
+    compact: Boolean,
+    perServer: Boolean,
+) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -1207,37 +1250,83 @@ private fun SearchSkeleton() {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         SkeletonBlock(Modifier.width(72.dp).height(12.dp), shape = AppShapes.micro)
-        // Rows breathe one after another down the page, and the lines inside a row after
-        // its poster, so the placeholder reads as a wave rather than a blink.
-        repeat(3) { row ->
-            val phase = SKELETON_PHASE_STEP_MS * row
+        if (perServer) {
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .glass(AppShapes.card)
-                    .padding(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(11.dp),
+                Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                SkeletonBlock(
-                    Modifier.width(SearchPosterWidth).height(SearchPosterHeight),
-                    shape = AppShapes.thumb,
-                    phaseMs = phase,
-                )
-                Column(
-                    Modifier.weight(1f).padding(top = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    SkeletonBlock(Modifier.fillMaxWidth().height(13.dp), shape = AppShapes.micro, phaseMs = phase + 60)
-                    SkeletonBlock(Modifier.width(80.dp).height(10.dp), shape = AppShapes.micro, phaseMs = phase + 120)
-                    // The synopsis the real row carries; without it the placeholder is a
-                    // different shape from what replaces it and the list jumps.
-                    SkeletonBlock(Modifier.fillMaxWidth().height(10.dp), shape = AppShapes.micro, phaseMs = phase + 180)
-                    SkeletonBlock(
-                        Modifier.fillMaxWidth(0.7f).height(10.dp),
-                        shape = AppShapes.micro,
-                        phaseMs = phase + 240,
+                    SkeletonBlock(Modifier.size(6.dp), shape = CircleShape)
+                    SkeletonBlock(Modifier.width(88.dp).height(13.dp), shape = AppShapes.micro, phaseMs = 60)
+                }
+                SkeletonBlock(Modifier.width(36.dp).height(10.dp), shape = AppShapes.micro, phaseMs = 120)
+            }
+            // The reel's first card, and the next peeking past the edge as it will on the real one.
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                userScrollEnabled = false,
+            ) {
+                items(2) { card ->
+                    SkeletonResultRow(
+                        compact = compact,
+                        phaseMs = SKELETON_PHASE_STEP_MS * card,
+                        modifier = Modifier.width(SearchResultCardWidth),
                     )
                 }
+            }
+        } else {
+            // Rows breathe one after another down the page, and the lines inside a row after
+            // its poster, so the placeholder reads as a wave rather than a blink.
+            repeat(3) { row ->
+                SkeletonResultRow(
+                    compact = compact,
+                    phaseMs = SKELETON_PHASE_STEP_MS * row,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+}
+
+/** One [ResultRow] in placeholder form: the same card, padding and poster size. */
+@Composable
+private fun SkeletonResultRow(
+    compact: Boolean,
+    phaseMs: Int,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .glass(AppShapes.card)
+            .padding(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(11.dp),
+    ) {
+        SkeletonBlock(
+            Modifier
+                .width(if (compact) SearchCompactPosterWidth else SearchPosterWidth)
+                .height(if (compact) SearchCompactPosterHeight else SearchPosterHeight),
+            shape = AppShapes.thumb,
+            phaseMs = phaseMs,
+        )
+        Column(
+            Modifier.weight(1f).padding(top = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            SkeletonBlock(Modifier.fillMaxWidth().height(13.dp), shape = AppShapes.micro, phaseMs = phaseMs + 60)
+            SkeletonBlock(Modifier.width(80.dp).height(10.dp), shape = AppShapes.micro, phaseMs = phaseMs + 120)
+            // The synopsis only the full row carries.
+            if (!compact) {
+                SkeletonBlock(Modifier.fillMaxWidth().height(10.dp), shape = AppShapes.micro, phaseMs = phaseMs + 180)
+                SkeletonBlock(
+                    Modifier.fillMaxWidth(0.7f).height(10.dp),
+                    shape = AppShapes.micro,
+                    phaseMs = phaseMs + 240,
+                )
             }
         }
     }
@@ -1298,14 +1387,15 @@ private fun ResultRow(
                 Modifier
                     .liftAnchor(artwork)
                     .width(
-                        if (compact) 52.dp else SearchPosterWidth,
-                    ).height(if (compact) 78.dp else SearchPosterHeight),
+                        if (compact) SearchCompactPosterWidth else SearchPosterWidth,
+                    ).height(if (compact) SearchCompactPosterHeight else SearchPosterHeight),
             sharedTransitionKey = sharedKey,
+            fitNarrow = true,
         )
         Column(
             Modifier
                 .weight(1f)
-                .heightIn(min = if (compact) 78.dp else SearchPosterHeight)
+                .heightIn(min = if (compact) SearchCompactPosterHeight else SearchPosterHeight)
                 .padding(vertical = 2.dp),
         ) {
             Row(
@@ -1390,6 +1480,10 @@ private val SearchPosterWidth = 76.dp
 /** The loader at the end of the field: the orb's ring needs a little more room than a 15dp glyph. */
 private val SearchFieldOrbSize = 18.dp
 private val SearchPosterHeight = 114.dp
+
+/** 紧凑结果's poster, the same 2:3, for rows that leave the synopsis out. */
+private val SearchCompactPosterWidth = 52.dp
+private val SearchCompactPosterHeight = 78.dp
 
 /**
  * A card in a server's result reel. Widened with the poster and the synopsis: at the old

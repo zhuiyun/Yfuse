@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,6 +27,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -34,6 +37,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -44,14 +48,58 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
 import coil3.decode.DataSource
+import coil3.request.ImageRequest
 import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
-/** Large artwork may resolve cinematically, but should never hold the image soft for 550ms. */
-private val ArtworkRevealBlur = 6.dp
-private const val ARTWORK_REVEAL_SCALE_FROM = 1.025f
+/**
+ * How much narrower than its frame an upright picture may be before it is fitted rather than
+ * cropped. A 9:16 短剧 poster in a 2:3 tile is past it, and so is an upright still, or a poster
+ * standing in for a missing still, in a 16:9 card; a 3:4 poster is not, and a landscape picture
+ * always crops.
+ */
+private const val NARROW_ARTWORK_FIT_FACTOR = 1.15f
+
+/** Whether a picture of [imageAspect] (width / height) is fitted in a frame of [frameAspect]. */
+internal fun fitsNarrowArtwork(
+    imageAspect: Float,
+    frameAspect: Float,
+): Boolean =
+    imageAspect > 0f &&
+        frameAspect > 0f &&
+        imageAspect < 1f &&
+        imageAspect * NARROW_ARTWORK_FIT_FACTOR < frameAspect
+
+/**
+ * The soft fill behind a fitted picture is the picture itself decoded this small and stretched:
+ * the filtering blurs it for free, where a blur effect per tile would cost every frame of a
+ * scrolling grid.
+ */
+private const val SOFT_FILL_PX = 24
+private val SoftFillScrim = Color.Black.copy(alpha = 0.28f)
+
+/**
+ * Picture shapes already seen, by URL, so a tile recycled into a grid is fitted from its first
+ * frame instead of cropping until the load reports back. Read and written on the main thread.
+ */
+private object KnownArtworkAspects {
+    private const val CAPACITY = 512
+    private val aspects = LinkedHashMap<String, Float>()
+
+    operator fun get(url: String): Float? = aspects[url]
+
+    operator fun set(
+        url: String,
+        aspect: Float,
+    ) {
+        aspects.remove(url)
+        aspects[url] = aspect
+        if (aspects.size > CAPACITY) aspects.remove(aspects.keys.first())
+    }
+}
 
 /**
  * An image that is allowed a second (and third) guess.
@@ -91,15 +139,36 @@ fun FallbackImage(
      * avatars and category tiles used to fall through to the 400ms hero timing by omission.
      */
     revealDurationMillis: Int = if (alphaOnly) Motion.POSTER_FADE else Motion.ARTWORK_REVEAL,
-    revealBlur: Dp = ArtworkRevealBlur,
-    revealScaleFrom: Float = ARTWORK_REVEAL_SCALE_FROM,
+    revealBlur: Dp = ImageRevealMotion.ResolveBlur,
+    revealScaleFrom: Float = ImageRevealMotion.RESOLVE_SCALE_FROM,
     /** Reports the fallback candidate whose drawable actually reached the screen. */
     onResolvedUrl: (String) -> Unit = {},
+    /**
+     * An upright picture much narrower than the frame is shown whole, fitted over a soft fill of
+     * itself, instead of cropped to a band across its middle; see [fitsNarrowArtwork]. Only for
+     * a frame that is not itself a portrait's: an avatar's circle would fit a portrait too.
+     */
+    fitNarrow: Boolean = false,
+    /**
+     * Jellyfin's BlurHash for the first of [urls]: the picture's colours and shapes, shown until
+     * it arrives. Without one, a colour already worked out for the same artwork stands in when
+     * there is one; see [rememberArtworkPlaceholder].
+     */
+    blurHash: String? = null,
 ) {
     val candidates = remember(urls) { urls.filterNotNull().filter { it.isNotBlank() }.distinct() }
+    var frameAspect by remember { mutableFloatStateOf(0f) }
     var candidateIndex by remember(candidates) { mutableIntStateOf(0) }
     var loaded by remember(candidates, candidateIndex) { mutableStateOf(false) }
     var exhausted by remember(candidates) { mutableStateOf(candidates.isEmpty()) }
+    val placeholder = rememberArtworkPlaceholder(blurHash, candidates)
+    // 静息 keeps the hand-off from the placeholder, not the resolve; see [ImageRevealMotion].
+    val reveal =
+        ImageRevealMotion.reveal(
+            large = progressive && !alphaOnly,
+            calm = calmMotion(),
+            durationMillis = revealDurationMillis,
+        )
 
     /**
      * Whether this particular picture is allowed the entrance.
@@ -119,29 +188,50 @@ fun FallbackImage(
         loaded = loaded,
         instant = instant,
         enabled = true,
-        durationMillis = revealDurationMillis,
+        durationMillis = reveal.durationMillis,
     )
-    Box(modifier) {
+    Box(
+        if (fitNarrow) {
+            modifier.onSizeChanged { frameAspect = if (it.height > 0) it.width / it.height.toFloat() else 0f }
+        } else {
+            modifier
+        },
+    ) {
         if (exhausted) {
             FailedImagePlaceholder(contentDescription)
         }
         if (!exhausted) {
+            placeholder?.let { standIn ->
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .graphicsLayer {
+                            // Hidden rather than composed away once the picture has taken over,
+                            // where it would only be overdraw: the reveal's every frame changes a
+                            // layer property here, not the page's drawing.
+                            alpha = if (loaded && settle >= 1f) 0f else 1f
+                        }.drawBehind { drawArtworkPlaceholder(standIn.value) },
+                )
+            }
             candidates.getOrNull(candidateIndex)?.let { candidate ->
                 val requestIndex = candidateIndex
                 // The candidate list resets loaded/exhausted above. Recreate the painter in
                 // the same generation even if only a fallback URL changed; otherwise Coil
                 // keeps its successful painter and never re-emits onSuccess, leaving alpha 0.
                 key(candidates, candidate) {
+                    var imageAspect by remember { mutableFloatStateOf(KnownArtworkAspects[candidate] ?: 0f) }
+                    val fitted = fitNarrow && fitsNarrowArtwork(imageAspect, frameAspect)
+                    if (fitted) SoftArtworkFill(candidate) { settle }
                     AsyncImage(
                         model = candidate,
                         contentDescription = contentDescription,
-                        contentScale = contentScale,
+                        contentScale = if (fitted) ContentScale.Fit else contentScale,
                         modifier =
                             Modifier.fillMaxSize().graphicsLayer {
-                                // The placeholder underneath is the caller's — [Poster] tints its
-                                // own well — because artwork colour is unknown before arrival.
+                                // Underneath is the artwork's own placeholder when there is one,
+                                // otherwise the caller's — [Poster] tints its own well.
                                 val remaining = 1f - settle
-                                val resolves = progressive && !alphaOnly
+                                val resolves = reveal.resolves
                                 val scale =
                                     if (!resolves) {
                                         1f
@@ -162,6 +252,13 @@ fun FallbackImage(
                                     }
                             },
                         onSuccess = { success ->
+                            if (fitNarrow) {
+                                val size = success.painter.intrinsicSize
+                                if (size.width > 0f && size.height > 0f) {
+                                    imageAspect = size.width / size.height
+                                    KnownArtworkAspects[candidate] = imageAspect
+                                }
+                            }
                             // Order matters: [instant] has to be true before [loaded] flips, or
                             // the animation starts on this frame and the flag lands on the next.
                             if (candidateIndex == requestIndex) {
@@ -187,6 +284,36 @@ fun FallbackImage(
             }
         }
     }
+}
+
+/** What a fitted picture sits on: itself, decoded tiny and stretched, a shade darker. */
+@Composable
+private fun SoftArtworkFill(
+    url: String,
+    alpha: () -> Float,
+) {
+    val context = LocalPlatformContext.current
+    val request =
+        remember(url, context) {
+            ImageRequest
+                .Builder(context)
+                .data(url)
+                .size(SOFT_FILL_PX)
+                .build()
+        }
+    AsyncImage(
+        model = request,
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer { this.alpha = alpha() }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(SoftFillScrim)
+                },
+    )
 }
 
 @Composable
@@ -240,6 +367,8 @@ fun Poster(
     rating: Double? = null,
     /** 0f..1f — draws the 3px `#5B7FD1` resume bar along the bottom edge. */
     progress: Float? = null,
+    /** Jellyfin's BlurHash for [url]'s picture, shown until it arrives; see [FallbackImage]. */
+    blurHash: String? = null,
     contentDescription: String? = title,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
@@ -250,6 +379,8 @@ fun Poster(
      */
     liftMenu: (() -> LiftMenu)? = null,
     sharedTransitionKey: MediaSharedElementKey? = null,
+    /** See [FallbackImage]: an upright picture much narrower than the tile is fitted, not cropped. */
+    fitNarrow: Boolean = false,
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -324,6 +455,8 @@ fun Poster(
             alphaOnly = true,
             // Dense rails and grids only need a quick opacity hand-off from their placeholder.
             revealDurationMillis = Motion.POSTER_FADE,
+            fitNarrow = fitNarrow,
+            blurHash = blurHash,
         )
 
         overlay()
@@ -455,6 +588,8 @@ fun CaptionedPoster(
     posterModifier: Modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
     rating: Double? = null,
     progress: Float? = null,
+    /** As on [Poster]: Jellyfin's BlurHash for [url]'s picture. */
+    blurHash: String? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     /** As on [Poster]: the whole tile takes the press, and the artwork is what lifts. */
@@ -501,9 +636,12 @@ fun CaptionedPoster(
             fallbackUrls = fallbackUrls,
             rating = rating,
             progress = progress,
+            blurHash = blurHash,
             contentDescription = title,
             modifier = posterModifier.liftAnchor(artwork.takeIf { lift != null }),
             sharedTransitionKey = sharedTransitionKey,
+            // A 9:16 短剧 poster keeps the title and 全80集 printed at its top and foot.
+            fitNarrow = true,
         )
         Spacer(Modifier.height(7.dp))
         Text(
@@ -541,3 +679,21 @@ internal fun mediaRatingLabel(rating: Double?): String? {
 
 /** How much denser the placeholder is at the foot of a tile than at its head. */
 private const val PLACEHOLDER_FALL = 1.35f
+
+/**
+ * What letting go on a lifted card does, for a card whose tap does something else — a 继续观看 card
+ * resumes: open the title's page, noting the artwork as the place 跟手返回 goes back into, without
+ * the shared-element morph. The artwork is hidden under the lifted card, so a morph would fly a
+ * second copy of it out of the shelf while the card fades.
+ */
+@Composable
+internal fun liftedCardOpen(
+    key: MediaSharedElementKey?,
+    onOpen: () -> Unit,
+): () -> Unit {
+    val controller = LocalSharedMediaTransitionController.current
+    return {
+        if (key != null) controller?.noteOrigin(key)
+        onOpen()
+    }
+}

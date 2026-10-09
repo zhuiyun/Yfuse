@@ -17,10 +17,12 @@ import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaContainerPage
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.UserStateWriter
+import com.yfuse.core.util.LatestWins
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -46,6 +48,10 @@ data class GridState(
     val genreLoadError: String? = null,
     /** The selected genre, or null for 全部. */
     val genre: String? = null,
+    /** Tags used in this library — 短剧, 甜宠 — offered after its genres in the same row. */
+    val tags: List<String> = emptyList(),
+    /** The selected tag; a tag and a genre are one choice in that row, so at most one is set. */
+    val tag: String? = null,
     val resolution: LibraryResolution = LibraryResolution.All,
     /** Hand-ordered playlist endpoints do not support Emby's IsHD filter. */
     val resolutionFilterable: Boolean = true,
@@ -70,7 +76,29 @@ data class GridState(
 ) {
     val canLoadMore: Boolean get() = nextStartIndex < totalCount
     val loadedCount: Int get() = if (directoryKind != null) containers.size else items.size
+
+    /** 只看未看 is the library endpoint's IsPlayed filter; a collection's endpoint has none. */
+    val unplayedFilterable: Boolean get() = resolutionFilterable && containerKind == null
+
+    /**
+     * Whether the fast-scroll index loads the rest of the set, so it can file every title rather
+     * than the pages scrolled through: a sorted set of titles no larger than
+     * [GRID_INDEX_FILL_LIMIT]. Not under a resolution filter, whose pages are found by reading the
+     * library again from its start — loading ahead there would read it over and over.
+     */
+    val indexFillable: Boolean
+        get() =
+            sortable &&
+                directoryKind == null &&
+                resolution == LibraryResolution.All &&
+                totalCount <= GRID_INDEX_FILL_LIMIT
 }
+
+/** The most titles the fast-scroll index loads to file a whole set; past it, it files what is loaded. */
+internal const val GRID_INDEX_FILL_LIMIT = 3_000
+
+/** The index loads the rest in pages this large: a handful of requests, not one per screenful. */
+internal const val GRID_INDEX_FILL_PAGE_SIZE = 300
 
 sealed interface GridIntent {
     data object Retry : GridIntent
@@ -80,6 +108,12 @@ sealed interface GridIntent {
     /** Reached the end of what is loaded — fetch the next page. */
     data object LoadMore : GridIntent
 
+    /**
+     * The fast-scroll index is on offer: load the rest of the set so it can file all of it, where
+     * [GridState.indexFillable] allows.
+     */
+    data object LoadIndex : GridIntent
+
     data class SetSort(
         val sort: LibrarySort,
     ) : GridIntent
@@ -87,6 +121,10 @@ sealed interface GridIntent {
     /** Null selects 全部. */
     data class SetGenre(
         val genre: String?,
+    ) : GridIntent
+
+    data class SetTag(
+        val tag: String,
     ) : GridIntent
 
     data class SetResolution(
@@ -168,6 +206,14 @@ private sealed interface GridMsg {
 
     data class GenresFailed(
         val message: String,
+    ) : GridMsg
+
+    data class TagsLoaded(
+        val values: List<String>,
+    ) : GridMsg
+
+    data class Tag(
+        val value: String,
     ) : GridMsg
 
     data class Sort(
@@ -255,11 +301,10 @@ class LibraryGridStoreFactory(
         CoroutineExecutor<GridIntent, GridAction, GridState, GridMsg, Nothing>(mainContext) {
         /**
          * Guards against a slow page landing after the criteria changed under it. Both
-         * loaders bump it, so a sort change also discards an append that is still in
-         * flight for the previous order.
+         * loaders start a request on it, so a sort change also discards an append that is
+         * still in flight for the previous order.
          */
-        private var generation = 0L
-        private var pageJob: Job? = null
+        private val pageLoad = LatestWins(scope)
         private var genresJob: Job? = null
         private var genresLoaded = false
 
@@ -280,6 +325,7 @@ class LibraryGridStoreFactory(
                 }
                 GridIntent.RetryGenres -> loadGenres()
                 GridIntent.LoadMore -> loadNextPage()
+                GridIntent.LoadIndex -> fillIndex()
                 is GridIntent.SetSort -> {
                     if (!state().sortable) return
                     if (intent.sort == state().sort) return
@@ -288,7 +334,7 @@ class LibraryGridStoreFactory(
                     loadFirstPage()
                 }
                 is GridIntent.SetUnplayedOnly -> {
-                    if (!state().resolutionFilterable || containerKind != null) return
+                    if (!state().unplayedFilterable) return
                     if (intent.value == state().unplayedOnly) return
                     dispatch(GridMsg.UnplayedOnly(intent.value))
                     loadFirstPage()
@@ -297,8 +343,13 @@ class LibraryGridStoreFactory(
                 is GridIntent.SetPlayed -> setFlag(intent.itemId, played = intent.value)
                 is GridIntent.SetGenre -> {
                     if (containerKind == MediaContainerKind.Playlist) return
-                    if (intent.genre == state().genre) return
+                    if (intent.genre == state().genre && state().tag == null) return
                     dispatch(GridMsg.Genre(intent.genre))
+                    loadFirstPage()
+                }
+                is GridIntent.SetTag -> {
+                    if (containerKind != null || intent.tag == state().tag) return
+                    dispatch(GridMsg.Tag(intent.tag))
                     loadFirstPage()
                 }
                 is GridIntent.SetResolution -> {
@@ -308,7 +359,9 @@ class LibraryGridStoreFactory(
                     loadFirstPage()
                 }
                 GridIntent.ClearFilters -> {
-                    if (state().genre == null && state().resolution == LibraryResolution.All) return
+                    if (state().genre == null && state().tag == null && state().resolution == LibraryResolution.All) {
+                        return
+                    }
                     dispatch(GridMsg.FiltersCleared)
                     loadFirstPage()
                 }
@@ -433,6 +486,12 @@ class LibraryGridStoreFactory(
                         containerKind?.let { kind ->
                             repo.mediaContainerGenres(server, libraryId, kind)
                         } ?: repo.libraryGenres(server, libraryId)
+                    // A plain library's tags join its genres in the row; a collection has none to offer.
+                    if (containerKind == null) {
+                        launch {
+                            repo.libraryTags(server, libraryId).onSuccess { dispatch(GridMsg.TagsLoaded(it)) }
+                        }
+                    }
                     request
                         .onSuccess { genres ->
                             genresLoaded = true
@@ -451,8 +510,7 @@ class LibraryGridStoreFactory(
         }
 
         private fun loadFirstPage() {
-            pageJob?.cancel()
-            val current = ++generation
+            val page = pageLoad.next()
             val server = serverId?.let(registry::serverById)
             dispatch(GridMsg.Loading)
             if (server == null) {
@@ -466,69 +524,70 @@ class LibraryGridStoreFactory(
             }
             val sort = state().sort
             val genre = state().genre
-            pageJob =
-                scope.launch {
-                    if (directoryKind != null) {
-                        repo
-                            .mediaContainersPage(
-                                server = server,
-                                kind = directoryKind,
-                                startIndex = 0,
-                                limit = LIBRARY_PAGE_SIZE,
-                            ).onSuccess {
-                                if (current != generation) return@onSuccess
-                                dispatch(GridMsg.ContainersLoaded(it))
-                            }.onFailure {
-                                if (current != generation) return@onFailure
-                                AppLog.warning(
-                                    category = "feature.library",
-                                    event = "container_directory_failed",
-                                    message = "Container directory failed to load",
-                                    throwable = it,
-                                    attributes = mapOf("serverId" to server.id),
-                                )
-                                dispatch(GridMsg.Failed(it.toUserMessage("容器目录加载失败")))
-                            }
-                        return@launch
-                    }
-                    val request =
-                        containerKind?.let { kind ->
-                            repo.mediaContainerItems(
-                                server = server,
-                                containerId = libraryId,
-                                kind = kind,
-                                sort = sort,
-                                genre = genre,
-                                startIndex = 0,
-                                limit = LIBRARY_PAGE_SIZE,
-                                resolution = state().resolution,
-                            )
-                        } ?: repo.libraryItems(
+            val tag = state().tag
+            pageLoad.launch(page) {
+                if (directoryKind != null) {
+                    repo
+                        .mediaContainersPage(
                             server = server,
-                            libraryId = libraryId,
+                            kind = directoryKind,
+                            startIndex = 0,
+                            limit = LIBRARY_PAGE_SIZE,
+                        ).onSuccess {
+                            if (!page.isCurrent) return@onSuccess
+                            dispatch(GridMsg.ContainersLoaded(it))
+                        }.onFailure {
+                            if (!page.isCurrent) return@onFailure
+                            AppLog.warning(
+                                category = "feature.library",
+                                event = "container_directory_failed",
+                                message = "Container directory failed to load",
+                                throwable = it,
+                                attributes = mapOf("serverId" to server.id),
+                            )
+                            dispatch(GridMsg.Failed(it.toUserMessage("容器目录加载失败")))
+                        }
+                    return@launch
+                }
+                val request =
+                    containerKind?.let { kind ->
+                        repo.mediaContainerItems(
+                            server = server,
+                            containerId = libraryId,
+                            kind = kind,
                             sort = sort,
                             genre = genre,
                             startIndex = 0,
                             limit = LIBRARY_PAGE_SIZE,
                             resolution = state().resolution,
-                            unplayedOnly = state().unplayedOnly,
                         )
-                    request
-                        .onSuccess {
-                            if (current != generation) return@onSuccess
-                            dispatch(GridMsg.Loaded(it))
-                        }.onFailure {
-                            if (current != generation) return@onFailure
-                            AppLog.warning(
-                                category = "feature.library",
-                                event = "grid_load_failed",
-                                message = "Library grid failed to load",
-                                throwable = it,
-                                attributes = mapOf("serverId" to server.id),
-                            )
-                            dispatch(GridMsg.Failed(it.toUserMessage("加载失败")))
-                        }
-                }
+                    } ?: repo.libraryItems(
+                        server = server,
+                        libraryId = libraryId,
+                        sort = sort,
+                        genre = genre,
+                        startIndex = 0,
+                        limit = LIBRARY_PAGE_SIZE,
+                        resolution = state().resolution,
+                        unplayedOnly = state().unplayedOnly,
+                        tag = tag,
+                    )
+                request
+                    .onSuccess {
+                        if (!page.isCurrent) return@onSuccess
+                        dispatch(GridMsg.Loaded(it))
+                    }.onFailure {
+                        if (!page.isCurrent) return@onFailure
+                        AppLog.warning(
+                            category = "feature.library",
+                            event = "grid_load_failed",
+                            message = "Library grid failed to load",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                        dispatch(GridMsg.Failed(it.toUserMessage("加载失败")))
+                    }
+            }
         }
 
         private fun loadNextPage() {
@@ -537,69 +596,113 @@ class LibraryGridStoreFactory(
             // fling past the end of the list into several identical requests.
             if (state.loading || state.loadingMore || !state.canLoadMore) return
             val server = serverId?.let(registry::serverById) ?: return
-            val current = ++generation
+            val page = pageLoad.outdate()
             val startIndex = state.nextStartIndex
             dispatch(GridMsg.LoadingMore)
-            pageJob =
-                scope.launch {
-                    if (directoryKind != null) {
-                        repo
-                            .mediaContainersPage(
-                                server = server,
-                                kind = directoryKind,
-                                startIndex = startIndex,
-                                limit = LIBRARY_PAGE_SIZE,
-                            ).onSuccess {
-                                if (current != generation) return@onSuccess
-                                dispatch(GridMsg.ContainersAppended(it))
-                            }.onFailure {
-                                if (current != generation) return@onFailure
-                                dispatch(GridMsg.AppendFailed(it.toUserMessage("加载更多容器失败")))
-                            }
-                        return@launch
-                    }
-                    val request =
-                        containerKind?.let { kind ->
-                            repo.mediaContainerItems(
-                                server = server,
-                                containerId = libraryId,
-                                kind = kind,
-                                sort = state.sort,
-                                genre = state.genre,
-                                startIndex = startIndex,
-                                limit = LIBRARY_PAGE_SIZE,
-                                resolution = state.resolution,
-                            )
-                        } ?: repo.libraryItems(
+            pageLoad.launch(page) {
+                if (directoryKind != null) {
+                    repo
+                        .mediaContainersPage(
                             server = server,
-                            libraryId = libraryId,
-                            sort = state.sort,
-                            genre = state.genre,
+                            kind = directoryKind,
                             startIndex = startIndex,
                             limit = LIBRARY_PAGE_SIZE,
-                            resolution = state.resolution,
-                            unplayedOnly = state().unplayedOnly,
-                        )
-                    request
-                        .onSuccess {
-                            if (current != generation) return@onSuccess
-                            dispatch(GridMsg.Appended(it))
+                        ).onSuccess {
+                            if (!page.isCurrent) return@onSuccess
+                            dispatch(GridMsg.ContainersAppended(it))
                         }.onFailure {
-                            if (current != generation) return@onFailure
-                            AppLog.warning(
-                                category = "feature.library",
-                                event = "grid_page_failed",
-                                message = "Library grid failed to load a further page",
-                                throwable = it,
-                                attributes =
-                                    mapOf(
-                                        "serverId" to server.id,
-                                        "startIndex" to startIndex.toString(),
-                                    ),
-                            )
-                            dispatch(GridMsg.AppendFailed(it.toUserMessage("加载更多失败")))
+                            if (!page.isCurrent) return@onFailure
+                            dispatch(GridMsg.AppendFailed(it.toUserMessage("加载更多容器失败")))
                         }
+                    return@launch
                 }
+                itemsPage(server, state, startIndex, LIBRARY_PAGE_SIZE)
+                    .onSuccess {
+                        if (!page.isCurrent) return@onSuccess
+                        dispatch(GridMsg.Appended(it))
+                    }.onFailure {
+                        if (!page.isCurrent) return@onFailure
+                        appendFailed(server, startIndex, it)
+                    }
+            }
+        }
+
+        /**
+         * The rest of the set, for the fast-scroll index to file: [GRID_INDEX_FILL_PAGE_SIZE] titles
+         * at a time, one request after another, for as long as [GridState.indexFillable] holds. A new
+         * sort or filter ends it, as it ends any page on its way; so does a page that fails, whose
+         * footer offers the retry. The grid keeps what arrived either way.
+         */
+        private fun fillIndex() {
+            val state = state()
+            if (state.loading || state.loadingMore || !state.canLoadMore || !state.indexFillable) return
+            val server = serverId?.let(registry::serverById) ?: return
+            val fill = pageLoad.outdate()
+            pageLoad.launch(fill) {
+                while (fill.isCurrent) {
+                    val criteria = state()
+                    if (!criteria.canLoadMore || !criteria.indexFillable) break
+                    val startIndex = criteria.nextStartIndex
+                    dispatch(GridMsg.LoadingMore)
+                    val result = itemsPage(server, criteria, startIndex, GRID_INDEX_FILL_PAGE_SIZE)
+                    if (!fill.isCurrent) return@launch
+                    val page =
+                        result.getOrElse {
+                            appendFailed(server, startIndex, it)
+                            return@launch
+                        }
+                    dispatch(GridMsg.Appended(page))
+                }
+            }
+        }
+
+        /** One page of the grid's titles under [criteria]: the collection's own endpoint, or the library's. */
+        private suspend fun itemsPage(
+            server: SavedServer,
+            criteria: GridState,
+            startIndex: Int,
+            limit: Int,
+        ): Result<LibraryPage> =
+            containerKind?.let { kind ->
+                repo.mediaContainerItems(
+                    server = server,
+                    containerId = libraryId,
+                    kind = kind,
+                    sort = criteria.sort,
+                    genre = criteria.genre,
+                    startIndex = startIndex,
+                    limit = limit,
+                    resolution = criteria.resolution,
+                )
+            } ?: repo.libraryItems(
+                server = server,
+                libraryId = libraryId,
+                sort = criteria.sort,
+                genre = criteria.genre,
+                startIndex = startIndex,
+                limit = limit,
+                resolution = criteria.resolution,
+                unplayedOnly = criteria.unplayedOnly,
+                tag = criteria.tag,
+            )
+
+        private fun appendFailed(
+            server: SavedServer,
+            startIndex: Int,
+            error: Throwable,
+        ) {
+            AppLog.warning(
+                category = "feature.library",
+                event = "grid_page_failed",
+                message = "Library grid failed to load a further page",
+                throwable = error,
+                attributes =
+                    mapOf(
+                        "serverId" to server.id,
+                        "startIndex" to startIndex.toString(),
+                    ),
+            )
+            dispatch(GridMsg.AppendFailed(error.toUserMessage("加载更多失败")))
         }
     }
 
@@ -743,11 +846,30 @@ class LibraryGridStoreFactory(
                 is GridMsg.Genre ->
                     copy(
                         genre = msg.value,
+                        tag = null,
                         error = null,
                         loadMoreError = null,
                         retainingPreviousCriteria = true,
                     )
-                is GridMsg.UnplayedOnly -> copy(unplayedOnly = msg.value, error = null)
+                is GridMsg.TagsLoaded -> copy(tags = msg.values)
+                is GridMsg.Tag ->
+                    copy(
+                        tag = msg.value,
+                        genre = null,
+                        error = null,
+                        loadMoreError = null,
+                        retainingPreviousCriteria = true,
+                    )
+                // As for every other filter, the cards on screen only bridge the wait: a reload that
+                // fails clears them for its error instead of leaving them under a chip that says
+                // they were filtered.
+                is GridMsg.UnplayedOnly ->
+                    copy(
+                        unplayedOnly = msg.value,
+                        error = null,
+                        loadMoreError = null,
+                        retainingPreviousCriteria = true,
+                    )
                 is GridMsg.Resolution ->
                     copy(
                         resolution = msg.value,
@@ -758,6 +880,7 @@ class LibraryGridStoreFactory(
                 GridMsg.FiltersCleared ->
                     copy(
                         genre = null,
+                        tag = null,
                         resolution = LibraryResolution.All,
                         error = null,
                         loadMoreError = null,

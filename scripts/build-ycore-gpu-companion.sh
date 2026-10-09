@@ -76,23 +76,27 @@ GPU_LIBRARY="$STAGE/source/jni/arm64-v8a/libycore_gpu.so"
   -shared \
   -fPIC \
   -O2 \
+  -g \
   -std=c++17 \
   -fvisibility=hidden \
   -I"$ROOT/scripts/native" \
   -I"$STAGE/generated" \
   "$ROOT/scripts/native/ycore_vulkan_jni.cpp" \
   "$ROOT/scripts/native/ycore_vulkan_renderer.cpp" \
+  -Wl,--build-id=sha1 \
   -Wl,--no-undefined \
   -Wl,-z,max-page-size="$MAX_PAGE_SIZE" \
   -Wl,-soname,libycore_gpu.so \
   -landroid \
   -lvulkan \
   -o "$GPU_LIBRARY"
-"$STRIP" --strip-unneeded "$GPU_LIBRARY"
+# Function names for tombstones, plus the unstripped copy next to the companion AAR.
+bash "$ROOT/scripts/embed-mini-debuginfo.sh" "$TOOLCHAIN/bin" "$GPU_LIBRARY" \
+  "$OUTPUT_DIR/symbols/arm64-v8a/libycore_gpu.so"
 
 PROVENANCE="$OUTPUT_DIR/NATIVE-SOURCES.txt"
 printf '%s\n' \
-  "ycore-gpu-api=2" \
+  "ycore-gpu-api=3" \
   "ycore-gpu-source=scripts/native/ycore_vulkan_jni.cpp" \
   "ycore-gpu-renderer-source=scripts/native/ycore_vulkan_renderer.cpp" \
   "ycore-gpu-vertex-shader=scripts/native/shaders/ycore_fullscreen.vert" \

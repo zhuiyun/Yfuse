@@ -86,8 +86,9 @@ data class DanmakuPanelState(
     val mergeDuplicates: Boolean = true,
     /** True when this source can be written to at all — a template cannot. */
     val canSend: Boolean = false,
-    /** Non-null while a 发送 is in flight or has just failed. */
+    /** Why the last 发送 did not go through: the server refused it, or no episode was matched yet. */
     val sendError: String? = null,
+    /** A 发送 is on its way; whatever [sendError] said before it has been cleared. */
     val sending: Boolean = false,
     val areaOptions: List<Pair<String, Boolean>> = emptyList(),
     val fontOptions: List<Pair<String, Boolean>> = emptyList(),
@@ -124,6 +125,12 @@ data class DanmakuSearchState(
 /** Callbacks for [DanmakuPanelState], grouped for the same reason the state is. */
 data class DanmakuPanelActions(
     val onToggle: () -> Unit = {},
+    /**
+     * The 弹幕 key's tap: [onToggle], and then a word on what it came to — off, or on with how
+     * many comments matched or why none show (see [danmakuKeyToast]). The panel's own switch
+     * stays [onToggle]: the panel already says all of that under it.
+     */
+    val onKeyToggle: () -> Unit = onToggle,
     val onSelectArea: (Int) -> Unit = {},
     val onSelectFont: (Int) -> Unit = {},
     val onSelectSpeed: (Int) -> Unit = {},
@@ -193,7 +200,8 @@ internal fun DanmakuTab(
         PopupDivider()
         val status =
             when {
-                !state.configured -> "请先在个人中心配置弹幕链接"
+                // Where to go, by the names on the way: there is no 个人中心 to look for.
+                !state.configured -> "还没有弹幕来源，请到「我的 → 弹幕设置 → 弹幕来源」添加"
                 state.loading -> "正在加载弹幕…"
                 state.error != null -> state.error
                 state.count > 0 -> "已匹配 ${state.count} 条弹幕"
@@ -520,8 +528,8 @@ private fun DanmakuSearchState.stage(): DanmakuSearchStage =
  *
  * A dialog rather than a bar along the bottom of the picture: sending is occasional, the
  * bar would be permanent, and the player already treats a modal question this way (一起看
- * asks for a room code the same way). It closes on send, because the sent line appearing
- * over the picture is the confirmation.
+ * asks for a room code the same way). It closes once the line has gone through, because the
+ * sent line appearing over the picture is the confirmation; until then it says why it has not.
  *
  * The position is taken at the moment 发送 is pressed rather than when the dialog opened —
  * the film has been playing the whole time it was being typed, and a comment that lands

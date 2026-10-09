@@ -28,10 +28,11 @@ import com.yfuse.core.designsystem.AppIcons
 /**
  * The settings sub-pages a television viewer can reach.
  *
- * Android keeps the same list as a local `ProfilePage` enum inside `ProfileScreen.kt` rather than as
- * Decompose children, so there is no component seam to reuse. These pages therefore mirror that
- * structure and share the phone's stores and preference objects instead of its composables, which
- * are built for touch.
+ * The phone keeps the same list as `ProfilePage`, a Decompose stack in `ProfileComponent` that pushes
+ * whole pages; here the navigation rail stays while a sub-page is open (see [TvSettingsScreen]), so
+ * the television swaps its own pages in place instead. These pages therefore mirror that structure
+ * and share the phone's stores and preference objects instead of its composables, which are built
+ * for touch.
  */
 internal enum class TvSettingsPage(
     val title: String,
@@ -42,6 +43,7 @@ internal enum class TvSettingsPage(
     Family("家庭资料", "新建资料、家长 PIN 与关联服务器用户"),
     SyncStatus("同步状态", "个人数据合并、播放进度与冲突恢复"),
     Handoff("设备接力", "把当前观看转到另一台在线设备"),
+    PhoneRemote("手机遥控", "用同一账号的手机遥控这台电视"),
     Trakt("Trakt", "授权、导入观看历史与想看、播放上报"),
     Account("账号与同步", "登录、加密同步与云端数据"),
     AccountSessions("设备会话", "在其他设备上的登录状态"),
@@ -49,8 +51,7 @@ internal enum class TvSettingsPage(
     AdvancedPlayback("高级播放", "内核、解码与设备输出"),
     Danmaku("弹幕", "开关、显示与过滤"),
     WatchTogether("一起看", "房间资料与聊天显示"),
-    Appearance("外观与辅助", "玻璃、背景、启动位置与辅助显示"),
-    GlassMaterial("玻璃材质", "底色、透明度与背景遮罩"),
+    Appearance("外观与辅助", "动效、启动位置与辅助显示"),
     Downloads("下载与离线库", "离线内容、队列与存储位置"),
     ServerBackup("服务器备份与迁移", "导出、导入与换机搬迁"),
     PermissionHealth("权限检查", "影响播放与发现的系统权限"),

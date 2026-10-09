@@ -66,6 +66,16 @@ internal class TvPlayerChromeController : TvPlayerChromeBridge {
         emit(TvPlayerChromeCommandType.ActivateSkipPrompt)
     }
 
+    fun activateNextUp() {
+        mutableState.update { it.copy(interactionRevision = it.interactionRevision + 1) }
+        emit(TvPlayerChromeCommandType.ActivateNextUp)
+    }
+
+    fun dismissNextUp() {
+        mutableState.update { it.copy(interactionRevision = it.interactionRevision + 1) }
+        emit(TvPlayerChromeCommandType.DismissNextUp)
+    }
+
     /** [held] once the seek key has repeated — see [TvPlayerChromeState.seekHeld]. */
     fun updateSeekPreview(
         positionMs: Long,
@@ -107,8 +117,8 @@ internal class TvPlayerChromeController : TvPlayerChromeBridge {
         }
     }
 
-    override fun publishSkipPrompt(visible: Boolean) {
-        mutableState.update { it.copy(skipPrompt = visible) }
+    override fun publishPrompt(prompt: TvPlayerPrompt?) {
+        mutableState.update { it.copy(prompt = prompt) }
     }
 
     /**
@@ -122,7 +132,7 @@ internal class TvPlayerChromeController : TvPlayerChromeBridge {
                 panel = null,
                 controlsHaveFocus = false,
                 attached = false,
-                skipPrompt = false,
+                prompt = null,
             )
         }
     }

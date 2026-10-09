@@ -233,6 +233,18 @@ class YPlayerVideoEngineAdapterTest {
     }
 
     @Test
+    fun `取消 and 本集结束 reach the Core2 router instead of being dropped`() {
+        val player = FakeYPlayer()
+        val engine = YPlayerVideoEngineAdapter(player)
+
+        engine.setPauseAtEndOfCurrentItem(true)
+        assertTrue(player.pauseAtEnd)
+
+        engine.setPauseAtEndOfCurrentItem(false)
+        assertFalse(player.pauseAtEnd)
+    }
+
+    @Test
     fun `handover pauses and detaches the outgoing Core2 output`() {
         val player = FakeYPlayer().also { it.playCalled = true }
         val engine = YPlayerVideoEngineAdapter(player)
@@ -271,6 +283,7 @@ class YPlayerVideoEngineAdapterTest {
         var discChapter: Int? = null
         var discCommand: PlaybackDiscMenuCommand? = null
         var videoOutputDetached = false
+        var pauseAtEnd = false
 
         override fun setVideoOutput(output: YVideoOutput?): Boolean {
             videoOutputDetached = output == null
@@ -302,6 +315,10 @@ class YPlayerVideoEngineAdapterTest {
 
         override fun selectItem(index: Int) {
             itemIndex = index
+        }
+
+        override fun setPauseAtEndOfCurrentItem(enabled: Boolean) {
+            pauseAtEnd = enabled
         }
 
         override fun selectDiscTitle(index: Int): Boolean {

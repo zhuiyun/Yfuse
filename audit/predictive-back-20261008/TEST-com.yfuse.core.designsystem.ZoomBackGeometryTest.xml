@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.ZoomBackGeometryTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-10-08T08:45:54.082Z" hostname="&lt;REDACTED_HOST&gt;" time="0.013">
+  <properties/>
+  <testcase name="pullProgressIsTravelOverFortyFivePercentOfTheHeight" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.007"/>
+  <testcase name="springingBackKeepsTheContentAndReachesTheWholePage" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.001"/>
+  <testcase name="pullProgressPastOneStopsShrinking" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.0"/>
+  <testcase name="releaseDecisionProjectsTheFlick" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.002"/>
+  <testcase name="contentIsGoneByFortyFivePercentOfTheFlight" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.0"/>
+  <testcase name="fullPullShrinksToSeventyPercentAboutTheFingerAndKeepsItUnderTheFinger" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.0"/>
+  <testcase name="flightVelocityIsReleaseSpeedOverTheDistance" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.0"/>
+  <testcase name="pullNeverLiftsThePageAboveItsOwnTop" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.0"/>
+  <testcase name="flightStartsAtTheReleasedCardAndEndsOnThePoster" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.001"/>
+  <testcase name="anInvalidPageOrReleaseCannotCommit" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.0"/>
+  <testcase name="pullAtRestIsTheWholePage" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.0"/>
+  <testcase name="sideSwipeShrinksAboutTheCentreAndLeansTowardsTheFinger" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.0"/>
+  <testcase name="posterHalfOffScreenStillCountsButLessDoesNot" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.0"/>
+  <testcase name="ordinaryBackFadesAndShrinksAboutTheCardsCentre" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.001"/>
+  <testcase name="underlayRecoversFromNinetyFivePercentAndHalfShade" classname="com.yfuse.core.designsystem.ZoomBackGeometryTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

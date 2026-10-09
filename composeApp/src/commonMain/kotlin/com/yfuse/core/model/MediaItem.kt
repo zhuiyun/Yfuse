@@ -51,6 +51,18 @@ data class MediaItem(
      * 最近添加 grid's fast-scroll index by month.
      */
     val dateCreated: String? = null,
+    /**
+     * An episode's own picture — its still — where the server has one; [posterTag] is the series'
+     * poster for an episode. For an upright 短剧 with no backdrop this is what a landscape card
+     * should show, rather than a band cut across the middle of the series poster.
+     */
+    val stillTag: String? = null,
+    /**
+     * Jellyfin's BlurHash for the pictures [posterTag] and [backdropTag] name: what a tile shows
+     * while they load. Emby and Plex send none.
+     */
+    val posterBlurHash: String? = null,
+    val backdropBlurHash: String? = null,
 )
 
 /** The two server-owned organization containers surfaced by the library home screen. */

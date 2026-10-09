@@ -14,8 +14,9 @@ import com.yfuse.core.model.PlaybackChapter
 
 /**
  * 全程缩略图 — the trickplay card over the picture while it is scrubbed away from the bar: the
- * sideways swipe across the picture, and the side thirds' held scan. Both used to be text
- * alone ("+1:30 · 12:34 / 45:00"), which says where the scrub has got to but not what is there.
+ * sideways swipe across the picture, and on a television a held fast-forward or rewind on the
+ * remote. The swipe used to be text alone ("+1:30 · 12:34 / 45:00"), which says where the scrub
+ * has got to but not what is there.
  *
  * Sits just above the gesture HUD, the readout it illustrates. [positionMs] is a reader, null
  * while nothing is being scrubbed, so a scrub's samples recompose this card and nothing around

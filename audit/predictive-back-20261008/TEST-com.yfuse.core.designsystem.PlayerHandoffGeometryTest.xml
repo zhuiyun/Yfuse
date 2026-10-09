@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-10-08T08:45:54.072Z" hostname="&lt;REDACTED_HOST&gt;" time="0.008">
+  <properties/>
+  <testcase name="a_press_spring_overshoots_and_a_settle_spring_barely_does" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.002"/>
+  <testcase name="a_covering_turn_never_uncovers_a_corner" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.003"/>
+  <testcase name="natural_frame_round_trips_through_every_rotation" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.0"/>
+  <testcase name="push_in_covers_the_page_from_a_short_hero" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.001"/>
+  <testcase name="the_way_back_undoes_the_way_in" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.001"/>
+  <testcase name="a_different_display_has_no_physical_match" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.0"/>
+  <testcase name="window_offsets_are_on_screen_coordinates" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.0"/>
+  <testcase name="cover_size_at_a_quarter_turn_swaps_the_frame" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.0"/>
+  <testcase name="the_fitted_picture_is_pillarboxed_in_a_tall_phone" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.0"/>
+  <testcase name="visible_share_counts_only_what_is_on_the_display" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.0"/>
+  <testcase name="a_portrait_hero_lands_on_the_same_glass_in_the_landscape_player" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.0"/>
+  <testcase name="a_window_on_time_runs_the_page_clock_and_a_late_one_waits" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.0"/>
+  <testcase name="glass_bar_stretches_a_pill_across_the_page_and_keeps_a_full_width_key" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.0"/>
+  <testcase name="same_orientation_maps_to_the_very_same_pixels" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.0"/>
+  <testcase name="the_tide_crest_rises_then_settles" classname="com.yfuse.core.designsystem.PlayerHandoffGeometryTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

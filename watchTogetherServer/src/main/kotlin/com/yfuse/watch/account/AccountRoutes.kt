@@ -33,6 +33,7 @@ internal fun Route.accountRoutes(
     registerAccountHealthDependency(backend)
     handoffRoutes(backend, rateLimiter)
     traktOAuthRoutes(backend, rateLimiter)
+    tmdbProxyRoutes(backend, rateLimiter)
     route("/api/v1") {
         route("/auth") {
             post("/register") {

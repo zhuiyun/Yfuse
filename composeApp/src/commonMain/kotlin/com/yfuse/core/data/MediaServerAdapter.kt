@@ -14,11 +14,15 @@ import com.yfuse.core.model.MediaContainerPage
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
+import com.yfuse.core.model.MediaTrailer
 import com.yfuse.core.model.Person
+import com.yfuse.core.model.PersonProfile
 import com.yfuse.core.model.PlayTarget
+import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
+import com.yfuse.core.model.ThemeSong
 import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.sync.SyncedUserItem
 import io.ktor.client.HttpClient
@@ -209,12 +213,19 @@ internal interface MediaServerAdapter {
         limit: Int,
         resolution: LibraryResolution,
         unplayedOnly: Boolean,
+        tag: String? = null,
     ): Result<LibraryPage>
 
     suspend fun libraryGenres(
         server: SavedServer,
         libraryId: String,
     ): Result<List<String>>
+
+    /** Tags used in a library, for its filter row; none where the server keeps no such facet. */
+    suspend fun libraryTags(
+        server: SavedServer,
+        libraryId: String,
+    ): Result<List<String>> = Result.success(emptyList())
 
     suspend fun similarItems(
         server: SavedServer,
@@ -266,6 +277,33 @@ internal interface MediaServerAdapter {
         personId: String,
         limit: Int,
     ): Result<List<MediaItem>>
+
+    /**
+     * Trailers that are files on [server] — Emby/Jellyfin local trailers, Plex trailer extras. Each
+     * is an item of its own, so playing one can never be recorded against the title.
+     */
+    suspend fun localTrailers(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<MediaTrailer.Local>>
+
+    /** Trailer links the server scraped (YouTube and the like); a family that keeps none answers empty. */
+    suspend fun remoteTrailers(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<MediaTrailer.Remote>>
+
+    /** 主题曲, taken from the show for an episode or a season. */
+    suspend fun themeSongs(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<ThemeSong>>
+
+    /** One person's own record: biography, dates, birthplace and external ids. */
+    suspend fun person(
+        server: SavedServer,
+        personId: String,
+    ): Result<PersonProfile>
 
     suspend fun userLibrarySnapshot(
         server: SavedServer,
@@ -326,6 +364,18 @@ internal interface MediaServerAdapter {
         mediaSourceId: String,
     ): Result<TrickplayInfo?>
 
+    /** A folder's videos in name order, queued for a video outside any series; none where unsupported. */
+    suspend fun folderVideos(
+        server: SavedServer,
+        folderId: String,
+    ): Result<List<Episode>> = Result.success(emptyList())
+
+    /** The server's own intro/recap/outro segments for one item; none where it keeps no such list. */
+    suspend fun mediaSegments(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<PlaybackSegment>> = Result.success(emptyList())
+
     suspend fun searchRemoteSubtitles(
         server: SavedServer,
         itemId: String,
@@ -354,6 +404,7 @@ internal class EmbyAdapter(
     private val sourceService: EmbySourceService,
     private val subtitleService: EmbySubtitleService,
     private val userDataService: EmbyUserDataService,
+    private val extrasService: EmbyExtrasService,
 ) : MediaServerAdapter {
     override suspend fun authenticate(
         baseUrl: String,
@@ -610,13 +661,19 @@ internal class EmbyAdapter(
         limit: Int,
         resolution: LibraryResolution,
         unplayedOnly: Boolean,
+        tag: String?,
     ): Result<LibraryPage> =
-        browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution, unplayedOnly)
+        browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution, unplayedOnly, tag)
 
     override suspend fun libraryGenres(
         server: SavedServer,
         libraryId: String,
     ): Result<List<String>> = browseService.libraryGenres(server, libraryId)
+
+    override suspend fun libraryTags(
+        server: SavedServer,
+        libraryId: String,
+    ): Result<List<String>> = browseService.libraryTags(server, libraryId)
 
     override suspend fun similarItems(
         server: SavedServer,
@@ -668,6 +725,26 @@ internal class EmbyAdapter(
         personId: String,
         limit: Int,
     ): Result<List<MediaItem>> = searchService.itemsByPerson(server, personId, limit)
+
+    override suspend fun localTrailers(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<MediaTrailer.Local>> = extrasService.localTrailers(server, itemId)
+
+    override suspend fun remoteTrailers(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<MediaTrailer.Remote>> = extrasService.remoteTrailers(server, itemId)
+
+    override suspend fun themeSongs(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<ThemeSong>> = extrasService.themeSongs(server, itemId)
+
+    override suspend fun person(
+        server: SavedServer,
+        personId: String,
+    ): Result<PersonProfile> = extrasService.person(server, personId)
 
     override suspend fun userLibrarySnapshot(
         server: SavedServer,
@@ -743,6 +820,16 @@ internal class EmbyAdapter(
         itemId: String,
         mediaSourceId: String,
     ): Result<TrickplayInfo?> = detailService.trickplayInfo(server, itemId, mediaSourceId)
+
+    override suspend fun mediaSegments(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<PlaybackSegment>> = detailService.mediaSegments(server, itemId)
+
+    override suspend fun folderVideos(
+        server: SavedServer,
+        folderId: String,
+    ): Result<List<Episode>> = detailService.folderVideos(server, folderId)
 
     override suspend fun searchRemoteSubtitles(
         server: SavedServer,
@@ -977,6 +1064,7 @@ internal class PlexAdapter(
         limit: Int,
         resolution: LibraryResolution,
         unplayedOnly: Boolean,
+        tag: String?,
     ): Result<LibraryPage> = plex.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution)
 
     override suspend fun libraryGenres(
@@ -1035,6 +1123,29 @@ internal class PlexAdapter(
         personId: String,
         limit: Int,
     ): Result<List<MediaItem>> = plex.itemsByPerson(server, personId, limit)
+
+    override suspend fun localTrailers(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<MediaTrailer.Local>> = plex.trailers(server, itemId)
+
+    // Plex keeps its trailers as extras on the server — above — and stores no video-site links.
+    override suspend fun remoteTrailers(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<MediaTrailer.Remote>> = Result.success(emptyList())
+
+    override suspend fun themeSongs(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<ThemeSong>> = plex.themeSongs(server, itemId)
+
+    // A Plex server has only the role tags on each title; the biography lives in Plex's online
+    // service, not on the server, so 演员页 builds its header from the tag it was opened with.
+    override suspend fun person(
+        server: SavedServer,
+        personId: String,
+    ): Result<PersonProfile> = Result.failure(UnsupportedOperationException("Plex 服务器不提供人物资料"))
 
     override suspend fun userLibrarySnapshot(
         server: SavedServer,

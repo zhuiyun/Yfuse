@@ -26,6 +26,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
@@ -1119,7 +1120,7 @@ class DetailStoreTest {
         }
 
     @Test
-    fun season_episode_load_retries_transient_failures() =
+    fun browsing_a_season_retries_its_episodes_and_leaves_what_play_opens() =
         runTest {
             val attempts = AtomicInteger()
             val store =
@@ -1133,14 +1134,92 @@ class DetailStoreTest {
             store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
 
             store.accept(DetailIntent.SelectSeason("season2"))
-            store.states.first {
-                !it.episodesLoading && !it.selectionLoading && it.playTarget?.id == "e3"
-            }
+            store.states.first { !it.episodesLoading && it.episodes.map { episode -> episode.id } == listOf("e3") }
 
             assertEquals(3, attempts.get())
             assertEquals("season2", store.state.selectedSeasonId)
+            assertEquals("season2", store.state.listedSeasonId)
+            // 继续播放 is still next-up's: browsing used to put 播放 on the season's first episode.
+            assertTrue(!store.state.selectionLoading)
+            assertEquals("e1", store.state.playTarget?.id)
+            assertEquals("e1", store.state.selectedEpisodeId)
+            assertEquals(10_000_000L, store.state.playPositionTicks)
+
+            // Picking an episode is what moves 播放, and the browsed season stays on show.
+            store.accept(DetailIntent.SelectEpisode("e3", 0L))
+            store.states.first { !it.selectionLoading && it.playTarget?.id == "e3" }
+            assertEquals("season2", store.state.selectedSeasonId)
             assertEquals(listOf("e3"), store.state.episodes.map { it.id })
             store.dispose()
+        }
+
+    @Test
+    fun a_failed_season_after_one_still_loading_returns_to_the_season_on_show() =
+        runTest {
+            val seasonTwoStarted = CompletableDeferred<Unit>()
+            val releaseSeasonTwo = CompletableDeferred<Unit>()
+            val store =
+                seriesStore(
+                    seasonTwoEpisodesFailure = { null },
+                    beforeSeasonTwoEpisodes = {
+                        seasonTwoStarted.complete(Unit)
+                        releaseSeasonTwo.await()
+                    },
+                    seasonThreeEpisodesFailure = { IOException("catalog unavailable") },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 && !it.episodesLoading }
+
+                store.accept(DetailIntent.SelectSeason("season2"))
+                seasonTwoStarted.await()
+                store.accept(DetailIntent.SelectSeason("season3"))
+                store.states.first { !it.episodesLoading && it.actionMessage != null }
+
+                // Not season 2, which never loaded: the episodes on show are still season 1's.
+                assertEquals("season1", store.state.selectedSeasonId)
+                assertEquals(listOf("e1", "e2"), store.state.episodes.map { it.id })
+
+                // Season 2 answering late is no longer the season asked for.
+                releaseSeasonTwo.complete(Unit)
+                advanceUntilIdle()
+                assertEquals("season1", store.state.selectedSeasonId)
+                assertEquals(listOf("e1", "e2"), store.state.episodes.map { it.id })
+            } finally {
+                releaseSeasonTwo.complete(Unit)
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun marking_an_episode_keeps_the_listed_season_and_the_open_sheet() =
+        runTest {
+            val store =
+                seriesStore(
+                    seasonTwoEpisodesFailure = { null },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 && !it.episodesLoading }
+                store.accept(DetailIntent.SelectSeason("season2"))
+                store.states.first { !it.episodesLoading && it.episodes.map { episode -> episode.id } == listOf("e3") }
+                store.accept(DetailIntent.OpenProgressManager)
+                store.accept(DetailIntent.ToggleProgressEpisode("e3"))
+
+                store.accept(DetailIntent.MarkEpisodes(setOf("e3"), played = true))
+                advanceUntilIdle()
+
+                // 播放's target was asked for again; the season the rail and the sheet show was not
+                // reloaded for next-up's, so the sheet's selection still names a row it lists.
+                assertEquals("season2", store.state.selectedSeasonId)
+                assertEquals(listOf("e3"), store.state.episodes.map { it.id })
+                assertTrue(store.state.episodes.all { it.played })
+                assertTrue(store.state.progressManagerOpen)
+                assertEquals(setOf("e3"), store.state.progressSelection)
+                assertEquals("e1", store.state.playTarget?.id)
+            } finally {
+                store.dispose()
+            }
         }
 
     @Test
@@ -1376,6 +1455,9 @@ class DetailStoreTest {
         onSecondEpisodeDetail: () -> Unit = {},
         onSecondNextUp: () -> Unit = {},
         seasonTwoEpisodesFailure: (() -> Throwable?)? = null,
+        beforeSeasonTwoEpisodes: suspend () -> Unit = {},
+        /** Lists a third season as well, whose episodes fail as this says. */
+        seasonThreeEpisodesFailure: (() -> Throwable?)? = null,
         sourceSelectionTimeoutMs: Long = 45_000L,
         playbackResolutionTimeoutMs: Long = PLAYBACK_RESOLUTION_TIMEOUT_MS,
         mainContext: CoroutineDispatcher = Dispatchers.Unconfined,
@@ -1389,6 +1471,16 @@ class DetailStoreTest {
                 addOrUpdate(SavedServer("one", "http://one", "主库", "u", "user", "tok1"))
                 if (includeSecondSource) {
                     addOrUpdate(SavedServer("two", "http://two", "备库", "u", "user", "tok2"))
+                }
+            }
+        val seasons =
+            buildList {
+                add("""{"Id":"season1","Name":"第 1 季","IndexNumber":1}""")
+                if (seasonTwoEpisodesFailure != null || seasonThreeEpisodesFailure != null) {
+                    add("""{"Id":"season2","Name":"第 2 季","IndexNumber":2}""")
+                }
+                if (seasonThreeEpisodesFailure != null) {
+                    add("""{"Id":"season3","Name":"第 3 季","IndexNumber":3}""")
                 }
             }
         val localProgress = PlaybackSyncStore(MapSettings()) { 1_000L }
@@ -1434,14 +1526,7 @@ class DetailStoreTest {
                     }
                     path.endsWith("/Shows/s1/Seasons") -> {
                         beforeFirstSeasons()
-                        json(
-                            if (seasonTwoEpisodesFailure == null) {
-                                """{"Items":[{"Id":"season1","Name":"第 1 季","IndexNumber":1}]}"""
-                            } else {
-                                """{"Items":[{"Id":"season1","Name":"第 1 季","IndexNumber":1},""" +
-                                    """{"Id":"season2","Name":"第 2 季","IndexNumber":2}]}"""
-                            },
-                        )
+                        json("""{"Items":[${seasons.joinToString(",")}]}""")
                     }
                     path.endsWith("/Shows/s2/Seasons") ->
                         json(
@@ -1455,11 +1540,17 @@ class DetailStoreTest {
                         if (request.url.parameters["SeasonId"] == null && !coordinateLookup) {
                             beforeInitialEpisodes()
                         }
-                        if (request.url.parameters["SeasonId"] == "season2") {
-                            seasonTwoEpisodesFailure?.invoke()?.let { throw it }
-                            json("""{"Items":[$EPISODE_THREE]}""")
-                        } else {
-                            json("""{"Items":[$EPISODE_ONE,$EPISODE_TWO]}""")
+                        when (request.url.parameters["SeasonId"]) {
+                            "season2" -> {
+                                beforeSeasonTwoEpisodes()
+                                seasonTwoEpisodesFailure?.invoke()?.let { throw it }
+                                json("""{"Items":[$EPISODE_THREE]}""")
+                            }
+                            "season3" -> {
+                                seasonThreeEpisodesFailure?.invoke()?.let { throw it }
+                                json("""{"Items":[]}""")
+                            }
+                            else -> json("""{"Items":[$EPISODE_ONE,$EPISODE_TWO]}""")
                         }
                     }
                     path.endsWith("/Shows/s2/Episodes") -> {

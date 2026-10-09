@@ -1,0 +1,137 @@
+{
+  "capturedAt": "2026-10-08T19:01:49.078526+08:00",
+  "gitHead": "979953e0a77c676aeb92b71c1901d0f2ac7ce7c0",
+  "workingTree": "includes prior uncommitted gesture, predictive-back, quality-gate and backend-isolation work",
+  "sourceTreeSha256": "01cd57da5779ab298160a2d910ab99f6617033788cf56aec620043d3fe877bd3",
+  "gradle": {
+    "status": "passed",
+    "logs": [
+      "gradle-initial.log",
+      "gradle-final.log"
+    ],
+    "tests": [
+      {
+        "module": "phoneShared",
+        "task": "testAndroidHostTest",
+        "execution": "executed",
+        "reports": 687,
+        "tests": 3681,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "tvShared",
+        "task": "testAndroidHostTest",
+        "execution": "executed",
+        "reports": 18,
+        "tests": 88,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "yfuseBackendClient",
+        "task": "jvmTest",
+        "execution": "up_to_date",
+        "reports": 7,
+        "tests": 35,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "watchTogetherProtocol",
+        "task": "jvmTest",
+        "execution": "up_to_date",
+        "reports": 3,
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "watchTogetherServer",
+        "task": "test",
+        "execution": "executed",
+        "reports": 32,
+        "tests": 222,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ],
+    "totalReportsTests": 4040,
+    "executedFinalTests": 3991,
+    "compilation": [
+      ":composeApp:compileDebugKotlin",
+      ":tvApp:compileDebugKotlin"
+    ],
+    "staticChecks": [
+      ":phoneShared:ktlintCheck",
+      ":tvShared:ktlintCheck",
+      ":yfuseBackendClient:ktlintCheck"
+    ],
+    "backendEnabled": true,
+    "newKotlinRegressionsThisPass": 32
+  },
+  "node": {
+    "status": "passed",
+    "tests": 17,
+    "command": "node --test castReceiver/receiver.test.cjs watchTogetherServer/calendarRenderer/*.test.mjs",
+    "failures": 0
+  },
+  "python": {
+    "status": "passed",
+    "tests": 63,
+    "command": "build/validation-env/Scripts/python.exe -m unittest discover -s scripts/tests -p test_*.py",
+    "pathAdditions": [
+      "build/validation-tools",
+      "C:/Program Files/Git/bin",
+      "C:/Program Files/Git/usr/bin"
+    ],
+    "failures": 0
+  },
+  "boundaries": {
+    "status": "passed",
+    "commands": [
+      "python scripts/check-backend-boundary.py",
+      "python scripts/verify-module-boundaries.py"
+    ]
+  },
+  "native": {
+    "status": "syntax_passed_runtime_blocked",
+    "newBehaviorTestFunctions": 3,
+    "command": "<USER_HOME>/AppData/Local/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe --target=aarch64-linux-android26 -std=c++17 -Wall -Wextra -Wpedantic -Werror -fsyntax-only -Iycore-native/include ycore-native/src/ycore.cpp ycore-native/src/ycore_build.cpp ycore-native/tests/ycore_test.cpp",
+    "exitCode": 0,
+    "runtimeReason": "No host C++ compiler; adb devices showed no connected device"
+  },
+  "harmony": {
+    "status": "blocked",
+    "platformValidated": false,
+    "compiledPackages": 8,
+    "blockedPackages": 4,
+    "passedHostTests": 33,
+    "report": "harmony-validation.json"
+  },
+  "notPerformed": [
+    "APK/HAP packaging",
+    "version changes",
+    "production service calls or deployments",
+    "push/publish",
+    "native runtime/device playback validation",
+    "system gesture/audio-focus device validation"
+  ],
+  "remainingRisks": [
+    "Renderer DNS/private-resolution path needs network egress constraints",
+    "Playback outbox memory-only fallback on persistence failure needs restart/fault-injection design",
+    "Harmony stdx/SDK/platform gaps remain"
+  ],
+  "metadataRedaction": {
+    "fields": [
+      "$.native.command"
+    ],
+    "originalCopy": "build/tmp/upload-audit-originals/audit/comprehensive-review-20261008/VALIDATION.json",
+    "note": "Device identifiers and local user-home prefixes are redacted. Original copies and logs stay in local Git-ignored build/audit output; test results and command arguments other than the home-path placeholder are unchanged."
+  }
+}

@@ -6,6 +6,7 @@ import android.os.Build
 import android.view.Surface
 import com.yfuse.core2.render.MIN_ANDROID_HARDWARE_BUFFER_API
 import com.yfuse.core2.render.NATIVE_GPU_API_VERSION
+import com.yfuse.core2.render.NATIVE_GPU_TIMED_PRESENT_API_VERSION
 import com.yfuse.core2.render.YGpuColorPipelineConfig
 import com.yfuse.core2.render.YGpuColorTransfer
 import com.yfuse.core2.render.YNativeGpuRuntimeProbe
@@ -28,7 +29,7 @@ internal object AndroidYCoreGpuRuntime {
         if (Build.VERSION.SDK_INT < MIN_ANDROID_HARDWARE_BUFFER_API) return unavailableProbe()
         val apiVersion = AndroidYCoreGpuNativeBridge.apiVersionOrZero()
         val staticFeatures =
-            if (apiVersion == NATIVE_GPU_API_VERSION) {
+            if (apiVersion >= NATIVE_GPU_API_VERSION) {
                 AndroidYCoreGpuNativeBridge.probeFeaturesOrZero()
             } else {
                 0L
@@ -59,7 +60,29 @@ internal object AndroidYCoreGpuNativeBridge {
         }
     }
 
-    fun apiVersionOrZero(): Int = if (libraryLoaded) runCatching(::nativeGpuApiVersion).getOrDefault(0) else 0
+    private val apiVersion: Int by lazy {
+        if (libraryLoaded) runCatching(::nativeGpuApiVersion).getOrDefault(0) else 0
+    }
+
+    fun apiVersionOrZero(): Int = apiVersion
+
+    /**
+     * API 3 executors report presentation per frame, take a desired present time and reset in
+     * place. Earlier ones return their cumulative feature mask from every render, so a frame that
+     * failed still reads as presented there.
+     */
+    val timedPresentation: Boolean get() = apiVersion >= NATIVE_GPU_TIMED_PRESENT_API_VERSION
+
+    fun setDesiredPresentTime(
+        renderer: Long,
+        timeNs: Long,
+    ) {
+        if (timedPresentation && renderer != 0L) runCatching { nativeSetDesiredPresentTime(renderer, timeNs) }
+    }
+
+    /** False when the executor predates in-place reset or the reset failed. */
+    fun resetRenderer(renderer: Long): Boolean =
+        timedPresentation && renderer != 0L && runCatching { nativeResetRenderer(renderer) }.getOrDefault(false)
 
     fun probeFeaturesOrZero(): Long = if (libraryLoaded) runCatching(::nativeProbeGpuFeatures).getOrDefault(0L) else 0L
 
@@ -191,6 +214,13 @@ internal object AndroidYCoreGpuNativeBridge {
         dynamicAnchorMean: Float,
         hdrMetadata: FloatArray,
     ): Long
+
+    private external fun nativeSetDesiredPresentTime(
+        renderer: Long,
+        timeNs: Long,
+    )
+
+    private external fun nativeResetRenderer(renderer: Long): Boolean
 
     private external fun nativeRendererFeatureMask(renderer: Long): Long
 

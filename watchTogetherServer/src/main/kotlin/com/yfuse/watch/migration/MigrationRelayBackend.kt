@@ -336,8 +336,7 @@ internal class MigrationRelayRateLimiter(
         windows[key] = Window(expiresAtMs, 1)
     }
 
-    private fun limited(): Nothing =
-        throw MigrationRelayException("rate_limited", "请求过于频繁，请稍后重试", rateLimited = true)
+    private fun limited(): Nothing = throw MigrationRelayException("rate_limited", "请求过于频繁，请稍后重试", rateLimited = true)
 }
 
 private interface MigrationRelayStore : AutoCloseable {

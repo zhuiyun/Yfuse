@@ -578,7 +578,7 @@ private fun SignedInAccountCard(
         status = if (state.syncing) "同步中" else "已就绪",
     ) {
         Text(
-            "云端版本 ${state.syncVersion} · 手动同步",
+            "云端版本 ${state.syncVersion} · 个人内容自动同步",
             style = AppTypography.caption.regular,
             color = palette.sub2,
         )
@@ -993,7 +993,7 @@ internal fun formatSessionActivity(
  * being empty — see the card for why the height has to be constant.
  */
 private const val SYNC_IDLE_HINT =
-    "不会自动上传或恢复。上传会用本机数据覆盖云端；恢复会用云端数据覆盖本机。"
+    "清单、历史与追剧自动合并；服务器与设置不会自动同步，上传覆盖云端，恢复覆盖本机。"
 
 @Composable
 private fun AccountHeader(onBack: () -> Unit) {

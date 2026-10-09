@@ -494,6 +494,90 @@ class PlaybackProgressReporterTest {
             assertEquals(finalPositionMs * 10_000L, events[2].ticks)
         }
 
+    @Test
+    fun a_natural_advance_stops_the_departed_episode_where_it_was_last_seen() =
+        runTest {
+            val events = mutableListOf<Event>()
+            val reporter =
+                PlaybackProgressReporter(
+                    items =
+                        listOf(
+                            PlayerMediaItem("e1", "direct-1", "transcode-1", "第1集"),
+                            PlayerMediaItem("e2", "direct-2", "transcode-2", "第2集"),
+                        ),
+                    sink = RecordingSink(events),
+                    // The actor outlives the test body; no close() here, so it must not hold runTest.
+                    scope = backgroundScope,
+                )
+
+            fun first(positionMs: Long) =
+                PlaybackState(
+                    playing = true,
+                    positionMs = positionMs,
+                    durationMs = 60_000L,
+                    currentIndex = 0,
+                    itemCount = 2,
+                )
+
+            reporter.update(first(50_000L))
+            runCurrent()
+            // Sampled every half second to the end; none of these is due for a ten-second report.
+            var positionMs = 50_500L
+            while (positionMs <= 59_500L) {
+                reporter.update(first(positionMs))
+                positionMs += 500L
+            }
+            runCurrent()
+            // ExoPlayer's playlist moves on without an ended state for the first episode.
+            reporter.update(
+                PlaybackState(playing = true, positionMs = 0L, durationMs = 58_000L, currentIndex = 1, itemCount = 2),
+            )
+            runCurrent()
+
+            assertEquals(
+                listOf(
+                    "started:e1:500000000:false",
+                    "stopped:e1:595000000:false",
+                    "started:e2:0:false",
+                ),
+                events.map(Event::summary),
+            )
+        }
+
+    @Test
+    fun a_departure_never_moves_the_stop_of_a_different_entry() =
+        runTest {
+            val events = mutableListOf<Event>()
+            val reporter =
+                PlaybackProgressReporter(
+                    items =
+                        listOf(
+                            PlayerMediaItem("e1", "direct-1", "transcode-1", "第1集"),
+                            PlayerMediaItem("e2", "direct-2", "transcode-2", "第2集"),
+                            PlayerMediaItem("e3", "direct-3", "transcode-3", "第3集"),
+                        ),
+                    sink = RecordingSink(events),
+                    // The actor outlives the test body; no close() here, so it must not hold runTest.
+                    scope = backgroundScope,
+                )
+
+            reporter.update(PlaybackState(playing = true, positionMs = 30_000L, currentIndex = 0, itemCount = 3))
+            runCurrent()
+            // Two quick switches before the actor runs: the departure names e2, which never started.
+            reporter.update(PlaybackState(playing = true, positionMs = 2_000L, currentIndex = 1, itemCount = 3))
+            reporter.update(PlaybackState(playing = true, positionMs = 0L, currentIndex = 2, itemCount = 3))
+            runCurrent()
+
+            assertEquals(
+                listOf(
+                    "started:e1:300000000:false",
+                    "stopped:e1:300000000:false",
+                    "started:e3:0:false",
+                ),
+                events.map(Event::summary),
+            )
+        }
+
     private data class Event(
         val kind: String,
         val itemId: String,

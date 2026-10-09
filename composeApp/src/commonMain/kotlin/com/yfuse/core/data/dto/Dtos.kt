@@ -14,7 +14,9 @@ import com.yfuse.core.model.SourceInfo
 import com.yfuse.core.model.SubtitleTrackInfo
 import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.model.VideoStreamInfo
+import com.yfuse.core.model.episodeOwnName
 import com.yfuse.core.model.languageDisplayName
+import com.yfuse.core.model.namedPlaybackChapters
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import kotlinx.serialization.Serializable
 
@@ -95,6 +97,8 @@ data class MediaStreamDto(
     val Type: String? = null,
     val Height: Int? = null,
     val Width: Int? = null,
+    /** Degrees the coded picture turns on display: a phone clip stored 1920×1080 with 90 stands. */
+    val Rotation: Int? = null,
     val VideoRange: String? = null,
     val Codec: String? = null,
     val Language: String? = null,
@@ -106,8 +110,13 @@ data class MediaStreamDto(
     val IsForced: Boolean? = null,
     val IsDefault: Boolean? = null,
     val IsExternal: Boolean? = null,
-    /** Provider-owned sidecar address, already authenticated when the player needs URL auth. */
+    /**
+     * Sidecar address. Emby and Jellyfin send a path relative to the server
+     * (`/Videos/…/Subtitles/3/0/Stream.srt`); the Plex adapter builds an absolute one.
+     */
     val DeliveryUrl: String? = null,
+    /** True when [DeliveryUrl] is the sidecar's own path rather than the server's endpoint. */
+    val IsExternalUrl: Boolean? = null,
     val IsInterlaced: Boolean? = null,
     val BitRate: Int? = null,
     val SampleRate: Int? = null,
@@ -281,6 +290,10 @@ data class BaseItemDto(
     val Id: String,
     val Name: String? = null,
     val Type: String? = null,
+    /** `Virtual` for an episode the server only knows of — missing or not yet aired. */
+    val LocationType: String? = null,
+    /** The folder holding the item; asked for by the player, which queues a loose video's siblings. */
+    val ParentId: String? = null,
     val ProductionYear: Int? = null,
     val IndexNumber: Int? = null,
     val ParentIndexNumber: Int? = null,
@@ -312,7 +325,19 @@ data class BaseItemDto(
     val PlaylistItemId: String? = null,
     /** Present for folders such as BoxSet/Playlist when requested through Fields. */
     val ChildCount: Int? = null,
+    /**
+     * Jellyfin only: image type → image tag → BlurHash, for every tag this item carries —
+     * inherited series and parent tags included. No `Fields` entry asks for it; the server fills it
+     * alongside the tags themselves.
+     */
+    val ImageBlurHashes: Map<String, Map<String, String?>?>? = null,
 )
+
+/** The BlurHash Jellyfin sent for the [type] image behind [tag], if any. */
+internal fun BaseItemDto.imageBlurHash(
+    type: String,
+    tag: String?,
+): String? = tag?.let { ImageBlurHashes?.get(type)?.get(it) }?.takeIf(String::isNotBlank)
 
 @Serializable
 data class TrickplayInfoDto(
@@ -367,15 +392,19 @@ fun BaseItemDto.toMediaItem(): MediaItem {
     val useSeriesPoster = isEpisode && SeriesId != null
     val ownBackdrop = BackdropImageTags?.firstOrNull()
     val inheritedBackdrop = ParentBackdropImageTags?.firstOrNull()
+    val posterTag = if (useSeriesPoster) SeriesPrimaryImageTag else ImageTags?.get("Primary")
+    val backdropTag = ownBackdrop ?: inheritedBackdrop
 
     val title = if (isEpisode) (SeriesName ?: Name ?: "") else (Name ?: "")
     val subtitle =
         when {
-            isEpisode ->
-                buildString {
-                    if (ParentIndexNumber != null && IndexNumber != null) append("S${ParentIndexNumber}E$IndexNumber ")
-                    append(Name ?: "")
-                }.trim().ifBlank { null }
+            isEpisode -> {
+                val coordinate =
+                    if (ParentIndexNumber != null && IndexNumber != null) "S${ParentIndexNumber}E$IndexNumber" else null
+                // 「S1E1 第1集」 said the number twice; a name that only repeats it is dropped.
+                val name = if (coordinate != null) episodeOwnName(Name, IndexNumber) else Name?.trim()
+                listOfNotNull(coordinate, name).joinToString(" ").trim().ifBlank { null }
+            }
             ProductionYear != null -> ProductionYear.toString()
             else -> null
         }
@@ -386,21 +415,24 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         subtitle = subtitle,
         type = Type ?: "",
         posterItemId = if (useSeriesPoster) SeriesId else Id,
-        posterTag = if (useSeriesPoster) SeriesPrimaryImageTag else ImageTags?.get("Primary"),
+        posterTag = posterTag,
         backdropItemId = if (ownBackdrop != null) Id else ParentBackdropItemId ?: SeriesId ?: Id,
-        backdropTag = ownBackdrop ?: inheritedBackdrop,
+        backdropTag = backdropTag,
+        stillTag = if (isEpisode) ImageTags?.get("Primary") else null,
         playedPercentage = UserData?.PlayedPercentage,
         resumePositionTicks = UserData?.PlaybackPositionTicks,
         lastPlayedDate = UserData?.LastPlayedDate,
         overview = Overview,
         year = ProductionYear,
-        runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },
+        runtimeMinutes = runtimeMinutesOf(RunTimeTicks),
         communityRating = CommunityRating,
         providerIds = ProviderIds.orEmpty(),
         isFavorite = UserData?.IsFavorite == true,
         played = UserData?.Played == true,
         playlistItemId = PlaylistItemId,
         dateCreated = DateCreated?.take(10)?.takeIf { it.length == 10 },
+        posterBlurHash = imageBlurHash("Primary", posterTag),
+        backdropBlurHash = imageBlurHash("Backdrop", backdropTag),
     )
 }
 
@@ -417,6 +449,7 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
     val posterTag = ownPoster ?: SeriesPrimaryImageTag
 
     return MediaDetail(
+        parentId = ParentId,
         id = Id,
         title = if (Type == "Episode") "${SeriesName ?: ""} ${Name ?: ""}".trim() else (Name ?: ""),
         type = Type ?: "",
@@ -427,7 +460,7 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         overview = Overview,
         year = ProductionYear,
         genres = Genres ?: emptyList(),
-        runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },
+        runtimeMinutes = runtimeMinutesOf(RunTimeTicks),
         officialRating = OfficialRating,
         communityRating = CommunityRating,
         posterItemId = posterId,
@@ -560,6 +593,7 @@ fun MediaSourceDto.toMediaVersion(
                     codec = stream.Codec?.takeIf { it.isNotBlank() }?.uppercase(),
                     width = stream.Width,
                     height = stream.Height,
+                    rotation = stream.Rotation?.takeIf { it != 0 },
                     // Emby reports both; the average is the one that matches what plays back.
                     frameRate = stream.AverageFrameRate ?: stream.RealFrameRate,
                     bitrateBps = stream.BitRate,
@@ -624,6 +658,7 @@ fun MediaSourceDto.toMediaVersion(
                         default = stream.IsDefault == true,
                         uri = stream.DeliveryUrl?.takeIf(String::isNotBlank),
                         title = stream.Title?.takeIf { it.isNotBlank() },
+                        uriIsSidecarPath = stream.IsExternalUrl == true,
                     )
                 },
         supportsDirectPlay = SupportsDirectPlay,
@@ -653,7 +688,7 @@ fun BaseItemDto.toEpisode() =
         seasonNumber = ParentIndexNumber,
         seasonId = SeasonId,
         overview = Overview,
-        runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },
+        runtimeMinutes = runtimeMinutesOf(RunTimeTicks),
         primaryTag = ImageTags?.get("Primary"),
         playedPercentage = UserData?.PlayedPercentage,
         played = UserData?.Played == true,
@@ -669,6 +704,7 @@ fun BaseItemDto.toEpisode() =
             },
         trickplay = bestTrickplay(),
         runtimeTicks = RunTimeTicks?.takeIf { it > 0L },
+        missing = LocationType.equals("Virtual", ignoreCase = true),
     )
 
 fun BaseItemDto.bestTrickplay(mediaSourceId: String? = null): TrickplayInfo? =
@@ -726,34 +762,69 @@ fun BaseItemDto.playbackSegments(): List<PlaybackSegment> {
  *
  * Emby marks its skip points as chapters too — `IntroStart`, `IntroEnd`, `CreditsStart` — and
  * those are [playbackSegments]' business, so only an unmarked chapter (Jellyfin) or one marked
- * `Chapter` (Emby) counts. A name that only counts — "Chapter 3", "第 3 章", "00:12:00", which
- * muxers and servers write when the file had none — says nothing its position does not, and is
- * left out with the unnamed ones, as is a chapter at or past the end of the runtime. Two
- * chapters at one position keep the first.
+ * `Chapter` (Emby) counts; [namedPlaybackChapters] then drops the ones that only count.
  */
-fun BaseItemDto.playbackChapters(): List<PlaybackChapter> {
-    val runtimeMs = RunTimeTicks?.takeIf { it > 0L }?.div(10_000L)
-    return Chapters
-        .orEmpty()
-        .asSequence()
-        .filter { chapter ->
-            val type = chapter.MarkerType?.trim().orEmpty()
-            type.isEmpty() || type.equals("Chapter", ignoreCase = true)
-        }.mapNotNull { chapter ->
-            val name = chapter.Name?.trim()?.takeIf { it.isNotEmpty() && !isCountingChapterName(it) }
-            val startMs = (chapter.StartPositionTicks / 10_000L).coerceAtLeast(0L)
-            if (name == null || (runtimeMs != null && startMs >= runtimeMs)) null else PlaybackChapter(startMs, name)
-        }.sortedBy(PlaybackChapter::startMs)
-        .distinctBy(PlaybackChapter::startMs)
-        .toList()
-}
-
-/** "Chapter 3", "Ch. 12", "第 3 章", "チャプター 2", a bare number or a timestamp: a name that only counts. */
-internal fun isCountingChapterName(name: String): Boolean = COUNTING_CHAPTER_NAME.matches(name.trim())
-
-private val COUNTING_CHAPTER_NAME =
-    Regex(
-        "(?:(?:chapter|chap|ch|kapitel|chapitre|cap[ií]tulo|capitolo|глава|章节|章節|チャプター|챕터)" +
-            "\\.?\\s*#?\\s*\\d+)|(?:第\\s*\\d+\\s*[章节節话話幕])|[\\d\\s.:,-]+",
-        RegexOption.IGNORE_CASE,
+fun BaseItemDto.playbackChapters(): List<PlaybackChapter> =
+    namedPlaybackChapters(
+        chapters =
+            Chapters
+                .orEmpty()
+                .asSequence()
+                .filter { chapter ->
+                    val type = chapter.MarkerType?.trim().orEmpty()
+                    type.isEmpty() || type.equals("Chapter", ignoreCase = true)
+                }.map { chapter -> chapter.StartPositionTicks / 10_000L to chapter.Name },
+        runtimeMs = RunTimeTicks?.takeIf { it > 0L }?.div(10_000L),
     )
+
+/** One of Jellyfin's media segments (10.10+): `/MediaSegments/{itemId}`. */
+@Serializable
+data class MediaSegmentDto(
+    /** Intro, Outro, Recap, Preview, Commercial or Unknown. */
+    val Type: String? = null,
+    val StartTicks: Long = 0L,
+    val EndTicks: Long = 0L,
+)
+
+@Serializable
+data class MediaSegmentsResponseDto(
+    val Items: List<MediaSegmentDto> = emptyList(),
+)
+
+/**
+ * Jellyfin's media segments as the player skips them: an intro or a recap — 前情提要 at the top of
+ * a 短剧 — is skipped like an intro, an outro like credits. A preview can sit at either end and a
+ * commercial anywhere, so neither is taken: read as credits, one near the start would end the
+ * episode there.
+ */
+fun List<MediaSegmentDto>.toPlaybackSegments(): List<PlaybackSegment> =
+    mapNotNull { dto ->
+        val type =
+            when (dto.Type?.lowercase()) {
+                "intro", "recap" -> PlaybackSegmentType.Intro
+                "outro" -> PlaybackSegmentType.Credits
+                else -> null
+            } ?: return@mapNotNull null
+        val startMs = (dto.StartTicks / TICKS_PER_MS).coerceAtLeast(0L)
+        val endMs = dto.EndTicks / TICKS_PER_MS
+        if (endMs <= startMs) null else PlaybackSegment(type, startMs, endMs)
+    }.sortedBy { it.startMs }
+
+private const val TICKS_PER_MS = 10_000L
+
+/**
+ * Whole minutes of a server runtime, and at least one for any runtime the server gave: a
+ * 40-second 短剧 episode used to floor to none, which hid its length and left a transcoded
+ * download of it unsized.
+ */
+internal fun runtimeMinutesOf(ticks: Long?): Int? =
+    ticks?.takeIf { it > 0L }?.let { (it / TICKS_PER_MINUTE).toInt().coerceAtLeast(1) }
+
+private const val TICKS_PER_MINUTE = 600_000_000L
+
+/** Jellyfin's /Items/Filters: the facets a library's items carry. */
+@Serializable
+data class ItemFiltersDto(
+    val Genres: List<String>? = null,
+    val Tags: List<String>? = null,
+)

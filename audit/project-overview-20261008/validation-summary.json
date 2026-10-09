@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "auditDate": "2026-10-08",
+  "repository": "D:\\Demo\\Yfuse",
+  "branch": "master",
+  "baseCommit": "979953e0a77c676aeb92b71c1901d0f2ac7ce7c0",
+  "scope": "Current worktree including uncommitted detail gesture and predictive back fixes; overview audit adds documentation only.",
+  "apkBuilt": false,
+  "versionChanged": false,
+  "published": false,
+  "gradle": {
+    "status": "passed",
+    "exitCode": 0,
+    "log": "gradle-validation.log",
+    "modules": [
+      {
+        "module": "phoneShared",
+        "task": "testAndroidHostTest",
+        "suites": 683,
+        "tests": 3651,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xmlDirectory": "phoneShared/build/test-results/testAndroidHostTest"
+      },
+      {
+        "module": "tvShared",
+        "task": "testAndroidHostTest",
+        "suites": 18,
+        "tests": 88,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xmlDirectory": "tvShared/build/test-results/testAndroidHostTest"
+      },
+      {
+        "module": "watchTogetherProtocol",
+        "task": "jvmTest",
+        "suites": 3,
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xmlDirectory": "watchTogetherProtocol/build/test-results/jvmTest"
+      },
+      {
+        "module": "watchTogetherServer",
+        "task": "test",
+        "suites": 32,
+        "tests": 217,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xmlDirectory": "watchTogetherServer/build/test-results/test"
+      }
+    ],
+    "total": {
+      "tests": 3970,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "otherChecks": [
+    {
+      "name": "module boundaries",
+      "status": "passed",
+      "command": "python scripts/verify-module-boundaries.py",
+      "evidence": "Tool execution record"
+    },
+    {
+      "name": "TV source/manifest/banner",
+      "status": "passed",
+      "command": "python scripts/verify-tv-source.py --manifest tvApp/src/androidMain/AndroidManifest.xml --banner tvApp/src/main/res/drawable-nodpi/tv_banner.png",
+      "evidence": "Tool execution record"
+    },
+    {
+      "name": "Node receiver and calendar scheduler",
+      "status": "passed",
+      "tests": 10,
+      "failures": 0,
+      "log": "node-validation.log"
+    },
+    {
+      "name": "Python scripts",
+      "status": "environment_blocked",
+      "testMethodsExecuted": 27,
+      "failedSubtests": 3,
+      "affectedTestMethods": 1,
+      "reason": "jq not available in PATH for fake gh executable",
+      "log": "scripts-validation.log"
+    },
+    {
+      "name": "Harmony overall gate",
+      "status": "environment_blocked",
+      "reason": "ModuleNotFoundError: yaml",
+      "log": "harmony-validation.log"
+    },
+    {
+      "name": "Cangjie host",
+      "status": "partial",
+      "scriptExitCode": 0,
+      "compiler": "Cangjie 1.0.5 cjnative",
+      "compiledPackages": [
+        "data",
+        "design",
+        "watch",
+        "player",
+        "app",
+        "cast",
+        "offline",
+        "sync"
+      ],
+      "blockedPackages": {
+        "network": "stdx.encoding.url",
+        "storage": "stdx.encoding.json",
+        "support": "stdx.encoding.json",
+        "provider": "stdx.encoding.json"
+      },
+      "tests": {
+        "player": 16,
+        "watch": 9,
+        "app": 8
+      },
+      "evidence": "Tool execution record; raw stdout was not separately archived",
+      "limitation": "Host-only staged sources; no complete Harmony SDK/HAP/device verification"
+    }
+  ],
+  "notValidated": [
+    "Full modern Android and TV device journeys",
+    "API 37 local network runtime permission behavior",
+    "Android 14+ predictive back gestures on device",
+    "Native decoder/audio/HDR/DV/optical output and soak matrix",
+    "Complete current device performance baseline",
+    "Live server/provider/casting/Trakt integrations and load/restore drills",
+    "Harmony signed HAP and hardware execution"
+  ],
+  "kotlinStyleAndBoundaryChecks": {
+    "status": "passed",
+    "modules": [
+      "phoneShared",
+      "tvShared",
+      "watchTogetherProtocol",
+      "watchTogetherServer"
+    ],
+    "designSystem": true,
+    "behavioralTestBoundaries": true
+  },
+  "notes": [
+    "Test execution counts may include shared phone/TV cases; not unique user journeys.",
+    "Environment-blocked checks are not classified as verified business defects.",
+    "No new P0 functional failure was reproduced by the passing host tests."
+  ],
+  "harmonyCapabilityCoverage": {
+    "features": 32,
+    "statusCounts": {
+      "sourceWired": 4,
+      "logicOnly": 14,
+      "sdkAdapter": 7,
+      "placeholderUi": 3,
+      "capabilityGated": 3,
+      "contractOnly": 1
+    },
+    "implemented": 0
+  }
+}

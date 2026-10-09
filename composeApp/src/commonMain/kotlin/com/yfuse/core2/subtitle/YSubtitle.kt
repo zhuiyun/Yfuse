@@ -7,7 +7,19 @@ enum class YSubtitleFormat {
     Ssa,
     Pgs,
     VobSub,
+
+    /** DVB bitmap subtitles (broadcast recordings); drawn from FFmpeg display sets like PGS. */
+    DvbSub,
     Tx3g,
+
+    /** SAMI (`.smi`), common for Korean releases. */
+    Smi,
+
+    /** MicroDVD (`.sub` text): frame-numbered lines. */
+    MicroDvd,
+
+    /** TTML / DFXP (`.ttml`, `.dfxp`, `.xml`). */
+    Ttml,
     Unknown,
     ;
 
@@ -15,7 +27,18 @@ enum class YSubtitleFormat {
         get() = this == Srt || this == WebVtt || this == Ass || this == Ssa || this == Tx3g
 
     val standaloneTextSupported: Boolean
-        get() = this == Srt || this == WebVtt || this == Ass || this == Ssa
+        get() =
+            this == Srt ||
+                this == WebVtt ||
+                this == Ass ||
+                this == Ssa ||
+                this == Smi ||
+                this == MicroDvd ||
+                this == Ttml
+
+    /** Bitmap formats FFmpeg decodes into display sets. */
+    val bitmapDisplaySet: Boolean
+        get() = this == Pgs || this == VobSub || this == DvbSub
 }
 
 /** Immutable script/header and optional container fonts, shared by every packet in one ASS track. */
@@ -186,10 +209,13 @@ fun externalTextSubtitleFormat(
             "application/x-subrip", "application/srt", "text/srt" -> YSubtitleFormat.Srt
             "text/vtt" -> YSubtitleFormat.WebVtt
             "text/x-ass", "text/x-ssa", "application/x-ass", "application/x-ssa" -> YSubtitleFormat.Ass
+            "application/x-sami", "application/smil" -> YSubtitleFormat.Smi
+            "application/ttml+xml" -> YSubtitleFormat.Ttml
             else -> null
         }
     if (declared != null) return declared
 
+    val prefix = contentPrefix.removePrefix("\uFEFF").trimStart()
     val path = uri.substringBefore('#').substringBefore('?').lowercase()
     val extension =
         when {
@@ -197,41 +223,27 @@ fun externalTextSubtitleFormat(
             path.endsWith(".vtt") -> YSubtitleFormat.WebVtt
             path.endsWith(".ass") -> YSubtitleFormat.Ass
             path.endsWith(".ssa") -> YSubtitleFormat.Ssa
+            path.endsWith(".smi") || path.endsWith(".sami") -> YSubtitleFormat.Smi
+            path.endsWith(".ttml") || path.endsWith(".dfxp") -> YSubtitleFormat.Ttml
+            // A .sub is MicroDVD text only when it reads as such; VobSub's .sub is binary.
+            path.endsWith(".sub") && MICRO_DVD_LINE.containsMatchIn(prefix.take(256)) -> YSubtitleFormat.MicroDvd
             else -> null
         }
     if (extension != null) return extension
 
-    val prefix = contentPrefix.removePrefix("\uFEFF").trimStart()
     return when {
         prefix.startsWith("WEBVTT", ignoreCase = true) -> YSubtitleFormat.WebVtt
+        prefix.startsWith("<SAMI", ignoreCase = true) -> YSubtitleFormat.Smi
+        TTML_ROOT_NAME.containsMatchIn(
+            prefix,
+        ) &&
+            (prefix.contains("ttml") || prefix.contains("ttaf1")) -> YSubtitleFormat.Ttml
+        MICRO_DVD_LINE.matchesAt(prefix, 0) -> YSubtitleFormat.MicroDvd
         prefix.startsWith("[Script Info]", ignoreCase = true) ||
             prefix.contains("\n[Events]", ignoreCase = true) -> YSubtitleFormat.Ass
         "-->" in prefix -> YSubtitleFormat.Srt
         else -> null
     }
-}
-
-/** Decodes the Unicode encodings routinely used by downloaded subtitle sidecars. */
-fun decodeExternalSubtitleText(data: ByteArray): String =
-    when {
-        data.size >= 2 && data[0] == 0xff.toByte() && data[1] == 0xfe.toByte() ->
-            data.decodeUtf16(offset = 2, littleEndian = true)
-        data.size >= 2 && data[0] == 0xfe.toByte() && data[1] == 0xff.toByte() ->
-            data.decodeUtf16(offset = 2, littleEndian = false)
-        else -> data.decodeToString().removePrefix("\uFEFF")
-    }
-
-private fun ByteArray.decodeUtf16(
-    offset: Int,
-    littleEndian: Boolean,
-): String {
-    val chars = CharArray((size - offset) / 2)
-    chars.indices.forEach { index ->
-        val first = this[offset + index * 2].toInt() and 0xff
-        val second = this[offset + index * 2 + 1].toInt() and 0xff
-        chars[index] = if (littleEndian) ((second shl 8) or first).toChar() else ((first shl 8) or second).toChar()
-    }
-    return chars.concatToString()
 }
 
 private fun List<YSubtitleCue>.firstIndexAfter(positionUs: Long): Int {
@@ -331,3 +343,7 @@ private val SIMPLE_TAG = Regex("</?[A-Za-z][^>]*>")
 private val ASS_OVERRIDE = Regex("\\{[^}]*\\}")
 private const val ASS_PACKET_FIELD_COUNT = 9
 private const val DEFAULT_PACKET_DURATION_US = 5_000_000L
+
+private val MICRO_DVD_LINE = Regex("\\{\\d+\\}\\{\\d*\\}")
+
+private val TTML_ROOT_NAME = Regex("<(?:[A-Za-z_][A-Za-z0-9_.-]*:)?tt(?:\\s|>)")

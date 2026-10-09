@@ -61,24 +61,42 @@ float pqOetf(float nits) {
     return pow((c1 + c2 * p) / (1.0 + c3 * p), m2);
 }
 
-float hlgEotf(float encoded) {
+const vec3 BT2020_LUMA = vec3(0.2627, 0.6780, 0.0593);
+
+float hlgSceneLight(float encoded) {
     const float a = 0.17883277;
     const float b = 0.28466892;
     const float c = 0.55991073;
-    float scene = encoded <= 0.5
+    return encoded <= 0.5
         ? encoded * encoded / 3.0
         : (exp((encoded - c) / a) + b) / 12.0;
-    return 1000.0 * pow(max(scene, 0.0), 1.2);
 }
 
-float hlgOetf(float nits) {
+float hlgEncodeScene(float scene) {
     const float a = 0.17883277;
     const float b = 0.28466892;
     const float c = 0.55991073;
-    float scene = pow(clamp(nits / 1000.0, 0.0, 1.0), 1.0 / 1.2);
+    scene = clamp(scene, 0.0, 1.0);
     return scene <= (1.0 / 12.0)
         ? sqrt(3.0 * scene)
         : a * log(12.0 * scene - b) + c;
+}
+
+// BT.2100 HLG at its 1000 cd/m2 nominal peak. The OOTF scales scene light by its luminance,
+// Ys^(gamma - 1), so a colour keeps its hue; a per-channel power pushed saturated colours toward
+// their strongest primary.
+vec3 hlgEotf(vec3 encoded) {
+    vec3 scene = vec3(hlgSceneLight(encoded.r), hlgSceneLight(encoded.g), hlgSceneLight(encoded.b));
+    float sceneLuminance = max(dot(scene, BT2020_LUMA), 0.0);
+    return 1000.0 * pow(sceneLuminance, 0.2) * scene;
+}
+
+vec3 hlgOetf(vec3 nits) {
+    vec3 display = clamp(nits / 1000.0, 0.0, 1.0);
+    float displayLuminance = max(dot(display, BT2020_LUMA), 1e-6);
+    // Inverse OOTF: Yd^((1 - gamma) / gamma) with gamma 1.2.
+    vec3 scene = display * pow(displayLuminance, -1.0 / 6.0);
+    return vec3(hlgEncodeScene(scene.r), hlgEncodeScene(scene.g), hlgEncodeScene(scene.b));
 }
 
 vec3 decodeTransfer(vec3 encoded) {
@@ -86,7 +104,7 @@ vec3 decodeTransfer(vec3 encoded) {
         return vec3(pqEotf(encoded.r), pqEotf(encoded.g), pqEotf(encoded.b));
     }
     if (parameters.sourceTransfer == 2) {
-        return vec3(hlgEotf(encoded.r), hlgEotf(encoded.g), hlgEotf(encoded.b));
+        return hlgEotf(encoded);
     }
     return pow(max(encoded, vec3(0.0)), vec3(2.2)) * parameters.paperWhiteNits;
 }
@@ -96,7 +114,7 @@ vec3 encodeTransfer(vec3 nits) {
         return vec3(pqOetf(nits.r), pqOetf(nits.g), pqOetf(nits.b));
     }
     if (parameters.outputTransfer == 2) {
-        return vec3(hlgOetf(nits.r), hlgOetf(nits.g), hlgOetf(nits.b));
+        return hlgOetf(nits);
     }
     return pow(clamp(nits / max(parameters.paperWhiteNits, 1.0), 0.0, 1.0), vec3(1.0 / 2.2));
 }

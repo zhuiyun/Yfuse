@@ -27,10 +27,21 @@ internal object FfmpegNativeBridge {
     val loadFailureDescription: String?
         get() = loadResult.exceptionOrNull()?.let { "${it.javaClass.simpleName}: ${it.message.orEmpty().take(512)}" }
 
-    val softwareDecodeAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        available &&
-            runCatching { nativeSoftwareDecoderApiVersion() >= SOFTWARE_DECODER_API_VERSION }.getOrDefault(false)
+    /** 0 when the bundled library has no software decoder extension. */
+    private val softwareDecoderApiVersion: Int by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        if (available) runCatching { nativeSoftwareDecoderApiVersion() }.getOrDefault(0) else 0
     }
+
+    val softwareDecodeAvailable: Boolean get() = softwareDecoderApiVersion >= SOFTWARE_DECODER_API_VERSION
+
+    /**
+     * Whether software video frames arrive in RGBA, the memory order of an ARGB_8888 bitmap.
+     * Libraries before software decoder API 3 write BGRA, which shows red and blue swapped unless
+     * the presenter swaps them back.
+     */
+    val softwareVideoRgba: Boolean get() = softwareDecoderApiVersion >= SOFTWARE_DECODER_RGBA_API_VERSION
+
+    val softwareAudioFloat: Boolean get() = softwareDecoderApiVersion >= 4
 
     val assRendererAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         available && runCatching { nativeAssRendererApiVersion() >= ASS_RENDERER_API_VERSION }.getOrDefault(false)
@@ -381,7 +392,13 @@ internal object FfmpegNativeBridge {
         trackIndex: Int,
         target: ByteBuffer,
     ): LongArray =
-        checkNotNull(nativeReceiveSoftwareAudioFrame(handle, trackIndex, target)) {
+        checkNotNull(
+            if (softwareAudioFloat) {
+                nativeReceiveSoftwareFloatAudioFrame(handle, trackIndex, target)
+            } else {
+                nativeReceiveSoftwareAudioFrame(handle, trackIndex, target)
+            },
+        ) {
             "FFmpeg software audio result is unavailable"
         }
 
@@ -619,6 +636,12 @@ internal object FfmpegNativeBridge {
         target: ByteBuffer,
     ): LongArray?
 
+    private external fun nativeReceiveSoftwareFloatAudioFrame(
+        handle: Long,
+        trackIndex: Int,
+        target: ByteBuffer,
+    ): LongArray?
+
     private external fun nativeFlushSoftwareDecoder(
         handle: Long,
         trackIndex: Int,
@@ -764,6 +787,7 @@ internal const val FFMPEG_PACKING_ANNEX_B = 1L
 internal const val FFMPEG_PACKING_LENGTH_PREFIXED = 2L
 private const val LIBRARY_NAME = "ycore_demux"
 private const val SOFTWARE_DECODER_API_VERSION = 2
+private const val SOFTWARE_DECODER_RGBA_API_VERSION = 3
 private const val ASS_RENDERER_API_VERSION = 1
 private const val DISC_API_VERSION = 2
 private const val SOFTWARE_PACKET_ACCEPTED = 0

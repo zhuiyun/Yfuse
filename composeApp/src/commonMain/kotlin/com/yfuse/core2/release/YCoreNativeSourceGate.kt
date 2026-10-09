@@ -10,7 +10,6 @@ enum class Core2NativeBaselineBlock {
     Disc,
     Drm,
     DolbyVision,
-    ExternalSubtitle,
 }
 
 data class Core2NativeBaselineSource(
@@ -27,17 +26,30 @@ data class Core2NativeBaselineSource(
     val drmSupported: Boolean = false,
     val dolbyVision: Boolean,
     val dolbyVisionSupported: Boolean = false,
-    val externalSubtitleSupported: Boolean,
+    /**
+     * A 文件来源 file: an SMB or WebDAV share has no server MediaSource to name its codecs, and
+     * the extension is only a hint. YCore reads such files with its own transports and probes
+     * them before routing, failing closed there, exactly as it does for files on this device.
+     */
+    val probedBeforeRouting: Boolean = false,
 )
 
 /**
  * Fail-closed preflight for the independently executable YCore lane. Audio is deliberately
  * absent: it is verified from demuxed tracks at runtime because queue metadata only carries a
  * display string and must not be treated as codec evidence.
+ * External subtitles are optional, independently loaded tracks and never block the video source.
+ *
+ * A file already on this device, such as a finished download, has no server MediaSource to
+ * describe it. YCore's platform and FFmpeg probes read its container and codecs from the local
+ * bytes before routing, and fail closed there. Only a remote source without metadata is refused
+ * here, before any of it has been read.
  */
-fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeBaselineBlock? =
-    when {
-        !source.hasMetadata -> Core2NativeBaselineBlock.MissingMetadata
+fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeBaselineBlock? {
+    val probedOnDevice = !source.hasMetadata && source.scheme.lowercase() in CORE2_NATIVE_LOCAL_SCHEMES
+    val probedByYCore = probedOnDevice || source.probedBeforeRouting
+    return when {
+        !source.hasMetadata && !probedByYCore -> Core2NativeBaselineBlock.MissingMetadata
         source.scheme.lowercase() !in CORE2_NATIVE_BASELINE_SCHEMES ->
             Core2NativeBaselineBlock.UnsupportedScheme
         source.serverTranscode -> Core2NativeBaselineBlock.ServerTranscode
@@ -45,7 +57,8 @@ fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeB
         source.disc && !source.discSupported -> Core2NativeBaselineBlock.Disc
         source.drm && !source.drmSupported -> Core2NativeBaselineBlock.Drm
         source.dolbyVision && !source.dolbyVisionSupported -> Core2NativeBaselineBlock.DolbyVision
-        !source.externalSubtitleSupported -> Core2NativeBaselineBlock.ExternalSubtitle
+        // No container or codec is named until YCore opens the file itself.
+        probedByYCore -> null
         !source.adaptiveManifest &&
             !source.disc &&
             source.container.normalizedContainer() !in CORE2_NATIVE_BASELINE_CONTAINERS ->
@@ -54,6 +67,7 @@ fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeB
             Core2NativeBaselineBlock.UnsupportedVideoCodec
         else -> null
     }
+}
 
 private fun String?.normalizedContainer(): String =
     orEmpty()
@@ -86,8 +100,14 @@ private fun String?.normalizedVideoCodec(): String {
     }
 }
 
+// smb and webdav are read by YCore's own transports on every route (the FFmpeg routes through
+// its loopback proxy), never by a protocol of the bundled libraries.
 private val CORE2_NATIVE_BASELINE_SCHEMES =
-    setOf("http", "https", "file", "content", "android.resource")
+    setOf("http", "https", "file", "content", "android.resource", "smb", "webdav", "webdavs")
+
+/** Sources whose bytes are on this device, where YCore can read them before choosing a route. */
+private val CORE2_NATIVE_LOCAL_SCHEMES = setOf("file", "content", "android.resource")
+
 private val CORE2_NATIVE_BASELINE_CONTAINERS =
     setOf(
         "mp4",

@@ -10,6 +10,7 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
+import io.ktor.http.Url
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -107,6 +108,10 @@ class SearchStoreTest {
             )
             val repo =
                 testRepo(dispatcher) { request ->
+                    // 筛选's 媒体库 and 风格 for the only server load alongside, with no word.
+                    if (request.url.encodedPath.endsWith("/Views") || request.url.encodedPath.endsWith("/Genres")) {
+                        return@testRepo json("""{"Items":[]}""")
+                    }
                     assertEquals("沙丘", request.url.parameters["SearchTerm"])
                     json(
                         """{"Items":[{"Id":"m1","Name":"沙丘2","Type":"Movie","ProductionYear":2024,""" +
@@ -182,6 +187,7 @@ class SearchStoreTest {
             }
 
             val aggregated = search()
+            assertTrue(aggregated.mergesServers)
             assertEquals(1, aggregated.aggregated.size)
             assertEquals(
                 2,
@@ -191,7 +197,9 @@ class SearchStoreTest {
             )
 
             preferences.setSmartCrossServerSource(false)
-            assertTrue(search().aggregated.isEmpty())
+            val grouped = search()
+            assertTrue(grouped.aggregated.isEmpty())
+            assertFalse(grouped.mergesServers)
         }
 
     @Test
@@ -347,7 +355,8 @@ class SearchStoreTest {
             val starts = mutableListOf<String?>()
             val repo =
                 testRepo(dispatcher) { request ->
-                    if (request.url.encodedPath.endsWith("/Persons")) {
+                    // Cast, and 筛选's 媒体库 and 风格 for the only server, are no page of titles.
+                    if (!request.url.encodedPath.endsWith("/Items")) {
                         return@testRepo json("""{"Items":[]}""")
                     }
                     val start = request.url.parameters["StartIndex"]
@@ -527,6 +536,203 @@ class SearchStoreTest {
             }
         }
 
+    @Test
+    fun the_only_server_offers_its_libraries_and_genres_without_being_picked() =
+        runTest {
+            val log = ServerLog()
+            val store = SearchStoreFactory(DefaultStoreFactory(), facetRepo(log), oneServer()).create()
+            try {
+                advanceUntilIdle()
+
+                assertNull(store.state.serverId)
+                assertEquals("a", store.state.facetServerId)
+                assertEquals(listOf(SearchOption("lib", "电影")), store.state.libraryOptions)
+                assertEquals(listOf("科幻", "动画"), store.state.genreOptions)
+
+                store.accept(SearchIntent.SetLibrary("lib"))
+                advanceUntilIdle()
+
+                // 风格 narrows to the chosen library; the libraries themselves are not asked twice.
+                assertEquals("lib", store.state.libraryId)
+                assertEquals(listOf("科幻"), store.state.genreOptions)
+                assertEquals(listOf(null, "lib"), log.genres)
+                assertEquals(listOf("one"), log.libraries)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun a_library_and_genre_on_the_only_server_narrow_its_search() =
+        runTest {
+            val log = ServerLog()
+            val store = SearchStoreFactory(DefaultStoreFactory(), facetRepo(log), oneServer()).create()
+            try {
+                advanceUntilIdle()
+                store.accept(SearchIntent.QueryChanged("沙丘"))
+                store.accept(SearchIntent.Submit)
+                advanceUntilIdle()
+
+                store.accept(SearchIntent.SetLibrary("lib"))
+                store.accept(SearchIntent.SetGenre("科幻"))
+                advanceUntilIdle()
+
+                assertNull(store.state.serverId)
+                assertEquals(2, store.state.filterCount)
+                val narrowed = log.titles.last()
+                assertEquals("one", narrowed.host)
+                assertEquals("lib", narrowed.parameters["ParentId"])
+                assertEquals("科幻", narrowed.parameters["Genres"])
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun a_second_server_withdraws_the_libraries_until_one_is_picked() =
+        runTest {
+            val registry = oneServer()
+            val store = SearchStoreFactory(DefaultStoreFactory(), facetRepo(ServerLog()), registry).create()
+            try {
+                advanceUntilIdle()
+                store.accept(SearchIntent.SetLibrary("lib"))
+                advanceUntilIdle()
+
+                registry.addOrUpdate(SavedServer("b", "http://two", "乙", "u", "u", "tok"))
+                advanceUntilIdle()
+
+                // The library belonged to one server of two now, and nothing says which.
+                assertNull(store.state.facetServerId)
+                assertNull(store.state.libraryId)
+                assertTrue(store.state.libraryOptions.isEmpty())
+                assertTrue(store.state.genreOptions.isEmpty())
+
+                store.accept(SearchIntent.SetServer("b"))
+                advanceUntilIdle()
+
+                assertEquals("b", store.state.facetServerId)
+                assertEquals(listOf(SearchOption("lib", "电影")), store.state.libraryOptions)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun clearing_filters_keeps_the_only_servers_libraries_on_offer() =
+        runTest {
+            val log = ServerLog()
+            val store = SearchStoreFactory(DefaultStoreFactory(), facetRepo(log), oneServer()).create()
+            try {
+                advanceUntilIdle()
+                store.accept(SearchIntent.SetLibrary("lib"))
+                advanceUntilIdle()
+
+                store.accept(SearchIntent.ClearFilters)
+
+                // The panel stays open over this: 媒体库 must not blink out and back.
+                assertNull(store.state.libraryId)
+                assertEquals(listOf(SearchOption("lib", "电影")), store.state.libraryOptions)
+                advanceUntilIdle()
+                assertEquals(listOf("科幻", "动画"), store.state.genreOptions)
+                assertEquals(listOf(null, "lib", null), log.genres)
+                assertEquals(listOf("one"), log.libraries)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun libraries_that_failed_to_load_are_asked_for_again() =
+        runTest {
+            val log = ServerLog().apply { librariesDown = true }
+            val store = SearchStoreFactory(DefaultStoreFactory(), facetRepo(log), oneServer()).create()
+            try {
+                advanceUntilIdle()
+                assertTrue(store.state.libraryOptions.isEmpty())
+
+                log.librariesDown = false
+                store.accept(SearchIntent.QueryChanged("沙丘"))
+                store.accept(SearchIntent.Submit)
+                advanceUntilIdle()
+
+                assertEquals(listOf("one", "one"), log.libraries)
+                assertEquals(listOf(SearchOption("lib", "电影")), store.state.libraryOptions)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun a_new_word_keeps_what_the_filter_panel_holds() =
+        runTest {
+            val log = ServerLog()
+            val store = SearchStoreFactory(DefaultStoreFactory(), facetRepo(log), twoServers()).create()
+            try {
+                store.accept(SearchIntent.QueryChanged("沙丘"))
+                store.accept(SearchIntent.Submit)
+                advanceUntilIdle()
+                store.accept(SearchIntent.SetServer("b"))
+                store.accept(SearchIntent.SetYear(2021))
+                store.accept(SearchIntent.SetWatchStatus(SearchWatchStatus.Unplayed))
+                store.accept(SearchIntent.SetSort(SearchSort.Rating))
+                store.accept(SearchIntent.SetType(SearchType.Movie))
+                advanceUntilIdle()
+                log.titles.clear()
+
+                store.accept(SearchIntent.QueryChanged("沙丘2"))
+                store.accept(SearchIntent.Submit)
+                advanceUntilIdle()
+
+                assertEquals("b", store.state.serverId)
+                assertEquals(2021, store.state.year)
+                assertEquals(SearchWatchStatus.Unplayed, store.state.watchStatus)
+                assertEquals(SearchSort.Rating, store.state.sort)
+                // The type chips start over with the new results.
+                assertEquals(SearchType.All, store.state.type)
+                val refined = log.titles.single()
+                assertEquals("two", refined.host)
+                assertEquals("沙丘2", refined.parameters["SearchTerm"])
+                assertEquals("2021", refined.parameters["ProductionYear"])
+                assertEquals("false", refined.parameters["IsPlayed"])
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun clearing_the_words_keeps_what_the_filter_panel_holds() =
+        runTest {
+            val store = SearchStoreFactory(DefaultStoreFactory(), facetRepo(ServerLog()), twoServers()).create()
+            try {
+                store.accept(SearchIntent.QueryChanged("沙丘"))
+                store.accept(SearchIntent.Submit)
+                advanceUntilIdle()
+                store.accept(SearchIntent.SetServer("b"))
+                store.accept(SearchIntent.SetLibrary("lib"))
+                store.accept(SearchIntent.SetYear(2021))
+                advanceUntilIdle()
+
+                store.accept(SearchIntent.Clear)
+
+                assertEquals("", store.state.query)
+                assertFalse(store.state.hasSearched)
+                assertTrue(store.state.groups.isEmpty())
+                // 筛选 still shows them, with the options to change them.
+                assertEquals("b", store.state.serverId)
+                assertEquals("lib", store.state.libraryId)
+                assertEquals(2021, store.state.year)
+                assertEquals(3, store.state.filterCount)
+                assertEquals(listOf(SearchOption("lib", "电影")), store.state.libraryOptions)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    private fun oneServer() =
+        testRegistry().apply {
+            addOrUpdate(SavedServer("a", "http://one", "甲", "u", "u", "tok"))
+        }
+
     private fun twoServers() =
         testRegistry().apply {
             addOrUpdate(SavedServer("a", "http://one", "甲", "u", "u", "tok"))
@@ -554,6 +760,46 @@ class SearchStoreTest {
                 searched += request.url.host to request.url.parameters["IsPlayed"]
             }
             json("""{"Items":[]}""")
+        }
+
+    /** What a [facetRepo] was asked: the host of each 媒体库 request, the library of each 风格 one. */
+    private class ServerLog {
+        val libraries = mutableListOf<String>()
+        val genres = mutableListOf<String?>()
+        val titles = mutableListOf<Url>()
+        var librariesDown = false
+    }
+
+    /**
+     * Every server holds one library, 电影, and the genres 科幻 and 动画, only 科幻 within the
+     * library; every title search finds 沙丘, so none falls back to shorter words.
+     */
+    private fun facetRepo(log: ServerLog) =
+        testRepo(dispatcher) { request ->
+            val path = request.url.encodedPath
+            when {
+                path.endsWith("/Views") -> {
+                    log.libraries += request.url.host
+                    if (log.librariesDown) error("服务器离线")
+                    json("""{"Items":[{"Id":"lib","Name":"电影","CollectionType":"movies"}]}""")
+                }
+                path.endsWith("/Genres") -> {
+                    val library = request.url.parameters["ParentId"]
+                    log.genres += library
+                    val genres =
+                        if (library == null) {
+                            """{"Id":"g1","Name":"科幻"},{"Id":"g2","Name":"动画"}"""
+                        } else {
+                            """{"Id":"g1","Name":"科幻"}"""
+                        }
+                    json("""{"Items":[$genres]}""")
+                }
+                path.endsWith("/Items") -> {
+                    log.titles += request.url
+                    json("""{"Items":[{"Id":"m1","Name":"沙丘","Type":"Movie"}],"TotalRecordCount":1}""")
+                }
+                else -> json("""{"Items":[]}""")
+            }
         }
 
     private fun mediaItem(

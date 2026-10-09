@@ -156,6 +156,14 @@ internal class PlayerTransitionState(
     private var snapshotGeneration = 0
     private var smallFrame: ImageBitmap? = null
 
+    /**
+     * A cancelled gesture may keep its frame while it springs home, but that frame belongs to
+     * its old capture generation. A later gesture or button exit must read the current film.
+     */
+    private var frameGeneration = -1
+
+    private val frameCurrent: Boolean get() = exitFrame != null && frameGeneration == snapshotGeneration
+
     val playerTime: Float get() = now - (lag ?: 0f)
 
     /**
@@ -178,8 +186,11 @@ internal class PlayerTransitionState(
      * stand-in: a picture still not ready once the stand-in has landed is then no longer waited
      * for, and the overlay — the one surface that can say the network is why — takes over.
      */
-    fun tick(handsOverLate: Boolean) {
-        val previousNow = now
+    fun tick(
+        handsOverLate: Boolean,
+        /** Since the previous frame, on the frame clock: 8 ms apart on a 120 Hz panel, 16 on 60 Hz. */
+        frameMs: Float,
+    ) {
         now = launch.elapsedMs()
         if (lag == null) lag = handoffPlayerLag(timing, now)
         if (style == PlayerTransitionStyle.Curtain && gateAt == null) {
@@ -195,8 +206,12 @@ internal class PlayerTransitionState(
             lateAt = playerTime
         }
         if (!backActive && !closing && backProgress > 0f) {
-            backProgress = (backProgress - (now - previousNow).coerceAtLeast(0f) / BACK_CANCEL_MS).coerceAtLeast(0f)
-            if (backProgress == 0f) cancelSnapshot(clearFrame = true)
+            // A cancelled back gesture eases home over BACK_CANCEL_MS of real time. A fixed 16 ms a
+            // frame ran it twice as fast on a 120 Hz panel.
+            val step = frameMs.coerceIn(0f, BACK_CANCEL_MS) / BACK_CANCEL_MS
+            backProgress = (backProgress - step).coerceAtLeast(0f)
+            // Settled back from a cancelled gesture: its frame has nothing left to draw.
+            if (backProgress <= 0f) dropFrame()
         }
         if (!settled && entered()) settled = true
         if (exitTime >= timing.exitFinish && !finished) finish()
@@ -271,7 +286,7 @@ internal class PlayerTransitionState(
 
     fun onBackProgress(progress: Float) {
         if (disabled || closing || finished) return
-        if (!backActive) cancelSnapshot(clearFrame = true)
+        if (!backActive) cancelSnapshot()
         backActive = true
         backProgress = progress.coerceIn(0f, 1f) * GESTURE_REACH
         captureFrame()
@@ -282,6 +297,7 @@ internal class PlayerTransitionState(
         backActive = false
         now = launch.elapsedMs()
         cancelSnapshot()
+        if (backProgress <= 0f) dropFrame()
     }
 
     /**
@@ -292,6 +308,8 @@ internal class PlayerTransitionState(
     fun requestExit(action: () -> Unit): Boolean {
         if (disabled || finished) return false
         if (closing) return true
+        // Only the frame captured for the gesture being committed can be carried out.
+        val held = exitFrame?.takeIf { frameCurrent }
         cancelSnapshot()
         closing = true
         closingAt = launch.elapsedMs()
@@ -301,7 +319,7 @@ internal class PlayerTransitionState(
         val generation = snapshotGeneration
         snapshotJob =
             scope.launch {
-                val frame = exitFrame ?: withTimeoutOrNull(SNAPSHOT_TIMEOUT_MS) { snapshotSource?.invoke() }
+                val frame = held ?: withTimeoutOrNull(SNAPSHOT_TIMEOUT_MS) { snapshotSource?.invoke() }
                 if (generation != snapshotGeneration || disabled || finished) return@launch
                 exitFrame = frame
                 smallFrame = frame?.let(::shrink)
@@ -329,20 +347,26 @@ internal class PlayerTransitionState(
         snapshotGeneration++
         snapshotJob?.cancel()
         snapshotJob = null
-        if (clearFrame) {
-            exitFrame = null
-            smallFrame = null
-        }
+        if (clearFrame) dropFrame()
+    }
+
+    private fun dropFrame() {
+        exitFrame = null
+        smallFrame = null
+        frameGeneration = -1
     }
 
     private fun captureFrame() {
-        if (exitFrame != null || snapshotJob?.isActive == true) return
+        if (frameCurrent || snapshotJob?.isActive == true) return
         val source = snapshotSource ?: return
         val generation = snapshotGeneration
         snapshotJob =
             scope.launch {
                 val frame = withTimeoutOrNull(SNAPSHOT_TIMEOUT_MS) { source() }
-                if (generation == snapshotGeneration && backActive && !disabled && !finished) exitFrame = frame
+                if (generation == snapshotGeneration && backActive && !disabled && !finished) {
+                    exitFrame = frame
+                    frameGeneration = generation
+                }
             }
     }
 
@@ -399,9 +423,12 @@ internal fun PlayerTransitionLayer(
         // player's own entrance has the continuity overlay.
         val handsOverLate = layer == PlayerTransitionLayerKind.Entrance
         LaunchedEffect(state, state.closing, state.backActive) {
+            var lastFrame = -1L
             while (true) {
-                withFrameMillis { }
-                state.tick(handsOverLate)
+                val frame = withFrameMillis { it }
+                // The first frame of a restarted loop has no interval behind it yet.
+                state.tick(handsOverLate, frameMs = if (lastFrame < 0L) 0f else (frame - lastFrame).toFloat())
+                lastFrame = frame
                 if (!state.needsFrames()) break
             }
         }

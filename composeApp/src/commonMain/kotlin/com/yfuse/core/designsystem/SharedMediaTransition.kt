@@ -2,7 +2,8 @@ package com.yfuse.core.designsystem
 
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
@@ -12,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
@@ -34,10 +36,11 @@ internal fun mediaLazyItemKey(
 ): String = "media:$scope:$index:$itemId"
 
 /**
- * Starts a shared transition only for a deliberate forward tap.
+ * Starts a shared transition for a deliberate forward tap, and runs it backwards for the back
+ * that returns to the same poster (一镜到底, see [onPop]).
  *
- * The key is cleared after the push settles, so a later predictive pop remains a simple route
- * transition instead of silently introducing a reverse artwork morph above the gesture.
+ * The key is cleared once a morph has settled, so a later predictive pop — which 跟手返回 draws
+ * itself — never finds a stale morph waiting above its gesture.
  */
 @Stable
 internal class SharedMediaTransitionController {
@@ -79,6 +82,38 @@ internal class SharedMediaTransitionController {
     /** A shrinking navigation stack must not reuse the forward-only artwork morph. */
     fun suppressForPop() {
         popSuppressed = true
+    }
+
+    /**
+     * The stack shrank. Back runs the way in backwards: a morph still under way turns round where
+     * it is — the route transition reverses beneath it, and the spring carries its speed into the
+     * way back — and a page opened from a poster that is [returnTo] morphs back into it. Anything
+     * else keeps the old rule and suppresses the forward morph.
+     */
+    fun onPop(returnTo: MediaSharedElementKey?) {
+        if (activeKey != null && !popSuppressed) return
+        if (returnTo == null) {
+            suppressForPop()
+            return
+        }
+        popSuppressed = false
+        activeKey = returnTo
+    }
+
+    /**
+     * A lifted card is about to carry the page open itself (一镜到底, see LiftExpansion.kt). Runs
+     * the poster's own [open], keeps the poster it names as the page's origin for 跟手返回, and
+     * calls off that poster's artwork morph: the poster is hidden under the card, and a second
+     * copy flying out of its empty cell was the double motion. Returns the key [open] named.
+     */
+    fun openFromCard(open: () -> Unit): MediaSharedElementKey? {
+        // Only a key this open names: one left from an earlier tap is not this card's page.
+        pendingOrigin = null
+        pendingSince = null
+        open()
+        val key = pendingOrigin ?: return null
+        if (activeKey == key) activeKey = null
+        return key
     }
 
     fun finish(key: MediaSharedElementKey) {
@@ -142,12 +177,20 @@ internal fun Modifier.sharedMediaArtwork(key: MediaSharedElementKey?): Modifier 
         base.sharedBounds(
             sharedContentState = rememberSharedContentState(activeKey),
             animatedVisibilityScope = visibilityScope,
-            // The route's own push length: a 300ms morph under a 280ms push finished after the page
-            // it belonged to had already arrived.
-            boundsTransform = { _, _ ->
-                tween(durationMillis = Motion.PUSH, easing = Motion.Curve)
-            },
+            // The poster's picture gives way to the page's on the bounds' own clock, so the two
+            // arrive together; the default fades ran on a softer spring of their own.
+            enter = fadeIn(Motion.oneTakeFade()),
+            exit = fadeOut(Motion.oneTakeFade()),
+            // 一镜到底's spring, not the route's 280 ms tween: a back pressed mid-morph turns it
+            // round from where it is, at the speed it has, where a tween restarted from the far end.
+            boundsTransform = { _, _ -> Motion.oneTake(MorphLandingThreshold) },
             resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
         )
     }
 }
+
+/**
+ * Where the morph may stop: half a pixel from its bounds. The default hundredth of a pixel kept
+ * the transition — and the gestures that wait for it — running for a quarter second longer.
+ */
+private val MorphLandingThreshold = Rect(0.5f, 0.5f, 0.5f, 0.5f)

@@ -1,3 +1,6 @@
+// The checks below are assert()s, which must run in every build, release flags included.
+#undef NDEBUG
+
 #include "ycore_demux_interrupt.h"
 #include <cassert>
 

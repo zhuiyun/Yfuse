@@ -1,83 +1,18 @@
 package com.yfuse.di
 
-import com.arkivanov.mvikotlin.core.store.StoreFactory
-import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.Settings
-import com.yfuse.core.account.AccountRepository
-import com.yfuse.core.account.PlaybackVaultCipher
-import com.yfuse.core.cast.CastManager
-import com.yfuse.core.cast.createCastManager
-import com.yfuse.core.data.AiringCalendarRepository
-import com.yfuse.core.data.CalendarFollowStore
-import com.yfuse.core.data.CalendarIdentityResolver
 import com.yfuse.core.data.CalendarLocalStore
-import com.yfuse.core.data.DanmakuPreferences
-import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.DiagnosticPreferences
-import com.yfuse.core.data.EmbyRepository
-import com.yfuse.core.data.HomeShelfPreferences
-import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.NoOpCalendarLocalStore
-import com.yfuse.core.data.OfficialAiringScheduleCatalog
-import com.yfuse.core.data.PlaybackAudioPassthrough
-import com.yfuse.core.data.PlaybackEventOutbox
-import com.yfuse.core.data.PlaybackFailoverRequest
-import com.yfuse.core.data.PlaybackPreferences
-import com.yfuse.core.data.PlaybackProgressProjection
-import com.yfuse.core.data.PlaybackTrackRequest
-import com.yfuse.core.data.SearchHistory
-import com.yfuse.core.data.ServerActivityStore
-import com.yfuse.core.data.ServerHealthMonitor
-import com.yfuse.core.data.ServerRegistry
-import com.yfuse.core.data.ServerStatsStore
-import com.yfuse.core.data.SkipSegmentPreferences
-import com.yfuse.core.data.ThemePreferences
-import com.yfuse.core.data.TipsPreferences
-import com.yfuse.core.data.TmdbHomeCache
-import com.yfuse.core.data.TmdbRepository
-import com.yfuse.core.data.UserAgentPreferences
-import com.yfuse.core.data.WatchTogetherPreferences
-import com.yfuse.core.network.LanDiscovery
-import com.yfuse.core.network.createDanmakuClient
-import com.yfuse.core.network.createEmbyClient
-import com.yfuse.core.network.createLanDiscovery
-import com.yfuse.core.network.createTmdbClient
-import com.yfuse.core.offline.OfflineMediaManager
-import com.yfuse.core.offline.createOfflineMediaManager
-import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
-import com.yfuse.core.playback.PlaybackMediaProbeService
-import com.yfuse.core.playback.PlaybackOfflineLicenseManager
-import com.yfuse.core.playback.PlaybackQoeReporter
-import com.yfuse.core.playback.PlaybackRuntimeEnvironmentProvider
-import com.yfuse.core.playback.createPlaybackDeviceCapabilitiesProvider
-import com.yfuse.core.playback.createPlaybackMediaProbeService
-import com.yfuse.core.playback.createPlaybackOfflineLicenseManager
-import com.yfuse.core.playback.createPlaybackRuntimeEnvironmentProvider
-import com.yfuse.core.security.SecureStore
-import com.yfuse.core.security.VaultCrypto
-import com.yfuse.core.security.createSecureStore
-import com.yfuse.core.sync.ProgressSyncPreferences
-import com.yfuse.core.sync.ServerSyncManager
-import com.yfuse.core.sync.WatchRoomResumeStore
-import com.yfuse.core.sync.WatchTogetherClient
-import com.yfuse.core.sync.playback.PlaybackSyncManager
-import com.yfuse.core.sync.playback.PlaybackSyncStore
-import com.yfuse.core.util.platformName
-import com.yfuse.feature.library.LibraryGridColumnsPreferences
-import com.yfuse.feature.player.PlaybackReportingCoordinator
-import com.yfuse.feature.search.SearchRequests
-import com.yfuse.feature.servers.EmbyQuickConnectGateway
-import com.yfuse.feature.servers.QuickConnectGateway
-import com.yfuse.feature.watch.WatchInviteResolver
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.stateIn
-import org.koin.core.qualifier.named
 import org.koin.dsl.module
-import org.koin.dsl.onClose
 
 /**
  * Root DI graph. [settings] and [appVersion] are supplied by the platform so common network
  * code reports the version embedded in the installed package rather than a duplicated constant.
+ *
+ * The bindings live in one module per feature area, the `*Module.kt` files beside this one, and
+ * each is handed only the platform parameters it uses. No type and qualifier is bound by two of
+ * them (AppModuleGraphTest loads them with overrides forbidden), so their order here decides nothing.
  */
 fun appModule(
     settings: Settings,
@@ -86,228 +21,18 @@ fun appModule(
     calendarLocalStore: CalendarLocalStore = NoOpCalendarLocalStore,
     feedCacheSettings: () -> Settings = { settings },
 ) = module {
-    single { settings }
-    includes(backendModule())
-    single(named("trakt-http")) {
-        com.yfuse.core.trakt
-            .createTraktHttpClient()
-    } onClose { it?.close() }
-    single { diagnosticPreferences }
-    single<CalendarLocalStore> { calendarLocalStore }
-    single { VaultCrypto() }
-    single {
-        com.yfuse.core.personal
-            .PersonalLibraryRepository(get(), get())
-    }
-    single {
-        val persistedSettings = get<Settings>()
-        ServerRegistry(
-            settings = persistedSettings,
-            secureStore =
-                createSecureStore(
-                    settings = persistedSettings,
-                    namespace = "emby.server-sessions",
-                ),
-            crypto = get(),
-            personal = get(),
-            // Keystore encryption of session tokens stays off the UI thread that commits them.
-            persistDispatcher = Dispatchers.Default,
-        )
-    }
-    single { ThemePreferences(get()) }
-    single { TipsPreferences(get()) }
-    single { LibraryGridColumnsPreferences(get()) }
-    single { HomeShelfPreferences(get()) }
-    single { PlaybackPreferences(get()) }
-    single { PlaybackFailoverRequest() }
-    single { PlaybackEventOutbox(get()) }
-    single { PlaybackSyncStore(get(), personal = get()) }
-    single { ProgressSyncPreferences(get()) }
-    single {
-        val progressPreferences = get<ProgressSyncPreferences>()
-        PlaybackProgressProjection(
-            localStore = get(),
-            progressSyncEnabled = { progressPreferences.enabled.value },
-        )
-    }
-    single { ServerActivityStore(get()) }
-    single { ServerStatsStore(get()) }
-    single { UserAgentPreferences(get()) }
-    single<PlaybackDeviceCapabilitiesProvider> { createPlaybackDeviceCapabilitiesProvider() }
-    single<PlaybackMediaProbeService> { createPlaybackMediaProbeService() }
-    single<PlaybackRuntimeEnvironmentProvider> { createPlaybackRuntimeEnvironmentProvider() }
-    single<PlaybackOfflineLicenseManager> { createPlaybackOfflineLicenseManager(get()) }
-    single {
-        PlaybackQoeReporter(
-            settings = get(),
-            preferences = get(),
-            api = get(),
-            appVersion = appVersion,
-        )
-    }
-    single { WatchTogetherPreferences(get()) }
-    single { DanmakuPreferences(get()) }
-    single { SkipSegmentPreferences(get()) }
-    single { PlaybackTrackRequest() }
-    single { LibraryCache(get(), storage = feedCacheSettings) }
-    single { TmdbHomeCache(lazy(feedCacheSettings)) }
-    single { SearchHistory(get()) }
-    single {
-        com.yfuse.core.data
-            .SmartPlaylistStore(get())
-    }
-    single {
-        com.yfuse.core.data
-            .MetadataEditorService(get())
-    }
-    single<LanDiscovery> { createLanDiscovery() }
-    single<QuickConnectGateway> { EmbyQuickConnectGateway(get()) }
-    single { SearchRequests() }
-    single<CastManager> { createCastManager() }
-    single {
-        val userAgent = get<UserAgentPreferences>()
-        createEmbyClient(
-            customUserAgent = { userAgent.userAgent.value },
-            appVersion = appVersion,
-        )
-    } onClose { it?.close() }
-    single {
-        val playbackPreferences = get<PlaybackPreferences>()
-        EmbyRepository(
-            client = get(),
-            capabilitiesProvider = get(),
-            audioPassthroughEnabled = {
-                playbackPreferences.audioPassthrough.value ==
-                    PlaybackAudioPassthrough.Compatible
-            },
-            progressProjection = get(),
-        )
-    }
-    single<OfflineMediaManager> {
-        val userAgent = get<UserAgentPreferences>()
-        createOfflineMediaManager(get(), get(), get()) { userAgent.userAgent.value }
-    }
-    single {
-        PlaybackReportingCoordinator(
-            repository = get(),
-            registry = get(),
-            outbox = get(),
-            activity = get(),
-            progressSyncEnabled = get<ServerSyncManager>().syncProgress,
-        )
-    }
-    single { ServerHealthMonitor(get(), get()) }
-    single { CalendarFollowStore(get(), personal = get()) }
-    single { OfficialAiringScheduleCatalog(get<com.yfuse.backend.CalendarBackendApi>(), get()) }
-    single {
-        AiringCalendarRepository(
-            emby = get(),
-            registry = get(),
-            officialSchedules = get(),
-            identityResolver = get(),
-            followStore = get(),
-            localStore = get(),
-            // Skips servers the monitor has marked as needing re-login or backing off.
-            serverHealth = get(),
-        )
-    }
-    single(named("danmaku-http")) { createDanmakuClient() } onClose { it?.close() }
-    single { DanmakuRepository(get(named("danmaku-http"))) }
-    single { ServerSyncManager(get(), get(), get(), get(), get()) }
-    single { WatchTogetherClient(get(), get(), WatchRoomResumeStore(get())) }
-    single { WatchInviteResolver(get(), get()) }
-    single<SecureStore> { createSecureStore(get(), namespace = "account") }
-    single {
-        AccountRepository(
-            api = get(),
-            secureStore = get(),
-            crypto = get(),
-            registry = get(),
-            theme = get(),
-            userAgent = get(),
-            watch = get(),
-            danmaku = get(),
-            skip = get(),
-            serverSync = get(),
-            calendarFollows = get(),
-            accessTokenSource = get(),
-            mutationDispatcher = Dispatchers.Main.immediate,
-            personal = get(),
-        )
-    }
-    single { PlaybackVaultCipher(get(), get(), get()) }
-    single {
-        PlaybackSyncManager(
-            store = get(),
-            cloud = get(),
-            cipher = get(),
-            accessTokens = get(),
-            repo = get(),
-            registry = get(),
-            progressSyncEnabled = get<ServerSyncManager>().syncProgress,
-            personal = get(),
-            // Skips servers the monitor has marked as needing re-login or backing off, and
-            // persists the per-server apply backoff across restarts (see PlaybackSyncManager).
-            serverHealth = get(),
-            settings = get(),
-        )
-    }
-    single { com.yfuse.app.ProductSession(get(), get()) }
-    single {
-        val session = get<com.yfuse.app.ProductSession>()
-        com.yfuse.core.trakt
-            .TraktRepository(
-                api =
-                    com.yfuse.core.trakt
-                        .HttpTraktApi(get(named("trakt-http"))),
-                auth = get<com.yfuse.core.trakt.AccountTraktAuthApi>(),
-                secureStore = get(),
-                owner = session.owner,
-                importSink =
-                    com.yfuse.core.trakt
-                        .PersonalTraktImportSink(get()),
-                scope = session.scope,
-            ).also { it.start() }
-    } onClose { it?.close() }
-    single {
-        com.yfuse.core.handoff
-            .HandoffPlaybackRegistry()
-    }
-    single {
-        com.yfuse.core.handoff
-            .HandoffVaultCipher(get(), get(), get())
-    }
-    single {
-        val session = get<com.yfuse.app.ProductSession>()
-        val bridge = get<com.yfuse.core.handoff.HandoffPlaybackRegistry>()
-        val activeOwner =
-            kotlinx.coroutines.flow
-                .combine(
-                    session.owner,
-                    session.foreground,
-                    com.yfuse.feature.player.ActivePlayback.state,
-                ) { owner, foreground, playback ->
-                    owner.takeIf { foreground || playback.active }
-                }.stateIn(session.scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
-        com.yfuse.core.handoff.HandoffController(
-            api = get<com.yfuse.core.handoff.AccountHandoffApi>(),
-            cipher = get<com.yfuse.core.handoff.HandoffVaultCipher>(),
-            playback = bridge,
-            owner = activeOwner,
-            scope = session.scope,
-            deviceName = com.yfuse.deviceModel().take(64),
-            platform = platformName(),
-            canReceive = {
-                session.foreground.value &&
-                    bridge.receiver != null &&
-                    !com.yfuse.feature.player.ActivePlayback.state.value.active
-            },
-        )
-    }
-    // Own client (different host + bearer auth); qualified so the unqualified HttpClient
-    // binding stays the Emby one.
-    single(named("tmdb-http")) { createTmdbClient() } onClose { it?.close() }
-    single { TmdbRepository(get(named("tmdb-http"))) }
-    single { CalendarIdentityResolver(get(), get()) }
-    single<StoreFactory> { DefaultStoreFactory() }
+    includes(
+        coreModule(settings, diagnosticPreferences),
+        backendModule(),
+        networkModule(appVersion),
+        mediaServerModule(feedCacheSettings),
+        playbackModule(appVersion),
+        accountModule(),
+        fileSourceModule(),
+        discoveryModule(feedCacheSettings),
+        calendarModule(calendarLocalStore),
+        watchTogetherModule(),
+        handoffModule(),
+        uiModule(),
+    )
 }

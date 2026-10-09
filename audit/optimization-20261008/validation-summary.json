@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-08",
+  "scope": "Confirmed audit fixes, prerequisite checks, coverage integrity and detail preload diagnostics",
+  "apkBuilt": false,
+  "versionChanged": false,
+  "pushed": false,
+  "published": false,
+  "scripts": {
+    "status": "passed",
+    "tests": 50,
+    "newTests": 23,
+    "log": "scripts-tests.log"
+  },
+  "android": {
+    "status": "passed",
+    "exitCode": 0,
+    "phoneMainCompile": "passed",
+    "tvMainCompile": "passed",
+    "phoneKtlint": "passed",
+    "tvKtlint": "passed",
+    "relatedSuites": [
+      {
+        "suite": "com.yfuse.feature.player.PlaybackPreloadTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.yfuse.feature.player.PlaybackLaunchTimingTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.yfuse.core.data.DetailLoadingPerformanceTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ],
+    "total": {
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "log": "android-validation.log",
+    "firstStyleFailureCorrected": true
+  },
+  "sourceBoundaries": {
+    "phoneTvModules": "passed",
+    "tvManifestAndBanner": "passed"
+  },
+  "harmony": {
+    "status": "blocked",
+    "strict": true,
+    "exitCode": 2,
+    "hostStatus": "partial",
+    "compiledPackages": 8,
+    "blockedPackages": 4,
+    "testCases": {
+      "total": 33,
+      "passed": 33,
+      "failed": 0,
+      "skipped": 0
+    },
+    "platformValidated": false,
+    "report": "harmony-source.json",
+    "environment": "harmony-env.json"
+  },
+  "releasePreflight": {
+    "strictHostRequirement": "verified by regression test",
+    "unsignedReleaseRemainsBlocked": true,
+    "note": "Earlier real preflight log and final strict source execution both exited 2; strict release invocation is covered by test."
+  },
+  "sourceSha256": {
+    ".github/workflows/harmony-source-gates.yml": "818b00689c371b35e27fd34ce4ac91dad8c2a9310f51236bee5ba8437afb58ab",
+    ".github/workflows/quality-gates-v2.yml": "c1a52d82d226125f44156e37342ed9bf45da8b336c8991badc4b22964fb36554",
+    "scripts/verify-cangjie-host.py": "02405f396bb8fdae90ebccc6f7d9a1ce7cd3181531df7c873f899042ad151bd1",
+    "scripts/verify-harmony-port.py": "a33aca5063b423f50c511195dd81c5debd09b20bc8a4b27852d1f35bdb2374cc",
+    "scripts/harmony-release-gate.py": "f3fce55846394235de309f23182faeb2d82fad9b7d06c931f99a77e50bea52a1",
+    "scripts/check-validation-env.py": "dd8270f59fa4a09d118f8c2d705e2fd703abcc65f4e6092d232ba10fa20f30aa",
+    "scripts/requirements-validation.txt": "0969da99a0bc2a1b71ed50584560f4588a37567ac63af3ddbaf3c4617ca5621a",
+    "scripts/tests/test_harmony_validation.py": "359444671eb1ccf728a16d66d5f5b5303cca78c2581a907b40e6426d7b3702f5",
+    "scripts/tests/test_validation_env.py": "f3ccc69501cd6d4310c51b37fc91eaf899c85e096efce4eca3b97b036571b4f0",
+    "scripts/tests/test_publish_package_only.py": "92bdee7124418d8cb6ad5ea96d254d707b021a055b7ce3495f4a4bb5cd93f829",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailComponent.kt": "62564d4983692841aeb5ee8f3da60f075bbed2c192f04c4cddfc7ce922e0cc2d"
+  },
+  "remaining": [
+    "Modern Android/TV device journeys",
+    "Current device performance baseline and trace analysis",
+    "Native output and soak promotion evidence",
+    "Harmony stdx and compatible Linux C++/nm tools",
+    "Harmony SDK/HAP/device execution",
+    "Live integrations and server capacity/restore drills",
+    "Subsequent refactors and accessibility work dependent on acceptance baselines"
+  ]
+}

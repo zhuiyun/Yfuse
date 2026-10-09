@@ -531,7 +531,7 @@ private fun YMediaTransportResponse.requireAcceptedRange(
     }
 }
 
-internal class AndroidRangeResponseException(
+internal open class AndroidRangeResponseException(
     val failureKind: YTransportFailureKind,
     val statusCode: Int,
     val expectedRangeStart: Long,
@@ -541,6 +541,7 @@ internal class AndroidRangeResponseException(
 
 private fun Int.toAdaptiveRangeFailureKind(previouslyAcceptedRange: Boolean): YTransportFailureKind =
     when (this) {
+        in 300..399 -> YTransportFailureKind.RedirectRejected
         401 -> YTransportFailureKind.Authorization
         // Some media providers issue short-lived redirect targets that start returning 403 while
         // the authenticated origin remains valid. Once this source has already served a validated

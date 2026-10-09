@@ -1,9 +1,9 @@
 package com.yfuse.core.logging
 
-private const val Redacted = "<redacted>"
-private const val MaxLogcatMessageChars = 4_000
-private const val MaxLogcatAttributeChars = 1_000
-private const val MaxLogcatStackTraceChars = 16_000
+private const val REDACTED = "<redacted>"
+private const val MAX_LOGCAT_MESSAGE_CHARS = 4_000
+private const val MAX_LOGCAT_ATTRIBUTE_CHARS = 1_000
+private const val MAX_LOGCAT_STACK_TRACE_CHARS = 16_000
 private const val SENSITIVE_IDENTITY_PATTERN =
     "(?:access[_-]?token|api[_-]?key|authorization|client[_-]?secret|cookie|" +
         "device[_-]?id|domain|host(?:name)?|ip|password|play[_-]?session[_-]?id|pw|" +
@@ -107,22 +107,22 @@ private val plainDomain =
 
 internal fun redactDiagnosticText(value: String): String =
     value
-        .replace(jsonSecret, "$1$Redacted$3")
-        .replace(parameterSecret, "$1$Redacted")
-        .replace(authorizationSecret, "$1$Redacted")
-        .replace(cookieSecret, "$1$Redacted")
-        .replace(assignmentSecret, "$1$Redacted")
-        .replace(bearerSecret, "$1$Redacted")
-        .replace(urlCredentials, "$1$Redacted@")
+        .replace(jsonSecret, "$1$REDACTED$3")
+        .replace(parameterSecret, "$1$REDACTED")
+        .replace(authorizationSecret, "$1$REDACTED")
+        .replace(cookieSecret, "$1$REDACTED")
+        .replace(assignmentSecret, "$1$REDACTED")
+        .replace(bearerSecret, "$1$REDACTED")
+        .replace(urlCredentials, "$1$REDACTED@")
         .replace(urlAuthority, "$1<redacted-host>")
-        .replace(embyIdentityPath, "$1$Redacted")
+        .replace(embyIdentityPath, "$1$REDACTED")
         .replace(ipv4Address, "<redacted-ip>")
         .replace(ipv6Address, "<redacted-ip>")
         .replace(plainDomain, "<redacted-host>")
 
 internal fun redactDiagnosticAttributes(attributes: Map<String, String>): Map<String, String> =
     attributes.mapValues { (key, value) ->
-        if (key.lowercase() in sensitiveKeys) Redacted else redactDiagnosticText(value)
+        if (key.lowercase() in sensitiveKeys) REDACTED else redactDiagnosticText(value)
     }
 
 /**
@@ -140,7 +140,7 @@ internal fun formatSafeLogcatMessage(
             append(redactDiagnosticText(it).take(120))
             append(" | ")
         }
-        append(redactDiagnosticText(message).take(MaxLogcatMessageChars))
+        append(redactDiagnosticText(message).take(MAX_LOGCAT_MESSAGE_CHARS))
         redactDiagnosticAttributes(attributes)
             .entries
             .take(32)
@@ -149,12 +149,12 @@ internal fun formatSafeLogcatMessage(
                 append(' ')
                 append(
                     entries.joinToString(", ") { (key, value) ->
-                        "${redactDiagnosticText(key).take(80)}=${value.take(MaxLogcatAttributeChars)}"
+                        "${redactDiagnosticText(key).take(80)}=${value.take(MAX_LOGCAT_ATTRIBUTE_CHARS)}"
                     },
                 )
             }
         throwableText?.takeIf { it.isNotBlank() }?.let {
             append('\n')
-            append(redactDiagnosticText(it).take(MaxLogcatStackTraceChars))
+            append(redactDiagnosticText(it).take(MAX_LOGCAT_STACK_TRACE_CHARS))
         }
     }

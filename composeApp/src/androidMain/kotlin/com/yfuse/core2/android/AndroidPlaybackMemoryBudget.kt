@@ -10,7 +10,9 @@ internal enum class PlaybackBufferKind(
     Transport(4),
     Demux(3),
     Render(4),
-    Subtitle(1),
+
+    /** ASS canvases: small next to read-ahead, and on screen the whole time. */
+    Subtitle(2),
     CacheWrite(1),
     Preload(1),
 }

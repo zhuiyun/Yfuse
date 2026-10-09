@@ -384,7 +384,14 @@ internal fun AmbientLightLayer(
                         content = insetRect
                         fades = insetFalloffs
                     }
-                    drawAmbientLight(current, content, size, guard.roundToInt().toFloat(), fades)
+                    drawAmbientLight(
+                        current,
+                        content,
+                        size,
+                        guard.roundToInt().toFloat(),
+                        fades,
+                        sideBars = ambientLightsSideBars(picture),
+                    )
                 }
             },
     )

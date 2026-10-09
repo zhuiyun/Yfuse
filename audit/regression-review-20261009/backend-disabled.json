@@ -1,0 +1,10 @@
+{
+  "backendEnabled": false,
+  "scope": "yfuseBackendClient:jvmTest and ktlintCheck",
+  "result": {
+    "tests": 43,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

@@ -24,6 +24,10 @@ SECURITY_OVERRIDES = pathlib.Path("scripts/security-overrides.properties")
 # the whole point of this script is that a security gate must never pass in silence.
 UNRESOLVED = "UNRESOLVED"
 BLOCKING = SEVERITIES | {UNRESOLVED}
+# audit/ keeps frozen copies of earlier locks as release evidence. Git's `*` crosses `/`, so
+# `*/gradle.lockfile` also matched those copies: the SBOM listed versions no build resolves any
+# more and the gate could fail on them. Only the live build's locks describe what ships.
+EVIDENCE_EXCLUSIONS = (":(exclude)audit/**",)
 
 
 @dataclass(frozen=True)
@@ -77,14 +81,15 @@ def read_security_overrides(root: pathlib.Path) -> dict[str, str]:
 
 
 def tracked_lockfiles(root: pathlib.Path) -> list[pathlib.Path]:
-    return tracked_files(root, ["gradle.lockfile", "*/gradle.lockfile"])
+    # settings-gradle.lockfile pins the settings classpath the build resolves before any module.
+    return tracked_files(root, ["gradle.lockfile", "*/gradle.lockfile", "settings-gradle.lockfile"])
 
 
 def tracked_files(root: pathlib.Path, patterns: list[str]) -> list[pathlib.Path]:
     root = root.resolve()
     result = subprocess.run(
         ["git", "-c", f"safe.directory={root.as_posix()}", "ls-files", "-z", "--",
-         *patterns],
+         *patterns, *EVIDENCE_EXCLUSIONS],
         cwd=root, capture_output=True, check=True,
     )
     paths = []

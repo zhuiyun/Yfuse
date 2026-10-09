@@ -40,6 +40,13 @@ class PersonalLibraryRepository(
     val policy: StateFlow<PersonalAccessPolicy> = _policy.asStateFlow()
     private val _state = MutableStateFlow(PersonalLibraryState())
     val state: StateFlow<PersonalLibraryState> = _state.asStateFlow()
+    private val _contentRevision = MutableStateFlow(0L)
+
+    /**
+     * Advances on every change another device should see soon: all of them except playback
+     * carrying an existing 观看历史 entry forward, which the player reports every 15 seconds.
+     */
+    val contentRevision: StateFlow<Long> = _contentRevision.asStateFlow()
 
     init {
         publish()
@@ -273,7 +280,8 @@ class PersonalLibraryRepository(
                 durationMs = durationMs.coerceAtLeast(0),
                 completed = completed,
             )
-        tryMutation { putEntry(entry) }
+        val progressOnly = previous != null && !previous.deleted && previous.completed == completed
+        tryMutation { putEntry(entry, progressOnly) }
         Unit
     }
 
@@ -373,13 +381,16 @@ class PersonalLibraryRepository(
                 it.media.identity == media.identity
         }
 
-    private fun putEntry(entry: PersonalEntry) =
-        change(
-            snapshot.copy(
-                entries =
-                    snapshot.entries.filterNot { it.identity == entry.identity } + entry,
-            ),
-        )
+    private fun putEntry(
+        entry: PersonalEntry,
+        progressOnly: Boolean = false,
+    ) = change(
+        snapshot.copy(
+            entries =
+                snapshot.entries.filterNot { it.identity == entry.identity } + entry,
+        ),
+        progressOnly,
+    )
 
     private suspend fun verifyGuardian(
         pin: CharArray,
@@ -427,12 +438,16 @@ class PersonalLibraryRepository(
             deviceId,
         )
 
-    private fun change(value: PersonalSnapshot) {
+    private fun change(
+        value: PersonalSnapshot,
+        progressOnly: Boolean = false,
+    ) {
         validatePersonalSnapshot(value)
         persist(value)
         snapshot = value
         _state.value = _state.value.copy(error = null)
         publish(pending = true)
+        if (!progressOnly) _contentRevision.value++
     }
 
     /** Background playback and direct button callbacks keep the last valid snapshot on failure. */

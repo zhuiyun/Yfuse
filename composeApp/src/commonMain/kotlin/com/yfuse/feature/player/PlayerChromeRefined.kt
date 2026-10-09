@@ -28,14 +28,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -130,12 +136,13 @@ import com.yfuse.core.designsystem.ThemeText as Text
 internal fun RefinedTopBar(
     title: String,
     subtitle: String,
-    filled: Boolean,
+    scaleMode: VideoScaleMode,
     dolbyVision: Boolean,
     dolbyAtmos: Boolean,
     onBack: () -> Unit,
-    onEnterPictureInPicture: () -> Unit,
-    onToggleFill: () -> Unit,
+    onEnterPictureInPicture: (() -> Unit)?,
+    /** A tap on 画面 (false) or a held press, which asks for 拉伸填满 (true). */
+    onToggleFill: (stretch: Boolean) -> Unit,
     onOpenCast: () -> Unit,
     onOpenMore: () -> Unit,
     watchConnected: Boolean,
@@ -150,9 +157,17 @@ internal fun RefinedTopBar(
     onKeyActivity: () -> Unit = {},
     /** A cast session is live: the key takes the same lit treatment as 弹幕 when it is on. */
     castActive: Boolean = false,
+    /**
+     * An upright phone window: the clock, battery, 小窗 and 画面比例 keys stay off a bar with no
+     * room for them, so the title keeps its line. 小窗 remains the system's gesture away and
+     * 画面比例 a pinch away.
+     */
+    compact: Boolean = false,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val haptics = LocalHaptics.current
+    // The scrim runs edge to edge; the keys keep clear of a notch or a punch-hole.
+    val cutout = WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
     Row(
         modifier
             .fillMaxWidth()
@@ -164,7 +179,8 @@ internal fun RefinedTopBar(
                         1f to Color.Transparent,
                     ),
                 )
-            }.padding(horizontal = 22.dp, vertical = 14.dp),
+            }.windowInsetsPadding(cutout)
+            .padding(horizontal = if (compact) 14.dp else 22.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
@@ -237,9 +253,11 @@ internal fun RefinedTopBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PlayerClock()
-            PlayerBatteryStatus()
-            Spacer(Modifier.width(6.dp))
+            if (!compact) {
+                PlayerClock()
+                PlayerBatteryStatus()
+                Spacer(Modifier.width(6.dp))
+            }
             AnimatedVisibility(
                 visible = watchConnected,
                 enter = barControlEnter(reduceMotion),
@@ -270,39 +288,33 @@ internal fun RefinedTopBar(
                     )
                 }
             }
-            CircleControl(
-                AppIcons.PictureInPicture,
-                "小窗播放",
-                28.dp,
-                12.dp,
-                onClick = onEnterPictureInPicture,
-            )
-            // One key with two readings, so the glyph dissolves into the other one. The key keeps
-            // its size through the swap, which is the whole reason there is no size transform.
-            AnimatedContent(
-                targetState = filled,
-                contentKey = { it },
-                transitionSpec = { barSwapTransform(reduceMotion) },
-                label = "player-aspect-mode",
-            ) { fill ->
+            if (!compact) {
+                onEnterPictureInPicture?.let { enter ->
+                    CircleControl(
+                        AppIcons.PictureInPicture,
+                        "小窗播放",
+                        28.dp,
+                        12.dp,
+                        onClick = enter,
+                    )
+                }
+                // One key with two readings, so the glyph dissolves into the other one inside the key,
+                // which keeps its size and, once pressed, a keyboard's or a screen reader's focus. It
+                // names the mode it is in: 拉伸填满 used to be read out as 填充.
                 CircleControl(
-                    icon = if (fill) AppIcons.AspectFill else AppIcons.AspectFit,
-                    description = if (fill) "画面比例：填充" else "画面比例：适应",
+                    icon = if (scaleMode == VideoScaleMode.Fit) AppIcons.AspectFit else AppIcons.AspectFill,
+                    description = "画面比例：${scaleMode.label}",
                     size = 28.dp,
                     iconSize = 12.dp,
-                    onClick = onToggleFill,
+                    crossfadeIcon = true,
+                    onClick = { onToggleFill(false) },
+                    onLongClick = { onToggleFill(true) },
+                    onLongClickLabel = if (scaleMode == VideoScaleMode.Stretch) "恢复适应" else "拉伸填满",
                 )
             }
             extras.rotationLock?.let { lock ->
-                // 旋转锁 swaps its glyph the way 画面比例 beside it does.
-                AnimatedContent(
-                    targetState = lock.locked,
-                    contentKey = { it },
-                    transitionSpec = { barSwapTransform(reduceMotion) },
-                    label = "player-rotation-lock",
-                ) { locked ->
-                    RotationLockKey(lock, locked, onKeyActivity)
-                }
+                // 旋转锁 changes its glyph in place the way 画面比例 beside it does.
+                RotationLockKey(lock, lock.locked, onKeyActivity)
             }
             // 按住拖送: held, the key drops its recent devices underneath; tapped, it opens 投屏 as before.
             CircleControl(
@@ -356,6 +368,9 @@ internal fun RefinedBottomBar(
     skipSettingsAvailable: Boolean,
     onOpenSkipSettings: () -> Unit,
     danmakuEnabled: Boolean,
+    /** A tap on 弹幕: comments on or off where they are. */
+    onToggleDanmaku: () -> Unit,
+    /** A held 弹幕: the panel, for what shows and where it comes from. */
     onOpenDanmaku: () -> Unit,
     artworkUrl: String?,
     artworkIdentity: Any?,
@@ -368,6 +383,8 @@ internal fun RefinedBottomBar(
     onSeekBackwardLongPress: (() -> Unit)? = null,
     /** See [TransportRow]: where a remote's focus lands when the controls come up. */
     playKeyModifier: Modifier = Modifier,
+    /** An upright phone window: the transport and the keys stack, 选集 first. */
+    compact: Boolean = false,
 ) {
     // A new timeline sample arrives twice a second, and this function is called with it. Only
     // this frame stops here: everything below takes the holder and reads it from a draw or a
@@ -401,6 +418,7 @@ internal fun RefinedBottomBar(
         skipSettingsAvailable = skipSettingsAvailable,
         onOpenSkipSettings = onOpenSkipSettings,
         danmakuEnabled = danmakuEnabled,
+        onToggleDanmaku = onToggleDanmaku,
         onOpenDanmaku = onOpenDanmaku,
         artworkUrl = artworkUrl,
         artworkIdentity = stableArtworkIdentity,
@@ -409,6 +427,7 @@ internal fun RefinedBottomBar(
         danmakuHeat = danmakuHeat,
         onSeekBackwardLongPress = onSeekBackwardLongPress,
         playKeyModifier = playKeyModifier,
+        compact = compact,
     )
 }
 
@@ -437,6 +456,9 @@ private fun RefinedBottomBarContent(
     skipSettingsAvailable: Boolean,
     onOpenSkipSettings: () -> Unit,
     danmakuEnabled: Boolean,
+    /** A tap on 弹幕: comments on or off where they are. */
+    onToggleDanmaku: () -> Unit,
+    /** A held 弹幕: the panel, for what shows and where it comes from. */
     onOpenDanmaku: () -> Unit,
     artworkUrl: String?,
     artworkIdentity: Any?,
@@ -445,8 +467,10 @@ private fun RefinedBottomBarContent(
     danmakuHeat: () -> DanmakuHeat? = { null },
     onSeekBackwardLongPress: (() -> Unit)? = null,
     playKeyModifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val tips = LocalTips.current
     // Where the finger left the thumb. Read from derived state only, never from composition:
     // under a drag it changes sixty times a second.
     val scrubbed = remember { mutableStateOf<Float?>(null) }
@@ -523,6 +547,8 @@ private fun RefinedBottomBarContent(
             { ambientSeekAccent(ambientLight?.value, artworkAccent.value) }
         }
 
+    // As the title bar: the scrim runs edge to edge, the keys and the rail keep clear of a cutout.
+    val cutout = WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
     Column(
         modifier
             .fillMaxWidth()
@@ -534,7 +560,8 @@ private fun RefinedBottomBarContent(
                         1f to Color.Transparent,
                     ),
                 )
-            }.padding(start = 22.dp, end = 22.dp, top = 10.dp, bottom = 16.dp),
+            }.windowInsetsPadding(cutout)
+            .padding(start = 22.dp, end = 22.dp, top = 10.dp, bottom = 16.dp),
     ) {
         Row(
             verticalAlignment = Alignment.Bottom,
@@ -710,11 +737,7 @@ private fun RefinedBottomBarContent(
 
         Spacer(Modifier.height(4.dp))
 
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        val transport: @Composable () -> Unit = {
             TransportRow(
                 state = buttons,
                 locked = seekLocked,
@@ -732,65 +755,102 @@ private fun RefinedBottomBarContent(
                 onSeekBackwardLongPress = onSeekBackwardLongPress,
                 playKeyModifier = playKeyModifier,
             )
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        }
+        val episodesKey: @Composable RowScope.() -> Unit = {
+            AnimatedVisibility(
+                visible = hasEpisodes,
+                enter = barControlEnter(reduceMotion),
+                exit = barControlExit(reduceMotion),
             ) {
-                CircleControl(AppIcons.Subtitle, "字幕", 26.dp, 12.dp, onClick = onOpenSubtitles)
-                CircleControl(AppIcons.AudioTrack, "音轨", 26.dp, 12.dp, onClick = onOpenAudio)
                 CircleControl(
-                    icon = AppIcons.Danmaku,
-                    description = if (danmakuEnabled) "弹幕，已开启" else "弹幕，已关闭",
+                    icon = AppIcons.EpisodeList,
+                    description = "选集",
                     size = 26.dp,
                     iconSize = 12.dp,
-                    active = danmakuEnabled,
-                    onClick = onOpenDanmaku,
+                    onClick = onOpenEpisodes,
                 )
-                RefinedSpeedControl(speed, onOpenSpeed)
-                // Which of these three exist is decided by the item, and the item changes under
-                // the bar every time the queue advances: a source list resolves, a series gains
-                // 片头 markers, a film has no 选集. Each one used to blink into the cluster and
-                // shove its neighbours across; the row's width follows them instead.
-                AnimatedVisibility(
-                    visible = hasMultipleSources,
-                    enter = barControlEnter(reduceMotion),
-                    exit = barControlExit(reduceMotion),
-                ) {
-                    CircleControl(
-                        AppIcons.PlaybackSource,
-                        "播放服务器",
-                        26.dp,
-                        12.dp,
-                        onClick = onOpenSources,
-                    )
-                }
-                AnimatedVisibility(
-                    visible = skipSettingsAvailable,
-                    enter = barControlEnter(reduceMotion),
-                    exit = barControlExit(reduceMotion),
-                ) {
-                    CircleControl(
-                        AppIcons.SkipMarkers,
-                        "标记片头片尾",
-                        26.dp,
-                        12.dp,
-                        onClick = onOpenSkipSettings,
-                    )
-                }
-                AnimatedVisibility(
-                    visible = hasEpisodes,
-                    enter = barControlEnter(reduceMotion),
-                    exit = barControlExit(reduceMotion),
-                ) {
-                    CircleControl(
-                        icon = AppIcons.EpisodeList,
-                        description = "选集",
-                        size = 26.dp,
-                        iconSize = 12.dp,
-                        onClick = onOpenEpisodes,
-                    )
-                }
+            }
+        }
+        val keys: @Composable RowScope.() -> Unit = {
+            // In a 短剧's upright window 选集 is the key reached for most, so it leads there.
+            if (compact) episodesKey()
+            CircleControl(AppIcons.Subtitle, "字幕", 26.dp, 12.dp, onClick = onOpenSubtitles)
+            CircleControl(AppIcons.AudioTrack, "音轨", 26.dp, 12.dp, onClick = onOpenAudio)
+            // 弹幕 is switched far more often than it is set up, so a tap switches it and the
+            // panel waits behind a held press. Off is struck through: the lit fill alone, a 12%
+            // wash behind a 12dp glyph, was lost against the picture, and a tap looked like nothing.
+            CircleControl(
+                icon = if (danmakuEnabled) AppIcons.Danmaku else AppIcons.DanmakuOff,
+                description = if (danmakuEnabled) "弹幕，已开启" else "弹幕，已关闭",
+                size = 26.dp,
+                iconSize = 12.dp,
+                active = danmakuEnabled,
+                crossfadeIcon = true,
+                onClick = onToggleDanmaku,
+                onLongClick = {
+                    tips?.markUsed(Tips.PLAYER_DANMAKU_KEY)
+                    onOpenDanmaku()
+                },
+                onLongClickLabel = "弹幕设置",
+            )
+            RefinedSpeedControl(speed, onOpenSpeed)
+            // Which of these three exist is decided by the item, and the item changes under
+            // the bar every time the queue advances: a source list resolves, a series gains
+            // 片头 markers, a film has no 选集. Each one used to blink into the cluster and
+            // shove its neighbours across; the row's width follows them instead.
+            AnimatedVisibility(
+                visible = hasMultipleSources,
+                enter = barControlEnter(reduceMotion),
+                exit = barControlExit(reduceMotion),
+            ) {
+                CircleControl(
+                    AppIcons.PlaybackSource,
+                    "播放服务器",
+                    26.dp,
+                    12.dp,
+                    onClick = onOpenSources,
+                )
+            }
+            AnimatedVisibility(
+                visible = skipSettingsAvailable,
+                enter = barControlEnter(reduceMotion),
+                exit = barControlExit(reduceMotion),
+            ) {
+                CircleControl(
+                    AppIcons.SkipMarkers,
+                    "标记片头片尾",
+                    26.dp,
+                    12.dp,
+                    onClick = onOpenSkipSettings,
+                )
+            }
+            if (!compact) episodesKey()
+        }
+        if (compact) {
+            // An upright phone is about 400dp across and the landscape row needs some 600: the
+            // transport takes a line of its own and the keys share the next one evenly.
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                transport()
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = keys,
+                )
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                transport()
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = keys,
+                )
             }
         }
     }
@@ -804,6 +864,10 @@ internal fun CompactAutoSkipPill(
     announcement: String,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
+    /** What a tap does, as a screen reader names it: 取消 a countdown, 撤销 a skip already made. */
+    clickLabel: String = "取消自动跳过",
+    /** The ✕; a 撤销 that already says what it does has no use for one. */
+    dismissIcon: Boolean = true,
 ) {
     Row(
         modifier
@@ -812,7 +876,7 @@ internal fun CompactAutoSkipPill(
                 shape = AppShapes.pill,
                 fill = Color.Black.copy(alpha = 0.58f),
                 border = Color.White.copy(alpha = 0.22f),
-            ).pressable(onClickLabel = "取消自动跳过", onClick = onCancel)
+            ).pressable(onClickLabel = clickLabel, onClick = onCancel)
             .touchTarget()
             // Live, but with the ticking label left out of the spoken tree: every second would
             // otherwise be read out. The live region goes before the clear, which would drop it.
@@ -828,12 +892,14 @@ internal fun CompactAutoSkipPill(
             color = Color.White.copy(alpha = 0.88f),
             maxLines = 1,
         )
-        Icon(
-            AppIcons.Close,
-            contentDescription = "取消自动跳过",
-            tint = Color.White.copy(alpha = 0.68f),
-            modifier = Modifier.size(10.dp),
-        )
+        if (dismissIcon) {
+            Icon(
+                AppIcons.Close,
+                contentDescription = clickLabel,
+                tint = Color.White.copy(alpha = 0.68f),
+                modifier = Modifier.size(10.dp),
+            )
+        }
     }
 }
 
@@ -933,6 +999,8 @@ private fun RefinedSpeedControl(
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val figure = if (speed % 1f == 0f) "${speed.toInt()}" else "$speed"
     val label = "$figure×"
+    // The same ring as its neighbours: 26 dp in reach of a thumb, larger across a room.
+    val ring = chromeKeySize(26.dp)
     Box(
         Modifier
             // Named for what it sets, with the rate as its state: read out, 「1.25×」 alone was a
@@ -940,12 +1008,12 @@ private fun RefinedSpeedControl(
             .pressable(label = "播放速度", onClick = onClick)
             .touchTarget()
             .semantics { stateDescription = "$figure 倍" }
-            .size(40.dp),
+            .size(ring + ControlTouchPadding * 2),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
-                .size(26.dp)
+                .size(ring)
                 .border(1.dp, Color.White.copy(alpha = 0.62f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {

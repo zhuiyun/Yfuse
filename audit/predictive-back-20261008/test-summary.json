@@ -1,0 +1,87 @@
+{
+  "task": "predictive-back-audit",
+  "validatedAtUtc": "2026-10-08T08:47:24.007192+00:00",
+  "totals": {
+    "tests": 66,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "newRegressionTests": 17,
+  "suites": [
+    {
+      "name": "com.yfuse.app.TopLevelBackStackTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.core.designsystem.PlayerHandoffGeometryTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ZoomBackGeometryTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ZoomBackNavigationTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ZoomBackPullTrackerTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerMotionPhysicsTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerPredictiveBackTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "checks": {
+    "phoneShared.compileAndroidMain": "passed",
+    "phoneShared.testAndroidHostTest": "passed",
+    "phoneShared.ktlintCheck": "passed",
+    "composeApp.verifyBehavioralTestBoundaries": "passed",
+    "composeApp.verifyDesignSystemUsage": "passed",
+    "git.diffCheck": "passed"
+  },
+  "fixedIssues": [
+    "Retained hidden routes could intercept platform back callbacks.",
+    "A gesture started on an old stack could commit after its page or preview destination changed.",
+    "Disabled or reopened overlays could receive old completion events; disposed animation controllers were not reset.",
+    "Cancelled player gestures reused old snapshots or allowed pending captures to outlive the gesture.",
+    "Player cancellation recovery used a fixed per-frame time step and changed speed with refresh rate.",
+    "Disabling motion during a committed player exit stopped frame ticks without finishing the Activity."
+  ],
+  "deviceValidation": {
+    "connectedDeviceApi": 28,
+    "android14PlusPredictiveGesture": "not verified on device"
+  },
+  "apkPackaged": false,
+  "officialReferences": [
+    "https://developer.android.com/guide/navigation/custom-back/predictive-back-gesture",
+    "https://developer.android.com/jetpack/androidx/releases/navigationevent"
+  ]
+}

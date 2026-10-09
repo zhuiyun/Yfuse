@@ -2,18 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CXX="${CXX:-c++}"
-OUTPUT="$(mktemp "${TMPDIR:-/tmp}/ycore-overlay-plane.XXXXXX")"
-trap 'rm -f "$OUTPUT"' EXIT
+# shellcheck source=scripts/native-test-build.sh
+source "$ROOT/scripts/native-test-build.sh"
 
-"$CXX" \
-  -std=c++17 \
-  -O2 \
-  -Wall \
-  -Wextra \
-  -Werror \
-  "$ROOT/scripts/native/ycore_overlay_plane_test.cpp" \
-  -o "$OUTPUT"
-"$OUTPUT"
-
+ycore_native_test ycore-overlay-plane-test "$ROOT/scripts/native/ycore_overlay_plane_test.cpp"
 echo "[ycore-overlay-plane] tests passed"

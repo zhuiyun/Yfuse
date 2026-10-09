@@ -15,12 +15,17 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
+import com.yfuse.core.designsystem.DRAG_PROJECTION_MS
+import com.yfuse.core.designsystem.DragProgress
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.Motion
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
 internal fun draggedTabIndex(
     index: Float,
@@ -34,6 +39,26 @@ internal fun draggedTabIndex(
     } else {
         (index + delta / width * count * if (rtl) -1f else 1f).coerceIn(0f, (count - 1).toFloat())
     }
+
+/**
+ * The tab a capsule let go at [index] settles on, moving at [velocity] cells a second: where it
+ * would coast to over [DRAG_PROJECTION_MS] — the projection every other drag in the app decides on
+ * — rounded to the nearest cell. A flick carries it on to the next tab where rounding would have
+ * pulled it back; the coast is held to one cell, so even a hard flick never skips a tab unseen.
+ */
+internal fun releasedTabIndex(
+    index: Float,
+    velocity: Float,
+    count: Int,
+): Int {
+    if (count <= 0) return 0
+    val speed = if (velocity.isFinite()) velocity else 0f
+    val coast = DragProgress(offset = index, velocity = speed, extent = 1f).project(DRAG_PROJECTION_MS) - index
+    return (index + coast.coerceIn(-1f, 1f)).roundToInt().coerceIn(0, count - 1)
+}
+
+/** A capsule whose finger has not moved for this long is let go of standing still. */
+private val CapsuleStillAfter = 40.milliseconds
 
 internal class LiquidTabMotion(
     val left: State<Float>,
@@ -101,17 +126,31 @@ internal fun rememberLiquidTabMotion(
     }
     val gestures =
         Modifier.pointerInput(selected, count, rtl) {
+            // The finger's speed along the bar, so letting go on the move carries the capsule on
+            // (MO5): the nearest cell alone used to send a flicked capsule back where it came from.
+            val velocity = VelocityTracker()
+            var lastMove: TimeSource.Monotonic.ValueTimeMark? = null
             try {
                 detectHorizontalDragGestures(
-                    onDragStart = { if (currentSelection >= 0) dragIndex = currentSelection.toFloat() },
+                    onDragStart = {
+                        velocity.resetTracking()
+                        lastMove = null
+                        if (currentSelection >= 0) dragIndex = currentSelection.toFloat()
+                    },
                     onHorizontalDrag = { change, amount ->
                         dragIndex?.let {
                             change.consume()
+                            velocity.addPosition(change.uptimeMillis, change.position)
+                            lastMove = TimeSource.Monotonic.markNow()
                             dragIndex = draggedTabIndex(it, amount, size.width.toFloat(), count, rtl)
                         }
                     },
                     onDragEnd = {
-                        val destination = dragIndex?.roundToInt()
+                        val moving = lastMove?.let { it.elapsedNow() < CapsuleStillAfter } == true
+                        val pixels = if (moving) velocity.calculateVelocity().x else 0f
+                        val cells =
+                            if (size.width > 0) pixels / size.width * count * (if (rtl) -1f else 1f) else 0f
+                        val destination = dragIndex?.let { releasedTabIndex(it, cells, count) }
                         dragIndex = null
                         if (destination != null) {
                             release++

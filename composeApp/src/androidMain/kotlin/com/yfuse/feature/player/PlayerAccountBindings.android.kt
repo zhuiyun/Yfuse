@@ -115,7 +115,8 @@ internal fun PlayerAccountBindings(
         )
     }
     LaunchedEffect(player, item?.subtitleItemKey(), item?.playSessionId, personal, ownerToken) {
-        val media = item?.personalMediaRef() ?: return@LaunchedEffect
+        // A trailer is not something watched: it leaves no 观看历史 entry of its own.
+        val media = item?.takeUnless { it.isTrailerPlayback }?.personalMediaRef() ?: return@LaunchedEffect
         val history = personal ?: return@LaunchedEffect
         val owner = ownerToken ?: return@LaunchedEffect
         var started = false

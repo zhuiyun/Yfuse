@@ -75,6 +75,18 @@ internal fun videoFrameReleaseDecision(
     )
 }
 
+/**
+ * A display Surface holds a released frame until its render timestamp. The Vulkan renderer's
+ * ImageReader and Anime4K's SurfaceTexture draw a frame as soon as it arrives instead, so at the
+ * usual lead of up to 250 ms their video ran that far ahead of the audio. Frames for those
+ * outputs are released only this close to their time: about one refresh, which drawing and
+ * composition then use up.
+ */
+internal const val PRESENT_ON_ARRIVAL_RELEASE_LEAD_NS = 16_000_000L
+
+internal fun YVideoFrameReleaseDecision.Render.tooEarlyToPresentOnArrival(nowNs: Long): Boolean =
+    releaseTimeNs > nowNs + PRESENT_ON_ARRIVAL_RELEASE_LEAD_NS
+
 internal fun preserveFirstVideoFrame(
     decision: YVideoFrameReleaseDecision,
     firstFrameRendered: Boolean,

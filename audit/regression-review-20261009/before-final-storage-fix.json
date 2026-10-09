@@ -1,0 +1,41 @@
+{
+  "stage": "full regression before final storage index-failure fix",
+  "tests": [
+    {
+      "module": "phoneShared",
+      "tests": 3697,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "tvShared",
+      "tests": 88,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "yfuseBackendClient",
+      "tests": 43,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "watchTogetherProtocol",
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "watchTogetherServer",
+      "tests": 230,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "total": 4072
+}

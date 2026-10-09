@@ -7,7 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
-import com.yfuse.MainActivity
+import com.yfuse.appEntryIntent
 import com.yfuse.backend.BackendAccess
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,7 +29,12 @@ import org.koin.core.context.GlobalContext
 class UpdateDownloadService : Service() {
     private companion object {
         const val CHANNEL_ID = "yfuse_app_update"
-        const val NOTIFICATION_ID = 2411
+
+        /**
+         * Not 2411, the offline download worker's: two foreground services posting under one
+         * id keep replacing each other's notification.
+         */
+        const val NOTIFICATION_ID = 2417
         const val PROGRESS_NOTIFICATION_INTERVAL_MS = 700L
     }
 
@@ -131,7 +136,7 @@ class UpdateDownloadService : Service() {
             PendingIntent.getActivity(
                 this,
                 0,
-                Intent(this, MainActivity::class.java),
+                appEntryIntent(this),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
         val percent = (progress * 100f).toInt().coerceIn(0, 100)

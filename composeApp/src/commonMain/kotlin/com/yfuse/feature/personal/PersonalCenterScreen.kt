@@ -13,23 +13,22 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.arkivanov.mvikotlin.core.store.Store
+import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.yfuse.backend.BackendAccess
 import com.yfuse.core.account.AccountRepository
-import com.yfuse.core.account.AccountState
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
@@ -50,7 +49,6 @@ import com.yfuse.core.designsystem.SwipeActionsRow
 import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.ToastAction
-import com.yfuse.core.designsystem.UndoWindow
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.YfFormField
@@ -62,13 +60,12 @@ import com.yfuse.core.personal.PersonalEntry
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.personal.PersonalMediaRef
 import com.yfuse.core.personal.PersonalProfile
-import com.yfuse.core.personal.importServerCollections
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.SyncMutationKind
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.feature.profile.SettingSegmentRow
 import com.yfuse.feature.profile.SettingsPage
-import kotlinx.coroutines.launch
+import com.yfuse.feature.profile.rememberComposedPageStore
 import com.yfuse.core.designsystem.ThemeText as Text
 
 enum class PersonalCenterTab(
@@ -81,6 +78,60 @@ enum class PersonalCenterTab(
     Sync("同步状态"),
 }
 
+/**
+ * 我的内容, 家庭资料 or 同步状态与恢复 — [initialTab] says which — drawn from [store]. [servers] are
+ * the ones the page offers the profile: the editor's list, and what 从媒体服务器导入 reads.
+ */
+@Composable
+fun PersonalCenterScreen(
+    store: Store<PersonalCenterIntent, PersonalCenterState, Nothing>,
+    servers: List<SavedServer>,
+    onBack: () -> Unit,
+    onOpenMedia: (PersonalMediaRef) -> Unit,
+    initialTab: PersonalCenterTab = PersonalCenterTab.WatchLater,
+) {
+    val state by store.states.collectAsState(store.state)
+    // Whether the page has records a finger could swipe now; the tip waits for them.
+    var swipeable by remember { mutableStateOf(false) }
+    // Leaving the page is the toast leaving too: nothing stays held behind a closed page.
+    DisposableEffect(store) {
+        onDispose { store.accept(PersonalCenterIntent.SettleRemoval) }
+    }
+    Box(Modifier.fillMaxSize()) {
+        PersonalCenterPage(
+            state = state,
+            onIntent = store::accept,
+            servers = servers,
+            onBack = onBack,
+            onOpenMedia = onOpenMedia,
+            initialTab = initialTab,
+            onSwipeable = { swipeable = it },
+        )
+        // Once a list has records to swipe; the first swipe retires it.
+        ContextualTip(
+            id = Tips.SWIPE_ROW_HISTORY,
+            text = "向左滑动记录可以移除，5 秒内可撤销",
+            active = swipeable,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = Dimens.sectionGap),
+        )
+        key(state.removalGeneration) {
+            val pending = state.pendingRemoval
+            ActionToast(
+                message = pending?.let { personalRemovalMessage(it.collection, it.media.title) },
+                onDismiss = { store.accept(PersonalCenterIntent.SettleRemoval) },
+                action =
+                    pending?.let { entry ->
+                        ToastAction("撤销") { store.accept(PersonalCenterIntent.UndoRemoval(entry)) }
+                    },
+            )
+        }
+    }
+}
+
+/**
+ * The same pages for the television's settings, which swap their pages in place rather than
+ * through the phone's page stack; the store lives as long as the page is composed there.
+ */
 @Composable
 fun PersonalCenterScreen(
     personal: PersonalLibraryRepository,
@@ -93,104 +144,58 @@ fun PersonalCenterScreen(
     initialTab: PersonalCenterTab = PersonalCenterTab.WatchLater,
     repo: EmbyRepository? = null,
 ) {
-    val removals = remember(personal) { PersonalRemovals(personal) }
-    // Leaving the page is the toast leaving too: nothing stays held behind a closed page.
-    DisposableEffect(removals) {
-        onDispose { removals.settle() }
-    }
-    Box(Modifier.fillMaxSize()) {
-        PersonalCenterPage(
-            personal = personal,
-            account = account,
-            playbackSync = playbackSync,
-            serverSync = serverSync,
-            servers = servers,
-            onBack = onBack,
-            onOpenMedia = onOpenMedia,
-            initialTab = initialTab,
-            repo = repo,
-            removals = removals,
-        )
-        // Once a list has records to swipe; the first swipe retires it.
-        ContextualTip(
-            id = Tips.SWIPE_ROW,
-            text = "向左滑动记录可以移除，5 秒内可撤销",
-            active = removals.swipeable,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = Dimens.sectionGap),
-        )
-        key(removals.generation) {
-            val pending = removals.pending
-            ActionToast(
-                message = pending?.let { personalRemovalMessage(it.collection, it.media.title) },
-                onDismiss = removals::settle,
-                action = pending?.let { entry -> ToastAction("撤销") { removals.undo(entry) } },
-            )
+    val store =
+        rememberComposedPageStore(personal, account, playbackSync, serverSync, repo) {
+            PersonalCenterStoreFactory(
+                // The app's StoreFactory is this one; the television reaches the page without it.
+                storeFactory = DefaultStoreFactory(),
+                personal = personal,
+                sync = PersonalSync(account, playbackSync, serverSync),
+                repo = repo,
+            ).create()
         }
-    }
+    PersonalCenterScreen(
+        store = store,
+        servers = servers,
+        onBack = onBack,
+        onOpenMedia = onOpenMedia,
+        initialTab = initialTab,
+    )
 }
 
 @Composable
 private fun PersonalCenterPage(
-    personal: PersonalLibraryRepository,
-    account: AccountRepository,
-    playbackSync: PlaybackSyncManager,
-    serverSync: ServerSyncManager,
+    state: PersonalCenterState,
+    onIntent: (PersonalCenterIntent) -> Unit,
     servers: List<SavedServer>,
     onBack: () -> Unit,
     onOpenMedia: (PersonalMediaRef) -> Unit,
     initialTab: PersonalCenterTab,
-    repo: EmbyRepository?,
-    removals: PersonalRemovals,
+    onSwipeable: (Boolean) -> Unit,
 ) {
-    val state by personal.state.collectAsState()
-    val accountState by account.state.collectAsState()
-    val playbackState by playbackSync.state.collectAsState()
-    val serverState by serverSync.state.collectAsState()
-    val scope = rememberCoroutineScope()
-    val palette = LocalPalette.current
+    val library = state.library
+    val playbackState = state.playbackSync
+    val serverState = state.serverSync
     var tab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }
     var query by rememberSaveable { mutableStateOf("") }
-    var message by remember { mutableStateOf<String?>(null) }
-    // A failed action stays on the page in the error colour with 重试 beside it, instead of passing
-    // as a caption in the grey of the page's own notes. A dialog tells its own failure inside it.
-    var failure by remember { mutableStateOf<PersonalFailure?>(null) }
-    var dialogError by remember { mutableStateOf<String?>(null) }
-    var editing by remember { mutableStateOf<PersonalProfile?>(null) }
-    var showEditor by remember { mutableStateOf(false) }
-    var switching by remember { mutableStateOf<PersonalProfile?>(null) }
-    var showPin by remember { mutableStateOf(false) }
-    var busy by remember { mutableStateOf(false) }
-    // Both removals used to run on the first tap, and neither has a way back on this page.
-    var removingProfile by remember { mutableStateOf<PersonalProfile?>(null) }
-
-    fun attempt(action: suspend () -> Result<Any?>) {
-        scope.launch {
-            action()
-                .onSuccess { failure = null }
-                .onFailure { error ->
-                    message = null
-                    failure = PersonalFailure(error.message ?: PERSONAL_ACTION_FAILED) { attempt(action) }
-                }
-        }
-    }
 
     val contentTabs = listOf(PersonalCenterTab.WatchLater, PersonalCenterTab.Favorites, PersonalCenterTab.History)
     val contentPage = initialTab in contentTabs
     val entries =
         when (tab) {
-            PersonalCenterTab.Favorites -> state.favorites
-            PersonalCenterTab.History -> state.history
-            else -> state.watchLater
+            PersonalCenterTab.Favorites -> library.favorites
+            PersonalCenterTab.History -> library.history
+            else -> library.watchLater
         }
     // The record waiting on its 撤销 is already gone from the list.
-    val pendingIdentity = removals.pending?.identity
+    val pendingIdentity = state.pendingRemoval?.identity
     val visible =
         entries.filter { it.media.title.contains(query.trim(), ignoreCase = true) && it.identity != pendingIdentity }
     val swipeable = contentPage && tab in contentTabs && visible.isNotEmpty()
-    SideEffect { removals.swipeable = swipeable }
+    SideEffect { onSwipeable(swipeable) }
     SettingsPage(
         title = if (contentPage) "我的内容" else initialTab.label,
-        subtitle = state.activeProfile.name,
+        subtitle = library.activeProfile.name,
         onBack = onBack,
     ) {
         if (contentPage) {
@@ -207,21 +212,18 @@ private fun PersonalCenterPage(
                 }
             }
         }
-        message?.let { notice -> item { PersonalNotice(notice) } }
-        failure?.let { failed ->
+        state.message?.let { notice -> item { PersonalNotice(notice) } }
+        state.failure?.let { failed ->
             item {
                 ErrorState(
-                    message = failed.message,
-                    onRetry = {
-                        failure = null
-                        failed.retry()
-                    },
+                    message = failed,
+                    onRetry = { onIntent(PersonalCenterIntent.RetryFailure) },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
         // A failed 立即同步 also leaves its reason here; the card above already says it.
-        state.error?.takeIf { it != failure?.message }?.let { notice -> item { PersonalNotice(notice, error = true) } }
+        library.error?.takeIf { it != state.failure }?.let { notice -> item { PersonalNotice(notice, error = true) } }
         when (tab) {
             PersonalCenterTab.Profiles -> {
                 item { PersonalNotice("每份资料分别保存想看、收藏、观看历史和追剧。") }
@@ -231,38 +233,34 @@ private fun PersonalCenterPage(
                         SettingsCard {
                             SettingRow(
                                 "新建家庭资料",
-                                if (state.activeProfile.child) "请切换至成人资料" else "添加家庭成员",
+                                if (library.activeProfile.child) "请切换至成人资料" else "添加家庭成员",
                                 embedded = true,
                                 icon = AppIcons.User,
                                 onClick =
-                                    if (state.activeProfile.child ||
-                                        busy
+                                    if (library.activeProfile.child ||
+                                        state.busy
                                     ) {
                                         null
                                     } else {
                                         (
                                             {
-                                                editing = null
-                                                dialogError = null
-                                                showEditor = true
+                                                onIntent(PersonalCenterIntent.EditProfile(null))
                                             }
                                         )
                                     },
                             )
                             SettingsDivider()
                             SettingRow(
-                                if (state.hasGuardianPin) "修改家长 PIN" else "设置家长 PIN",
+                                if (library.hasGuardianPin) "修改家长 PIN" else "设置家长 PIN",
                                 "儿童资料与切换保护",
                                 embedded = true,
                                 onClick =
-                                    if (busy) {
+                                    if (state.busy) {
                                         null
                                     } else {
                                         (
                                             {
-                                                dialogError = null
-                                                showPin =
-                                                    true
+                                                onIntent(PersonalCenterIntent.EditGuardianPin)
                                             }
                                         )
                                     },
@@ -270,7 +268,7 @@ private fun PersonalCenterPage(
                         }
                     }
                 }
-                items(state.profiles, key = { it.id }) { profile ->
+                items(library.profiles, key = { it.id }) { profile ->
                     Section(title = profile.name + if (profile.child) " · 儿童" else " · 成人") {
                         SettingsCard {
                             SettingRow(
@@ -286,7 +284,7 @@ private fun PersonalCenterPage(
                             SettingRow(
                                 "当前资料",
                                 if (profile.id ==
-                                    state.activeProfile.id
+                                    library.activeProfile.id
                                 ) {
                                     "正在使用"
                                 } else {
@@ -295,35 +293,27 @@ private fun PersonalCenterPage(
                                 embedded = true,
                                 onClick =
                                     if (profile.id ==
-                                        state.activeProfile.id ||
-                                        busy
+                                        library.activeProfile.id ||
+                                        state.busy
                                     ) {
                                         null
                                     } else {
                                         (
                                             {
-                                                if (state.activeProfile.child) {
-                                                    dialogError = null
-                                                    switching = profile
-                                                } else {
-                                                    attempt { personal.switchProfile(profile.id) }
-                                                }
+                                                onIntent(PersonalCenterIntent.SwitchProfile(profile))
                                             }
                                         )
                                     },
                             )
-                            if (!state.activeProfile.child) {
+                            if (!library.activeProfile.child) {
                                 SettingsDivider()
                                 SettingRow("编辑资料", "名称、类型与服务器权限", embedded = true, onClick = {
-                                    editing = profile
-                                    dialogError = null
-                                    showEditor =
-                                        true
+                                    onIntent(PersonalCenterIntent.EditProfile(profile))
                                 })
-                                if (profile.id != DEFAULT_PERSONAL_PROFILE && profile.id != state.activeProfile.id) {
+                                if (profile.id != DEFAULT_PERSONAL_PROFILE && profile.id != library.activeProfile.id) {
                                     SettingsDivider()
                                     SettingRow("移除资料", "移除此家庭成员", embedded = true, onClick = {
-                                        removingProfile = profile
+                                        onIntent(PersonalCenterIntent.AskRemoveProfile(profile))
                                     })
                                 }
                             }
@@ -339,8 +329,8 @@ private fun PersonalCenterPage(
                                 SettingRow(
                                     "清单、历史与追剧",
                                     when {
-                                        state.syncing -> "正在同步…"
-                                        state.pendingSync -> "有本机更改待同步"
+                                        library.syncing -> "正在同步…"
+                                        library.pendingSync -> "有本机更改待同步"
                                         else -> "本机更改已同步"
                                     },
                                     embedded = true,
@@ -348,7 +338,7 @@ private fun PersonalCenterPage(
                                 SettingsDivider()
                                 SettingRow(
                                     "最近成功",
-                                    state.lastSyncedAtEpochMs?.let {
+                                    library.lastSyncedAtEpochMs?.let {
                                         java.time.Instant
                                             .ofEpochMilli(it)
                                             .toString()
@@ -359,22 +349,18 @@ private fun PersonalCenterPage(
                                 SettingsDivider()
                                 SettingRow(
                                     "立即同步",
-                                    if (accountState !is AccountState.SignedIn) "请先登录鱼服账号" else "合并个人数据并重试",
+                                    if (!state.signedIn) "请先登录鱼服账号" else "合并个人数据并重试",
                                     embedded = true,
                                     icon = AppIcons.Refresh,
                                     onClick =
-                                        if (accountState !is AccountState.SignedIn ||
-                                            state.syncing
+                                        if (!state.signedIn ||
+                                            library.syncing
                                         ) {
                                             null
                                         } else {
                                             (
                                                 {
-                                                    attempt {
-                                                        account
-                                                            .syncPersonalNow()
-                                                            .onSuccess { message = "个人数据已同步" }
-                                                    }
+                                                    onIntent(PersonalCenterIntent.SyncNow)
                                                 }
                                             )
                                         },
@@ -382,7 +368,7 @@ private fun PersonalCenterPage(
                             }
                         }
                     }
-                    item { PersonalNotice("个人数据加密合并，保留删除记录；服务器配置与设置备份仍需手动操作。") }
+                    item { PersonalNotice("个人内容自动加密合并，保留删除记录；服务器配置与设置备份仍需手动操作。") }
                     item {
                         Section(title = "播放进度") {
                             SettingsCard {
@@ -411,11 +397,15 @@ private fun PersonalCenterPage(
                                     icon = AppIcons.Refresh,
                                     onClick =
                                         if (playbackState.syncing ||
-                                            accountState !is AccountState.SignedIn
+                                            !state.signedIn
                                         ) {
                                             null
                                         } else {
-                                            playbackSync::refreshNow
+                                            (
+                                                {
+                                                    onIntent(PersonalCenterIntent.RefreshPlaybackSync)
+                                                }
+                                            )
                                         },
                                 )
                             }
@@ -431,7 +421,7 @@ private fun PersonalCenterPage(
                                 "待处理 " + serverState.pendingCount + " 项 · 冲突 " + serverState.conflicts.size + " 项",
                                 embedded = true,
                             )
-                            serverState.statuses.filter { personal.canAccessServer(it.serverId) }.forEach { status ->
+                            state.serverStatuses.forEach { status ->
                                 SettingsDivider()
                                 SettingRow(
                                     status.serverName,
@@ -441,18 +431,13 @@ private fun PersonalCenterPage(
                             }
                             SettingsDivider()
                             SettingRow("重试服务器同步", "重新提交待处理更改", embedded = true, icon = AppIcons.Refresh, onClick = {
-                                scope.launch { serverSync.syncAll(force = true) }
+                                onIntent(PersonalCenterIntent.RetryServerSync)
                             })
                         }
                     }
                 }
-                // `SettingsPage`'s content lambda is `LazyListScope.() -> Unit`, not @Composable,
-                // so this cannot be `remember`-cached.
-                // Still computed once per list build rather than once per row.
-                val visibleConflicts =
-                    serverState.conflicts.filter { personal.canAccessServer(it.mutation.serverId) }
                 items(
-                    visibleConflicts,
+                    state.serverConflicts,
                     key = { "${it.mutation.serverId}|${it.mutation.itemId}|${it.mutation.kind}" },
                     contentType = { "sync-conflict" },
                 ) { conflict ->
@@ -470,11 +455,11 @@ private fun PersonalCenterPage(
                             )
                             SettingsDivider()
                             SettingRow("保留本机", "使用当前资料的选择", embedded = true, onClick = {
-                                attempt { serverSync.resolveConflict(conflict, true) }
+                                onIntent(PersonalCenterIntent.ResolveConflict(conflict, keepLocal = true))
                             })
                             SettingsDivider()
                             SettingRow("采用服务器", "使用服务器的选择", embedded = true, onClick = {
-                                attempt { serverSync.resolveConflict(conflict, false) }
+                                onIntent(PersonalCenterIntent.ResolveConflict(conflict, keepLocal = false))
                             })
                         }
                     }
@@ -486,34 +471,22 @@ private fun PersonalCenterPage(
                         query = it
                     }, label = "搜索当前资料", modifier = Modifier.padding(horizontal = Dimens.pageHorizontal))
                 }
-                if (tab != PersonalCenterTab.History && repo != null) {
+                if (tab != PersonalCenterTab.History && state.canImport) {
                     item {
                         Section(title = "导入清单") {
                             SettingsCard {
                                 SettingRow(
                                     "从媒体服务器导入",
-                                    if (busy) "正在导入…" else "合并 Emby / Jellyfin 清单",
+                                    if (state.busy) "正在导入…" else "合并 Emby / Jellyfin 清单",
                                     embedded = true,
                                     icon = AppIcons.Server,
                                     onClick =
-                                        if (busy) {
+                                        if (state.busy) {
                                             null
                                         } else {
                                             (
                                                 {
-                                                    attempt {
-                                                        busy = true
-                                                        try {
-                                                            personal
-                                                                .importServerCollections(repo, servers)
-                                                                .onSuccess {
-                                                                    message =
-                                                                        "已导入 " + it + " 项，现有个人选择已保留"
-                                                                }
-                                                        } finally {
-                                                            busy = false
-                                                        }
-                                                    }
+                                                    onIntent(PersonalCenterIntent.ImportFromServers(servers))
                                                 }
                                             )
                                         },
@@ -541,7 +514,7 @@ private fun PersonalCenterPage(
                     PersonalEntryCard(
                         entry,
                         onOpen = { onOpenMedia(entry.media) },
-                        onRemove = { removals.remove(entry) },
+                        onRemove = { onIntent(PersonalCenterIntent.RemoveEntry(entry)) },
                     )
                 }
             }
@@ -549,110 +522,45 @@ private fun PersonalCenterPage(
     }
     // These close once the change has gone through; held in a presence they leave the way they
     // came instead of vanishing in a frame.
-    DialogPresence(if (showEditor) ProfileEditorTarget(editing) else null) { target ->
+    DialogPresence(state.editor) { target ->
         PersonalProfileEditor(
             profile = target.profile,
             servers = servers,
-            onDismiss = { showEditor = false },
-            error = dialogError,
+            onDismiss = { onIntent(PersonalCenterIntent.DismissEditor) },
+            error = state.dialogError,
         ) { name, child, ids ->
-            busy = true
-            dialogError = null
-            scope.launch {
-                try {
-                    personal
-                        .saveProfile(target.profile?.id, name, child, ids)
-                        .onSuccess { showEditor = false }
-                        .onFailure { dialogError = it.message ?: PERSONAL_ACTION_FAILED }
-                } finally {
-                    busy = false
-                }
-            }
+            onIntent(PersonalCenterIntent.SaveProfile(target.profile?.id, name, child, ids))
         }
     }
-    DialogPresence(switching) { profile ->
+    DialogPresence(state.switching) { profile ->
         PersonalPinDialog(
             title = "切换到 ${profile.name}",
             setting = false,
-            onDismiss = { switching = null },
-            error = dialogError,
+            onDismiss = { onIntent(PersonalCenterIntent.DismissSwitch) },
+            error = state.dialogError,
         ) { pin, _ ->
-            dialogError = null
-            scope.launch {
-                personal
-                    .switchProfile(profile.id, pin.toCharArray())
-                    .onSuccess { switching = null }
-                    .onFailure { dialogError = it.message ?: PERSONAL_ACTION_FAILED }
-            }
+            onIntent(PersonalCenterIntent.ConfirmSwitch(profile.id, pin))
         }
     }
-    DialogPresence(showPin.takeIf { it }) {
+    DialogPresence(state.settingPin.takeIf { it }) {
         PersonalPinDialog(
             title = "家长 PIN",
             setting = true,
-            onDismiss = { showPin = false },
-            error = dialogError,
+            onDismiss = { onIntent(PersonalCenterIntent.DismissGuardianPin) },
+            error = state.dialogError,
         ) { old, next ->
-            dialogError = null
-            scope.launch {
-                personal
-                    .setGuardianPin(next.toCharArray(), old.toCharArray())
-                    .onSuccess {
-                        showPin = false
-                        message = "家长 PIN 已保存"
-                    }.onFailure { dialogError = it.message ?: PERSONAL_ACTION_FAILED }
-            }
+            onIntent(PersonalCenterIntent.SaveGuardianPin(currentPin = old, newPin = next))
         }
     }
-    removingProfile?.let { profile ->
+    state.removingProfile?.let { profile ->
         ConfirmDialog(
             title = "移除家庭资料？",
             message = "“${profile.name}”的想看、收藏、观看历史和追剧会一并删除，不能撤销。",
             confirmLabel = "移除",
             destructive = true,
-            onConfirm = {
-                attempt { personal.deleteProfile(profile.id) }
-                removingProfile = null
-            },
-            onDismiss = { removingProfile = null },
+            onConfirm = { onIntent(PersonalCenterIntent.RemoveProfile(profile)) },
+            onDismiss = { onIntent(PersonalCenterIntent.KeepProfile) },
         )
-    }
-}
-
-/**
- * 移除记录, 先做，给 5 秒撤销 (see [UndoWindow]): a record leaves the list at once and the profile only
- * once its toast has gone. [pending] is the same change as state, so the list can hide its row.
- */
-@Stable
-private class PersonalRemovals(
-    private val personal: PersonalLibraryRepository,
-) {
-    private val window = UndoWindow<PersonalEntry>()
-
-    var pending by mutableStateOf<PersonalEntry?>(null)
-        private set
-
-    /** One more for every removal, so each gets a toast of its own even when two read alike. */
-    var generation by mutableIntStateOf(0)
-        private set
-
-    /** Whether the page has records a finger could swipe now; the tip waits for them. */
-    var swipeable by mutableStateOf(false)
-
-    fun remove(entry: PersonalEntry) {
-        window.hold(entry)?.let(personal::removeEntry)
-        pending = entry
-        generation++
-    }
-
-    fun undo(entry: PersonalEntry) {
-        if (window.undo { it.identity == entry.identity } != null) pending = null
-    }
-
-    /** The toast left — timed out, swiped away, the app or the page gone: the record goes now. */
-    fun settle() {
-        window.release()?.let(personal::removeEntry)
-        pending = null
     }
 }
 
@@ -666,28 +574,6 @@ internal fun personalRemovalMessage(
         PersonalCollection.Favorite -> "已从收藏移除「$title」"
         PersonalCollection.History -> "已移除「$title」的观看记录"
     }
-
-/** The one call that takes [entry] out of the active profile; a failure lands in the repository's error. */
-private fun PersonalLibraryRepository.removeEntry(entry: PersonalEntry) {
-    when (entry.collection) {
-        PersonalCollection.Favorite -> setFavorite(entry.media, false)
-        PersonalCollection.WatchLater -> setWatchLater(entry.media, false)
-        PersonalCollection.History -> removeHistory(entry.media)
-    }
-}
-
-/** A page action that did not go through, and the same action to run again. */
-private class PersonalFailure(
-    val message: String,
-    val retry: () -> Unit,
-)
-
-/** Whose profile the editor is open on; a null [profile] is a new one. */
-private data class ProfileEditorTarget(
-    val profile: PersonalProfile?,
-)
-
-private const val PERSONAL_ACTION_FAILED = "操作没有完成，请重试"
 
 /**
  * Human copy for a sync conflict's two sides, phrased for what [kind] actually is — the
@@ -732,6 +618,7 @@ private fun PersonalEntryCard(
 ) {
     SwipeActionsRow(
         modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+        tipId = Tips.SWIPE_ROW_HISTORY,
         trailing =
             ItemAction(
                 label = "移除",

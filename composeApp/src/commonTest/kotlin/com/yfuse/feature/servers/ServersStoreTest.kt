@@ -10,9 +10,11 @@ import com.yfuse.core.data.AuthedServer
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.network.LocalNetworkPermissionRequiredException
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.security.TestSecureStore
 import com.yfuse.feature.authRoutes
+import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -689,7 +691,7 @@ class ServersStoreTest {
             store.accept(ServersIntent.StartQuickConnect)
 
             assertEquals(
-                QuickConnectUiState.Unsupported(QuickConnectUnsupportedMessage),
+                QuickConnectUiState.Unsupported(QUICK_CONNECT_UNSUPPORTED_MESSAGE),
                 store.state.quickConnect,
             )
             assertTrue(
@@ -760,6 +762,96 @@ class ServersStoreTest {
                 registry.data.value.servers
                     .single()
                     .baseUrl,
+            )
+            store.dispose()
+        }
+
+    /** A session a phone hands over on 用手机登录, as the television turns it back into a sign-in. */
+    private val handed =
+        AuthedServer(
+            baseUrl = "http://192.168.1.8:8096",
+            serverName = "家里的 Emby",
+            userId = "u1",
+            userName = "alice",
+            accessToken = "handed-token",
+            kind = MediaServerKind.Emby,
+        )
+
+    @Test
+    fun a_session_a_phone_handed_over_is_checked_with_its_server_and_saved_like_a_sign_in() =
+        runTest {
+            val registry = testRegistry()
+            val presented = mutableListOf<String?>()
+            val store =
+                store(registry) { request ->
+                    presented += request.headers["X-Emby-Token"]
+                    json("{}")
+                }
+            store.accept(ServersIntent.OpenAddDialog)
+
+            store.labels.test {
+                store.accept(ServersIntent.SignInWithSession(handed))
+                assertEquals(ServersLabel.SessionHandedOver(saved = true), awaitItem())
+                assertEquals(ServersLabel.ServerAdded(first = true), awaitItem())
+                cancelAndConsumeRemainingEvents()
+            }
+
+            // The server took the session before it was kept, and nothing asked for a password.
+            assertEquals(listOf<String?>("handed-token"), presented)
+            val saved =
+                registry.data.value.servers
+                    .single()
+            assertEquals(SavedServer.idOf("http://192.168.1.8:8096", "u1"), saved.id)
+            assertEquals("handed-token", saved.accessToken)
+            assertEquals("家里的 Emby", saved.serverName)
+            assertEquals("已连接「家里的 Emby」", store.state.notice)
+            assertFalse(store.state.dialogVisible)
+            store.dispose()
+        }
+
+    @Test
+    fun a_handed_session_its_server_refuses_is_not_kept_and_the_phone_hears_so() =
+        runTest {
+            val registry = testRegistry()
+            val store = store(registry) { respond("", HttpStatusCode.Unauthorized) }
+            store.accept(ServersIntent.OpenAddDialog)
+
+            store.labels.test {
+                store.accept(ServersIntent.SignInWithSession(handed))
+                assertEquals(ServersLabel.SessionHandedOver(saved = false), awaitItem())
+                cancelAndConsumeRemainingEvents()
+            }
+
+            assertTrue(
+                registry.data.value.servers
+                    .isEmpty(),
+            )
+            assertTrue(store.state.dialogVisible)
+            assertFalse(store.state.form.submitting)
+            assertTrue(store.state.form.error != null)
+            store.dispose()
+        }
+
+    @Test
+    fun only_the_add_form_takes_a_handed_session_and_a_refused_lan_is_answered_at_once() =
+        runTest {
+            val registry = testRegistry()
+            val store = store(registry) { error("nothing may be asked of a server here") }
+
+            store.labels.test {
+                // With no form open, nothing is kept — and the phone is not left waiting.
+                store.accept(ServersIntent.SignInWithSession(handed))
+                assertEquals(ServersLabel.SessionHandedOver(saved = false), awaitItem())
+                store.accept(ServersIntent.OpenAddDialog)
+                store.accept(ServersIntent.SignInWithSession(handed, localNetworkDenied = true))
+                assertEquals(ServersLabel.SessionHandedOver(saved = false), awaitItem())
+                cancelAndConsumeRemainingEvents()
+            }
+
+            assertEquals(LocalNetworkPermissionRequiredException().message, store.state.form.error)
+            assertTrue(
+                registry.data.value.servers
+                    .isEmpty(),
             )
             store.dispose()
         }

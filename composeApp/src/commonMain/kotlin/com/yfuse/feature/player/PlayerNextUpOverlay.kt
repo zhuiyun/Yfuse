@@ -9,6 +9,19 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 
 /**
+ * Whether the 下一集 card is up: the last [nextUpWindowMs] of an item with another after it,
+ * unless 取消 put it away. The remote's OK reads the same answer (TvPlayerPrompt.NextUp).
+ */
+internal fun nextUpCardVisible(
+    state: PlaybackState,
+    dismissed: Boolean,
+): Boolean =
+    state.hasNext &&
+        state.durationMs > 0L &&
+        !dismissed &&
+        (state.durationMs - state.positionMs) in 1L..nextUpWindowMs(state.durationMs)
+
+/**
  * The countdown owns its live timeline subscription, separately from gesture and menu state.
  *
  * Everything the card draws is derived from the playhead, so reading `playback.value` in this
@@ -30,13 +43,7 @@ internal fun PlayerNextUpOverlay(
     autoAdvance: Boolean = true,
 ) {
     val showNextUp by remember(playback, dismissed) {
-        derivedStateOf {
-            val state = playback.value
-            state.hasNext &&
-                state.durationMs > 0L &&
-                !dismissed &&
-                (state.durationMs - state.positionMs) in 1L..NEXT_UP_WINDOW_MS
-        }
+        derivedStateOf { nextUpCardVisible(playback.value, dismissed) }
     }
     ChromeVisibility(
         visible = showNextUp,
@@ -83,7 +90,7 @@ private fun NextUpContent(
                 if (
                     latestActive &&
                     current.currentIndex == latestIndex &&
-                    current.remainingMs in 1L..NEXT_UP_WINDOW_MS
+                    current.remainingMs in 1L..nextUpWindowMs(current.durationMs)
                 ) {
                     latestOnPlayNow()
                 }
@@ -94,7 +101,8 @@ private fun NextUpContent(
             { if (latestActive && playback.value.currentIndex == latestIndex) latestOnDismiss() }
         }
     val title = episodes.getOrNull(currentIndex + 1)?.title.orEmpty()
-    val remainingMs = (state.durationMs - state.positionMs).coerceIn(0L, NEXT_UP_WINDOW_MS)
+    val windowMs = nextUpWindowMs(state.durationMs)
+    val remainingMs = (state.durationMs - state.positionMs).coerceIn(0L, windowMs)
     val countdown = nextUpCountdownLabel(autoAdvance, remainingMs, state.speed)
     if (countdown == null) {
         NextUpKey(title = title, onPlayNow = playNow)
@@ -112,6 +120,7 @@ private fun NextUpContent(
             speed = state.speed,
             onPlayNow = playNow,
             onDismiss = dismiss,
+            windowMs = windowMs,
         )
     }
 }

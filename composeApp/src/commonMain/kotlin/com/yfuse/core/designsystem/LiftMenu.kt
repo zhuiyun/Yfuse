@@ -77,8 +77,8 @@ class LiftMenu(
 /**
  * 按住拖看 — YouTube's thumbnail preview on a lifted card. While the finger that lifted it slides
  * sideways across the card, the card shows the frame for how far across it is: the left edge is
- * the start, the right edge the end. Letting go on the card still opens the title; sliding down
- * onto the rows still picks one.
+ * the start, the right edge the end. It is only a preview: letting go on the card after scrubbing
+ * opens nothing, and the menu stays up to be tapped. Sliding down onto the rows still picks one.
  *
  * The frames usually arrive after the lift — an episode's are fetched when its card is held — so
  * [frameCount] is snapshot state, read afresh on every move: 0 while they load, or when there are
@@ -374,8 +374,11 @@ class LiftMenuState {
     }
 }
 
-/** How a lift leaves: back into its poster, or away with the page it opened. */
-internal enum class LiftExit { None, SettleBack, FadeAway }
+/**
+ * How a lift leaves: back into its poster, away with the page it opened, or as that page — the
+ * card growing into its hero (一镜到底, see [LiftExpansion]).
+ */
+internal enum class LiftExit { None, SettleBack, FadeAway, Expand }
 
 @Stable
 internal class LiftSession(
@@ -429,6 +432,9 @@ internal class LiftSession(
     private val origin = finger
     private var steering = false
 
+    /** The finger has once been a whole row from where the lift began; see [slideReaches]. */
+    private var rowsArmed = false
+
     /** The finger has gone sideways past the dead zone once; from then on the card follows it. */
     private var scrubbing = false
 
@@ -447,9 +453,9 @@ internal class LiftSession(
 
     /**
      * The finger moved. Nothing is hit until it has travelled [slop] from where the lift began —
-     * the card lands under a still finger, and a tremor must not turn letting go into 打开.
-     * Returns true when the finger arrived on something new, or scrubbed the card on to another
-     * frame, which is what earns a tick.
+     * the card lands under a still finger, and a tremor must not turn letting go into 打开 — and no
+     * row until it has travelled a whole row (see [slideReaches]). Returns true when the finger
+     * arrived on something new, or scrubbed the card on to another frame, which is what earns a tick.
      */
     fun steer(
         finger: Offset,
@@ -462,12 +468,27 @@ internal class LiftSession(
             steering = true
         }
         val laid = placement ?: return false
-        val next = liftHitAt(finger, laid, sectionSizes, rowHeight, separatorHeight, padding)
+        if (!rowsArmed) {
+            val start = origin ?: finger
+            rowsArmed = (finger - start).getDistance() >= maxOf(rowHeight, slop)
+        }
+        val found = liftHitAt(finger, laid, sectionSizes, rowHeight, separatorHeight, padding)
+        val next = if (found is LiftHit.Row && !slideReaches(found.index)) LiftHit.None else found
         val scrubbed = scrubAlong(finger, next, laid.card, slop)
         if (next == hot) return scrubbed
         hot = next
         return next != LiftHit.None
     }
+
+    /**
+     * Whether the sliding finger may land on row [index] and run it by letting go.
+     *
+     * Not before it has once been a whole row away from where the lift began: a poster low on the
+     * screen lifts with its menu right under the finger, and a drift past the touch slop — some 8 dp
+     * — used to pick whatever row it rested on. Never a destructive row: letting go can happen by
+     * itself, so those take a tap on the menu, which stays up.
+     */
+    private fun slideReaches(index: Int): Boolean = rowsArmed && menu.actions.getOrNull(index)?.destructive != true
 
     /**
      * 按住拖看: over the card, once the finger has gone sideways past [deadZone], the card shows the
@@ -510,6 +531,9 @@ internal class LiftSession(
     /** The lifting finger came up: run what it was over, or stay up to be tapped. */
     fun release() {
         if (!holding || abandoned) return
+        // A finger that scrubbed was looking, not choosing (按住拖看 only previews): the card goes
+        // back to its artwork and waits to be tapped, as after letting go over nothing.
+        if (scrubbing && hot == LiftHit.Card) return stopHolding()
         holding = false
         when (val target = hot) {
             LiftHit.Card -> open()
@@ -547,16 +571,40 @@ internal class LiftSession(
         open()
     }
 
+    /** 一镜到底: the page this card is opening into, once [open] has named one. */
+    var expansion by mutableStateOf<LiftExpansion?>(null)
+        private set
+
+    /**
+     * The title just opened is [key]'s page, and the card can carry it there: it grows into the
+     * page's hero instead of fading where it is. [velocity] is the finger's as it let go, in pixels
+     * a second. Asked by the poster, from inside [open].
+     */
+    fun expandInto(
+        key: MediaSharedElementKey,
+        velocity: Offset,
+    ) {
+        if (abandoned || exit != LiftExit.FadeAway || menu.anchored) return
+        // A scrubbed frame is not the page's picture; the card flies as the title's own art.
+        scrubFrame = -1
+        expansion = LiftExpansion(key, velocity)
+        exit = LiftExit.Expand
+    }
+
     fun dismiss() {
         if (exit != LiftExit.None) return
         holding = false
         exit = if (sourceAttached) LiftExit.SettleBack else LiftExit.FadeAway
     }
 
-    /** The pressed poster left the page — a refresh, a removal. Nothing to settle back into now. */
+    /**
+     * The pressed poster left the page — a refresh, a removal. Nothing to settle back into now,
+     * and its finger's stream went with it: the hold ends as a taken stream does, highlight and
+     * preview included.
+     */
     fun sourceDetached() {
         sourceAttached = false
-        holding = false
+        stopHolding()
     }
 
     /** Called by the host once the exit has played: the poster shows again, then the action runs. */

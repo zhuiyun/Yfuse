@@ -19,13 +19,14 @@ BACKEND_OWNERS = (
     'core/handoff/HandoffApi.kt',
     'core/migration/MigrationRelayApi.kt',
     'core/sync/WatchTogetherClient.kt',
-    'core/remote/KtorRemoteRelay.kt',
+    'core/remote/',
+    'core/network/TmdbRouting.kt',
     'core/playback/PlaybackQoeReporter.kt',
     'core/data/OfficialAiringScheduleCatalog.kt',
     'feature/player/PlaybackRemotePolicyRegistry.kt',
     'update/AppUpdateManager.kt',
 )
-OWNED_API_ROUTE = re.compile(r'/api/v1/(?:account(?:[/"\s]|$)|auth/|migration-relays(?:[/"\s]|$)|calendar/schedules|qoe(?:["\s]|$))')
+OWNED_API_ROUTE = re.compile(r'/api/v1/(?:account(?:[/"\s]|$)|auth/|migration-relays(?:[/"\s]|$)|calendar/schedules|tmdb(?:[/"\s]|$)|qoe(?:["\s]|$))')
 DEPLOYMENT_ARTIFACT = re.compile(r'/yfuse/(?:update-v2|playback-policy-v1)\.json')
 NETWORK_IMPORT = re.compile(
     r'^\s*import\s+(?:io\.ktor\.client\.request\.(?:get|post|put|delete|patch|head|request|prepare\w+)|'

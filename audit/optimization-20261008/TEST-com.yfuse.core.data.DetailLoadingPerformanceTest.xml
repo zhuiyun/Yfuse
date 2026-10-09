@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.DetailLoadingPerformanceTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-08T09:43:11.307Z" hostname="&lt;REDACTED_HOST&gt;" time="0.328">
+  <properties/>
+  <testcase name="failed_source_cools_down_but_explicit_retry_and_changed_credentials_can_retry" classname="com.yfuse.core.data.DetailLoadingPerformanceTest" time="0.241"/>
+  <testcase name="playback_directory_still_requests_chapters_and_is_separate_from_the_lightweight_cache" classname="com.yfuse.core.data.DetailLoadingPerformanceTest" time="0.04"/>
+  <testcase name="lightweight_detail_does_not_poison_the_playback_metadata_cache" classname="com.yfuse.core.data.DetailLoadingPerformanceTest" time="0.005"/>
+  <testcase name="only_full_detail_snapshots_are_painted_and_accounts_never_share_them" classname="com.yfuse.core.data.DetailLoadingPerformanceTest" time="0.005"/>
+  <testcase name="source_cooldown_expires_without_being_extended_by_reads" classname="com.yfuse.core.data.DetailLoadingPerformanceTest" time="0.0"/>
+  <testcase name="lightweight_episode_directory_is_shared_but_local_selection_is_recomputed" classname="com.yfuse.core.data.DetailLoadingPerformanceTest" time="0.024"/>
+  <testcase name="source_comparison_publishes_fast_results_before_slow_servers_finish" classname="com.yfuse.core.data.DetailLoadingPerformanceTest" time="0.01"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+]]></system-err>
+</testsuite>

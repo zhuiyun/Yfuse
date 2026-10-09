@@ -258,9 +258,12 @@ internal fun validateCalendarPublication(publication: CalendarPublication) {
         require(runCatching { OffsetDateTime.parse(schedule.updatedAt) }.isSuccess)
         require(schedule.authority in setOf("Official", "Verified", "Estimated"))
         require(
-            schedule.authority == "Official" && schedule.confidence in 80..100 ||
-                schedule.authority == "Verified" && schedule.confidence in 80..89 ||
-                schedule.authority == "Estimated" && schedule.confidence in 60..79,
+            schedule.authority == "Official" &&
+                schedule.confidence in 80..100 ||
+                schedule.authority == "Verified" &&
+                schedule.confidence in 80..89 ||
+                schedule.authority == "Estimated" &&
+                schedule.confidence in 60..79,
         )
         require(schedule.evidence.size <= 20)
         require(schedule.evidence.isNotEmpty())
@@ -289,7 +292,10 @@ internal fun validateCalendarPublication(publication: CalendarPublication) {
                     runCatching { LocalDate.parse(it.airDate) }.isSuccess &&
                     (it.releaseAtUtc == null) == (it.releaseAtBeijing == null) &&
                     it.releaseAtUtc?.let { timestamp -> runCatching { Instant.parse(timestamp) }.isSuccess } != false &&
-                    it.releaseAtBeijing?.let { timestamp -> runCatching { OffsetDateTime.parse(timestamp) }.isSuccess } != false
+                    it.releaseAtBeijing?.let { timestamp ->
+                        runCatching { OffsetDateTime.parse(timestamp) }.isSuccess
+                    } !=
+                    false
             },
         )
         require(

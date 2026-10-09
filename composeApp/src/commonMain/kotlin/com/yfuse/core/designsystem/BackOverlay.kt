@@ -11,6 +11,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -37,6 +38,18 @@ fun BackOverlay(
     var progress by remember { mutableFloatStateOf(0f) }
     val overlayShape = remember { RoundedCornerShape(16.dp) }
     val settling = remember { arrayOfNulls<Job>(1) }
+    val settleBack = {
+        settling[0]?.cancel()
+        settling[0] =
+            scope.launch {
+                if (reduceMotion) {
+                    progress = 0f
+                } else {
+                    animate(progress, 0f, animationSpec = Motion.settle()) { value, _ -> progress = value }
+                }
+            }
+    }
+    var committedBacks by remember { mutableIntStateOf(0) }
     PlatformPredictiveBackHandler(
         enabled = enabled,
         onProgress = {
@@ -46,19 +59,24 @@ fun BackOverlay(
         onBack = {
             settling[0]?.cancel()
             currentBack()
+            committedBacks++
         },
-        onCancel = {
-            settling[0]?.cancel()
-            settling[0] =
-                scope.launch {
-                    if (reduceMotion) {
-                        progress = 0f
-                    } else {
-                        animate(progress, 0f, animationSpec = Motion.settle()) { value, _ -> progress = value }
-                    }
-                }
-        },
+        onCancel = settleBack,
     )
+    // A committed back leaves the overlay where the finger let go, for the host's exit to carry on
+    // from. A host that kept it instead — a step back inside it, a question asked first — gets it
+    // whole again, as after a cancelled gesture.
+    LaunchedEffect(committedBacks) { if (committedBacks > 0 && enabled) settleBack() }
+    // Brought back while it was still leaving, it is a new showing: the gesture that sent it away
+    // is over, and the panel must not come back still leaning away from it.
+    val wasEnabled = remember { booleanArrayOf(enabled) }
+    SideEffect {
+        if (enabled && !wasEnabled[0]) {
+            settling[0]?.cancel()
+            progress = 0f
+        }
+        wasEnabled[0] = enabled
+    }
     Box(
         modifier.fillMaxSize().graphicsLayer {
             val p = if (reduceMotion) 0f else progress.coerceIn(0f, 1f)
@@ -79,14 +97,16 @@ fun BackOverlay(
  *
  * Shown while [value] is non-null. When it turns null the page keeps drawing the last value while
  * it leaves, so a predictive back released at 0.9 carries on from there rather than cutting away.
- * [content] must draw from the value it is handed, not from the owner's state.
+ * [content] must draw from the value it is handed, not from the owner's state. While it leaves it
+ * takes no touch and the screen reader no longer finds it.
  *
  * It goes back the way a page from a poster does (跟手返回): pulled down from its top, or swiped
  * from the side, it follows the finger, and let go past the point of no return it flies back into
  * [source] — the shelf or rail it was opened from — or, with none on screen, leaves the ordinary way.
  *
  * The page underneath is still composed; stop anything there that moves on its own — a carousel's
- * auto-advance — while this is up.
+ * auto-advance — while this is up, and hide it from the screen reader, which otherwise still walks
+ * through it under this page.
  */
 @Composable
 fun <T : Any> OverlayPage(

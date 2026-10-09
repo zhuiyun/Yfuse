@@ -70,16 +70,21 @@ val verifyDesignSystemUsage by tasks.registering {
     group = "verification"
     description = "Rejects raw UI typography, radii, fixed functional colours, and motion off the house curve."
     val designSources =
-        fileTree("src/commonMain/kotlin/com/yfuse") {
-            include("app/App.kt", "core/designsystem/**/*.kt", "feature/**/*.kt")
-            // These files define the low-level primitives or scale type from runtime geometry.
-            exclude(
-                "core/designsystem/ContinuousCorner.kt",
-                "core/designsystem/SemanticTypography.kt",
-                "core/designsystem/Tokens.kt",
-                "core/designsystem/WatchAvatar.kt",
-            )
-        }
+        files(
+            fileTree("src/commonMain/kotlin/com/yfuse") {
+                include("app/App.kt", "core/designsystem/**/*.kt", "feature/**/*.kt")
+                // These files define the low-level primitives or scale type from runtime geometry.
+                exclude(
+                    "core/designsystem/ContinuousCorner.kt",
+                    "core/designsystem/SemanticTypography.kt",
+                    "core/designsystem/Tokens.kt",
+                    "core/designsystem/WatchAvatar.kt",
+                )
+            },
+            // The television's screens draw with the same tokens, so they answer to the same rules
+            // rather than drifting on their own.
+            fileTree(rootProject.file("tvApp/src/androidMain/kotlin")) { include("**/*.kt") },
+        )
     // Motion is checked wherever it is written: shared code, Android code, and the television.
     val motionSources =
         files(
@@ -185,7 +190,7 @@ val verifyDesignSystemUsage by tasks.registering {
                             if (
                                 !(label == "fixed interactive brand colour" && explicitlyBrandIdentity)
                             ) {
-                                add("${source.relativeTo(projectDir)}:$lineNumber: $label")
+                                add("${source.relativeTo(rootDir)}:$lineNumber: $label")
                             }
                         }
                     }
@@ -331,7 +336,6 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
             "ffmpeg=b79d4c4c0a160fc46988e98505af6039a53ad53e",
             "ycore-demux=true",
             "ycore-demux-ffmpeg=b79d4c4c0a160fc46988e98505af6039a53ad53e",
-            "ycore-software-decoder-api=2",
             "ycore-tone-map-source=scripts/native/ycore_tone_map.h",
             "ycore-libass=0.17.4",
             "ycore-libass-api=2",
@@ -341,7 +345,6 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
             "ycore-demux-extradata-budget=32MiB-codec-32MiB-font-128-fonts",
             "ycore-disc-api=2",
             "ycore-bdmv-vfs=read-only-saf",
-            "ycore-gpu-api=2",
             "ycore-gpu-source=scripts/native/ycore_vulkan_jni.cpp",
             "ycore-gpu-renderer-source=scripts/native/ycore_vulkan_renderer.cpp",
             "ycore-gpu-vertex-shader=scripts/native/shaders/ycore_fullscreen.vert",
@@ -356,6 +359,15 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
             "ycore-native-forbidden=libmpv.so,libplayer.so,libmdk.so",
         ).forEach { marker ->
             require(marker in provenance) { "Standalone YCore provenance is missing $marker" }
+        }
+        // API 2 libraries (BGRA frames) stay installable: the Kotlin bridge reads the version at
+        // runtime and swaps their channels while drawing.
+        require(Regex("(?m)^ycore-software-decoder-api=[234]$").containsMatchIn(provenance)) {
+            "Standalone YCore provenance is missing ycore-software-decoder-api=2, 3 or 4"
+        }
+        // GPU API 2 executors stay usable; the bridge enables API 3 additions by version.
+        require(Regex("(?m)^ycore-gpu-api=[23]$").containsMatchIn(provenance)) {
+            "Standalone YCore provenance is missing ycore-gpu-api=2 or 3"
         }
         ZipFile(aarFile).use { archive ->
             require(archive.getEntry("jni/arm64-v8a/libycore_demux.so") != null) {
@@ -435,7 +447,6 @@ val verifyYCoreGpuCompanionArtifact by tasks.registering {
 
         val provenance = sourcesFile.readText()
         listOf(
-            "ycore-gpu-api=2",
             "ycore-gpu-source=scripts/native/ycore_vulkan_jni.cpp",
             "ycore-gpu-renderer-source=scripts/native/ycore_vulkan_renderer.cpp",
             "ycore-gpu-entry=libycore_gpu.so",
@@ -443,6 +454,9 @@ val verifyYCoreGpuCompanionArtifact by tasks.registering {
             require(marker in provenance) {
                 "YCore GPU companion provenance is missing $marker"
             }
+        }
+        require(Regex("(?m)^ycore-gpu-api=[23]$").containsMatchIn(provenance)) {
+            "YCore GPU companion provenance is missing ycore-gpu-api=2 or 3"
         }
         ZipFile(aarFile).use { archive ->
             require(archive.getEntry("jni/arm64-v8a/libycore_gpu.so") != null) {
@@ -826,6 +840,16 @@ if (signDeviceTestsWithReleaseKey) {
     }
 }
 
+// Passed by the quality gate's lint step; see the lint block below.
+val lintSharedCode =
+    providers.gradleProperty("yfuseLintSharedCode").orNull?.let { raw ->
+        when (raw.trim().lowercase()) {
+            "", "true" -> true
+            "false" -> false
+            else -> error("yfuseLintSharedCode must be omitted, true, or false")
+        }
+    } ?: false
+
 val versionFile = rootProject.file("version.properties")
 val versionProperties =
     Properties().apply {
@@ -1000,12 +1024,16 @@ android {
 
     sourceSets {
 
+        // AGP reads baseline-prof.txt from beside the main manifest, so the Baseline profile
+        // workflow's rules live in src/androidMain/ (not src/main/, where AGP never looked) and are
+        // compiled into non-debuggable APKs for ProfileInstaller.
         getByName("main") {
             manifest.srcFile("src/androidMain/AndroidManifest.xml")
             assets.directories += "src/androidMain/assets"
         }
         getByName("androidTest") {
             kotlin.directories += "src/androidInstrumentedTest/kotlin"
+            assets.directories += "src/androidInstrumentedTest/assets"
         }
         listOf("benchmark", "profile").forEach { variant ->
             getByName(variant) {
@@ -1023,6 +1051,21 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+    }
+
+    lint {
+        lintConfig = rootProject.file("lint.xml")
+        textReport = true
+        // This shell compiles one Application class; the product code is compiled by :phoneShared
+        // from composeApp/src, so lint of the shell alone reads almost nothing that ships. With the
+        // property, lintDebug also analyses its project dependencies, and the findings that code
+        // already had live in the committed baseline: only new ones fail. It is opt-in because that
+        // analysis reads ~240k lines inside the Gradle daemon, which the release workflows' lint
+        // (sized for the shell) and every release build's lintVital should not inherit.
+        if (lintSharedCode) {
+            checkDependencies = true
+            baseline = rootProject.file("config/lint/composeApp-baseline.xml")
+        }
     }
 
     packaging {

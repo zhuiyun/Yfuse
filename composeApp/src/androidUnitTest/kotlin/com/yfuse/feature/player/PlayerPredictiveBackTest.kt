@@ -85,9 +85,9 @@ class PlayerPredictiveBackTest {
                 val clock = TestTimeSource()
                 val state = PlayerTransitionState(launch(clock), this)
                 state.markReady()
-                state.tick(handsOverLate = false)
+                state.tick(handsOverLate = false, frameMs = 0f)
                 clock += 10_000.milliseconds
-                state.tick(handsOverLate = false)
+                state.tick(handsOverLate = false, frameMs = 0f)
                 state.snapshotSource = { frame() }
                 state.onBackProgress(1f)
                 runCurrent()
@@ -97,13 +97,13 @@ class PlayerPredictiveBackTest {
                 while (elapsed < 100) {
                     val step = minOf(frameMillis, 100 - elapsed)
                     clock += step.milliseconds
-                    state.tick(handsOverLate = false)
+                    state.tick(handsOverLate = false, frameMs = step.toFloat())
                     elapsed += step
                 }
                 assertEquals(0.85f - 100f / 220f, state.backProgress, absoluteTolerance = 0.0001f)
 
                 clock += 200.milliseconds
-                state.tick(handsOverLate = false)
+                state.tick(handsOverLate = false, frameMs = 200f)
                 assertEquals(0f, state.backProgress)
                 assertEquals(1f, state.chromeAlpha())
                 assertNull(state.exitFrame)
@@ -123,7 +123,7 @@ class PlayerPredictiveBackTest {
             assertTrue(state.finished)
             assertEquals(1, finishes)
             state.disable()
-            state.tick(handsOverLate = false)
+            state.tick(handsOverLate = false, frameMs = 0f)
             assertEquals(1, finishes)
         }
 
@@ -140,8 +140,59 @@ class PlayerPredictiveBackTest {
             assertTrue(state.exitAt != null)
 
             clock += 10_000.milliseconds
-            state.tick(handsOverLate = false)
+            state.tick(handsOverLate = false, frameMs = 0f)
             assertEquals(1, finishes)
+        }
+
+    @Test
+    fun restartingBackKeepsTheReturningFrameUntilTheCurrentCaptureArrives() =
+        runTest {
+            val state = PlayerTransitionState(launch(TestTimeSource()), this)
+            val oldFrame = frame()
+            val currentFrame = frame()
+            val nextCapture = CompletableDeferred<Unit>()
+            var captures = 0
+            state.snapshotSource = {
+                if (++captures == 1) {
+                    oldFrame
+                } else {
+                    nextCapture.await()
+                    currentFrame
+                }
+            }
+
+            state.onBackProgress(0.5f)
+            runCurrent()
+            state.onBackCancel()
+            state.onBackProgress(0.2f)
+            runCurrent()
+            assertEquals(2, captures)
+            assertSame(oldFrame, state.exitFrame)
+
+            nextCapture.complete(Unit)
+            runCurrent()
+            assertSame(currentFrame, state.exitFrame)
+        }
+
+    @Test
+    fun buttonExitAfterCancellingBackCapturesTheCurrentVideoFrame() =
+        runTest {
+            val state = PlayerTransitionState(launch(TestTimeSource()), this)
+            val oldFrame = frame()
+            val currentFrame = frame()
+            var captures = 0
+            state.snapshotSource = { if (++captures == 1) oldFrame else currentFrame }
+
+            state.onBackProgress(0.5f)
+            runCurrent()
+            state.onBackCancel()
+            assertSame(oldFrame, state.exitFrame)
+            assertTrue(state.requestExit {})
+            runCurrent()
+
+            assertEquals(2, captures)
+            assertSame(currentFrame, state.exitFrame)
+            assertTrue(state.exitAt != null)
         }
 
     private fun launch(clock: TestTimeSource): HandoffLaunch =

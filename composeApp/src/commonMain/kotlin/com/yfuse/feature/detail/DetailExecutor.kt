@@ -23,9 +23,9 @@ import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.watchKey
+import com.yfuse.core.util.LatestWins
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -58,27 +58,23 @@ internal class DetailExecutor(
         mainContext,
     ) {
     /** Only one cross-server resolution may own the pending UI state at a time. */
-    private var sourceSelectionJob: Job? = null
-    private var sourceSelectionOperation = 0L
+    private val sourceSelection = LatestWins(scope)
 
     /** Prevents an older episode response from committing after a newer selection flow. */
-    private var episodeSelectionOperation = 0L
-    private var episodeSelectionJob: Job? = null
-    private var initialCatalogOperation = 0L
-    private var initialCatalogJob: Job? = null
+    private val episodeSelection = LatestWins(scope)
+    private val initialCatalog = LatestWins(scope)
     private var pendingSourceServerId: String? = null
     private var pendingSourceItemId: String? = null
     private var playWhenSelectionReady = false
     private var playFromStartWhenSelectionReady = false
-    private var sourceLoadGeneration = 0L
-    private var sourceLoadJob: Job? = null
-    private var relatedLoadGeneration = 0L
-    private var relatedLoadJob: Job? = null
-    private var detailLoadGeneration = 0L
-    private var detailLoadJob: Job? = null
-    private var playbackSelectionLoadJob: Job? = null
+    private val sourceLoad = LatestWins(scope)
+    private val relatedLoad = LatestWins(scope)
+
+    /** The page's own load. Its ticket is the page's: what is loaded for the page checks it too. */
+    private val detailLoad = LatestWins(scope)
+    private val playbackSelectionLoad = LatestWins(scope)
     private var initialPlaybackResolution: Deferred<Result<ResolvedPlaybackSelection>>? = null
-    private var initialPlaybackResolutionGeneration = 0L
+    private var initialPlaybackResolutionPage = detailLoad.current
     private var detailLoadStarted = TimeSource.Monotonic.markNow()
 
     private fun detailStage(
@@ -88,23 +84,22 @@ internal class DetailExecutor(
         AppLog.info(
             "feature.detail",
             "detail_load_stage",
-            "Detail $stage ($itemId/$detailLoadGeneration)",
+            "Detail $stage ($itemId/${detailLoad.generation})",
             attributes =
                 mapOf(
                     "stage" to stage,
                     "itemId" to itemId,
                     "serverId" to (serverId ?: registry.defaultServer?.id).orEmpty(),
-                    "generation" to detailLoadGeneration.toString(),
+                    "generation" to detailLoad.generation.toString(),
                     "outcome" to outcome,
                     "elapsedMs" to detailLoadStarted.elapsedNow().inWholeMilliseconds.toString(),
                 ),
         )
     }
 
-    private var peopleLoadJob: Job? = null
-    private var watchLaterLoadGeneration = 0L
-    private var watchLaterLoadJob: Job? = null
-    private var organizationLoadGeneration = 0L
+    private val peopleLoad = LatestWins(scope)
+    private val watchLaterLoad = LatestWins(scope)
+    private val organizationLoad = LatestWins(scope)
     private val sourceCoordinator = SourceSelectionCoordinator(repo)
     private val seriesCatalogLoader = SeriesCatalogLoader(repo)
 
@@ -140,7 +135,7 @@ internal class DetailExecutor(
                     )
                 }
             }
-            DetailIntent.DismissMessage -> dispatch(DetailMsg.ActionMessage(null))
+            DetailIntent.DismissMessage -> dispatch(DetailMsg.MessageDismissed)
             is DetailIntent.ShowMessage -> dispatch(DetailMsg.ActionMessage(intent.message))
             DetailIntent.Play -> play(fromStart = false)
             DetailIntent.PlayFromStart -> play(fromStart = true)
@@ -187,10 +182,8 @@ internal class DetailExecutor(
                     dispatch(DetailMsg.VersionSelected(intent.versionId))
                 }
             }
-            is DetailIntent.SelectSeason -> {
-                clearQueuedPlay()
-                selectSeason(intent.seasonId)
-            }
+            // Browsing leaves 播放's target alone, so a play already waiting for it still goes ahead.
+            is DetailIntent.SelectSeason -> selectSeason(intent.seasonId)
             is DetailIntent.SelectAudioLanguage ->
                 dispatch(DetailMsg.AudioLanguageSelected(intent.language, intent.ordinal))
             is DetailIntent.SelectSubtitleLanguage ->
@@ -270,6 +263,8 @@ internal class DetailExecutor(
                     dispatch(DetailMsg.VersionSelected(versionId))
                 }
             }
+            is DetailIntent.SyncPlayPosition ->
+                dispatch(DetailMsg.PlayPositionSynced(intent.serverId, intent.itemId, intent.positionTicks))
         }
     }
 
@@ -282,91 +277,88 @@ internal class DetailExecutor(
         }
 
     private fun load(forceRefresh: Boolean = false) {
-        val generation = ++detailLoadGeneration
+        val page = detailLoad.next()
         detailLoadStarted = TimeSource.Monotonic.markNow()
-        detailLoadJob?.cancel()
-        playbackSelectionLoadJob?.cancel()
+        playbackSelectionLoad.cancel()
         initialPlaybackResolution?.cancel()
         initialPlaybackResolution = null
-        sourceLoadJob?.cancel()
-        ++sourceLoadGeneration
+        sourceLoad.cancel()
         cancelInitialCatalogLoad()
-        peopleLoadJob?.cancel()
-        relatedLoadJob?.cancel()
-        watchLaterLoadJob?.cancel()
+        peopleLoad.cancel()
+        relatedLoad.cancel()
+        watchLaterLoad.cancel()
         val server = if (serverId == null) registry.defaultServer else registry.serverById(serverId)
         dispatch(DetailMsg.Loading)
         detailStage("started")
-        detailLoadJob =
-            scope.launch {
-                if (server == null) {
+        detailLoad.launch(page) {
+            if (server == null) {
+                AppLog.warning(
+                    category = "feature.detail",
+                    event = "server_missing",
+                    message = "Detail screen could not load because no server is available",
+                )
+                dispatch(DetailMsg.Failed("没有可用的服务器"))
+                return@launch
+            }
+            val cached = repo.cachedItemDetail(server, itemId)
+            if (cached != null) {
+                if (forceRefresh && state().server?.id == server.id && state().detail?.id == cached.id) {
+                    dispatch(DetailMsg.Refreshed(cached, server))
+                } else {
+                    dispatch(DetailMsg.Loaded(cached, server))
+                }
+                detailStage("content_ready", "cache")
+                loadPlaybackSelection(server, cached)
+                loadOptionalContent(server, cached)
+                if (!forceRefresh) return@launch
+            }
+            repo
+                .itemDetail(
+                    server,
+                    itemId,
+                    includeInheritedPeople = false,
+                    includePlaybackFields = false,
+                ).onSuccess { detail ->
+                    if (!page.isCurrent) return@onSuccess
+                    detailStage(if (cached == null) "content_ready" else "refresh_ready", "network")
+                    if (cached == null) {
+                        dispatch(DetailMsg.Loaded(detail, server))
+                        loadPlaybackSelection(server, detail)
+                        loadOptionalContent(server, detail)
+                    } else {
+                        dispatch(DetailMsg.Refreshed(detail, server))
+                    }
+                }.onFailure {
+                    if (!page.isCurrent) return@onFailure
+                    detailStage("request_failed", if (cached == null) "failed" else "cached_content_retained")
+                    if (cached != null) {
+                        dispatch(DetailMsg.ActionMessage("详情刷新失败，正在显示近期缓存"))
+                        return@onFailure
+                    }
+                    clearQueuedPlay()
+                    dispatch(DetailMsg.SelectionLoading(false))
                     AppLog.warning(
                         category = "feature.detail",
-                        event = "server_missing",
-                        message = "Detail screen could not load because no server is available",
+                        event = "load_failed",
+                        message = "Detail screen failed to load",
+                        throwable = it,
+                        attributes = mapOf("serverId" to server.id),
                     )
-                    dispatch(DetailMsg.Failed("没有可用的服务器"))
-                    return@launch
+                    dispatch(DetailMsg.Failed(it.toUserMessage("加载失败")))
                 }
-                val cached = repo.cachedItemDetail(server, itemId)
-                if (cached != null) {
-                    if (forceRefresh && state().server?.id == server.id && state().detail?.id == cached.id) {
-                        dispatch(DetailMsg.Refreshed(cached, server))
-                    } else {
-                        dispatch(DetailMsg.Loaded(cached, server))
-                    }
-                    detailStage("content_ready", "cache")
-                    loadPlaybackSelection(server, cached)
-                    loadOptionalContent(server, cached)
-                    if (!forceRefresh) return@launch
-                }
-                repo
-                    .itemDetail(
-                        server,
-                        itemId,
-                        includeInheritedPeople = false,
-                        includePlaybackFields = false,
-                    ).onSuccess { detail ->
-                        if (generation != detailLoadGeneration) return@onSuccess
-                        detailStage(if (cached == null) "content_ready" else "refresh_ready", "network")
-                        if (cached == null) {
-                            dispatch(DetailMsg.Loaded(detail, server))
-                            loadPlaybackSelection(server, detail)
-                            loadOptionalContent(server, detail)
-                        } else {
-                            dispatch(DetailMsg.Refreshed(detail, server))
-                        }
-                    }.onFailure {
-                        if (generation != detailLoadGeneration) return@onFailure
-                        detailStage("request_failed", if (cached == null) "failed" else "cached_content_retained")
-                        if (cached != null) {
-                            dispatch(DetailMsg.ActionMessage("详情刷新失败，正在显示近期缓存"))
-                            return@onFailure
-                        }
-                        clearQueuedPlay()
-                        dispatch(DetailMsg.SelectionLoading(false))
-                        AppLog.warning(
-                            category = "feature.detail",
-                            event = "load_failed",
-                            message = "Detail screen failed to load",
-                            throwable = it,
-                            attributes = mapOf("serverId" to server.id),
-                        )
-                        dispatch(DetailMsg.Failed(it.toUserMessage("加载失败")))
-                    }
-            }
+        }
     }
 
     private fun loadOptionalContent(
         server: SavedServer,
         detail: MediaDetail,
     ) {
-        val generation = detailLoadGeneration
+        val page = detailLoad.current
         scope.launch {
             // The target and optional sections use the same host. Keep related/people/watch-later
             // requests out of its queue until the target is resolved or its visible deadline ends.
-            withTimeoutOrNull(playbackResolutionTimeoutMs) { playbackSelectionLoadJob?.join() }
-            if (generation != detailLoadGeneration) return@launch
+            withTimeoutOrNull(playbackResolutionTimeoutMs) { playbackSelectionLoad.join() }
+            if (!page.isCurrent) return@launch
             loadWatchLater(server, detail.id)
             loadRelated(server, detail)
             loadPeople(server, detail)
@@ -377,19 +369,18 @@ internal class DetailExecutor(
         server: SavedServer,
         detail: MediaDetail,
     ) {
-        peopleLoadJob?.cancel()
+        peopleLoad.cancel()
         if (detail.type != "Episode" || detail.people.isNotEmpty() || detail.seriesId == null) return
-        val generation = detailLoadGeneration
-        peopleLoadJob =
-            scope.launch {
-                withTimeoutOrNull(5_000L) {
-                    repo.inheritedEpisodePeople(server, detail).onSuccess { people ->
-                        if (generation == detailLoadGeneration) {
-                            dispatch(DetailMsg.PeopleLoaded(server.id, detail.id, people))
-                        }
+        val page = detailLoad.current
+        peopleLoad.launch {
+            withTimeoutOrNull(5_000L) {
+                repo.inheritedEpisodePeople(server, detail).onSuccess { people ->
+                    if (page.isCurrent) {
+                        dispatch(DetailMsg.PeopleLoaded(server.id, detail.id, people))
                     }
                 }
             }
+        }
     }
 
     /**
@@ -407,8 +398,8 @@ internal class DetailExecutor(
         server: SavedServer,
         detail: MediaDetail,
     ) {
-        val generation = detailLoadGeneration
-        playbackSelectionLoadJob?.cancel()
+        val page = detailLoad.current
+        playbackSelectionLoad.cancel()
         initialPlaybackResolution?.cancel()
         val resolution =
             scope.async {
@@ -417,53 +408,52 @@ internal class DetailExecutor(
                 } ?: Result.failure(PlaybackResolutionTimeoutException())
             }
         initialPlaybackResolution = resolution
-        initialPlaybackResolutionGeneration = generation
-        playbackSelectionLoadJob =
-            scope.launch {
-                val result =
-                    withTimeoutOrNull(playbackResolutionTimeoutMs) {
-                        resolution.await()
-                    } ?: Result.failure(PlaybackResolutionTimeoutException())
-                if (generation != detailLoadGeneration) return@launch
-                detailStage("play_target_ready", if (result.isSuccess) "ready" else "failed")
-                result
-                    .onSuccess { selection ->
-                        // Initial enrichment may finish after the user starts or completes a
-                        // cross-server switch. It must never overwrite that newer choice.
-                        if (
-                            pendingSourceServerId == null &&
-                            state().playServer?.id == server.id &&
-                            state().playSourceDetail?.id == detail.id
-                        ) {
-                            val queuedLaunchTiming = pendingLaunchTiming.takeIf { playWhenSelectionReady }
-                            val existing = state()
-                            val retainedVersionId =
-                                existing.selectedVersionId.takeIf {
-                                    existing.playTarget?.id == selection.target.id
-                                }
-                            dispatchPlaybackSelection(selection, preferredVersionId = retainedVersionId)
-                            loadInitialSeriesCatalogAfterPriority(selection, queuedLaunchTiming)
-                        }
-                    }.onFailure {
-                        // A timed-out play target must not start an even wider cross-server scan.
-                        // The source list can be loaded after a usable target is selected.
-                        if (
-                            pendingSourceServerId == null &&
-                            state().playServer?.id == server.id &&
-                            state().playSourceDetail?.id == detail.id
-                        ) {
-                            dispatch(DetailMsg.SelectionLoading(false))
-                            retryQueuedPlayAfterSelectionFailure()
-                        }
-                        AppLog.warning(
-                            category = "feature.detail",
-                            event = "play_selection_load_failed",
-                            message = "Detail playback selection could not be enriched",
-                            throwable = it,
-                            attributes = mapOf("serverId" to server.id, "itemId" to detail.id),
-                        )
+        initialPlaybackResolutionPage = page
+        playbackSelectionLoad.launch {
+            val result =
+                withTimeoutOrNull(playbackResolutionTimeoutMs) {
+                    resolution.await()
+                } ?: Result.failure(PlaybackResolutionTimeoutException())
+            if (!page.isCurrent) return@launch
+            detailStage("play_target_ready", if (result.isSuccess) "ready" else "failed")
+            result
+                .onSuccess { selection ->
+                    // Initial enrichment may finish after the user starts or completes a
+                    // cross-server switch. It must never overwrite that newer choice.
+                    if (
+                        pendingSourceServerId == null &&
+                        state().playServer?.id == server.id &&
+                        state().playSourceDetail?.id == detail.id
+                    ) {
+                        val queuedLaunchTiming = pendingLaunchTiming.takeIf { playWhenSelectionReady }
+                        val existing = state()
+                        val retainedVersionId =
+                            existing.selectedVersionId.takeIf {
+                                existing.playTarget?.id == selection.target.id
+                            }
+                        dispatchPlaybackSelection(selection, preferredVersionId = retainedVersionId)
+                        loadInitialSeriesCatalogAfterPriority(selection, queuedLaunchTiming)
                     }
-            }
+                }.onFailure {
+                    // A timed-out play target must not start an even wider cross-server scan.
+                    // The source list can be loaded after a usable target is selected.
+                    if (
+                        pendingSourceServerId == null &&
+                        state().playServer?.id == server.id &&
+                        state().playSourceDetail?.id == detail.id
+                    ) {
+                        dispatch(DetailMsg.SelectionLoading(false))
+                        retryQueuedPlayAfterSelectionFailure()
+                    }
+                    AppLog.warning(
+                        category = "feature.detail",
+                        event = "play_selection_load_failed",
+                        message = "Detail playback selection could not be enriched",
+                        throwable = it,
+                        attributes = mapOf("serverId" to server.id, "itemId" to detail.id),
+                    )
+                }
+        }
     }
 
     /**
@@ -543,58 +533,54 @@ internal class DetailExecutor(
     private fun loadInitialSeriesCatalog(selection: ResolvedPlaybackSelection) {
         val seriesId = seriesIdOf(selection.sourceDetail) ?: return
         cancelInitialCatalogLoad()
-        val operation = ++initialCatalogOperation
+        val request = initialCatalog.next()
         dispatch(DetailMsg.EpisodesLoading)
-        initialCatalogJob =
-            scope.launch {
-                try {
-                    cancellableResult {
-                        loadSeriesCatalog(
-                            server = selection.server,
-                            seriesId = seriesId,
-                            target = selection.target,
-                            allEpisodes = selection.catalogEpisodes,
-                        )
-                    }.onSuccess { catalog ->
-                        if (
-                            operation == initialCatalogOperation &&
-                            isCurrentInitialSelection(selection)
-                        ) {
-                            dispatch(DetailMsg.SeasonsLoaded(catalog.seasons, catalog.selectedSeasonId))
-                            dispatch(DetailMsg.EpisodesLoaded(catalog.episodes))
-                        }
-                    }.onFailure {
-                        if (
-                            operation == initialCatalogOperation &&
-                            isCurrentInitialSelection(selection)
-                        ) {
-                            AppLog.warning(
-                                category = "feature.detail",
-                                event = "initial_series_catalog_failed",
-                                message = "Series catalog could not be loaded after playback became ready",
-                                throwable = it,
-                                attributes =
-                                    mapOf(
-                                        "serverId" to selection.server.id,
-                                        "seriesId" to seriesId,
-                                    ),
-                            )
-                        }
+        initialCatalog.launch(request) {
+            try {
+                cancellableResult {
+                    loadSeriesCatalog(
+                        server = selection.server,
+                        seriesId = seriesId,
+                        target = selection.target,
+                        allEpisodes = selection.catalogEpisodes,
+                    )
+                }.onSuccess { catalog ->
+                    if (
+                        request.isCurrent &&
+                        isCurrentInitialSelection(selection)
+                    ) {
+                        dispatch(DetailMsg.SeasonsLoaded(catalog.seasons, catalog.selectedSeasonId))
+                        dispatch(DetailMsg.EpisodesLoaded(catalog.episodes))
                     }
-                } finally {
-                    if (operation == initialCatalogOperation) {
-                        initialCatalogJob = null
-                        dispatch(DetailMsg.EpisodesLoadingFinished)
+                }.onFailure {
+                    if (
+                        request.isCurrent &&
+                        isCurrentInitialSelection(selection)
+                    ) {
+                        AppLog.warning(
+                            category = "feature.detail",
+                            event = "initial_series_catalog_failed",
+                            message = "Series catalog could not be loaded after playback became ready",
+                            throwable = it,
+                            attributes =
+                                mapOf(
+                                    "serverId" to selection.server.id,
+                                    "seriesId" to seriesId,
+                                ),
+                        )
                     }
                 }
+            } finally {
+                if (initialCatalog.finish(request)) {
+                    dispatch(DetailMsg.EpisodesLoadingFinished)
+                }
             }
+        }
     }
 
     private fun cancelInitialCatalogLoad() {
-        val job = initialCatalogJob ?: return
-        initialCatalogOperation++
-        initialCatalogJob = null
-        job.cancel()
+        if (!initialCatalog.isActive) return
+        initialCatalog.cancel()
         dispatch(DetailMsg.EpisodesLoadingFinished)
     }
 
@@ -620,105 +606,102 @@ internal class DetailExecutor(
         forceRefresh: Boolean = false,
     ) {
         val servers = registry.data.value.servers
-        val generation = ++sourceLoadGeneration
-        sourceLoadJob?.cancel()
+        val request = sourceLoad.next()
         dispatch(DetailMsg.SourcesLoading)
-        sourceLoadJob =
-            scope.launch {
-                try {
-                    val completed = linkedMapOf<String, ServerSource>()
-                    val current = state()
-                    val target = current.playTarget?.takeIf { current.playServer?.id == server.id }
-                    val version =
-                        target?.versions?.firstOrNull { it.id == current.selectedVersionId }
-                            ?: target?.versions?.firstOrNull()
-                    val knownCurrent =
-                        emptyList<ServerSource>()
-                            .withResolvedCurrentSource(version, server.id, server.serverName, target?.id)
-                            .firstOrNull()
-                    if (knownCurrent != null) {
-                        completed[server.id] = knownCurrent
-                        dispatch(DetailMsg.SourcesLoaded(servers.mapNotNull { completed[it.id] }, complete = false))
-                    }
-                    val tmdbId =
-                        detail.providerIds.entries
-                            .firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }
-                            ?.value
-                            ?.toIntOrNull()
-                    val sources =
-                        repo.compareSources(
-                            servers = servers.filterNot { knownCurrent != null && it.id == server.id },
-                            currentServerId = server.id,
-                            title = detail.title,
-                            tmdbId = tmdbId,
-                            mediaType =
-                                when (detail.type) {
-                                    "Series" -> "tv"
-                                    "Movie" -> "movie"
-                                    else -> null
-                                },
-                            year = detail.year,
-                            seasonNumber = seasonNumber,
-                            episodeNumber = episodeNumber,
-                            forceRefresh = forceRefresh,
-                            onSource = { source ->
-                                if (generation == sourceLoadGeneration) {
-                                    completed[source.serverId] = source
-                                    dispatch(
-                                        DetailMsg.SourcesLoaded(
-                                            servers.mapNotNull { completed[it.id] },
-                                            complete = false,
-                                        ),
-                                    )
-                                }
-                            },
-                        )
-                    if (generation == sourceLoadGeneration) {
-                        sources.forEach { completed[it.serverId] = it }
-                        dispatch(DetailMsg.SourcesLoaded(servers.mapNotNull { completed[it.id] }))
-                    }
-                } catch (failure: Throwable) {
-                    if (failure is CancellationException) throw failure
-                    if (generation == sourceLoadGeneration) dispatch(DetailMsg.SourcesFailed("资源比较暂时不可用，请重试"))
+        sourceLoad.launch(request) {
+            try {
+                val completed = linkedMapOf<String, ServerSource>()
+                val current = state()
+                val target = current.playTarget?.takeIf { current.playServer?.id == server.id }
+                val version =
+                    target?.versions?.firstOrNull { it.id == current.selectedVersionId }
+                        ?: target?.versions?.firstOrNull()
+                val knownCurrent =
+                    emptyList<ServerSource>()
+                        .withResolvedCurrentSource(version, server.id, server.serverName, target?.id)
+                        .firstOrNull()
+                if (knownCurrent != null) {
+                    completed[server.id] = knownCurrent
+                    dispatch(DetailMsg.SourcesLoaded(servers.mapNotNull { completed[it.id] }, complete = false))
                 }
+                val tmdbId =
+                    detail.providerIds.entries
+                        .firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }
+                        ?.value
+                        ?.toIntOrNull()
+                val sources =
+                    repo.compareSources(
+                        servers = servers.filterNot { knownCurrent != null && it.id == server.id },
+                        currentServerId = server.id,
+                        title = detail.title,
+                        tmdbId = tmdbId,
+                        mediaType =
+                            when (detail.type) {
+                                "Series" -> "tv"
+                                "Movie" -> "movie"
+                                else -> null
+                            },
+                        year = detail.year,
+                        seasonNumber = seasonNumber,
+                        episodeNumber = episodeNumber,
+                        forceRefresh = forceRefresh,
+                        onSource = { source ->
+                            if (request.isCurrent) {
+                                completed[source.serverId] = source
+                                dispatch(
+                                    DetailMsg.SourcesLoaded(
+                                        servers.mapNotNull { completed[it.id] },
+                                        complete = false,
+                                    ),
+                                )
+                            }
+                        },
+                    )
+                if (request.isCurrent) {
+                    sources.forEach { completed[it.serverId] = it }
+                    dispatch(DetailMsg.SourcesLoaded(servers.mapNotNull { completed[it.id] }))
+                }
+            } catch (failure: Throwable) {
+                if (failure is CancellationException) throw failure
+                if (request.isCurrent) dispatch(DetailMsg.SourcesFailed("资源比较暂时不可用，请重试"))
             }
+        }
     }
 
     private fun loadRelated(
         server: SavedServer,
         detail: MediaDetail,
     ) {
-        val generation = ++relatedLoadGeneration
-        relatedLoadJob =
-            scope.launch {
-                repo
-                    .similarItems(server, detail.id)
-                    .onSuccess {
-                        if (
-                            generation == relatedLoadGeneration &&
-                            state().server?.id == server.id &&
-                            state().detail?.id == detail.id
-                        ) {
-                            dispatch(DetailMsg.RelatedLoaded(it))
-                        }
-                    }.onFailure {
-                        if (
-                            generation != relatedLoadGeneration ||
-                            state().server?.id != server.id ||
-                            state().detail?.id != detail.id
-                        ) {
-                            return@onFailure
-                        }
-                        AppLog.warning(
-                            category = "feature.detail",
-                            event = "related_load_failed",
-                            message = "Related media failed to load",
-                            throwable = it,
-                            attributes = mapOf("serverId" to server.id),
-                        )
-                        dispatch(DetailMsg.RelatedLoaded(emptyList()))
+        val request = relatedLoad.outdate()
+        relatedLoad.launch(request) {
+            repo
+                .similarItems(server, detail.id)
+                .onSuccess {
+                    if (
+                        request.isCurrent &&
+                        state().server?.id == server.id &&
+                        state().detail?.id == detail.id
+                    ) {
+                        dispatch(DetailMsg.RelatedLoaded(it))
                     }
-            }
+                }.onFailure {
+                    if (
+                        !request.isCurrent ||
+                        state().server?.id != server.id ||
+                        state().detail?.id != detail.id
+                    ) {
+                        return@onFailure
+                    }
+                    AppLog.warning(
+                        category = "feature.detail",
+                        event = "related_load_failed",
+                        message = "Related media failed to load",
+                        throwable = it,
+                        attributes = mapOf("serverId" to server.id),
+                    )
+                    dispatch(DetailMsg.RelatedLoaded(emptyList()))
+                }
+        }
     }
 
     private suspend fun resolvePlaybackSelection(
@@ -855,8 +838,7 @@ internal class DetailExecutor(
         val visible = state()
         val queuedLaunchTiming = pendingLaunchTiming.takeIf { playWhenSelectionReady }
         if (queuedLaunchTiming != null) {
-            sourceLoadJob?.cancel()
-            ++sourceLoadGeneration
+            sourceLoad.cancel()
         }
         val selectedVersionId =
             preferredVersionId
@@ -932,63 +914,58 @@ internal class DetailExecutor(
         // The chosen coordinate above is carried to the new server. Any response from
         // the old server is stale from this point onward, even while the new server is
         // still resolving and the committed play target remains visible underneath.
-        episodeSelectionOperation++
-        episodeSelectionJob?.cancel()
-        episodeSelectionJob = null
-        val operation = ++sourceSelectionOperation
-        sourceSelectionJob?.cancel()
+        episodeSelection.cancel()
+        val request = sourceSelection.next()
         pendingSourceServerId = serverId
         pendingSourceItemId = sourceItemId
         dispatch(DetailMsg.ActionMessage(null))
         dispatch(DetailMsg.SelectionLoading(true))
-        sourceSelectionJob =
-            scope.launch {
-                try {
-                    val result =
-                        withTimeoutOrNull(sourceSelectionTimeoutMs) {
-                            resolveSelectedSourceWithRetry(
-                                server = server,
-                                sourceItemId = sourceItemId,
-                                coordinate = coordinate,
-                                preferredPlaybackItemId = preferredPlaybackItemId,
-                                operation = operation,
-                            )
-                        } ?: Result.failure(SourceSelectionTimeoutException())
-                    if (operation != sourceSelectionOperation) return@launch
+        sourceSelection.launch(request) {
+            try {
+                val result =
+                    withTimeoutOrNull(sourceSelectionTimeoutMs) {
+                        resolveSelectedSourceWithRetry(
+                            server = server,
+                            sourceItemId = sourceItemId,
+                            coordinate = coordinate,
+                            preferredPlaybackItemId = preferredPlaybackItemId,
+                            request = request,
+                        )
+                    } ?: Result.failure(SourceSelectionTimeoutException())
+                if (!request.isCurrent) return@launch
+                pendingSourceServerId = null
+                pendingSourceItemId = null
+                result
+                    .onSuccess { selection ->
+                        // Commit the visible source and the concrete play target together.
+                        // Until this point the previous source remains the only truth.
+                        dispatchPlaybackSelection(selection, preferredVersionId)
+                        loadRelated(selection.server, selection.sourceDetail)
+                    }.onFailure {
+                        clearQueuedPlay()
+                        dispatch(DetailMsg.SelectionLoading(false))
+                        restoreCommittedEpisodeSelection()
+                        AppLog.warning(
+                            category = "feature.detail",
+                            event = "source_selection_failed",
+                            message = "Selected resource could not be resolved",
+                            throwable = it,
+                            attributes =
+                                mapOf(
+                                    "serverId" to serverId,
+                                    "itemId" to sourceItemId,
+                                    "operation" to request.generation.toString(),
+                                ),
+                        )
+                        dispatch(DetailMsg.SourceFailure(it.toSourceSelectionFailure()))
+                    }
+            } finally {
+                if (sourceSelection.finish(request)) {
                     pendingSourceServerId = null
                     pendingSourceItemId = null
-                    result
-                        .onSuccess { selection ->
-                            // Commit the visible source and the concrete play target together.
-                            // Until this point the previous source remains the only truth.
-                            dispatchPlaybackSelection(selection, preferredVersionId)
-                            loadRelated(selection.server, selection.sourceDetail)
-                        }.onFailure {
-                            clearQueuedPlay()
-                            dispatch(DetailMsg.SelectionLoading(false))
-                            restoreCommittedEpisodeSelection()
-                            AppLog.warning(
-                                category = "feature.detail",
-                                event = "source_selection_failed",
-                                message = "Selected resource could not be resolved",
-                                throwable = it,
-                                attributes =
-                                    mapOf(
-                                        "serverId" to serverId,
-                                        "itemId" to sourceItemId,
-                                        "operation" to operation.toString(),
-                                    ),
-                            )
-                            dispatch(DetailMsg.SourceFailure(it.toSourceSelectionFailure()))
-                        }
-                } finally {
-                    if (operation == sourceSelectionOperation) {
-                        sourceSelectionJob = null
-                        pendingSourceServerId = null
-                        pendingSourceItemId = null
-                    }
                 }
             }
+        }
     }
 
     /**
@@ -1001,12 +978,12 @@ internal class DetailExecutor(
         sourceItemId: String,
         coordinate: EpisodeCoordinate?,
         preferredPlaybackItemId: String?,
-        operation: Long,
+        request: LatestWins.Ticket,
     ): Result<ResolvedPlaybackSelection> =
         sourceCoordinator.resolve(
             server = server,
             sourceItemId = sourceItemId,
-            stillCurrent = { operation == sourceSelectionOperation },
+            stillCurrent = { request.isCurrent },
         ) { sourceDetail ->
             resolvePlaybackSelection(
                 server = server,
@@ -1025,131 +1002,126 @@ internal class DetailExecutor(
         val server = current.playServer ?: return
         val sourceDetail = current.playSourceDetail ?: return
         val previousEpisodeId = current.selectedEpisodeId
+        // Only an episode from a season that is not listed brings its season's episodes along. Read
+        // now rather than when it lands: a season browsed to meanwhile stays on show.
+        val listedSeasonNumber = current.seasons.firstOrNull { it.id == current.listedSeasonId }?.indexNumber
         // The comparison list is loaded independently from the concrete playback
         // selection. Its selected ids may legitimately move from null to the current
         // source while this request is in flight, so they cannot be used as the
         // operation's identity. Bind to the already committed playback source instead.
         val playServerId = server.id
         val playSourceItemId = sourceDetail.id
-        val operation = ++episodeSelectionOperation
-        episodeSelectionJob?.cancel()
+        val request = episodeSelection.next()
         cancelInitialCatalogLoad()
         dispatch(DetailMsg.EpisodeSelected(episodeId))
         dispatch(DetailMsg.SelectionLoading(true))
-        episodeSelectionJob =
-            scope.launch {
-                try {
-                    val result =
-                        withTimeoutOrNull(sourceSelectionTimeoutMs) {
-                            retryTransientDetailRequest(
-                                event = "episode_selection_retry",
-                                attributes =
-                                    mapOf(
-                                        "serverId" to server.id,
-                                        "itemId" to episodeId,
-                                    ),
-                                stillCurrent = {
-                                    operation == episodeSelectionOperation &&
-                                        pendingSourceServerId == null &&
-                                        state().selectedEpisodeId == episodeId &&
-                                        state().playServer?.id == playServerId &&
-                                        state().playSourceDetail?.id == playSourceItemId
-                                },
-                            ) {
-                                repo.itemDetail(server, episodeId, includeInheritedPeople = false).fold(
-                                    onSuccess = { target ->
-                                        cancellableResult {
-                                            val currentSeasonNumber =
-                                                state()
-                                                    .seasons
-                                                    .firstOrNull { it.id == state().selectedSeasonId }
-                                                    ?.indexNumber
-                                            val catalog =
-                                                if (
-                                                    target.type == "Episode" &&
-                                                    target.seasonNumber != currentSeasonNumber
-                                                ) {
-                                                    seriesIdOf(sourceDetail)?.let { seriesId ->
-                                                        loadSeriesCatalog(
-                                                            server,
-                                                            seriesId,
-                                                            target,
-                                                            allEpisodes = null,
-                                                        )
-                                                    }
-                                                } else {
-                                                    null
-                                                }
-                                            ResolvedPlaybackSelection(
-                                                server = server,
-                                                sourceDetail = sourceDetail,
-                                                target = target,
-                                                positionTicks =
-                                                    target.resumePositionTicks
-                                                        ?: startPositionTicks,
-                                                seasons = catalog?.seasons,
-                                                selectedSeasonId = catalog?.selectedSeasonId,
-                                                episodes = catalog?.episodes,
-                                            )
-                                        }
-                                    },
-                                    onFailure = { Result.failure(it) },
-                                )
-                            }
-                        } ?: Result.failure(EpisodeSelectionTimeoutException())
-                    if (
-                        operation != episodeSelectionOperation ||
-                        pendingSourceServerId != null ||
-                        state().selectedEpisodeId != episodeId ||
-                        state().playServer?.id != playServerId ||
-                        state().playSourceDetail?.id != playSourceItemId
-                    ) {
-                        return@launch
-                    }
-                    result
-                        .onSuccess { selection ->
-                            // Switching episodes inside one series does not change which
-                            // servers hold it; the comparison from the page load still stands.
-                            dispatchPlaybackSelection(selection, preferredVersionId, compareSources = false)
-                        }.onFailure {
-                            clearQueuedPlay()
-                            previousEpisodeId?.let { dispatch(DetailMsg.EpisodeSelected(it)) }
-                            dispatch(
-                                DetailMsg.ActionMessage(
-                                    if (it is EpisodeSelectionTimeoutException) {
-                                        "剧集切换等待超时，请检查网络后重试"
-                                    } else {
-                                        it.toUserMessage("剧集切换失败，请重试")
-                                    },
+        episodeSelection.launch(request) {
+            try {
+                val result =
+                    withTimeoutOrNull(sourceSelectionTimeoutMs) {
+                        retryTransientDetailRequest(
+                            event = "episode_selection_retry",
+                            attributes =
+                                mapOf(
+                                    "serverId" to server.id,
+                                    "itemId" to episodeId,
                                 ),
+                            stillCurrent = {
+                                request.isCurrent &&
+                                    pendingSourceServerId == null &&
+                                    state().selectedEpisodeId == episodeId &&
+                                    state().playServer?.id == playServerId &&
+                                    state().playSourceDetail?.id == playSourceItemId
+                            },
+                        ) {
+                            repo.itemDetail(server, episodeId, includeInheritedPeople = false).fold(
+                                onSuccess = { target ->
+                                    cancellableResult {
+                                        val catalog =
+                                            if (
+                                                target.type == "Episode" &&
+                                                target.seasonNumber != listedSeasonNumber
+                                            ) {
+                                                seriesIdOf(sourceDetail)?.let { seriesId ->
+                                                    loadSeriesCatalog(
+                                                        server,
+                                                        seriesId,
+                                                        target,
+                                                        allEpisodes = null,
+                                                    )
+                                                }
+                                            } else {
+                                                null
+                                            }
+                                        ResolvedPlaybackSelection(
+                                            server = server,
+                                            sourceDetail = sourceDetail,
+                                            target = target,
+                                            positionTicks =
+                                                target.resumePositionTicks
+                                                    ?: startPositionTicks,
+                                            seasons = catalog?.seasons,
+                                            selectedSeasonId = catalog?.selectedSeasonId,
+                                            episodes = catalog?.episodes,
+                                        )
+                                    }
+                                },
+                                onFailure = { Result.failure(it) },
                             )
                         }
-                } finally {
-                    if (operation == episodeSelectionOperation) {
-                        episodeSelectionJob = null
-                        dispatch(DetailMsg.SelectionLoading(false))
+                    } ?: Result.failure(EpisodeSelectionTimeoutException())
+                if (
+                    !request.isCurrent ||
+                    pendingSourceServerId != null ||
+                    state().selectedEpisodeId != episodeId ||
+                    state().playServer?.id != playServerId ||
+                    state().playSourceDetail?.id != playSourceItemId
+                ) {
+                    return@launch
+                }
+                result
+                    .onSuccess { selection ->
+                        // Switching episodes inside one series does not change which
+                        // servers hold it; the comparison from the page load still stands.
+                        dispatchPlaybackSelection(selection, preferredVersionId, compareSources = false)
+                    }.onFailure {
+                        clearQueuedPlay()
+                        previousEpisodeId?.let { dispatch(DetailMsg.EpisodeSelected(it)) }
+                        dispatch(
+                            DetailMsg.ActionMessage(
+                                if (it is EpisodeSelectionTimeoutException) {
+                                    "剧集切换等待超时，请检查网络后重试"
+                                } else {
+                                    it.toUserMessage("剧集切换失败，请重试")
+                                },
+                            ),
+                        )
                     }
+            } finally {
+                if (episodeSelection.finish(request)) {
+                    dispatch(DetailMsg.SelectionLoading(false))
                 }
             }
+        }
     }
 
+    /**
+     * Lists [seasonId]'s episodes, and that is all it does: 播放 keeps the episode it would open,
+     * next-up's 继续播放 included, until an episode is picked. It used to pick the season's first
+     * episode, so a swipe through 全部剧集 and back left 播放 on 第 1 集.
+     */
     private fun selectSeason(seasonId: String) {
         val current = state()
         val sourceDetail = current.playSourceDetail ?: return
         val server = current.playServer ?: return
         val seriesId = seriesIdOf(sourceDetail) ?: return
-        episodeSelectionOperation++
-        episodeSelectionJob?.cancel()
-        episodeSelectionJob = null
         cancelInitialCatalogLoad()
         val playServerId = server.id
         val playSourceItemId = sourceDetail.id
-        val previousSeasonId = current.selectedSeasonId
         // Loading first: no state may name the new season over the old season's episodes
         // without also saying they are being replaced.
         dispatch(DetailMsg.EpisodesLoading)
         dispatch(DetailMsg.SeasonsLoaded(current.seasons, seasonId))
-        dispatch(DetailMsg.SelectionLoading(true))
         scope.launch {
             retryTransientDetailRequest(
                 event = "season_episodes_retry",
@@ -1180,15 +1152,6 @@ internal class DetailExecutor(
                     return@onSuccess
                 }
                 dispatch(DetailMsg.EpisodesLoaded(episodes))
-                val selected =
-                    episodes.firstOrNull { it.id == state().selectedEpisodeId }
-                        ?: episodes.firstOrNull()
-                        ?: run {
-                            clearQueuedPlay()
-                            dispatch(DetailMsg.SelectionLoading(false))
-                            return@onSuccess
-                        }
-                selectEpisode(selected.id, selected.resumePositionTicks ?: 0L)
             }.onFailure {
                 if (
                     state().selectedSeasonId != seasonId ||
@@ -1197,11 +1160,10 @@ internal class DetailExecutor(
                 ) {
                     return@onFailure
                 }
-                dispatch(DetailMsg.SeasonsLoaded(state().seasons, previousSeasonId))
+                // Back to the season whose episodes are still listed. The season picked just before
+                // this one may never have loaded, and naming it put its title over other episodes.
+                dispatch(DetailMsg.SeasonsLoaded(state().seasons, state().listedSeasonId))
                 dispatch(DetailMsg.EpisodesLoadingFinished)
-                dispatch(DetailMsg.SelectionLoading(false))
-                restoreCommittedEpisodeSelection()
-                clearQueuedPlay()
                 dispatch(DetailMsg.ActionMessage(it.toUserMessage("剧集加载失败，请重试")))
             }
         }
@@ -1286,14 +1248,14 @@ internal class DetailExecutor(
         val target = current.playTarget
         if (target == null) {
             val sourceDetail = current.playSourceDetail ?: return
-            val generation = detailLoadGeneration
+            val page = detailLoad.current
             dispatch(DetailMsg.Resolving(true))
             scope.launch {
                 val result =
                     withTimeoutOrNull(playbackResolutionTimeoutMs) {
                         initialPlaybackResolution
                             ?.takeIf {
-                                initialPlaybackResolutionGeneration == detailLoadGeneration
+                                initialPlaybackResolutionPage.isCurrent
                             }?.await()
                             ?.takeIf { it.isSuccess }
                             ?: resolveInitialPlaybackSelection(server, sourceDetail)
@@ -1301,7 +1263,7 @@ internal class DetailExecutor(
                 result
                     .onSuccess { selection ->
                         if (
-                            generation != detailLoadGeneration ||
+                            !page.isCurrent ||
                             state().playServer?.id != server.id ||
                             state().playSourceDetail?.id != sourceDetail.id
                         ) {
@@ -1314,7 +1276,7 @@ internal class DetailExecutor(
                         publishPlay(state(), fromStart)
                     }.onFailure {
                         if (
-                            generation != detailLoadGeneration ||
+                            !page.isCurrent ||
                             state().playServer?.id != server.id ||
                             state().playSourceDetail?.id != sourceDetail.id
                         ) {
@@ -1413,9 +1375,8 @@ internal class DetailExecutor(
         val target = current.playTarget ?: return
         val server = current.playServer ?: return
         pendingLaunchTiming?.let { timing ->
-            if (sourceLoadJob?.isActive == true) {
-                sourceLoadJob?.cancel()
-                ++sourceLoadGeneration
+            if (sourceLoad.isActive) {
+                sourceLoad.cancel()
                 val sourceDetail = current.playSourceDetail
                 if (sourceDetail != null) {
                     scope.launch {
@@ -1659,12 +1620,66 @@ internal class DetailExecutor(
         }
     }
 
-    /** 播放's episode again, from the page's own server, as the page first resolved it. */
+    /** 播放's target worked out again after marks; see [refreshPlayTarget]. */
+    private val playTargetRefresh = LatestWins(scope)
+
+    /**
+     * 播放's episode again once marks have been written, as the page first resolved it: marks move
+     * which episode a series continues with. Only the target, its position and its file change.
+     * The listed season and its episodes, an open 管理进度 sheet and the 资源 comparison stay as they
+     * are; reloading them for the next episode's season moved the rail and the sheet to another
+     * season under the finger, on every swipe.
+     */
     private fun refreshPlayTarget() {
         val page = state()
-        val server = page.server ?: return
-        val detail = page.detail ?: return
-        loadPlaybackSelection(server, detail)
+        val server = page.playServer ?: return
+        val source = page.playSourceDetail ?: return
+        // Any other page plays the item it already did, and the marks have cleared its resume point
+        // where they reached it. An episode page used to snap back to its own episode here.
+        if (source.type != "Series") return
+        if (page.playTarget == null || playbackSelectionLoad.isActive) {
+            // Nothing is listed before the first answer lands, and that answer may predate the
+            // marks: resolve the page from the start.
+            loadPlaybackSelection(server, source)
+            return
+        }
+        // An episode being picked, or a server being switched to, decides the target instead.
+        if (page.selectionLoading || pendingSourceServerId != null) return
+        val pageLoad = detailLoad.current
+        val episodePick = episodeSelection.current
+        playTargetRefresh.launch {
+            val selection =
+                withTimeoutOrNull(playbackResolutionTimeoutMs) {
+                    resolveInitialPlaybackSelection(server, source)
+                }?.getOrNull() ?: return@launch
+            val current = state()
+            if (
+                !pageLoad.isCurrent ||
+                !episodePick.isCurrent ||
+                pendingSourceServerId != null ||
+                current.selectionLoading ||
+                current.playServer?.id != server.id ||
+                current.playSourceDetail?.id != source.id
+            ) {
+                return@launch
+            }
+            val versionId =
+                current.selectedVersionId?.takeIf { current.playTarget?.id == selection.target.id }
+                    ?: selection.target.versions
+                        .preferredVersion(
+                            playbackPreferences?.mediaVersionPreference?.value
+                                ?: MediaVersionPreference.HdrFirst,
+                        )?.id
+            dispatch(
+                DetailMsg.PlayTargetRefreshed(
+                    serverId = server.id,
+                    sourceItemId = source.id,
+                    target = selection.target,
+                    positionTicks = selection.positionTicks,
+                    preferredVersionId = versionId,
+                ),
+            )
+        }
     }
 
     private fun isVisibleSource(
@@ -1676,32 +1691,30 @@ internal class DetailExecutor(
         server: SavedServer,
         itemId: String,
     ) {
-        val generation = ++watchLaterLoadGeneration
-        watchLaterLoadJob?.cancel()
+        val request = watchLaterLoad.next()
         dispatch(DetailMsg.WatchLaterLoading(server.id, itemId, true))
-        watchLaterLoadJob =
-            scope.launch {
-                repo
-                    .isInWatchLater(server, itemId)
-                    .onSuccess { value ->
-                        if (generation == watchLaterLoadGeneration && isVisibleSource(server.id, itemId)) {
-                            dispatch(DetailMsg.WatchLaterChanged(server.id, itemId, value))
-                            dispatch(DetailMsg.WatchLaterLoading(server.id, itemId, false))
-                        }
-                    }.onFailure {
-                        if (generation != watchLaterLoadGeneration || !isVisibleSource(server.id, itemId)) {
-                            return@onFailure
-                        }
+        watchLaterLoad.launch(request) {
+            repo
+                .isInWatchLater(server, itemId)
+                .onSuccess { value ->
+                    if (request.isCurrent && isVisibleSource(server.id, itemId)) {
+                        dispatch(DetailMsg.WatchLaterChanged(server.id, itemId, value))
                         dispatch(DetailMsg.WatchLaterLoading(server.id, itemId, false))
-                        AppLog.warning(
-                            category = "feature.detail",
-                            event = "watch_later_status_failed",
-                            message = "Failed to load watch-later membership",
-                            throwable = it,
-                            attributes = mapOf("serverId" to server.id),
-                        )
                     }
-            }
+                }.onFailure {
+                    if (!request.isCurrent || !isVisibleSource(server.id, itemId)) {
+                        return@onFailure
+                    }
+                    dispatch(DetailMsg.WatchLaterLoading(server.id, itemId, false))
+                    AppLog.warning(
+                        category = "feature.detail",
+                        event = "watch_later_status_failed",
+                        message = "Failed to load watch-later membership",
+                        throwable = it,
+                        attributes = mapOf("serverId" to server.id),
+                    )
+                }
+        }
     }
 
     private fun toggleWatchLater() {
@@ -1711,7 +1724,7 @@ internal class DetailExecutor(
         if (current.watchLaterMutating) return
         val target = !current.watchLater
 
-        watchLaterLoadGeneration++
+        watchLaterLoad.outdate()
         dispatch(DetailMsg.WatchLaterLoading(server.id, detail.id, false))
         dispatch(DetailMsg.WatchLaterChanged(server.id, detail.id, target))
         dispatch(DetailMsg.WatchLaterMutating(server.id, detail.id, true))
@@ -1756,21 +1769,21 @@ internal class DetailExecutor(
         val current = state()
         val detail = current.detail ?: return
         val server = current.server ?: return
-        val generation = ++organizationLoadGeneration
+        val request = organizationLoad.outdate()
         dispatch(DetailMsg.OrganizationLoading)
-        scope.launch {
+        organizationLoad.launch(request) {
             repo
                 .mediaContainers(server)
                 .onSuccess { containers ->
                     if (
-                        generation == organizationLoadGeneration &&
+                        request.isCurrent &&
                         isVisibleSource(server.id, detail.id)
                     ) {
                         dispatch(DetailMsg.OrganizationLoaded(containers))
                     }
                 }.onFailure {
                     if (
-                        generation == organizationLoadGeneration &&
+                        request.isCurrent &&
                         isVisibleSource(server.id, detail.id)
                     ) {
                         AppLog.warning(

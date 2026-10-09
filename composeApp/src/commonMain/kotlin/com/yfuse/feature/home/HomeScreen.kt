@@ -6,7 +6,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,7 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -39,10 +37,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,9 +47,9 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
@@ -60,7 +57,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.floatingNavigationContentInset
+import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.HomeShelfLayout
+import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.SmartPlaylist
+import com.yfuse.core.data.SmartShelfQuery
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -69,7 +70,6 @@ import com.yfuse.core.designsystem.ArrivalMotion
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
-import com.yfuse.core.designsystem.CarouselAutoAdvance
 import com.yfuse.core.designsystem.CloudPlayerLogo
 import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.Dimens
@@ -77,18 +77,14 @@ import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.HeroActionDock
-import com.yfuse.core.designsystem.HeroPageFade
-import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftMenu
-import com.yfuse.core.designsystem.LightEffect
-import com.yfuse.core.designsystem.LivingPosterAmbient
 import com.yfuse.core.designsystem.LivingPosterDefaults
+import com.yfuse.core.designsystem.LivingPosterHeroCarousel
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
-import com.yfuse.core.designsystem.LocalLiftMenu
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSharedElementKey
@@ -111,21 +107,18 @@ import com.yfuse.core.designsystem.ZoomBackAnchor
 import com.yfuse.core.designsystem.arrivalSweep
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
-import com.yfuse.core.designsystem.carouselPageVisual
-import com.yfuse.core.designsystem.carouselTouchPause
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.heroScrollCollapse
 import com.yfuse.core.designsystem.heroTopScrim
-import com.yfuse.core.designsystem.lightFeedback
+import com.yfuse.core.designsystem.liftable
+import com.yfuse.core.designsystem.liftedCardOpen
 import com.yfuse.core.designsystem.liveStatus
+import com.yfuse.core.designsystem.livingPosterArtwork
 import com.yfuse.core.designsystem.livingPosterFrame
 import com.yfuse.core.designsystem.livingPosterHeroHeight
-import com.yfuse.core.designsystem.loopingCarouselItemIndex
-import com.yfuse.core.designsystem.loopingCarouselSemantics
-import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.motionItemsIndexed
@@ -137,8 +130,7 @@ import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
 import com.yfuse.core.designsystem.rememberCarouselPageColor
-import com.yfuse.core.designsystem.rememberLightFeedback
-import com.yfuse.core.designsystem.rememberLoopingCarouselState
+import com.yfuse.core.designsystem.rememberLivingPosterHeroState
 import com.yfuse.core.designsystem.rememberRefreshReveal
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
@@ -155,8 +147,9 @@ import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.currentHourOfDay
 import com.yfuse.core.util.rememberPosterCardSharer
+import com.yfuse.feature.search.SearchRequests
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
+import org.koin.core.context.GlobalContext
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -275,6 +268,7 @@ private fun HomeContent(
             onOpenCalendarEntry = component::openCalendarEntry,
             shelfLayout = shelfLayout,
             onEditShelves = editShelves.takeIf { shelves != null },
+            editingShelves = editingShelves && shelves != null,
         )
     }
     if (editingShelves && shelves != null) {
@@ -311,25 +305,45 @@ internal fun HomeContentBody(
     shelfLayout: HomeShelfLayout = HomeShelfLayout(),
     /** Opens 编辑首页; null where the page cannot be edited. */
     onEditShelves: (() -> Unit)? = null,
+    /**
+     * 编辑首页 is open over the page. The reel holds still under it as under any menu: each turn
+     * re-tinted the accent, and with it every switch in the sheet.
+     */
+    editingShelves: Boolean = false,
 ) {
     val calendarItems = remember(calendarState.days, state) { homeCalendarPreviews(calendarState.days, state) }
     val showSmartPlaylists =
         com.yfuse.feature.search
             .hasPinnedSmartPlaylists()
+    val smartShelves =
+        com.yfuse.feature.search
+            .pinnedLibraryShelves()
     val palette = LocalPalette.current
     val themeAccent = LocalAccentColors.current.accent
     val sharer = rememberPosterCardSharer()
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
-    // Each TMDB shelf is where its 查看全部 page is pulled back into; the page keeps its shelf while
-    // it leaves, so the anchor is held apart from [expandedRow].
+    // Each shelf is where its 查看全部 page is pulled back into, keyed by the shelf's id; the page
+    // keeps its shelf while it leaves, so the anchor is held apart from the page's own state.
     val shelfAnchors = remember { mutableMapOf<String, ZoomBackAnchor>() }
     var expandedSource by remember { mutableStateOf<ZoomBackAnchor?>(null) }
 
-    fun shelfAnchor(title: String): ZoomBackAnchor = shelfAnchors.getOrPut(title) { ZoomBackAnchor() }
-    val liftMenu = LocalLiftMenu.current
+    fun shelfAnchor(id: String): ZoomBackAnchor = shelfAnchors.getOrPut(id) { ZoomBackAnchor() }
     // A library shelf opened out by its 全部. Held by kind, and its entries read live, so a card
     // marked watched from inside the page leaves it as it leaves the shelf.
     var expandedShelf by remember { mutableStateOf<HomeLibraryShelf?>(null) }
+    var expandedShelfSource by remember { mutableStateOf<ZoomBackAnchor?>(null) }
+    // Whether that page is in 编辑's 多选: its own 编辑, or the shelf's, which opens it that way.
+    var editingShelf by remember { mutableStateOf(false) }
+
+    fun openShelf(
+        shelf: HomeLibraryShelf,
+        id: String,
+        editing: Boolean = false,
+    ) {
+        editingShelf = editing
+        expandedShelfSource = shelfAnchor(id)
+        expandedShelf = shelf
+    }
     val upNext = remember(state.nextUp, state.resume) { homeNextUpShelf(state.nextUp, state.resume) }
 
     fun shelfEntries(shelf: HomeLibraryShelf): List<HomeResumeEntry> =
@@ -343,6 +357,12 @@ internal fun HomeContentBody(
         // TMDB shelf's 全部.
         expandedShelf = null
         onIntent(HomeIntent.OpenResume(entry))
+    }
+    // A 继续观看 or 下一集 card picks up where it was left on a tap, as every player app's does;
+    // its page is one lift away — 查看详情, or letting go on the lifted card.
+    val playEntry: (HomeResumeEntry) -> Unit = { entry ->
+        expandedShelf = null
+        onIntent(HomeIntent.PlayEntry(entry))
     }
     val openShelfEmptied = expandedShelf?.let { shelfEntries(it).isEmpty() } == true
     LaunchedEffect(openShelfEmptied) {
@@ -401,8 +421,12 @@ internal fun HomeContentBody(
 
         val scrolledPastHero by rememberScrolledPastHero(listState, heroHeight)
         val heroVisible = !scrolledPastHero
-        // A folded header has no artwork under the status bar, so the icons follow the page.
-        StatusBarIconStyle(darkIcons = (heroFolded || !heroVisible) && !palette.isDark)
+        val rowPageOpen = expandedRow != null || expandedShelf != null
+        // A folded header has no artwork under the status bar, so the icons follow the page; so do
+        // they under a 查看全部 page, which covers the reel with the page ground. They are set here
+        // rather than by that page: nothing puts the reel's white back when a page leaves, so the
+        // one call has to know both.
+        StatusBarIconStyle(darkIcons = (heroFolded || !heroVisible || rowPageOpen) && !palette.isDark)
         // Reading `listState.isScrollInProgress` directly in the item's content recomposed the
         // hero every time a scroll started or stopped (LibraryHomeScreen's carouselVisible
         // already takes this shape); derivedStateOf collapses that to one flip per visibility
@@ -430,7 +454,8 @@ internal fun HomeContentBody(
             onRefresh = refreshPage,
             state = pullState,
             indicator = { RefreshIndicator(pullState, state.refreshing, Modifier.align(Alignment.TopCenter)) },
-            modifier = Modifier.fillMaxSize(),
+            // Still composed under a 查看全部 page, where a screen reader would walk on through it.
+            modifier = Modifier.fillMaxSize().then(if (rowPageOpen) Modifier.clearAndSetSemantics {} else Modifier),
         ) {
             SkeletonArrivalScope(state.loading && state.content.isEmpty) {
                 LazyColumn(
@@ -466,7 +491,7 @@ internal fun HomeContentBody(
                                     height = heroHeight,
                                     showSidePreview = showSidePreview,
                                     visible = heroCarouselVisible,
-                                    held = liftMenu?.isOpen == true || expandedRow != null || expandedShelf != null,
+                                    held = rowPageOpen || editingShelves,
                                     refreshing = state.refreshing,
                                     onRefresh = refreshPage,
                                     onOpenProfile = onOpenProfile,
@@ -485,6 +510,23 @@ internal fun HomeContentBody(
                         motionItem(key = "smart-playlists") {
                             com.yfuse.feature.search
                                 .SmartPlaylistShelf()
+                        }
+                    }
+                    // A pinned 智能片单 that is one library under a genre — 短剧 · 甜宠 — is a shelf of
+                    // posters, as the library's own rows are, rather than a name to tap.
+                    smartShelves.forEach { (rule, query) ->
+                        motionItem(key = "smart-shelf:${rule.name}") {
+                            SmartPlaylistLibraryShelf(
+                                rule = rule,
+                                query = query,
+                                onClick = openEntry,
+                                liftMenu = { entry ->
+                                    entry.homeLiftMenu(
+                                        onIntent,
+                                        onShare = { sharer.sharePosterCard(entry.shareCard()) },
+                                    )
+                                },
+                            )
                         }
                     }
                     // Offline, the calendar fails for the same reason the recommendations did.
@@ -563,18 +605,26 @@ internal fun HomeContentBody(
                             HOME_SHELF_CONTINUE -> {
                                 if (state.resume.isNotEmpty()) {
                                     motionItem(key = "continue-watching") {
-                                        ContinueWatching(
-                                            items = state.resume,
-                                            onSeeAll = { expandedShelf = HomeLibraryShelf.ContinueWatching },
-                                            onClick = openEntry,
-                                            liftMenu = { entry ->
-                                                entry.homeLiftMenu(
-                                                    onIntent,
-                                                    inResume = true,
-                                                    onShare = { sharer.sharePosterCard(entry.shareCard()) },
-                                                )
-                                            },
-                                        )
+                                        Box(Modifier.zoomBackAnchor(shelfAnchor(shelf))) {
+                                            ContinueWatching(
+                                                items = state.resume,
+                                                onSeeAll = { openShelf(HomeLibraryShelf.ContinueWatching, shelf) },
+                                                onEdit = {
+                                                    openShelf(HomeLibraryShelf.ContinueWatching, shelf, editing = true)
+                                                },
+                                                onPlay = playEntry,
+                                                onOpen = openEntry,
+                                                liftMenu = { entry ->
+                                                    entry.homeLiftMenu(
+                                                        onIntent,
+                                                        inResume = true,
+                                                        playsOnTap = true,
+                                                        undoWatched = true,
+                                                        onShare = { sharer.sharePosterCard(entry.shareCard()) },
+                                                    )
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -582,18 +632,23 @@ internal fun HomeContentBody(
                             HOME_SHELF_NEXT_UP -> {
                                 if (upNext.isNotEmpty()) {
                                     motionItem(key = "next-up") {
-                                        ContinueWatching(
-                                            title = HomeLibraryShelf.NextUp.title,
-                                            items = upNext,
-                                            onSeeAll = { expandedShelf = HomeLibraryShelf.NextUp },
-                                            onClick = openEntry,
-                                            liftMenu = { entry ->
-                                                entry.homeLiftMenu(
-                                                    onIntent,
-                                                    onShare = { sharer.sharePosterCard(entry.shareCard()) },
-                                                )
-                                            },
-                                        )
+                                        Box(Modifier.zoomBackAnchor(shelfAnchor(shelf))) {
+                                            ContinueWatching(
+                                                title = HomeLibraryShelf.NextUp.title,
+                                                items = upNext,
+                                                onSeeAll = { openShelf(HomeLibraryShelf.NextUp, shelf) },
+                                                onPlay = playEntry,
+                                                onOpen = openEntry,
+                                                liftMenu = { entry ->
+                                                    entry.homeLiftMenu(
+                                                        onIntent,
+                                                        playsOnTap = true,
+                                                        undoWatched = true,
+                                                        onShare = { sharer.sharePosterCard(entry.shareCard()) },
+                                                    )
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -601,18 +656,21 @@ internal fun HomeContentBody(
                             HOME_SHELF_FAVORITES -> {
                                 if (state.favorites.isNotEmpty()) {
                                     motionItem(key = "favorites") {
-                                        LibraryMediaShelf(
-                                            title = "我的收藏",
-                                            items = state.favorites,
-                                            onSeeAll = { expandedShelf = HomeLibraryShelf.Favorites },
-                                            onClick = openEntry,
-                                            liftMenu = { entry ->
-                                                entry.homeLiftMenu(
-                                                    onIntent,
-                                                    onShare = { sharer.sharePosterCard(entry.shareCard()) },
-                                                )
-                                            },
-                                        )
+                                        Box(Modifier.zoomBackAnchor(shelfAnchor(shelf))) {
+                                            LibraryMediaShelf(
+                                                title = "我的收藏",
+                                                items = state.favorites,
+                                                onSeeAll = { openShelf(HomeLibraryShelf.Favorites, shelf) },
+                                                onClick = openEntry,
+                                                liftMenu = { entry ->
+                                                    entry.homeLiftMenu(
+                                                        onIntent,
+                                                        undoWatched = true,
+                                                        onShare = { sharer.sharePosterCard(entry.shareCard()) },
+                                                    )
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -665,7 +723,7 @@ internal fun HomeContentBody(
                                     ?.takeIf { it.items.isNotEmpty() }
                                     ?.let { row ->
                                         motionItem(key = "tmdb-${row.title}") {
-                                            Box(Modifier.zoomBackAnchor(shelfAnchor(row.title))) {
+                                            Box(Modifier.zoomBackAnchor(shelfAnchor(shelf))) {
                                                 Recommended(
                                                     title = row.title,
                                                     items = row.items,
@@ -675,7 +733,7 @@ internal fun HomeContentBody(
                                                     // most are not in the library at all, so the old destination
                                                     // showed none of what the chip had just offered.
                                                     onSeeAll = {
-                                                        expandedSource = shelfAnchor(row.title)
+                                                        expandedSource = shelfAnchor(shelf)
                                                         expandedRow = row
                                                     },
                                                     onClick = { onIntent(HomeIntent.Open(it)) },
@@ -702,28 +760,18 @@ internal fun HomeContentBody(
             }
         }
 
-        // Floats over the page rather than sitting in it: as a list item this pushed the
-        // whole feed down and then let it snap back, and it never cleared itself.
-        ActionToast(
-            message = state.actionMessage,
-            onDismiss = { onIntent(HomeIntent.DismissMessage) },
-            action =
-                state.resumeUndoKey?.let { key ->
-                    ToastAction("撤销") { onIntent(HomeIntent.UndoRemoveFromResume(key)) }
-                },
-        )
-
-        // Once there are posters to hold. Retires on its own the first time one is lifted.
+        // Once there are posters to hold. Retires on its own the first time one is lifted. It is
+        // about this page's posters, so it waits while a 查看全部 page or 编辑首页 covers them,
+        // and stays under a page opening over it.
         ContextualTip(
             id = Tips.LIFT,
             text = "按住海报可以浮起菜单，滑到选项松手即可",
-            active = state.resume.isNotEmpty() || state.content.rows.any { it.items.isNotEmpty() },
+            active =
+                (state.resume.isNotEmpty() || state.content.rows.any { it.items.isNotEmpty() }) &&
+                    !rowPageOpen &&
+                    !editingShelves,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomContentInset + 8.dp),
         )
-
-        if (state.resolving) {
-            OrbProgress(modifier = Modifier.align(Alignment.Center), size = OrbProgressDefaults.Page)
-        }
 
         // Pushed and popped like a route rather than cut in and out; the reel above holds still
         // while it is up (see HomeHeroCarousel's `held`).
@@ -747,7 +795,7 @@ internal fun HomeContentBody(
             )
         }
 
-        OverlayPage(value = expandedShelf, onBack = { expandedShelf = null }) { shelf ->
+        OverlayPage(value = expandedShelf, onBack = { expandedShelf = null }, source = expandedShelfSource) { shelf ->
             val entries = shelfEntries(shelf)
             LibraryRowPage(
                 title = shelf.title,
@@ -758,7 +806,8 @@ internal fun HomeContentBody(
                         total = if (shelf == HomeLibraryShelf.Favorites) state.favoritesTotal else entries.size,
                     ),
                 entries = entries,
-                onOpen = openEntry,
+                // The whole shelf does what its cards do on the home page.
+                onOpen = if (shelf.playsOnTap) playEntry else openEntry,
                 liftMenu = { entry ->
                     entry.homeLiftMenu(
                         onIntent = { intent ->
@@ -766,23 +815,59 @@ internal fun HomeContentBody(
                             if (intent is HomeIntent.PlayEntry || intent is HomeIntent.OpenResume) expandedShelf = null
                         },
                         inResume = shelf == HomeLibraryShelf.ContinueWatching,
+                        playsOnTap = shelf.playsOnTap,
+                        undoWatched = true,
                         onShare = { sharer.sharePosterCard(entry.shareCard()) },
                     )
                 },
                 onDismiss = { expandedShelf = null },
+                editing = editingShelf,
+                onEditingChange = { editingShelf = it },
+                // 编辑 on 继续观看 (I-21): what the lift does to one card, done to every ticked one.
+                selectionActions =
+                    { selection: List<HomeResumeEntry> ->
+                        resumeSelectionActions(selection) { intent ->
+                            onIntent(intent)
+                            // The cards have gone, and the toast offering them back takes the bar's place.
+                            editingShelf = false
+                        }
+                    }.takeIf { shelf == HomeLibraryShelf.ContinueWatching },
             )
         }
+
+        // After the 查看全部 pages, which paint the whole screen: what a lift action inside one
+        // does — the lookup behind a TMDB 收藏, a 移除 and its 撤销 — shows over the page, not
+        // under it, where a 移除 committed unseen once its toast ran out.
+        if (state.resolving) {
+            OrbProgress(modifier = Modifier.align(Alignment.Center), size = OrbProgressDefaults.Page)
+        }
+
+        // Floats over the page rather than sitting in it: as a list item this pushed the
+        // whole feed down and then let it snap back, and it never cleared itself. Drawn over the
+        // 全部 pages too, whose 移除 and 标记为已看 it holds for 撤销 as it does the shelves'.
+        ActionToast(
+            message = state.actionMessage,
+            onDismiss = { onIntent(HomeIntent.DismissMessage) },
+            action =
+                state.resumeUndoKey?.let { key ->
+                    ToastAction("撤销") { onIntent(HomeIntent.UndoResumeChange(key)) }
+                },
+        )
     }
 }
 
-/** The library-backed shelves whose 全部 opens a [LibraryRowPage]; titles and badges as on the shelf. */
+/**
+ * The library-backed shelves whose 全部 opens a [LibraryRowPage]; titles and badges as on the shelf.
+ * [playsOnTap] for the two whose cards resume on a tap rather than open the title.
+ */
 private enum class HomeLibraryShelf(
     val title: String,
     val source: String,
+    val playsOnTap: Boolean,
 ) {
-    ContinueWatching("继续观看", "Emby"),
-    NextUp("下一集", "Emby"),
-    Favorites("我的收藏", "媒体库"),
+    ContinueWatching("继续观看", "Emby", playsOnTap = true),
+    NextUp("下一集", "Emby", playsOnTap = true),
+    Favorites("我的收藏", "媒体库", playsOnTap = false),
 }
 
 /**
@@ -849,7 +934,7 @@ private fun HomeHeroCarousel(
     height: androidx.compose.ui.unit.Dp,
     showSidePreview: Boolean,
     visible: Boolean,
-    /** Something is open over the reel — a menu, 查看全部 — so it must not turn under it. */
+    /** Something is open over the reel — 查看全部, a shelf's 全部, 编辑首页 — so it must not turn under it. */
     held: Boolean,
     refreshing: Boolean,
     onRefresh: () -> Unit,
@@ -861,205 +946,72 @@ private fun HomeHeroCarousel(
     onAccent: (Color) -> Unit,
     onPageColor: (Color) -> Unit,
 ) {
-    val pagerState = rememberLoopingCarouselState(items.map { it.id.toString() })
-    val carouselTouched = remember { mutableStateOf(false) }
-    val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
-    val carouselScope = rememberCoroutineScope()
-    // `enabled` gates whether [rememberLightFeedback] even builds its state (see its own
-    // `available` check), not just whether it may emit — so passing the carousel's `visible`
-    // there rebuilt the state from scratch on every scroll start/stop. It now stays alive
-    // permanently and `visible` only gates the `.emit(...)` calls below, the same way
-    // [rememberLightFeedback] itself already treats route visibility as a post-build gate.
-    val carouselLight = rememberLightFeedback(enhancedOnly = true)
-    LaunchedEffect(carouselDragging, carouselLight, visible) {
-        if (carouselDragging && visible) carouselLight.emit(LightEffect.Dust)
-    }
-    // Every level gets the settle: a page that has just left sweeps a gathering light along
-    // the side it left from. Dust on the edges stays an 增强 detail.
-    val carouselSweep = rememberLightFeedback()
-    LaunchedEffect(pagerState, carouselSweep, visible) {
-        var previous = pagerState.settledPage
-        snapshotFlow { pagerState.settledPage }.collect { page ->
-            // Tracking keeps running while hidden so a page change during that time is not
-            // mistaken for one later, once visible again; only the sweep itself is gated.
-            if (page != previous && visible) {
-                carouselSweep.emit(LightEffect.Converge, fractionX = if (page > previous) 0.04f else 0.96f)
-            }
-            previous = page
-        }
-    }
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    // Touching the reel restarts its clock rather than stopping it for good. The pause
-    // control this replaces could only be undone by finding it again, so a single swipe
-    // left the hero permanently still with a play glyph as the only clue why.
-    var interaction by remember { mutableStateOf(0) }
-    val ambientItem = items.getOrNull(loopingCarouselItemIndex(pagerState.settledPage, items.size))
+    val hero = rememberLivingPosterHeroState(items.map { it.id.toString() })
+    val ambientItem = items.getOrNull(hero.settledIndex(items.size))
     val ambientUrls = remember(ambientItem) { tmdbHeroArtworkUrls(ambientItem) }
-
-    CarouselAutoAdvance(
-        pagerState = pagerState,
-        pageCount = items.size,
-        held = held || !visible || carouselDragging || carouselTouched.value,
-        restartKey = interaction,
-    )
 
     BoxWithConstraints(
         Modifier
             .fillMaxWidth()
-            .height(height)
-            .carouselTouchPause(carouselTouched)
-            .lightFeedback(carouselLight)
-            .lightFeedback(carouselSweep),
+            .height(height),
     ) {
-        val indicatorStart =
-            if (showSidePreview) LivingPosterDefaults.LEADING_INSET else 0.dp
-        val indicatorEnd =
-            if (showSidePreview) LivingPosterDefaults.TRAILING_PEEK else 0.dp
-        val artworkWidth =
-            if (showSidePreview) {
-                (maxWidth - LivingPosterDefaults.LEADING_INSET - LivingPosterDefaults.TRAILING_PEEK)
-                    .coerceAtLeast(1.dp)
-            } else {
-                maxWidth
-            }
-        val artworkAspectRatio = artworkWidth.value / maxHeight.value.coerceAtLeast(1f)
-        val artworkFadeFraction =
-            (HeroPageFade.value / maxHeight.value.coerceAtLeast(1f)).coerceIn(0.02f, 1f)
-        // Full-bleed phone artwork must dissolve straight into the real page. Drawing a
-        // second, blurred copy behind it made that copy show through the fade as a saturated
-        // horizontal band and also decoded the first image twice. Wide layouts still need
-        // the ambient layer behind their inset poster, so it shares the same dissolve.
-        if (showSidePreview) {
-            LivingPosterAmbient(
-                urls = ambientUrls,
-                modifier = Modifier.fillMaxSize().fadeIntoPage(),
-            )
-        }
-        if (items.isEmpty()) {
-            HeroSlide(
-                item = null,
-                onPlay = {},
-                onDetails = {},
-                onFavorite = {},
-                artworkAspectRatio = artworkAspectRatio,
-                artworkFadeFraction = artworkFadeFraction,
-                modifier =
-                    Modifier
-                        .fillMaxSize(),
-            )
-        } else {
-            HorizontalPager(
-                state = pagerState,
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .loopingCarouselSemantics(pagerState.currentPage, items.size),
-                contentPadding =
-                    if (showSidePreview) {
-                        PaddingValues(
-                            start = LivingPosterDefaults.LEADING_INSET,
-                            end = LivingPosterDefaults.TRAILING_PEEK,
-                        )
-                    } else {
-                        PaddingValues(0.dp)
-                    },
-                pageSpacing = if (showSidePreview) LivingPosterDefaults.PAGE_SPACING else 0.dp,
-                beyondViewportPageCount = 1,
-                key = { page -> page },
-            ) { page ->
-                val item = items[loopingCarouselItemIndex(page, items.size)]
-                val settled = page == pagerState.settledPage
+        val artwork = livingPosterArtwork(maxWidth, maxHeight, showSidePreview)
+        LivingPosterHeroCarousel(
+            state = hero,
+            pageCount = items.size,
+            showSidePreview = showSidePreview,
+            // A 浮起菜单 holds it too, from inside the reel.
+            held = held || !visible,
+            ambientUrls = ambientUrls,
+            modifier = Modifier.fillMaxSize(),
+            lit = visible,
+            empty = {
                 HeroSlide(
-                    item = item,
-                    onPlay = { onPlay(item) },
-                    onDetails = { onDetails(item) },
-                    onFavorite = { onFavorite(item) },
-                    settled = settled,
-                    pageOffset = { (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction },
-                    onAccent = onAccent,
-                    onPageColor = onPageColor,
-                    artworkAspectRatio = artworkAspectRatio,
-                    artworkFadeFraction = artworkFadeFraction,
-                    framed = showSidePreview,
+                    item = null,
+                    onPlay = {},
+                    onDetails = {},
+                    onFavorite = {},
+                    artworkAspectRatio = artwork.aspectRatio,
+                    artworkFadeFraction = artwork.fadeFraction,
                     modifier =
                         Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                val visual =
-                                    carouselPageVisual(
-                                        signedPageOffset =
-                                            (pagerState.currentPage - page) +
-                                                pagerState.currentPageOffsetFraction,
-                                        reduceMotion = reduceMotion,
-                                        preservePreviewEdge = showSidePreview,
-                                    )
-                                scaleX = visual.scale
-                                scaleY = visual.scale
-                                alpha = visual.alpha
-                                translationX = size.width * visual.parallaxFraction
-                            },
+                            .fillMaxSize(),
                 )
-            }
-        }
-
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(HomeStatusBarScrimHeight)
-                .align(Alignment.TopCenter)
-                .background(HomeStatusBarScrim),
-        )
-
-        HeroHeader(
-            userName = userName,
-            refreshing = refreshing,
-            onRefresh = onRefresh,
-            onOpenProfile = onOpenProfile,
-            onOpenCalendar = onOpenCalendar,
-            modifier = Modifier.align(Alignment.TopStart),
-        )
-
-        if (items.size > 1) {
-            Box(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .padding(
-                        start = indicatorStart,
-                        end = indicatorEnd,
-                        bottom = LivingPosterDefaults.INDICATOR_BOTTOM,
-                    ),
-            ) {
-                HeroPageIndicator(
-                    pageCount = items.size,
-                    selectedPage = loopingCarouselItemIndex(pagerState.currentPage, items.size),
-                    pageOffsetProvider = { pagerState.currentPageOffsetFraction },
-                    onPageSelected = { targetIndex ->
-                        if (targetIndex != loopingCarouselItemIndex(pagerState.currentPage, items.size)) {
-                            carouselLight.emit(LightEffect.Dust)
-                        }
-                        interaction++
-                        carouselScope.launch {
-                            val targetPage =
-                                loopingCarouselTargetPage(
-                                    currentPage = pagerState.currentPage,
-                                    targetIndex = targetIndex,
-                                    itemCount = items.size,
-                                )
-                            if (reduceMotion) {
-                                pagerState.scrollToPage(targetPage)
-                            } else {
-                                pagerState.animateScrollToPage(
-                                    page = targetPage,
-                                    animationSpec = tween(Motion.EMPHASIZED, easing = Motion.Curve),
-                                )
-                            }
-                        }
-                    },
-                    onArtwork = false,
-                    modifier = Modifier.align(Alignment.Center),
+            },
+            overlay = {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(HomeStatusBarScrimHeight)
+                        .align(Alignment.TopCenter)
+                        .background(HomeStatusBarScrim),
                 )
-            }
+
+                HeroHeader(
+                    userName = userName,
+                    refreshing = refreshing,
+                    onRefresh = onRefresh,
+                    onOpenProfile = onOpenProfile,
+                    onOpenCalendar = onOpenCalendar,
+                    modifier = Modifier.align(Alignment.TopStart),
+                )
+            },
+        ) { page ->
+            val item = items[page.index]
+            HeroSlide(
+                item = item,
+                onPlay = { onPlay(item) },
+                onDetails = { onDetails(item) },
+                onFavorite = { onFavorite(item) },
+                settled = page.settled,
+                pageOffset = page.offset,
+                onAccent = onAccent,
+                onPageColor = onPageColor,
+                artworkAspectRatio = artwork.aspectRatio,
+                artworkFadeFraction = artwork.fadeFraction,
+                framed = showSidePreview,
+                modifier = page.modifier,
+            )
         }
     }
 }
@@ -1418,13 +1370,18 @@ private fun HomeSourceBadge(source: String) {
 private fun ContinueWatching(
     items: List<HomeResumeEntry>,
     onSeeAll: () -> Unit,
-    onClick: (HomeResumeEntry) -> Unit,
+    /** A tap: play from where it was left. */
+    onPlay: (HomeResumeEntry) -> Unit,
+    /** Letting go on the lifted card: the title's page. */
+    onOpen: (HomeResumeEntry) -> Unit,
     liftMenu: (HomeResumeEntry) -> LiftMenu,
     /** 下一集 is the same rail of stills; only its title, and what each card announces, differ. */
     title: String = "继续观看",
+    /** The header's 编辑: 全部, already selecting; null for a shelf 编辑 has nothing for. */
+    onEdit: (() -> Unit)? = null,
 ) {
     Column {
-        HomeShelfHeader(title = title, source = "Emby", onSeeAll = onSeeAll)
+        HomeShelfHeader(title = title, source = "Emby", onSeeAll = onSeeAll, onEdit = onEdit)
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(11.dp),
@@ -1433,7 +1390,8 @@ private fun ContinueWatching(
                 ContinueWatchingCard(
                     entry = entry,
                     shelfTitle = title,
-                    onClick = { onClick(entry) },
+                    onPlay = { onPlay(entry) },
+                    onOpen = { onOpen(entry) },
                     liftMenu = { liftMenu(entry) },
                 )
             }
@@ -1445,46 +1403,75 @@ private fun ContinueWatching(
 private fun ContinueWatchingCard(
     entry: HomeResumeEntry,
     shelfTitle: String,
-    onClick: () -> Unit,
+    onPlay: () -> Unit,
+    onOpen: () -> Unit,
     liftMenu: () -> LiftMenu,
 ) {
     val palette = LocalPalette.current
     val item = entry.item
+    val backdropUrl =
+        EmbyImages.backdrop(
+            entry.server.baseUrl,
+            item,
+            maxWidth = 480,
+            accessToken = entry.server.accessToken,
+        )
+    val posterUrl =
+        EmbyImages.poster(
+            entry.server.baseUrl,
+            item,
+            accessToken = entry.server.accessToken,
+        )
+    // The still is where the player comes out of on a tap — the handoff 详情's play key starts, which
+    // this shelf used to leave to a plain window fade — and where a page opened from its lift is
+    // pulled back into. The tap therefore sits on the card rather than in [Poster], whose own click
+    // would start the morph into 详情.
+    val artworkKey = remember(entry.server.id, item.id) { MediaSharedElementKey(entry.server.id, item.id) }
+    val resume = playerArtworkOnClick(artworkKey, onPlay)
+    val open = liftedCardOpen(artworkKey, onOpen)
+    val artworkUrls = remember(backdropUrl, posterUrl) { listOfNotNull(backdropUrl, posterUrl).distinct() }
+    val resumable = (item.resumePositionTicks ?: 0L) > 0L
     Column(modifier = Modifier.width(MediaSizing.landscapeCardWidth)) {
-        Poster(
-            url =
-                EmbyImages.backdrop(
-                    entry.server.baseUrl,
-                    item,
-                    maxWidth = 480,
-                    accessToken = entry.server.accessToken,
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(MediaSizing.landscapeCardHeight)
+                // Outside the press, so the lift can take the stream over from the click; see [liftable].
+                .liftable(menu = { liftMenu().withArtwork(artworkUrls) }, onOpen = open)
+                .pressable(
+                    tilt = true,
+                    focusShape = AppShapes.card,
+                    onClickLabel = if (resumable) "继续播放" else "播放",
+                    onClick = resume,
                 ),
-            fallbackUrl =
-                EmbyImages.poster(
-                    entry.server.baseUrl,
-                    item,
-                    accessToken = entry.server.accessToken,
-                ),
-            rating = item.communityRating,
-            progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
-            contentDescription = "$shelfTitle ${item.title}${item.subtitle?.let { "，$it" }.orEmpty()}",
-            onClick = onClick,
-            liftMenu = liftMenu,
-            sharedTransitionKey = MediaSharedElementKey(entry.server.id, item.id),
-            modifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
         ) {
-            resumePositionLabel(item.resumePositionTicks)?.let { position ->
-                Text(
-                    text = "看到 $position",
-                    style = AppTypography.caption.strong.copy(shadow = HeroTextShadow),
-                    color = Color.White,
-                    modifier =
-                        Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(start = 9.dp, bottom = 9.dp)
-                            .background(Color.Black.copy(alpha = 0.48f), AppShapes.chip)
-                            .padding(horizontal = 7.dp, vertical = 3.dp),
-                )
+            Poster(
+                url = backdropUrl,
+                // An episode without a backdrop shows its own still before the series poster: an upright
+                // 短剧 has rarely any backdrop, and its poster cropped to this card was a band of it.
+                fallbackUrl = EmbyImages.still(entry.server.baseUrl, item, accessToken = entry.server.accessToken),
+                fallbackUrls = listOfNotNull(posterUrl),
+                fitNarrow = true,
+                rating = item.communityRating,
+                progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
+                blurHash = if (backdropUrl != null) item.backdropBlurHash else item.posterBlurHash,
+                contentDescription = "$shelfTitle ${item.title}${item.subtitle?.let { "，$it" }.orEmpty()}",
+                sharedTransitionKey = artworkKey,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                resumePositionLabel(item.resumePositionTicks)?.let { position ->
+                    Text(
+                        text = "看到 $position",
+                        style = AppTypography.caption.strong.copy(shadow = HeroTextShadow),
+                        color = Color.White,
+                        modifier =
+                            Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(start = 9.dp, bottom = 9.dp)
+                                .background(Color.Black.copy(alpha = 0.48f), AppShapes.chip)
+                                .padding(horizontal = 7.dp, vertical = 3.dp),
+                    )
+                }
             }
         }
         Spacer(Modifier.height(7.dp))
@@ -1527,6 +1514,45 @@ internal fun compactLastPlayedDate(value: String?): String? {
     return date.substring(5).replace('-', '/')
 }
 
+/** A pinned 智能片单 that is one library listing, as posters; its 全部 opens the rule in 搜索. */
+@Composable
+private fun SmartPlaylistLibraryShelf(
+    rule: SmartPlaylist,
+    query: SmartShelfQuery,
+    onClick: (HomeResumeEntry) -> Unit,
+    liftMenu: (HomeResumeEntry) -> LiftMenu,
+) {
+    val repository = remember { GlobalContext.get().get<EmbyRepository>() }
+    val registry = remember { GlobalContext.get().get<ServerRegistry>() }
+    val requests = remember { GlobalContext.get().get<SearchRequests>() }
+    val entries by produceState(emptyList<HomeResumeEntry>(), query) {
+        val server = registry.serverById(query.serverId) ?: return@produceState
+        value =
+            repository
+                .libraryItems(
+                    server = server,
+                    libraryId = query.libraryId,
+                    sort = query.sort,
+                    genre = query.genre,
+                    limit = SMART_SHELF_LIMIT,
+                    unplayedOnly = query.unplayedOnly,
+                ).getOrNull()
+                ?.items
+                .orEmpty()
+                .map { HomeResumeEntry(it, server) }
+    }
+    if (entries.isEmpty()) return
+    LibraryMediaShelf(
+        title = rule.name,
+        items = entries,
+        onSeeAll = { requests.openPlaylist(rule) },
+        onClick = onClick,
+        liftMenu = liftMenu,
+    )
+}
+
+private const val SMART_SHELF_LIMIT = 12
+
 @Composable
 private fun LibraryMediaShelf(
     title: String,
@@ -1550,6 +1576,7 @@ private fun LibraryMediaShelf(
                             item,
                             accessToken = entry.server.accessToken,
                         ),
+                    blurHash = item.posterBlurHash,
                     title = item.title,
                     rating = item.communityRating,
                     year =
@@ -1578,6 +1605,8 @@ private fun HomeShelfHeader(
     source: String,
     onSeeAll: () -> Unit,
     onSeeAllLabel: String? = null,
+    /** 编辑 beside 全部, for a shelf whose cards can be taken off it several at a time. */
+    onEdit: (() -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
     val editShelves = LocalHomeShelfEdit.current
@@ -1614,21 +1643,37 @@ private fun HomeShelfHeader(
             Text(title, style = AppTypography.section.strong, color = palette.text)
             HomeSourceBadge(source)
         }
-        Row(
-            Modifier
-                .pressable(onClickLabel = onSeeAllLabel, onClick = onSeeAll)
-                .touchTarget()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("全部", style = AppTypography.caption.medium, color = palette.sub2)
-            Icon(
-                AppIcons.ChevronRight,
-                contentDescription = null,
-                tint = palette.hint,
-                modifier = Modifier.size(11.dp),
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // Taking cards off 继续观看 was one held card at a time, with nothing on screen to say
+            // it could be done at all. The word is 全部's size and ink, so the shelf reads the same.
+            if (onEdit != null) {
+                Text(
+                    "编辑",
+                    style = AppTypography.caption.medium,
+                    color = palette.sub2,
+                    modifier =
+                        Modifier
+                            .pressable(onClickLabel = "编辑$title", onClick = onEdit)
+                            .touchTarget()
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                )
+            }
+            Row(
+                Modifier
+                    .pressable(onClickLabel = onSeeAllLabel, onClick = onSeeAll)
+                    .touchTarget()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("全部", style = AppTypography.caption.medium, color = palette.sub2)
+                Icon(
+                    AppIcons.ChevronRight,
+                    contentDescription = null,
+                    tint = palette.hint,
+                    modifier = Modifier.size(11.dp),
+                )
+            }
         }
     }
 }

@@ -53,7 +53,7 @@ internal fun TvPlaybackSettingsPage(
                 focusScope = focusScope,
                 subtitle =
                     if (progressSync) {
-                        "同步到 Emby/Jellyfin 与 Yfuse 云端，支持跨设备续播"
+                        "同步到 Emby/Jellyfin 与 Yfuse 云端，支持跨设备续播；5 分钟内的短集以本机续播点为准"
                     } else {
                         "仅保留本机进度，不向服务器或云端上报"
                     },

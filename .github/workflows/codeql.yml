@@ -73,3 +73,43 @@ jobs:
         uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           category: "/language:java-kotlin"
+
+  # Workflows and the release/verification scripts decide what gets signed, uploaded and
+  # published, so they are analysed too. Neither needs a build: this job runs beside the
+  # Kotlin one without its native bootstrap. audit/ holds frozen copies of old workflows and
+  # scripts that never run; alerts there could only be dismissed, never fixed.
+  analyze-sources:
+    name: Analyze ${{ matrix.language }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, python]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # security-extended costs seconds on a few dozen scripts and workflows. The Kotlin job
+      # keeps the default suite: it is already the long pole of every run (native bootstrap plus
+      # a non-incremental extractor compile), so its query suite is widened only after a run
+      # has measured the extra evaluation time.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+          config: |
+            paths-ignore:
+              - audit/**
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          category: "/language:${{ matrix.language }}"

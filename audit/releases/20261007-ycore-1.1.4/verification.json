@@ -1,0 +1,19 @@
+{
+  "bytes": 29549542,
+  "sha256": "f2be2d8de0c55f3cf9c8134cc16ba76395074dc046c75e372031f7be79fde89b",
+  "sourceCommit": "281f31a2154575d037c231922cb673a64e6ea5a4",
+  "workflowRun": 37562247809,
+  "signatureGate": "passed",
+  "startupSmoke": {
+    "android15": "passed attempt 1",
+    "android16": "passed attempt 1",
+    "android17": "ANR attempt 1; unchanged APK passed attempt 2"
+  },
+  "package": "com.yfuse",
+  "versionName": "1.1.4",
+  "versionCode": 266,
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "firstAndroid17Attempt": "ANR during foreground/background smoke; emulator CPU saturated. Same APK passed all 14 cases on the second attempt; root cause remains unproven.",
+  "packageWorkflow": "success",
+  "publish": false
+}

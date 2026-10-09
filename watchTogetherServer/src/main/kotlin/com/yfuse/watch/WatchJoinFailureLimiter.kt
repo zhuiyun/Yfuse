@@ -95,8 +95,10 @@ internal class WatchJoinFailureLimiter(
         nextCleanupAtMs = saturatedAdd(nowMs, CLEANUP_INTERVAL_MS)
     }
 
-    private fun saturatedAdd(left: Long, right: Long): Long =
-        if (left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
+    private fun saturatedAdd(
+        left: Long,
+        right: Long,
+    ): Long = if (left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
 
     private fun pruneLocked(nowMs: Long) {
         failuresByKey.values.removeAll { failures ->

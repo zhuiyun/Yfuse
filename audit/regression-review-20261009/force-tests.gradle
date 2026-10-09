@@ -1,0 +1,8 @@
+gradle.projectsEvaluated {
+    def targets = [':phoneShared:testAndroidHostTest', ':tvShared:testAndroidHostTest', ':yfuseBackendClient:jvmTest', ':watchTogetherProtocol:jvmTest', ':watchTogetherServer:test'] as Set
+    rootProject.allprojects { p ->
+        p.tasks.withType(org.gradle.api.tasks.testing.Test).configureEach { task ->
+            if (targets.contains(task.path)) task.outputs.upToDateWhen { false }
+        }
+    }
+}

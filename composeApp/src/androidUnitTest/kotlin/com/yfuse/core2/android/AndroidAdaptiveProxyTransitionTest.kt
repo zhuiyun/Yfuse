@@ -20,7 +20,6 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -86,6 +85,133 @@ class AndroidAdaptiveProxyTransitionTest {
     }
 
     @Test
+    fun separated_audio_and_subtitles_survive_downshift_and_recovery() {
+        val resources = hlsResources().toMutableMap()
+        resources["/master.m3u8"] =
+            resources
+                .getValue("/master.m3u8")
+                .replace(
+                    "#EXTM3U",
+                    """
+                    #EXTM3U
+                    #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",DEFAULT=YES,URI="audio.m3u8"
+                    #EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",URI="subs.m3u8"
+                    """.trimIndent(),
+                ).replace("RESOLUTION=", "AUDIO=\"audio\",SUBTITLES=\"subs\",RESOLUTION=")
+        listOf("low", "high").forEach { name ->
+            resources["/$name.m3u8"] =
+                hlsMedia(name)
+                    .replace(
+                        "#EXT-X-ENDLIST",
+                        (3..64).joinToString("\n") { "#EXTINF:2,\n$name-$it.m4s" } + "\n#EXT-X-ENDLIST",
+                    ).replace("low-init.mp4", "high-init.mp4")
+            val payload = (if (name == "high") "H" else "L").repeat(256 * 1024)
+            (1..64).forEach { resources["/$name-$it.m4s"] = payload }
+        }
+        resources["/audio.m3u8"] = hlsMedia("audio")
+        resources["/subs.m3u8"] = hlsMedia("subs")
+        val upstream = FixtureUpstream(resources)
+        upstream.segmentReadNs.set(1_000_000_000L)
+        withProxy(upstream) { proxy ->
+            val root =
+                proxy.localUrl(
+                    "https://media.example.test/master.m3u8",
+                    upstreamHeaders = mapOf("X-Fixture-Identity" to "renditions"),
+                    cacheable = false,
+                    cacheIdentity = null,
+                )
+            val target = assertNotNull(runBlocking { proxy.resolvePlaybackTarget(root, 0L) })
+            val master = readUrl(target.uri).decodeToString()
+            assertTrue("TYPE=AUDIO" in master && "TYPE=SUBTITLES" in master)
+            Regex("#EXT-X-MEDIA:.*URI=\"([^\"]+)\"").findAll(master).forEach {
+                assertTrue(readUrl(it.groupValues[1]).decodeToString().startsWith("#EXTM3U"))
+            }
+            val video = master.lineSequence().first { it.isNotBlank() && !it.startsWith('#') }
+            val media = readUrl(video).decodeToString()
+            assertEquals("HIGH_INIT", readUrl(hlsInitialization(media)).decodeToString())
+            val segments = media.lineSequence().filter { it.isNotBlank() && !it.startsWith('#') }.toList()
+            var nextSegment = 0
+            proxy.updatePlaybackFeedback(YAdaptivePlaybackFeedback(0L, true, 1f, 1L))
+            var low = false
+            // Repeated reads of one URI must stay byte-identical. ABR acts on the next segment.
+            while (!low && nextSegment < 16) low = readUrl(segments[nextSegment++]).first() == 'L'.code.toByte()
+            assertTrue(low, "The separated-rendition master must downshift")
+            upstream.segmentReadNs.set(25_000_000L)
+            var high = false
+            while (!high && nextSegment < segments.size) {
+                proxy.updatePlaybackFeedback(YAdaptivePlaybackFeedback(60_000_000L, true, 1f, 1L))
+                high = readUrl(segments[nextSegment++]).first() == 'H'.code.toByte()
+            }
+            assertTrue(high, "A recovered link must restore the higher rendition")
+            assertNull(proxy.pollPlaybackTransition(root, 0L))
+            assertTrue(upstream.requests.all { it.headers["X-Fixture-Identity"] == "renditions" })
+        }
+    }
+
+    @Test
+    fun separated_vod_rebuild_keeps_renditions_and_pins_each_targets_initialization() {
+        val resources = hlsResources().toMutableMap()
+        resources["/master.m3u8"] =
+            resources
+                .getValue("/master.m3u8")
+                .replace(
+                    "#EXTM3U",
+                    "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"English\",URI=\"audio.m3u8\"",
+                ).replace("RESOLUTION=", "AUDIO=\"audio\",RESOLUTION=")
+        withProxy(FixtureUpstream(resources)) { proxy ->
+            val root = proxy.localUrl("https://media.example.test/master.m3u8", cacheable = false, cacheIdentity = null)
+            val first = assertNotNull(runBlocking { proxy.resolvePlaybackTarget(root, 0L) })
+
+            fun videoManifest(target: YAdaptivePlaybackTarget): String {
+                val master = readUrl(target.uri).decodeToString()
+                assertTrue("TYPE=AUDIO" in master && "GROUP-ID=\"audio\"" in master)
+                return readUrl(master.lineSequence().first { it.isNotBlank() && !it.startsWith('#') }).decodeToString()
+            }
+            val before = videoManifest(first)
+            val segment = before.lineSequence().first { it.isNotBlank() && !it.startsWith('#') }
+            proxy.updatePlaybackFeedback(YAdaptivePlaybackFeedback(0L, true, 1f, 4L))
+            var next: YAdaptivePlaybackTarget? = null
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (next == null && System.nanoTime() < deadline) {
+                readUrl(segment)
+                next = proxy.pollPlaybackTransition(root, 3_000L)
+            }
+            assertEquals("LOW_INIT", readUrl(hlsInitialization(videoManifest(assertNotNull(next)))).decodeToString())
+            assertEquals("HIGH_INIT", readUrl(hlsInitialization(videoManifest(first))).decodeToString())
+        }
+    }
+
+    @Test
+    fun separated_live_renditions_reload_the_window_instead_of_replaying_the_initial_snapshot() {
+        val resources = java.util.concurrent.ConcurrentHashMap(hlsResources())
+        resources["/master.m3u8"] =
+            resources
+                .getValue("/master.m3u8")
+                .replace(
+                    "#EXTM3U",
+                    "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"English\",URI=\"audio.m3u8\"",
+                ).replace("RESOLUTION=", "AUDIO=\"audio\",RESOLUTION=")
+        listOf("low", "high").forEach { name ->
+            resources["/$name.m3u8"] =
+                hlsMedia(name)
+                    .replace("#EXT-X-ENDLIST", "")
+                    .replace("#EXT-X-VERSION:7", "#EXT-X-VERSION:7\n#EXT-X-MEDIA-SEQUENCE:0")
+        }
+        withProxy(FixtureUpstream(resources)) { proxy ->
+            val root = proxy.localUrl("https://media.example.test/master.m3u8", cacheable = false, cacheIdentity = null)
+            assertNull(runBlocking { proxy.resolvePlaybackTarget(root, 0L) })
+            val master = readUrl(root).decodeToString()
+            val video = master.lineSequence().first { it.isNotBlank() && !it.startsWith('#') }
+            assertTrue("MEDIA-SEQUENCE:0" in readUrl(video).decodeToString())
+            resources["/high.m3u8"] =
+                resources
+                    .getValue("/high.m3u8")
+                    .replace("#EXT-X-MEDIA-SEQUENCE:0", "#EXT-X-MEDIA-SEQUENCE:7")
+            assertTrue("MEDIA-SEQUENCE:7" in readUrl(video).decodeToString())
+        }
+    }
+
+    @Test
     fun cancelling_manifest_resolution_closes_the_inflight_transport_without_publishing_a_target() {
         val upstream = FixtureUpstream(hlsResources(), blockedPath = "/master.m3u8")
         withProxy(upstream) { proxy ->
@@ -99,7 +225,10 @@ class AndroidAdaptiveProxyTransitionTest {
                 val opening = async(Dispatchers.Default) { proxy.resolvePlaybackTarget(root, 0L) }
                 assertTrue(upstream.blockedOpen.await(2L, TimeUnit.SECONDS))
                 withTimeout(2_000L) { opening.cancelAndJoin() }
-                assertTrue(upstream.closedTransports.get() > 0)
+                // The proxy closes the upstream exchange on its IO cleanup scope (cancelling never
+                // waits for workers), so the close can land just after the caller has joined. Wait
+                // for it instead of reading a counter at the instant of the join.
+                assertTrue(upstream.blockedClosed.await(2L, TimeUnit.SECONDS))
                 assertNull(proxy.pollPlaybackTransition(root, 0L))
                 assertNotNull(proxy.resolvePlaybackTarget(root, 0L))
                 assertEquals(2, upstream.requests.count { URI(it.uri).path == "/master.m3u8" })
@@ -271,7 +400,9 @@ class AndroidAdaptiveProxyTransitionTest {
         val blockedOpen = CountDownLatch(1)
         val unblock = CountDownLatch(1)
         val alternateRead = CountDownLatch(1)
-        val closedTransports = AtomicInteger()
+
+        /** Released when the blocked request's transport is closed, whichever thread closes it. */
+        val blockedClosed = CountDownLatch(1)
         val requests = CopyOnWriteArrayList<YMediaTransportRequest>()
 
         /**
@@ -280,6 +411,7 @@ class AndroidAdaptiveProxyTransitionTest {
          * long the scheduler really parked the thread.
          */
         val networkClockNs = AtomicLong()
+        val segmentReadNs = AtomicLong(SLOW_SEGMENT_READ_NS)
 
         fun transport(): YMediaTransport =
             object : YMediaTransport {
@@ -309,7 +441,7 @@ class AndroidAdaptiveProxyTransitionTest {
                         if (path == blockedPath) alternateRead.countDown()
                         return -1
                     }
-                    if (path.endsWith(".m4s")) networkClockNs.addAndGet(SLOW_SEGMENT_READ_NS)
+                    if (path.endsWith(".m4s")) networkClockNs.addAndGet(segmentReadNs.get())
                     val count = minOf(length, bytes.size - position)
                     bytes.copyInto(destination, offset, position, position + count)
                     position += count
@@ -317,9 +449,11 @@ class AndroidAdaptiveProxyTransitionTest {
                 }
 
                 override suspend fun close() {
-                    closedTransports.incrementAndGet()
                     if (path.endsWith(".m4s")) firstSegmentClosed.countDown()
-                    if (path == blockedPath) unblock.countDown()
+                    if (path == blockedPath) {
+                        blockedClosed.countDown()
+                        unblock.countDown()
+                    }
                 }
             }
     }

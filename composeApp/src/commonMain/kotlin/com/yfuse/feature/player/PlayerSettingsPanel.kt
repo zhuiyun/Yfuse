@@ -4,34 +4,25 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,41 +30,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.yfuse.core.data.Anime4KMode
-import com.yfuse.core.data.PlaybackPreferences
-import com.yfuse.core.data.SkipMode
-import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.DarkPalette
-import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.motionAwareAnimateContentSize
-import com.yfuse.core.designsystem.motionAwareScrollTo
 import com.yfuse.core.designsystem.overlayAction
-import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
-import com.yfuse.core.designsystem.touchTarget
-import com.yfuse.core.handoff.HandoffController
-import kotlinx.coroutines.delay
-import org.koin.core.context.GlobalContext
+import com.yfuse.core.model.ShortDramaMode
 import kotlin.math.abs
-import kotlin.math.roundToInt
-import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
@@ -97,15 +65,6 @@ internal enum class SettingsPanelKind {
 internal enum class TrackPanelMode {
     Subtitle,
     Audio,
-}
-
-private enum class AdvancedPage {
-    Root,
-    Playback,
-    Engine,
-    Media,
-    Bookmarks,
-    Handoff,
 }
 
 /** Compact function popup; long choices scroll inside without turning into a screen drawer. */
@@ -136,6 +95,7 @@ internal fun SettingsPanel(
     /** The receiver's own clock, resolved inside 投屏 rather than by whoever opened the panel. */
     castPositionSource: (() -> String?)?,
     castCapabilities: String?,
+    castTransport: String?,
     danmaku: DanmakuPanelState,
     danmakuActions: DanmakuPanelActions,
     onOpenDanmakuSearch: () -> Unit,
@@ -174,13 +134,17 @@ internal fun SettingsPanel(
     bookmarks: PlaybackBookmarkPanelState = PlaybackBookmarkPanelState(),
     bookmarkActions: PlaybackBookmarkActions = PlaybackBookmarkActions(),
     onToggleAmbientLight: () -> Unit = {},
+    autoNextEnabled: Boolean = true,
+    onToggleAutoNext: () -> Unit = {},
+    shortDramaMode: ShortDramaMode? = null,
+    onSelectShortDramaMode: (ShortDramaMode) -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var advancedPage by remember(kind) { mutableStateOf(AdvancedPage.Root) }
     var problemOpen by remember { mutableStateOf(false) }
     if (problemOpen) PlaybackProblemDialog(playback) { problemOpen = false }
-    val discNavigationRevision by ActiveDiscNavigation.revision.collectAsState()
+    val discNavigationRevision = ActiveDiscNavigation.revision.collectAsState()
 
     PlayerPopupPanel(
         onDismiss = onDismiss,
@@ -188,13 +152,8 @@ internal fun SettingsPanel(
         paneTitle = settingsPanelTitle(kind, trackPanelMode),
     ) {
         // Two transitions, because this shell has two axes of change: one popup kind hands
-        // over to another, and 更多 goes a level deeper and comes back. The travel is resolved
-        // to pixels up here because a transition spec is not a composable and cannot read
-        // the density itself.
+        // over to another here, and 更多 goes a level deeper and comes back inside [MorePanel].
         val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-        val density = LocalDensity.current
-        val pushTravelPx = with(density) { Motion.pushOffset.roundToPx() }
-        val popTravelPx = with(density) { Motion.popOffset.roundToPx() }
         // The list takes whatever height the drawer has left instead of the old fixed
         // 210dp window, which scrolled a short slot inside a mostly empty screen.
         val panelScroll = rememberScrollState()
@@ -213,982 +172,85 @@ internal fun SettingsPanel(
                             onOpenSend = overlayAction(onOpenDanmakuSend),
                         )
 
-                    SettingsPanelKind.Tracks -> {
-                        if (
-                            trackPanelMode == TrackPanelMode.Subtitle &&
-                            state.subtitleTracks.isNotEmpty()
-                        ) {
-                            // 主字幕 leads: it is what the panel is opened for, and it used to sit
-                            // below the dual-subtitle presets, the swap and the preview — past the
-                            // first screen of a popup that is at most 308dp tall. Then 副字幕 and
-                            // the dual layouts, then offsets and style, then 第三方字幕 last.
-                            //
-                            // Where the selected track sits, taken once per opening: in a long list
-                            // it is otherwise below the fold, and it is the one row worth seeing.
-                            var selectedSubtitleSpan by remember(trackPanelMode) { mutableStateOf<IntRange?>(null) }
-                            LaunchedEffect(selectedSubtitleSpan) {
-                                val span = selectedSubtitleSpan ?: return@LaunchedEffect
-                                val viewport = panelScroll.viewportSize
-                                if (viewport > 0 && span.last > viewport) {
-                                    val height = span.last - span.first
-                                    panelScroll.motionAwareScrollTo(span.first - (viewport - height) / 2, reduceMotion)
-                                }
-                            }
-                            GroupLabel("主字幕")
-                            OptionRow(
-                                "关闭",
-                                state.subtitleTracks.none { it.selected },
-                                onClick = { onSelectSubtitle(EngineTrack.OFF) },
-                            )
-                            state.subtitleTracks.forEach { track ->
-                                OptionRow(
-                                    track.label,
-                                    track.selected,
-                                    onClick = { onSelectSubtitle(track.id) },
-                                    modifier =
-                                        if (track.selected && selectedSubtitleSpan == null) {
-                                            Modifier.onGloballyPositioned { coordinates ->
-                                                val top = coordinates.positionInParent().y.roundToInt()
-                                                selectedSubtitleSpan = top..(top + coordinates.size.height)
-                                            }
-                                        } else {
-                                            Modifier
-                                        },
-                                )
-                            }
-                            GroupLabel("副字幕")
-                            subtitleControls.dualLayoutNote?.let { UnsupportedSubtitleControl(it) }
-                            if (subtitleControls.secondarySupported) {
-                                OptionRow(
-                                    "关闭",
-                                    subtitleControls.secondaryTrackId == null,
-                                    onClick = { subtitleActions.onSecondaryTrack(EngineTrack.OFF) },
-                                )
-                                state.subtitleTracks.forEach { track ->
-                                    OptionRow(
-                                        track.label,
-                                        subtitleControls.secondaryTrackId == track.id,
-                                        onClick = { subtitleActions.onSecondaryTrack(track.id) },
-                                    )
-                                }
-                                GroupLabel("双字幕方案 · 主上副下")
-                                DualSubtitleLanguagePair.entries.forEach { pair ->
-                                    OptionRow(
-                                        pair.label,
-                                        selected = false,
-                                        onClick = { subtitleActions.onLanguagePair(pair) },
-                                    )
-                                }
-                                if (
-                                    subtitleControls.secondaryTrackId != null &&
-                                    state.subtitleTracks.any { it.selected }
-                                ) {
-                                    OptionRow("互换主副字幕", selected = false, onClick = subtitleActions.onSwap)
-                                }
-                            } else {
-                                Text(
-                                    subtitleControls.secondaryUnavailableReason
-                                        ?: "当前播放器内核不支持双字幕。",
-                                    style = AppTypography.caption.medium,
-                                    color = Color.White.copy(alpha = 0.68f),
-                                )
-                            }
-                            if (subtitleControls.offsetAvailable) {
-                                OffsetStepper(
-                                    label = "字幕时间偏移",
-                                    valueMs = subtitleControls.offsetMs,
-                                    fineStepMs = SUBTITLE_OFFSET_FINE_STEP_MS,
-                                    coarseStepMs = SUBTITLE_OFFSET_COARSE_STEP_MS,
-                                    limitMs = SUBTITLE_OFFSET_LIMIT_MS,
-                                    stepLabel = ::subtitleOffsetStepLabel,
-                                    valueLabel = ::subtitleOffsetLabel,
-                                    onChange = subtitleActions.onOffset,
-                                )
-                            } else {
-                                GroupLabel("字幕时间偏移")
-                                UnsupportedSubtitleControl(subtitleControls.unavailableReason)
-                            }
-                            if (
-                                subtitleControls.secondaryOffsetAvailable &&
-                                subtitleControls.secondaryTrackId != null
-                            ) {
-                                OffsetStepper(
-                                    label = "副字幕时间偏移",
-                                    valueMs = subtitleControls.secondaryOffsetMs,
-                                    fineStepMs = SUBTITLE_OFFSET_FINE_STEP_MS,
-                                    coarseStepMs = SUBTITLE_OFFSET_COARSE_STEP_MS,
-                                    limitMs = SUBTITLE_OFFSET_LIMIT_MS,
-                                    stepLabel = ::subtitleOffsetStepLabel,
-                                    valueLabel = ::subtitleOffsetLabel,
-                                    onChange = subtitleActions.onSecondaryOffset,
-                                )
-                            }
-                            GroupLabel("字幕样式")
-                            if (
-                                subtitleControls.scaleAvailable &&
-                                subtitleControls.brightnessAvailable &&
-                                subtitleControls.positionAvailable
-                            ) {
-                                SubtitleStylePreset.entries
-                                    .filterNot { it == SubtitleStylePreset.Custom }
-                                    .forEach { preset ->
-                                        OptionRow(
-                                            preset.label,
-                                            subtitleControls.stylePreset == preset,
-                                            onClick = { subtitleActions.onStylePreset(preset) },
-                                        )
-                                    }
-                            } else {
-                                UnsupportedSubtitleControl(subtitleControls.unavailableReason)
-                            }
-                            GroupLabel("字幕位置")
-                            if (subtitleControls.positionAvailable) {
-                                listOf(0.76f to "靠上", 0.88f to "居中偏下", 0.92f to "标准", 0.96f to "靠下")
-                                    .forEach { (position, label) ->
-                                        OptionRow(
-                                            label,
-                                            subtitleControls.position == position,
-                                            onClick = { subtitleActions.onPosition(position) },
-                                        )
-                                    }
-                            } else {
-                                UnsupportedSubtitleControl(subtitleControls.unavailableReason)
-                            }
-                            GroupLabel("字幕大小")
-                            if (subtitleControls.scaleAvailable) {
-                                listOf(0.8f to "小", 1f to "标准", 1.25f to "大", 1.5f to "特大")
-                                    .forEach { (scale, label) ->
-                                        OptionRow(
-                                            label,
-                                            subtitleControls.scale == scale,
-                                            onClick = { subtitleActions.onScale(scale) },
-                                        )
-                                    }
-                            } else {
-                                UnsupportedSubtitleControl(subtitleControls.unavailableReason)
-                            }
-                            if (subtitleControls.secondarySupported) {
-                                if (subtitleControls.independentScaleAvailable) {
-                                    GroupLabel("副字幕字号")
-                                    listOf(0.8f, 1f, 1.2f, 1.5f).forEach { scale ->
-                                        OptionRow(
-                                            "${(scale * 100).toInt()}%",
-                                            subtitleControls.secondaryScale == scale,
-                                            onClick = { subtitleActions.onSecondaryScale(scale) },
-                                        )
-                                    }
-                                }
-                                Column(
-                                    Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                                ) {
-                                    Text("主字幕预览", color = Color.White, fontSize = (18 * subtitleControls.scale).sp)
-                                    Spacer(Modifier.size(4.dp))
-                                    Text(
-                                        "Secondary subtitle",
-                                        color = Color.White,
-                                        fontSize = (18 * subtitleControls.secondaryScale).sp,
-                                    )
-                                }
-                            }
-                            GroupLabel("HDR 字幕亮度")
-                            if (subtitleControls.brightnessAvailable) {
-                                listOf(0.4f to "40%", 0.6f to "60%", 0.8f to "80%", 1f to "100%")
-                                    .forEach { (brightness, label) ->
-                                        OptionRow(
-                                            label,
-                                            subtitleControls.brightness == brightness,
-                                            onClick = { subtitleActions.onBrightness(brightness) },
-                                        )
-                                    }
-                            } else {
-                                UnsupportedSubtitleControl(subtitleControls.unavailableReason)
-                            }
-                            GroupLabel("字幕颜色")
-                            if (subtitleControls.appearanceAvailable) {
-                                listOf(
-                                    0xFFFFFFFFL to "白色",
-                                    0xFFFFF2CCL to "暖黄",
-                                    0xFFBFE3FFL to "浅蓝",
-                                    0xFFBFFFD0L to "浅绿",
-                                ).forEach { (color, label) ->
-                                    OptionRow(
-                                        label,
-                                        subtitleControls.appearance.textColorArgb == color,
-                                        onClick = { subtitleActions.onTextColor(color) },
-                                    )
-                                }
-                                GroupLabel("字幕背景")
-                                listOf(
-                                    0x00000000L to "透明",
-                                    0x66000000L to "半透明黑",
-                                    0x99000000L to "深色背景",
-                                ).forEach { (color, label) ->
-                                    OptionRow(
-                                        label,
-                                        subtitleControls.appearance.backgroundColorArgb == color,
-                                        onClick = { subtitleActions.onBackgroundColor(color) },
-                                    )
-                                }
-                                GroupLabel("字幕描边")
-                                listOf(0f to "关闭", 1f to "细", 2f to "标准", 4f to "粗")
-                                    .forEach { (width, label) ->
-                                        OptionRow(
-                                            label,
-                                            subtitleControls.appearance.outlineWidth == width,
-                                            onClick = { subtitleActions.onOutlineWidth(width) },
-                                        )
-                                    }
-                                listOf(0xFF000000L to "黑色描边", 0xFFFFFFFFL to "白色描边")
-                                    .forEach { (color, label) ->
-                                        OptionRow(
-                                            label,
-                                            subtitleControls.appearance.outlineColorArgb == color,
-                                            onClick = { subtitleActions.onOutlineColor(color) },
-                                        )
-                                    }
-                            } else {
-                                UnsupportedSubtitleControl(subtitleControls.unavailableReason)
-                            }
-                        } else if (trackPanelMode == TrackPanelMode.Subtitle) {
-                            Text(
-                                "当前版本没有可用字幕，可继续搜索第三方字幕。",
-                                style = AppTypography.caption.medium,
-                                color = Color.White.copy(alpha = 0.68f),
-                            )
-                        }
-                        if (trackPanelMode == TrackPanelMode.Subtitle) {
-                            GroupLabel("第三方字幕")
-                            if (remoteSubtitles.searchUnavailableReason == null) {
-                                OptionRow(
-                                    "搜索语言 · ${remoteSubtitles.language.label}",
-                                    false,
-                                    onClick = {
-                                        val languages = SubtitleSearchLanguage.entries
-                                        remoteSubtitleActions.onLanguage(
-                                            languages[
-                                                (remoteSubtitles.language.ordinal + 1) %
-                                                    languages.size,
-                                            ],
-                                        )
-                                    },
-                                    detailLabel = "点击切换语言",
-                                )
-                                OptionRow(
-                                    if (remoteSubtitles.loading) {
-                                        "正在搜索${remoteSubtitles.language.label}字幕…"
-                                    } else {
-                                        "搜索${remoteSubtitles.language.label}字幕"
-                                    },
-                                    false,
-                                    onClick = remoteSubtitleActions.onSearch,
-                                )
-                            } else {
-                                UnsupportedSubtitleControl(remoteSubtitles.searchUnavailableReason)
-                            }
-                            if (remoteSubtitles.importUnavailableReason == null) {
-                                OptionRow(
-                                    "导入本地字幕",
-                                    false,
-                                    onClick = remoteSubtitleActions.onImport,
-                                    detailLabel = "SRT / ASS / SSA / VTT · 仅本次播放，不上传",
-                                )
-                            } else {
-                                UnsupportedSubtitleControl(remoteSubtitles.importUnavailableReason)
-                            }
-                            remoteSubtitles.results.forEach { result ->
-                                OptionRow(
-                                    label =
-                                        listOf(result.label, result.detail)
-                                            .filter(String::isNotBlank)
-                                            .joinToString(" · "),
-                                    selected = remoteSubtitles.downloadingId == result.id,
-                                    onClick = { remoteSubtitleActions.onDownload(result.id) },
-                                )
-                            }
-                            remoteSubtitles.message?.let { message ->
-                                Text(
-                                    message,
-                                    style = AppTypography.caption.medium,
-                                    color = Color.White.copy(alpha = 0.68f),
-                                )
-                            }
-                        } else if (state.audioTracks.isNotEmpty()) {
-                            state.audioTracks.forEach { track ->
-                                OptionRow(
-                                    track.label,
-                                    track.selected,
-                                    onClick = { onSelectAudio(track.id) },
-                                )
-                            }
-                            GroupLabel("音频同步")
-                            if (audioControls.available) {
-                                // Telemetry, so it is not in the projection the rest of this page
-                                // reads; derived from the live state here keeps the page itself
-                                // off the position tick.
-                                val measuredAvOffsetMs by remember(playback, audioControls.measuredAvOffsetMs) {
-                                    derivedStateOf {
-                                        playback.value.diagnostics.avSyncOffsetMs
-                                            ?: audioControls.measuredAvOffsetMs
-                                    }
-                                }
-                                measuredAvOffsetMs?.let { offset ->
-                                    OptionRow(
-                                        label =
-                                            if (offset == 0L) {
-                                                "自动校准 · 当前已同步"
-                                            } else {
-                                                "自动校准当前输出 · ${if (offset > 0L) "+" else ""}$offset ms"
-                                            },
-                                        selected = false,
-                                        onClick = audioActions.onAutoSync,
-                                    )
-                                }
-                                OffsetStepper(
-                                    label = "手动调整",
-                                    valueMs = audioControls.delayMs,
-                                    fineStepMs = AUDIO_DELAY_FINE_STEP_MS,
-                                    coarseStepMs = AUDIO_DELAY_COARSE_STEP_MS,
-                                    limitMs = AUDIO_DELAY_LIMIT_MS,
-                                    stepLabel = ::audioDelayStepLabel,
-                                    valueLabel = ::audioDelayLabel,
-                                    onChange = audioActions.onDelay,
-                                )
-                            } else {
-                                Text(
-                                    audioControls.unavailableReason ?: "当前播放模式不支持音频延迟。",
-                                    style = AppTypography.caption.medium,
-                                    color = Color.White.copy(alpha = 0.68f),
-                                )
-                            }
-                            GroupLabel("音频增强")
-                            if (audioControls.enhancementAvailable) {
-                                AudioEnhancementMode.entries.forEach { mode ->
-                                    OptionRow(
-                                        mode.label,
-                                        audioControls.enhancement == mode,
-                                        onClick = { audioActions.onEnhancement(mode) },
-                                    )
-                                }
-                                Text(
-                                    "响度均衡会统一不同剧集的主观音量；夜间人声会压缩动态范围。音频增强会关闭原码直通。",
-                                    style = AppTypography.caption.medium,
-                                    color = Color.White.copy(alpha = 0.68f),
-                                )
-                            } else {
-                                Text(
-                                    "当前锁定内核不支持音量增强或夜间人声。",
-                                    style = AppTypography.caption.medium,
-                                    color = Color.White.copy(alpha = 0.68f),
-                                )
-                            }
-                        } else {
-                            Text(
-                                "当前版本没有可切换的音轨。",
-                                style = AppTypography.caption.medium,
-                                color = Color.White.copy(alpha = 0.68f),
-                            )
-                        }
-                    }
-
-                    SettingsPanelKind.Skip -> {
-                        val enabled = skip.mode != SkipMode.Off
-                        // 使用当前时间 is a question asked at the moment of the tap, so it is read
-                        // when the tap happens rather than kept up to date while the panel sits
-                        // open over the film.
-                        val here = { (playback.value.positionMs / 1000).coerceAtLeast(0L) }
-                        val durationSeconds = (state.durationMs / 1000).coerceAtLeast(0L)
-                        val savedCreditsStart =
-                            creditsStartSecondsFromLead(skip.creditsLeadSeconds, durationSeconds)
-                        var introStartInput by remember(skip.introStartSeconds) {
-                            mutableStateOf(formatSkipTimestamp(skip.introStartSeconds))
-                        }
-                        var introEndInput by remember(skip.introEndSeconds) {
-                            mutableStateOf(
-                                skip.introEndSeconds
-                                    .takeIf { it > 0L }
-                                    ?.let(::formatSkipTimestamp)
-                                    .orEmpty(),
-                            )
-                        }
-                        var creditsInput by remember(skip.creditsLeadSeconds, durationSeconds) {
-                            mutableStateOf(savedCreditsStart?.let(::formatSkipTimestamp).orEmpty())
-                        }
-                        var introError by remember(skip.introStartSeconds, skip.introEndSeconds) {
-                            mutableStateOf<String?>(null)
-                        }
-                        var creditsError by remember(skip.creditsLeadSeconds, durationSeconds) {
-                            mutableStateOf<String?>(null)
-                        }
-
-                        PopupToggleHeader(
-                            label = "跳过片头/片尾",
-                            checked = enabled,
-                            onToggle = {
-                                skipActions.onSelectMode(
-                                    if (enabled) SkipMode.Off else SkipMode.Button,
-                                )
-                            },
-                        )
-                        SegmentedRow(
-                            options = listOf("显示跳过按钮", "自动跳过"),
-                            selectedIndex = if (skip.mode == SkipMode.Auto) 1 else 0,
-                            onSelect = { index ->
-                                skipActions.onSelectMode(
-                                    if (index == 0) SkipMode.Button else SkipMode.Auto,
-                                )
-                            },
-                        )
-                        PopupDivider()
-                        GroupLabel("片头")
-                        SkipTimeField(
-                            label = "开始时间",
-                            value = introStartInput,
-                            onValueChange = {
-                                introStartInput = it
-                                introError = null
-                            },
-                            onUseCurrent = {
-                                introStartInput = formatSkipTimestamp(here())
-                                introError = null
-                            },
-                        )
-                        SkipTimeField(
-                            label = "结束时间",
-                            value = introEndInput,
-                            onValueChange = {
-                                introEndInput = it
-                                introError = null
-                            },
-                            onUseCurrent = {
-                                introEndInput = formatSkipTimestamp(here())
-                                introError = null
-                            },
-                        )
-                        introError?.let { error ->
-                            Text(
-                                error,
-                                style = AppTypography.caption.medium,
-                                color = DarkPalette.error,
-                                modifier = Modifier.padding(horizontal = 5.dp),
-                            )
-                        }
-                        OptionRow(
-                            label = "保存片头时间",
-                            selected = false,
-                            onClick = {
-                                val introStart = parseSkipTimestamp(introStartInput)
-                                val introEnd = parseSkipTimestamp(introEndInput)
-                                introError =
-                                    when {
-                                        introStart == null || introEnd == null ->
-                                            "请输入秒数、mm:ss 或 hh:mm:ss"
-                                        introStart == 0L && introEnd == 0L -> {
-                                            skipActions.onSetTimes(0L, 0L, skip.creditsLeadSeconds)
-                                            null
-                                        }
-                                        introEnd <= introStart -> "片头结束时间必须晚于开始时间"
-                                        durationSeconds > 0L && introEnd >= durationSeconds ->
-                                            "片头结束时间必须早于视频结束"
-                                        else -> {
-                                            skipActions.onSetTimes(
-                                                introStart,
-                                                introEnd,
-                                                skip.creditsLeadSeconds,
-                                            )
-                                            null
-                                        }
-                                    }
-                            },
-                        )
-
-                        PopupDivider()
-                        GroupLabel("片尾")
-                        Text(
-                            "只设置片尾开始的时间点；无需结束时间。",
-                            style = AppTypography.caption.medium,
-                            color = Color.White.copy(alpha = 0.54f),
-                            modifier = Modifier.padding(horizontal = 5.dp),
-                        )
-                        SkipTimeField(
-                            label = "片尾时间",
-                            value = creditsInput,
-                            onValueChange = {
-                                creditsInput = it
-                                creditsError = null
-                            },
-                            onUseCurrent = {
-                                creditsInput = formatSkipTimestamp(here())
-                                creditsError = null
-                            },
-                        )
-                        creditsError?.let { error ->
-                            Text(
-                                error,
-                                style = AppTypography.caption.medium,
-                                color = DarkPalette.error,
-                                modifier = Modifier.padding(horizontal = 5.dp),
-                            )
-                        }
-                        OptionRow(
-                            label = "保存片尾时间",
-                            selected = false,
-                            onClick = {
-                                val creditsStart = parseSkipTimestamp(creditsInput)
-                                creditsError =
-                                    when {
-                                        creditsStart == null -> "请输入秒数、mm:ss 或 hh:mm:ss"
-                                        creditsStart == 0L -> {
-                                            skipActions.onSetTimes(
-                                                skip.introStartSeconds,
-                                                skip.introEndSeconds,
-                                                0L,
-                                            )
-                                            null
-                                        }
-                                        durationSeconds <= 0L ->
-                                            "视频时长尚未就绪，暂时无法保存片尾时间"
-                                        else -> {
-                                            val lead =
-                                                creditsLeadSecondsFromStart(
-                                                    creditsStart,
-                                                    durationSeconds,
-                                                )
-                                            if (lead == null) {
-                                                "片尾时间必须位于视频时长范围内"
-                                            } else {
-                                                skipActions.onSetTimes(
-                                                    skip.introStartSeconds,
-                                                    skip.introEndSeconds,
-                                                    lead,
-                                                )
-                                                null
-                                            }
-                                        }
-                                    }
-                            },
-                        )
-                        if (skip.anySet) {
-                            PopupDivider()
-                            OptionRow(
-                                label = "清除片头片尾标记",
-                                selected = false,
-                                onClick = { skipActions.onSetTimes(0L, 0L, 0L) },
-                            )
-                        }
-                    }
-
-                    SettingsPanelKind.More -> {
-                        val diagnostics = state.diagnostics
-                        AdvancedPageHost(
-                            page = advancedPage,
+                    SettingsPanelKind.Tracks ->
+                        TracksPanel(
+                            trackPanelMode = trackPanelMode,
+                            state = state,
+                            playback = playback,
+                            panelScroll = panelScroll,
                             reduceMotion = reduceMotion,
-                            pushTravelPx = pushTravelPx,
-                            popTravelPx = popTravelPx,
-                        ) { page ->
-                            when (page) {
-                                AdvancedPage.Bookmarks -> {
-                                    PopupBackLabel("时间书签") { advancedPage = AdvancedPage.Root }
-                                    PlaybackBookmarkPanel(bookmarks, bookmarkActions)
-                                }
-                                AdvancedPage.Handoff -> {
-                                    PopupBackLabel("设备接力") { advancedPage = AdvancedPage.Root }
-                                    PlayerDeviceHandoffPanel(watch.connected)
-                                }
-                                AdvancedPage.Root -> {
-                                    PopupMenuRow(
-                                        icon = AppIcons.Cast,
-                                        title = "设备接力",
-                                        subtitle = "在同账号的另一台设备继续观看",
-                                        onClick = { advancedPage = AdvancedPage.Handoff },
-                                    )
-                                    PopupDivider()
-                                    PopupMenuRow(
-                                        icon = AppIcons.Bookmark,
-                                        title = "时间书签",
-                                        subtitle = "标记片段与备注 · ${bookmarks.items.size} 个",
-                                        onClick = { advancedPage = AdvancedPage.Bookmarks },
-                                    )
-                                    PopupDivider()
-                                    PopupMenuRow(
-                                        icon = AppIcons.PlaybackSource,
-                                        title = "播放内核",
-                                        subtitle = "当前：${diagnostics.engine.ifBlank { "等待内核" }}",
-                                        onClick = { advancedPage = AdvancedPage.Engine },
-                                    )
-                                    PopupDivider()
-                                    PopupMenuRow(
-                                        icon = AppIcons.Info,
-                                        title = "媒体信息",
-                                        subtitle = diagnostics.playMethod.ifBlank { "实时播放诊断" },
-                                        onClick = { advancedPage = AdvancedPage.Media },
-                                    )
-                                    PopupDivider()
-                                    PopupMenuRow(
-                                        icon = AppIcons.Grid,
-                                        title = "播放设置",
-                                        subtitle = "定时与播放控制",
-                                        onClick = { advancedPage = AdvancedPage.Playback },
-                                    )
-                                }
+                            onSelectSubtitle = onSelectSubtitle,
+                            subtitleControls = subtitleControls,
+                            subtitleActions = subtitleActions,
+                            remoteSubtitles = remoteSubtitles,
+                            remoteSubtitleActions = remoteSubtitleActions,
+                            onSelectAudio = onSelectAudio,
+                            audioControls = audioControls,
+                            audioActions = audioActions,
+                        )
 
-                                AdvancedPage.Playback -> {
-                                    PopupBackLabel("播放设置") { advancedPage = AdvancedPage.Root }
-                                    // Native HDMV state is richer than mpv's edition/chapter properties:
-                                    // it owns menu/angle state and is pushed from libbluray callbacks.
-                                    // Observing the revision above makes menu availability and activation
-                                    // visible immediately without polling the native session.
-                                    @Suppress("UNUSED_VARIABLE")
-                                    val observedDiscNavigationRevision = discNavigationRevision
-                                    val activeDisc = ActiveDiscNavigation.navigation
-                                    val disc =
-                                        if (ActiveDiscNavigation.isBound && activeDisc.available) {
-                                            activeDisc
-                                        } else {
-                                            state.discNavigation
-                                        }
-                                    if (disc.available) {
-                                        GroupLabel("${disc.kind.label}导航")
-                                        if (disc.effectiveTitleCount > 1) {
-                                            if (ActiveDiscNavigation.isBound) {
-                                                GroupLabel("标题 / Playlist")
-                                                disc.titleOptions.forEach { title ->
-                                                    val authored = title.title?.trim()?.takeIf(String::isNotEmpty)
-                                                    val playlist = title.playlistLabel
-                                                    val authoredIsPlaylist =
-                                                        authored?.contains(".mpls", ignoreCase = true) == true ||
-                                                            authored?.contains("mpls/", ignoreCase = true) == true ||
-                                                            authored?.contains("mpls\\", ignoreCase = true) == true
-                                                    val label =
-                                                        listOfNotNull(
-                                                            authored?.takeUnless { authoredIsPlaylist }
-                                                                ?: playlist
-                                                                ?: "标题 ${title.index + 1}",
-                                                            playlist?.takeUnless {
-                                                                authoredIsPlaylist ||
-                                                                    it == authored
-                                                            },
-                                                            "默认".takeIf { title.isDefault },
-                                                        ).joinToString(" · ")
-                                                    OptionRow(
-                                                        label = label,
-                                                        selected = title.index == disc.selectedTitleIndex,
-                                                        onClick = { ActiveDiscNavigation.selectTitle(title.index) },
-                                                    )
-                                                }
-                                            } else {
-                                                OptionRow(
-                                                    listOfNotNull(
-                                                        disc.selectedTitle?.label,
-                                                        "${disc.selectedTitleIndex + 1} / ${disc.effectiveTitleCount}",
-                                                    ).joinToString(" · "),
-                                                    false,
-                                                    onClick = onNextDiscTitle,
-                                                )
-                                            }
-                                        }
-                                        if (disc.effectiveChapterCount > 1) {
-                                            if (ActiveDiscNavigation.isBound) {
-                                                GroupLabel("章节")
-                                                disc.chapterOptions.forEach { chapter ->
-                                                    OptionRow(
-                                                        label =
-                                                            listOfNotNull(chapter.timeLabel, chapter.label)
-                                                                .joinToString(" · "),
-                                                        selected = chapter.index == disc.selectedChapterIndex,
-                                                        onClick = { ActiveDiscNavigation.selectChapter(chapter.index) },
-                                                    )
-                                                }
-                                            } else {
-                                                val chapterPosition =
-                                                    "${disc.selectedChapterIndex + 1} / " +
-                                                        "${disc.effectiveChapterCount}"
-                                                OptionRow(
-                                                    listOfNotNull(
-                                                        disc.selectedChapter?.timeLabel,
-                                                        disc.selectedChapter?.label,
-                                                        chapterPosition,
-                                                    ).joinToString(" · "),
-                                                    false,
-                                                    onClick = onNextDiscChapter,
-                                                )
-                                            }
-                                        }
-                                        if (disc.effectiveAngleCount > 1 && ActiveDiscNavigation.isBound) {
-                                            GroupLabel("多视角")
-                                            disc.angleOptions.forEach { angle ->
-                                                OptionRow(
-                                                    label = angle.label,
-                                                    selected = angle.index == disc.selectedAngleIndex,
-                                                    onClick = { ActiveDiscNavigation.selectAngle(angle.index) },
-                                                )
-                                            }
-                                        }
-                                        if (disc.menuSupported) {
-                                            OptionRow(
-                                                "打开光盘菜单",
-                                                disc.menuActive,
-                                                onClick = {
-                                                    if (
-                                                        !ActiveDiscNavigation.sendMenuCommand(
-                                                            com.yfuse.core.playback.PlaybackDiscMenuCommand.ShowMenu,
-                                                        )
-                                                    ) {
-                                                        onShowDiscMenu()
-                                                    }
-                                                },
-                                            )
-                                        }
-                                    }
-                                    GroupLabel("Anime4K · YCore SDR 动漫")
-                                    val animePreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
-                                    val animeMode by animePreferences.anime4KMode.collectAsState()
-                                    val showFrameRate by animePreferences.showFrameRate.collectAsState()
-                                    Anime4KMode.entries.forEach { mode ->
-                                        OptionRow(
-                                            mode.label,
-                                            animeMode == mode,
-                                            onClick = { animePreferences.setAnime4KMode(mode) },
-                                        )
-                                    }
-                                    Text(
-                                        "下次播放生效；HDR 与杜比视界保留原始输出",
-                                        style = AppTypography.caption.regular,
-                                        color = Color.White.copy(alpha = 0.6f),
-                                    )
-                                    GroupLabel("画面")
-                                    PopupToggleHeader(
-                                        label = "显示帧率",
-                                        checked = showFrameRate,
-                                        onToggle = { animePreferences.setShowFrameRate(!showFrameRate) },
-                                    )
-                                    Text(
-                                        "显示页面绘制帧率及视频帧率",
-                                        style = AppTypography.caption.regular,
-                                        color = Color.White.copy(alpha = 0.6f),
-                                    )
-                                    // Stays open: the light is judged against the picture behind the panel.
-                                    PopupToggleHeader(
-                                        label = "氛围光",
-                                        checked = ambientLightEnabled,
-                                        onToggle = onToggleAmbientLight,
-                                    )
-                                    OptionRow("锁定控制", false, onClick = overlayAction(onLock))
-                                    OptionRow("手势说明", false, onClick = overlayAction(onOpenGestureHelp))
-                                    onExternalPlayer?.let { open ->
-                                        OptionRow("使用外部播放器", false, onClick = overlayAction(open))
-                                    }
-                                    if (watch.available || watch.connected) {
-                                        OptionRow(
-                                            if (watch.connected) {
-                                                "一起看 · ${watch.roomCode.orEmpty()}"
-                                            } else {
-                                                "一起看"
-                                            },
-                                            watch.connected,
-                                            onClick = overlayAction(onOpenWatchTogether),
-                                        )
-                                    }
-                                    if (versions.size > 1) {
-                                        GroupLabel("播放版本")
-                                        versions.forEach { (id, label) ->
-                                            OptionRow(
-                                                label,
-                                                id == selectedVersionId,
-                                                onClick = overlayAction { onSelectVersion(id) },
-                                            )
-                                        }
-                                    }
-                                    GroupLabel("睡眠定时")
-                                    SleepTimerOption.entries.forEach { option ->
-                                        OptionRow(
-                                            option.label,
-                                            sleepTimer.selected == option,
-                                            onClick = { sleepTimerActions.onSelect(option) },
-                                        )
-                                    }
-                                    PlayerGestureSettingsSection(animePreferences)
-                                }
+                    SettingsPanelKind.Skip ->
+                        SkipPanel(
+                            skip = skip,
+                            skipActions = skipActions,
+                            state = state,
+                            playback = playback,
+                        )
 
-                                AdvancedPage.Engine -> {
-                                    PopupBackLabel("播放内核", "仅当前视频 · 切换后重新加载") {
-                                        advancedPage = AdvancedPage.Root
-                                    }
-                                    engineOptions.forEachIndexed { index, (label, selected) ->
-                                        EngineChoiceRow(
-                                            label = label,
-                                            selected = selected,
-                                            onClick = { onSelectEngine(index) },
-                                        )
-                                        if (index != engineOptions.lastIndex || transcodeLabel != null) {
-                                            PopupDivider()
-                                        }
-                                    }
-                                    if (transcodeLabel != null) {
-                                        PopupMenuRow(
-                                            icon = AppIcons.Play,
-                                            title = transcodeLabel,
-                                            subtitle = "服务器兼容播放模式",
-                                            selected = transcodeActive,
-                                            onClick = onTranscode,
-                                        )
-                                    }
-                                }
+                    SettingsPanelKind.More ->
+                        MorePanel(
+                            advancedPage = advancedPage,
+                            onAdvancedPage = { advancedPage = it },
+                            reduceMotion = reduceMotion,
+                            state = state,
+                            playback = playback,
+                            discNavigationRevision = discNavigationRevision,
+                            containerLabel = containerLabel,
+                            engineOptions = engineOptions,
+                            transcodeLabel = transcodeLabel,
+                            transcodeActive = transcodeActive,
+                            onSelectEngine = onSelectEngine,
+                            onTranscode = onTranscode,
+                            onResetAdaptiveLearning = onResetAdaptiveLearning,
+                            onOpenProblem = { problemOpen = true },
+                            onNextDiscTitle = onNextDiscTitle,
+                            onNextDiscChapter = onNextDiscChapter,
+                            onShowDiscMenu = onShowDiscMenu,
+                            onExternalPlayer = onExternalPlayer,
+                            onLock = onLock,
+                            onOpenGestureHelp = onOpenGestureHelp,
+                            watch = watch,
+                            onOpenWatchTogether = onOpenWatchTogether,
+                            versions = versions,
+                            selectedVersionId = selectedVersionId,
+                            onSelectVersion = onSelectVersion,
+                            sleepTimer = sleepTimer,
+                            sleepTimerActions = sleepTimerActions,
+                            ambientLightEnabled = ambientLightEnabled,
+                            onToggleAmbientLight = onToggleAmbientLight,
+                            autoNextEnabled = autoNextEnabled,
+                            onToggleAutoNext = onToggleAutoNext,
+                            shortDramaMode = shortDramaMode,
+                            onSelectShortDramaMode = onSelectShortDramaMode,
+                            bookmarks = bookmarks,
+                            bookmarkActions = bookmarkActions,
+                        )
 
-                                AdvancedPage.Media -> {
-                                    // The one page in this panel that is a live readout:
-                                    // it takes the timeline itself so the four that are not
-                                    // stay off it.
-                                    val liveDiagnostics = playback.value.diagnostics
-                                    PopupBackLabel("媒体信息") { advancedPage = AdvancedPage.Root }
-                                    PopupMenuRow(
-                                        icon = AppIcons.Info,
-                                        title = "播放问题说明与诊断导出",
-                                        onClick = { problemOpen = true },
-                                    )
-                                    DiagnosticRow("容器", containerLabel ?: "未知")
-                                    DiagnosticRow(
-                                        "YCore 管线",
-                                        liveDiagnostics.plannedRenderPath.ifBlank { "等待规划" },
-                                    )
-                                    DiagnosticRow("运行健康", liveDiagnostics.playbackHealth)
-                                    DiagnosticRow(
-                                        "A/V 同步",
-                                        liveDiagnostics.avSyncOffsetMs?.let { offset ->
-                                            val signed = if (offset > 0L) "+$offset" else offset.toString()
-                                            "$signed ms · ${liveDiagnostics.avSyncMeasurement}"
-                                        } ?: liveDiagnostics.avSyncMeasurement,
-                                    )
-                                    DiagnosticRow("功耗估计", liveDiagnostics.powerProfile)
-                                    DiagnosticRow("资源压力", liveDiagnostics.resourcePressure)
-                                    DiagnosticRow("媒体探测", liveDiagnostics.mediaProbe)
-                                    DiagnosticRow("历史基线", liveDiagnostics.performanceBaseline)
-                                    DiagnosticRow(
-                                        "分辨率",
-                                        when {
-                                            liveDiagnostics.videoWidth > 0 && state.videoHeight > 0 ->
-                                                "${liveDiagnostics.videoWidth} × ${state.videoHeight}"
-                                            state.videoHeight > 0 -> "${state.videoHeight}P"
-                                            else -> "未知"
-                                        },
-                                    )
-                                    DiagnosticRow(
-                                        "视频",
-                                        listOf(
-                                            liveDiagnostics.videoCodec,
-                                            liveDiagnostics.dynamicRange,
-                                        ).filter(String::isNotBlank).joinToString(" · "),
-                                    )
-                                    DiagnosticRow("码率", liveDiagnostics.bitrateBitsPerSecond.asBitrate())
-                                    DiagnosticRow("实时网络", liveDiagnostics.networkBitsPerSecond.asBitrate())
-                                    DiagnosticRow(
-                                        "前向缓冲",
-                                        maxOf(
-                                            liveDiagnostics.bufferedDurationMs,
-                                            liveDiagnostics.sourceBufferedMs,
-                                        ).asSeconds(),
-                                    )
-                                    DiagnosticRow("帧率", liveDiagnostics.frameRate.asFrameRate())
-                                    DiagnosticRow(
-                                        "音频",
-                                        state.audioTracks.firstOrNull { it.selected }?.label
-                                            ?: liveDiagnostics.audioFormat.ifBlank { "未知" },
-                                    )
-                                    DiagnosticRow(
-                                        "字幕",
-                                        state.subtitleTracks.firstOrNull { it.selected }?.label ?: "未加载",
-                                    )
-                                    DiagnosticRow(
-                                        "播放内核",
-                                        listOf(
-                                            liveDiagnostics.engine,
-                                            liveDiagnostics.decoder,
-                                        ).filter(String::isNotBlank).joinToString(" · "),
-                                    )
-                                    PopupDivider()
-                                    Text(
-                                        "●  ${liveDiagnostics.playMethod.ifBlank { "实时播放" }}",
-                                        style = AppTypography.caption.medium,
-                                        color = Color.White.copy(alpha = 0.58f),
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
-                                    )
-                                    liveDiagnostics.fallbackReason?.takeIf(String::isNotBlank)?.let { reason ->
-                                        DiagnosticRow("降级原因", reason)
-                                    }
-                                    liveDiagnostics.planningReason?.takeIf(String::isNotBlank)?.let { reason ->
-                                        DiagnosticRow("规划原因", reason)
-                                    }
-                                    PopupDivider()
-                                    PopupMenuRow(
-                                        icon = AppIcons.Refresh,
-                                        title = "重置 YCore 学习数据",
-                                        subtitle = "清除本机故障记忆与性能基线",
-                                        onClick = onResetAdaptiveLearning,
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    SettingsPanelKind.Cast -> {
-                        // Derived, so the receiver's clock invalidates this page when the text
-                        // it prints changes and never the four pages that do not show it.
-                        val remotePosition by remember(castPositionSource, castPosition) {
-                            derivedStateOf { castPositionSource?.invoke() ?: castPosition }
-                        }
-                        // Opened with nothing found yet, the first scan starts here instead of
-                        // waiting behind 重新扫描. Until the manager reports it running, an empty
-                        // list still means "searching" rather than "nothing found".
-                        var scanStarting by remember { mutableStateOf(false) }
-                        LaunchedEffect(Unit) {
-                            if (castDevices.isEmpty() && !castDiscovering) {
-                                scanStarting = true
-                                onDiscoverCast()
-                                // A scan that never starts (a permission prompt left unanswered)
-                                // must not leave the page saying it is searching.
-                                delay(CAST_SCAN_START_GRACE_MS)
-                                scanStarting = false
-                            }
-                        }
-                        LaunchedEffect(castDiscovering) {
-                            if (castDiscovering) scanStarting = false
-                        }
-                        GroupLabel("局域网投屏设备")
-                        castStatus?.let { DiagnosticRow("状态", it) }
-                        remotePosition?.let { DiagnosticRow("远端进度", it) }
-                        castCapabilities?.let { DiagnosticRow("远端能力", it) }
-                        // A failed scan reports itself through [castError] below; this line only
-                        // speaks for a list that is empty without one.
-                        val emptyState =
-                            when {
-                                castDiscovering || scanStarting -> "正在搜索投屏设备…"
-                                castDevices.isEmpty() && castError == null -> "未发现设备，请确认电视与手机连接同一局域网"
-                                else -> null
-                            }
-                        emptyState?.let { line ->
-                            Text(
-                                line,
-                                style = AppTypography.caption.medium,
-                                color = Color.White.copy(alpha = 0.55f),
-                                modifier = Modifier.padding(vertical = Dimens.space.sm).liveStatus(),
-                            )
-                        }
-                        castDevices.forEach { (id, name) ->
-                            OptionRow(name, id == castingDeviceId, onClick = { onCastTo(id) })
-                        }
-                        if (castingDeviceId != null) {
-                            OptionRow("停止投屏", false, onClick = onStopCast)
-                        }
-                        if (castError != null) {
-                            Text(
-                                castError,
-                                style = AppTypography.caption.medium,
-                                color = DarkPalette.error,
-                                modifier = Modifier.padding(vertical = 8.dp).liveStatus(),
-                            )
-                        }
-                        OptionRow("重新扫描", false, onClick = onDiscoverCast)
-                    }
+                    SettingsPanelKind.Cast ->
+                        CastPanel(
+                            castDevices = castDevices,
+                            castingDeviceId = castingDeviceId,
+                            castDiscovering = castDiscovering,
+                            castError = castError,
+                            castStatus = castStatus,
+                            castPosition = castPosition,
+                            castPositionSource = castPositionSource,
+                            castCapabilities = castCapabilities,
+                            castTransport = castTransport,
+                            onDiscoverCast = onDiscoverCast,
+                            onCastTo = onCastTo,
+                            onStopCast = onStopCast,
+                        )
                 }
             }
         }
@@ -1208,40 +270,6 @@ private fun settingsPanelTitle(
         SettingsPanelKind.More -> "更多"
     }
 
-/** Keeps the source Activity mounted while the user chooses a receiver. */
-@Composable
-private fun PlayerDeviceHandoffPanel(inWatchRoom: Boolean) {
-    if (inWatchRoom) {
-        DiagnosticRow("设备接力", "请先离开一起看房间，再接力个人播放")
-        return
-    }
-    val controller = remember { runCatching { GlobalContext.get().getOrNull<HandoffController>() }.getOrNull() }
-    if (controller == null) {
-        DiagnosticRow("设备接力", "此播放环境暂未启用账号接力服务")
-        return
-    }
-    val state by controller.state.collectAsState()
-    DiagnosticRow("接力规则", "接收设备确认就绪后，本机才会暂停")
-    if (!state.online) DiagnosticRow("连接", state.connectionLabel)
-    if (state.busy) {
-        state.message?.let { DiagnosticRow("进度", it) }
-        OptionRow("取消接力", selected = false, onClick = controller::cancelTransfer)
-    } else {
-        if (state.online && state.devices.isEmpty()) DiagnosticRow("在线设备", "暂未发现可接收的设备")
-        state.devices.forEach { device ->
-            PopupMenuRow(
-                icon = AppIcons.Cast,
-                title = "接力到 ${device.name}",
-                subtitle = device.platform,
-                onClick = { controller.send(device.sessionId) },
-            )
-        }
-        state.message?.let { DiagnosticRow("结果", it) }
-    }
-    state.connectionError?.let { DiagnosticRow("连接提示", it) }
-    state.error?.let { DiagnosticRow("接力提示", it) }
-}
-
 /**
  * One popup kind handing over to another.
  *
@@ -1255,9 +283,9 @@ private fun PlayerDeviceHandoffPanel(inWatchRoom: Boolean) {
  * column with everything else on the page, so they cannot become lazy lists of their own; what
  * they can stop doing is making the page jump when one of them changes length.
  *
- * 更多 is the exception. It owns two levels of its own and animates between them through
- * [AdvancedPageHost]'s [SizeTransform]; a second size animation out here chased the first one all
- * the way down, so opening 媒体信息 settled twice — once on the page's real height and once on
+ * 更多 is the exception. It owns two levels of its own and animates between them through its page
+ * host's [SizeTransform] (see [MorePanel]); a second size animation out here chased the first one
+ * all the way down, so opening 媒体信息 settled twice — once on the page's real height and once on
  * whatever the outer spring had reached by then.
  */
 @Composable
@@ -1288,47 +316,6 @@ private fun SettingsKindHost(
     }
 }
 
-/**
- * 更多's two levels: the list of destinations, and the page behind one of them.
- *
- * The same gesture as a detail page opening, at panel scale — [Motion.PUSH] and [Motion.pushOffset]
- * going deeper, [Motion.POP] and [Motion.popOffset] coming back — so 返回 inside this panel reads
- * as 返回 everywhere else in the app rather than as the contents being replaced.
- */
-@Composable
-private fun AdvancedPageHost(
-    page: AdvancedPage,
-    reduceMotion: Boolean,
-    pushTravelPx: Int,
-    popTravelPx: Int,
-    content: @Composable ColumnScope.(AdvancedPage) -> Unit,
-) {
-    AnimatedContent(
-        targetState = page,
-        contentKey = { it },
-        transitionSpec = {
-            advancedPageTransform(
-                popping = targetState == AdvancedPage.Root,
-                reduceMotion = reduceMotion,
-                pushTravelPx = pushTravelPx,
-                popTravelPx = popTravelPx,
-            )
-        },
-        modifier = Modifier.fillMaxWidth(),
-        label = "player-advanced-page",
-    ) { current ->
-        Column(
-            Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
-            content(current)
-        }
-    }
-}
-
-/** Long enough for the manager to report a scan it has started; see the 投屏 page. */
-private const val CAST_SCAN_START_GRACE_MS = 2_000L
-
 private fun AnimatedContentTransitionScope<*>.settingsKindTransform(reduceMotion: Boolean): ContentTransform {
     val duration = if (reduceMotion) 0 else Motion.STATE_HANDOFF
     val crossfade =
@@ -1341,139 +328,6 @@ private fun AnimatedContentTransitionScope<*>.settingsKindTransform(reduceMotion
     } else {
         crossfade.using(SizeTransform(clip = false) { _, _ -> Motion.settle() })
     }
-}
-
-private fun AnimatedContentTransitionScope<*>.advancedPageTransform(
-    popping: Boolean,
-    reduceMotion: Boolean,
-    pushTravelPx: Int,
-    popTravelPx: Int,
-): ContentTransform {
-    if (reduceMotion) {
-        return (fadeIn(snap()) togetherWith fadeOut(snap())).using(null)
-    }
-    val transform =
-        if (popping) {
-            (
-                fadeIn(tween(Motion.POP, easing = Motion.Curve)) +
-                    slideInHorizontally(tween(Motion.POP, easing = Motion.Curve)) { -popTravelPx }
-            ) togetherWith
-                (
-                    fadeOut(tween(Motion.POP, easing = Motion.Curve)) +
-                        slideOutHorizontally(tween(Motion.POP, easing = Motion.Curve)) { popTravelPx }
-                )
-        } else {
-            (
-                fadeIn(tween(Motion.PUSH, easing = Motion.Curve)) +
-                    slideInHorizontally(tween(Motion.PUSH, easing = Motion.Curve)) { pushTravelPx }
-            ) togetherWith
-                (
-                    // One duration for the whole push, as the pop already does: the outgoing
-                    // page used to finish fading a page-length before it finished moving.
-                    fadeOut(tween(Motion.PUSH, easing = Motion.Curve)) +
-                        slideOutHorizontally(tween(Motion.PUSH, easing = Motion.Curve)) { -pushTravelPx / 2 }
-                )
-        }
-    // The two levels are nowhere near the same height, so the surface travels between them
-    // instead of cutting — otherwise it changes shape under a page that is still arriving.
-    return transform.using(SizeTransform(clip = false) { _, _ -> Motion.settle() })
-}
-
-@Composable
-private fun UnsupportedSubtitleControl(reason: String?) {
-    Text(
-        reason ?: "当前播放内核不支持此字幕调节。",
-        style = AppTypography.caption.medium,
-        color = Color.White.copy(alpha = 0.68f),
-    )
-}
-
-/**
- * An offset nudged in steps instead of picked from presets: a coarse and a fine step either side
- * of the current value, and 复位 back to zero. The presets it replaced moved whole seconds at a
- * time, which cannot land a subtitle that is 0.4 s out or a Bluetooth delay of 150 ms.
- *
- * [onChange] is handed the new absolute value: every offset action behind a stepper stores what it
- * is given rather than adding it to what it had.
- */
-@Composable
-private fun OffsetStepper(
-    label: String,
-    valueMs: Long,
-    fineStepMs: Long,
-    coarseStepMs: Long,
-    limitMs: Long,
-    stepLabel: (Long) -> String,
-    valueLabel: (Long) -> String,
-    onChange: (Long) -> Unit,
-) {
-    val accent = rememberAccentColorsForSurface(dark = true)
-    val adjusted = valueMs != 0L
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        GroupLabel(label)
-        Text(
-            "复位",
-            style = AppTypography.caption.strong,
-            color = if (adjusted) accent.accent else Color.White.copy(alpha = 0.34f),
-            modifier =
-                Modifier
-                    .pressable(enabled = adjusted, onClickLabel = "复位为同步", onClick = { onChange(0L) })
-                    .touchTarget()
-                    .padding(horizontal = Dimens.space.sm, vertical = Dimens.space.xs),
-        )
-    }
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(Dimens.space.sm),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        listOf(-coarseStepMs, -fineStepMs).forEach { step ->
-            OffsetStep(stepLabel(step), spoken = valueLabel(step)) {
-                onChange(steppedOffsetMs(valueMs, step, limitMs))
-            }
-        }
-        Text(
-            valueLabel(valueMs),
-            style = AppTypography.caption.strong,
-            color = if (adjusted) accent.accent else Color.White.copy(alpha = 0.86f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            // Said after each press, so a step is answered with where it landed.
-            modifier = Modifier.weight(1.6f).liveStatus(),
-        )
-        listOf(fineStepMs, coarseStepMs).forEach { step ->
-            OffsetStep(stepLabel(step), spoken = valueLabel(step)) {
-                onChange(steppedOffsetMs(valueMs, step, limitMs))
-            }
-        }
-    }
-}
-
-@Composable
-private fun RowScope.OffsetStep(
-    label: String,
-    /** The step with its direction and unit — 提前 0.5 秒 — where the key only has room for −0.5. */
-    spoken: String,
-    onClick: () -> Unit,
-) {
-    Text(
-        label,
-        style = AppTypography.caption.medium,
-        color = Color.White.copy(alpha = 0.86f),
-        maxLines = 1,
-        textAlign = TextAlign.Center,
-        modifier =
-            Modifier
-                .weight(1f)
-                .playerChoiceFeedback(selected = false, shape = AppShapes.pill, onClick = onClick)
-                .semantics { contentDescription = spoken }
-                .padding(vertical = Dimens.space.sm),
-    )
 }
 
 /**
@@ -1515,196 +369,6 @@ internal fun audioDelayStepLabel(stepMs: Long): String = "${stepSign(stepMs)}${a
 
 /** A minus sign rather than a hyphen: the steps are signed numbers. */
 private fun stepSign(stepMs: Long): String = if (stepMs < 0L) "−" else "+"
-
-private const val SUBTITLE_OFFSET_FINE_STEP_MS = 100L
-
-private const val SUBTITLE_OFFSET_COARSE_STEP_MS = 500L
-
-/** The secondary track refuses anything past a minute either way; the primary keeps to the same range. */
-private const val SUBTITLE_OFFSET_LIMIT_MS = 60_000L
-
-private const val AUDIO_DELAY_FINE_STEP_MS = 50L
-
-private const val AUDIO_DELAY_COARSE_STEP_MS = 200L
-
-/** The range 自动校准 works within — see [calibratedAudioDelayMs]. */
-private const val AUDIO_DELAY_LIMIT_MS = 2_000L
-
-@Composable
-private fun SkipTimeField(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    onUseCurrent: () -> Unit,
-) {
-    val accent = rememberAccentColorsForSurface(dark = true)
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 5.dp, vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
-        Text(
-            label,
-            style = AppTypography.caption.strong,
-            color = Color.White.copy(alpha = 0.72f),
-        )
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .weight(1f)
-                    .glass(
-                        shape = AppShapes.thumb,
-                        fill = Color.White.copy(alpha = 0.055f),
-                        border = Color.White.copy(alpha = 0.13f),
-                    ).padding(horizontal = 11.dp, vertical = 10.dp),
-            ) {
-                BasicTextField(
-                    value = value,
-                    onValueChange = { candidate ->
-                        val normalized = candidate.replace('：', ':')
-                        if (
-                            normalized.length <= 10 &&
-                            normalized.all { it.isDigit() || it == ':' }
-                        ) {
-                            onValueChange(normalized)
-                        }
-                    },
-                    singleLine = true,
-                    textStyle =
-                        AppTypography.body.strong.copy(
-                            color = Color.White.copy(alpha = 0.94f),
-                        ),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-                    cursorBrush = SolidColor(accent.accent),
-                    decorationBox = { field ->
-                        if (value.isBlank()) {
-                            Text(
-                                "mm:ss / hh:mm:ss",
-                                style = AppTypography.body.medium,
-                                color = Color.White.copy(alpha = 0.34f),
-                            )
-                        }
-                        field()
-                    },
-                )
-            }
-            Text(
-                "当前",
-                style = AppTypography.caption.strong,
-                color = accent.accent,
-                modifier =
-                    Modifier
-                        .glass(
-                            shape = AppShapes.thumb,
-                            fill = accent.container,
-                            border = accent.border,
-                        ).noRippleClickable(onUseCurrent)
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun PopupBackLabel(
-    title: String,
-    trailing: String? = null,
-    onBack: () -> Unit,
-) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 3.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            "‹  $title",
-            style = AppTypography.body.strong,
-            color = Color.White.copy(alpha = 0.90f),
-            modifier = Modifier.noRippleClickable(onBack),
-        )
-        trailing?.let {
-            Text(
-                it,
-                style = AppTypography.caption.medium,
-                color = Color.White.copy(alpha = 0.48f),
-            )
-        }
-    }
-}
-
-private fun engineDescription(label: String): String =
-    when {
-        label.contains("EXO", ignoreCase = true) -> "系统解码 · HDR/Dolby Vision"
-        label.contains("MDK", ignoreCase = true) -> "画质优先 · 高兼容性"
-        label.contains("MPV", ignoreCase = true) -> "格式支持更完整"
-        else -> "兼容播放内核"
-    }
-
-@Composable
-private fun EngineChoiceRow(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val accent = rememberAccentColorsForSurface(dark = true)
-    val badge = label.substringBefore(' ').take(3).uppercase()
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .noRippleClickable(onClick)
-            .padding(horizontal = 5.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(13.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(38.dp)
-                .glass(
-                    shape = AppShapes.thumb,
-                    fill = if (selected) accent.container else Color.Transparent,
-                    border = if (selected) accent.border else Color.White.copy(alpha = 0.16f),
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                badge,
-                style = AppTypography.caption.strong,
-                color = if (selected) accent.accent else Color.White.copy(alpha = 0.70f),
-            )
-        }
-        Column(Modifier.weight(1f)) {
-            Text(label, style = AppTypography.body.strong, color = Color.White.copy(alpha = 0.92f))
-            Text(
-                engineDescription(label),
-                style = AppTypography.caption.medium,
-                color = Color.White.copy(alpha = 0.52f),
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-        Box(
-            Modifier
-                .size(24.dp)
-                .glass(
-                    shape = AppShapes.pill,
-                    fill = if (selected) accent.container else Color.Transparent,
-                    border = if (selected) accent.border else Color.White.copy(alpha = 0.22f),
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (selected) {
-                Icon(
-                    AppIcons.Check,
-                    contentDescription = null,
-                    tint = accent.accent,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
-        }
-    }
-}
 
 @Composable
 internal fun SourcePickerPopup(

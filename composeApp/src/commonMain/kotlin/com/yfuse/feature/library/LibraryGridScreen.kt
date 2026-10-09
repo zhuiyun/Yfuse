@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -24,6 +26,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -33,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,13 +47,13 @@ import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.ItemAction
+import com.yfuse.core.designsystem.LiftAnchor
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -69,13 +73,15 @@ import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
+import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.SkeletonHandoff
-import com.yfuse.core.designsystem.SkeletonPosterTile
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.liftAnchor
+import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.motionAwareScrollToItem
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
@@ -83,6 +89,7 @@ import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDelayedBusy
 import com.yfuse.core.designsystem.rememberScreenReaderActive
+import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.waitingPulse
@@ -127,6 +134,9 @@ private const val PREFETCH_ITEMS = 18
 
 /** The phone grid; the skeleton's breathing wave only needs a plausible column count. */
 private const val SKELETON_GRID_COLUMNS = 3
+
+/** Placeholder rows: a phone's height of them at the densest the grid goes. */
+private const val SKELETON_GRID_ROWS = 8
 
 /** How far the old page steps back while the page for a new sort or filter is on its way. */
 private const val REFILTER_GRID_ALPHA = 0.6f
@@ -184,6 +194,8 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
     // 快速滚动索引: one stop per letter, year, month or score, labelled off the main thread —
     // the pinyin lookup is a collator walk per title.
     var indexSections by remember { mutableStateOf(emptyList<GridIndexSection>()) }
+    // How many posters [indexSections] was labelled from; it trails the grid while a label run is on.
+    var indexedCount by remember { mutableIntStateOf(0) }
     LaunchedEffect(state.items, state.sort, state.directoryKind, state.sortable) {
         val items = state.items
         val sort = state.sort
@@ -193,7 +205,19 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
             } else {
                 withContext(Dispatchers.Default) { gridIndexSections(items.map { gridIndexLabel(sort, it) }) }
             }
+        indexedCount = items.size
     }
+    // A set small enough to load whole is indexed whole: the rest of it is asked for as soon as
+    // the index would be offered, and the strip waits until every title is labelled. Built from the
+    // first pages alone, it showed the letters or months of the first sixty titles — often a single
+    // month, so no strip at all — and re-flowed under the finger as each further page landed. Past
+    // that size the index files what is loaded, as it always has.
+    val restOfIndex = !screenReader && state.indexFillable && state.canLoadMore && state.loadMoreError == null
+    val pageOnItsWay = state.loading || state.loadingMore
+    LaunchedEffect(restOfIndex, pageOnItsWay) {
+        if (restOfIndex && !pageOnItsWay) component.store.accept(GridIntent.LoadIndex)
+    }
+    val indexWaiting = restOfIndex || (state.indexFillable && indexedCount != state.items.size)
 
     // A new sort or filter keeps the old page on screen until the new one lands, so the grid
     // never blanks. On a slow server that read as a tap that had missed: the control that asked
@@ -332,7 +356,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 )
             }
 
-            if (state.genres.isNotEmpty()) {
+            if (state.genres.isNotEmpty() || state.tags.isNotEmpty()) {
                 GenreFilterRow(
                     genres = state.genres,
                     selected = state.genre,
@@ -340,6 +364,12 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                     onSelect = {
                         refilterOrigin = GridRefilterOrigin.Genre
                         component.store.accept(GridIntent.SetGenre(it))
+                    },
+                    tags = state.tags,
+                    selectedTag = state.tag,
+                    onSelectTag = {
+                        refilterOrigin = GridRefilterOrigin.Genre
+                        component.store.accept(GridIntent.SetTag(it))
                     },
                 )
             } else if (state.genreLoadError != null) {
@@ -358,17 +388,18 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                         refilterOrigin = GridRefilterOrigin.Specs
                         component.store.accept(GridIntent.SetResolution(it))
                     },
-                    onUnplayedOnly = {
-                        refilterOrigin = GridRefilterOrigin.Specs
-                        component.store.accept(GridIntent.SetUnplayedOnly(it))
-                    },
+                    onUnplayedOnly =
+                        { value: Boolean ->
+                            refilterOrigin = GridRefilterOrigin.Specs
+                            component.store.accept(GridIntent.SetUnplayedOnly(value))
+                        }.takeIf { state.unplayedFilterable },
                 )
             }
 
             SkeletonHandoff(
                 loading = state.loading && state.loadedCount == 0,
                 modifier = Modifier.fillMaxSize(),
-                skeleton = { SkeletonGrid(bottomContentInset = bottomContentInset) },
+                skeleton = { SkeletonGrid(bottomContentInset = bottomContentInset, columns = gridDensity.columns) },
             ) {
                 when {
                     state.error != null && state.loadedCount == 0 ->
@@ -416,14 +447,18 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                 horizontalArrangement = Arrangement.spacedBy(GridSpacing),
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                                 modifier =
-                                    Modifier.fillMaxSize().graphicsLayer {
-                                        alpha = gridAlpha.value
-                                        // A pinch draws the laid-out grid at the size in between two counts.
-                                        val scale = gridDensity.scale()
-                                        scaleX = scale
-                                        scaleY = scale
-                                        transformOrigin = gridDensity.transformOrigin(size.width, size.height)
-                                    },
+                                    Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            alpha = gridAlpha.value
+                                            // A pinch draws the laid-out grid at the size in between two counts.
+                                            val scale = gridDensity.scale()
+                                            scaleX = scale
+                                            scaleY = scale
+                                            transformOrigin = gridDensity.transformOrigin(size.width, size.height)
+                                        }
+                                        // Inside the pinch's scale: where every poster is measured from.
+                                        .onPlaced { gridDensity.reflow.grid = it },
                             ) {
                                 if (state.directoryKind != null) {
                                     motionItems(
@@ -438,31 +473,27 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                                 maxHeight = 450,
                                                 accessToken = accessToken,
                                             )
-                                        if (titles) {
-                                            CaptionedPoster(
-                                                url = url,
-                                                title = container.title,
-                                                year = container.itemCount?.let { "$it 项" },
-                                                progress = null,
-                                                onClick = { component.onOpenContainer(container) },
-                                                modifier = Modifier,
-                                            )
-                                        } else {
-                                            Poster(
-                                                url = url,
-                                                contentDescription = container.title,
-                                                onClick = { component.onOpenContainer(container) },
-                                                modifier = Modifier.fillMaxWidth().aspectRatio(POSTER_RATIO),
-                                            )
-                                        }
+                                        GridTile(
+                                            url = url,
+                                            title = container.title,
+                                            caption = container.itemCount?.let { "$it 项" },
+                                            titles = titles,
+                                            onClick = { component.onOpenContainer(container) },
+                                            modifier =
+                                                Modifier.gridReflowItem(
+                                                    gridDensity,
+                                                    "${container.serverId}-${container.kind}-${container.id}",
+                                                ),
+                                        )
                                     }
                                 } else {
                                     motionItems(state.items, key = { it.id }) { item ->
                                         Box(
                                             // Appended pages fade in where they land rather than
                                             // appearing mid-scroll, and a sort change cross-dissolves
-                                            // instead of swapping the grid between two frames.
-                                            modifier = Modifier,
+                                            // instead of swapping the grid between two frames. A pinch
+                                            // flows each poster from its old place to its new one.
+                                            modifier = Modifier.gridReflowItem(gridDensity, item.id),
                                         ) {
                                             val lift = {
                                                 gridLiftMenu(
@@ -474,32 +505,20 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                                     onIntent = component.store::accept,
                                                 )
                                             }
-                                            if (titles) {
-                                                PosterCard(
-                                                    baseUrl = baseUrl,
-                                                    accessToken = accessToken,
-                                                    serverId = component.serverId,
-                                                    item = item,
-                                                    showProgress = false,
-                                                    onClick = { component.onOpenItem(item.id) },
-                                                    liftMenu = lift,
-                                                )
-                                            } else {
-                                                // Five across: the poster alone, its title left to the
-                                                // screen reader and the lifted card.
-                                                Poster(
-                                                    url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
-                                                    contentDescription = item.title,
-                                                    onClick = { component.onOpenItem(item.id) },
-                                                    liftMenu = lift,
-                                                    sharedTransitionKey =
-                                                        MediaSharedElementKey(
-                                                            component.serverId,
-                                                            item.id,
-                                                        ),
-                                                    modifier = Modifier.fillMaxWidth().aspectRatio(POSTER_RATIO),
-                                                )
-                                            }
+                                            GridTile(
+                                                url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
+                                                title = item.title,
+                                                caption = item.year?.toString(),
+                                                titles = titles,
+                                                rating = item.communityRating,
+                                                onClick = { component.onOpenItem(item.id) },
+                                                liftMenu = lift,
+                                                sharedTransitionKey =
+                                                    MediaSharedElementKey(
+                                                        component.serverId,
+                                                        item.id,
+                                                    ),
+                                            )
                                             if (state.containerKind != null) {
                                                 Box(
                                                     Modifier
@@ -575,7 +594,8 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                             if (indexSections.size >= 2 &&
                                 state.loadedCount >= INDEX_MIN_ITEMS &&
                                 !screenReader &&
-                                !gridDensity.zooming
+                                !gridDensity.zooming &&
+                                !indexWaiting
                             ) {
                                 GridIndexStrip(
                                     sections = indexSections,
@@ -705,6 +725,10 @@ private fun GenreFilterRow(
     /** The page for a genre chosen here is on its way. */
     pending: Boolean,
     onSelect: (String?) -> Unit,
+    /** The library's tags, after its genres and marked with #; one choice in the row with them. */
+    tags: List<String> = emptyList(),
+    selectedTag: String? = null,
+    onSelectTag: (String) -> Unit = {},
 ) {
     LazyRow(
         modifier =
@@ -716,7 +740,12 @@ private fun GenreFilterRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         motionItem(key = "genre-all") {
-            YfChip(label = "全部", selected = selected == null, onClick = { onSelect(null) }, onClickLabel = "选择分类 全部")
+            YfChip(
+                label = "全部",
+                selected = selected == null && selectedTag == null,
+                onClick = { onSelect(null) },
+                onClickLabel = "选择分类 全部",
+            )
         }
         motionItems(genres, key = { it }) { genre ->
             // The facet arrives after the first page, so the row grows under the header.
@@ -725,6 +754,14 @@ private fun GenreFilterRow(
                 selected = selected == genre,
                 onClick = { onSelect(genre) },
                 onClickLabel = "选择分类 $genre",
+            )
+        }
+        motionItems(tags, key = { "tag:$it" }) { tag ->
+            YfChip(
+                label = "#$tag",
+                selected = selectedTag == tag,
+                onClick = { onSelectTag(tag) },
+                onClickLabel = "选择标签 $tag",
             )
         }
     }
@@ -738,7 +775,8 @@ private fun ResolutionFilterRow(
     /** The page for a specification chosen here is on its way. */
     pending: Boolean,
     onSelect: (LibraryResolution) -> Unit,
-    onUnplayedOnly: (Boolean) -> Unit,
+    /** Null where the grid has no 只看未看: a collection's endpoint cannot filter on it. */
+    onUnplayedOnly: ((Boolean) -> Unit)?,
 ) {
     LazyRow(
         modifier =
@@ -765,38 +803,74 @@ private fun ResolutionFilterRow(
                 onClickLabel = "选择规格 ${resolution.label}",
             )
         }
-        motionItem(key = "unplayed-only") {
-            YfChip(
-                label = "只看未看",
-                selected = unplayedOnly,
-                onClick = { onUnplayedOnly(!unplayedOnly) },
-            )
+        if (onUnplayedOnly != null) {
+            motionItem(key = "unplayed-only") {
+                YfChip(
+                    label = "只看未看",
+                    selected = unplayedOnly,
+                    onClick = { onUnplayedOnly(!unplayedOnly) },
+                )
+            }
         }
     }
 }
 
-/** Placeholder tiles in the grid's own geometry, so nothing shifts when the page lands. */
+/**
+ * Placeholder tiles in the grid's own geometry, so nothing shifts when the page lands: the columns
+ * the grid was left at ([columns], null for its adaptive layout), 2:3 posters, and a caption only
+ * where the grid shows titles.
+ */
 @Composable
-private fun SkeletonGrid(bottomContentInset: androidx.compose.ui.unit.Dp) {
+private fun SkeletonGrid(
+    bottomContentInset: androidx.compose.ui.unit.Dp,
+    columns: Int?,
+) {
+    val titles = columns?.let(::gridShowsTitles) ?: true
+    // Only needs to be plausible for the adaptive layout; a remembered density is the real count.
+    val waveColumns = columns ?: SKELETON_GRID_COLUMNS
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(PosterMinWidth),
+        columns = columns?.let { GridCells.Fixed(it) } ?: GridCells.Adaptive(PosterMinWidth),
         contentPadding =
             PaddingValues(
                 start = Dimens.pageHorizontal,
                 end = Dimens.pageHorizontal,
                 bottom = bottomContentInset,
             ),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(GridSpacing),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         userScrollEnabled = false,
         modifier = Modifier.fillMaxSize().skeletonSweep(),
     ) {
         // Phased along the diagonal the sweep travels, so the breath is one wave across
-        // the grid. Three columns is the phone case; a wider grid just repeats the wave.
-        motionItems(12) { index ->
-            val row = index / SKELETON_GRID_COLUMNS
-            val column = index % SKELETON_GRID_COLUMNS
-            SkeletonPosterTile(Modifier.fillMaxWidth(), phaseMs = (row + column) * SKELETON_PHASE_STEP_MS)
+        // the grid. Enough rows to fill a phone at five across; only those on screen compose.
+        motionItems(waveColumns * SKELETON_GRID_ROWS) { index ->
+            val row = index / waveColumns
+            val column = index % waveColumns
+            SkeletonGridTile(titles = titles, phaseMs = (row + column) * SKELETON_PHASE_STEP_MS)
+        }
+    }
+}
+
+/** One placeholder: the 2:3 poster, and the title and year lines under it where the grid has them. */
+@Composable
+private fun SkeletonGridTile(
+    titles: Boolean,
+    phaseMs: Int,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        SkeletonBlock(
+            Modifier.fillMaxWidth().aspectRatio(POSTER_RATIO),
+            shape = AppShapes.card,
+            phaseMs = phaseMs,
+        )
+        if (titles) {
+            // The caption's own height, so each row ends where the real one will.
+            Column(Modifier.height(CaptionEstimate)) {
+                Spacer(Modifier.height(7.dp))
+                SkeletonBlock(Modifier.fillMaxWidth().height(12.dp), shape = AppShapes.micro, phaseMs = phaseMs)
+                Spacer(Modifier.height(5.dp))
+                SkeletonBlock(Modifier.width(42.dp).height(9.dp), shape = AppShapes.micro, phaseMs = phaseMs)
+            }
         }
     }
 }
@@ -896,6 +970,78 @@ private fun EmptyGridHint(
                 onAction = onBack,
             )
         else -> PageHint("暂无内容", modifier = modifier, actionLabel = "返回", onAction = onBack)
+    }
+}
+
+/**
+ * One grid tile at every density: the poster and, while a row has room for words, the title and
+ * [caption] under it. It is the same composable at five across as at two — swapping to a bare
+ * [Poster] there rebuilt every visible tile in the frame a pinch crossed four and a half, and each
+ * blinked while its picture came back. As on [com.yfuse.core.designsystem.CaptionedPoster], the
+ * whole tile takes the press, caption and all, and it is the artwork that lifts.
+ */
+@Composable
+private fun GridTile(
+    url: String?,
+    title: String,
+    caption: String?,
+    titles: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    rating: Double? = null,
+    liftMenu: (() -> LiftMenu)? = null,
+    sharedTransitionKey: MediaSharedElementKey? = null,
+) {
+    val palette = LocalPalette.current
+    val open = sharedMediaOnClick(sharedTransitionKey, onClick)
+    val lift = liftMenu?.let { build -> { build().withArtwork(listOfNotNull(url)) } }
+    val artwork = remember { LiftAnchor() }
+    Column(
+        modifier
+            .fillMaxWidth()
+            .liftable(menu = lift, anchor = artwork, onOpen = open)
+            // Five across the poster alone takes the press, and leans with it as a poster does.
+            .pressable(tilt = !titles, onClick = open),
+    ) {
+        Poster(
+            url = url,
+            // Under a 60 dp poster the score badge would cover what little of it there is.
+            rating = rating.takeIf { titles },
+            contentDescription = title,
+            sharedTransitionKey = sharedTransitionKey,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(POSTER_RATIO)
+                    .liftAnchor(artwork.takeIf { lift != null }),
+            // A 9:16 短剧 poster keeps the title and 全80集 printed at its top and foot.
+            fitNarrow = true,
+        )
+        if (titles) {
+            Spacer(Modifier.height(7.dp))
+            Text(
+                text = title,
+                style = AppTypography.body.strong,
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(2.dp))
+            if (caption != null) {
+                Text(
+                    text = caption,
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                // The caption's own line box, so tiles align whether or not they have one.
+                Spacer(Modifier.height(15.dp))
+            }
+        }
     }
 }
 

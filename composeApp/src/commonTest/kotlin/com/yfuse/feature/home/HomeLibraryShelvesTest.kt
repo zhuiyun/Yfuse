@@ -1,5 +1,6 @@
 package com.yfuse.feature.home
 
+import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.PlaybackProgressProjection
@@ -147,6 +148,192 @@ class HomeLibraryShelvesTest {
                 store.dispose()
             }
         }
+
+    @Test
+    fun a_watched_mark_from_the_lift_waits_out_its_undo_before_anything_is_written() =
+        runTest(scheduler) {
+            val registry = testRegistry().apply { addOrUpdate(ONE) }
+            val progress = PlaybackSyncStore(MapSettings()) { 1_000L }
+            progress.updatePlayback(
+                mediaKey = "emby:e1",
+                aliases = emptyList(),
+                positionMs = 30_000L,
+                durationMs = 100_000L,
+                played = false,
+                sessionId = "local",
+                serverId = ONE.id,
+                serverItemId = "e1",
+                mutationKind = PlaybackMutationKind.AutoProgress,
+                trigger = PlaybackSyncTrigger.Periodic,
+            )
+            val writes = mutableListOf<String>()
+            val store =
+                HomeStoreFactory(
+                    storeFactory = DefaultStoreFactory(),
+                    tmdb = unreachableTmdb(),
+                    emby =
+                        testRepo(
+                            dispatcher = UnconfinedTestDispatcher(testScheduler),
+                            progressProjection = PlaybackProgressProjection(progress) { true },
+                        ) { request ->
+                            when {
+                                "/PlayedItems/" in request.url.encodedPath -> {
+                                    writes += "${request.method.value} ${request.url.encodedPath}"
+                                    json("{}")
+                                }
+                                request.url.parameters["Ids"] == "e1" ->
+                                    json(
+                                        """{"Items":[{"Id":"e1","Name":"第1集","Type":"Episode",""" +
+                                            """"SeriesName":"某剧","SeriesId":"s1","RunTimeTicks":1000000000}]}""",
+                                    )
+                                else -> homeRoutes(request)
+                            }
+                        },
+                    registry = registry,
+                    cache = TmdbHomeCache(MapSettings()),
+                    cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
+                ).create()
+            try {
+                advanceUntilIdle()
+                val entry = store.state.resume.single()
+
+                store.accept(HomeIntent.SetEntryPlayed(entry, played = true, undoable = true))
+                advanceUntilIdle()
+                assertTrue(writes.isEmpty())
+                assertTrue(store.state.resume.isEmpty())
+                assertTrue(store.state.nextUp.isEmpty())
+                assertEquals(entry.key, store.state.resumeUndoKey)
+
+                // 撤销 puts the card back on both shelves, and nothing ever touched its resume point.
+                store.accept(HomeIntent.UndoResumeChange(entry.key))
+                advanceUntilIdle()
+                assertEquals(listOf(entry.key), store.state.resume.map { it.key })
+                assertEquals(listOf("e1"), store.state.nextUp.map { it.item.id })
+                assertTrue(writes.isEmpty())
+
+                // The toast leaving writes it, without a second toast saying so.
+                store.accept(HomeIntent.SetEntryPlayed(entry, played = true, undoable = true))
+                store.accept(HomeIntent.DismissMessage)
+                advanceUntilIdle()
+                assertEquals(listOf("POST /Users/u/PlayedItems/e1"), writes)
+                assertTrue(store.state.resume.isEmpty())
+                assertEquals(null, store.state.actionMessage)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun marking_several_cards_watched_holds_them_under_one_undo_that_brings_them_all_back() =
+        runTest(scheduler) {
+            val writes = mutableListOf<String>()
+            val store = twoFilmStore(writes)
+            try {
+                advanceUntilIdle()
+                val shelf = store.state.resume
+                assertEquals(setOf("m1", "m2"), shelf.map { it.item.id }.toSet())
+
+                store.accept(HomeIntent.MarkEntriesWatched(shelf))
+                advanceUntilIdle()
+                assertTrue(writes.isEmpty())
+                assertTrue(store.state.resume.isEmpty())
+                assertEquals("已将「${shelf.first().item.title}」等 2 项标记为已看", store.state.actionMessage)
+
+                // One 撤销 puts both back, in the order they had, and nothing was ever written.
+                store.accept(HomeIntent.UndoResumeChange(checkNotNull(store.state.resumeUndoKey)))
+                advanceUntilIdle()
+                assertEquals(shelf.map { it.key }, store.state.resume.map { it.key })
+                assertTrue(writes.isEmpty())
+
+                // The toast leaving writes both, without a second toast saying so.
+                store.accept(HomeIntent.MarkEntriesWatched(shelf))
+                store.accept(HomeIntent.DismissMessage)
+                advanceUntilIdle()
+                assertEquals(setOf("POST /Users/u/PlayedItems/m1", "POST /Users/u/PlayedItems/m2"), writes.toSet())
+                assertTrue(store.state.resume.isEmpty())
+                assertEquals(null, store.state.actionMessage)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun removing_several_cards_forgets_none_of_them_until_the_undo_has_gone() =
+        runTest(scheduler) {
+            val forgotten = mutableListOf<String>()
+            val store = twoFilmStore(mutableListOf(), forgetResume = { server, item -> forgotten += "$server:$item" })
+            try {
+                advanceUntilIdle()
+                val shelf = store.state.resume
+
+                store.accept(HomeIntent.RemoveEntriesFromResume(shelf))
+                advanceUntilIdle()
+                assertTrue(store.state.resume.isEmpty())
+                assertEquals("已从继续观看移除「${shelf.first().item.title}」等 2 项", store.state.actionMessage)
+                assertTrue(forgotten.isEmpty())
+
+                store.accept(HomeIntent.UndoResumeChange(checkNotNull(store.state.resumeUndoKey)))
+                advanceUntilIdle()
+                assertEquals(shelf.map { it.key }, store.state.resume.map { it.key })
+                assertTrue(forgotten.isEmpty())
+
+                store.accept(HomeIntent.RemoveEntriesFromResume(shelf))
+                store.accept(HomeIntent.DismissMessage)
+                advanceUntilIdle()
+                assertEquals(setOf("one:m1", "one:m2"), forgotten.toSet())
+            } finally {
+                store.dispose()
+            }
+        }
+
+    /** One server whose 继续观看 is two films, m1 and m2, each part-way through on this device. */
+    private fun twoFilmStore(
+        writes: MutableList<String>,
+        forgetResume: ((serverId: String, itemId: String) -> Unit)? = null,
+    ): Store<HomeIntent, HomeState, HomeLabel> {
+        val registry = testRegistry().apply { addOrUpdate(ONE) }
+        val progress = PlaybackSyncStore(MapSettings()) { 1_000L }
+        listOf("m1", "m2").forEach { id ->
+            progress.updatePlayback(
+                mediaKey = "emby:$id",
+                aliases = emptyList(),
+                positionMs = 30_000L,
+                durationMs = 100_000L,
+                played = false,
+                sessionId = "local",
+                serverId = ONE.id,
+                serverItemId = id,
+                mutationKind = PlaybackMutationKind.AutoProgress,
+                trigger = PlaybackSyncTrigger.Periodic,
+            )
+        }
+        return HomeStoreFactory(
+            storeFactory = DefaultStoreFactory(),
+            tmdb = unreachableTmdb(),
+            emby =
+                testRepo(
+                    dispatcher = UnconfinedTestDispatcher(scheduler),
+                    progressProjection = PlaybackProgressProjection(progress) { true },
+                ) { request ->
+                    when {
+                        "/PlayedItems/" in request.url.encodedPath -> {
+                            writes += "${request.method.value} ${request.url.encodedPath}"
+                            json("{}")
+                        }
+                        request.url.parameters["Ids"] != null ->
+                            json(
+                                """{"Items":[{"Id":"m1","Name":"片一","Type":"Movie","RunTimeTicks":1000000000},""" +
+                                    """{"Id":"m2","Name":"片二","Type":"Movie","RunTimeTicks":1000000000}]}""",
+                            )
+                        else -> homeRoutes(request)
+                    }
+                },
+            registry = registry,
+            cache = TmdbHomeCache(MapSettings()),
+            cacheDispatcher = UnconfinedTestDispatcher(scheduler),
+            forgetResume = forgetResume,
+        ).create()
+    }
 
     private fun unreachableTmdb(): TmdbRepository =
         TmdbRepository(

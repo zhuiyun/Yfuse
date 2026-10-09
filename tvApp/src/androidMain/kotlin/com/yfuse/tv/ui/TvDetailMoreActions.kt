@@ -38,7 +38,7 @@ import com.yfuse.tv.focus.tvFocusScope
 import kotlinx.coroutines.launch
 
 /** Which secondary sheet the detail screen currently shows. */
-internal enum class TvDetailSheet { More, Organization, AiringCalendar, EpisodeProgress, Download }
+internal enum class TvDetailSheet { More, Organization, AiringCalendar, EpisodeProgress, Download, Trailers }
 
 /**
  * The remaining actions from the phone's 更多 sheet.
@@ -214,9 +214,13 @@ internal fun TvOrganizationDialog(
 ) {
     val focusScope = "detail:organization"
     val firstRequester = remember { FocusRequester() }
+    val closeRequester = remember { FocusRequester() }
     var status by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(state.organizationContainers.size) {
-        if (state.organizationContainers.isNotEmpty()) firstRequester.requestFocusWhenAttached()
+    // The first container once the list shows; until then, and when it comes back empty or fails,
+    // 关闭 — the dialog used to open with nothing focused, and the first 确定 went nowhere.
+    val listShown = !state.organizationLoading && state.organizationContainers.isNotEmpty()
+    LaunchedEffect(listShown) {
+        (if (listShown) firstRequester else closeRequester).requestFocusWhenAttached()
     }
 
     GlassDialog(onDismiss = onDismiss, maxWidth = 720.dp, contentPadding = 26.dp) {
@@ -273,6 +277,7 @@ internal fun TvOrganizationDialog(
                     focusScope = focusScope,
                     focusMemory = focusMemory,
                     onClick = overlayDismiss(onDismiss),
+                    focusRequester = closeRequester,
                 )
             }
         }
@@ -292,6 +297,9 @@ internal fun TvAiringCalendarDialog(
     var error by remember { mutableStateOf<String?>(null) }
     val closeRequester = remember { FocusRequester() }
 
+    // 关闭 is the one control here; focused only once the schedule had loaded, it left the dialog
+    // with nothing focused for as long as that took.
+    LaunchedEffect(Unit) { closeRequester.requestFocusWhenAttached() }
     LaunchedEffect(detail.id) {
         loading = true
         component
@@ -301,7 +309,6 @@ internal fun TvAiringCalendarDialog(
                 onFailure = { error = it.message ?: "无法读取播出日历" },
             )
         loading = false
-        closeRequester.requestFocusWhenAttached()
     }
 
     GlassDialog(onDismiss = onDismiss, maxWidth = 760.dp, contentPadding = 26.dp) {
@@ -425,16 +432,20 @@ internal fun TvEpisodeProgressDialog(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                EpisodeProgressAction.entries.forEach { action ->
-                    TvActionButton(
-                        label = action.tvLabel(),
-                        stableId = "progress:action:${action.name}",
-                        focusScope = focusScope,
-                        focusMemory = focusMemory,
-                        onClick = { store.accept(DetailIntent.ApplyEpisodeProgress(action)) },
-                        primary = action == EpisodeProgressAction.MarkWatched,
-                    )
-                }
+                // No 清除进度: nothing clears a resume point and keeps 已看, so it did exactly what
+                // 标记未看 does under a name that promised something gentler. The phone dropped it too.
+                EpisodeProgressAction.entries
+                    .filterNot { it == EpisodeProgressAction.Reset }
+                    .forEach { action ->
+                        TvActionButton(
+                            label = action.tvLabel(),
+                            stableId = "progress:action:${action.name}",
+                            focusScope = focusScope,
+                            focusMemory = focusMemory,
+                            onClick = { store.accept(DetailIntent.ApplyEpisodeProgress(action)) },
+                            primary = action == EpisodeProgressAction.MarkWatched,
+                        )
+                    }
                 TvActionButton(
                     label = "关闭",
                     stableId = "progress:close",

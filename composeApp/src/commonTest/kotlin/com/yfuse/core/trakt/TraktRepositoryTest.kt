@@ -1,5 +1,7 @@
 package com.yfuse.core.trakt
 
+import com.yfuse.core.security.SECURE_STORE_MAX_VALUE_BYTES
+import com.yfuse.core.security.SecureStore
 import com.yfuse.core.security.TestSecureStore
 import com.yfuse.watch.protocol.TraktAuthChallenge
 import com.yfuse.watch.protocol.TraktAuthPoll
@@ -212,7 +214,85 @@ class TraktRepositoryTest {
             fixture.repository.close()
         }
 
-    private fun TestScope.fixture(): Fixture {
+    @Test
+    fun multibytePlaybackQueueRespectsTheActualEncryptedEntryLimit() =
+        runTest {
+            val stored = TestSecureStore()
+            var largestWrite = 0
+            val boundedStore =
+                object : SecureStore by stored {
+                    override fun put(
+                        key: String,
+                        value: ByteArray,
+                    ) {
+                        require(value.size <= SECURE_STORE_MAX_VALUE_BYTES)
+                        largestWrite = maxOf(largestWrite, value.size)
+                        stored.put(key, value)
+                    }
+                }
+            val fixture = fixture(boundedStore)
+            fixture.connect()
+            fixture.repository.setScrobbling(true)
+            repeat(128) { index ->
+                fixture.repository.recordPlayback(
+                    media,
+                    "$index:${"影".repeat(128)}",
+                    TraktPlaybackAction.Stop,
+                    95_000,
+                    100_000,
+                )
+            }
+            val pending = fixture.repository.state.value.pending
+            assertTrue(pending in 1..127)
+            assertTrue(largestWrite <= SECURE_STORE_MAX_VALUE_BYTES)
+            assertTrue(
+                fixture.repository.state.value.error
+                    .orEmpty()
+                    .contains("存储已满"),
+            )
+            assertTrue(fixture.repository.state.value.connected)
+            fixture.repository.close()
+        }
+
+    @Test
+    fun malformedProviderIdsCannotOverflowThePlaybackOutbox() =
+        runTest {
+            val fixture = fixture()
+            fixture.connect()
+            fixture.repository.setScrobbling(true)
+            fixture.repository.recordPlayback(
+                media.copy(ids = TraktIds(tmdb = 603, imdb = "tt" + "1".repeat(70_000))),
+                "untrusted-metadata",
+                TraktPlaybackAction.Stop,
+                95_000,
+                100_000,
+            )
+            assertEquals(0, fixture.repository.state.value.pending)
+            assertTrue(TraktPlaybackMedia("movie", TraktIds(imdb = "tt0133093")).valid())
+            assertFalse(TraktPlaybackMedia("movie", TraktIds(tmdb = -1)).valid())
+            fixture.repository.close()
+        }
+
+    @Test
+    fun playbackPersistenceFailurePreservesTheQueueAndShowsAnError() =
+        runTest {
+            val stored = TestSecureStore()
+            val fixture = fixture(stored)
+            fixture.connect()
+            fixture.repository.setScrobbling(true)
+            stored.failWrites = true
+            fixture.record(TraktPlaybackAction.Stop)
+            assertEquals(0, fixture.repository.state.value.pending)
+            assertTrue(
+                fixture.repository.state.value.error
+                    .orEmpty()
+                    .contains("安全保存"),
+            )
+            assertTrue(fixture.repository.state.value.connected)
+            fixture.repository.close()
+        }
+
+    private fun TestScope.fixture(secureStore: SecureStore = TestSecureStore()): Fixture {
         val api = FakeApi()
         val auth = FakeAuth { BASE_TIME + testScheduler.currentTime }
         val owner = MutableStateFlow<String?>("account:adult")
@@ -224,7 +304,7 @@ class TraktRepositoryTest {
                 override suspend fun importHistory(item: TraktListItem) = imported.add(item)
             }
         val repository =
-            TraktRepository(api, auth, TestSecureStore(), owner, sink, backgroundScope) {
+            TraktRepository(api, auth, secureStore, owner, sink, backgroundScope) {
                 BASE_TIME +
                     testScheduler.currentTime
             }
@@ -253,7 +333,7 @@ class TraktRepositoryTest {
             repository.recordPlayback(media, "playback-1", action, 95_000, 100_000)
     }
 
-    private class FakeAuth(
+    internal class FakeAuth(
         private val now: () -> Long,
     ) : TraktAuthApi {
         var token = TraktRepositoryTest.token
@@ -283,7 +363,7 @@ class TraktRepositoryTest {
         override suspend fun revoke(accessToken: String) {}
     }
 
-    private class FakeApi : TraktApi {
+    internal class FakeApi : TraktApi {
         val writes = mutableListOf<TraktPlaybackAction>()
         val pages = mutableListOf<Int>()
         var failure: Exception? = null

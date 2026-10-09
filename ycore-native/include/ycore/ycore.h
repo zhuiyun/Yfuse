@@ -24,6 +24,25 @@ extern "C" {
 #define YCORE_ENGINE_NAME_MAX 48u
 #define YCORE_DIAGNOSTIC_TEXT_MAX 96u
 
+/*
+ * Experimental: this coordinator is the native boundary of the HarmonyOS port, which has not been
+ * built into a HAP or run on a device. The Android player does not use it; Android YCore lives in
+ * Kotlin (com.yfuse.core2) with its media libraries in libycore_demux/libycore_gpu.
+ *
+ * Fixed-width types: the enums below name values, but every struct field and parameter that
+ * carries one is an int32_t, because an enum's size is up to the compiler and FFI layers such as
+ * Cangjie bind integers, not C enums.
+ *
+ * Threading and lifetimes: a session's functions may be called from any thread; calls on one
+ * session are serialized by its lock. The state listener runs on the thread that changed the
+ * state, with that lock held: it may read the session, but must not destroy it or wait on another
+ * thread that is calling into the same session. Destroy a session only once no other thread can
+ * call into it. The strings ycore_session_state_engine and ycore_session_state_reason return
+ * belong to the session and are rewritten whenever its state changes; a host that reads them
+ * while another thread drives the session copies them with ycore_session_copy_state_engine and
+ * ycore_session_copy_state_reason instead.
+ */
+
 typedef struct ycore_session ycore_session_t;
 
 typedef enum ycore_result {
@@ -104,9 +123,9 @@ typedef struct ycore_media_request {
 typedef struct ycore_state {
     uint32_t struct_size;
     uint32_t abi_version;
-    ycore_phase_t phase;
-    ycore_route_t route;
-    ycore_failure_category_t failure_category;
+    int32_t phase;            /* ycore_phase_t */
+    int32_t route;            /* ycore_route_t */
+    int32_t failure_category; /* ycore_failure_category_t */
     int32_t playing;
     int32_t playback_requested;
     int32_t buffering;
@@ -133,7 +152,7 @@ typedef struct ycore_engine_vtable {
     int32_t (*pause)(void *context);
     int32_t (*seek_to)(void *context, int64_t position_ms);
     int32_t (*set_speed)(void *context, float speed);
-    int32_t (*select_track)(void *context, ycore_track_type_t type, const char *track_id);
+    int32_t (*select_track)(void *context, int32_t type /* ycore_track_type_t */, const char *track_id);
     int32_t (*set_video_output)(void *context, void *native_output);
     int32_t (*retry)(void *context);
     int32_t (*poll_state)(void *context, ycore_state_t *state);
@@ -144,7 +163,7 @@ typedef struct ycore_engine_registration {
     uint32_t struct_size;
     uint32_t abi_version;
     const char *name;
-    ycore_route_t route;
+    int32_t route; /* ycore_route_t */
     int32_t priority;
     ycore_capabilities_t capabilities;
     void *context;
@@ -172,7 +191,7 @@ YCORE_API int32_t ycore_session_seek_to(ycore_session_t *session, int64_t positi
 YCORE_API int32_t ycore_session_set_speed(ycore_session_t *session, float speed);
 YCORE_API int32_t ycore_session_select_track(
     ycore_session_t *session,
-    ycore_track_type_t type,
+    int32_t type /* ycore_track_type_t */,
     const char *track_id);
 YCORE_API int32_t ycore_session_set_video_output(ycore_session_t *session, void *native_output);
 YCORE_API int32_t ycore_session_retry(ycore_session_t *session);
@@ -207,6 +226,14 @@ YCORE_API int64_t ycore_session_state_buffered_position_ms(ycore_session_t *sess
 YCORE_API float ycore_session_state_speed(ycore_session_t *session);
 YCORE_API const char *ycore_session_state_engine(ycore_session_t *session);
 YCORE_API const char *ycore_session_state_reason(ycore_session_t *session);
+
+/*
+ * Copies the state's engine name or reason into [buffer], NUL-terminated and cut to [capacity];
+ * returns the text's full length, or a negative ycore_result_t. A null buffer with capacity 0 only
+ * measures.
+ */
+YCORE_API int32_t ycore_session_copy_state_engine(ycore_session_t *session, char *buffer, uint32_t capacity);
+YCORE_API int32_t ycore_session_copy_state_reason(ycore_session_t *session, char *buffer, uint32_t capacity);
 
 #ifdef __cplusplus
 }

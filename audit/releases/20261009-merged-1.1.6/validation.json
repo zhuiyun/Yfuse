@@ -1,0 +1,84 @@
+{
+  "versionName": "1.1.6",
+  "versionCode": 268,
+  "validatedAtUtc": "2026-10-09T05:01:43.164460+00:00",
+  "mergeRemoteCommit": "335530f494ec30a22e66d21ac70d6a1e5750b861",
+  "preservedLocalFixesCommit": "64b56c47",
+  "previousActualApk": {
+    "versionName": "1.1.5",
+    "versionCode": 267,
+    "sha256": "70dffabd5219a5def411f35db1bdef46328e39d25ca37fe611b73860dd56c0be",
+    "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+    "workflowRunId": 37599783432
+  },
+  "jvmTests": {
+    "phoneShared": {
+      "tests": 4707,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "tvShared": {
+      "tests": 117,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "yfuseBackendClient": {
+      "tests": 43,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "watchTogetherProtocol": {
+      "tests": 25,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "watchTogetherServer": {
+      "tests": 257,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "backendDisabledTests": {
+    "tests": 43,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "pythonTests": 107,
+  "javascriptTests": 17,
+  "portableNativeTests": 19,
+  "androidShellCompile": "phone and TV passed",
+  "ktlint": "all modules passed; changed phone sources checked again after fixes",
+  "designSystemUsage": "passed",
+  "androidLint": {
+    "phone": "no new issues; 1 existing warning filtered by unchanged baseline",
+    "tv": "no new issues; 4 existing warnings filtered by unchanged baseline",
+    "sharedProductSourcesIncluded": true,
+    "pureJvmBackendAndProtocolAnalyzedByAndroidLint": false
+  },
+  "staticChecks": {
+    "scripts/check-backend-boundary.py": "passed",
+    "scripts/verify-module-boundaries.py": "passed",
+    "scripts/check_function_size.py": "passed",
+    "scripts/release_metadata.py": "passed"
+  },
+  "logs": [
+    "build/tmp/merge-app-tests.log",
+    "build/tmp/merge-app-final.log",
+    "build/tmp/merge-backend-tests.log",
+    "build/tmp/merge-backend-disabled-tests.log",
+    "build/tmp/merge-script-tests-final.log",
+    "build/tmp/merge-node-tests.log",
+    "build/tmp/merge-native-tests.log"
+  ],
+  "limitations": [
+    "No signed 1.1.6 APK has yet been installed on a device.",
+    "Portable native tests use FakeEngine; they are not actual Android media playback tests.",
+    "Real account/media-server integration and Android predictive-back gestures still require device acceptance."
+  ]
+}

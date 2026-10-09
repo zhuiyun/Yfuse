@@ -184,19 +184,25 @@ internal fun BoxScope.DanmakuPickLayer(
 
     if (hold != null) {
         var frame by remember { mutableStateOf<LayoutCoordinates?>(null) }
+        val anchor = frame?.let(picker::heldBoundsIn)
+        // Placed but with no comment to point at: the comments went while the menu was open. The
+        // comment is let go, and the scrim only ever comes with the menu, so no tap is taken by a
+        // menu nobody can see.
+        if (frame != null && anchor == null) {
+            LaunchedEffect(picker) { picker.state.release() }
+        }
         Box(Modifier.fillMaxSize().onPlaced { frame = it }) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .pointerInput(picker) {
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false).consume()
-                            picker.state.release()
-                        }
-                    },
-            )
-            val anchor = frame?.let(picker::heldBoundsIn)
             if (anchor != null) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(picker) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false).consume()
+                                picker.state.release()
+                            }
+                        },
+                )
                 DanmakuMenu(
                     anchor = anchor,
                     appearKey = hold,

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import re
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -214,6 +215,27 @@ def check_native_core() -> None:
         ]
         subprocess.run(command, check=True)
         subprocess.run([str(executable)], check=True)
+
+        # Again under AddressSanitizer and UndefinedBehaviorSanitizer where the compiler has them,
+        # so a use after free or an overflow in the coordinator fails here rather than on a device.
+        sanitized = Path(temp) / "ycore_test_sanitized"
+        sanitize_flags = [
+            "-O1",
+            "-g",
+            "-fno-omit-frame-pointer",
+            "-fsanitize=address,undefined",
+            "-fno-sanitize-recover=all",
+        ]
+        sanitized_build = subprocess.run(
+            [compiler, *sanitize_flags, *command[1:-1], str(sanitized)],
+            capture_output=True,
+            text=True,
+        )
+        if sanitized_build.returncode == 0:
+            environment = dict(os.environ, ASAN_OPTIONS="detect_leaks=0:abort_on_error=1")
+            subprocess.run([str(sanitized)], check=True, env=environment)
+        else:
+            print("[harmony] sanitizers unavailable; YCore ABI tests ran without them")
 
         shared_library = Path(temp) / "libycore.so"
         shared_command = [

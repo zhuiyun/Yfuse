@@ -1,9 +1,11 @@
 package com.yfuse.feature.search
 
+import androidx.compose.runtime.Immutable
 import com.arkivanov.mvikotlin.core.store.Reducer
 import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
+import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.CrossServerMediaGroup
 import com.yfuse.core.data.CrossServerMediaHit
 import com.yfuse.core.data.EmbyRepository
@@ -17,6 +19,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.aggregateCrossServerMedia
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.util.currentIsoDate
 import io.ktor.client.plugins.ResponseException
@@ -25,6 +28,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -87,6 +94,8 @@ data class PersonHit(
     val imageTag: String?,
 )
 
+/** Immutable for the same reasons as [com.yfuse.feature.home.HomeState]. */
+@Immutable
 data class SearchState(
     val query: String = "",
     val playlistName: String? = null,
@@ -95,6 +104,11 @@ data class SearchState(
     val items: List<MediaItem> = emptyList(),
     val groups: List<ServerSearchGroup> = emptyList(),
     val aggregated: List<CrossServerMediaGroup> = emptyList(),
+    /**
+     * Whether the request under way merges every server's matches into one list (智能跨服务器片源)
+     * rather than grouping them by server, so the placeholder can take the shape that lands.
+     */
+    val mergesServers: Boolean = false,
     val people: List<PersonHit> = emptyList(),
     val person: PersonHit? = null,
     val type: SearchType = SearchType.All,
@@ -111,6 +125,12 @@ data class SearchState(
     val error: String? = null,
 ) {
     val hasSearched: Boolean get() = searchedQuery.isNotEmpty() || playlistName != null
+
+    /**
+     * The server whose 媒体库 and 风格 筛选 offers: the one picked there, or the only one there
+     * is. Several servers with none picked share no libraries to choose from.
+     */
+    val facetServerId: String? get() = serverId ?: serverOptions.singleOrNull()?.id
     val visibleGroups: List<ServerSearchGroup>
         get() =
             if (type == SearchType.All) {
@@ -246,6 +266,7 @@ private sealed interface SearchMsg {
 
     data class Loading(
         val query: String,
+        val merges: Boolean = false,
     ) : SearchMsg
 
     data class Loaded(
@@ -350,6 +371,13 @@ private sealed interface SearchMsg {
     data object Cleared : SearchMsg
 }
 
+private sealed interface SearchAction {
+    /** The saved servers as they are now, after one was added, removed or renamed. */
+    data class Servers(
+        val options: List<SearchOption>,
+    ) : SearchAction
+}
+
 class SearchStoreFactory(
     private val storeFactory: StoreFactory,
     private val repo: EmbyRepository,
@@ -358,26 +386,42 @@ class SearchStoreFactory(
     private val playbackPreferences: PlaybackPreferences? = null,
     private val healthMonitor: ServerHealthMonitor? = null,
 ) {
-    private fun serverOptions() =
-        registry.data.value.servers
-            .map { SearchOption(it.id, it.serverName) }
+    private fun serverOptions(servers: List<SavedServer> = registry.data.value.servers) =
+        servers.map { SearchOption(it.id, it.serverName) }
 
     fun create(): Store<SearchIntent, SearchState, Nothing> =
         storeFactory.create(
             name = "SearchStore",
             initialState = SearchState(recent = history?.load().orEmpty(), serverOptions = serverOptions()),
+            bootstrapper =
+                coroutineBootstrapper<SearchAction> {
+                    // Whether there is exactly one server decides what 筛选 offers, so the list is
+                    // followed as it changes rather than read once per search.
+                    registry.data
+                        .map { serverOptions(it.servers) }
+                        .distinctUntilChanged()
+                        .onEach { dispatch(SearchAction.Servers(it)) }
+                        .launchIn(this)
+                },
             executorFactory = ::ExecutorImpl,
             reducer = ReducerImpl,
         )
 
     private inner class ExecutorImpl :
-        CoroutineExecutor<SearchIntent, Nothing, SearchState, SearchMsg, Nothing>() {
+        CoroutineExecutor<SearchIntent, SearchAction, SearchState, SearchMsg, Nothing>() {
         private var debounceJob: Job? = null
         private var personJob: Job? = null
         private var searchJob: Job? = null
         private var peopleJob: Job? = null
-        private var facetJob: Job? = null
         private val loadMoreJobs = mutableMapOf<String, Job>()
+
+        /** The server whose 媒体库 the state offers, loaded or on the way. */
+        private var librariesFor: String? = null
+        private var librariesJob: Job? = null
+
+        /** The server, and the library within it, whose 风格 the state offers, loaded or on the way. */
+        private var genresFor: Pair<String, String?>? = null
+        private var genresJob: Job? = null
 
         private fun cancelInFlight() {
             searchJob?.cancel()
@@ -387,25 +431,31 @@ class SearchStoreFactory(
             loadMoreJobs.clear()
         }
 
+        override fun executeAction(action: SearchAction) {
+            when (action) {
+                is SearchAction.Servers -> syncServers(action.options)
+            }
+        }
+
         override fun executeIntent(intent: SearchIntent) {
             when (intent) {
                 is SearchIntent.ApplyPlaylist -> {
                     debounceJob?.cancel()
                     cancelInFlight()
                     dispatch(SearchMsg.Playlist(intent.rule))
-                    loadFacets(intent.rule.serverId, intent.rule.libraryId)
+                    followFacets()
                     search(intent.rule.query)
                 }
                 is SearchIntent.QueryChanged -> {
                     dispatch(SearchMsg.QueryChanged(intent.value))
+                    followFacets()
                     debouncedSearch(intent.value)
                 }
                 SearchIntent.Submit -> search(state().query)
                 SearchIntent.Retry -> search(state().searchedQuery.ifEmpty { state().query })
                 SearchIntent.Clear -> {
                     debounceJob?.cancel()
-                    cancelInFlight()
-                    dispatch(SearchMsg.Cleared)
+                    clear()
                 }
                 is SearchIntent.ForgetRecent ->
                     dispatch(SearchMsg.Recent(history?.remove(intent.term) ?: state().recent))
@@ -417,12 +467,12 @@ class SearchStoreFactory(
                 is SearchIntent.SetServer -> {
                     dispatch(SearchMsg.ServerOptions(serverOptions()))
                     dispatch(SearchMsg.ServerFilter(intent.serverId))
-                    loadFacets(intent.serverId, null)
+                    followFacets()
                     refreshCurrent()
                 }
                 is SearchIntent.SetLibrary -> {
                     dispatch(SearchMsg.LibraryFilter(intent.libraryId))
-                    loadFacets(state().serverId, intent.libraryId, librariesAlreadyKnown = true)
+                    followFacets()
                     refreshCurrent()
                 }
                 is SearchIntent.SetYear -> {
@@ -443,13 +493,13 @@ class SearchStoreFactory(
                 }
                 SearchIntent.ClearFilters -> {
                     dispatch(SearchMsg.FiltersCleared)
-                    facetJob?.cancel()
+                    followFacets()
                     refreshCurrent()
                 }
                 SearchIntent.ExitPlaylist -> {
                     debounceJob?.cancel()
-                    facetJob?.cancel()
                     dispatch(SearchMsg.PlaylistExited)
+                    followFacets()
                     // The playlist's own words carry on as an ordinary search across every
                     // server; a playlist that had none goes back to the start page.
                     search(state().query)
@@ -515,40 +565,68 @@ class SearchStoreFactory(
             if (value.isNotEmpty() || state().playlistName != null) search(value)
         }
 
-        private fun loadFacets(
-            serverId: String?,
-            libraryId: String?,
-            librariesAlreadyKnown: Boolean = false,
-        ) {
-            facetJob?.cancel()
-            if (serverId == null) {
+        /** Empties the words and the results; [SearchMsg.Cleared] says what 筛选 keeps. */
+        private fun clear() {
+            cancelInFlight()
+            dispatch(SearchMsg.Cleared)
+            followFacets()
+        }
+
+        private fun syncServers(options: List<SearchOption> = serverOptions()) {
+            dispatch(SearchMsg.ServerOptions(options))
+            followFacets()
+        }
+
+        /**
+         * Keeps 筛选's 媒体库 and 风格 describing [SearchState.facetServerId], with 风格 narrowed to
+         * the chosen library. Called after anything that can move either: asking again for what is
+         * already there costs nothing, and an answer that failed is asked for again next time
+         * rather than leaving the panel without it for the rest of the session.
+         */
+        private fun followFacets() {
+            val serverId = state().facetServerId
+            val libraryId = state().libraryId
+            val server = serverId?.let(registry::serverById)
+            if (serverId != librariesFor) {
+                librariesJob?.cancel()
+                librariesFor = serverId
+                // Until its own arrive, another server's libraries must not pass for this one's.
                 dispatch(SearchMsg.Libraries(emptyList()))
-                dispatch(SearchMsg.Genres(emptyList()))
-                return
-            }
-            val server = registry.serverById(serverId) ?: return
-            facetJob =
-                scope.launch {
-                    if (!librariesAlreadyKnown) {
-                        val libraries =
-                            repo
-                                .mediaLibraries(server)
-                                .getOrDefault(emptyList())
-                                .map { SearchOption(it.id, it.name) }
-                        if (state().serverId == serverId) dispatch(SearchMsg.Libraries(libraries))
-                    }
-                    val genres = repo.searchGenres(server, libraryId).getOrDefault(emptyList())
-                    if (state().serverId == serverId && state().libraryId == libraryId) {
-                        dispatch(SearchMsg.Genres(genres))
-                    }
+                if (server != null) {
+                    librariesJob =
+                        scope.launch {
+                            val libraries = repo.mediaLibraries(server)
+                            if (librariesFor != serverId) return@launch
+                            dispatch(
+                                SearchMsg.Libraries(
+                                    libraries.getOrDefault(emptyList()).map { SearchOption(it.id, it.name) },
+                                ),
+                            )
+                            if (libraries.isFailure) librariesFor = null
+                        }
                 }
+            }
+            val genresKey = serverId?.let { it to libraryId }
+            if (genresKey != genresFor) {
+                genresJob?.cancel()
+                genresFor = genresKey
+                dispatch(SearchMsg.Genres(emptyList()))
+                if (server != null) {
+                    genresJob =
+                        scope.launch {
+                            val genres = repo.searchGenres(server, libraryId)
+                            if (genresFor != genresKey) return@launch
+                            dispatch(SearchMsg.Genres(genres.getOrDefault(emptyList())))
+                            if (genres.isFailure) genresFor = null
+                        }
+                }
+            }
         }
 
         private fun debouncedSearch(rawQuery: String) {
             debounceJob?.cancel()
             if (rawQuery.isBlank()) {
-                cancelInFlight()
-                dispatch(SearchMsg.Cleared)
+                clear()
                 return
             }
             debounceJob =
@@ -590,13 +668,12 @@ class SearchStoreFactory(
         private fun search(rawQuery: String) {
             val query = rawQuery.trim()
             if (query.isEmpty() && state().playlistName == null) {
-                cancelInFlight()
-                dispatch(SearchMsg.Cleared)
+                clear()
                 return
             }
             debounceJob?.cancel()
             cancelInFlight()
-            dispatch(SearchMsg.ServerOptions(serverOptions()))
+            syncServers()
             val allServers = registry.data.value.servers
             val servers = state().serverId?.let { selected -> allServers.filter { it.id == selected } } ?: allServers
             if (servers.isEmpty()) {
@@ -612,13 +689,13 @@ class SearchStoreFactory(
             }
             val snapshot = state()
             val filter = searchFilter(snapshot)
-            dispatch(SearchMsg.Loading(query))
             // Opt-in, like every other 智能跨服务器片源 behaviour: an unavailable preference
             // store leaves results grouped per server rather than silently merging them.
             val aggregate =
                 playbackPreferences?.smartCrossServerSource?.value == true &&
                     snapshot.serverId == null &&
                     snapshot.person == null
+            dispatch(SearchMsg.Loading(query, merges = aggregate))
 
             fun aggregated(groups: List<ServerSearchGroup>): List<CrossServerMediaGroup> =
                 if (aggregate) {
@@ -767,15 +844,21 @@ class SearchStoreFactory(
                             SearchWatchStatus.entries.firstOrNull { it.name == msg.rule.watchStatus }
                                 ?: SearchWatchStatus.All,
                         sort = SearchSort.entries.firstOrNull { it.name == msg.rule.sort } ?: SearchSort.RecentlyAdded,
+                        // Still the ones loaded before; the executor replaces them if the playlist
+                        // points elsewhere.
+                        libraryOptions = libraryOptions,
+                        genreOptions = genreOptions,
                     )
                 is SearchMsg.QueryChanged ->
                     if (msg.value.trim() == query.trim()) {
                         copy(query = msg.value, error = null)
                     } else {
-                        // A new word leaves the smart playlist, and the filters it brought leave
-                        // with it. This page has no control that shows or clears them, so kept
-                        // they would quietly narrow every later search.
-                        withoutFilters().copy(
+                        // The type chips narrow the results on screen, and a new word brings new
+                        // ones. What 筛选 holds stays until 清除筛选: refining 沙丘 to 沙丘2 still
+                        // means 2021 and 未看. A smart playlist's filters are its own and leave
+                        // with it, as on 退出片单; kept, one naming a server since removed would
+                        // fail every later search.
+                        (if (playlistName == null) copy(type = SearchType.All) else withoutFilters()).copy(
                             query = msg.value,
                             playlistName = null,
                             error = null,
@@ -791,6 +874,7 @@ class SearchStoreFactory(
                             error = null,
                             people = emptyList(),
                             person = null,
+                            mergesServers = msg.merges,
                         )
                     } else {
                         copy(
@@ -802,6 +886,7 @@ class SearchStoreFactory(
                             people = emptyList(),
                             person = null,
                             aggregated = emptyList(),
+                            mergesServers = msg.merges,
                         )
                     }
                 is SearchMsg.PartialLoaded ->
@@ -858,17 +943,16 @@ class SearchStoreFactory(
                 is SearchMsg.People -> copy(people = msg.values)
                 is SearchMsg.Recent -> copy(recent = msg.terms)
                 is SearchMsg.Type -> copy(type = msg.value)
-                is SearchMsg.ServerOptions -> copy(serverOptions = msg.values)
-                is SearchMsg.ServerFilter ->
-                    copy(
-                        serverId = msg.value,
-                        libraryId = null,
-                        libraryOptions = emptyList(),
-                        genre = null,
-                        genreOptions = emptyList(),
-                    )
+                is SearchMsg.ServerOptions ->
+                    copy(serverOptions = msg.values).let { next ->
+                        // A library or genre chosen on the only server there was belongs to none
+                        // once another joins or it leaves; they go, as when 筛选 switches server.
+                        if (next.facetServerId == facetServerId) next else next.copy(libraryId = null, genre = null)
+                    }
+                // The options follow in the executor, which knows what it has already loaded.
+                is SearchMsg.ServerFilter -> copy(serverId = msg.value, libraryId = null, genre = null)
                 is SearchMsg.Libraries -> copy(libraryOptions = msg.values)
-                is SearchMsg.LibraryFilter -> copy(libraryId = msg.value, genre = null, genreOptions = emptyList())
+                is SearchMsg.LibraryFilter -> copy(libraryId = msg.value, genre = null)
                 is SearchMsg.Genres -> copy(genreOptions = msg.values)
                 is SearchMsg.YearFilter -> copy(year = msg.value)
                 is SearchMsg.GenreFilter -> copy(genre = msg.value)
@@ -881,6 +965,7 @@ class SearchStoreFactory(
                         items = emptyList(),
                         groups = emptyList(),
                         aggregated = emptyList(),
+                        mergesServers = false,
                         error = null,
                     )
                 is SearchMsg.PersonLoaded ->
@@ -968,16 +1053,25 @@ class SearchStoreFactory(
                     }
                 SearchMsg.FiltersCleared -> withoutFilters()
                 SearchMsg.PlaylistExited -> withoutFilters().copy(playlistName = null)
-                SearchMsg.Cleared ->
+                SearchMsg.Cleared -> {
+                    // ✕ empties the words and the results, not 筛选, which still shows its
+                    // choices; the type chip stays too, for the TV clear button to put focus
+                    // back on. Clearing leaves a smart playlist, and its filters leave with it.
+                    val kept = if (playlistName == null) this else withoutFilters()
                     SearchState(
                         recent = recent,
                         serverOptions = serverOptions,
-                        // The type chips are the one narrowing still on screen, and the TV clear
-                        // button puts focus back on the chosen chip. Server, library, year,
-                        // genre, watch state and sort only ever come from a smart playlist now
-                        // that the filter panel is gone, and clearing leaves the playlist.
-                        type = if (playlistName == null) type else SearchType.All,
+                        type = kept.type,
+                        serverId = kept.serverId,
+                        libraryOptions = libraryOptions,
+                        libraryId = kept.libraryId,
+                        year = kept.year,
+                        genreOptions = genreOptions,
+                        genre = kept.genre,
+                        watchStatus = kept.watchStatus,
+                        sort = kept.sort,
                     )
+                }
             }
 
         private fun SearchState.withoutFilters(): SearchState =
@@ -985,10 +1079,8 @@ class SearchStoreFactory(
                 type = SearchType.All,
                 serverId = null,
                 libraryId = null,
-                libraryOptions = emptyList(),
                 year = null,
                 genre = null,
-                genreOptions = emptyList(),
                 watchStatus = SearchWatchStatus.All,
                 sort = SearchSort.Relevance,
             )

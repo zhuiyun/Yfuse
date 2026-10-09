@@ -42,6 +42,7 @@ import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.account.ACCOUNT_BASE_URL
@@ -53,6 +54,7 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.PlatformBackHandler
@@ -85,7 +87,9 @@ private const val REMOTE_HOLD_POLL_MS = 50L
  * 遥控器: this phone as the remote and keyboard of a television of the same account, over the watch
  * relay. A swipe on the touchpad moves the television's focus one step, and held out past its edge
  * keeps moving; a tap is OK. 返回, 主页 and 播放/暂停 are buttons, and the field types into the
- * television's focused field — or its 搜索 — while the viewer types.
+ * television's focused field — or its 搜索 — while the viewer types. A television that asks before
+ * a phone may press anything is answered there, and until it is, this says 等待电视确认… with the
+ * keys off: they used to look ready while everything they sent was dropped.
  */
 @Composable
 internal fun PhoneRemoteScreen(
@@ -128,6 +132,8 @@ internal fun PhoneRemoteScreen(
     val status =
         when (val current = state) {
             PhoneRemoteState.Connected -> "已连接"
+            // Joined, but the television asks first: the keys stay off until it answers.
+            PhoneRemoteState.Waiting -> "等待电视确认…"
             is PhoneRemoteState.Failed -> current.message
             else -> "正在连接"
         }
@@ -155,6 +161,7 @@ internal fun PhoneRemoteScreen(
         }
         RemoteTouchpad(
             enabled = connected,
+            waiting = state == PhoneRemoteState.Waiting,
             onKey = send,
             modifier =
                 Modifier
@@ -198,11 +205,13 @@ internal fun PhoneRemoteScreen(
 
 /**
  * The touchpad. One finger drives a [RemoteSwipe]; a screen reader gets it as one button whose
- * activation is OK and whose custom actions are the four directions and OK.
+ * activation is OK and whose custom actions are the four directions and OK. While [waiting] it
+ * says where the answer is to be given instead: on the television, not here.
  */
 @Composable
 private fun RemoteTouchpad(
     enabled: Boolean,
+    waiting: Boolean,
     onKey: (RemoteControlKey) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -291,10 +300,27 @@ private fun RemoteTouchpad(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            ThemeText("滑动移动，轻点确定", style = AppTypography.body.medium, color = palette.sub)
-            Spacer(Modifier.height(Dimens.space.xs))
-            ThemeText("按住不放可连续移动", style = AppTypography.caption.regular, color = palette.sub2)
+        Column(
+            Modifier.padding(horizontal = Dimens.space.lg),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (waiting) {
+                // OrbProgress stills under 减少动画 and breathes in place under 静息.
+                OrbProgress(size = 18.dp, contentDescription = null)
+                Spacer(Modifier.height(Dimens.space.sm))
+                ThemeText("等待电视确认…", style = AppTypography.body.medium, color = palette.sub)
+                Spacer(Modifier.height(Dimens.space.xs))
+                ThemeText(
+                    "在电视上选择「允许一次」或「始终允许此设备」后即可使用",
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    textAlign = TextAlign.Center,
+                )
+            } else {
+                ThemeText("滑动移动，轻点确定", style = AppTypography.body.medium, color = palette.sub)
+                Spacer(Modifier.height(Dimens.space.xs))
+                ThemeText("按住不放可连续移动", style = AppTypography.caption.regular, color = palette.sub2)
+            }
         }
     }
 }

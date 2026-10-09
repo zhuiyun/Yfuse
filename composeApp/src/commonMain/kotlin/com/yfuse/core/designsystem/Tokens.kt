@@ -722,7 +722,6 @@ object Motion {
     const val OLED_PROTECTION = 450
     const val PLAYER_CHROME_STAGGER = 40
     const val WATCH_REACTION = 2_600
-    const val STICKER_CLOCK = 60_000
     const val TAB_SWEEP = 520
     const val TAB_SWEEP_DELAY = 90
 
@@ -845,7 +844,40 @@ object Motion {
      * 跟手返回: a page flying back into the poster it came from, or springing back to full screen
      * when let go short. Barely under-damped, so the card lands without a bounce.
      */
-    fun <T> zoomBack(): SpringSpec<T> = spring(dampingRatio = 0.86f, stiffness = 380f)
+    fun <T> zoomBack(): SpringSpec<T> = oneTake()
+
+    /**
+     * 一镜到底 — poster → 详情 → back as one shot on one clock. The shared artwork morph, a lifted
+     * card opening into the page it names and 跟手返回's flight all run on this spring (the
+     * [zoomBack] one, ζ 0.86 · k 380), so any leg can be caught mid-flight and sent back the other
+     * way from where it is, at the speed it has. The three used to run on three clocks — a 280 ms
+     * tween, the player's wall clock and this spring — and only the spring could turn round.
+     *
+     * [visibilityThreshold] is where it may stop: pixels land to the pixel, a 0..1 progress needs
+     * [ONE_TAKE_PROGRESS_THRESHOLD] to do the same over a screen's worth of travel.
+     */
+    fun <T> oneTake(visibilityThreshold: T? = null): SpringSpec<T> =
+        spring(
+            dampingRatio = ONE_TAKE_DAMPING,
+            stiffness = ONE_TAKE_STIFFNESS,
+            visibilityThreshold = visibilityThreshold,
+        )
+
+    /**
+     * [oneTake]'s opacity: the same stiffness, critically damped. A fade on the bounds' own clock
+     * arrives with them, and never passes its end the way the bounds' slight overshoot may.
+     */
+    fun <T> oneTakeFade(): SpringSpec<T> =
+        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = ONE_TAKE_STIFFNESS)
+
+    private const val ONE_TAKE_DAMPING = 0.86f
+    private const val ONE_TAKE_STIFFNESS = 380f
+
+    /**
+     * Where a 0..1 [oneTake] progress stops: 0.2% of the way, a few pixels of even a full-screen
+     * flight. The default 1% ended it early and snapped the last stretch in a single frame.
+     */
+    const val ONE_TAKE_PROGRESS_THRESHOLD = 0.002f
 
     /**
      * 片尾接管: the whole picture drawing back into its corner as the credits start, and growing

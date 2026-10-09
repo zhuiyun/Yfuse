@@ -12,9 +12,10 @@ class MigrationRelayRateLimiterTest {
         limiter.requireAllowed("create", "first", 1, 1_000L, 0L)
         limiter.requireAllowed("create", "second", 1, 1_000L, 100L)
         repeat(10) {
-            val failure = assertFailsWith<MigrationRelayException> {
-                limiter.requireAllowed("create", "rotating-$it", 1, 1_000L, 200L)
-            }
+            val failure =
+                assertFailsWith<MigrationRelayException> {
+                    limiter.requireAllowed("create", "rotating-$it", 1, 1_000L, 200L)
+                }
             assertTrue(failure.rateLimited)
             assertEquals("rate_limited", failure.errorCode)
         }

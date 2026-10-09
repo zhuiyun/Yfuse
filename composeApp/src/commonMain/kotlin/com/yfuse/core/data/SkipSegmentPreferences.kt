@@ -39,6 +39,11 @@ data class SkipTimes(
     val legacyCreditsStartSeconds: Long = 0L,
     /** Only for naming the row in 我的; never used to match. */
     val seriesName: String = "",
+    /**
+     * This series' own 跳过方式, chosen in the player's 跳过片头/片尾 panel; null follows the
+     * default in 设置. A 短剧 skipped automatically need not move the playhead in a film series.
+     */
+    val mode: SkipMode? = null,
 ) {
     /**
      * False once every boundary has been cleared, which is how an entry gets dropped.
@@ -52,7 +57,8 @@ data class SkipTimes(
             introStartSeconds > 0L ||
                 introEndSeconds > 0L ||
                 creditsLeadSeconds > 0L ||
-                legacyCreditsStartSeconds > 0L
+                legacyCreditsStartSeconds > 0L ||
+                mode != null
 
     /** True once the intro describes a real interval, rather than half of one. */
     val hasIntro: Boolean
@@ -177,6 +183,20 @@ class SkipSegmentPreferences(
             }
         persist()
     }
+
+    /** [seriesId]'s own 跳过方式; null returns it to the default. Its times are kept either way. */
+    fun setSeriesMode(
+        seriesId: String,
+        mode: SkipMode?,
+        seriesName: String = "",
+    ) {
+        if (seriesId.isBlank()) return
+        val current = _bySeries.value[seriesId] ?: SkipTimes(seriesName = seriesName)
+        set(seriesId, current.copy(mode = mode, seriesName = current.seriesName.ifBlank { seriesName }))
+    }
+
+    /** The 跳过方式 in force for [seriesId]: its own, or the default. */
+    fun modeFor(seriesId: String?): SkipMode = timesFor(seriesId)?.mode ?: _skipMode.value
 
     fun clear(seriesId: String) {
         if (seriesId !in _bySeries.value) return

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.ZoomBackPullTrackerTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-08T08:45:54.161Z" hostname="&lt;REDACTED_HOST&gt;" time="0.005">
+  <properties/>
+  <testcase name="aSecondFingerOrAReleasedFingerCannotStartReturning" classname="com.yfuse.core.designsystem.ZoomBackPullTrackerTest" time="0.002"/>
+  <testcase name="diagonalAndHorizontalShelfDragsCannotBecomePullsLater" classname="com.yfuse.core.designsystem.ZoomBackPullTrackerTest" time="0.001"/>
+  <testcase name="takeoverDropsTheVelocityFromBeforeThePull" classname="com.yfuse.core.designsystem.ZoomBackPullTrackerTest" time="0.0"/>
+  <testcase name="aDeliberateDownwardPullMayHaveSomeHorizontalDrift" classname="com.yfuse.core.designsystem.ZoomBackPullTrackerTest" time="0.001"/>
+  <testcase name="aSmallDownwardJitterCannotStartReturning" classname="com.yfuse.core.designsystem.ZoomBackPullTrackerTest" time="0.0"/>
+  <testcase name="scrollingToTheTopCannotDismissThePageInTheSameGesture" classname="com.yfuse.core.designsystem.ZoomBackPullTrackerTest" time="0.0"/>
+  <testcase name="scrollingAShelfPreventsTakeoverEvenBeforeTheDirectionIsDecided" classname="com.yfuse.core.designsystem.ZoomBackPullTrackerTest" time="0.0"/>
+  <testcase name="anUpwardScrollCannotReverseIntoReturning" classname="com.yfuse.core.designsystem.ZoomBackPullTrackerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

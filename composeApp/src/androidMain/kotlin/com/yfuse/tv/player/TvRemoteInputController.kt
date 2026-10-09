@@ -13,6 +13,13 @@ private const val HOLD_SEEK_FAST_STEP_MS = 9_000L
 private const val HOLD_SEEK_RAMP_MS = 3_000L
 private const val SEEK_DISPATCH_DEBOUNCE_MS = 250L
 
+/**
+ * How long after a seek ← / → still mean "seek". The first press over the picture seeks and raises
+ * the controls; the second used to find them up and move focus instead — onto 下一集, where the next
+ * OK started the wrong episode. A viewer tapping through the timeline keeps tapping through it.
+ */
+private const val SEEK_CONTINUATION_MS = 1_500L
+
 /** Operations exposed by PlayerActivity without leaking an engine or a server route into TV code. */
 internal class TvPlaybackActions(
     val currentPositionMs: () -> Long,
@@ -30,7 +37,8 @@ internal class TvPlaybackActions(
  *
  * Hidden chrome treats left/right as timeline input. The first press seeks ten seconds and reveals
  * chrome; held repeats are merged to at most one engine seek every 250 ms, with a final flush on
- * release. Once chrome is visible, a fresh D-pad press is left to Compose focus navigation.
+ * release. Once chrome is visible, a fresh D-pad press is left to Compose focus navigation — except
+ * within [SEEK_CONTINUATION_MS] of a seek, when ← / → keep seeking.
  */
 internal class TvRemoteInputController(
     private val chrome: TvPlayerChromeController,
@@ -43,6 +51,9 @@ internal class TvRemoteInputController(
     private var seekTargetMs = 0L
     private var lastSeekDispatchMs = Long.MIN_VALUE
     private var seekDirty = false
+
+    /** When the last seek key went down, repeated or came up; see [SEEK_CONTINUATION_MS]. */
+    private var lastSeekActivityMs = Long.MIN_VALUE
 
     fun dispatch(event: KeyEvent): Boolean =
         dispatchKey(
@@ -91,7 +102,11 @@ internal class TvRemoteInputController(
             RemotePhysicalKey.DirectionLeft,
             RemotePhysicalKey.DirectionRight,
             -> {
-                if (chrome.state.value.layer == TvPlayerChromeLayer.Hidden) {
+                val layer = chrome.state.value.layer
+                if (
+                    layer == TvPlayerChromeLayer.Hidden ||
+                    (layer == TvPlayerChromeLayer.Controls && continuingSeek(eventTime))
+                ) {
                     startHeldSeek(keyCode, directionForSeekKey(physicalKey), eventTime)
                     consumeDown(keyCode)
                 } else {
@@ -114,10 +129,14 @@ internal class TvRemoteInputController(
 
             RemotePhysicalKey.Activate -> {
                 val state = chrome.state.value
-                if (state.layer == TvPlayerChromeLayer.Hidden && state.skipPrompt) {
+                if (state.layer == TvPlayerChromeLayer.Hidden && state.prompt == TvPlayerPrompt.Skip) {
                     // The pill is the one thing on screen OK can mean, and reaching it through the
                     // controls spends the very segment it offers to skip. The chrome stays down.
                     if (repeatCount == 0) chrome.activateSkipPrompt()
+                    consumeDown(keyCode)
+                } else if (state.layer == TvPlayerChromeLayer.Hidden && state.prompt == TvPlayerPrompt.NextUp) {
+                    // The 下一集 card never takes focus, so OK used to pause the credits instead.
+                    if (repeatCount == 0) chrome.activateNextUp()
                     consumeDown(keyCode)
                 } else if (state.layer == TvPlayerChromeLayer.Hidden || !state.controlsHaveFocus) {
                     if (repeatCount == 0) {
@@ -132,7 +151,13 @@ internal class TvRemoteInputController(
             }
 
             RemotePhysicalKey.Back -> {
-                if (chrome.state.value.hasDismissibleLayer) {
+                val state = chrome.state.value
+                if (state.layer == TvPlayerChromeLayer.Hidden && state.prompt == TvPlayerPrompt.NextUp) {
+                    // Back puts the card away and stays with the credits, rather than closing the
+                    // player on the last seconds of the episode.
+                    if (repeatCount == 0) chrome.dismissNextUp()
+                    consumeDown(keyCode)
+                } else if (state.hasDismissibleLayer) {
                     if (repeatCount == 0) chrome.closeTop()
                     consumeDown(keyCode)
                 } else {
@@ -214,6 +239,7 @@ internal class TvRemoteInputController(
 
     private fun dispatchUp(keyCode: Int): Boolean {
         if (keyCode == heldSeekKey) {
+            lastSeekActivityMs = nowMs()
             flushSeek()
             heldSeekKey = null
             seekDirty = false
@@ -236,6 +262,7 @@ internal class TvRemoteInputController(
         val now = eventTime.takeIf { it > 0L } ?: nowMs()
         heldSeekKey = keyCode
         heldSeekStartedMs = now
+        lastSeekActivityMs = now
         seekTargetMs = boundedSeekTarget(playback.currentPositionMs(), direction * TAP_SEEK_MS)
         lastSeekDispatchMs = Long.MIN_VALUE
         seekDirty = true
@@ -249,6 +276,7 @@ internal class TvRemoteInputController(
         eventTime: Long,
     ) {
         val now = eventTime.takeIf { it > 0L } ?: nowMs()
+        lastSeekActivityMs = now
         val heldForMs = (now - heldSeekStartedMs).coerceAtLeast(0L)
         val step = if (heldForMs >= HOLD_SEEK_RAMP_MS) HOLD_SEEK_FAST_STEP_MS else HOLD_SEEK_STEP_MS
         seekTargetMs = boundedSeekTarget(seekTargetMs, direction * step)
@@ -268,6 +296,13 @@ internal class TvRemoteInputController(
         playback.seekTo(seekTargetMs)
         lastSeekDispatchMs = now
         seekDirty = false
+    }
+
+    /** A seek key was busy within [SEEK_CONTINUATION_MS] of [eventTime]. */
+    private fun continuingSeek(eventTime: Long): Boolean {
+        if (lastSeekActivityMs == Long.MIN_VALUE) return false
+        val now = eventTime.takeIf { it > 0L } ?: nowMs()
+        return now - lastSeekActivityMs in 0L..SEEK_CONTINUATION_MS
     }
 
     private fun elapsedSinceLastDispatch(now: Long): Long =

@@ -1,0 +1,26 @@
+{
+  "configuration": "enabled",
+  "modules": {
+    "yfuseBackendClient": {
+      "tests": 35,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 7
+    },
+    "phoneShared": {
+      "tests": 3654,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 684
+    },
+    "tvShared": {
+      "tests": 88,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 18
+    }
+  }
+}

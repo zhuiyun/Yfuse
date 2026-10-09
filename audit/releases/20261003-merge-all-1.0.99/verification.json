@@ -1,0 +1,176 @@
+{
+  "sourceBranch": "ccr-afc1c9d3-phenca",
+  "baseCommit": "eedf26a48eaf7815f124b7849f3a7205bdaa13a6",
+  "baselineWorkflowRun": 37110381511,
+  "baselineArtifact": 11270745007,
+  "baselineApk": {
+    "package": "com.yfuse",
+    "versionName": "1.0.98",
+    "versionCode": 260,
+    "fileName": "Yfuse-260-1.0.98.apk",
+    "sizeBytes": 29836199,
+    "sha256": "b56d19a60a9b84067f4db44fcd32e8f509fdf0e5b10372a4f34f1f4080b3fb2a",
+    "productionSigned": true,
+    "published": false
+  },
+  "baselineEvidence": "Log of packaging run #141: APK file name, version, size, SHA-256 and PUBLISH_UPDATE=false, with the APK metadata and signing-certificate step passing",
+  "plannedVersionName": "1.0.99",
+  "plannedVersionCode": 261,
+  "releaseMetadata": "release_metadata.py and the 63 scripts unit tests passed",
+  "mdkPackageOnlyConfirmation": "release owner confirmed this version at 2026-10-03T17:57:00+08:00",
+  "merged": {
+    "calendarCard": {
+      "branch": "ccr-afc1c9d3-phenca",
+      "head": "58124526"
+    },
+    "pr211": {
+      "branch": "audit/quality-completeness-20261002",
+      "head": "3ccaa037ae131b85dae308c35dbee9a3cab3aaf1",
+      "mergeCommit": "5cbfcf0e",
+      "ownQualityGateApkBytes": 29332533
+    },
+    "dlnaRelay": {
+      "branch": "ccr-32892c19-ioep1e",
+      "head": "6fd2fd6e9520b332791c58f2adbb747846487066",
+      "mergeCommit": "bf674fb6"
+    },
+    "testLab": {
+      "branch": "ccr-413ccca2-jd1ckj",
+      "head": "c49a6c639d4fa7adfcedd2041c4de02db7bf2c9c",
+      "mergeCommit": "e8475566"
+    }
+  },
+  "localChecks": {
+    "ktlint": "0 violations on the touched Kotlin files, no baselines",
+    "functionSize": "passed",
+    "designSystem": "0 violations",
+    "commonTypeCheck": "no errors outside the known Compose API gap and the omitted Turbine dependency",
+    "jvmTests": "PlayerGestureStateTest and PlayerChromeStateTest: 24 passed"
+  },
+  "deviceVerified": false,
+  "apkBuild": "verified: package-only run 37178647914 of eac96363 (merge of #215); see finalPackage",
+  "afterMerge": {
+    "mergeCommit": "2ef2c00a9bfcebcadb08fa2cc4be859b8a4be639",
+    "tvQualityGatesRun": 37122566224,
+    "ycoreRun": 37122566221,
+    "codeqlRun": 37122566233,
+    "dolbyValidationRun": 37122566239,
+    "qualityGatesRun": {
+      "id": 37122566259,
+      "attempt1": "instrumented tests: SearchVisibleMotionInstrumentedTest failed (58 run, 1 failed, 3 skipped); every other job passed",
+      "cause": "the test's still reference was captured 150 ms into the 380 ms theme crossfade of the glass plates",
+      "attempt2": "failed job re-run once: passed"
+    },
+    "packagingRun": {
+      "id": 37122566505,
+      "attempt1": "gate refused the commit after the instrumented test failure",
+      "attempt2": "gate passed; signed with the production key, then refused by the certificate check, which read only 'Signer #1 certificate SHA-256 digest:' while the runner's apksigner printed 'V2 Signer: certificate SHA-256 digest:'; smoke and deployment skipped",
+      "signerCertificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+      "signatureOutput": "signature-full.txt",
+      "published": false
+    }
+  },
+  "pullRequest": 213,
+  "pullRequestChecks": {
+    "commit": "317593fed09405b2bc2d1fccad5ccaa4779f58fb",
+    "qualityGatesRun": 37117833765,
+    "tvQualityGatesRun": 37117833805,
+    "ycoreRun": 37117833763,
+    "codeqlRun": 37117833786,
+    "qualityGateApkBytes": 29404589,
+    "apkSizeBudgetBytes": 30000000,
+    "lint": "no new finding against the committed baselines",
+    "instrumentedTests": "passed on the Android 15 emulator"
+  },
+  "mergedBuild": {
+    "workflowRun": 37117830528,
+    "commit": "317593fed09405b2bc2d1fccad5ccaa4779f58fb",
+    "phone": {
+      "methods": 61344,
+      "findings": 0,
+      "largestAppMethodRegisters": 206
+    },
+    "tv": {
+      "methods": 52500,
+      "findings": 0,
+      "largestAppMethodRegisters": 207
+    },
+    "artApi36": "no rejected method",
+    "firstAttempt": "run 37117130335 on ad8175f5 ran out of memory in the Kotlin daemon before any check"
+  },
+  "afterFollowUpMerge": {
+    "pullRequest": 214,
+    "mergeCommit": "caef4f991ed33404f4d171e85b9f753fba6fe7ac",
+    "packagingRun": {
+      "id": 37128629545,
+      "publish": false,
+      "gate": "passed",
+      "build": "passed, DEX check passed",
+      "signing": "production key; metadata and signing-certificate check passed",
+      "signedApkSha256": "e06d261f1c207582df890081dd58d71d044d5caedda55b465f447b335729f195",
+      "signerCertificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+      "smoke": {
+        "android35": "failed in the foreground/background soak, attempt 1 and its one re-run (attempt 2): the emulator froze mid-rotation and exited about a minute later; Yfuse logged no crash",
+        "android36": "passed",
+        "android37": "passed"
+      },
+      "deployment": "skipped",
+      "published": false
+    },
+    "android15Investigation": {
+      "workflow": "Temporary Android 15 smoke investigation, on ccr-afc1c9d3-phenca, removed before the fix",
+      "apkUnderTest": "signed APK of run 37128629545",
+      "runs": [
+        37161859004,
+        37162851486,
+        37163604416,
+        37171229170,
+        37172114425,
+        37173305918
+      ],
+      "soakPassedByArm": {
+        "unchanged": "4 of 13, including the two gate attempts",
+        "displayRestoredBeforeSoak": "4 of 4 (a fifth run failed earlier, at app launch)",
+        "settingsAppInsteadOfYfuse": "3 of 3",
+        "yfuseOnProfileTab": "3 of 3",
+        "yfuseDrawnAsCalm": "6 of 6 with thermal status MODERATE confirmed before and after; 0 of 2 unchanged controls in the same run",
+        "appAnimatorsOff": "2 of 3",
+        "windowAndRotationAnimationsOff": "1 of 3",
+        "guestVulkanOff": "3 of 6",
+        "sixGigabytesRamFourCoresGuestRendering": "each failed"
+      },
+      "cause": "the soak inherited the landscape, 1.3 font and dark theme of the cases before it, so every cycle rotated the display between the portrait launcher and Yfuse's landscape 首页; the live glass under the dock and bars captures and blurs the page every frame, which took one to two seconds per frame on the Android 15 image's software GPU, and a rotation among such frames froze the emulator"
+    },
+    "ownerDecision": "change the gate, not the app (October 4)",
+    "fix": "the smoke restores the device's own font, rotation and theme before the soak ('Display settings restored before the soak'); landscape, dark and large font keep their own capture cases; Yfuse and its version unchanged",
+    "gateFixPullRequest": {
+      "number": 215,
+      "checksPassedOn": "377ca5af2b2e79ca978eeff314a1237834d6d159",
+      "mergeCommit": "eac9636317b8a62f418a75a6ca2bcb23eb68ee08"
+    }
+  },
+  "finalPackage": {
+    "workflowRun": 37178647914,
+    "commit": "eac9636317b8a62f418a75a6ca2bcb23eb68ee08",
+    "publish": false,
+    "jobs": "request, quality gate, build (DEX, version-metadata and contents checks), production signing (metadata and certificate check), signed-APK smoke on Android 35, 36 and 37, package: all passed",
+    "android35Smoke": "every case passed; display settings restored before the soak (1080x1920); soak 22 cycles in 123.06 s",
+    "apkFileName": "Yfuse-261-1.0.99.apk",
+    "packageName": "com.yfuse",
+    "versionName": "1.0.99",
+    "versionCode": 261,
+    "sizeBytes": 29390921,
+    "sha256": "0bf6e2e48710c42e53daf035acc87f09acfb5b107a3c5a5a7517cd104a676ecf",
+    "signerCertificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+    "signatureSchemes": "v2 only; one signer",
+    "previousDelivery": "1.0.98 (260)",
+    "artifact": {
+      "name": "Yfuse-1.0.99",
+      "id": 11294586988,
+      "expires": "2026-10-11T05:29:52Z"
+    },
+    "deploymentSteps": "SSH host, publish, server verification, release finalization and rollback skipped",
+    "githubRelease": "none created",
+    "versionConfiguration": "version.properties and release-notes.txt unchanged since the 1.0.99 (261) preparation (release_metadata.py passed); #214 and #215 did not touch them"
+  }
+}

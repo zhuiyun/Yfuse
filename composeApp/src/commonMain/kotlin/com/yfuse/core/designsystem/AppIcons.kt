@@ -336,47 +336,22 @@ object AppIcons {
 
     /** Speech bubble with a vector 弹 glyph; independent of device fonts and font scaling. */
     val Danmaku =
-        strokeVector("danmaku") {
-            moveTo(6f, 3.8f)
-            horizontalLineTo(18f)
-            curveTo(19.55f, 3.8f, 20.8f, 5.05f, 20.8f, 6.6f)
-            verticalLineTo(15f)
-            curveTo(20.8f, 16.55f, 19.55f, 17.8f, 18f, 17.8f)
-            horizontalLineTo(10.2f)
-            lineTo(6.2f, 20.6f)
-            verticalLineTo(17.8f)
-            horizontalLineTo(6f)
-            curveTo(4.45f, 17.8f, 3.2f, 16.55f, 3.2f, 15f)
-            verticalLineTo(6.6f)
-            curveTo(3.2f, 5.05f, 4.45f, 3.8f, 6f, 3.8f)
-            close()
-        }.andPath(width = 1.1f) {
-            // 弓: keep open counters readable at the same control size as 字幕 and 音轨.
-            moveTo(6.7f, 7.1f)
-            horizontalLineTo(9.5f)
-            verticalLineTo(9.5f)
-            horizontalLineTo(6.9f)
-            lineTo(6.6f, 11.9f)
-            horizontalLineTo(9.5f)
-            lineTo(9.2f, 14.8f)
-            curveTo(9.1f, 15.5f, 8.5f, 15.7f, 7.6f, 15.3f)
-            // 单.
-            moveTo(12.1f, 6.7f)
-            lineTo(12.8f, 7.8f)
-            moveTo(16.7f, 6.7f)
-            lineTo(16f, 7.8f)
-            moveTo(11.9f, 9.1f)
-            horizontalLineTo(17f)
-            verticalLineTo(12.4f)
-            horizontalLineTo(11.9f)
-            close()
-            moveTo(12f, 10.75f)
-            horizontalLineTo(16.9f)
-            moveTo(14.45f, 9.1f)
-            verticalLineTo(15.8f)
-            moveTo(11.3f, 14.3f)
-            horizontalLineTo(17.6f)
-        }.build()
+        strokeVector("danmaku") { danmakuBubble() }
+            .andPath(width = DANMAKU_GLYPH_STROKE) { danmakuGlyph() }
+            .build()
+
+    /**
+     * [Danmaku] struck through, for 弹幕 switched off. A gap is cut either side of the slash: without
+     * it, at the player's 12dp the slash read as one more stroke of 弹.
+     */
+    val DanmakuOff =
+        VectorParts("danmaku-off", newBuilder("danmaku-off"))
+            .andClippedPath(clip = { besideDanmakuSlash() }) { danmakuBubble() }
+            .andClippedPath(width = DANMAKU_GLYPH_STROKE, clip = { besideDanmakuSlash() }) { danmakuGlyph() }
+            .andPath {
+                moveTo(4.3f, 4.3f)
+                lineTo(19.7f, 19.7f)
+            }.build()
 
     /** Room chat — a speech bubble with three dots. */
     val Chat =
@@ -626,6 +601,31 @@ object AppIcons {
             horizontalLineTo(15.6f)
         }.build()
 
+    /** 移除 — a bin with its lid on and a cross inside; 播出日历 uses it for 取消追剧. */
+    val Remove =
+        strokeVector("remove") {
+            moveTo(4.6f, 6.7f)
+            horizontalLineTo(19.4f)
+            moveTo(9.3f, 6.7f)
+            verticalLineTo(5.1f)
+            arcToRelative(0.9f, 0.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, 0.9f, -0.9f)
+            horizontalLineTo(13.8f)
+            arcToRelative(0.9f, 0.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, 0.9f, 0.9f)
+            verticalLineTo(6.7f)
+        }.andPath {
+            moveTo(6.4f, 6.7f)
+            lineTo(7.15f, 18.4f)
+            curveTo(7.22f, 19.36f, 7.98f, 20.1f, 8.94f, 20.1f)
+            horizontalLineTo(15.06f)
+            curveTo(16.02f, 20.1f, 16.78f, 19.36f, 16.85f, 18.4f)
+            lineTo(17.6f, 6.7f)
+        }.andPath {
+            moveTo(10.2f, 11.1f)
+            lineTo(13.8f, 14.7f)
+            moveTo(13.8f, 11.1f)
+            lineTo(10.2f, 14.7f)
+        }.build()
+
     val Download =
         strokeVector("download") {
             moveTo(12f, 4.4f)
@@ -660,6 +660,16 @@ object AppIcons {
             moveTo(12f, 10.2f)
             verticalLineTo(18.2f)
         }.andDots(12f to 5.8f)
+            .build()
+
+    /** 手势与快捷键 — a touch and the two rings it sends out. */
+    val Gesture =
+        strokeVector("gesture") {
+            moveTo(7.5f, 15f)
+            arcToRelative(4.5f, 4.5f, 0f, isMoreThanHalf = false, isPositiveArc = true, 9f, 0f)
+            moveTo(4f, 15f)
+            arcToRelative(8f, 8f, 0f, isMoreThanHalf = false, isPositiveArc = true, 16f, 0f)
+        }.andDots(12f to 15f)
             .build()
 
     // ------------------------------------------------- state glyphs (收藏 / 稍后 / 评分)
@@ -705,6 +715,25 @@ object AppIcons {
             moveTo(8.2f, 2.9f)
             lineTo(12f, 6.6f)
             lineTo(15.8f, 2.9f)
+        }.build()
+
+    /**
+     * 文件夹 — a folder and its tab, for 文件来源. No flap line across the front: at the 14dp a
+     * browser row draws it, that line and the top edge merge into one heavy bar.
+     */
+    val Folder =
+        strokeVector("folder") {
+            moveTo(3.2f, 7.1f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.9f, -1.9f)
+            horizontalLineTo(9.2f)
+            lineTo(11.1f, 7.4f)
+            horizontalLineTo(18.9f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, 1.9f, 1.9f)
+            verticalLineTo(16.9f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, -1.9f, 1.9f)
+            horizontalLineTo(5.1f)
+            arcToRelative(1.9f, 1.9f, 0f, isMoreThanHalf = false, isPositiveArc = true, -1.9f, -1.9f)
+            close()
         }.build()
 
     // ------------------------------------------------------------ navigation
@@ -793,6 +822,9 @@ private const val STROKE = 1.8f
 private const val TRANSPORT_STROKE = 1.65f
 
 private const val TRANSPORT_DIGIT_STROKE = 1.35f
+
+/** The 弹 inside 弹幕's bubble, lighter than the bubble so its counters stay open at 12dp. */
+private const val DANMAKU_GLYPH_STROKE = 1.1f
 
 /** Fine rounded edge for the enlarged navigation glass glyphs outside the dock. */
 private const val TAB_STROKE = 1.6f
@@ -919,6 +951,28 @@ private fun VectorParts.andClippedSolidShape(
         }
     }
 
+/**
+ * A stroke confined to [clip]: the way to cut a gap into a line glyph where another stroke
+ * crosses it, as [andClippedSolidShape] does for a solid one.
+ */
+private fun VectorParts.andClippedPath(
+    width: Float = STROKE,
+    clip: PathBuilder.() -> Unit,
+    block: PathBuilder.() -> Unit,
+): VectorParts =
+    apply {
+        builder.group(clipPathData = PathData(clip)) {
+            path(
+                fill = null,
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = width,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+                pathBuilder = block,
+            )
+        }
+    }
+
 private fun VectorParts.build(): ImageVector = builder.build()
 
 /** A solid glyph with its corners rounded — see [SOFTEN]. */
@@ -977,6 +1031,68 @@ private fun PathBuilder.circle(
     moveTo(cx - r, cy)
     arcToRelative(r, r, 0f, isMoreThanHalf = true, isPositiveArc = true, 2 * r, 0f)
     arcToRelative(r, r, 0f, isMoreThanHalf = true, isPositiveArc = true, -2 * r, 0f)
+    close()
+}
+
+/** 弹幕's speech bubble, its tail at the lower left. */
+private fun PathBuilder.danmakuBubble() {
+    moveTo(6f, 3.8f)
+    horizontalLineTo(18f)
+    curveTo(19.55f, 3.8f, 20.8f, 5.05f, 20.8f, 6.6f)
+    verticalLineTo(15f)
+    curveTo(20.8f, 16.55f, 19.55f, 17.8f, 18f, 17.8f)
+    horizontalLineTo(10.2f)
+    lineTo(6.2f, 20.6f)
+    verticalLineTo(17.8f)
+    horizontalLineTo(6f)
+    curveTo(4.45f, 17.8f, 3.2f, 16.55f, 3.2f, 15f)
+    verticalLineTo(6.6f)
+    curveTo(3.2f, 5.05f, 4.45f, 3.8f, 6f, 3.8f)
+    close()
+}
+
+/** The 弹 inside 弹幕's bubble. */
+private fun PathBuilder.danmakuGlyph() {
+    // 弓: keep open counters readable at the same control size as 字幕 and 音轨.
+    moveTo(6.7f, 7.1f)
+    horizontalLineTo(9.5f)
+    verticalLineTo(9.5f)
+    horizontalLineTo(6.9f)
+    lineTo(6.6f, 11.9f)
+    horizontalLineTo(9.5f)
+    lineTo(9.2f, 14.8f)
+    curveTo(9.1f, 15.5f, 8.5f, 15.7f, 7.6f, 15.3f)
+    // 单.
+    moveTo(12.1f, 6.7f)
+    lineTo(12.8f, 7.8f)
+    moveTo(16.7f, 6.7f)
+    lineTo(16f, 7.8f)
+    moveTo(11.9f, 9.1f)
+    horizontalLineTo(17f)
+    verticalLineTo(12.4f)
+    horizontalLineTo(11.9f)
+    close()
+    moveTo(12f, 10.75f)
+    horizontalLineTo(16.9f)
+    moveTo(14.45f, 9.1f)
+    verticalLineTo(15.8f)
+    moveTo(11.3f, 14.3f)
+    horizontalLineTo(17.6f)
+}
+
+/**
+ * The canvas less a band along [AppIcons.DanmakuOff]'s slash, the line y = x: 1.8 units either
+ * side of it, the stroke's half width and as much again of gap. At 45° that is 1.8√2 ≈ 2.55
+ * across, so the two triangles left over start 2.55 in from the corner.
+ */
+private fun PathBuilder.besideDanmakuSlash() {
+    moveTo(2.55f, 0f)
+    lineTo(VIEWPORT, 0f)
+    lineTo(VIEWPORT, VIEWPORT - 2.55f)
+    close()
+    moveTo(0f, 2.55f)
+    lineTo(0f, VIEWPORT)
+    lineTo(VIEWPORT - 2.55f, VIEWPORT)
     close()
 }
 

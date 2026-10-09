@@ -272,10 +272,12 @@ class AndroidMediaExtractorReadAheadNodeTest {
             assertEquals(YQueuedExtractorResult.Empty, node.pollSample())
             // Owner-thread barriers: metadata must not accidentally activate a deferred fill.
             assertEquals(1, node.trackCount)
+            node.awaitOwnerTurn()
             assertEquals(0, extractor.readCount.get())
 
             node.seekTo(60_000_000L)
             assertEquals(1, node.trackCount)
+            node.awaitOwnerTurn()
             assertEquals(0, extractor.readCount.get())
             node.startReadAhead()
             node.awaitQueued(minimumSamples = 1)
@@ -335,6 +337,35 @@ class AndroidMediaExtractorReadAheadNodeTest {
             deep.snapshot().bufferedDurationUs > shallow.snapshot().bufferedDurationUs,
             "deep ${deep.snapshot().bufferedDurationUs} shallow ${shallow.snapshot().bufferedDurationUs}",
         )
+    }
+
+    @Test
+    fun `track metadata is answered while the owner is blocked in a read`() {
+        val entered = CountDownLatch(1)
+        val unblock = CountDownLatch(1)
+        val extractor =
+            object : YPlatformExtractorSource by FakeExtractorSource(sampleCount = 64, sampleDurationUs = 100_000L) {
+                override fun readSample(target: ByteBuffer): YExtractorSample? {
+                    entered.countDown()
+                    unblock.await(5, TimeUnit.SECONDS)
+                    return null
+                }
+            }
+        val node = AndroidMediaExtractorReadAheadNode(extractor)
+        try {
+            node.open(SOURCE)
+            node.selectTracks(setOf(VIDEO_TRACK))
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            // The playback pump asks for formats on every embedded subtitle sample. With the owner
+            // parked in a network read these used to wait for it; they must come from the open.
+            val started = System.nanoTime()
+            assertEquals(1, node.trackCount)
+            node.trackFormat(0)
+            assertTrue(System.nanoTime() - started < TimeUnit.SECONDS.toNanos(1))
+        } finally {
+            unblock.countDown()
+            node.close()
+        }
     }
 
     @Test
@@ -427,18 +458,22 @@ class AndroidMediaExtractorReadAheadNodeTest {
     fun `the staging buffer is allocated once, not once per fill`() {
         val extractor = FakeExtractorSource(sampleCount = 4_096, sampleDurationUs = 100_000L)
         val node = AndroidMediaExtractorReadAheadNode(extractor)
-        node.open(SOURCE)
-        node.configureSampleCapacity(SAMPLE_BYTES * 4)
-        node.selectTracks(setOf(VIDEO_TRACK))
-        node.awaitQueued(minimumSamples = 8)
+        try {
+            node.open(SOURCE)
+            node.configureSampleCapacity(SAMPLE_BYTES * 4)
+            node.selectTracks(setOf(VIDEO_TRACK))
+            // Empty polls do not consume samples. Wait for each sample so this forces refills
+            // even when the caller runs all its polls before the extractor owner is scheduled.
+            repeat(64) {
+                node.awaitQueued(minimumSamples = 1)
+                assertTrue(node.pollSample() is YQueuedExtractorResult.Sample, "sample $it")
+            }
+        } finally {
+            // Join the owner before reading its identity set, and release its direct buffer.
+            node.close()
+        }
 
-        // Draining forces a fill per consumed sample; a per-fill allocation would show up here as
-        // one distinct staging buffer per sample.
-        repeat(64) { node.pollSample() }
-        // Each of those polls asked for a refill; wait for the owner to have run them, not for a timer.
-        node.awaitOwner("refills after 64 polls") { extractor.readCount.get() > 40 }
-
-        assertTrue(extractor.readCount.get() > 40, "reads ${extractor.readCount.get()}")
+        assertTrue(extractor.readCount.get() >= 64, "reads ${extractor.readCount.get()}")
         assertEquals(1, extractor.distinctTargets.size, "staging buffers ${extractor.distinctTargets.size}")
     }
 
@@ -454,17 +489,6 @@ class AndroidMediaExtractorReadAheadNodeTest {
 
         assertTrue(extractor.released)
         assertEquals(0, node.snapshot().queuedSamples)
-    }
-
-    /**
-     * Returns once the owner thread has run everything queued ahead of this call.
-     *
-     * Every fill runs on the node's single owner thread and is queued there before the call that
-     * asked for it returns, so a round trip through that thread is a barrier behind the fill in
-     * flight — which is what the fixed sleeps here were approximating.
-     */
-    private fun AndroidMediaExtractorReadAheadNode.awaitOwnerTurn() {
-        findFirstTrack("video/")
     }
 
     /** Re-checks [ready] after each owner turn instead of on a timer; the deadline only bounds a failure. */

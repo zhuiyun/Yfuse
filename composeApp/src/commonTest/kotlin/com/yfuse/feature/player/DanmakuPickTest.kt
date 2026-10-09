@@ -45,7 +45,7 @@ class DanmakuPickTest {
     fun a_finger_finds_the_comment_where_it_is_drawn_now() {
         // Halfway through, comment 0 spans 400..500 in lane 1 (30..60).
         val found = assertNotNull(layout(placement(0, 0L, lane = 1)).pick(Offset(450f, 45f), 4_500L, 10f))
-        assertEquals(0, found.index)
+        assertEquals("弹幕0", found.comment.text)
         assertEquals(4_500L, found.heldElapsedMs)
         assertEquals(1, found.lane)
         // Where it was a second ago is no longer it.
@@ -73,13 +73,13 @@ class DanmakuPickTest {
     fun between_two_comments_the_one_the_finger_is_inside_wins() {
         // In lane 0: comment 0 spans 400..500 and comment 1 (started 1.8 s later) spans 600..700.
         val area = layout(placement(0, 0L, lane = 0), placement(1, 1_800L, lane = 0))
-        assertEquals(1, area.pick(Offset(605f, 15f), 4_500L, 10f)?.index)
-        assertEquals(0, area.pick(Offset(495f, 15f), 4_500L, 10f)?.index)
-        assertEquals(0, area.pick(Offset(505f, 15f), 4_500L, 10f)?.index)
+        assertEquals("弹幕1", area.pick(Offset(605f, 15f), 4_500L, 10f)?.comment?.text)
+        assertEquals("弹幕0", area.pick(Offset(495f, 15f), 4_500L, 10f)?.comment?.text)
+        assertEquals("弹幕0", area.pick(Offset(505f, 15f), 4_500L, 10f)?.comment?.text)
         // Two lanes' comments both within the slop of a finger on the line between them.
         val stacked = layout(placement(2, 0L, lane = 0), placement(3, 0L, lane = 1))
-        assertEquals(2, stacked.pick(Offset(450f, 28f), 4_500L, 10f)?.index)
-        assertEquals(3, stacked.pick(Offset(450f, 32f), 4_500L, 10f)?.index)
+        assertEquals("弹幕2", stacked.pick(Offset(450f, 28f), 4_500L, 10f)?.comment?.text)
+        assertEquals("弹幕3", stacked.pick(Offset(450f, 32f), 4_500L, 10f)?.comment?.text)
     }
 
     @Test
@@ -148,8 +148,9 @@ class DanmakuPickTest {
 
     @Test
     fun seeking_back_past_the_release_lets_the_comment_go() {
+        val comment = DanmakuComment(0L, "x")
         val hold =
-            DanmakuHold(0, DanmakuComment(0L, "x"), 0, 100f, 30f, 900f, 9_000L, 4_500L, releasedAtMs = 20_000L)
+            DanmakuHold(comment.danmakuKey(), comment, 0, 100f, 30f, 900f, 9_000L, 4_500L, releasedAtMs = 20_000L)
         assertTrue(hold.finishedAt(19_000L))
         assertFalse(hold.finishedAt(20_500L))
         assertFalse(hold.copy(releasedAtMs = null).finishedAt(0L))
@@ -179,5 +180,70 @@ class DanmakuPickTest {
         val hold = assertNotNull(area.pick(Offset(450f, 45f), 4_500L, 10f))
         assertTrue(hold.isFor(area.placements[0]))
         assertFalse(hold.isFor(area.placements[1]))
+        // The same comment at another place in a rebuilt list is still its own.
+        assertTrue(hold.isFor(placement(0, 0L, lane = 1, text = "弹幕3")))
+    }
+
+    @Test
+    fun a_comment_set_off_again_is_found_where_it_is_drawn_not_where_the_clock_puts_it() {
+        var clock = 4_500L
+        val state = DanmakuPickState()
+        state.layout = layout(placement(0, 0L, lane = 1))
+        state.clock = { clock }
+        state.press(Offset(450f, 45f))
+        assertTrue(state.claim(Offset(450f, 45f)))
+        clock = 6_000L
+        state.release()
+        // A second later it is 5.5 s into its flight, drawn at 289..389; by the clock alone it would
+        // be 7 s in, at 122..222, where there is nothing to see.
+        clock = 7_000L
+        state.press(Offset(170f, 45f))
+        assertFalse(state.claim(Offset(170f, 45f)))
+        state.press(Offset(338f, 45f))
+        assertTrue(state.claim(Offset(338f, 45f)))
+        val held = assertNotNull(state.hold)
+        assertTrue(held.held)
+        assertEquals(5_500L, held.heldElapsedMs)
+        assertEquals(1, state.holds.size)
+    }
+
+    @Test
+    fun stopping_another_comment_lets_the_one_flying_on_carry_on_from_where_it_is() {
+        var clock = 4_500L
+        val state = DanmakuPickState()
+        state.layout = layout(placement(0, 0L, lane = 0), placement(1, 0L, lane = 2))
+        state.clock = { clock }
+        state.press(Offset(450f, 15f))
+        assertTrue(state.claim(Offset(450f, 15f)))
+        clock = 6_000L
+        state.release()
+        val flying = assertNotNull(state.hold)
+        // Comment 1 has run on the clock: at 6.5 s it spans 178..278 in lane 2.
+        clock = 6_500L
+        state.press(Offset(227f, 75f))
+        assertTrue(state.claim(Offset(227f, 75f)))
+        assertEquals(listOf("弹幕0", "弹幕1"), state.holds.map { it.comment.text })
+        assertEquals(flying, state.holds.first())
+        assertEquals("弹幕1", state.hold?.comment?.text)
+        assertTrue(state.menuOpen)
+    }
+
+    @Test
+    fun a_new_list_keeps_a_stopped_comment_it_still_holds_and_lets_the_others_go() {
+        val stopped = DanmakuComment(0L, "弹幕0")
+        val other = DanmakuComment(500L, "弹幕1")
+        val state = DanmakuPickState()
+        state.layout = layout(placement(0, 0L, lane = 1))
+        state.clock = { 4_500L }
+        state.press(Offset(450f, 45f))
+        assertTrue(state.claim(Offset(450f, 45f)))
+        // A refetch, or a block of something else: still there, at another index.
+        val refetched = listOf(DanmakuComment(0L, "新来的"), stopped, other)
+        state.retain(refetched::containsDanmaku)
+        assertTrue(state.menuOpen)
+        // Its own block takes it away.
+        val blocked = listOf(other)
+        state.retain(blocked::containsDanmaku)
+        assertNull(state.hold)
     }
 }

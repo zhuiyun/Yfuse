@@ -2,15 +2,17 @@ package com.yfuse.core2.android
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.RectF
 import android.os.Build
 import android.os.Process
 import android.view.Surface
+import com.yfuse.core2.demux.YVideoGeometry
 import kotlinx.coroutines.CancellationException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -23,9 +25,17 @@ internal data class YSoftwareRenderSnapshot(
     val idle: Boolean,
 )
 
-/** Dedicated, bounded Canvas presentation lane for BGRA frames produced by FFmpeg software decode. */
+/** Dedicated, bounded Canvas presentation lane for RGBA frames produced by FFmpeg software decode. */
 internal class AndroidSoftwareVideoRenderNode {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
+    // Native libraries before software decoder API 3 write BGRA. Swapping the channels while
+    // drawing costs nothing on a hardware canvas, where a per-frame byte swap would cost a pass
+    // over every pixel.
+    private val redBlueSwappedPaint =
+        Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = ColorMatrixColorFilter(redBlueSwapMatrix())
+        }
     private val lifecycleLock = Any()
     private var memory: PlaybackMemoryReservation? = null
     private var requestedMemoryBytes = 0L
@@ -40,16 +50,22 @@ internal class AndroidSoftwareVideoRenderNode {
     @Volatile
     private var surface: Surface? = null
 
+    /** The track's pixel shape and rotation, which every frame is drawn squared and turned by. */
+    @Volatile
+    var geometry: YVideoGeometry = YVideoGeometry()
+
     private val inFlightFrames = AtomicInteger()
     private val renderedFrames = AtomicInteger()
     private val renderGeneration = AtomicInteger()
     private val lastPresentationTimeUs = AtomicLong(0L)
     private val lastRenderedRealtimeNs = AtomicLong(0L)
     private val failure = AtomicReference<Throwable?>(null)
+    private val terminalFailure = AtomicReference<Throwable?>(null)
 
     fun attach(surface: Surface) {
         require(surface.isValid) { "Software video output Surface is invalid" }
         flush()
+        terminalFailure.get()?.let { throw IllegalStateException("Software render lane did not drain", it) }
         this.surface = surface
         failure.set(null)
     }
@@ -63,20 +79,21 @@ internal class AndroidSoftwareVideoRenderNode {
     fun tryRender(frame: YSoftwareVideoDecodeResult.Frame): Boolean =
         synchronized(lifecycleLock) {
             throwIfFailed()
-            requireNotNull(surface).also { require(it.isValid) }
+            val output = requireNotNull(surface).also { require(it.isValid) }
+            val shape = geometry
             require(
                 frame.width > 0 &&
                     frame.height > 0 &&
-                    frame.width.toLong() * frame.height <= MAX_SOFTWARE_BITMAP_BYTES / BGRA_BYTES_PER_PIXEL,
+                    frame.width.toLong() * frame.height <= MAX_SOFTWARE_BITMAP_BYTES / BYTES_PER_PIXEL,
             ) { "Software video frame exceeds the bitmap safety limit" }
-            require(frame.width > 0 && frame.height > 0 && frame.strideBytes == frame.width * BGRA_BYTES_PER_PIXEL) {
+            require(frame.width > 0 && frame.height > 0 && frame.strideBytes == frame.width * BYTES_PER_PIXEL) {
                 "Software video frame stride is unsupported"
             }
             require(frame.data.remaining().toLong() >= frame.strideBytes.toLong() * frame.height) {
                 "Software video frame is truncated"
             }
             val requestedBytes =
-                frame.width.toLong() * frame.height * BGRA_BYTES_PER_PIXEL *
+                frame.width.toLong() * frame.height * BYTES_PER_PIXEL *
                     MAX_IN_FLIGHT_SOFTWARE_FRAMES
             if (requestedBytes != requestedMemoryBytes) {
                 if (inFlightFrames.get() != 0) return false
@@ -104,11 +121,18 @@ internal class AndroidSoftwareVideoRenderNode {
                 owner().execute {
                     try {
                         if (generation == renderGeneration.get()) {
-                            renderCopiedFrame(lease.value, frame.presentationTimeUs)
+                            renderCopiedFrame(output, shape, generation, lease.value, frame.redBlueSwapped)
+                            synchronized(lifecycleLock) {
+                                if (generation == renderGeneration.get()) {
+                                    lastPresentationTimeUs.set(frame.presentationTimeUs)
+                                    lastRenderedRealtimeNs.set(System.nanoTime())
+                                    renderedFrames.incrementAndGet()
+                                }
+                            }
                         }
                     } catch (throwable: Throwable) {
                         if (throwable is CancellationException) throw throwable
-                        failure.compareAndSet(null, throwable)
+                        if (generation == renderGeneration.get()) failure.compareAndSet(null, throwable)
                     } finally {
                         lease.close()
                         inFlightFrames.decrementAndGet()
@@ -134,19 +158,17 @@ internal class AndroidSoftwareVideoRenderNode {
         failure.get()?.let { throw IllegalStateException("Software Surface rendering failed", it) }
     }
 
-    /** Discards queued frames and waits for any current Canvas post before a seek or Surface swap. */
+    /** A stuck Surface poisons this lane; recovery must never reuse its executor or leased bitmaps. */
     fun flush() {
-        val fence =
+        val active =
             synchronized(lifecycleLock) {
                 renderGeneration.incrementAndGet()
-                executor?.submit { Unit }
+                executor
             }
-        if (fence != null) {
-            try {
-                fence.get()
-            } catch (throwable: Throwable) {
-                if (throwable is CancellationException) throw throwable
-                failure.compareAndSet(null, throwable.cause ?: throwable)
+        if (active != null && terminalFailure.get() == null) {
+            awaitRenderFence(active, RENDER_SHUTDOWN_TIMEOUT_MS)?.let { error ->
+                terminalFailure.compareAndSet(null, error)
+                failure.compareAndSet(null, error)
             }
         }
         renderedFrames.set(0)
@@ -158,17 +180,17 @@ internal class AndroidSoftwareVideoRenderNode {
         flush()
         surface = null
         val active = synchronized(lifecycleLock) { executor.also { executor = null } }
+        val retainedMemory = memory
+        memory = null
+        // clear retires busy leases, but recycles them only when their Canvas call has returned.
+        frames.clear()
+        if (active != null) active.execute { retainedMemory?.close() } else retainedMemory?.close()
         active?.shutdown()
-        runCatching { active?.awaitTermination(RENDER_SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS) }
-        inFlightFrames.set(0)
         renderGeneration.incrementAndGet()
         renderedFrames.set(0)
         lastPresentationTimeUs.set(0L)
         lastRenderedRealtimeNs.set(0L)
-        failure.set(null)
-        frames.clear()
-        memory?.close()
-        memory = null
+        if (terminalFailure.get() == null) failure.set(null)
         requestedMemoryBytes = 0L
     }
 
@@ -187,10 +209,13 @@ internal class AndroidSoftwareVideoRenderNode {
         }
 
     private fun renderCopiedFrame(
+        output: Surface,
+        shape: YVideoGeometry,
+        generation: Int,
         target: Bitmap,
-        presentationTimeUs: Long,
+        redBlueSwapped: Boolean,
     ) {
-        val output = requireNotNull(surface).also { require(it.isValid) }
+        require(output.isValid)
         val width = target.width
         val height = target.height
         val canvas =
@@ -200,27 +225,25 @@ internal class AndroidSoftwareVideoRenderNode {
                 output.lockCanvas(null)
             }
         try {
+            if (generation != renderGeneration.get()) return
             require(canvas.width > 0 && canvas.height > 0) { "Software video output has no drawable area" }
             canvas.drawColor(Color.BLACK)
-            val sourceAspect = width.toFloat() / height.toFloat()
-            val outputAspect = canvas.width.toFloat() / canvas.height.toFloat()
-            val destination =
-                if (sourceAspect > outputAspect) {
-                    val scaledHeight = canvas.width / sourceAspect
-                    val top = (canvas.height - scaledHeight) / 2f
-                    RectF(0f, top, canvas.width.toFloat(), top + scaledHeight)
-                } else {
-                    val scaledWidth = canvas.height * sourceAspect
-                    val left = (canvas.width - scaledWidth) / 2f
-                    RectF(left, 0f, left + scaledWidth, canvas.height.toFloat())
-                }
-            canvas.drawBitmap(target, null, destination, paint)
+            // MediaCodec turns and the GPU renderer squares and turns pictures for the other routes;
+            // here the canvas does both, about the centre so a turned picture stays in place.
+            val (drawWidth, drawHeight) = softwareFrameDrawSize(width, height, shape, canvas.width, canvas.height)
+            canvas.save()
+            canvas.translate(canvas.width / 2f, canvas.height / 2f)
+            if (shape.drawnRotationDegrees != 0) canvas.rotate(shape.drawnRotationDegrees.toFloat())
+            canvas.drawBitmap(
+                target,
+                null,
+                RectF(-drawWidth / 2f, -drawHeight / 2f, drawWidth / 2f, drawHeight / 2f),
+                if (redBlueSwapped) redBlueSwappedPaint else paint,
+            )
+            canvas.restore()
         } finally {
             output.unlockCanvasAndPost(canvas)
         }
-        lastPresentationTimeUs.set(presentationTimeUs)
-        lastRenderedRealtimeNs.set(System.nanoTime())
-        renderedFrames.incrementAndGet()
     }
 }
 
@@ -229,4 +252,15 @@ private const val MAX_SOFTWARE_BITMAP_BYTES = 128L * 1024L * 1024L
 private const val SOFTWARE_RENDER_THREAD_NAME = "YCore-Software-Render"
 private const val MAX_IN_FLIGHT_SOFTWARE_FRAMES = 2
 private const val RENDER_SHUTDOWN_TIMEOUT_MS = 2_000L
-private const val BGRA_BYTES_PER_PIXEL = 4
+private const val BYTES_PER_PIXEL = 4
+
+/** A 4x5 colour matrix, row-major: rows produce R, G, B, A from columns R, G, B, A, offset. */
+private fun redBlueSwapMatrix(): ColorMatrix =
+    ColorMatrix(
+        FloatArray(20).apply {
+            this[2] = 1f // red from blue
+            this[6] = 1f // green from green
+            this[10] = 1f // blue from red
+            this[18] = 1f // alpha from alpha
+        },
+    )

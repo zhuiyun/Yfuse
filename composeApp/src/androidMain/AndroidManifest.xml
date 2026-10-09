@@ -28,6 +28,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- A relayed DLNA cast keeps the CPU and Wi-Fi awake while the television reads through the phone. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
@@ -80,10 +82,24 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <!--
+          The app's own way in. Launcher shortcuts, the widget, notifications and invite links
+          all name this alias instead of MainActivity, because choosing another launcher icon
+          disables MainActivity and anything aimed at it stops opening. This alias is never
+          switched off, and it has no LAUNCHER filter, so it never adds a second drawer entry.
+        -->
+        <activity-alias
+            android:name="com.yfuse.AppEntry"
+            android:targetActivity="com.yfuse.MainActivity"
+            android:exported="true">
             <!--
               一起看邀请深链：yfuse://watch/<房间码>?k=<mediaKey>&t=<标题>
               A custom scheme rather than an Android App Link because the relay is reached
               by bare IP — there's no domain to host the assetlinks.json an App Link needs.
+              Declared here only: the same filter on MainActivity as well would make Android
+              ask which of the two should open the link.
             -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
@@ -91,7 +107,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="yfuse" android:host="watch" />
             </intent-filter>
-        </activity>
+        </activity-alias>
 
         <!--
           Alternate launcher icons.
@@ -156,15 +172,119 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- The 2026-10 concepts: vector layers drawn by scripts/launcher_icons/generate.py. -->
+        <activity-alias
+            android:name="com.yfuse.LauncherPrism"
+            android:targetActivity="com.yfuse.MainActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_prism"
+            android:roundIcon="@mipmap/ic_launcher_prism"
+            android:label="Yfuse">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name="com.yfuse.LauncherWaterOverFire"
+            android:targetActivity="com.yfuse.MainActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_water_over_fire"
+            android:roundIcon="@mipmap/ic_launcher_water_over_fire"
+            android:label="Yfuse">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name="com.yfuse.LauncherOverprint"
+            android:targetActivity="com.yfuse.MainActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_overprint"
+            android:roundIcon="@mipmap/ic_launcher_overprint"
+            android:label="Yfuse">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name="com.yfuse.LauncherDanmaku"
+            android:targetActivity="com.yfuse.MainActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_danmaku"
+            android:roundIcon="@mipmap/ic_launcher_danmaku"
+            android:label="Yfuse">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name="com.yfuse.LauncherLiquidGlass"
+            android:targetActivity="com.yfuse.MainActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_liquid_glass"
+            android:roundIcon="@mipmap/ic_launcher_liquid_glass"
+            android:label="Yfuse">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <activity
             android:name="com.yfuse.feature.player.PlayerActivity"
             android:exported="false"
             android:launchMode="singleTop"
             android:screenOrientation="sensorLandscape"
             android:supportsPictureInPicture="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|density|uiMode"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode"
             android:theme="@style/Theme.Yfuse.Player"
             tools:ignore="LockedOrientationActivity" />
+        <!--
+          打开方式 → Yfuse. PlayerActivity stays unexported: its launch is an in-process token.
+          This trampoline takes only a video address (content://, file://, http(s)://) or a
+          shared http(s) link, hands the player a server-less entry and finishes without drawing;
+          the code checks every intent itself, since an explicit one bypasses these filters.
+          It is deliberately not BROWSABLE, so a web page cannot start playback on its own.
+          An empty task affinity keeps it out of Yfuse's task when a sender asks for a new one.
+        -->
+        <activity
+            android:name="com.yfuse.feature.player.ExternalPlaybackActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="Yfuse 播放"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Yfuse.ExternalPlayback">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <!-- Lint expects an http(s) VIEW filter to be BROWSABLE; this one must not be (above). -->
+            <intent-filter tools:ignore="AppLinkUrlError">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
         <activity
             android:name="com.yfuse.feature.profile.QrScannerActivity"
             android:exported="false"
@@ -200,6 +320,10 @@
             android:foregroundServiceType="dataSync" />
         <service
             android:name="com.yfuse.feature.player.PlaybackKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+        <service
+            android:name="com.yfuse.core.cast.CastRelayService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
     </application>

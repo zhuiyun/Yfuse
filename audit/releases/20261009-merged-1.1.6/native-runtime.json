@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "recordedOn": "2026-10-09",
+  "targetRelease": "1.1.6",
+  "method": "binary-only recovery from a verified production-signed APK; no native recompilation",
+  "source": {
+    "repository": "zhuiyun/Yfuse",
+    "commit": "335530f494ec30a22e66d21ac70d6a1e5750b861",
+    "workflowRunId": 37599783432,
+    "buildJobId": 112721126716,
+    "workflowRunUrl": "https://github.com/zhuiyun/Yfuse/actions/runs/37599783432",
+    "artifactId": 11473866731,
+    "artifactName": "Yfuse-1.1.5",
+    "artifactZipSha256": "7eabc1a1ca48bd5925f3110e459a5e0e8090d266c79fe977f12f57fb469e74bb",
+    "apkName": "Yfuse-267-1.1.5.apk",
+    "apkVersionName": "1.1.5",
+    "apkVersionCode": 267,
+    "apkPackage": "com.yfuse",
+    "apkSha256": "70dffabd5219a5def411f35db1bdef46328e39d25ca37fe611b73860dd56c0be",
+    "apkSignatureV2Verified": true,
+    "apkSignerCount": 1,
+    "apkCertificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84"
+  },
+  "sourceMatch": {
+    "nativeInputFilesChecked": 40,
+    "currentInputsMatchSourceCommitIgnoringLineEndings": true,
+    "demuxSourceSha256": "05d757658bd9eff90db3aa44c552fc8f40a19d67160245c0ad9a5a1187b44145",
+    "portableYcoreSourceIncludedInAndroidLibraries": false,
+    "portableSourcePath": "ycore-native/src/ycore.cpp"
+  },
+  "nativeLibraries": {
+    "libycore_demux.so": {
+      "sha256": "5035f0d2f1704875dcdb2c7dfc01bce3294a0702a061a67a14613b48e39ba3fd",
+      "buildId": "b77a835a0d65641d69ddb0cc848a2efded96f4be",
+      "buildIdMatchesCiCompilationLog": true,
+      "bytesIdenticalToVerifiedApk": true
+    },
+    "libycore_gpu.so": {
+      "sha256": "ccaa620b53d59902b05905f50ef0e7a525a2455ce2e4e92eb511109f32495102",
+      "buildId": "d861b06f09f5fdce707d7831d7239d8ed87828d6",
+      "buildIdMatchesCiCompilationLog": true,
+      "bytesIdenticalToVerifiedApk": true
+    }
+  },
+  "dependencies": {
+    "localCarrierSha256": "db5f9f2f81d42457e2c6dfa84c6645ee4e140473c8a862a85699aaa02522c75a",
+    "acceptedPin": "libmpv-dolby-installed.aar",
+    "pinFile": "scripts/engine-checksums.sha256",
+    "apkLibrariesIdenticalToCarrier": [
+      "libavcodec.so",
+      "libavformat.so",
+      "libavutil.so",
+      "libc++_shared.so",
+      "libswresample.so",
+      "libswscale.so"
+    ],
+    "ffmpegRevision": "b79d4c4c0a160fc46988e98505af6039a53ad53e",
+    "ffmpegLicenseReadFromBinary": "GPL version 3 or later"
+  },
+  "installedArtifacts": {
+    "composeApp/libs/ycore-native.aar": {
+      "sha256": "10873c704ecd5f9d7ddd555492e2e78661cc4548d59bc8dac374984249a41575",
+      "bytes": 10490195
+    },
+    "composeApp/libs/ycore-gpu.aar": {
+      "sha256": "072d429e654fb5d539355f4fae8964c850d90d8d44e75248c1d9366996869c82",
+      "bytes": 53438
+    },
+    "sharedProvenanceSidecar": {
+      "sha256": "fac404d0e6bd8a1149694636d85028ce6abf6d6066cc4143ba5a72312a771745",
+      "bytes": 8694,
+      "kind": "recovered-from-verified-apk",
+      "originalCiSidecarAvailable": false,
+      "originalCiSidecarReproduced": false,
+      "capabilityMarkersDerivedFromExactCiSourceAndSuccessfulCiVerifier": true
+    }
+  },
+  "verification": {
+    "packager": "scripts/package-ycore-native-aar.py",
+    "verifier": "scripts/verify-ycore-native.sh",
+    "verifierSourceSha256": "ff68eadf3a564e7851007fd481a63a55809a0d2c4493fec9026c09bafa5ae0d2",
+    "projectVerifierPassed": true,
+    "embeddedProvenanceMatchesSidecars": true,
+    "installedFilesMatchVerifiedArtifacts": true,
+    "abi": "arm64-v8a",
+    "dependencyClosureLibraryCount": 8,
+    "allLoadSegmentsAtLeast16384BytesAligned": true,
+    "jniAndRequiredMediaSymbolsVerified": true,
+    "gnuDebugDataPreserved": true,
+    "legacyPlayerLibrariesAndJavaEngineClassesAbsentFromStandaloneAar": true,
+    "softwareDecoderApiMarker": 4,
+    "gpuApiMarker": 3,
+    "newDevicePlaybackValidationPerformed": false
+  },
+  "limitations": {
+    "fullUnstrippedDebugSymbolsRecovered": false,
+    "fullUnstrippedDebugSymbolsRecoverableFromApk": false,
+    "binaryIdentityDoesNotReplaceRealMediaDeviceValidation": true,
+    "portableYcoreChangesAreNotPartOfThisAndroidBinaryRecovery": true
+  },
+  "localEvidenceDirectory": "artifacts-local/native-runtime-1.1.5-267",
+  "previousInstalledArtifactsBackup": "artifacts-local/native-runtime-1.1.5-267/previous-installed"
+}

@@ -162,7 +162,7 @@ internal class EmbySourceService(
                                     // Provider matches can use translated titles; fuzzy title searches
                                     // must not turn an unrelated sequel or adaptation into a source.
                                     candidates.firstOrNull { candidate ->
-                                        val titleMatches = candidate.Name.equals(title, ignoreCase = true)
+                                        val titleMatches = sameSourceTitle(candidate.Name, title)
                                         val yearMatches = year == null || candidate.ProductionYear == year
                                         val typeMatches =
                                             when (mediaType) {
@@ -314,3 +314,20 @@ internal class EmbySourceService(
         }
     }
 }
+
+/**
+ * Whether a server's title is the one asked for: the same words, whatever their case, spacing or
+ * punctuation — 「总裁，请签字！」 and 「总裁 请签字」 are one show; 「总裁请签字2」 is another.
+ */
+internal fun sameSourceTitle(
+    candidate: String?,
+    wanted: String,
+): Boolean {
+    val name = candidate?.let(::sourceTitleKey) ?: return false
+    return name.isNotEmpty() && name == sourceTitleKey(wanted)
+}
+
+private fun sourceTitleKey(title: String): String =
+    title
+        .lowercase()
+        .filter { it.isLetterOrDigit() }

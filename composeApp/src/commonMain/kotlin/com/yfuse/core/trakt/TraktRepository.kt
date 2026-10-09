@@ -1,6 +1,8 @@
 package com.yfuse.core.trakt
 
+import com.yfuse.core.security.SECURE_STORE_MAX_VALUE_BYTES
 import com.yfuse.core.security.SecureStore
+import com.yfuse.core.security.SecureStoreException
 import com.yfuse.core.security.toBase64Url
 import com.yfuse.watch.protocol.TraktAuthChallenge
 import com.yfuse.watch.protocol.TraktAuthStatus
@@ -119,7 +121,7 @@ class TraktRepository(
                         val bytes = secureStore.get(storageKey(identity))
                         if (bytes != null) {
                             try {
-                                check(bytes.size <= 512 * 1024)
+                                check(bytes.size <= SECURE_STORE_MAX_VALUE_BYTES)
                                 local = json.decodeFromString<TraktLocalState>(bytes.decodeToString())
                                 check(local.events.size <= 128 && (local.token == null || local.token!!.valid()))
                             } finally {
@@ -377,7 +379,15 @@ class TraktRepository(
             _state.update { it.copy(error = "待上报队列已满，请联网重试") }
             return
         }
-        save(identity, local.copy(events = other + event))
+        try {
+            save(identity, local.copy(events = other + event), reserveBytes = TRAKT_PLAYBACK_STORAGE_RESERVE_BYTES)
+        } catch (_: TraktStorageLimitException) {
+            _state.update { it.copy(error = "待上报队列存储已满，请联网重试") }
+            return
+        } catch (_: SecureStoreException) {
+            _state.update { it.copy(error = "播放记录暂时无法安全保存，请稍后重试") }
+            return
+        }
         activeScope?.launch { flush(identity) }
     }
 
@@ -506,11 +516,12 @@ class TraktRepository(
     private fun save(
         identity: String,
         replacement: TraktLocalState,
+        reserveBytes: Int = 0,
     ) {
         ensureOwner(identity)
         val bytes = json.encodeToString(replacement).encodeToByteArray()
         try {
-            check(bytes.size <= 512 * 1024)
+            if (bytes.size > SECURE_STORE_MAX_VALUE_BYTES - reserveBytes) throw TraktStorageLimitException()
             secureStore.put(storageKey(identity), bytes)
         } finally {
             bytes.fill(0)
@@ -551,6 +562,11 @@ class TraktRepository(
 
     private fun storageKey(identity: String) = "trakt:${identity.encodeToByteArray().toBase64Url()}"
 }
+
+// Leave room for retry metadata and a pending token rotation in the same encrypted entry.
+private const val TRAKT_PLAYBACK_STORAGE_RESERVE_BYTES = 16 * 1024
+
+private class TraktStorageLimitException : IllegalStateException("Trakt encrypted entry exceeds its byte budget")
 
 fun traktPlaybackMedia(
     type: String,

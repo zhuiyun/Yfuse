@@ -283,7 +283,13 @@ void main() { color = hook(); }
             }
         }
         check(GL.glGetError() == GL.GL_NO_ERROR) { "Anime4K GL draw failed" }
-        EGLExt.eglPresentationTimeANDROID(display, window, System.nanoTime())
+        // The frame's own release time, so the compositor shows it on time rather than now.
+        val presentNs = System.nanoTime()
+        EGLExt.eglPresentationTimeANDROID(
+            display,
+            window,
+            timestamp.takeIf { it in presentNs..presentNs + MAX_PRESENTATION_LEAD_NS } ?: presentNs,
+        )
         check(EGL14.eglSwapBuffers(display, window)) { "Anime4K presentation failed" }
         val now = System.nanoTime()
         // Report only frames actually swapped, not frames merely decoded into the texture.
@@ -527,3 +533,6 @@ internal fun anime4KRequestedFor(item: YMediaItem): Boolean =
 
 private fun MediaFormat.animeIntegerOrNull(key: String): Int? =
     runCatching { if (containsKey(key)) getInteger(key) else null }.getOrNull()
+
+// Frames are released at most a refresh ahead; a timestamp further out is not on this clock.
+private const val MAX_PRESENTATION_LEAD_NS = 500_000_000L

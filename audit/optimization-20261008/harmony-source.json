@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "scope": "harmony-source-and-host",
+  "platformValidated": false,
+  "requireHost": true,
+  "checks": [
+    {
+      "name": "parity contracts",
+      "status": "passed"
+    },
+    {
+      "name": "Harmony scaffold",
+      "status": "passed"
+    },
+    {
+      "name": "provider fixtures and media matrix",
+      "status": "passed"
+    },
+    {
+      "name": "Cangjie source structure",
+      "status": "passed"
+    },
+    {
+      "name": "Cangjie host build and tests",
+      "status": "partial",
+      "details": {
+        "schemaVersion": 1,
+        "scope": "cangjie-host",
+        "status": "partial",
+        "platformValidated": false,
+        "excludedPlatformSources": [
+          "ui",
+          "ability_stage.cj",
+          "entry_view.cj",
+          "main_ability.cj"
+        ],
+        "plannedPackages": [
+          "data",
+          "design",
+          "watch",
+          "player",
+          "app",
+          "network",
+          "cast",
+          "offline",
+          "sync",
+          "storage",
+          "support",
+          "provider"
+        ],
+        "plannedTestPackages": [
+          "player",
+          "watch",
+          "app"
+        ],
+        "packages": [
+          {
+            "package": "data",
+            "status": "passed"
+          },
+          {
+            "package": "design",
+            "status": "passed"
+          },
+          {
+            "package": "watch",
+            "status": "passed"
+          },
+          {
+            "package": "player",
+            "status": "passed"
+          },
+          {
+            "package": "app",
+            "status": "passed"
+          },
+          {
+            "package": "network",
+            "status": "blocked",
+            "reason": "Missing stdx package: stdx.encoding.url"
+          },
+          {
+            "package": "cast",
+            "status": "passed"
+          },
+          {
+            "package": "offline",
+            "status": "passed"
+          },
+          {
+            "package": "sync",
+            "status": "passed"
+          },
+          {
+            "package": "storage",
+            "status": "blocked",
+            "reason": "Missing stdx package: stdx.encoding.json"
+          },
+          {
+            "package": "support",
+            "status": "blocked",
+            "reason": "Missing stdx package: stdx.encoding.json"
+          },
+          {
+            "package": "provider",
+            "status": "blocked",
+            "reason": "Missing stdx package: stdx.encoding.json"
+          }
+        ],
+        "tests": [
+          {
+            "package": "player",
+            "status": "passed",
+            "counts": {
+              "total": 16,
+              "passed": 16,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "package": "watch",
+            "status": "passed",
+            "counts": {
+              "total": 9,
+              "passed": 9,
+              "failed": 0,
+              "skipped": 0
+            }
+          },
+          {
+            "package": "app",
+            "status": "passed",
+            "counts": {
+              "total": 8,
+              "passed": 8,
+              "failed": 0,
+              "skipped": 0
+            }
+          }
+        ],
+        "compilerVersion": "Cangjie Compiler: 1.0.5 (cjnative)",
+        "requireComplete": false,
+        "exitCode": 0,
+        "counts": {
+          "packages": {
+            "passed": 8,
+            "blocked": 4,
+            "failed": 0
+          },
+          "tests": {
+            "passed": 3,
+            "blocked": 0,
+            "failed": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "portable YCore",
+      "status": "blocked",
+      "reason": "No host C++ compiler; install g++ or clang++ for portable YCore checks"
+    }
+  ],
+  "status": "blocked",
+  "exitCode": 2
+}

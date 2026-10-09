@@ -62,6 +62,36 @@ if (-not $ConfirmMdkDistributionRights -and -not $AllowDebugSigning) {
         'For a non-distributable verification build pass -AllowDebugSigning instead.')
 }
 
+# R8 can emit a method ART's verifier rejects; its class then throws VerifyError the first time it
+# is used, long after the app has started (the 1.0.97 player crash). Same check as
+# scripts/verify-release-dex.sh, on the same pinned jars; the R8 mapping names the app's own
+# methods, which must stay within 256 registers.
+function Assert-DexVerifies([string]$Apk, [string]$Mapping) {
+    $tools = Join-Path $root 'build/dex-verify-tools'
+    New-Item -ItemType Directory -Force -Path $tools | Out-Null
+    $classpath = @()
+    foreach ($line in Get-Content (Join-Path $root 'scripts/dex-verify/tools.sha256')) {
+        if (-not $line.Trim() -or $line.StartsWith('#')) { continue }
+        $expected, $path = $line.Trim() -split '\s+', 2
+        $jar = Join-Path $tools (Split-Path $path -Leaf)
+        if (-not (Test-Path $jar) -or (Get-FileHash $jar -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+            Invoke-WebRequest -UseBasicParsing -Uri "https://repo1.maven.org/maven2/$path" -OutFile "$jar.part"
+            $actual = (Get-FileHash "$jar.part" -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $expected) {
+                Remove-Item -Force "$jar.part"
+                throw "$path has SHA-256 $actual, expected $expected"
+            }
+            Move-Item -Force "$jar.part" $jar
+        }
+        $classpath += $jar
+    }
+    & java -Xmx2g -cp ($classpath -join [IO.Path]::PathSeparator) `
+        (Join-Path $root 'scripts/dex-verify/DexRegisterTypeCheck.java') --mapping $Mapping $Apk
+    if ($LASTEXITCODE -ne 0) {
+        throw "ART would reject DEX code in $Apk (findings above); do not distribute this package"
+    }
+}
+
 # Signed release validation recompiles from the checked-out source instead of reusing incremental
 # Kotlin state, so a stale local cache cannot leak deleted or renamed classes into the package.
 $commonArgs = @('-Pkotlin.incremental=false')
@@ -75,6 +105,9 @@ $fullArgs = @(
 if ($ConfirmMdkDistributionRights) { $fullArgs += '-PconfirmMdkDistributionRights=true' }
 & (Join-Path $root 'gradlew.bat') @fullArgs
 if ($LASTEXITCODE -ne 0) { throw 'Full release build failed' }
+Assert-DexVerifies `
+    (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
+    (Join-Path $root 'composeApp/build/outputs/mapping/release/mapping.txt')
 Copy-Item -Force `
     (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
     (Join-Path $destination "Yfuse-$($version.VERSION_NAME)-full-arm64.apk")
@@ -85,6 +118,9 @@ Copy-Item -Force `
     '-PyfuseIncludeMdk=false' `
     @commonArgs
 if ($LASTEXITCODE -ne 0) { throw 'Compact release build failed' }
+Assert-DexVerifies `
+    (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
+    (Join-Path $root 'composeApp/build/outputs/mapping/release/mapping.txt')
 Copy-Item -Force `
     (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
     (Join-Path $destination "Yfuse-$($version.VERSION_NAME)-compact-arm64.apk")

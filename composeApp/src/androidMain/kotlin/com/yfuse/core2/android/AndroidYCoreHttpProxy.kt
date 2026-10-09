@@ -3,6 +3,9 @@ package com.yfuse.core2.android
 import android.content.Context
 import com.yfuse.core.data.PlaybackNetworkClass
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.diagnosticOrigin
+import com.yfuse.core.logging.diagnosticRootCause
+import com.yfuse.core.logging.diagnosticTypeName
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.playback.PLAYBACK_PROXY_HEADER_TIMEOUT_MS
 import com.yfuse.core.playback.PlaybackProxyAdmission
@@ -19,6 +22,7 @@ import com.yfuse.core2.adaptive.YDashResourceKind
 import com.yfuse.core2.adaptive.YDashSegmentTemplate
 import com.yfuse.core2.adaptive.YHlsAlignedSegment
 import com.yfuse.core2.adaptive.YHlsPlaybackCapabilities
+import com.yfuse.core2.adaptive.YHlsPlaybackSet
 import com.yfuse.core2.adaptive.YHlsPlaylist
 import com.yfuse.core2.adaptive.YHlsResourceKind
 import com.yfuse.core2.adaptive.YHlsVariantMediaPlaylist
@@ -28,6 +32,7 @@ import com.yfuse.core2.adaptive.buildYDashPlaybackManifest
 import com.yfuse.core2.adaptive.buildYHlsPlaybackMaster
 import com.yfuse.core2.adaptive.compatibleYDashReopenRepresentations
 import com.yfuse.core2.adaptive.compatibleYHlsReopenVariants
+import com.yfuse.core2.adaptive.initialVariantOnly
 import com.yfuse.core2.adaptive.manifestForPeriod
 import com.yfuse.core2.adaptive.parseYDashManifest
 import com.yfuse.core2.adaptive.parseYHlsPlaylist
@@ -198,6 +203,7 @@ internal class AndroidYCoreHttpProxy(
         val hlsAbrResource: HlsAbrResourceRoute? = null,
         val mediaBitRateBitsPerSecond: Long = 0L,
         val playbackTarget: AdaptiveTargetConfiguration? = null,
+        val pinnedHls: PinnedHlsPlayback? = null,
         val credentialOrigin: String = upstreamUri,
     )
 
@@ -226,12 +232,18 @@ internal class AndroidYCoreHttpProxy(
         val selectedRepresentationId: String,
     )
 
+    private class PinnedHlsPlayback(
+        val playback: HlsPlaybackManifest,
+    )
+
     private data class HlsPlaybackManifest(
         val text: String,
         val uri: String,
         val media: YHlsPlaylist.Media,
         val abrSession: HlsAbrSession? = null,
         val alignedSegments: Map<Long, YHlsAlignedSegment> = emptyMap(),
+        val masterSet: YHlsPlaybackSet? = null,
+        val liveVariants: List<YAdaptiveVariant> = emptyList(),
     )
 
     private data class HlsAbrResourceRoute(
@@ -246,6 +258,7 @@ internal class AndroidYCoreHttpProxy(
         val dash: YDashManifest? = null,
         val hlsMaster: YHlsPlaylist.Master? = null,
         val hlsRootText: String? = null,
+        val hlsPlaybackSet: YHlsPlaybackSet? = null,
         initialHls: Pair<YAdaptiveVariant, HlsPlaybackManifest>? = null,
     ) {
         val gate = YAdaptiveReopenGate()
@@ -334,7 +347,12 @@ internal class AndroidYCoreHttpProxy(
                         this,
                         revision,
                         variantId,
-                        hls = playback.copy(abrSession = session, alignedSegments = aligned),
+                        hls =
+                            playback.copy(
+                                abrSession = session,
+                                alignedSegments = aligned,
+                                masterSet = hlsPlaybackSet?.copy(initialVariant = variant, variants = listOf(variant)),
+                            ),
                     )
                 durationMs =
                     playback.media.segments
@@ -367,7 +385,7 @@ internal class AndroidYCoreHttpProxy(
 
     private class HlsAbrSession(
         initialVariantId: String,
-        private val initialPlaylist: YHlsVariantMediaPlaylist,
+        private var initialPlaylist: YHlsVariantMediaPlaylist,
         private val isMeteredNetwork: () -> Boolean,
         private val latestFeedback: () -> TimedAdaptivePlaybackFeedback?,
         private val requestReopen: ((String) -> Unit)? = null,
@@ -388,6 +406,12 @@ internal class AndroidYCoreHttpProxy(
                     .associateBy(YHlsAlignedSegment::sequence)
             reopenVariants =
                 compatibleYHlsReopenVariants(initialPlaylist, discoveredVariants.values.toList()).map { it.variant }
+        }
+
+        @Synchronized
+        fun refreshInitial(media: YHlsPlaylist.Media) {
+            initialPlaylist = initialPlaylist.copy(playlist = media)
+            addVariant(initialPlaylist)
         }
 
         @Synchronized
@@ -540,11 +564,13 @@ internal class AndroidYCoreHttpProxy(
     }
 
     private val cacheDirectory = cacheDirectory ?: requireNotNull(context).applicationContext.cacheDir
+    private val appContext = context?.applicationContext
     private val routesLock = Any()
     private val routes = LinkedHashMap<String, Route>()
     private val routeIds = HashMap<Route, String>()
     private val resolvedResources = LinkedHashMap<String, Route>(16, 0.75f, true)
     private val responsesStarted = ConcurrentHashMap.newKeySet<Socket>()
+    private val failureLogGate = AndroidProxyFailureLogGate()
     private val closed = AtomicBoolean(false)
     private val requests = YCoreProxyRequests()
     private val mediaSessions = AndroidProxyMediaSessions()
@@ -585,7 +611,8 @@ internal class AndroidYCoreHttpProxy(
         mediaBitRateBitsPerSecond: Long = 0L,
         credentialOrigin: String = upstreamUri,
     ): String {
-        if (closed.get() || upstreamUri.sourceProtocolOrNull() == null) return upstreamUri
+        val protocol = upstreamUri.sourceProtocolOrNull()
+        if (closed.get() || protocol == null) return upstreamUri
         // An explicit source preparation/retry starts a new failure observation window.
         synchronized(routesLock) { terminalSourceFailures.remove(upstreamUri) }
         val route =
@@ -594,7 +621,9 @@ internal class AndroidYCoreHttpProxy(
                 upstreamHeaders = upstreamHeaders,
                 credentialOrigin = credentialOrigin,
                 credentials = credentials,
-                cacheable = cacheable,
+                // A document on this device is already local; copying it into the block cache
+                // would only spend the cache budget twice.
+                cacheable = cacheable && protocol != YSourceProtocol.Local,
                 cacheIdentity = cacheIdentity,
                 maximumWidth = maximumWidth,
                 maximumHeight = maximumHeight,
@@ -648,11 +677,11 @@ internal class AndroidYCoreHttpProxy(
                     require(manifest.periods.all { it.durationUs != null }) { "Static DASH Period duration is unknown" }
                     AdaptivePresentation(rootUri, route, dash = manifest)
                 } else {
-                    require(route.drmProtected || !text.hasHlsSessionKey()) {
+                    require(route.drmProtected || !text.hasDrmHlsSessionKey()) {
                         "HLS session keys require the native DRM route"
                     }
                     val master = parseYHlsPlaylist(text, route.upstreamUri) as? YHlsPlaylist.Master
-                    if (master == null || text.hasSeparateYCoreHlsRenditions()) {
+                    if (master == null) {
                         unmanagedManifestRoots.add(rootUri)
                         return@withContext null
                     }
@@ -677,6 +706,7 @@ internal class AndroidYCoreHttpProxy(
                         route,
                         hlsMaster = master.copy(variants = playbackSet.variants),
                         hlsRootText = text,
+                        hlsPlaybackSet = playbackSet.takeIf { text.hasSeparateYCoreHlsRenditions() },
                         initialHls = selected to HlsPlaybackManifest(selectedText, selected.uri, selectedMedia),
                     )
                 }
@@ -803,10 +833,22 @@ internal class AndroidYCoreHttpProxy(
     private fun trackedTransport(mediaUri: String?) =
         YCoreProxyTransport(
             createTransport?.invoke()
+                ?: mediaUri?.let(::fileProtocolTransport)
                 ?: mediaUri?.let(::sharedRouteHttpMediaTransport)
                 ?: AndroidHttpMediaTransport(followSafeRedirects = true, allowCrossProtocolRedirects = true),
             requests,
         )
+
+    /**
+     * SMB shares and on-device documents have no FFmpeg protocol YCore can rely on, so the proxy
+     * reads them with YCore's own transports and serves FFmpeg plain HTTP ranges.
+     */
+    private fun fileProtocolTransport(mediaUri: String): YMediaTransport? =
+        when (mediaUri.sourceProtocolOrNull()) {
+            YSourceProtocol.Smb -> AndroidSmbMediaTransport()
+            YSourceProtocol.Local -> appContext?.let { AndroidContentMediaTransport(it) }
+            else -> null
+        }
 
     private fun registerRoute(route: Route): String {
         while (routes.size >= MAX_ROUTES) {
@@ -965,7 +1007,65 @@ internal class AndroidYCoreHttpProxy(
                 }
             }
             val (status, reason) = proxyFailureStatus(failure)
-            if (socket !in responsesStarted) runCatching { writeEmptyResponse(socket, status, reason) }
+            // Read before answering: writeEmptyResponse marks the response as started itself.
+            val responseStarted = socket in responsesStarted
+            if (!responseStarted) runCatching { writeEmptyResponse(socket, status, reason) }
+            if (!closed.get()) logServeFailure(failure, route, method, status, responseStarted)
+        }
+    }
+
+    /**
+     * serve() turns every failure into a status for the player, and 401/403/404/410 into a terminal
+     * source failure, but it logged none of them: a diagnostic could not say why the player kept
+     * getting 502s. Safe by construction: no URL, header or exception message is written, only the
+     * statuses, the route kind and the root cause's kept class name and first app frame.
+     */
+    private fun logServeFailure(
+        failure: Throwable,
+        route: Route,
+        method: String,
+        status: Int,
+        responseStarted: Boolean,
+    ) {
+        val upstreamStatus = failure.mediaHttpStatus()
+        val root = failure.diagnosticRootCause()
+        val exceptionType = root.diagnosticTypeName()
+        val suppressed =
+            failureLogGate.admit(
+                kind = "$status:${upstreamStatus ?: 0}:$exceptionType:$responseStarted",
+                nowMs = System.nanoTime() / 1_000_000L,
+            ) ?: return
+        val attributes =
+            mapOf(
+                "method" to method,
+                "route" to
+                    when {
+                        route.hlsManifest -> "hls"
+                        route.dashManifest -> "dash"
+                        else -> "binary"
+                    },
+                "status" to status.toString(),
+                "upstreamStatus" to upstreamStatus?.toString().orEmpty(),
+                "responseStarted" to responseStarted.toString(),
+                "exceptionType" to exceptionType,
+                "origin" to root.diagnosticOrigin(),
+                "suppressed" to suppressed.toString(),
+            )
+        if (responseStarted && upstreamStatus == null) {
+            // A body cut short is mostly routine: the player drops its range request when it seeks.
+            AppLog.info(
+                category = "player.proxy",
+                event = "request_interrupted",
+                message = "Playback proxy response ended before its body was complete",
+                attributes = attributes,
+            )
+        } else {
+            AppLog.warning(
+                category = "player.proxy",
+                event = "request_failed",
+                message = "Playback proxy could not serve a player request",
+                attributes = attributes,
+            )
         }
     }
 
@@ -1048,62 +1148,39 @@ internal class AndroidYCoreHttpProxy(
         route: Route,
         method: String,
     ) {
-        val pinned = route.playbackTarget?.hls
+        val pinned = (route.pinnedHls?.playback ?: route.playbackTarget?.hls)?.let { refreshLiveHls(it, route) }
         val rootText = pinned?.text ?: loadBounded(route.upstreamUri, MAX_HLS_MANIFEST_BYTES, route).decodeToString()
-        require(route.drmProtected || !rootText.hasHlsSessionKey()) {
+        require(route.drmProtected || !rootText.hasDrmHlsSessionKey()) {
             "HLS session keys require the native DRM route"
         }
         val root = pinned?.media ?: parseYHlsPlaylist(rootText, route.upstreamUri)
+        if (pinned?.masterSet != null) {
+            serveHlsRenditionMaster(
+                socket,
+                route,
+                method,
+                pinned,
+                route.playbackTarget
+                    ?.presentation
+                    ?.hlsRootText
+                    .orEmpty(),
+            )
+            return
+        }
         if (root is YHlsPlaylist.Master && rootText.hasSeparateYCoreHlsRenditions()) {
-            val conditions =
-                YAdaptiveSelectionConditions(
-                    estimatedBandwidthBitsPerSecond = INITIAL_BANDWIDTH_BITS_PER_SECOND,
-                    bufferedDurationUs = STARTUP_BUFFER_US,
-                    maximumWidth = route.maximumWidth,
-                    maximumHeight = route.maximumHeight,
-                    metered = isMeteredNetwork(),
+            val set =
+                selectYHlsPlaybackSet(
+                    root,
+                    route.startupSelectionConditions(),
+                    YHlsPlaybackCapabilities(route.allowDolbyVisionHls, route.allowDolbyAtmosHls),
                 )
             val playback =
-                selectYHlsPlaybackSet(
-                    master = root,
-                    conditions = conditions,
-                    capabilities =
-                        YHlsPlaybackCapabilities(
-                            dolbyVisionOutput = route.allowDolbyVisionHls,
-                            dolbyAtmosOutput = route.allowDolbyAtmosHls,
-                        ),
-                )
-            val selectedMaster =
-                buildYHlsPlaybackMaster(playback) { upstreamUri, _ ->
-                    localUrl(
-                        upstreamUri = upstreamUri,
-                        upstreamHeaders = route.upstreamHeaders,
-                        credentialOrigin = route.credentialOrigin,
-                        credentials = route.credentials,
-                        cacheable = false,
-                        cacheIdentity = route.cacheIdentity?.forStableAdaptiveUri(upstreamUri),
-                        maximumWidth = route.maximumWidth,
-                        maximumHeight = route.maximumHeight,
-                        hlsManifest = true,
-                        dashManifest = false,
-                        drmProtected = route.drmProtected,
-                        allowDolbyVisionHls = route.allowDolbyVisionHls,
-                        allowDolbyAtmosHls = route.allowDolbyAtmosHls,
-                    )
-                }
-            val localizedMaster =
-                selectedMaster
-                    .withLocalizedHlsSessionKeysFrom(rootText, route)
-                    .encodeToByteArray()
-            writeHeaders(
-                socket = socket,
-                status = 200,
-                reason = "OK",
-                contentType = HLS_CONTENT_TYPE,
-                contentLength = localizedMaster.size.toLong(),
-            )
-            if (method == "GET") socket.getOutputStream().write(localizedMaster)
-            socket.getOutputStream().flush()
+                loadHlsPlaybackManifest(
+                    root,
+                    route,
+                    allowLive = true,
+                ).copy(masterSet = set.initialVariantOnly())
+            serveHlsRenditionMaster(socket, route, method, playback, rootText)
             return
         }
         val playback =
@@ -1172,9 +1249,71 @@ internal class AndroidYCoreHttpProxy(
         socket.getOutputStream().flush()
     }
 
+    private fun serveHlsRenditionMaster(
+        socket: Socket,
+        route: Route,
+        method: String,
+        playback: HlsPlaybackManifest,
+        rootText: String,
+    ) {
+        val selected = requireNotNull(playback.masterSet).initialVariantOnly()
+        val video = PinnedHlsPlayback(playback.copy(masterSet = null))
+        val master =
+            buildYHlsPlaybackMaster(selected) { uri, kind ->
+                if (kind == YHlsResourceKind.VariantPlaylist) {
+                    localRouteUrl(route.copy(upstreamUri = uri, pinnedHls = video), "/video.m3u8")
+                } else {
+                    localUrl(
+                        upstreamUri = uri,
+                        upstreamHeaders = route.upstreamHeaders,
+                        credentials = route.credentials,
+                        credentialOrigin = route.credentialOrigin,
+                        cacheable = false,
+                        cacheIdentity = route.cacheIdentity?.forStableAdaptiveUri(uri),
+                        maximumWidth = route.maximumWidth,
+                        maximumHeight = route.maximumHeight,
+                        hlsManifest = true,
+                        drmProtected = route.drmProtected,
+                    )
+                }
+            }.withLocalizedHlsSessionKeysFrom(rootText, route).encodeToByteArray()
+        writeHeaders(socket, 200, "OK", HLS_CONTENT_TYPE, master.size.toLong())
+        if (method == "GET") socket.getOutputStream().write(master)
+        socket.getOutputStream().flush()
+    }
+
+    private fun refreshLiveHls(
+        playback: HlsPlaybackManifest,
+        route: Route,
+    ): HlsPlaybackManifest {
+        if (!playback.media.isLive || playback.masterSet != null) return playback
+        val text = loadBounded(playback.uri, MAX_HLS_MANIFEST_BYTES, route).decodeToString()
+        val media = text.requireExecutableHlsMedia(playback.uri, route.drmProtected)
+        val session = playback.abrSession
+        if (session == null || playback.liveVariants.isEmpty()) return playback.copy(text = text, media = media)
+        session.refreshInitial(media)
+        val initial = playback.liveVariants.first { it.uri == playback.uri }
+        val aligned = alignYHlsVariantSegments(listOf(YHlsVariantMediaPlaylist(initial, media)), initial.id)
+        playback.liveVariants.filter { it.id != initial.id }.forEach { variant ->
+            manifestDiscovery.submit(session to variant.id) { budget ->
+                val candidate =
+                    loadBounded(variant.uri, MAX_HLS_MANIFEST_BYTES, route, budget)
+                        .decodeToString()
+                        .requireExecutableHlsMedia(variant.uri, route.drmProtected)
+                budget.publishIfActive { session.addVariant(YHlsVariantMediaPlaylist(variant, candidate)) }
+            }
+        }
+        return playback.copy(
+            text = text,
+            media = media,
+            alignedSegments = aligned.associateBy(YHlsAlignedSegment::sequence),
+        )
+    }
+
     private fun loadHlsPlaybackManifest(
         root: YHlsPlaylist.Master,
         route: Route,
+        allowLive: Boolean = false,
     ): HlsPlaybackManifest {
         val playbackSet =
             selectYHlsPlaybackSet(
@@ -1185,7 +1324,7 @@ internal class AndroidYCoreHttpProxy(
         val selected = playbackSet.initialVariant
         val selectedText = loadBounded(selected.uri, MAX_HLS_MANIFEST_BYTES, route).decodeToString()
         val selectedMedia = selectedText.requireExecutableHlsMedia(selected.uri, route.drmProtected)
-        if (selectedMedia.isLive || selectedText.hasLowLatencyHlsParts()) {
+        if ((selectedMedia.isLive && !allowLive) || selectedText.hasLowLatencyHlsParts()) {
             return HlsPlaybackManifest(selectedText, selected.uri, selectedMedia)
         }
         val eligibleAlternates =
@@ -1216,6 +1355,7 @@ internal class AndroidYCoreHttpProxy(
             media = selectedMedia,
             abrSession = session,
             alignedSegments = aligned.associateBy(YHlsAlignedSegment::sequence),
+            liveVariants = if (selectedMedia.isLive) listOf(selected) + eligibleAlternates else emptyList(),
         )
     }
 
@@ -1223,7 +1363,7 @@ internal class AndroidYCoreHttpProxy(
         uri: String,
         drmProtected: Boolean,
     ): YHlsPlaylist.Media {
-        require(drmProtected || !hasHlsSessionKey()) { "HLS session keys require the native DRM route" }
+        require(drmProtected || !hasDrmHlsSessionKey()) { "HLS session keys require the native DRM route" }
         val media = parseYHlsPlaylist(this, uri) as? YHlsPlaylist.Media
         requireNotNull(media) { "Nested HLS master playlists are not executable" }
         media.requireSupportedEncryption(drmProtected)
@@ -1599,8 +1739,25 @@ internal class AndroidYCoreHttpProxy(
             activeRangeSources.add(source)
             check(!closed.get()) { "Playback proxy is closed" }
             updateRangePlaybackWindow(source)
-            val totalLength = source.getSize()
-            require(totalLength >= 0L) { "Upstream media length is unknown" }
+            val totalLength =
+                try {
+                    source.getSize()
+                } catch (failure: Throwable) {
+                    if (!failure.upstreamIgnoresByteRanges()) throw failure
+                    -1L
+                }
+            if (totalLength < 0L) {
+                // The upstream sends only whole bodies (a progressive transcode, a one-shot signed
+                // link) or never says how long the media is. Served as a stream it cannot seek,
+                // but it plays, where the block reader's 502 played nothing; the block cache needs
+                // offsets and a length, so it is bypassed.
+                if ((requestedRange?.startInclusive ?: 0L) > 0L) {
+                    writeEmptyResponse(socket, 416, "Range Not Satisfiable")
+                } else {
+                    serveSequential(socket, route, method, seekable = false)
+                }
+                return
+            }
             val start = requestedRange?.startInclusive ?: 0L
             if (start >= totalLength) {
                 writeRangeNotSatisfiable(socket, totalLength)
@@ -1643,10 +1800,12 @@ internal class AndroidYCoreHttpProxy(
         }
     }
 
+    /** Streams the upstream body from its start; [seekable] says whether ranges may follow. */
     private fun serveSequential(
         socket: Socket,
         route: Route,
         method: String,
+        seekable: Boolean = true,
     ) = runBlocking {
         val transport = trackedTransport(route.upstreamUri)
         try {
@@ -1666,6 +1825,7 @@ internal class AndroidYCoreHttpProxy(
                 reason = "OK",
                 contentType = route.upstreamUri.guessContentType(),
                 contentLength = response.contentLength,
+                acceptRanges = seekable,
             )
             if (method == "GET") {
                 var networkReadDurationNs = 0L
@@ -1813,12 +1973,15 @@ internal class AndroidYCoreHttpProxy(
         contentType: String,
         contentLength: Long?,
         contentRange: String? = null,
+        // A client told "none" (FFmpeg among them) treats the body as a stream and never seeks.
+        acceptRanges: Boolean = true,
     ) {
         val output = socket.getOutputStream()
         responsesStarted.add(socket)
         output.write("HTTP/1.1 $status $reason\r\n".toByteArray(StandardCharsets.ISO_8859_1))
         output.write("Content-Type: $contentType\r\n".toByteArray(StandardCharsets.ISO_8859_1))
-        output.write("Accept-Ranges: bytes\r\n".toByteArray(StandardCharsets.ISO_8859_1))
+        val ranges = if (acceptRanges) "bytes" else "none"
+        output.write("Accept-Ranges: $ranges\r\n".toByteArray(StandardCharsets.ISO_8859_1))
         contentRange?.let {
             output.write("Content-Range: $it\r\n".toByteArray(StandardCharsets.ISO_8859_1))
         }
@@ -1961,10 +2124,14 @@ internal fun mergeYCoreHlsReloadQuery(
     }
 }
 
+// The scheme is read off the raw string: SMB paths are deliberately unencoded (jcifs reads them
+// literally), so an ordinary file name with a space makes java.net.URI reject the whole address.
 private fun String.sourceProtocolOrNull(): YSourceProtocol? =
-    when (runCatching { URI(this).scheme?.lowercase() }.getOrNull()) {
+    when (rawUriScheme()) {
         "http" -> YSourceProtocol.Http
         "https" -> YSourceProtocol.Https
+        "smb" -> YSourceProtocol.Smb
+        "content" -> YSourceProtocol.Local
         else -> null
     }
 
@@ -1994,12 +2161,15 @@ internal fun String.hasSeparateYCoreHlsRenditions(): Boolean =
             ("AUDIO=" in normalized || "VIDEO=" in normalized || "SUBTITLES=" in normalized)
     }
 
-private fun String.hasHlsSessionKey(): Boolean =
+/**
+ * A session key for sample encryption, which is DRM that only the native DRM route opens. An
+ * AES-128 session key only lets a client fetch, early, the keys its media playlists name anyway,
+ * and FFmpeg decrypts those segments itself; refusing it refused clear AES-128 streams.
+ */
+private fun String.hasDrmHlsSessionKey(): Boolean =
     lineSequence().any { line ->
-        line
-            .trim()
-            .uppercase()
-            .startsWith("#EXT-X-SESSION-KEY:")
+        val normalized = line.trim().uppercase()
+        normalized.startsWith("#EXT-X-SESSION-KEY:") && !normalized.contains("METHOD=AES-128")
     }
 
 private fun String.hasLowLatencyHlsParts(): Boolean =
@@ -2160,3 +2330,17 @@ private val EPHEMERAL_MEDIA_QUERY_NAMES =
         "xamzsignature",
         "xamzsignedheaders",
     )
+
+/**
+ * The upstream answered a byte range with its whole body (200), as progressive transcodes and
+ * one-shot signed links do; such a source can only be streamed from its start.
+ */
+private fun Throwable.upstreamIgnoresByteRanges(): Boolean =
+    generateSequence(this) { it.cause }
+        .take(MAX_UPSTREAM_CAUSE_DEPTH)
+        .any { cause ->
+            (cause is YRangeReadException && cause.statusCode == 200) ||
+                (cause is AndroidRangeResponseException && cause.statusCode == 200)
+        }
+
+private const val MAX_UPSTREAM_CAUSE_DEPTH = 8

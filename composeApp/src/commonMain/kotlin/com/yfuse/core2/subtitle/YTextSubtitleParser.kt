@@ -16,6 +16,9 @@ object YTextSubtitleParser {
                 YSubtitleFormat.Srt -> parseSrt(text, ensureActive)
                 YSubtitleFormat.WebVtt -> parseWebVtt(text, ensureActive)
                 YSubtitleFormat.Ass, YSubtitleFormat.Ssa -> parseAss(text, ensureActive)
+                YSubtitleFormat.Smi -> parseSami(text, ensureActive)
+                YSubtitleFormat.MicroDvd -> parseMicroDvd(text, ensureActive)
+                YSubtitleFormat.Ttml -> parseYTextTtml(text, ensureActive)
                 else -> error("$format is not a standalone text subtitle format")
             },
         )
@@ -155,6 +158,137 @@ private fun List<String>.toAssStyle(fields: List<String>): YSubtitlePayload.Text
     )
 }
 
+/**
+ * SAMI: every `<SYNC Start=ms>` opens a caption that lasts until the next one, and a caption of
+ * only `&nbsp;` ends the one before. A file may carry several languages as paragraph classes
+ * (`KRCC`, `ENCC`); the one with the most captions is shown, which is the main track in practice.
+ */
+private fun parseSami(
+    text: String,
+    ensureActive: () -> Unit,
+): List<YSubtitleCue> {
+    ensureActive()
+    require(text.length <= MAX_SAMI_CHARS) { "SAMI exceeds the size limit" }
+    val body = text.removePrefix("\uFEFF")
+    val syncs = SAMI_SYNC.findAll(body).take(MAX_SAMI_CUES + 1).toList()
+    require(syncs.size <= MAX_SAMI_CUES) { "SAMI exceeds the cue limit" }
+    var captionCount = 0
+
+    data class Caption(
+        val startUs: Long,
+        val className: String,
+        val markup: String,
+    )
+    val captions =
+        syncs.flatMapIndexed { index, sync ->
+            ensureActive()
+            val startMs = sync.groupValues[1].toLongOrNull() ?: return@flatMapIndexed emptyList()
+            if (startMs > (Long.MAX_VALUE - DEFAULT_LAST_CUE_US) / 1_000L) return@flatMapIndexed emptyList()
+            val startUs = startMs * 1_000L
+            val content = body.substring(sync.range.last + 1, syncs.getOrNull(index + 1)?.range?.first ?: body.length)
+            val paragraphs = SAMI_PARAGRAPH.findAll(content).take(MAX_SAMI_CUES + 1).toList()
+            captionCount += maxOf(1, paragraphs.size)
+            require(captionCount <= MAX_SAMI_CUES) { "SAMI exceeds the paragraph limit" }
+            if (paragraphs.isEmpty()) {
+                listOf(Caption(startUs, "", content))
+            } else {
+                paragraphs.mapIndexed { paragraphIndex, paragraph ->
+                    ensureActive()
+                    val end = paragraphs.getOrNull(paragraphIndex + 1)?.range?.first ?: content.length
+                    Caption(
+                        startUs,
+                        paragraph.groupValues[1].lowercase(),
+                        content.substring(paragraph.range.last + 1, end),
+                    )
+                }
+            }
+        }
+    val mainClass =
+        captions
+            .filter {
+                ensureActive()
+                it.markup.samiPlainText().isNotBlank()
+            }.groupingBy(Caption::className)
+            .eachCount()
+            .maxByOrNull { it.value }
+            ?.key ?: return emptyList()
+    val track = captions.filter { it.className == mainClass }.sortedBy(Caption::startUs)
+    val nextStarts = LongArray(track.size)
+    var nextStart: Long? = null
+    for (index in track.lastIndex downTo 0) {
+        ensureActive()
+        val later = track.getOrNull(index + 1)
+        if (later != null && later.startUs > track[index].startUs) nextStart = later.startUs
+        nextStarts[index] = nextStart ?: (track[index].startUs + DEFAULT_LAST_CUE_US)
+    }
+    return track.mapIndexedNotNull { index, caption ->
+        ensureActive()
+        val plain = caption.markup.samiPlainText()
+        if (plain.isBlank()) return@mapIndexedNotNull null
+        val endUs = nextStarts[index]
+        YSubtitleCue(
+            id = "smi-$index",
+            startUs = caption.startUs,
+            endUs = endUs,
+            payload = YSubtitlePayload.Text(plain, plain),
+        )
+    }
+}
+
+private fun String.samiPlainText(): String =
+    replace(SAMI_BREAK, "\n")
+        .replace(SIMPLE_TAG, "")
+        .decodeBasicEntities()
+        .lines()
+        .joinToString("\n") { it.trim() }
+        .trim()
+
+/**
+ * MicroDVD: `{start}{end}text` in frame numbers, `|` between lines, `{y:i}`-style codes before the
+ * text. A first line of `{1}{1}23.976` states the frame rate; without it 23.976 is assumed, the
+ * rate such files were nearly always made for.
+ */
+private fun parseMicroDvd(
+    text: String,
+    ensureActive: () -> Unit,
+): List<YSubtitleCue> {
+    val lines = normalizedLines(text, ensureActive)
+    var framesPerSecond = DEFAULT_MICRO_DVD_FPS
+    val cues = mutableListOf<YSubtitleCue>()
+    lines.forEachIndexed { index, line ->
+        ensureActive()
+        val match = MICRO_DVD_CUE.matchEntire(line.trim()) ?: return@forEachIndexed
+        val startFrame = match.groupValues[1].toLongOrNull() ?: return@forEachIndexed
+        val endFrame = match.groupValues[2].toLongOrNull()
+        val body = match.groupValues[3]
+        if (cues.isEmpty() && startFrame <= 1L && (endFrame ?: 0L) <= 1L) {
+            body.trim().toDoubleOrNull()?.takeIf { it in 1.0..240.0 }?.let {
+                framesPerSecond = it
+                return@forEachIndexed
+            }
+        }
+        val plain =
+            body
+                .replace(MICRO_DVD_CODE, "")
+                .split('|')
+                .joinToString("\n") { it.trim() }
+                .trim()
+        if (plain.isEmpty()) return@forEachIndexed
+        val startUs = (startFrame * 1_000_000.0 / framesPerSecond).toLong()
+        val endUs =
+            endFrame?.let { (it * 1_000_000.0 / framesPerSecond).toLong() }?.takeIf { it > startUs }
+                ?: (startUs + DEFAULT_LAST_CUE_US)
+        cues +=
+            YSubtitleCue(
+                id = "microdvd-$index",
+                startUs = startUs,
+                endUs = endUs,
+                payload = YSubtitlePayload.Text(plain, plain),
+            )
+    }
+    return cues
+}
+
 private fun parseTimingLine(
     line: String,
     separator: String,
@@ -228,6 +362,14 @@ private fun String.decodeBasicEntities(): String =
         .replace("&nbsp;", " ")
 
 private val SIMPLE_TAG = Regex("</?[A-Za-z][^>]*>")
+private val SAMI_SYNC = Regex("<sync\\s[^>]*?start\\s*=\\s*[\"']?(\\d+)[^>]*>", RegexOption.IGNORE_CASE)
+private val SAMI_PARAGRAPH =
+    Regex("<p(?:\\s[^>]*?class\\s*=\\s*[\"']?([A-Za-z0-9_-]+))?[^>]*>", RegexOption.IGNORE_CASE)
+private val SAMI_BREAK = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE)
+private val MICRO_DVD_CUE = Regex("\\{(\\d+)\\}\\{(\\d*)\\}(.*)")
+private val MICRO_DVD_CODE = Regex("\\{[^}]*\\}")
+private const val DEFAULT_MICRO_DVD_FPS = 23.976
+private const val DEFAULT_LAST_CUE_US = 4_000_000L
 private val ASS_OVERRIDE = Regex("\\{[^}]*\\}")
 private val DEFAULT_ASS_FIELDS =
     listOf("layer", "start", "end", "style", "name", "marginl", "marginr", "marginv", "effect", "text")
@@ -260,3 +402,6 @@ private val DEFAULT_ASS_STYLE_FIELDS =
 private const val SRT_TIMING_SEPARATOR = "-->"
 private const val WEBVTT_TIMING_SEPARATOR = "-->"
 private const val MICROS_PER_SECOND = 1_000_000L
+
+private const val MAX_SAMI_CHARS = 8 * 1024 * 1024
+private const val MAX_SAMI_CUES = 100_000

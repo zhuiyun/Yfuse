@@ -834,6 +834,12 @@ class YCoreMediaSuiteInstrumentedTest {
         label: String,
         action: () -> Unit,
     ) = coroutineScope {
+        // StateFlow hands a slow collector only the latest state, so the unverified moment between
+        // a reset and the next rendered frame can pass unseen: seek 6 of the generated clip did on
+        // the CI emulator and waited out its timeout on a picture that had long been verified again.
+        // A reset also advances outputEvidenceGeneration, in the same update that clears the proof,
+        // and a counter cannot be skipped.
+        val generation = player.state.value.diagnostics.outputEvidenceGeneration
         var resetObserved = false
         val verificationCycle =
             async(start = CoroutineStart.UNDISPATCHED) {
@@ -841,7 +847,11 @@ class YCoreMediaSuiteInstrumentedTest {
                     withTimeout(PLAYBACK_TIMEOUT_MS) {
                         player.state.first { state ->
                             assertFalse(failureMessage(label, state), state.phase == YPlaybackPhase.Failed)
-                            if (!state.diagnostics.videoOutputVerified) resetObserved = true
+                            if (!state.diagnostics.videoOutputVerified ||
+                                state.diagnostics.outputEvidenceGeneration > generation
+                            ) {
+                                resetObserved = true
+                            }
                             val outputReady =
                                 resetObserved &&
                                     state.diagnostics.videoOutputVerified &&
@@ -882,7 +892,8 @@ class YCoreMediaSuiteInstrumentedTest {
             "phase=${state.phase}, playing=${state.playing}, buffering=${state.buffering}, " +
             "positionMs=${state.positionMs}, durationMs=${state.durationMs}, " +
             "videoVerified=${state.diagnostics.videoOutputVerified}, " +
-            "audioVerified=${state.diagnostics.audioOutputVerified}"
+            "audioVerified=${state.diagnostics.audioOutputVerified}, " +
+            "outputGeneration=${state.diagnostics.outputEvidenceGeneration}"
 
     private fun failureMessage(
         label: String,

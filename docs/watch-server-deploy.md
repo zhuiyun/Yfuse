@@ -97,6 +97,9 @@ missing key is a deployment error and the service must fail closed. Back up this
 operator's secret store. Do not rotate it while an unexpired migration code is outstanding;
 after rotation, restart the service and treat all earlier codes as invalid.
 
+`TMDB_TOKEN`, when present in the same file, serves both calendar ingestion and the signed-in
+app's TMDB proxy; without it the proxy answers `503` (`docs/tmdb-proxy.md`).
+
 For the first `zhuiyun` registration only, generate a separate high-entropy bootstrap invite
 and append it to the same protected file. Do not commit it or reuse a human six-digit code:
 

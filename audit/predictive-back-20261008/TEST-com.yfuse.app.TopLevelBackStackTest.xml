@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.app.TopLevelBackStackTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-08T08:45:54.038Z" hostname="&lt;REDACTED_HOST&gt;" time="0.031">
+  <properties/>
+  <testcase name="a_chosen_start_tab_holds_with_or_without_servers" classname="com.yfuse.app.TopLevelBackStackTest" time="0.001"/>
+  <testcase name="automatic_start_opens_servers_until_there_is_one_and_the_library_after" classname="com.yfuse.app.TopLevelBackStackTest" time="0.0"/>
+  <testcase name="the_start_tab_is_the_only_system_exit_root" classname="com.yfuse.app.TopLevelBackStackTest" time="0.029"/>
+  <testcase name="no_saved_tab_or_an_unknown_one_falls_back_to_the_startup_rule" classname="com.yfuse.app.TopLevelBackStackTest" time="0.0"/>
+  <testcase name="a_saved_tab_is_restored_by_name" classname="com.yfuse.app.TopLevelBackStackTest" time="0.001"/>
+  <testcase name="every_other_root_previews_the_start_tab" classname="com.yfuse.app.TopLevelBackStackTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

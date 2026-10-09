@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.ItemAction
+import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.network.TmdbImages
@@ -51,6 +53,7 @@ internal fun TvTmdbInfoScreen(
     val following by component.following.collectAsState()
     val item = state.detail.item
     val backRequester = remember { FocusRequester() }
+    val backStableId = "tmdb-info:${item.id}:back"
     // A page opened to be watched starts on 播放, not on the way back out of it.
     val playRequester = remember { FocusRequester() }
     TvRestoreRouteFocusEffect(
@@ -58,6 +61,7 @@ internal fun TvTmdbInfoScreen(
         focusMemory = focusMemory,
         fallback = playRequester,
         contentGeneration = listOf(item.id, state.loading, state.playable, state.sources.size),
+        exitStableId = backStableId,
     )
 
     LazyColumn(
@@ -68,6 +72,8 @@ internal fun TvTmdbInfoScreen(
         item(key = "tmdb-info:hero:${item.mediaType}:${item.id}") {
             Box(
                 Modifier
+                    // Whole while focus is on 播放, 追剧 or 返回 — see TvFocusPivot.
+                    .tvKeepWholeInView()
                     .fillMaxWidth()
                     .height(455.dp)
                     .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
@@ -105,7 +111,7 @@ internal fun TvTmdbInfoScreen(
                 ) {
                     TvActionButton(
                         label = "返回",
-                        stableId = "tmdb-info:${item.id}:back",
+                        stableId = backStableId,
                         focusScope = "tmdb-info:${item.id}:hero",
                         focusMemory = focusMemory,
                         onClick = component.onBack,
@@ -372,19 +378,32 @@ internal fun TvCalendarScreen(
     }
 }
 
+/**
+ * A calendar card's id: its episode's. It used to be what the card opens, which for an episode the
+ * library does not have yet is the show, so two such episodes of one show on one day shared it and
+ * their row threw on the repeated key. An episode also keeps its id, and so its focus, once the
+ * library gets it.
+ */
+internal fun tvCalendarCardId(entry: CalendarEntry): String = entry.episode.mediaKey
+
 private fun CalendarEntry.toCalendarTvCard(component: CalendarComponent): TvMediaCardModel {
     val target = openItemId
-    val stableProviderId =
-        if (target != null && serverId != null) {
-            "server:$serverId:$target"
+    // The follow store throws on a show TMDB has not identified yet, so pressing one crashed.
+    val followable = episode.showTmdbId > 0
+    val entry = this
+    val openInLibrary: (() -> Unit)? = target?.let { itemId -> { component.onOpenItem(serverId, itemId) } }
+    val follow: (() -> Unit)? =
+        if (followable) {
+            { component.toggleFollow(entry) }
         } else {
-            "tmdb:${episode.showTmdbId}:s${episode.seasonNumber}e${episode.episodeNumber}"
+            null
         }
     return TvMediaCardModel(
-        stableId = stableProviderId,
+        stableId = tvCalendarCardId(this),
         title = episode.showTitle,
         subtitle = episode.episodeLabel,
-        imageUrl = posterUrls.firstOrNull() ?: TmdbImages.poster(episode.posterPath),
+        imageUrl = posterUrls.firstOrNull(),
+        imageFallbackUrls = posterUrls.drop(1) + TmdbImages.poster(episode.posterPath),
         serverId = serverId,
         progress = playedPercentage?.div(100.0)?.toFloat(),
         badge =
@@ -396,12 +415,64 @@ private fun CalendarEntry.toCalendarTvCard(component: CalendarComponent): TvMedi
                 LibraryStatus.Watched -> "已看"
                 LibraryStatus.Unknown -> if (followed) "已追剧" else "发现"
             },
+        quickActions =
+            if (openInLibrary == null && follow == null) {
+                null
+            } else {
+                {
+                    tvCalendarQuickActions(
+                        title = episode.showTitle,
+                        meta = episode.episodeLabel,
+                        onOpenInLibrary = openInLibrary,
+                        onFollow = follow,
+                        // Asked as the panel opens: a press on the card may have toggled it since.
+                        following = component.followStore.isFollowing(episode.showTmdbId),
+                    )
+                }
+            },
         onClick = {
             if (target != null) {
                 component.onOpenItem(serverId, target)
-            } else {
+            } else if (followable) {
                 component.toggleFollow(this)
             }
         },
     )
 }
+
+/**
+ * 长按面板 on a 追剧 card: the phone's 追剧中心 menu as far as the television has the pages for it —
+ * 在媒体库打开 once the library has the episode, else the show it belongs to, and 追剧, or 取消追剧
+ * for a show already [following]. The phone leaves 取消追剧 to 追剧管理 and its 撤销; here a press on
+ * a card the library lacks already toggles it. 播出日历 is a sheet only the phone has. The caller
+ * offers no panel at all when neither row applies.
+ */
+internal fun tvCalendarQuickActions(
+    title: String,
+    meta: String?,
+    onOpenInLibrary: (() -> Unit)?,
+    onFollow: (() -> Unit)?,
+    following: Boolean = false,
+): LiftMenu =
+    LiftMenu(
+        title = title,
+        meta = meta,
+        sections =
+            listOf(
+                listOfNotNull(
+                    onOpenInLibrary?.let {
+                        ItemAction(label = "在媒体库打开", icon = AppIcons.Play, leavesPage = true, onSelect = it)
+                    },
+                ),
+                listOfNotNull(
+                    onFollow?.let {
+                        ItemAction(
+                            label = if (following) "取消追剧" else "追剧",
+                            icon = AppIcons.Bell,
+                            destructive = following,
+                            onSelect = it,
+                        )
+                    },
+                ),
+            ),
+    )

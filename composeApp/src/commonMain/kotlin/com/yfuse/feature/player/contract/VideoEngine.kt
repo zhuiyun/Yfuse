@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.model.PlaybackChapter
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.PlaybackFailureKind
@@ -236,7 +237,16 @@ enum class VideoScaleMode(
     Stretch("拉伸填满"),
     ;
 
-    fun next(): VideoScaleMode = entries[(ordinal + 1) % entries.size]
+    /**
+     * The 画面 key. A tap moves between 适应 and 裁剪填满 only: 拉伸填满 distorts the picture, so it
+     * is never one stray tap away. A held press ([stretch]) asks for it by name, and gives it back.
+     */
+    fun toggled(stretch: Boolean): VideoScaleMode =
+        when {
+            stretch -> if (this == Stretch) Fit else Stretch
+            this == Fit -> Fill
+            else -> Fit
+        }
 }
 
 /** Engine-neutral audio post-processing. Unsupported backends must report false, not imitate it. */
@@ -296,6 +306,11 @@ data class PlaybackState(
     val secondarySubtitleOffsetMs: Long = 0L,
     /** DVD/Blu-ray title, chapter and menu state; empty for ordinary files. */
     val discNavigation: PlaybackDiscNavigationState = PlaybackDiscNavigationState(),
+    /**
+     * Named chapters the engine read from the container itself. A server's chapters for the item
+     * come first; these mark files no server describes, such as 文件来源 ones.
+     */
+    val chapters: List<PlaybackChapter> = emptyList(),
     val error: String? = null,
     /**
      * What kind of failure [error] describes, as the backend knew it.

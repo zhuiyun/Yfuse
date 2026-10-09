@@ -1,0 +1,26 @@
+[
+  {
+    "name": "com.yfuse.core.designsystem.ZoomBackGeometryTest",
+    "tests": 15,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "timestamp": "2026-10-08T03:23:26.529Z"
+  },
+  {
+    "name": "com.yfuse.core.designsystem.ZoomBackPullTrackerTest",
+    "tests": 8,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "timestamp": "2026-10-08T03:23:26.565Z"
+  },
+  {
+    "name": "com.yfuse.feature.detail.DetailHeroPhysicsTest",
+    "tests": 2,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "timestamp": "2026-10-08T03:23:26.578Z"
+  }
+]

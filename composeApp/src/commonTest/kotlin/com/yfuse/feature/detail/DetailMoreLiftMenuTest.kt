@@ -11,6 +11,7 @@ class DetailMoreLiftMenuTest {
         favorite: Boolean = false,
         watchLater: Boolean = false,
         watchTogether: (() -> Unit)? = {},
+        seasonDownload: String? = null,
         events: MutableList<String> = mutableListOf(),
     ) = detailMoreLiftMenu(
         title = "深海回声",
@@ -24,6 +25,8 @@ class DetailMoreLiftMenuTest {
         onDownload = { events += "download" },
         onWatchTogether = watchTogether,
         onAllActions = { events += "all" },
+        seasonDownload = seasonDownload,
+        onDownloadSeason = { events += "season" },
     )
 
     @Test
@@ -41,6 +44,18 @@ class DetailMoreLiftMenuTest {
     fun rowsFollowTheTitlesCurrentStateAndDropWhatCannotBeDone() {
         val built = menu(played = true, favoriteAvailable = false, watchLater = true, watchTogether = null)
         assertEquals(listOf("标记为未看", "移出稍后看", "下载…", "全部操作…"), built.actions.map { it.label })
+    }
+
+    @Test
+    fun aListedSeasonCanBeTakenWholeByName() {
+        val events = mutableListOf<String>()
+        val built = menu(seasonDownload = "第 2 季（10 集）", events = events)
+        assertEquals(
+            listOf("标记为已看", "收藏", "稍后看", "下载…", "下载第 2 季（10 集）…", "一起看…", "全部操作…"),
+            built.actions.map { it.label },
+        )
+        built.actions.first { it.label.startsWith("下载第") }.onSelect()
+        assertEquals(listOf("season"), events)
     }
 
     @Test

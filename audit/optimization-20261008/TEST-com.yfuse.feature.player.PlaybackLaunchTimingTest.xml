@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlaybackLaunchTimingTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-08T09:43:11.637Z" hostname="&lt;REDACTED_HOST&gt;" time="0.011">
+  <properties/>
+  <testcase name="preparation_does_not_wait_for_a_player_and_claim_is_single_use" classname="com.yfuse.feature.player.PlaybackLaunchTimingTest" time="0.002"/>
+  <testcase name="holds_background_priority_releases_on_startup_error_too" classname="com.yfuse.feature.player.PlaybackLaunchTimingTest" time="0.001"/>
+  <testcase name="any_holds_background_priority_is_true_while_a_registered_launch_holds_it" classname="com.yfuse.feature.player.PlaybackLaunchTimingTest" time="0.002"/>
+  <testcase name="holds_background_priority_releases_at_first_output" classname="com.yfuse.feature.player.PlaybackLaunchTimingTest" time="0.0"/>
+  <testcase name="optional_requests_wait_for_output_or_failure" classname="com.yfuse.feature.player.PlaybackLaunchTimingTest" time="0.003"/>
+  <testcase name="holds_background_priority_only_once_claimed" classname="com.yfuse.feature.player.PlaybackLaunchTimingTest" time="0.0"/>
+  <testcase name="missing_player_does_not_block_catalog_forever" classname="com.yfuse.feature.player.PlaybackLaunchTimingTest" time="0.003"/>
+  <testcase name="video_launch_keeps_background_work_paused_after_first_audio" classname="com.yfuse.feature.player.PlaybackLaunchTimingTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

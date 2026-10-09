@@ -1,10 +1,29 @@
 name: Android cloud UI evidence
 
 on:
-  workflow_run:
-    workflows: [Publish Android update]
-    types: [completed]
-    branches: [master]
+  # Publish Android update calls this for every production-signed package, publishing or not,
+  # before the package is saved or uploaded: the run fails unless this exact signed APK installs,
+  # starts and passes the smoke on every API level below. Yfuse 1.0.91 shipped an R8-minified
+  # release that crashed at startup on Android 17 with a VerifyError, because no check had
+  # installed that build on Android 17.
+  workflow_call:
+    inputs:
+      apk_artifact:
+        description: Artifact of the calling run that holds only the signed APK
+        required: true
+        type: string
+      apk_sha256:
+        description: SHA-256 of that signed APK
+        required: true
+        type: string
+      version_code:
+        description: versionCode the APK must declare
+        required: true
+        type: string
+      version_name:
+        description: versionName the APK must declare
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       run_id:
@@ -15,36 +34,60 @@ on:
         description: Exact source commit used by that package run
         required: true
         type: string
+      layout_probe:
+        description: Run the targeted rotation, font and tablet layout probe after the full smoke
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: cloud-ui-${{ github.ref }}
+  # A calling release run gets a group of its own, so a manual evidence run can never hold up
+  # or replace its pending release gate.
+  group: cloud-ui-${{ inputs.apk_artifact != '' && github.run_id || github.ref }}
   cancel-in-progress: false
 
 jobs:
   ui:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     name: Signed APK on Android ${{ matrix.api }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        api: [35, 36]
+        # The phone APK ships arm64-v8a only. Google APIs x86_64 images run it through their
+        # ARM64 native bridge on KVM; the script fails the check if an image stops advertising it.
+        include:
+          - api: 35
+            sdk: "35"
+          - api: 36
+            sdk: "36"
+          # Android 17 SDK packages carry a minor version: platforms;android-37.0 (what the app
+          # compiles against) and system-images;android-37.0;google_apis;x86_64. The script
+          # confirms the booted system reports API 37.
+          - api: 37
+            sdk: "37.0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-          ref: ${{ github.event.workflow_run.head_sha || inputs.source_sha }}
+          ref: ${{ inputs.source_sha || github.sha }}
+      - name: Download the signed APK under release
+        if: inputs.apk_artifact != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ inputs.apk_artifact }}
+          path: artifacts/cloud-input
       - name: Download pinned production-signed test APK
+        if: inputs.apk_artifact == ''
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           pattern: Yfuse-*
           merge-multiple: true
-          run-id: ${{ github.event.workflow_run.id || inputs.run_id }}
+          run-id: ${{ inputs.run_id }}
           github-token: ${{ github.token }}
           path: artifacts/cloud-input
       - name: Enable hardware acceleration
@@ -57,12 +100,30 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm > artifacts/cloud-ui/kvm.txt
+      - name: Let the emulator runner install current command-line tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The runner image's command-line tools (12.0) record a minor-version image such as
+          # android-37.0 as target=android-0 in the AVD (actions/runner-images#14484), and the
+          # emulator then configures it as an ancient platform. The pinned emulator runner
+          # installs its own command-line tools 20.0, which read minor versions, only when
+          # $ANDROID_HOME/cmdline-tools is absent.
+          sudo rm -rf "${ANDROID_HOME:?}/cmdline-tools"
       - name: Run real APK UI checks and retain evidence
         env:
-          SOURCE_RUN: ${{ github.event.workflow_run.id || inputs.run_id }}
+          SOURCE_RUN: ${{ inputs.run_id || github.run_id }}
+          EXPECTED_API: ${{ matrix.api }}
+          # Empty for a manual run, which reads the version from source and the SHA-256 from
+          # the package run's update.json instead.
+          EXPECTED_SHA256: ${{ inputs.apk_sha256 }}
+          EXPECTED_VERSION_CODE: ${{ inputs.version_code }}
+          EXPECTED_VERSION_NAME: ${{ inputs.version_name }}
+          # A release gate always runs the full smoke; only a manual run can pick the probe.
+          LAYOUT_PROBE: ${{ inputs.layout_probe && '--layout-probe' || '' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
-          api-level: ${{ matrix.api }}
+          api-level: ${{ matrix.sdk }}
           target: google_apis
           arch: x86_64
           profile: pixel_2
@@ -72,7 +133,12 @@ jobs:
           emulator-boot-timeout: 600
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -accel on
-          script: python3 scripts/android_cloud_ui.py --apk-directory artifacts/cloud-input --output artifacts/cloud-ui --layout-probe --source-run "$SOURCE_RUN"
+          # The runner executes each script line on its own, so this stays one folded line.
+          script: >-
+            python3 scripts/android_cloud_ui.py --apk-directory artifacts/cloud-input
+            --output artifacts/cloud-ui --source-run "$SOURCE_RUN" --expected-api "$EXPECTED_API"
+            --expected-sha256 "$EXPECTED_SHA256" --expected-version-code "$EXPECTED_VERSION_CODE"
+            --expected-version-name "$EXPECTED_VERSION_NAME" $LAYOUT_PROBE
       - name: Save screenshots, UI trees, diagnostics and case results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

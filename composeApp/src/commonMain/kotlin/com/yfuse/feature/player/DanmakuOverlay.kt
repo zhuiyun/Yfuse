@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
@@ -59,6 +60,15 @@ private const val FIXED_DURATION_MS = 4_000L
 private const val POSITION_RESET_THRESHOLD_MS = 1_000L
 private const val WINDOW_BUCKET_MS = 1_000L
 
+/** A lane cache entry for a comment that found no room when it arrived, and stays off screen. */
+private const val DROPPED_LANE = -1
+
+/** No lane decided yet, in [allocateDanmakuLanes]' working arrays. */
+private const val UNDECIDED_LANE = -2
+
+/** No input, in [allocateDanmakuLanes]' per-lane look-ahead. */
+private const val NO_INPUT = -1
+
 /**
  * Separates a runtime pipeline restart from a user seek.
  *
@@ -76,11 +86,68 @@ internal object DanmakuRuntimeRecoveryFence {
     }
 }
 
+/**
+ * Which comment a lane, or a finger's hold, belongs to. A block, 合并重复 or a refetch rebuilds the
+ * list and moves every index, but a line keeps its time, text, colour and kind; [ordinal] tells
+ * apart lines identical in all four, which 合并重复 switched off can leave side by side.
+ */
+internal data class DanmakuKey(
+    val timeMs: Long,
+    val text: String,
+    val color: Long,
+    val kind: DanmakuKind,
+    val ordinal: Int = 0,
+)
+
+internal fun DanmakuComment.danmakuKey(ordinal: Int = 0): DanmakuKey = DanmakuKey(timeMs, text, color, kind, ordinal)
+
+/**
+ * The keys of the time-sorted [comments]' entries [from] until [until], in one pass however many
+ * share a moment. Identical lines are counted from the first comment at their moment, wherever the
+ * range starts, so each ordinal is the one [containsDanmaku] counts to.
+ */
+internal fun danmakuKeysIn(
+    comments: List<DanmakuComment>,
+    from: Int,
+    until: Int,
+): List<DanmakuKey> {
+    if (from >= until) return emptyList()
+    var index = from
+    while (index > 0 && comments[index - 1].timeMs == comments[from].timeMs) index--
+    val keys = ArrayList<DanmakuKey>(until - from)
+    val counted = HashMap<DanmakuKey, Int>()
+    while (index < until) {
+        val first = comments[index].danmakuKey()
+        val ordinal = counted[first] ?: 0
+        counted[first] = ordinal + 1
+        if (index >= from) keys += if (ordinal == 0) first else first.copy(ordinal = ordinal)
+        index++
+    }
+    return keys
+}
+
+/** Whether the time-sorted list holds the comment [key] names. */
+internal fun List<DanmakuComment>.containsDanmaku(key: DanmakuKey): Boolean {
+    var index = lowerBoundDanmaku(this, key.timeMs)
+    var ordinal = 0
+    while (index < size && this[index].timeMs == key.timeMs) {
+        val comment = this[index]
+        if (comment.text == key.text && comment.color == key.color && comment.kind == key.kind) {
+            if (ordinal == key.ordinal) return true
+            ordinal++
+        }
+        index++
+    }
+    return false
+}
+
 internal data class DanmakuLayoutInput(
     val index: Int,
     val comment: DanmakuComment,
     /** Measured text width in the same units as [allocateDanmakuLanes]' viewport. */
     val width: Float,
+    /** Who [comment] is from one list to the next; the overlay passes [danmakuKeysIn]'s. */
+    val key: DanmakuKey = comment.danmakuKey(),
 )
 
 internal data class DanmakuLanePlacement(
@@ -98,6 +165,11 @@ private data class LaneTail(
 /**
  * Assigns each entering comment once. If every physical lane is occupied at its timestamp,
  * the comment is dropped at admission rather than making an already-flying comment disappear.
+ *
+ * [laneCache] carries those decisions from one window to the next by [DanmakuKey], so a comment
+ * keeps its lane, or stays dropped, however the list around it changes. A comment admitted among
+ * ones that already have lanes (a block undone, 合并重复 switched off, a line just sent) has to
+ * clear the one that follows it in a lane as well as the one before.
  */
 internal fun allocateDanmakuLanes(
     inputs: List<DanmakuLayoutInput>,
@@ -105,59 +177,74 @@ internal fun allocateDanmakuLanes(
     viewportWidth: Float,
     scrollDurationMs: Long,
     fixedDurationMs: Long = FIXED_DURATION_MS,
-    laneCache: MutableMap<Int, Int>? = null,
+    laneCache: MutableMap<DanmakuKey, Int>? = null,
 ): List<DanmakuLanePlacement> {
     if (laneCount <= 0 || viewportWidth <= 0f) return emptyList()
     val tails = arrayOfNulls<LaneTail>(laneCount)
+    val cached =
+        IntArray(inputs.size) { position ->
+            laneCache?.get(inputs[position].key)?.takeIf { it < laneCount } ?: UNDECIDED_LANE
+        }
+    // For each lane, the next input already placed in it; walked forward as the inputs are.
+    val nextInLane = IntArray(inputs.size) { NO_INPUT }
+    val upcoming = IntArray(laneCount) { NO_INPUT }
+    for (position in inputs.indices.reversed()) {
+        val lane = cached[position]
+        if (lane >= 0) {
+            nextInLane[position] = upcoming[lane]
+            upcoming[lane] = position
+        }
+    }
+
+    fun tailOf(input: DanmakuLayoutInput) =
+        LaneTail(
+            startedAtMs = input.comment.timeMs,
+            width = input.width,
+            kind = input.comment.kind,
+            durationMs = if (input.comment.kind == DanmakuKind.Scroll) scrollDurationMs else fixedDurationMs,
+        )
     return buildList {
-        inputs.forEach { input ->
-            val duration =
-                if (input.comment.kind == DanmakuKind.Scroll) {
-                    scrollDurationMs
-                } else {
-                    fixedDurationMs
-                }
-            val cachedLane = laneCache?.get(input.index)
-            if (cachedLane != null) {
-                if (cachedLane >= 0) {
-                    tails[cachedLane] =
-                        LaneTail(
-                            startedAtMs = input.comment.timeMs,
-                            width = input.width,
-                            kind = input.comment.kind,
-                            durationMs = duration,
-                        )
-                    add(DanmakuLanePlacement(input, cachedLane))
-                }
-                return@forEach
+        inputs.forEachIndexed { position, input ->
+            val cachedLane = cached[position]
+            if (cachedLane >= 0) {
+                upcoming[cachedLane] = nextInLane[position]
+                tails[cachedLane] = tailOf(input)
+                add(DanmakuLanePlacement(input, cachedLane))
+                return@forEachIndexed
             }
+            if (cachedLane == DROPPED_LANE) return@forEachIndexed
             val laneOrder: IntProgression =
                 if (input.comment.kind == DanmakuKind.Bottom) {
                     (laneCount - 1) downTo 0
                 } else {
                     0 until laneCount
                 }
+            val tail = tailOf(input)
             val lane =
                 laneOrder.firstOrNull { candidate ->
+                    val following = upcoming[candidate]
                     canEnterLane(
                         previous = tails[candidate],
                         next = input,
                         viewportWidth = viewportWidth,
                         scrollDurationMs = scrollDurationMs,
-                    )
+                    ) &&
+                        (
+                            following == NO_INPUT ||
+                                canEnterLane(
+                                    previous = tail,
+                                    next = inputs[following],
+                                    viewportWidth = viewportWidth,
+                                    scrollDurationMs = scrollDurationMs,
+                                )
+                        )
                 }
             if (lane == null) {
-                laneCache?.put(input.index, -1)
-                return@forEach
+                laneCache?.put(input.key, DROPPED_LANE)
+                return@forEachIndexed
             }
-            laneCache?.put(input.index, lane)
-            tails[lane] =
-                LaneTail(
-                    startedAtMs = input.comment.timeMs,
-                    width = input.width,
-                    kind = input.comment.kind,
-                    durationMs = duration,
-                )
+            laneCache?.put(input.key, lane)
+            tails[lane] = tail
             add(DanmakuLanePlacement(input, lane))
         }
     }
@@ -322,9 +409,11 @@ internal fun DanmakuOverlay(
             }
         }
     }
-    // A comment stopped by 点弹幕 belongs to the list it came from; a new list — a block, a reload,
-    // another episode — has no place for it.
-    LaunchedEffect(comments, picker) { picker?.state?.drop() }
+    // A comment stopped by 点弹幕 keeps its place in a new list that still holds it — a block of
+    // something else, 合并重复, a refetch — and goes with one that does not, or with the overlay:
+    // its menu must not outlive the comments it was opened over.
+    LaunchedEffect(comments, picker) { picker?.state?.retain(comments::containsDanmaku) }
+    DisposableEffect(picker) { onDispose { picker?.state?.drop() } }
     SideEffect { picker?.state?.clock = { renderedPositionMs } }
 
     val textMeasurer = rememberTextMeasurer()
@@ -356,13 +445,14 @@ internal fun DanmakuOverlay(
                 }
             val laneHeight = (textSize + 10f).dp
             val laneCount = (maxHeight / laneHeight).toInt().coerceAtLeast(1)
+            // Widths by the text drawn and lanes by the comment, not by list position, so neither is
+            // lost when a block, 合并重复 or a refetch hands over a new list.
             val widthCache =
-                remember(comments, textStyle, density) {
-                    HashMap<Int, Float>()
+                remember(textStyle, density) {
+                    HashMap<String, Float>()
                 }
             val laneCache =
                 remember(
-                    comments,
                     speed,
                     laneCount,
                     maxWidth,
@@ -370,7 +460,7 @@ internal fun DanmakuOverlay(
                     density,
                     reduceMotion,
                 ) {
-                    HashMap<Int, Int>()
+                    HashMap<DanmakuKey, Int>()
                 }
             val timeBucket by remember {
                 derivedStateOf { renderedPositionMs.floorDiv(WINDOW_BUCKET_MS) }
@@ -388,22 +478,21 @@ internal fun DanmakuOverlay(
                 ) {
                     val bucketStart = timeBucket * WINDOW_BUCKET_MS
                     val maxDuration = max(speed.durationMs, FIXED_DURATION_MS)
-                    val from =
-                        lowerBoundDanmaku(
-                            comments,
-                            (bucketStart - maxDuration).coerceAtLeast(0L),
-                        )
-                    val until = lowerBoundDanmaku(comments, bucketStart + WINDOW_BUCKET_MS)
-                    // Both caches are keyed by comment index and would otherwise grow with
-                    // every comment a long episode scrolls past; a full reset is cheap next
-                    // to measuring text, and only the current window is ever needed.
+                    val windowStartMs = (bucketStart - maxDuration).coerceAtLeast(0L)
+                    val windowEndMs = bucketStart + WINDOW_BUCKET_MS
+                    val from = lowerBoundDanmaku(comments, windowStartMs)
+                    val until = lowerBoundDanmaku(comments, windowEndMs)
+                    // Only the window's lanes are ever read, so the rest are forgotten as it moves
+                    // on; clearing them all would re-deal the comments still crossing. Measuring is
+                    // the costly part of a width, and a reset only repeats it.
+                    laneCache.keys.removeAll { it.timeMs < windowStartMs || it.timeMs >= windowEndMs }
                     if (widthCache.size > MAX_CACHED_DANMAKU_ENTRIES) widthCache.clear()
-                    if (laneCache.size > MAX_CACHED_DANMAKU_ENTRIES) laneCache.clear()
+                    val keys = danmakuKeysIn(comments, from, until)
                     val inputs =
                         (from until until).map { index ->
                             val comment = comments[index]
                             val measuredWidth =
-                                widthCache.getOrPut(index) {
+                                widthCache.getOrPut(comment.displayText) {
                                     with(density) {
                                         textMeasurer
                                             .measure(
@@ -415,7 +504,12 @@ internal fun DanmakuOverlay(
                                             .value
                                     }
                                 }
-                            DanmakuLayoutInput(index, comment.heldStill(reduceMotion), measuredWidth)
+                            DanmakuLayoutInput(
+                                index = index,
+                                comment = comment.heldStill(reduceMotion),
+                                width = measuredWidth,
+                                key = keys[index - from],
+                            )
                         }
                     allocateDanmakuLanes(
                         inputs = inputs,
@@ -437,11 +531,11 @@ internal fun DanmakuOverlay(
                         fixedDurationMs = FIXED_DURATION_MS,
                     )
             }
-            val hold = picker?.state?.hold
+            val holds = picker?.state?.holds.orEmpty()
 
             placements.forEach { placement ->
-                // The stopped comment is drawn by the hold below, from where it stopped.
-                if (hold?.isFor(placement) == true) return@forEach
+                // A stopped comment is drawn by its hold below, from where it stopped.
+                if (holds.any { it.isFor(placement) }) return@forEach
                 val comment = placement.input.comment
                 val duration =
                     if (comment.kind == DanmakuKind.Scroll) {
@@ -449,7 +543,7 @@ internal fun DanmakuOverlay(
                     } else {
                         FIXED_DURATION_MS
                     }
-                key(placement.input.index, comment.timeMs, comment.displayText) {
+                key(placement.input.key) {
                     val measuredWidth = placement.input.width.dp
                     val y = laneHeight * placement.lane.toFloat()
                     Text(
@@ -488,7 +582,9 @@ internal fun DanmakuOverlay(
                     )
                 }
             }
-            if (hold != null) HeldDanmaku(hold, { renderedPositionMs }, textStyle, opacity, reduceMotion)
+            holds.forEach { hold ->
+                key(hold.key) { HeldDanmaku(hold, { renderedPositionMs }, textStyle, opacity, reduceMotion) }
+            }
         }
     }
 }
@@ -505,46 +601,44 @@ private fun HeldDanmaku(
     opacity: DanmakuOpacity,
     reduceMotion: Boolean,
 ) {
-    key(hold.index, hold.comment.timeMs) {
-        Text(
-            text = hold.comment.displayText,
-            maxLines = 1,
-            color = Color(0xFF000000 or hold.comment.color).copy(alpha = if (hold.held) 1f else opacity.alpha),
-            style = style,
-            modifier =
-                Modifier
-                    .offset { IntOffset(hold.leftAt(renderedMs()).dp.roundToPx(), hold.top.dp.roundToPx()) }
-                    .drawBehind {
-                        if (hold.held) {
-                            val pad = HeldPlatePadding.toPx()
-                            drawRoundRect(
-                                color = Color.Black.copy(alpha = 0.5f),
-                                topLeft = Offset(-pad, 0f),
-                                size = Size(size.width + pad * 2f, size.height),
-                                cornerRadius = CornerRadius(size.height / 2f),
-                            )
-                            drawRoundRect(
-                                color = Color.White.copy(alpha = 0.7f),
-                                topLeft = Offset(-pad, 0f),
-                                size = Size(size.width + pad * 2f, size.height),
-                                cornerRadius = CornerRadius(size.height / 2f),
-                                style = Stroke(width = 1.dp.toPx()),
-                            )
+    Text(
+        text = hold.comment.displayText,
+        maxLines = 1,
+        color = Color(0xFF000000 or hold.comment.color).copy(alpha = if (hold.held) 1f else opacity.alpha),
+        style = style,
+        modifier =
+            Modifier
+                .offset { IntOffset(hold.leftAt(renderedMs()).dp.roundToPx(), hold.top.dp.roundToPx()) }
+                .drawBehind {
+                    if (hold.held) {
+                        val pad = HeldPlatePadding.toPx()
+                        drawRoundRect(
+                            color = Color.Black.copy(alpha = 0.5f),
+                            topLeft = Offset(-pad, 0f),
+                            size = Size(size.width + pad * 2f, size.height),
+                            cornerRadius = CornerRadius(size.height / 2f),
+                        )
+                        drawRoundRect(
+                            color = Color.White.copy(alpha = 0.7f),
+                            topLeft = Offset(-pad, 0f),
+                            size = Size(size.width + pad * 2f, size.height),
+                            cornerRadius = CornerRadius(size.height / 2f),
+                            style = Stroke(width = 1.dp.toPx()),
+                        )
+                    }
+                }.graphicsLayer {
+                    val now = renderedMs()
+                    val elapsed = hold.elapsedAt(now)
+                    alpha =
+                        when {
+                            hold.held -> 1f
+                            hold.finishedAt(now) -> 0f
+                            reduceMotion ->
+                                danmakuHeldAlpha(elapsed, hold.durationMs, Motion.REDUCED_FADE.toLong())
+                            else -> 1f
                         }
-                    }.graphicsLayer {
-                        val now = renderedMs()
-                        val elapsed = hold.elapsedAt(now)
-                        alpha =
-                            when {
-                                hold.held -> 1f
-                                hold.finishedAt(now) -> 0f
-                                reduceMotion ->
-                                    danmakuHeldAlpha(elapsed, hold.durationMs, Motion.REDUCED_FADE.toLong())
-                                else -> 1f
-                            }
-                    },
-        )
-    }
+                },
+    )
 }
 
 /** How far the held comment's plate reaches past its text on either side. */

@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "scope": "portable-ycore-standalone-tests-on-android",
+  "startedAtUtc": "2026-10-09T01:26:27.2936423Z",
+  "deviceSerial": "<REDACTED_DEVICE>",
+  "deviceAbis": [
+    "arm64-v8a",
+    "armeabi-v7a",
+    "armeabi"
+  ],
+  "deviceApi": 28,
+  "targetAbi": "arm64-v8a",
+  "targetApi": 28,
+  "compiler": "<USER_HOME>/AppData/Local/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe",
+  "compileExitCode": 0,
+  "pushExitCode": 0,
+  "runExitCode": 0,
+  "assertionsEnabled": true,
+  "testFunctionCount": 18,
+  "testFunctions": [
+    "test_priority_and_capability_routing",
+    "test_handover_preserves_state",
+    "test_authorization_failure_does_not_change_backend",
+    "test_ffi_convenience_api",
+    "test_build_capabilities_do_not_claim_uncompiled_features",
+    "test_open_failure_falls_back",
+    "test_no_compatible_engine_is_explicit",
+    "test_handover_restores_tracks_output_and_pause_intent",
+    "test_handover_never_reopens_an_engine_this_request_exhausted",
+    "test_drm_failure_does_not_change_backend",
+    "test_initialization_failures_do_not_publish_ready",
+    "test_initialization_failure_tries_the_next_backend",
+    "test_track_restore_failure_is_reported",
+    "test_new_media_clears_tracks_and_output_evidence",
+    "test_rejected_speed_does_not_replace_the_last_accepted_value",
+    "test_rejected_output_does_not_replace_the_surface_restored_on_handover",
+    "test_retry_does_not_reopen_the_backend_it_just_retried",
+    "test_single_engine_retry_reopens_when_dedicated_retry_is_unavailable"
+  ],
+  "countMeaning": "Calls in unchanged test main; execution has no per-case output. Exit 0 confirms main completed with assert enabled.",
+  "log": "audit/regression-review-20261009/native-runtime.log",
+  "remotePath": "/data/local/tmp/yfuse-review-20261009-native-test",
+  "remotePreexisting": false,
+  "cleanupAttempted": true,
+  "cleanupExitCode": 0,
+  "cleanupConfirmed": true,
+  "appInstalled": false,
+  "sourceHashes": [
+    {
+      "path": "ycore-native/src/ycore.cpp",
+      "sha256": "a3b65a9d9585de91de37d63489f31abce612f20fc3c94f4aa2e1c5f6ad8044f9"
+    },
+    {
+      "path": "ycore-native/src/ycore_build.cpp",
+      "sha256": "f530ec8f353b88fdb2590d5dfa218c93f58314fb0375a3c0c2d2caf3a95d6f0d"
+    },
+    {
+      "path": "ycore-native/tests/ycore_test.cpp",
+      "sha256": "58e65fcfa6349f5a8fe3aa04b407f99e9171f55f8fa9542f7e4acd828c97ee15"
+    },
+    {
+      "path": "ycore-native/include/ycore/ycore.h",
+      "sha256": "052214a526770e87aeb1e86277bff1264197ad63245f82cd85ea529c354f1145"
+    },
+    {
+      "path": "ycore-native/include/ycore/ycore_build.h",
+      "sha256": "33fb9c0014f4395065a7f0010b2f3976142682f08eb386dc8f21cc2079132b2a"
+    }
+  ],
+  "status": "passed",
+  "binarySha256": "a3672f475e9a382508793de8ff246d9213a0e1bbea71372b8b2562fc617dee97",
+  "chmodExitCode": 0,
+  "runOutput": "",
+  "finishedAtUtc": "2026-10-09T01:26:33.8772418Z",
+  "metadataRedaction": {
+    "fields": [
+      "$.deviceSerial",
+      "$.compiler"
+    ],
+    "originalCopy": "build/tmp/upload-audit-originals/audit/regression-review-20261009/native-runtime-result.json",
+    "note": "Device identifiers and local user-home prefixes are redacted. Original copies and logs stay in local Git-ignored build/audit output; test results and command arguments other than the home-path placeholder are unchanged."
+  }
+}

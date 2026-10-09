@@ -8,10 +8,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LoadingAnimation
+import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.platformAnimationsDisabled
-import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.StartupTab
 import com.yfuse.feature.profile.ProfileComponent
 import com.yfuse.feature.profile.releaseBackgroundImage
@@ -22,50 +21,46 @@ internal fun TvAppearanceSettingsPage(
     focusMemory: TvUiFocusMemory,
     navigationRequester: FocusRequester,
     firstRowRequester: FocusRequester,
-    onGlassMaterial: () -> Unit,
 ) {
     val focusScope = "settings:appearance"
     val prefs = component.themePreferences
     val dialogAnimation by prefs.dialogAnimation.collectAsState()
-    val glassStyle by prefs.glassStyle.collectAsState()
     val loadingAnimation by prefs.loadingAnimation.collectAsState()
     val reduceTransparency by prefs.reduceTransparency.collectAsState()
     val largeText by prefs.largeText.collectAsState()
     val reduceMotion by prefs.reduceMotion.collectAsState()
-    val serverLayout by prefs.serverLayout.collectAsState()
     val startupTab by prefs.startupTab.collectAsState()
     val backgroundImage by prefs.backgroundImage.collectAsState()
+    val motionTheme by prefs.motionTheme.collectAsState()
+    // 静息 brings its own dialog entrance and loading study — see [YfuseTheme] — over the two below.
+    val calm = motionTheme == MotionTheme.Calm
     var status by remember { mutableStateOf<String?>(null) }
 
     TvSettingsPageScaffold(page = TvSettingsPage.Appearance, status = status) {
-        // The television is always dark — see [TvApp] — so there is no 界面模式 to choose.
-        item(key = "appearance-section-theme") { TvSettingsSectionTitle("材质") }
-        item(key = "appearance-glass") {
-            TvChoiceRow(
-                title = "玻璃质感",
-                options = GlassStyle.entries,
-                selected = glassStyle,
-                label = { it.label },
-                stableId = "appearance:glass",
-                focusMemory = focusMemory,
-                onSelect = prefs::setGlassStyle,
-                icon = AppIcons.Expand,
-                focusScope = focusScope,
-                subtitle = "面板与弹窗的背景处理方式",
-                focusRequester = firstRowRequester,
-                navigationRequester = navigationRequester,
-            )
+        // The television is always dark — see [TvApp] — so there is no 界面模式 to choose. Nor are
+        // there the phone's 玻璃质感, 玻璃材质 or 服务器列表布局: every surface here is an opaque plate
+        // (TvTokens), with the design's own glass kept for the few shared panels (TvApp), and the
+        // server page is always three columns. The note says so, rather than leave a viewer
+        // looking for them.
+        item(key = "appearance-section-motion") { TvSettingsSectionTitle("动效") }
+        item(key = "appearance-opaque-note") {
+            TvSettingsNote("电视界面一律使用不透明面板，服务器页固定三列，因此没有玻璃材质与服务器列表布局选项。")
         }
-        item(key = "appearance-glass-material") {
-            TvSettingRow(
-                title = "玻璃材质",
-                value = "调整",
-                stableId = "appearance:glass-material",
+        item(key = "appearance-motion-theme") {
+            // The television has followed this choice since the phone could make it, and had no
+            // row of its own to make it here.
+            TvChoiceRow(
+                title = "动效主题",
+                options = MotionTheme.entries,
+                selected = motionTheme,
+                label = { it.label },
+                stableId = "appearance:motion-theme",
                 focusMemory = focusMemory,
-                onClick = onGlassMaterial,
-                icon = AppIcons.Expand,
+                onSelect = prefs::setMotionTheme,
+                icon = AppIcons.Movie,
                 focusScope = focusScope,
-                subtitle = "底色、透明度与背景遮罩，实时预览",
+                subtitle = motionTheme.description,
+                focusRequester = firstRowRequester,
                 navigationRequester = navigationRequester,
             )
         }
@@ -83,7 +78,7 @@ internal fun TvAppearanceSettingsPage(
                 onSelect = prefs::setDialogAnimation,
                 icon = AppIcons.Refresh,
                 focusScope = focusScope,
-                subtitle = shown.description,
+                subtitle = if (calm) "静息主题下不生效" else shown.description,
                 navigationRequester = navigationRequester,
             )
         }
@@ -100,21 +95,7 @@ internal fun TvAppearanceSettingsPage(
                 onSelect = prefs::setLoadingAnimation,
                 icon = AppIcons.Refresh,
                 focusScope = focusScope,
-                subtitle = "播放器准备画面里的等待动画",
-                navigationRequester = navigationRequester,
-            )
-        }
-        item(key = "appearance-server-layout") {
-            TvChoiceRow(
-                title = "服务器列表布局",
-                options = ServerLayout.entries,
-                selected = serverLayout,
-                label = { it.label },
-                stableId = "appearance:server-layout",
-                focusMemory = focusMemory,
-                onSelect = prefs::setServerLayout,
-                icon = AppIcons.TabServers,
-                focusScope = focusScope,
+                subtitle = if (calm) "播放器准备画面里的等待动画，静息主题下不生效" else "播放器准备画面里的等待动画",
                 navigationRequester = navigationRequester,
             )
         }

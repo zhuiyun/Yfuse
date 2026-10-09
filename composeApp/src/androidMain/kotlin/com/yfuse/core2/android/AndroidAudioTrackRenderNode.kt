@@ -11,7 +11,11 @@ import android.media.PlaybackParams
 import android.os.Build
 import androidx.annotation.RequiresApi
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core2.api.YAudioEffect
+import com.yfuse.core2.audio.YAudioChannelRole
+import com.yfuse.core2.audio.YAudioEffectProcessor
 import com.yfuse.core2.graph.YAudioRenderNode
+import com.yfuse.core2.sync.YPcmTimeline
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicLong
 
@@ -35,14 +39,28 @@ internal class AndroidAudioTrackRenderNode(
 
     private var track: AudioTrack? = null
     private var sampleRate = 0
-    private var basePresentationTimeUs: Long? = null
+    private var pcmTimeline: YPcmTimeline? = null
+    private var writeCursor = PcmWriteCursor()
+    private var selectedPlayedFrames = 0L
     private var requestedPlay = false
     private var speed = 1f
     private var audioDelayMs = 0L
     private var writtenBytes = 0L
     private val pcmTail = PcmTailTracker()
+    private var timestampJumps = 0
+    private var deadTrackRebuilds = 0
     private var zeroWriteCount = 0L
+    private var audioEffect = YAudioEffect.Off
+    private var effectStage: AndroidPcmEffectStage? = null
+    private var effectStageShape: PcmShape? = null
     private var startThresholdFrames = 0
+
+    /**
+     * Pre-S only: the effective buffer is cut to the startup threshold until the first frames play.
+     * It then grows back (see [restorePlayingBufferIfStarted]); left at 40 ms, any pause in feeding
+     * longer than that underran the track.
+     */
+    private var startupBufferLimited = false
     private var lastTimestampFrames: Long? = null
     private var lastPlaybackHeadFrames = 0L
     private val clockProgressGuard = AndroidAudioClockProgressGuard()
@@ -89,6 +107,7 @@ internal class AndroidAudioTrackRenderNode(
             "pcmZeroWrites" to zeroWriteCount.toString(),
             "audioPlayState" to (track?.playState?.toString() ?: "unconfigured"),
             "audioSampleRate" to sampleRate.toString(),
+            "audioPcmEncoding" to (configuredFormat?.pcmShape()?.encoding?.toString() ?: "unconfigured"),
             "audioChannelCount" to (configuredFormat?.getInteger(MediaFormat.KEY_CHANNEL_COUNT)?.toString() ?: "0"),
             "audioBufferFrames" to (track?.bufferSizeInFrames?.toString() ?: "0"),
             "audioStartThresholdFrames" to startThresholdFrames.toString(),
@@ -97,6 +116,7 @@ internal class AndroidAudioTrackRenderNode(
             "audioClockSource" to clockSource,
             "audioClockStalled" to clockStalled.toString(),
             "audioUnderruns" to underrunCount.toString(),
+            "audioEffect" to (effectStage?.processor?.effect ?: YAudioEffect.Off).name,
         )
 
     @get:Synchronized
@@ -130,6 +150,20 @@ internal class AndroidAudioTrackRenderNode(
     val clockStalled: Boolean
         get() = staleClockFallback
 
+    /**
+     * [configure], unless a track already plays this exact PCM shape; true when a track was built.
+     * Decoders announce their output format again mid-stream (after a flush, for changed metadata)
+     * with nothing AudioTrack depends on changed, and rebuilding then threw away up to two seconds
+     * of buffered audio.
+     */
+    @Synchronized
+    fun configureIfChanged(format: MediaFormat): Boolean {
+        val current = configuredFormat
+        if (track != null && current != null && current.pcmShape() == format.pcmShape()) return false
+        configure(format)
+        return true
+    }
+
     @Synchronized
     fun configure(format: MediaFormat) {
         release()
@@ -140,8 +174,10 @@ internal class AndroidAudioTrackRenderNode(
                 it.addOnRoutingChangedListener(routingListener, null)
             }
         configuredFormat = format
+        refreshEffectStage(format)
         spatialAudioState = spatialAudioProbe?.current(format) ?: AndroidSpatialAudioState()
-        basePresentationTimeUs = null
+        pcmTimeline = YPcmTimeline(sampleRate, checkNotNull(pcmFrameBytes()))
+        timestampJumps = 0
         requestedPlay = false
         speed = 1f
         resetClockProgress()
@@ -183,6 +219,34 @@ internal class AndroidAudioTrackRenderNode(
         audioDelayMs = value.coerceIn(-5_000L, 5_000L)
     }
 
+    /**
+     * Applies [effect] to every write from now on. PCM of an encoding the processor cannot read is
+     * written untouched; [outputDiagnostics] reports the effect actually applied.
+     */
+    @Synchronized
+    fun setAudioEffect(effect: YAudioEffect) {
+        if (effect == audioEffect) return
+        audioEffect = effect
+        val format = configuredFormat
+        if (format != null) {
+            refreshEffectStage(format)
+        } else {
+            effectStage = null
+            effectStageShape = null
+        }
+    }
+
+    /**
+     * A rebuild on the same PCM shape (a dead track, a new output path) keeps the running processor,
+     * so a normalised loudness does not ramp up again from unity.
+     */
+    private fun refreshEffectStage(format: MediaFormat) {
+        val shape = format.pcmShape()
+        if (effectStage?.processor?.effect == audioEffect && effectStageShape == shape) return
+        effectStage = pcmEffectStage(shape, audioEffect)
+        effectStageShape = shape
+    }
+
     /** Only for video pacing. Position/progress/route verification keep using the unmodified clock. */
     @Synchronized
     fun videoClockPositionUs(fallbackPositionUs: Long): Long =
@@ -194,22 +258,37 @@ internal class AndroidAudioTrackRenderNode(
         data: ByteBuffer,
         presentationTimeUs: Long,
     ): Int {
-        val audioTrack = checkNotNull(track) { "AudioTrack render node has not been configured" }
-        if (basePresentationTimeUs == null && data.hasRemaining()) {
-            basePresentationTimeUs = presentationTimeUs.coerceAtLeast(0L)
-        }
+        var audioTrack = checkNotNull(track) { "AudioTrack render node has not been configured" }
         var total = 0
         while (data.hasRemaining()) {
-            val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_BLOCKING)
+            val timestampUs =
+                writeCursor.positionUs(
+                    data,
+                    presentationTimeUs,
+                    checkNotNull(pcmFrameBytes()),
+                    sampleRate,
+                )
+            val stage = effectStage
+            val input = stage?.input(data) ?: data
+            val written = audioTrack.write(input, input.remaining(), AudioTrack.WRITE_BLOCKING)
+            if (written == AudioTrack.ERROR_DEAD_OBJECT && canRebuildDeadTrack()) {
+                audioTrack = rebuildDeadTrack()
+                continue
+            }
             check(written >= 0) { "AudioTrack.write failed with code $written" }
+            stage?.consumed(data, written)
+            writeCursor.consumed(data)
+            recordPcm(timestampUs, written)
             if (written == 0) {
                 zeroWriteCount++
                 continue
             }
+            deadTrackRebuilds = 0
             writtenBytes += written
             pcmTail.record(written)
             total += written
         }
+        restorePlayingBufferIfStarted(audioTrack)
         return total
     }
 
@@ -227,19 +306,76 @@ internal class AndroidAudioTrackRenderNode(
     ): Int {
         val audioTrack = checkNotNull(track) { "AudioTrack render node has not been configured" }
         if (!data.hasRemaining()) return 0
-        val shouldAnchorClock = basePresentationTimeUs == null
-        val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_NON_BLOCKING)
+        val timestampUs = writeCursor.positionUs(data, presentationTimeUs, checkNotNull(pcmFrameBytes()), sampleRate)
+        val stage = effectStage
+        val input = stage?.input(data) ?: data
+        val written = audioTrack.write(input, input.remaining(), AudioTrack.WRITE_NON_BLOCKING)
+        if (written == AudioTrack.ERROR_DEAD_OBJECT && canRebuildDeadTrack()) {
+            // The caller keeps the buffer and offers it again, to the new track, which anchors then.
+            rebuildDeadTrack()
+            return 0
+        }
         check(written >= 0) { "AudioTrack.write failed with code $written" }
+        stage?.consumed(data, written)
+        writeCursor.consumed(data)
+        recordPcm(timestampUs, written)
         if (written == 0) {
             zeroWriteCount++
         } else {
+            deadTrackRebuilds = 0
             writtenBytes += written
             pcmTail.record(written)
         }
-        if (shouldAnchorClock && written > 0) {
-            basePresentationTimeUs = presentationTimeUs.coerceAtLeast(0L)
-        }
+        restorePlayingBufferIfStarted(audioTrack)
         return written
+    }
+
+    private fun canRebuildDeadTrack(): Boolean = configuredFormat != null && deadTrackRebuilds < MAX_DEAD_TRACK_REBUILDS
+
+    /**
+     * The audio server drops a track when it restarts or the output it was routed to goes away
+     * (ERROR_DEAD_OBJECT). That used to fail the whole pipeline; the track is now rebuilt on the
+     * same format, keeping play state and speed, and only the audio buffered in the old one is
+     * lost. A track that dies again before accepting anything still fails.
+     */
+    private fun rebuildDeadTrack(): AudioTrack {
+        val format = checkNotNull(configuredFormat)
+        val resume = requestedPlay
+        val currentSpeed = speed
+        val rebuilds = deadTrackRebuilds + 1
+        val pendingCursor = writeCursor
+        val pendingStage = effectStage
+        val pendingShape = effectStageShape
+        // The already processed remainder is still owned by the decoder buffer. release() must
+        // not discard it and run the same PCM through the effect's advanced state a second time.
+        effectStage = null
+        effectStageShape = null
+        configure(format)
+        effectStage = pendingStage
+        effectStageShape = pendingShape
+        writeCursor = pendingCursor
+        deadTrackRebuilds = rebuilds
+        if (currentSpeed != 1f) setSpeed(currentSpeed)
+        if (resume) play()
+        AppLog.warning(
+            category = "player.core2",
+            event = "audio_track_dead_rebuilt",
+            message = "AudioTrack lost its audio server connection; rebuilt on the same format",
+            attributes = mapOf("attempt" to rebuilds.toString()),
+        )
+        return checkNotNull(track)
+    }
+
+    /** Pre-S: once the first frames have played, the startup cut gives way to the playing buffer. */
+    private fun restorePlayingBufferIfStarted(audioTrack: AudioTrack) {
+        if (!startupBufferLimited) return
+        val started =
+            runCatching {
+                audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING && audioTrack.playbackHeadPosition > 0
+            }.getOrDefault(false)
+        if (!started) return
+        startupBufferLimited = false
+        runCatching { audioTrack.setBufferSizeInFrames(nativeDirectAudioPlayingBufferFrames(sampleRate, audioTrack)) }
     }
 
     @get:Synchronized
@@ -249,9 +385,29 @@ internal class AndroidAudioTrackRenderNode(
     /** Hardware-clock position, not decoder EOS, determines whether submitted PCM remains. */
     @Synchronized
     fun hasPendingPcm(): Boolean {
-        val format = configuredFormat ?: return false
-        val base = basePresentationTimeUs ?: return false
-        if (!pcmTail.hasSamples || sampleRate <= 0) return false
+        val timeline = pcmTimeline ?: return false
+        if (!pcmTail.hasSamples) return false
+        clockSnapshot() ?: return true
+        return timeline.hasPending(selectedPlayedFrames)
+    }
+
+    private fun recordPcm(
+        presentationTimeUs: Long,
+        written: Int,
+    ) {
+        val jumpUs = pcmTimeline?.record(presentationTimeUs, written) ?: return
+        if (++timestampJumps <= MAX_LOGGED_TIMESTAMP_JUMPS) {
+            AppLog.info(
+                category = "player.core2",
+                event = "audio_timestamp_jump",
+                message = "Audio clock queued a timestamp discontinuity at its output frame",
+                attributes = mapOf("jumpMs" to (jumpUs / 1_000L).toString()),
+            )
+        }
+    }
+
+    private fun pcmFrameBytes(): Int? {
+        val format = configuredFormat ?: return null
         val encoding =
             if (format.containsKey(MediaFormat.KEY_PCM_ENCODING)) {
                 format.getInteger(MediaFormat.KEY_PCM_ENCODING)
@@ -264,17 +420,15 @@ internal class AndroidAudioTrackRenderNode(
                 AudioFormat.ENCODING_PCM_16BIT -> 2
                 AudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
                 AudioFormat.ENCODING_PCM_FLOAT, AudioFormat.ENCODING_PCM_32BIT -> 4
-                else -> return false
+                else -> return null
             }
-        val frameBytes = sampleBytes * format.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)
-        val played = clockSnapshot()?.positionUs?.minus(base)?.coerceAtLeast(0L) ?: return true
-        return pcmTail.pending(frameBytes, sampleRate, played)
+        return sampleBytes * format.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)
     }
 
     @Synchronized
     fun clockSnapshot(): YAudioClockSnapshot? {
         val audioTrack = track ?: return null
-        val baseUs = basePresentationTimeUs ?: return null
+        val timeline = pcmTimeline ?: return null
         if (sampleRate <= 0) return null
         val nowNs = System.nanoTime()
         val timestamp = AudioTimestamp()
@@ -297,7 +451,8 @@ internal class AndroidAudioTrackRenderNode(
         }
         lastClockSource = selection.source
         staleClockFallback = false
-        val positionUs = baseUs + selection.framePosition * MICROS_PER_SECOND / sampleRate
+        selectedPlayedFrames = selection.framePosition
+        val positionUs = timeline.positionUs(selectedPlayedFrames) ?: return null
         return YAudioClockSnapshot(
             positionUs = positionUs.coerceAtLeast(0L),
             realtimeNs = selection.realtimeNs,
@@ -326,8 +481,12 @@ internal class AndroidAudioTrackRenderNode(
         if (audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING) audioTrack.pause()
         audioTrack.flush()
         pcmTail.reset()
-        basePresentationTimeUs = null
+        effectStage?.reset()
+        pcmTimeline = YPcmTimeline(sampleRate, checkNotNull(pcmFrameBytes()))
+        writeCursor = PcmWriteCursor()
         resetClockProgress()
+        // A flushed pre-S track would otherwise wait for its whole playing buffer before sounding.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) configureStartThreshold(audioTrack)
         if (resume) audioTrack.play()
     }
 
@@ -337,14 +496,17 @@ internal class AndroidAudioTrackRenderNode(
         track = null
         configuredFormat = null
         pcmTail.reset()
+        effectStage?.discardPending()
         requestedPlay = false
         sampleRate = 0
-        basePresentationTimeUs = null
+        pcmTimeline = null
+        writeCursor = PcmWriteCursor()
         resetClockProgress()
         spatialAudioState = AndroidSpatialAudioState()
         writtenBytes = 0L
         zeroWriteCount = 0L
         startThresholdFrames = 0
+        startupBufferLimited = false
         if (audioTrack != null) {
             runCatching { audioTrack.removeOnRoutingChangedListener(routingListener) }
             runCatching { audioTrack.pause() }
@@ -361,6 +523,7 @@ internal class AndroidAudioTrackRenderNode(
         staleClockFallback = false
         lastTimestampFrames = null
         lastPlaybackHeadFrames = 0L
+        selectedPlayedFrames = 0L
     }
 
     @Synchronized
@@ -374,9 +537,14 @@ internal class AndroidAudioTrackRenderNode(
                     // Capacity protects against jitter; it must not also require two seconds of
                     // interleaved PCM before AudioTrack will begin consuming the first frame.
                     audioTrack.setStartThresholdInFrames(target)
+                } else if (audioTrack.playbackHeadPosition > 0) {
+                    // A route change mid-play keeps the playing buffer; only a start needs the cut.
+                    startupBufferLimited = false
+                    audioTrack.setBufferSizeInFrames(nativeDirectAudioPlayingBufferFrames(sampleRate, audioTrack))
                 } else {
                     // Pre-31 has no independent threshold. Reduce the effective streaming buffer,
                     // leaving its allocation intact; the platform clamps to its hardware minimum.
+                    startupBufferLimited = true
                     audioTrack.setBufferSizeInFrames(target)
                 }.also { check(it > 0) { "AudioTrack rejected startup threshold: $it" } }
             }
@@ -402,6 +570,72 @@ internal class AndroidAudioTrackRenderNode(
         )
     }
 }
+
+/** What an AudioTrack is built from: rate, channels and their layout, and sample encoding. */
+private data class PcmShape(
+    val sampleRate: Int,
+    val channelCount: Int,
+    val channelMask: Int?,
+    val encoding: Int,
+)
+
+private fun MediaFormat.pcmShape(): PcmShape =
+    PcmShape(
+        sampleRate = getInteger(MediaFormat.KEY_SAMPLE_RATE),
+        channelCount = getInteger(MediaFormat.KEY_CHANNEL_COUNT),
+        channelMask = if (containsKey(MediaFormat.KEY_CHANNEL_MASK)) getInteger(MediaFormat.KEY_CHANNEL_MASK) else null,
+        encoding =
+            if (containsKey(MediaFormat.KEY_PCM_ENCODING)) {
+                getInteger(MediaFormat.KEY_PCM_ENCODING)
+            } else {
+                AudioFormat.ENCODING_PCM_16BIT
+            },
+    )
+
+/** The effect stage for PCM of [shape], or null for Off and for encodings it cannot read. */
+private fun pcmEffectStage(
+    shape: PcmShape,
+    effect: YAudioEffect,
+): AndroidPcmEffectStage? {
+    if (effect == YAudioEffect.Off || shape.sampleRate <= 0 || shape.channelCount <= 0) return null
+    val sampleFormat =
+        when (shape.encoding) {
+            AudioFormat.ENCODING_PCM_8BIT -> AndroidPcmSampleFormat.Unsigned8
+            AudioFormat.ENCODING_PCM_16BIT -> AndroidPcmSampleFormat.Signed16
+            AudioFormat.ENCODING_PCM_24BIT_PACKED -> AndroidPcmSampleFormat.Signed24Packed
+            AudioFormat.ENCODING_PCM_32BIT -> AndroidPcmSampleFormat.Signed32
+            AudioFormat.ENCODING_PCM_FLOAT -> AndroidPcmSampleFormat.Float32
+            else -> return null
+        }
+    val roles = audioChannelRoles(audioTrackChannelMask(shape.channelMask, shape.channelCount), shape.channelCount)
+    return AndroidPcmEffectStage(YAudioEffectProcessor(effect, shape.sampleRate, roles), sampleFormat)
+}
+
+/**
+ * What each channel of [mask] carries, in interleaving order (ascending bit). A mask that does not
+ * describe [channelCount] channels counts every channel as a front one.
+ */
+internal fun audioChannelRoles(
+    mask: Int,
+    channelCount: Int,
+): List<YAudioChannelRole> {
+    val roles = (0 until Int.SIZE_BITS - 1).map { 1 shl it }.filter { mask and it != 0 }.map(::audioChannelRole)
+    return roles.takeIf { it.size == channelCount } ?: List(channelCount) { YAudioChannelRole.Front }
+}
+
+private fun audioChannelRole(channel: Int): YAudioChannelRole =
+    when (channel) {
+        AudioFormat.CHANNEL_OUT_FRONT_CENTER -> YAudioChannelRole.Centre
+        AudioFormat.CHANNEL_OUT_LOW_FREQUENCY -> YAudioChannelRole.Lfe
+        AudioFormat.CHANNEL_OUT_BACK_LEFT,
+        AudioFormat.CHANNEL_OUT_BACK_RIGHT,
+        AudioFormat.CHANNEL_OUT_BACK_CENTER,
+        AudioFormat.CHANNEL_OUT_SIDE_LEFT,
+        AudioFormat.CHANNEL_OUT_SIDE_RIGHT,
+        -> YAudioChannelRole.Surround
+        // Every position above the side pair is a height or bottom channel.
+        else -> if (channel > AudioFormat.CHANNEL_OUT_SIDE_RIGHT) YAudioChannelRole.Height else YAudioChannelRole.Front
+    }
 
 private fun buildAudioTrack(format: MediaFormat): AudioTrack {
     val sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
@@ -497,6 +731,26 @@ internal fun nativeDirectAudioStartThresholdFrames(
     require(sampleRate > 0 && capacityFrames > 0)
     return (sampleRate.toLong() * 40L / 1_000L).coerceIn(1L, capacityFrames.toLong()).toInt()
 }
+
+/**
+ * Effective pre-S buffer while playing: at least 500 ms, or the allocation if that is smaller.
+ * Media3 keeps its PCM buffer at 250 ms or more for the same reason; YCore feeds from a polling
+ * worker that can be held up by a long decode, so it keeps a little more.
+ */
+internal fun nativeDirectAudioPlayingBufferFrames(
+    sampleRate: Int,
+    capacityFrames: Int,
+): Int {
+    require(sampleRate > 0 && capacityFrames > 0)
+    return (sampleRate.toLong() * PLAYING_BUFFER_MS / 1_000L).coerceIn(1L, capacityFrames.toLong()).toInt()
+}
+
+private fun nativeDirectAudioPlayingBufferFrames(
+    sampleRate: Int,
+    audioTrack: AudioTrack,
+): Int = nativeDirectAudioPlayingBufferFrames(sampleRate.coerceAtLeast(1), audioTrack.bufferCapacityInFrames)
+
+private const val PLAYING_BUFFER_MS = 500L
 
 internal fun nativeDirectAudioBufferSizeBytes(
     minimumBufferBytes: Int,
@@ -595,6 +849,8 @@ private const val DEFAULT_AUDIO_BUFFER_BYTES = 64 * 1024
 private const val MAX_AUDIO_BUFFER_BYTES = 2 * 1024 * 1024
 private const val MINIMUM_AUDIO_BUFFER_MULTIPLIER = 4L
 private const val TARGET_AUDIO_BUFFER_SECONDS = 2L
+private const val MAX_LOGGED_TIMESTAMP_JUMPS = 5
+private const val MAX_DEAD_TRACK_REBUILDS = 2
 
 internal fun pcmTailPending(
     writtenBytes: Long,
@@ -614,6 +870,9 @@ internal fun pcmTailPending(
 internal class PcmTailTracker {
     private var bytes = 0L
     val hasSamples: Boolean get() = bytes > 0L
+
+    /** Bytes written since the clock was last anchored. */
+    val submittedBytes: Long get() = bytes
 
     fun record(written: Int) {
         if (written > 0) bytes += written

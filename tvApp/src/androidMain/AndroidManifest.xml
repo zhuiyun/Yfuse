@@ -29,6 +29,14 @@
     <uses-feature
         android:name="android.hardware.microphone"
         android:required="false" />
+    <!--
+      Wi-Fi is optional: the Wi-Fi permissions above serve local-network extras such as the DLNA
+      multicast lock in CastManager. Left implied, they would make Play require Wi-Fi and hide the
+      app from televisions on Ethernet only, where everything else works.
+    -->
+    <uses-feature
+        android:name="android.hardware.wifi"
+        android:required="false" />
 
     <!-- Package visibility for the external-player escape hatch (Android 11+). -->
     <queries>
@@ -103,12 +111,47 @@
 
         <activity
             android:name="com.yfuse.feature.player.PlayerActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|density|uiMode"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode"
             android:exported="false"
             android:launchMode="singleTop"
             android:screenOrientation="landscape"
             android:supportsPictureInPicture="true"
             android:theme="@style/Theme.Yfuse.Player" />
+
+        <!--
+          打开方式 → Yfuse, as on the phone (composeApp's manifest explains the choices): a
+          trampoline that turns a video address or a shared http(s) link into a server-less entry
+          for the unexported PlayerActivity and finishes without drawing. Not BROWSABLE.
+        -->
+        <activity
+            android:name="com.yfuse.feature.player.ExternalPlaybackActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="Yfuse 播放"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <!-- Lint expects an http(s) VIEW filter to be BROWSABLE; this one must not be (above). -->
+            <intent-filter tools:ignore="AppLinkUrlError">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
 
         <service
             android:name="com.yfuse.feature.player.PlaybackKeepAliveService"

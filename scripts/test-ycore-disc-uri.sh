@@ -2,17 +2,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="$(mktemp -d)"
-trap 'rm -rf "$BUILD_DIR"' EXIT
+# shellcheck source=scripts/native-test-build.sh
+source "$ROOT/scripts/native-test-build.sh"
 
-"${CXX:-c++}" \
-  -std=c++17 \
-  -Wall \
-  -Wextra \
-  -Werror \
-  -I"$ROOT/scripts/native" \
-  "$ROOT/scripts/native/ycore_disc_uri_test.cpp" \
-  -o "$BUILD_DIR/ycore-disc-uri-test"
-
-"$BUILD_DIR/ycore-disc-uri-test"
+ycore_native_test ycore-disc-uri-test -I"$ROOT/scripts/native" "$ROOT/scripts/native/ycore_disc_uri_test.cpp"
 echo "[ycore-disc-uri] tests passed"
+
+# The Blu-ray stream language lookup.
+ycore_native_test ycore-disc-language-test \
+  -I"$ROOT/scripts/native" "$ROOT/scripts/native/ycore_disc_language_test.cpp"
+echo "[ycore-disc-language] tests passed"

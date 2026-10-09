@@ -80,9 +80,12 @@ class OfficialAiringScheduleCatalog(
                 val candidate = normalizeIdentityTitle(it.title)
                 candidate.isNotBlank() && (candidate.contains(normalized) || normalized.contains(candidate))
             }.sortedByDescending { normalizeIdentityTitle(it.title) == normalized }
-            .map { TmdbSeriesIdentityCandidate(it.tmdbId, it.title, null, it.posterPath) }
+            .map { TmdbSeriesIdentityCandidate(it.tmdbId, it.title, it.premiereYear(), it.posterPath) }
             .take(8)
     }
+
+    /** The year a show premiered, where the publication lists its first episode. */
+    fun premiereYear(tmdbId: Int): Int? = schedules[tmdbId]?.premiereYear()
 
     /**
      * Refreshes a signed remote overlay at most once per interval.
@@ -348,6 +351,18 @@ class OfficialAiringScheduleCatalog(
         val evidence: List<OfficialScheduleEvidence> = emptyList(),
         val episodes: List<OfficialEpisodeSlot>,
     ) {
+        /**
+         * Only a first season's first episode dates the show itself; a later season, or a
+         * listing that starts mid-season, says nothing about the year it began.
+         */
+        fun premiereYear(): Int? =
+            episodes
+                .takeIf { seasonNumber == 1 }
+                ?.firstOrNull { it.episodeNumber == 1 }
+                ?.airDate
+                ?.take(4)
+                ?.toIntOrNull()
+
         fun toEpisode(
             slot: OfficialEpisodeSlot,
             fallbackTitle: String,

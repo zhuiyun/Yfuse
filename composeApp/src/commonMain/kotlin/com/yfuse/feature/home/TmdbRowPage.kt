@@ -4,8 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,19 +21,36 @@ import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LiftMenu
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.PlatformBackHandler
+import com.yfuse.core.designsystem.SelectionAction
+import com.yfuse.core.designsystem.SelectionActionBar
+import com.yfuse.core.designsystem.SelectionMark
 import com.yfuse.core.designsystem.TabBarInset
+import com.yfuse.core.designsystem.coversAll
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.selectingAll
 import com.yfuse.core.designsystem.solidGlass
+import com.yfuse.core.designsystem.toggling
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.EmbyImages
@@ -111,6 +130,11 @@ internal fun TmdbRowPage(
  * Their 全部 used to switch to the 库 tab, which reads the default server alone where these
  * shelves gather every server's, so the page it opened held fewer titles than the shelf. This is
  * the shelf itself, every entry the home page holds, and a long press offers what it does there.
+ *
+ * With [selectionActions] the header has 编辑, which turns the grid into 多选 (I-21): a tap ticks a
+ * card rather than opening it, and the bar under the grid acts on every ticked card at once. Taking
+ * cards off a shelf used to be one long press per card, found only by holding one. [editing] is the
+ * caller's, so the shelf's own 编辑 on 首页 can open this page already selecting.
  */
 @Composable
 internal fun LibraryRowPage(
@@ -120,35 +144,109 @@ internal fun LibraryRowPage(
     onOpen: (HomeResumeEntry) -> Unit,
     liftMenu: (HomeResumeEntry) -> LiftMenu,
     onDismiss: () -> Unit,
+    editing: Boolean = false,
+    onEditingChange: (Boolean) -> Unit = {},
+    /** 编辑's bar for the ticked cards; null where 编辑 has nothing to offer. */
+    selectionActions: ((List<HomeResumeEntry>) -> List<SelectionAction>)? = null,
 ) {
-    HomeRowPageFrame(title = title, caption = caption, onDismiss = onDismiss) {
+    val selecting = editing && selectionActions != null
+    var ticked by remember { mutableStateOf(emptySet<String>()) }
+    // Every 编辑 starts from nothing ticked.
+    LaunchedEffect(selecting) { if (!selecting) ticked = emptySet() }
+    // 返回 leaves 编辑 before it leaves the page.
+    PlatformBackHandler(enabled = selecting) { onEditingChange(false) }
+    val keys = remember(entries) { entries.map { it.key } }
+    // A card that has left the shelf meanwhile leaves the selection with it.
+    val selection = entries.filter { it.key in ticked }
+    HomeRowPageFrame(
+        title = title,
+        caption = if (selecting) "已选择 ${selection.size} 项" else caption,
+        onDismiss = onDismiss,
+        headerActions =
+            if (selectionActions == null) {
+                null
+            } else {
+                {
+                    if (selecting) {
+                        val all = ticked.coversAll(keys)
+                        HeaderTextAction(if (all) "取消全选" else "全选", if (all) "取消选中" else "选中全部") {
+                            ticked = ticked.selectingAll(keys)
+                        }
+                    }
+                    HeaderTextAction(if (selecting) "完成" else "编辑", if (selecting) "退出多选" else "进入多选") {
+                        onEditingChange(!selecting)
+                    }
+                }
+            },
+        bottomBar = {
+            SelectionActionBar(visible = selecting, actions = selectionActions?.invoke(selection).orEmpty())
+        },
+    ) {
         motionItems(entries, key = { "${it.server.id}:${it.item.id}" }) { entry ->
             val item = entry.item
-            CaptionedPoster(
-                url =
-                    EmbyImages.poster(
-                        entry.server.baseUrl,
-                        item,
-                        accessToken = entry.server.accessToken,
-                    ),
-                title = item.title,
-                rating = item.communityRating,
-                progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
-                // An episode's line names the episode; a film's or a show's gives its year.
-                year =
-                    listOfNotNull(
-                        item.subtitle,
-                        entry.server.serverName.takeIf(String::isNotBlank),
-                    ).joinToString(" · "),
-                // No shared element, for the reason the TMDB page has none: the shelf's own
-                // card is still mounted underneath.
-                onClick = { onOpen(entry) },
-                liftMenu = { liftMenu(entry) },
-                modifier = Modifier.fillMaxWidth(),
-                posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
-            )
+            val selected = entry.key in ticked
+            // While selecting, the whole tile is one checkbox, and neither opens nor lifts.
+            Box(
+                if (selecting) {
+                    Modifier
+                        .pressable(role = Role.Checkbox, onClickLabel = if (selected) "取消选择" else "选择") {
+                            ticked = ticked.toggling(entry.key)
+                        }.semantics {
+                            this.selected = selected
+                            stateDescription = if (selected) "已选择" else "未选择"
+                        }
+                } else {
+                    Modifier
+                },
+            ) {
+                CaptionedPoster(
+                    url =
+                        EmbyImages.poster(
+                            entry.server.baseUrl,
+                            item,
+                            accessToken = entry.server.accessToken,
+                        ),
+                    title = item.title,
+                    rating = item.communityRating,
+                    progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
+                    // An episode's line names the episode; a film's or a show's gives its year.
+                    year =
+                        listOfNotNull(
+                            item.subtitle,
+                            entry.server.serverName.takeIf(String::isNotBlank),
+                        ).joinToString(" · "),
+                    // No shared element, for the reason the TMDB page has none: the shelf's own
+                    // card is still mounted underneath.
+                    onClick = { onOpen(entry) }.takeUnless { selecting },
+                    liftMenu = { liftMenu(entry) }.takeUnless { selecting },
+                    modifier = Modifier.fillMaxWidth(),
+                    posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+                )
+                if (selecting) {
+                    SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(7.dp), onArtwork = true)
+                }
+            }
         }
     }
+}
+
+/** 编辑, 全选 and 完成 at the header's end: words in the accent, as 下载's 多选 is. */
+@Composable
+private fun HeaderTextAction(
+    label: String,
+    onClickLabel: String,
+    onClick: () -> Unit,
+) {
+    Text(
+        label,
+        style = AppTypography.body.strong,
+        color = LocalAccentColors.current.accent,
+        modifier =
+            Modifier
+                .pressable(onClickLabel = onClickLabel, onClick = onClick)
+                .touchTarget()
+                .padding(horizontal = 8.dp),
+    )
 }
 
 /** What both 全部 pages share: the back key, the title and its count over a poster grid. */
@@ -157,6 +255,10 @@ private fun HomeRowPageFrame(
     title: String,
     caption: String,
     onDismiss: () -> Unit,
+    /** At the header's end, after the title; none leaves the title the whole row. */
+    headerActions: (@Composable RowScope.() -> Unit)? = null,
+    /** Under the grid, which gives up its foot to whatever this draws. */
+    bottomBar: @Composable ColumnScope.() -> Unit = {},
     content: LazyGridScope.() -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -192,9 +294,11 @@ private fun HomeRowPageFrame(
                         color = palette.sub2,
                     )
                 }
+                headerActions?.let { Row(verticalAlignment = Alignment.CenterVertically, content = it) }
             }
 
             LazyVerticalGrid(
+                modifier = Modifier.weight(1f),
                 // Three across on a phone, more on anything wider — see [PosterMinWidth].
                 columns = GridCells.Adaptive(PosterMinWidth),
                 contentPadding =
@@ -207,6 +311,7 @@ private fun HomeRowPageFrame(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 content = content,
             )
+            bottomBar()
         }
     }
 }

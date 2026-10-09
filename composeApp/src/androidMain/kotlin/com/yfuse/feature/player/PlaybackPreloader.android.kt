@@ -59,6 +59,18 @@ internal class AndroidPlaybackSourcePreloader(
         item: PlayerMediaItem,
         startPositionMs: Long,
         tracks: com.yfuse.core.data.PlaybackTrackRequest.Tracks?,
+    ): PlaybackSourcePreload = preload(item, startPositionMs, tracks, PREPARED_SOURCE_MIN_HOLD_MS)
+
+    override fun preloadNext(
+        item: PlayerMediaItem,
+        holdMs: Long,
+    ): PlaybackSourcePreload = preload(item, 0L, null, holdMs)
+
+    private fun preload(
+        item: PlayerMediaItem,
+        startPositionMs: Long,
+        tracks: com.yfuse.core.data.PlaybackTrackRequest.Tracks?,
+        holdMs: Long,
     ): PlaybackSourcePreload {
         val source =
             item.persistentPlaybackCacheUrl() ?: run {
@@ -98,6 +110,7 @@ internal class AndroidPlaybackSourcePreloader(
                 playbackPreferences.videoCacheSize.value.bytes,
                 mode = preheatMode,
                 initialTrackSelection = item.initialPlaybackTracks(playbackPreferences, tracks),
+                holdMs = holdMs,
             )
         }
         if (

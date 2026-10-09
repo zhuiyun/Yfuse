@@ -147,8 +147,11 @@ class TraktOAuthBrokerTest {
             val deviceResponse = CompletableDeferred<TraktOAuthResponse>()
             val broker =
                 TraktOAuthBroker(
-                    "client", "secret", "https://account.example/api/v1/account/trakt/callback",
-                    TraktOAuthTransport { _, _ -> deviceResponse.await() }, maxPendingChallenges = 2,
+                    "client",
+                    "secret",
+                    "https://account.example/api/v1/account/trakt/callback",
+                    TraktOAuthTransport { _, _ -> deviceResponse.await() },
+                    maxPendingChallenges = 2,
                 ) { clock }
             val older = async(start = CoroutineStart.UNDISPATCHED) { runCatching { broker.begin(account, true) } }
             val latest = broker.begin(account, false)
@@ -167,14 +170,18 @@ class TraktOAuthBrokerTest {
             val deviceResponse = CompletableDeferred<TraktOAuthResponse>()
             val broker =
                 TraktOAuthBroker(
-                    "client", "secret", "https://account.example/api/v1/account/trakt/callback",
+                    "client",
+                    "secret",
+                    "https://account.example/api/v1/account/trakt/callback",
                     TraktOAuthTransport { _, _ ->
                         upstreamCalls++
                         if (upstreamCalls == 1) deviceResponse.await() else TraktOAuthResponse(200, DEVICE_JSON)
-                    }, maxPendingChallenges = 1,
+                    },
+                    maxPendingChallenges = 1,
                 ) { clock }
             val first = async(start = CoroutineStart.UNDISPATCHED) { broker.begin(account, true) }
-            val full = assertFailsWith<AccountServiceException> { broker.begin(account.copy(sessionId = "other"), true) }
+            val full =
+                assertFailsWith<AccountServiceException> { broker.begin(account.copy(sessionId = "other"), true) }
             assertEquals("trakt_busy", full.safeCode)
             assertEquals(1, upstreamCalls)
             deviceResponse.complete(TraktOAuthResponse(200, DEVICE_JSON))
@@ -191,8 +198,11 @@ class TraktOAuthBrokerTest {
             val deviceResponse = CompletableDeferred<TraktOAuthResponse>()
             val broker =
                 TraktOAuthBroker(
-                    "client", "secret", "https://account.example/api/v1/account/trakt/callback",
-                    TraktOAuthTransport { _, _ -> deviceResponse.await() }, maxPendingChallenges = 1,
+                    "client",
+                    "secret",
+                    "https://account.example/api/v1/account/trakt/callback",
+                    TraktOAuthTransport { _, _ -> deviceResponse.await() },
+                    maxPendingChallenges = 1,
                 ) { clock }
             val cancelled = async(start = CoroutineStart.UNDISPATCHED) { broker.begin(account, true) }
             cancelled.cancelAndJoin()
@@ -205,8 +215,11 @@ class TraktOAuthBrokerTest {
         runBlocking<Unit> {
             val broker =
                 TraktOAuthBroker(
-                    "client", "secret", "https://account.example/api/v1/account/trakt/callback",
-                    TraktOAuthTransport { _, _ -> TraktOAuthResponse(503, "{}") }, maxPendingChallenges = 1,
+                    "client",
+                    "secret",
+                    "https://account.example/api/v1/account/trakt/callback",
+                    TraktOAuthTransport { _, _ -> TraktOAuthResponse(503, "{}") },
+                    maxPendingChallenges = 1,
                 ) { clock }
             assertFailsWith<AccountServiceException> { broker.begin(account, true) }
             val retry = broker.begin(account, false)

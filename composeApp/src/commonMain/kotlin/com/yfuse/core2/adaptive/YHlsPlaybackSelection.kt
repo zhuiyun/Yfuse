@@ -96,6 +96,14 @@ fun selectYHlsPlaybackSet(
     )
 }
 
+/**
+ * The set narrowed to its initial variant, for a master FFmpeg's HLS demuxer plays by itself.
+ * That demuxer does no adaptation; given the whole ladder it fetched every variant playlist at
+ * open and exposed each variant's streams, and the route took the first video stream, which the
+ * ladder's lowest-first order made the lowest quality.
+ */
+fun YHlsPlaybackSet.initialVariantOnly(): YHlsPlaybackSet = copy(variants = listOf(initialVariant))
+
 /** Renders a bounded master containing only the selected Dolby family and its adaptive ladder. */
 fun buildYHlsPlaybackMaster(
     playback: YHlsPlaybackSet,

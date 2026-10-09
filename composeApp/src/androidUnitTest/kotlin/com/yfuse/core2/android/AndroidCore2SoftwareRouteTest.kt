@@ -34,6 +34,34 @@ class AndroidCore2SoftwareRouteTest {
     }
 
     @Test
+    fun `software tone mapping stays within what it can map in real time`() {
+        val uhd =
+            decision(
+                YHdrType.Hdr10,
+                YDecodePath.Software,
+                YRenderPath.Gpu,
+                width = 3840,
+                height = 2160,
+                softwareVideoToneMap = true,
+            )
+        val highFrameRate =
+            decision(
+                YHdrType.Hdr10,
+                YDecodePath.Software,
+                YRenderPath.Gpu,
+                softwareVideoToneMap = true,
+                frameRate = 59.94f,
+            )
+
+        val uhdSdr = decision(YHdrType.Sdr, YDecodePath.Software, YRenderPath.Gpu, width = 3840, height = 2160)
+
+        assertFalse(uhd.ffmpegSoftwareExecutable)
+        assertFalse(highFrameRate.ffmpegSoftwareExecutable)
+        // SDR at the same size needs no mapping pass and keeps the wider decode bounds.
+        assertTrue(uhdSdr.ffmpegSoftwareExecutable)
+    }
+
+    @Test
     fun `oversized FFmpeg software video fails closed`() {
         assertFalse(
             decision(
@@ -59,6 +87,7 @@ class AndroidCore2SoftwareRouteTest {
         width: Int = 1920,
         height: Int = 1080,
         softwareVideoToneMap: Boolean = false,
+        frameRate: Float = 24f,
     ): YCore2RouteDecision {
         val request =
             YPlaybackRequest(
@@ -68,7 +97,7 @@ class AndroidCore2SoftwareRouteTest {
                         codec = YVideoCodec.Av1,
                         width = width,
                         height = height,
-                        frameRate = 24f,
+                        frameRate = frameRate,
                         hdrType = hdrType,
                     ),
                 platformDemuxSupported = false,

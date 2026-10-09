@@ -19,7 +19,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -27,9 +31,12 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
 import androidx.navigationevent.DirectNavigationEventInput
@@ -147,6 +154,47 @@ internal class ZoomOrigin(
     val pageSize: Size,
 )
 
+/**
+ * A stack's [ZoomBackNavHost.origins], kept with the tab's saved state. Only the tab on screen is
+ * composed, so leaving a tab takes its stack's host with it while the stack itself stays: a detail
+ * opened from a poster is still that detail over that shelf when the tab comes back, and the host
+ * made for it then has to know. Routes that left the stack meanwhile are dropped by its first
+ * [ZoomBackNavHost.onStack]; a screen turned meanwhile fails the landing's size check, and the page
+ * fades the ordinary way.
+ */
+internal val ZoomOriginsSaver: Saver<SnapshotStateMap<String, ZoomOrigin>, Any> =
+    listSaver<SnapshotStateMap<String, ZoomOrigin>, Any?>(
+        save = { origins ->
+            origins.flatMap { (route, origin) ->
+                listOf<Any?>(
+                    route,
+                    origin.key.serverId,
+                    origin.key.itemId,
+                    origin.key.kind,
+                    origin.underlay,
+                    origin.pageSize.width,
+                    origin.pageSize.height,
+                )
+            }
+        },
+        restore = { saved ->
+            val origins = mutableStateMapOf<String, ZoomOrigin>()
+            saved.chunked(ZOOM_ORIGIN_FIELDS).forEach { fields ->
+                val route = fields.getOrNull(0) as? String ?: return@forEach
+                val itemId = fields.getOrNull(2) as? String ?: return@forEach
+                val kind = fields.getOrNull(3) as? String ?: return@forEach
+                val underlay = fields.getOrNull(4) as? String ?: return@forEach
+                val width = fields.getOrNull(5) as? Float ?: return@forEach
+                val height = fields.getOrNull(6) as? Float ?: return@forEach
+                val key = MediaSharedElementKey(fields[1] as? String, itemId, kind)
+                origins[route] = ZoomOrigin(key, underlay, Size(width, height))
+            }
+            origins
+        },
+    )
+
+private const val ZOOM_ORIGIN_FIELDS = 7
+
 /** Where a route's page sits: outside its zoom layers, and inside them. */
 internal class ZoomFrame {
     var outer: LayoutCoordinates? = null
@@ -174,6 +222,8 @@ internal fun zoomBackRouteTransform(): ContentTransform =
 internal class ZoomBackNavHost(
     val controller: ZoomBackController,
     private val realOwner: NavigationEventDispatcherOwner,
+    /** Routes entered from a poster, by content key; kept with the stack, see [ZoomOriginsSaver]. */
+    val origins: SnapshotStateMap<String, ZoomOrigin>,
 ) {
     private val navigation = PrivateNavigation()
     private val frames = mutableMapOf<String, ZoomFrame>()
@@ -183,9 +233,6 @@ internal class ZoomBackNavHost(
     private var visible = true
 
     val sources = ZoomBackSources()
-
-    /** Routes entered from a poster, by content key. */
-    val origins = mutableStateMapOf<String, ZoomOrigin>()
 
     // NavDisplay can retain an outgoing entry after its key leaves the back stack. Its
     // last frame must stay hidden even after the gesture controller is reused/reset.
@@ -473,7 +520,8 @@ internal fun rememberZoomBackNavHost(enabled: Boolean): ZoomBackNavHost? {
     val bridged = remember { enabled && realOwner != null }
     if (!bridged || realOwner == null) return null
     val scope = rememberCoroutineScope()
-    val host = remember(realOwner) { ZoomBackNavHost(ZoomBackController(scope), realOwner) }
+    val origins = rememberSaveable(saver = ZoomOriginsSaver) { mutableStateMapOf<String, ZoomOrigin>() }
+    val host = remember(realOwner) { ZoomBackNavHost(ZoomBackController(scope), realOwner, origins) }
     DisposableEffect(host) {
         host.attach()
         onDispose { host.detach() }
@@ -705,6 +753,18 @@ internal fun ZoomBackOverlay(
     )
     Box(
         modifier
+            // On its way out — closed, or let go past the point of no return — the page takes no
+            // touch: a row still fading is not there to be tapped. Checked on every event, so a
+            // press that began before it left cannot end as a click on it either. Closed, it is not
+            // read out any more.
+            .pointerInput(controller) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (!latestVisible || controller.leaving) event.changes.forEach { it.consume() }
+                    }
+                }
+            }.then(if (visible) Modifier else Modifier.clearAndSetSemantics {})
             .onPlaced {
                 frame.outer = it
                 controller.page = it.size.toSize()

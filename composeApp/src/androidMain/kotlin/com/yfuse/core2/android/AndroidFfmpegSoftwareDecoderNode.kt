@@ -9,12 +9,14 @@ internal sealed interface YSoftwareVideoDecodeResult {
 
     data object Ended : YSoftwareVideoDecodeResult
 
+    /** Four bytes per pixel in RGBA order, or BGRA when [redBlueSwapped] (older native libraries). */
     data class Frame(
         val data: ByteBuffer,
         val presentationTimeUs: Long,
         val width: Int,
         val height: Int,
         val strideBytes: Int,
+        val redBlueSwapped: Boolean = false,
     ) : YSoftwareVideoDecodeResult
 }
 
@@ -29,6 +31,7 @@ internal sealed interface YSoftwareAudioDecodeResult {
         val channelCount: Int,
         val sampleRate: Int,
         val sampleCount: Int,
+        val sampleFormat: AndroidPcmSampleFormat = AndroidPcmSampleFormat.Signed16,
     ) : YSoftwareAudioDecodeResult
 }
 
@@ -83,13 +86,14 @@ internal class AndroidFfmpegSoftwareDecoderNode(
                     val width = result[SOFTWARE_FRAME_FIRST].toInt()
                     val height = result[SOFTWARE_FRAME_SECOND].toInt()
                     val stride = result[SOFTWARE_FRAME_THIRD].toInt()
-                    require(width > 0 && height > 0 && stride >= width * BYTES_PER_BGRA_PIXEL)
+                    require(width > 0 && height > 0 && stride >= width * BYTES_PER_PIXEL)
                     return YSoftwareVideoDecodeResult.Frame(
                         data = videoBuffer.frameSlice(size),
                         presentationTimeUs = result[SOFTWARE_FRAME_PTS].timestampOrZero(),
                         width = width,
                         height = height,
                         strideBytes = stride,
+                        redBlueSwapped = !demuxer.softwareVideoRgba,
                     )
                 }
                 else -> error("Unknown FFmpeg software video status")
@@ -120,13 +124,20 @@ internal class AndroidFfmpegSoftwareDecoderNode(
                     val sampleRate = result[SOFTWARE_FRAME_SECOND].toInt()
                     val samples = result[SOFTWARE_FRAME_THIRD].toInt()
                     require(channels in 1..32 && sampleRate in 1..768_000 && samples > 0)
-                    require(size == channels * samples * Short.SIZE_BYTES)
+                    val sampleFormat =
+                        if (demuxer.softwareAudioFloat) {
+                            AndroidPcmSampleFormat.Float32
+                        } else {
+                            AndroidPcmSampleFormat.Signed16
+                        }
+                    require(size.toLong() == channels.toLong() * samples * sampleFormat.bytes)
                     return YSoftwareAudioDecodeResult.Frame(
                         data = audioBuffer.frameSlice(size),
                         presentationTimeUs = result[SOFTWARE_FRAME_PTS].timestampOrZero(),
                         channelCount = channels,
                         sampleRate = sampleRate,
                         sampleCount = samples,
+                        sampleFormat = sampleFormat,
                     )
                 }
                 else -> error("Unknown FFmpeg software audio status")
@@ -175,5 +186,5 @@ private const val SOFTWARE_FRAME_EOF = 2L
 private const val SOFTWARE_FRAME_GROW = -1L
 private const val MAX_VIDEO_FRAME_BYTES = 128 * 1024 * 1024
 private const val MAX_AUDIO_FRAME_BYTES = 8 * 1024 * 1024
-private const val BYTES_PER_BGRA_PIXEL = 4
+private const val BYTES_PER_PIXEL = 4
 private const val MAX_GROW_RETRIES = 2

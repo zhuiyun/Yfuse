@@ -249,6 +249,29 @@ class PersonalLibraryRepositoryTest {
     }
 
     @Test
+    fun playbackMovingAnEntryAlongIsPendingWithoutCountingAsNewsForOtherDevices() {
+        val personal = PersonalLibraryRepository(MapSettings())
+        val episode = PersonalMediaRef("tmdb:1399/s1e1", "凛冬将至", "Episode")
+
+        personal.recordHistory(episode, 15_000, 3_600_000, false)
+        val watched = personal.contentRevision.value
+        assertTrue(watched > 0)
+        personal.recordHistory(episode, 30_000, 3_600_000, false)
+        personal.recordHistory(episode, 45_000, 3_600_000, false)
+        assertEquals(watched, personal.contentRevision.value)
+        assertTrue(personal.state.value.pendingSync)
+
+        personal.recordHistory(episode, 3_600_000, 3_600_000, true)
+        val finished = personal.contentRevision.value
+        assertTrue(finished > watched)
+        personal.removeHistory(episode)
+        val removed = personal.contentRevision.value
+        assertTrue(removed > finished)
+        personal.recordHistory(episode, 15_000, 3_600_000, false)
+        assertTrue(personal.contentRevision.value > removed)
+    }
+
+    @Test
     fun serverLocalIdsRemainDistinctAndMalformedVersionsCannotPoisonMerge() {
         val personal = PersonalLibraryRepository(MapSettings())
         val local = media.copy(mediaKey = "emby:1", tmdbId = null, serverId = "server-a")

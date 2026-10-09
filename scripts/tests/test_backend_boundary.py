@@ -95,6 +95,16 @@ class BackendBoundaryTest(unittest.TestCase):
                    'val url = BackendEndpoints.UPDATE_MANIFEST\nURL(url).openConnection()')
         self.assertTrue(any('delegate transport' in error for error in self.check()))
 
+    def test_tmdb_proxy_route_cannot_return_to_application_sources(self):
+        self.write('composeApp/src/commonMain/kotlin/com/yfuse/core/network/Tmdb.kt',
+                   'val proxy = "$accountOrigin/api/v1/tmdb"')
+        self.assertTrue(any('service route' in error for error in self.check()))
+
+    def test_remote_sign_in_transport_must_use_the_backend_connector(self):
+        self.write('composeApp/src/commonMain/kotlin/com/yfuse/core/remote/RemoteSignInClient.kt',
+                   'import io.ktor.client.request.post\nclient.post(relayUrl)')
+        self.assertTrue(any('delegate transport' in error for error in self.check()))
+
     def test_third_party_media_and_platform_engine_adapters_remain_allowed(self):
         self.write('composeApp/src/commonMain/kotlin/com/yfuse/core/trakt/TraktApi.kt',
                    'import io.ktor.client.request.prepareGet\nclient.prepareGet("https://api.trakt.tv/sync/history")')
@@ -102,6 +112,8 @@ class BackendBoundaryTest(unittest.TestCase):
                    'import io.ktor.client.request.get\nclient.get(userSuppliedMediaUrl)')
         self.write('composeApp/src/commonMain/kotlin/com/yfuse/core/account/AccountClientFactory.kt',
                    'fun createAccountClient() = createBackendAccountClient(embyHttpEngine())')
+        self.write('composeApp/src/commonMain/kotlin/com/yfuse/core/network/Tmdb.kt',
+                   'import io.ktor.client.request.get\nclient.get("https://api.themoviedb.org/3/movie/1")')
         self.assertEqual([], self.check())
 
     def test_comments_and_test_fixtures_do_not_trigger_production_address_rules(self):

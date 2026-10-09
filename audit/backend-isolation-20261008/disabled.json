@@ -1,0 +1,19 @@
+{
+  "configuration": "disabled",
+  "modules": {
+    "yfuseBackendClient": {
+      "tests": 35,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 7
+    },
+    "phoneShared": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 8
+    }
+  }
+}

@@ -4,6 +4,8 @@ import com.yfuse.tv.focus.FocusAnchor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotSame
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class TvFocusMemoryTest {
@@ -45,6 +47,34 @@ class TvFocusMemoryTest {
 
         assertTrue(memory.restorePending(tvDetailRoute("a")))
         assertFalse(memory.restorePending(tvDetailRoute("b")))
+    }
+
+    @Test
+    fun `a restore a card left behind ends only with that card`() {
+        val memory = TvUiFocusMemory()
+        val card = Any()
+        memory.beginRestore("home", owner = card)
+
+        // The rail leaves it waiting, as it does a page's own entry; only its card can end it.
+        memory.remember("navigation", "navigation:Home")
+        memory.endRestore("home", owner = Any())
+        assertTrue(memory.restoreOwnedBy("home", card))
+
+        memory.endRestore("home", owner = card)
+        assertFalse(memory.restorePending("home"))
+    }
+
+    @Test
+    fun `a row shown other content starts again where it is told`() {
+        val memory = TvUiFocusMemory()
+        val firstSeason = memory.rowState("detail:x:episodes", content = "s1e1", initialIndex = 0)
+
+        // The same season, back from the player: the row is where it was left.
+        assertSame(firstSeason, memory.rowState("detail:x:episodes", content = "s1e1", initialIndex = 5))
+
+        val secondSeason = memory.rowState("detail:x:episodes", content = "s2e1", initialIndex = 3)
+        assertNotSame(firstSeason, secondSeason)
+        assertEquals(3, secondSeason.firstVisibleItemIndex)
     }
 
     @Test

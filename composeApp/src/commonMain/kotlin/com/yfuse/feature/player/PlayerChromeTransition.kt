@@ -2,6 +2,8 @@ package com.yfuse.feature.player
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,11 +30,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.CALM_DURATION_SCALE
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.calmMotion
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 /**
  * Which edge a piece of player chrome belongs to, and therefore where it comes from.
@@ -54,6 +61,9 @@ internal enum class ChromeEdge { Top, Bottom, End, None }
  * Under 减弱动态效果 the movement goes and the crossfade stays: chrome appearing instantly
  * over a moving picture is harder to follow than chrome that fades, and a fade is not the
  * kind of motion that setting is there to suppress.
+ *
+ * Under 静息 the chrome moves the way its pages do: a shorter fade over a few dp from its edge,
+ * both bars together rather than in sequence, and nothing scales.
  */
 @Composable
 internal fun ChromeVisibility(
@@ -70,19 +80,27 @@ internal fun ChromeVisibility(
      * fade and nothing more.
      */
     coversScreen: Boolean = false,
+    /** Appear with no fade or scale — something already on screen in the same place hands over to it. */
+    instantEnter: Boolean = false,
+    /** Go with no fade or scale — something appearing in the same place takes over from it. */
+    instantExit: Boolean = false,
     content: @Composable AnimatedVisibilityScope.() -> Unit,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val calm = !reduceMotion && calmMotion()
     // The two bars are one gesture in two halves: the title bar leads on the way in and
     // the transport follows a beat later; leaving, the transport goes first and the title
     // bar lingers. The offset is small enough to read as sequence, not as lag.
-    val enterDelay = if (edge == ChromeEdge.Bottom) Motion.PLAYER_CHROME_STAGGER else 0
-    val exitDelay = if (edge == ChromeEdge.Top) Motion.PLAYER_CHROME_STAGGER else 0
-    val fade = tween<Float>(Motion.STANDARD, delayMillis = enterDelay, easing = Motion.Curve)
-    val slide = tween<IntOffset>(Motion.STANDARD, delayMillis = enterDelay, easing = Motion.Curve)
-    val fadeAway = tween<Float>(Motion.STANDARD, delayMillis = exitDelay, easing = Motion.Curve)
-    val slideAway = tween<IntOffset>(Motion.STANDARD, delayMillis = exitDelay, easing = Motion.Curve)
-    val travel: (Int) -> Int = { full -> full / 6 }
+    val stagger = if (calm) 0 else Motion.PLAYER_CHROME_STAGGER
+    val enterDelay = if (edge == ChromeEdge.Bottom) stagger else 0
+    val exitDelay = if (edge == ChromeEdge.Top) stagger else 0
+    val duration = if (calm) (Motion.STANDARD * CALM_DURATION_SCALE).roundToInt() else Motion.STANDARD
+    val fade = tween<Float>(duration, delayMillis = enterDelay, easing = Motion.Curve)
+    val slide = tween<IntOffset>(duration, delayMillis = enterDelay, easing = Motion.Curve)
+    val fadeAway = tween<Float>(duration, delayMillis = exitDelay, easing = Motion.Curve)
+    val slideAway = tween<IntOffset>(duration, delayMillis = exitDelay, easing = Motion.Curve)
+    val calmTravelPx = with(LocalDensity.current) { CalmChromeTravel.roundToPx() }
+    val travel: (Int) -> Int = { full -> if (calm) minOf(full / 6, calmTravelPx) else full / 6 }
     val moving = !reduceMotion
 
     val enter =
@@ -91,6 +109,7 @@ internal fun ChromeVisibility(
             edge == ChromeEdge.Top -> fadeIn(fade) + slideInVertically(slide) { -travel(it) }
             edge == ChromeEdge.Bottom -> fadeIn(fade) + slideInVertically(slide) { travel(it) }
             edge == ChromeEdge.End -> fadeIn(fade) + slideInHorizontally(slide) { travel(it) }
+            calm -> fadeIn(fade)
             // Anchored inside its own full-screen box, so it grows out of the corner it sits in
             // rather than sliding the invisible dismiss catcher around with it.
             else ->
@@ -107,6 +126,7 @@ internal fun ChromeVisibility(
             edge == ChromeEdge.Top -> fadeOut(fadeAway) + slideOutVertically(slideAway) { -travel(it) }
             edge == ChromeEdge.Bottom -> fadeOut(fadeAway) + slideOutVertically(slideAway) { travel(it) }
             edge == ChromeEdge.End -> fadeOut(fadeAway) + slideOutHorizontally(slideAway) { travel(it) }
+            calm -> fadeOut(fadeAway)
             else ->
                 fadeOut(fadeAway) +
                     scaleOut(
@@ -130,11 +150,14 @@ internal fun ChromeVisibility(
                     }
                 },
             ),
-        enter = enter,
-        exit = exit,
+        enter = if (instantEnter) EnterTransition.None else enter,
+        exit = if (instantExit) ExitTransition.None else exit,
         content = content,
     )
 }
+
+/** 静息's chrome travel: the same few dp its pages move, enough to say which edge it belongs to. */
+private val CalmChromeTravel = 8.dp
 
 private class RetainedChrome<T>(
     var value: T?,

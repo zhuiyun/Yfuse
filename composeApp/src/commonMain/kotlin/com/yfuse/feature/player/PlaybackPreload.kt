@@ -115,4 +115,31 @@ interface PlaybackSourcePreloader {
         startPositionMs: Long,
         tracks: com.yfuse.core.data.PlaybackTrackRequest.Tracks?,
     ): PlaybackSourcePreload = preload(item, startPositionMs)
+
+    /**
+     * The next episode, from its start, kept prepared for [holdMs]: what is left of the episode
+     * playing, so the preparation is still there when it ends rather than expiring halfway.
+     */
+    fun preloadNext(
+        item: PlayerMediaItem,
+        holdMs: Long,
+    ): PlaybackSourcePreload = preload(item)
 }
+
+/** The shortest a prepared source is held; also how long a page's own preparation lasts. */
+const val PREPARED_SOURCE_MIN_HOLD_MS = 30_000L
+
+/** The longest a prepared next episode is held, whatever is left of the current one. */
+const val PREPARED_SOURCE_MAX_HOLD_MS = 120_000L
+
+/** How long before the end the next episode is prepared: 90 seconds, or half a shorter episode. */
+internal fun nextSourcePreloadWindowMs(durationMs: Long): Long =
+    if (durationMs > 0L) minOf(NEXT_SOURCE_PRELOAD_WINDOW_MS, durationMs / 2) else NEXT_SOURCE_PRELOAD_WINDOW_MS
+
+private const val NEXT_SOURCE_PRELOAD_WINDOW_MS = 90_000L
+
+/** How long the next episode's preparation is held once made: the rest of this one and a margin. */
+internal fun nextSourceHoldMs(remainingMs: Long): Long =
+    (remainingMs + NEXT_SOURCE_HOLD_MARGIN_MS).coerceIn(PREPARED_SOURCE_MIN_HOLD_MS, PREPARED_SOURCE_MAX_HOLD_MS)
+
+private const val NEXT_SOURCE_HOLD_MARGIN_MS = 15_000L

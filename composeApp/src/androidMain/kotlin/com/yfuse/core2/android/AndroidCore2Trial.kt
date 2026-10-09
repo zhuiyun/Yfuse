@@ -15,6 +15,7 @@ import com.yfuse.core2.api.YExternalSubtitleSource
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YMediaSourceHints
 import com.yfuse.core2.api.YPlayerOpenRequest
+import com.yfuse.core2.api.yMediaSourceKey
 import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import com.yfuse.core2.network.YCacheIdentity
@@ -25,7 +26,7 @@ import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.strategy.YDecoderPreference
 import com.yfuse.core2.strategy.YOptimizationPreference
 import com.yfuse.core2.subtitle.YSubtitleFormat
-import com.yfuse.feature.player.AndroidPlaybackHttpProxy
+import com.yfuse.feature.filesource.isFileSourcePlayback
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.VideoEngine
 import com.yfuse.feature.player.externalSubtitleFormatHint
@@ -63,18 +64,6 @@ internal object AndroidCore2TrialFactory {
         initialTrackSelections: Map<String, com.yfuse.core2.api.YInitialTrackSelection> = emptyMap(),
     ): VideoEngine? {
         if (!items.canUseCore2Trial(startIndex)) return null
-        val cacheProxy =
-            if (!nativeOnly && videoCacheBytes > 0L) {
-                runCatching {
-                    AndroidPlaybackHttpProxy(
-                        context = context.applicationContext,
-                        userAgent = customUserAgent,
-                        videoCacheBytes = videoCacheBytes,
-                    )
-                }.getOrNull()
-            } else {
-                null
-            }
         val yCoreProxy =
             if (nativeOnly && items.any { item -> item.requiresYCoreAdaptiveProxy() }) {
                 runCatching {
@@ -95,49 +84,44 @@ internal object AndroidCore2TrialFactory {
                         cacheMaximumBytes = videoCacheBytes,
                         initialTrackSelections = initialTrackSelections,
                         localize = { item, upstreamUrl ->
-                            val cacheable =
-                                item.persistentPlaybackCacheUrl(item.startsWithServerTranscode()) ==
-                                    upstreamUrl.trim()
-                            if (nativeOnly) {
-                                // Static MP4/MKV/ISO sources already have a protocol-aware YCore
-                                // MediaDataSource. Sending them through the loopback manifest proxy
-                                // creates two nested range caches and repeats the upstream size
-                                // probe for every block. Keep the proxy only for authored adaptive
-                                // manifests that actually require URI rewriting.
-                                if (item.requiresYCoreAdaptiveProxy(upstreamUrl)) {
-                                    requireNotNull(yCoreProxy).localUrl(
-                                        upstreamUri = upstreamUrl,
-                                        upstreamHeaders =
-                                            customUserAgent
-                                                .trim()
-                                                .takeIf(String::isNotEmpty)
-                                                ?.let { mapOf(USER_AGENT_HEADER to it) }
-                                                .orEmpty() +
-                                                embyPlaybackHeaders(upstreamUrl) { AppBuildConfig.VERSION_NAME },
-                                        credentials = item.transportCredentials,
-                                        cacheable = cacheable,
-                                        cacheIdentity = item.yCoreCacheIdentity(),
-                                        maximumWidth = item.activeVersion?.sourceWidth,
-                                        maximumHeight = item.activeVersion?.sourceHeight,
-                                        hlsManifest =
-                                            upstreamUrl.isHlsManifest() ||
-                                                item.activeVersion?.container.isHlsContainer(),
-                                        dashManifest =
-                                            upstreamUrl.isDashManifest() ||
-                                                item.activeVersion?.container.isDashContainer(),
-                                        drmProtected =
-                                            item.drmConfiguration != null ||
-                                                item.activeVersion?.drmConfiguration != null,
-                                        // The authored HLS master is the source of truth. Emby metadata
-                                        // can omit rendition-level Dolby facts that AVFoundation sees.
-                                        allowDolbyVisionHls = allowDolbyVisionHls,
-                                        allowDolbyAtmosHls = allowDolbyAtmosHls,
-                                    )
-                                } else {
-                                    upstreamUrl
-                                }
-                            } else if (cacheable) {
-                                cacheProxy?.localUrl(upstreamUrl, cacheable = true) ?: upstreamUrl
+                            // Static MP4/MKV/ISO sources go to YCore as they are: its protocol-aware
+                            // MediaDataSource reads them through its own range transport and block
+                            // cache. A loopback proxy in front would nest a second cache, repeat the
+                            // upstream size probe for every block, and hand the queue an address no
+                            // later queue update matches. Only authored adaptive manifests, which
+                            // need URI rewriting, use the native-only manifest proxy.
+                            if (nativeOnly && item.requiresYCoreAdaptiveProxy(upstreamUrl)) {
+                                val cacheable =
+                                    item.persistentPlaybackCacheUrl(item.startsWithServerTranscode()) ==
+                                        upstreamUrl.trim()
+                                requireNotNull(yCoreProxy).localUrl(
+                                    upstreamUri = upstreamUrl,
+                                    upstreamHeaders =
+                                        customUserAgent
+                                            .trim()
+                                            .takeIf(String::isNotEmpty)
+                                            ?.let { mapOf(USER_AGENT_HEADER to it) }
+                                            .orEmpty() +
+                                            embyPlaybackHeaders(upstreamUrl) { AppBuildConfig.VERSION_NAME },
+                                    credentials = item.transportCredentials,
+                                    cacheable = cacheable,
+                                    cacheIdentity = item.yCoreCacheIdentity(),
+                                    maximumWidth = item.activeVersion?.sourceWidth,
+                                    maximumHeight = item.activeVersion?.sourceHeight,
+                                    hlsManifest =
+                                        upstreamUrl.isHlsManifest() ||
+                                            item.activeVersion?.container.isHlsContainer(),
+                                    dashManifest =
+                                        upstreamUrl.isDashManifest() ||
+                                            item.activeVersion?.container.isDashContainer(),
+                                    drmProtected =
+                                        item.drmConfiguration != null ||
+                                            item.activeVersion?.drmConfiguration != null,
+                                    // The authored HLS master is the source of truth. Emby metadata
+                                    // can omit rendition-level Dolby facts that AVFoundation sees.
+                                    allowDolbyVisionHls = allowDolbyVisionHls,
+                                    allowDolbyAtmosHls = allowDolbyAtmosHls,
+                                )
                             } else {
                                 upstreamUrl
                             }
@@ -193,17 +177,13 @@ internal object AndroidCore2TrialFactory {
                     preferSoftwareDecode = decoderMode == DecoderMode.Software,
                     preferredRemoteBufferTargetUs = yCoreBufferTargetUs,
                     adaptiveFeedbackSink = yCoreProxy,
-                    onRelease = {
-                        cacheProxy?.close()
-                        yCoreProxy?.close()
-                    },
+                    onRelease = { yCoreProxy?.close() },
                 )
             player.setSpeed(startSpeed)
             player.prepare()
             YPlayerVideoEngineAdapter(player)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
-            cacheProxy?.close()
             yCoreProxy?.close()
             throw error
         }
@@ -245,23 +225,29 @@ private fun PlaybackOptimizationMode.toCore2Preference(): YOptimizationPreferenc
         PlaybackOptimizationMode.Compatibility -> YOptimizationPreference.Compatibility
     }
 
+/**
+ * Whether the item at [startIndex] can open in YCore. Only that item decides: one episode with a
+ * Dolby Vision profile or DRM YCore cannot take used to keep the whole season off YCore, and in
+ * the native-only build that left nothing to play at all. A later item YCore cannot take fails
+ * when it is reached: the native-only build reports that episode, the full build hands the
+ * session to its Legacy engine there.
+ */
 internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
-    if (isEmpty() || startIndex !in indices) return false
-    return all { item ->
-        val version = item.activeVersion
-        // Unknown server metadata is not evidence that the stream is unsupported. Let it reach
-        // YCore's local MediaExtractor/FFmpeg truth probe, then keep routing fail-closed if that
-        // probe still cannot identify a supported Dolby Vision profile.
-        val knownUnsupportedDolbyProfile =
-            version?.dolbyVision == true &&
-                version.dolbyProfile != null &&
-                version.dolbyProfile !in CORE2_DOLBY_TRIAL_PROFILES
-        val drmConfiguration = item.drmConfiguration ?: version?.drmConfiguration
-        !knownUnsupportedDolbyProfile &&
-            (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
-            item.playbackExternalSubtitles().all { subtitle -> subtitle.uri.isCore2SubtitleSourceSupported() } &&
-            item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
-    }
+    val item = getOrNull(startIndex) ?: return false
+    val version = item.activeVersion
+    // Unknown server metadata is not evidence that the stream is unsupported. Let it reach
+    // YCore's local MediaExtractor/FFmpeg truth probe, then keep routing fail-closed if that
+    // probe still cannot identify a supported Dolby Vision profile.
+    val knownUnsupportedDolbyProfile =
+        version?.dolbyVision == true &&
+            version.dolbyProfile != null &&
+            version.dolbyProfile !in CORE2_DOLBY_TRIAL_PROFILES
+    val drmConfiguration = item.drmConfiguration ?: version?.drmConfiguration
+    // Sidecars are loaded on selection by AndroidExternalSubtitleSession. A bad or
+    // unsupported track must not veto this video's route.
+    return !knownUnsupportedDolbyProfile &&
+        (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
+        item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
 }
 
 internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: Int): String? {
@@ -288,10 +274,7 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
                 version?.dolbyVision != true ||
                     version?.dolbyProfile == null ||
                     version?.dolbyProfile in CORE2_DOLBY_TRIAL_PROFILES,
-            externalSubtitleSupported =
-                item.playbackExternalSubtitles().all { subtitle ->
-                    subtitle.uri.isCore2SubtitleSourceSupported()
-                },
+            probedBeforeRouting = item.isFileSourcePlayback,
         )
     return evaluateCore2NativeBaseline(source)?.userMessage()
 }
@@ -308,7 +291,6 @@ private fun Core2NativeBaselineBlock.userMessage(): String =
         Core2NativeBaselineBlock.Disc -> "YCore Native 当前只支持可寻址的 Blu-ray / BDMV / Blu-ray ISO"
         Core2NativeBaselineBlock.Drm -> "YCore Native 当前只支持已验证容器中的 Widevine DRM"
         Core2NativeBaselineBlock.DolbyVision -> "YCore Native 尚未验证当前杜比视界 Profile"
-        Core2NativeBaselineBlock.ExternalSubtitle -> "YCore Native 不支持当前外挂字幕来源"
     }
 
 private fun String.isAdaptiveManifest(): Boolean {
@@ -414,19 +396,20 @@ private fun PlayerMediaItem.toCore2MediaItem(
             url
         }
     val localizedUri = localize(this, upstreamUri)
+    val upstreamHeaders = headers + embyPlaybackHeaders(upstreamUri, appVersion)
     return YMediaItem(
         id = id,
         uri = localizedUri,
         title = title,
         mimeType = if (usingServerTranscode) null else version?.container.toCore2ContainerMimeType(),
         headers =
-            headers +
-                if (mediaCredentialOriginsMatch(upstreamUri, localizedUri)) {
-                    embyPlaybackHeaders(upstreamUri, appVersion)
-                } else {
-                    // A loopback proxy owns upstream auth; it must not receive it as a client header.
-                    emptyMap()
-                },
+            if (mediaCredentialOriginsMatch(upstreamUri, localizedUri)) {
+                upstreamHeaders
+            } else {
+                // A loopback proxy owns upstream auth; it must not receive it as a client header.
+                headers
+            },
+        sourceKey = yMediaSourceKey(upstreamUri, upstreamHeaders),
         providerKey = serverId,
         playbackSessionId = playSessionId,
         allowNextItemPreparation = canPreloadSource && !usingServerTranscode,
@@ -467,6 +450,9 @@ private fun PlayerMediaItem.toCore2MediaItem(
                             "vtt", "webvtt" -> YSubtitleFormat.WebVtt
                             "ass" -> YSubtitleFormat.Ass
                             "ssa" -> YSubtitleFormat.Ssa
+                            "smi", "sami" -> YSubtitleFormat.Smi
+                            "ttml", "dfxp" -> YSubtitleFormat.Ttml
+                            "microdvd" -> YSubtitleFormat.MicroDvd
                             else -> null
                         },
                     default = subtitle.default,
@@ -512,12 +498,6 @@ private fun PlayerMediaItem.yCoreCacheIdentity(): YCacheIdentity? =
             )
         }
 
-private fun String?.isCore2SubtitleSourceSupported(): Boolean {
-    if (isNullOrBlank()) return true
-    if (substringBefore(':').lowercase() !in CORE2_SUBTITLE_SOURCE_SCHEMES) return false
-    return externalSubtitleFormatHint(this)?.let(CORE2_SUBTITLE_FORMATS::contains) != false
-}
-
 private fun PlaybackDiscKind.toCore2DiscKind(): YDiscKind =
     when (this) {
         PlaybackDiscKind.Iso -> YDiscKind.Iso
@@ -542,13 +522,4 @@ private val CORE2_SOURCE_SCHEMES =
         "yfusebd",
         "yfusebdmv",
     )
-private val CORE2_SUBTITLE_SOURCE_SCHEMES =
-    setOf(
-        "http",
-        "https",
-        "file",
-        "content",
-        "android.resource",
-    )
-private val CORE2_SUBTITLE_FORMATS = setOf("srt", "vtt", "webvtt", "ass", "ssa")
 private const val USER_AGENT_HEADER = "User-Agent"

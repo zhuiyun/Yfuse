@@ -2,11 +2,15 @@ package com.yfuse.core.security
 
 import com.russhwolf.settings.Settings
 
+/** Maximum plaintext size of one encrypted entry on supported platforms. */
+const val SECURE_STORE_MAX_VALUE_BYTES: Int = 64 * 1024
+
 /**
  * Small, synchronous key/value store for secrets.
  *
  * Values are copied at the API boundary so callers cannot mutate retained plaintext. Implementations
- * must encrypt values before writing them to their persistence backend.
+ * must encrypt values before writing them to their persistence backend. Callers must bound each
+ * encoded entry to [SECURE_STORE_MAX_VALUE_BYTES], including serialization overhead.
  */
 interface SecureStore {
     fun get(key: String): ByteArray?

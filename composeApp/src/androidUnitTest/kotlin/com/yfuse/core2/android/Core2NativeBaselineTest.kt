@@ -110,7 +110,38 @@ class Core2NativeBaselineTest {
         )
         assertEquals(
             Core2NativeBaselineBlock.UnsupportedScheme,
-            evaluateCore2NativeBaseline(source(scheme = "smb")),
+            evaluateCore2NativeBaseline(source(scheme = "ftp")),
+        )
+    }
+
+    @Test
+    fun smb_and_webdav_are_read_by_ycore_transports() {
+        listOf("smb", "webdav", "webdavs").forEach { scheme ->
+            assertNull(evaluateCore2NativeBaseline(source(scheme = scheme)), "scheme $scheme")
+        }
+    }
+
+    @Test
+    fun a_file_on_this_device_enters_ycore_probing_without_server_metadata() {
+        listOf("file", "content", "android.resource").forEach { scheme ->
+            assertNull(
+                evaluateCore2NativeBaseline(
+                    source(hasMetadata = false, scheme = scheme, container = null, codec = null),
+                ),
+                "scheme $scheme",
+            )
+        }
+        // Nothing on this device has read a remote source yet, so it still needs its MediaSource.
+        assertEquals(
+            Core2NativeBaselineBlock.MissingMetadata,
+            evaluateCore2NativeBaseline(
+                source(hasMetadata = false, scheme = "https", container = null, codec = null),
+            ),
+        )
+        // Metadata that names an unsupported format still refuses a local file.
+        assertEquals(
+            Core2NativeBaselineBlock.UnsupportedContainer,
+            evaluateCore2NativeBaseline(source(scheme = "file", container = "AVI")),
         )
     }
 
@@ -128,7 +159,6 @@ class Core2NativeBaselineTest {
         drmSupported: Boolean = false,
         dolbyVision: Boolean = false,
         dolbyVisionSupported: Boolean = false,
-        externalSubtitleSupported: Boolean = true,
     ) = Core2NativeBaselineSource(
         hasMetadata = hasMetadata,
         scheme = scheme,
@@ -143,6 +173,5 @@ class Core2NativeBaselineTest {
         drmSupported = drmSupported,
         dolbyVision = dolbyVision,
         dolbyVisionSupported = dolbyVisionSupported,
-        externalSubtitleSupported = externalSubtitleSupported,
     )
 }

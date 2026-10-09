@@ -20,7 +20,6 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.runCatchingCancellable
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.redactDiagnosticText
-import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.DEFAULT_EMBY_USER_AGENT
 import com.yfuse.core.network.EmbyStream
@@ -44,7 +43,6 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
-import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.HttpURLConnection
@@ -64,77 +62,6 @@ internal const val OFFLINE_PROGRESS_CHECKPOINT_BYTES = 8L * 1024L * 1024L
 
 private const val AUTO_SYNC_INTERVAL_HOURS = 6L
 private const val MAX_KNOWN_AUTO_EPISODES = 2_000
-
-private class OfflineHttpException(
-    val statusCode: Int,
-) : IOException("HTTP $statusCode")
-
-internal class OfflineStorageException(
-    message: String,
-    cause: Throwable? = null,
-) : IOException(message, cause)
-
-private class OfflineSubtitleTooLargeException(
-    maxBytes: Long,
-) : IOException("字幕文件超过 $maxBytes 字节上限")
-
-private inline fun <T> offlineStorageWrite(block: () -> T): T =
-    try {
-        block()
-    } catch (error: IOException) {
-        throw OfflineStorageException("无法写入离线文件，请检查存储空间", error)
-    }
-
-private fun offlineFailureKind(error: Throwable): DownloadFailureKind =
-    when (error) {
-        is OfflineHttpException ->
-            when (error.statusCode) {
-                // 403 is a refusal, not an expired login: signing in again cannot change it.
-                HttpURLConnection.HTTP_UNAUTHORIZED -> DownloadFailureKind.Authentication
-                in 500..599, HttpURLConnection.HTTP_CLIENT_TIMEOUT, 429 -> DownloadFailureKind.Server
-                else -> DownloadFailureKind.Source
-            }
-        is OfflineStorageException -> DownloadFailureKind.Storage
-        is IOException -> DownloadFailureKind.Network
-        is IllegalStateException -> DownloadFailureKind.Source
-        else -> DownloadFailureKind.Unknown
-    }
-
-private fun offlineFailureMessage(
-    kind: DownloadFailureKind,
-    retry: OfflineRetryPlan?,
-    error: Throwable,
-): String =
-    when (kind) {
-        DownloadFailureKind.Authentication -> "登录已失效，请重新登录服务器后重试"
-        DownloadFailureKind.Network ->
-            if (retry != null) {
-                "网络中断，已保留进度，将自动重试（第 ${retry.retryCount}/$MAX_OFFLINE_RETRY_COUNT 次）"
-            } else {
-                "网络持续不可用，已停止自动重试，可点按手动重试"
-            }
-        DownloadFailureKind.Server ->
-            if (retry != null) {
-                "服务器暂时不可用，已保留进度，将自动重试（第 ${retry.retryCount}/$MAX_OFFLINE_RETRY_COUNT 次）"
-            } else {
-                "服务器持续不可用，已停止自动重试，可点按手动重试"
-            }
-        DownloadFailureKind.Storage ->
-            redactDiagnosticText(
-                error.message ?: "存储空间不足，请清理空间后重试",
-            )
-        DownloadFailureKind.Source ->
-            when (error) {
-                is OfflineHttpException ->
-                    if (error.statusCode == HttpURLConnection.HTTP_FORBIDDEN) {
-                        "服务器拒绝了这次下载（HTTP 403），可能未对此账号开放下载"
-                    } else {
-                        "下载源不可用（HTTP ${error.statusCode}），请检查服务器或媒体源"
-                    }
-                else -> redactDiagnosticText(error.message ?: "下载源不可用，请重新选择媒体源")
-            }
-        DownloadFailureKind.Unknown -> redactDiagnosticText(error.message ?: "下载失败，可点按重试")
-    }
 
 internal fun offlineWakeRequest(
     wifiOnly: Boolean,
@@ -204,20 +131,6 @@ internal fun sameOfflineMediaSource(
     first: String?,
     second: String?,
 ): Boolean = (first ?: itemId) == (second ?: itemId)
-
-private val offlineContentRangePattern =
-    Regex("""(?i)^bytes\s+(\d+)-(\d+)/(?:\d+|\*)$""")
-
-internal fun offlineContentRangeStartsAt(
-    value: String?,
-    expectedOffset: Long,
-): Boolean {
-    if (expectedOffset < 0L) return false
-    val match = value?.trim()?.let(offlineContentRangePattern::matchEntire) ?: return false
-    val start = match.groupValues[1].toLongOrNull() ?: return false
-    val end = match.groupValues[2].toLongOrNull() ?: return false
-    return start == expectedOffset && end >= start
-}
 
 internal fun isOfflineArtifactName(name: String): Boolean =
     name.endsWith(".media") ||
@@ -298,19 +211,6 @@ internal fun cleanupOrphanedOfflineArtifacts(
         ?.filter { it.name !in retainedNames && isOfflineArtifactName(it.name) }
         ?.forEach(File::delete)
 }
-
-internal fun canAppendOfflineRange(
-    existingBytes: Long,
-    statusCode: Int,
-    contentRange: String?,
-    expectedValidator: String?,
-    responseValidator: String?,
-): Boolean =
-    existingBytes > 0L &&
-        statusCode == HttpURLConnection.HTTP_PARTIAL &&
-        offlineContentRangeStartsAt(contentRange, existingBytes) &&
-        !expectedValidator.isNullOrBlank() &&
-        expectedValidator == responseValidator
 
 internal data class OfflineEnqueuePlan(
     val item: OfflineMedia,
@@ -852,6 +752,7 @@ internal class AndroidOfflineMediaManager(
         if (requests.isEmpty()) return
         val snapshot = requests.toList()
         command { enqueueBatch(snapshot) }
+        refreshShownAttention()
     }
 
     private fun enqueueBatch(requests: List<OfflineDownloadRequest>) {
@@ -897,7 +798,10 @@ internal class AndroidOfflineMediaManager(
 
     override fun pause(id: String) = pauseMany(listOf(id))
 
-    override fun pauseMany(ids: List<String>) = commandEach(ids, ::pauseNow)
+    override fun pauseMany(ids: List<String>) {
+        commandEach(ids, ::pauseNow)
+        refreshShownAttention()
+    }
 
     private fun pauseNow(id: String) {
         update(id) {
@@ -925,7 +829,10 @@ internal class AndroidOfflineMediaManager(
         AppLog.info("offline", "download_paused", "Offline download paused")
     }
 
-    override fun pauseAll() = command(::pauseAllNow)
+    override fun pauseAll() {
+        command(::pauseAllNow)
+        refreshShownAttention()
+    }
 
     private fun pauseAllNow() {
         val nowMs = now()
@@ -960,7 +867,10 @@ internal class AndroidOfflineMediaManager(
 
     override fun resume(id: String) = resumeMany(listOf(id))
 
-    override fun resumeMany(ids: List<String>) = commandEach(ids, ::resumeNow)
+    override fun resumeMany(ids: List<String>) {
+        commandEach(ids, ::resumeNow)
+        refreshShownAttention()
+    }
 
     private fun resumeNow(id: String) {
         update(id) {
@@ -982,7 +892,10 @@ internal class AndroidOfflineMediaManager(
         kick()
     }
 
-    override fun resumeAll() = command(::resumeAllNow)
+    override fun resumeAll() {
+        command(::resumeAllNow)
+        refreshShownAttention()
+    }
 
     private fun resumeAllNow() {
         val nowMs = now()
@@ -1013,7 +926,10 @@ internal class AndroidOfflineMediaManager(
 
     override fun remove(id: String) = removeMany(listOf(id))
 
-    override fun removeMany(ids: List<String>) = commandEach(ids, ::removeNow)
+    override fun removeMany(ids: List<String>) {
+        commandEach(ids, ::removeNow)
+        refreshShownAttention()
+    }
 
     private fun removeNow(id: String) {
         synchronized(indexLock) {
@@ -1153,7 +1069,10 @@ internal class AndroidOfflineMediaManager(
         if (!_policy.value.autoDeleteWatched) return@command
         _items.value
             .firstOrNull { it.serverId == serverId && it.itemId == itemId }
-            ?.let { removeNow(it.id) }
+            ?.let {
+                removeNow(it.id)
+                refreshShownAttentionNow()
+            }
     }
 
     internal suspend fun runPendingDownloads() =
@@ -1255,32 +1174,16 @@ internal class AndroidOfflineMediaManager(
                                 it.seasonId == rule.seasonId &&
                                 it.automaticallyDownloaded
                         }.toList()
-                val existingIds = ruleItems.mapTo(linkedSetOf(), OfflineMedia::itemId)
-                val protectedStatuses =
-                    setOf(
-                        DownloadStatus.Queued,
-                        DownloadStatus.WaitingForWifi,
-                        DownloadStatus.Downloading,
-                    )
-                val nonReplaceableCount =
-                    ruleItems.count { it.status in protectedStatuses }
-                val selected =
-                    selectNewAutoDownloadEpisodes(
+                val plan =
+                    planAutoDownload(
                         episodes = episodes,
                         knownEpisodeIds = rule.knownEpisodeIds,
-                        existingItemIds = existingIds,
-                        itemLimit = (activePolicy.autoDownloadItemLimit - nonReplaceableCount).coerceAtLeast(0),
+                        ruleItems = ruleItems,
+                        itemLimit = activePolicy.autoDownloadItemLimit,
                     )
-                val completedToKeep =
-                    (activePolicy.autoDownloadItemLimit - nonReplaceableCount - selected.size)
-                        .coerceAtLeast(0)
-                ruleItems
-                    .filter { it.status !in protectedStatuses }
-                    .sortedByDescending(OfflineMedia::updatedAtEpochMs)
-                    .drop(completedToKeep)
-                    .forEach { removeNow(it.id) }
+                plan.remove.forEach { removeNow(it) }
                 val requests =
-                    selected.map { episode ->
+                    plan.download.map { episode ->
                         val version = episode.versions.firstOrNull()
                         val subtitle =
                             matchOfflineSubtitleTrack(
@@ -1320,12 +1223,12 @@ internal class AndroidOfflineMediaManager(
                 commitOfflineAutoDiscovery(
                     enqueue = { if (requests.isNotEmpty()) enqueueBatch(requests) },
                     rememberEpisodes = {
-                        // Remember every item returned by this refresh. A temporary item limit must not
-                        // make older episodes look newly published when capacity opens later.
+                        // Only what this refresh fetched or found watched: a new episode left out for
+                        // want of room stays new, and is fetched once a watched download makes room.
                         updateAutoRule(rule.id) { current ->
                             current.copy(
                                 knownEpisodeIds =
-                                    (current.knownEpisodeIds + episodes.map(Episode::id))
+                                    (current.knownEpisodeIds + plan.seen)
                                         .takeLastBounded(MAX_KNOWN_AUTO_EPISODES),
                                 updatedAtEpochMs = now(),
                             )
@@ -1441,6 +1344,7 @@ internal class AndroidOfflineMediaManager(
                             contentRange = connection.getHeaderField("Content-Range"),
                             expectedValidator = expectedValidator,
                             responseValidator = responseValidator,
+                            contentLength = connection.contentLengthLong,
                         )
                     val invalidResume =
                         existing > 0L &&
@@ -1478,7 +1382,9 @@ internal class AndroidOfflineMediaManager(
                         }
                         continue
                     }
-                    if (code !in 200..299) throw OfflineHttpException(code)
+                    if (code != HttpURLConnection.HTTP_OK && code != HttpURLConnection.HTTP_PARTIAL) {
+                        throw OfflineHttpException(code)
+                    }
                     if (code == HttpURLConnection.HTTP_PARTIAL && existing == 0L) {
                         error("服务器返回了无请求的分段响应")
                     }
@@ -1492,11 +1398,11 @@ internal class AndroidOfflineMediaManager(
                 }
                 val remaining = connection.contentLengthLong.coerceAtLeast(0L)
                 val total =
-                    if (remaining > 0L && existing <= Long.MAX_VALUE - remaining) {
-                        existing + remaining
-                    } else {
-                        0L
-                    }
+                    offlineTransferTotalBytes(
+                        append = append,
+                        contentRange = connection.getHeaderField("Content-Range"),
+                        contentLength = connection.contentLengthLong,
+                    )
                 update(snapshot.id) {
                     if (it.downloadRevision == snapshot.downloadRevision) {
                         it.copy(
@@ -1584,9 +1490,7 @@ internal class AndroidOfflineMediaManager(
                         offlineStorageWrite { output.close() }
                     }
                 }
-                if (total > 0L) {
-                    if (target.partialSize() != total) throw IOException("下载连接提前结束，内容不完整")
-                }
+                requireCompleteOfflineTransfer(target.partialSize(), total)
                 currentCoroutineContext().ensureActive()
                 val storedVideo =
                     finalizeVideo(snapshot, target) { finalizedVideo = it } ?: return@withContext
@@ -1676,6 +1580,28 @@ internal class AndroidOfflineMediaManager(
 
     private fun kick() {
         rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
+    }
+
+    /**
+     * Queued behind a change the user made in the app. A paused or failed notification on screen
+     * otherwise waits for the next download run to catch up — and deleting the download it was
+     * about left it offering 继续 / 重试 for nothing. Once per selection, as Android drops a burst
+     * of notification updates.
+     */
+    private fun refreshShownAttention() {
+        commands.submit(::refreshShownAttentionNow)
+    }
+
+    private fun refreshShownAttentionNow() {
+        runCatching { refreshShownOfflineAttentionNotification(context, _items.value) }
+            .onFailure { error ->
+                AppLog.warning(
+                    category = "offline",
+                    event = "attention_refresh_failed",
+                    message = "Paused or failed download notification could not be refreshed",
+                    throwable = error,
+                )
+            }
     }
 
     internal fun rebuildWakeSchedule(

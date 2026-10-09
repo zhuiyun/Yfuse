@@ -1,0 +1,34 @@
+{
+  "previousManifest": "../comprehensive-review-20261008/source-sha256.json",
+  "previousFileCount": 2107,
+  "currentFileCount": 2113,
+  "changed": [
+    "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineMedia.android.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineTransfer.android.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineVideoStorage.android.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerLaunchRegistry.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core/offline/OfflineMediaSecurityTest.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/PlayerLaunchRegistryTest.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/data/EmbySourceService.kt",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/data/EmbySourceServiceTest.kt",
+    "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarScheduleRoutes.kt",
+    "watchTogetherServer/src/main/kotlin/com/yfuse/watch/account/TraktOAuthBroker.kt",
+    "watchTogetherServer/src/main/kotlin/com/yfuse/watch/migration/MigrationRelayBackend.kt",
+    "watchTogetherServer/src/test/kotlin/com/yfuse/watch/CalendarScheduleRoutesTest.kt",
+    "watchTogetherServer/src/test/kotlin/com/yfuse/watch/account/TraktOAuthBrokerTest.kt",
+    "yfuseBackendClient/src/commonMain/kotlin/com/yfuse/core/account/AccountApi.kt",
+    "yfuseBackendClient/src/commonMain/kotlin/com/yfuse/core/account/PlaybackCloudApi.kt",
+    "yfuseBackendClient/src/commonMain/kotlin/com/yfuse/core/remote/BackendRemoteRelayConnector.kt",
+    "yfuseBackendClient/src/commonMain/kotlin/com/yfuse/core/sync/WatchRelayConnector.kt"
+  ],
+  "added": [
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/PendingPlayerPreparationTest.kt",
+    "watchTogetherServer/src/test/kotlin/com/yfuse/watch/migration/MigrationRelayRateLimiterTest.kt",
+    "yfuseBackendClient/src/commonMain/kotlin/com/yfuse/core/account/AccountErrorResponse.kt",
+    "yfuseBackendClient/src/commonMain/kotlin/com/yfuse/core/sync/RelayFrameReader.kt",
+    "yfuseBackendClient/src/commonTest/kotlin/com/yfuse/core/account/AccountCancellationTest.kt",
+    "yfuseBackendClient/src/commonTest/kotlin/com/yfuse/core/sync/RelayFrameReaderTest.kt"
+  ],
+  "removed": []
+}

@@ -17,15 +17,20 @@ import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.TmdbRepository
+import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.navigation.SingleFlightNavigationGuard
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.detail.DetailComponent
+import com.yfuse.feature.home.TmdbInfoComponent
 import com.yfuse.feature.library.LiftFlagWriter
+import com.yfuse.feature.person.PersonComponent
+import com.yfuse.feature.person.PersonPageRequest
 import com.yfuse.feature.player.PlayerComponent
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
-/** Search tab navigation: query/results -> detail -> player. */
+/** Search tab navigation: query/results -> detail -> player, and 演员页 with its TMDB titles. */
 @OptIn(DelicateDecomposeApi::class)
 class SearchComponent(
     componentContext: ComponentContext,
@@ -35,6 +40,9 @@ class SearchComponent(
     private val history: SearchHistory,
     private val dependencies: AppDependencies,
     private val onOpenServerSettings: () -> Unit,
+    private val tmdb: TmdbRepository,
+    /** An 演员页 opened for another tab has closed; the root takes the viewer back there. */
+    private val onPersonPageLeft: () -> Unit = {},
 ) : ComponentContext by componentContext {
     // Every route goes on with pushToFront, as in the library tab: Decompose rejects a stack
     // holding two equal configurations, which A → related B → A or a second tap during the push
@@ -72,6 +80,20 @@ class SearchComponent(
             /** Names one file when the item has several; null takes the server's first. */
             val mediaSourceId: String? = null,
         ) : Config
+
+        /**
+         * 演员页. [fromOtherTab] marks one opened for a detail page in another tab: leaving it takes
+         * the viewer back there rather than to this tab's own pages underneath.
+         */
+        @Serializable data class Person(
+            val request: PersonPageRequest,
+            val fromOtherTab: Boolean = false,
+        ) : Config
+
+        /** A title of 演员页's TMDB 其他作品, on the same TMDB page 首页 opens. */
+        @Serializable data class Info(
+            val item: TmdbItem,
+        ) : Config
     }
 
     sealed interface Child {
@@ -85,6 +107,14 @@ class SearchComponent(
 
         class Player(
             val component: PlayerComponent,
+        ) : Child
+
+        class Person(
+            val component: PersonComponent,
+        ) : Child
+
+        class Info(
+            val component: TmdbInfoComponent,
         ) : Child
     }
 
@@ -103,8 +133,21 @@ class SearchComponent(
     }
 
     fun navigateBack() {
-        (stack.value.active.configuration as? Config.Player)?.let(playerNavigation::complete)
+        val leaving = stack.value.active.configuration
+        (leaving as? Config.Player)?.let(playerNavigation::complete)
         navigation.pop()
+        if (leaving is Config.Person && leaving.fromOtherTab) onPersonPageLeft()
+    }
+
+    /**
+     * 演员页 on top of whatever this tab shows. Pushed over the search the viewer left, not in place
+     * of it: their results are still there the next time they come to this tab.
+     */
+    fun openPerson(
+        request: PersonPageRequest,
+        fromOtherTab: Boolean,
+    ) {
+        navigation.pushToFront(Config.Person(request, fromOtherTab))
     }
 
     /**
@@ -118,14 +161,19 @@ class SearchComponent(
         navigation.popTo(index = 0)
     }
 
-    /** Runs [query] on this tab's root page, leaving whatever detail or player was on top. */
+    /** Empties this tab's root page for another profile, leaving whatever detail or player was on top. */
     fun clearForProfileSwitch() {
         popToRoot()
         (
             stack.value.items
                 .firstOrNull()
                 ?.instance as? Child.Home
-        )?.component?.store?.accept(SearchIntent.Clear)
+        )?.component?.store?.let { store ->
+            store.accept(SearchIntent.Clear)
+            // ✕ leaves what 筛选 holds; the next profile does not inherit the last one's servers,
+            // libraries and watch state.
+            store.accept(SearchIntent.ClearFilters)
+        }
     }
 
     fun search(query: String) {
@@ -216,6 +264,38 @@ class SearchComponent(
                     ),
                 )
             }
+            is Config.Person ->
+                Child.Person(
+                    PersonComponent(
+                        componentContext = context,
+                        repo = repo,
+                        tmdb = tmdb,
+                        registry = registry,
+                        request = config.request,
+                        // Through navigateBack, so an 演员页 opened for another tab goes back there.
+                        onBack = ::navigateBack,
+                        onOpenItem = { serverId, itemId ->
+                            navigation.pushToFront(Config.Detail(serverId, itemId))
+                        },
+                        onOpenTmdbItem = { item -> navigation.pushToFront(Config.Info(item)) },
+                    ),
+                )
+            is Config.Info ->
+                Child.Info(
+                    TmdbInfoComponent(
+                        componentContext = context,
+                        tmdb = tmdb,
+                        emby = repo,
+                        registry = registry,
+                        item = config.item,
+                        embyItemId = null,
+                        followStore = dependencies.calendarFollowStore,
+                        onBack = { navigation.pop() },
+                        onPlayTarget = { serverId, itemId, ticks ->
+                            openPlayer(Config.Player(serverId, itemId, ticks))
+                        },
+                    ),
+                )
         }
 }
 

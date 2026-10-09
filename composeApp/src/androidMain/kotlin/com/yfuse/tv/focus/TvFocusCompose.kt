@@ -256,15 +256,23 @@ fun Modifier.tvIgnoreOpeningHold(): Modifier {
 
 private const val FOCUS_REQUEST_FRAME_ATTEMPTS = 3
 
+/** How many more frames [requestFocusWhenAttached] keeps asking for a node still not placed. */
+private const val FOCUS_ATTACH_WAIT_FRAMES = 30
+
 /**
  * Requests focus once the requester's node has been placed.
  *
- * A bare `requestFocus()` in a `LaunchedEffect(Unit)` races the first layout pass and throws
- * `IllegalStateException` when the node is not attached yet — most likely on a cold start
- * or the first frame of a dialog, and more likely still on a slow television. Waiting a
- * couple of frames covers the race; the `runCatching` covers a node that never appeared.
+ * A bare `requestFocus()` in a `LaunchedEffect(Unit)` races the first layout pass and finds no
+ * node yet — most likely on a cold start or the first frames of a dialog, whose window a slow
+ * television can take several frames to lay out. One request after a couple of frames left such a
+ * dialog open with nothing focused, and the first 确定 went nowhere. So after [frames] it asks
+ * again on every frame until the request lands, for at most [FOCUS_ATTACH_WAIT_FRAMES] more; the
+ * `runCatching` covers a node that never appeared.
  */
 suspend fun FocusRequester.requestFocusWhenAttached(frames: Int = 2) {
     repeat(frames.coerceAtLeast(1)) { withFrameNanos { } }
-    runCatching { requestFocus() }
+    repeat(FOCUS_ATTACH_WAIT_FRAMES) {
+        if (runCatching { requestFocus() }.getOrDefault(false)) return
+        withFrameNanos { }
+    }
 }

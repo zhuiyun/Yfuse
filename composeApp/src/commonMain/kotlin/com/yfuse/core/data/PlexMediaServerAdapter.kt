@@ -6,6 +6,7 @@ import com.yfuse.core.data.dto.MediaSourceDto
 import com.yfuse.core.data.dto.MediaStreamDto
 import com.yfuse.core.data.dto.PersonDto
 import com.yfuse.core.data.dto.PlaybackInfoResponseDto
+import com.yfuse.core.data.dto.PlexExtrasResponseDto
 import com.yfuse.core.data.dto.PlexHubDto
 import com.yfuse.core.data.dto.PlexMediaContainerDto
 import com.yfuse.core.data.dto.PlexMediaDto
@@ -13,6 +14,7 @@ import com.yfuse.core.data.dto.PlexMetadataDto
 import com.yfuse.core.data.dto.PlexPartDto
 import com.yfuse.core.data.dto.PlexResponseDto
 import com.yfuse.core.data.dto.PlexStreamDto
+import com.yfuse.core.data.dto.PlexThemeResponseDto
 import com.yfuse.core.data.dto.UserDataDto
 import com.yfuse.core.data.dto.toEpisode
 import com.yfuse.core.data.dto.toMediaDetail
@@ -32,11 +34,13 @@ import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.MediaServerKind
+import com.yfuse.core.model.MediaTrailer
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.PlayTarget
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
+import com.yfuse.core.model.ThemeSong
 import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.network.exemptFromServerCooldown
 import com.yfuse.core.network.normalizeBaseUrl
@@ -860,6 +864,30 @@ internal class PlexMediaServerAdapter(
             items.distinctBy(MediaItem::id).take(limit)
         }
 
+    /** The title's trailer extras — see [plexTrailers] for which extras count. */
+    suspend fun trailers(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<MediaTrailer.Local>> =
+        optionalCall {
+            val extras = plexGet<PlexExtrasResponseDto>(server, "/library/metadata/${plexPath(itemId)}/extras")
+            plexTrailers(server, extras.MediaContainer.Metadata)
+        }
+
+    /** The one theme Plex keeps for a title; an episode answers with its show's. */
+    suspend fun themeSongs(
+        server: SavedServer,
+        itemId: String,
+    ): Result<List<ThemeSong>> =
+        optionalCall {
+            plexGet<PlexThemeResponseDto>(server, "/library/metadata/${plexPath(itemId)}")
+                .MediaContainer
+                .Metadata
+                .firstOrNull()
+                ?.let { plexThemeSong(server, itemId, it) }
+                .let(::listOfNotNull)
+        }
+
     suspend fun userLibrarySnapshot(
         server: SavedServer,
         includeProgress: Boolean,
@@ -892,6 +920,9 @@ internal class PlexMediaServerAdapter(
                                     played = played,
                                     positionTicks = if (played) 0L else offset * 10_000L,
                                     dateModified = item.updatedAt?.toString(),
+                                    // Plex dates are Unix seconds.
+                                    lastPlayedAtEpochMs = item.lastViewedAt?.takeIf { it > 0L }?.times(1_000L),
+                                    runtimeTicks = item.duration?.coerceAtLeast(0L)?.times(10_000L) ?: 0L,
                                 )
                         }
                     }
@@ -1273,6 +1304,16 @@ internal class PlexMediaServerAdapter(
                 block()
             }.body<PlexResponseDto>()
             .MediaContainer
+
+    /** [container] for a response read into a shape of its own, such as the extras list. */
+    private suspend inline fun <reified T> plexGet(
+        server: SavedServer,
+        path: String,
+    ): T =
+        client
+            .get("${normalizeBaseUrl(server.baseUrl)}${path.withLeadingSlash()}") {
+                plexHeaders(server.accessToken)
+            }.body()
 
     private suspend fun machineIdentifier(server: SavedServer): String =
         requireNotNull(container(server, "/identity").machineIdentifier?.takeIf(String::isNotBlank)) {

@@ -5,6 +5,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.diagnosticOrigin
 import com.yfuse.core.logging.diagnosticRootCause
 import com.yfuse.core.logging.diagnosticTypeName
+import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
@@ -22,6 +23,7 @@ import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.demux.YDemuxOpenResult
 import com.yfuse.core2.demux.YDemuxTrackType
 import com.yfuse.core2.demux.YTrackId
+import com.yfuse.core2.demux.shownVideoSize
 import com.yfuse.core2.recovery.YPlaybackFailureReporter
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.strategy.YDemuxPath
@@ -232,6 +234,14 @@ internal class AndroidNativeEnhancedYPlayer(
     override fun setAudioDelayMs(delayMs: Long): Boolean {
         if (released) return false
         submit(Command.SetAudioDelay(delayMs.coerceIn(-5_000L, 5_000L)))
+        return true
+    }
+
+    override val supportsAudioEffects: Boolean get() = true
+
+    override fun setAudioEffect(effect: YAudioEffect): Boolean {
+        if (released) return false
+        submit(Command.SetAudioEffect(effect))
         return true
     }
 
@@ -555,6 +565,16 @@ internal class AndroidNativeEnhancedYPlayer(
                     tracks.firstOrNull { it.selected }?.id,
                 )
                 val video = result.tracks.firstOrNull { it.type == YDemuxTrackType.Video }?.video
+                // Every output turns the picture by the track's rotation: the GPU and software
+                // renderers themselves, MediaCodec on a direct Surface. Those renderers also square
+                // the pixels inside a surface of this shape; a direct Surface simply takes it.
+                val (shownWidth, shownHeight) =
+                    shownVideoSize(
+                        width = video?.width ?: 0,
+                        height = video?.height ?: 0,
+                        rotationDegrees = video?.geometry?.rotationDegrees ?: 0,
+                        pixelAspectRatio = video?.geometry?.pixelAspectRatio ?: 1.0,
+                    )
                 val audio = result.tracks.firstOrNull { it.id == session.selectedAudioTrackId() }?.audio
                 activeDolbyProfile = video?.dolbyVisionConfig?.profile
                 mutableState.updateState {
@@ -581,8 +601,8 @@ internal class AndroidNativeEnhancedYPlayer(
                                 container = result.container.name,
                                 demuxer = "FFmpeg / libavformat",
                                 videoCodec = video?.mimeType.orEmpty(),
-                                videoWidth = video?.width ?: 0,
-                                videoHeight = video?.height ?: 0,
+                                videoWidth = shownWidth,
+                                videoHeight = shownHeight,
                                 frameRate = video?.frameRate ?: 0f,
                                 renderedFrameRate = null,
                                 audioCodec = audio?.mimeType.orEmpty(),
@@ -947,6 +967,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                 audioDelayMs = command.delayMs
                                 session.setAudioDelayMs(audioDelayMs)
                             }
+                            is Command.SetAudioEffect -> session.setAudioEffect(command.effect)
                             is Command.ExternalSubtitleReady -> {
                                 if (externalSubtitleSession.accept(command.result)) {
                                     externalSubtitles = externalSubtitleSession.tracks
@@ -1109,6 +1130,10 @@ internal class AndroidNativeEnhancedYPlayer(
             val delayMs: Long,
         ) : Command
 
+        data class SetAudioEffect(
+            val effect: YAudioEffect,
+        ) : Command
+
         data class ExternalSubtitleReady(
             val result: AndroidExternalSubtitleSession.Completion,
         ) : Command
@@ -1147,8 +1172,13 @@ internal class AndroidNativeEnhancedYPlayer(
     }
 }
 
-/** Remote static files need the same redirect/range/credential boundary as adaptive manifests. */
+/**
+ * Remote static files need the same redirect/range/credential boundary as adaptive manifests.
+ * SMB shares and on-device documents always go through the proxy: FFmpeg has no smb protocol
+ * here, and its android_content protocol depends on a reference libmpv deletes.
+ */
 internal fun shouldProxyEnhancedSourceUri(uri: String): Boolean {
+    if (uri.rawUriScheme() in setOf("smb", "content")) return true
     val parsed = runCatching { URI(uri) }.getOrNull() ?: return false
     if (parsed.scheme?.lowercase() !in setOf("http", "https", "webdav", "webdavs")) return false
     return parsed.host?.lowercase() !in setOf("127.0.0.1", "localhost", "::1")
@@ -1193,6 +1223,8 @@ private fun AndroidNativeEnhancedYPlayer.Command.canBeReplacedBy(next: AndroidNa
         is AndroidNativeEnhancedYPlayer.Command.SetSpeed -> next is AndroidNativeEnhancedYPlayer.Command.SetSpeed
         is AndroidNativeEnhancedYPlayer.Command.SetAudioDelay ->
             next is AndroidNativeEnhancedYPlayer.Command.SetAudioDelay
+        is AndroidNativeEnhancedYPlayer.Command.SetAudioEffect ->
+            next is AndroidNativeEnhancedYPlayer.Command.SetAudioEffect
         is AndroidNativeEnhancedYPlayer.Command.SetVideoOutput ->
             next is AndroidNativeEnhancedYPlayer.Command.SetVideoOutput
         is AndroidNativeEnhancedYPlayer.Command.SelectAudioTrack ->
@@ -1223,9 +1255,7 @@ private fun YDemuxOpenResult.toSubtitleTracks(): List<YTrack> =
     tracks.mapNotNull { track ->
         val subtitle =
             track.subtitle?.takeIf {
-                it.format.textOverlaySupported ||
-                    it.format == com.yfuse.core2.subtitle.YSubtitleFormat.Pgs ||
-                    it.format == com.yfuse.core2.subtitle.YSubtitleFormat.VobSub
+                it.format.textOverlaySupported || it.format.bitmapDisplaySet
             } ?: return@mapNotNull null
         YTrack(
             id = "$SUBTITLE_TRACK_PREFIX${track.id.value}",

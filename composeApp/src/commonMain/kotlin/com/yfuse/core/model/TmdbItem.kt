@@ -40,6 +40,25 @@ data class TmdbDetail(
     val cast: List<TmdbPerson> = emptyList(),
 )
 
+/**
+ * A person's TMDB record, for 演员页: who they are, and the titles TMDB credits them on.
+ *
+ * [names] is every name TMDB files them under — the primary one, the translations and the aliases
+ * — because a library names a person in whichever script its scraper chose, and matching one of
+ * those against the primary name alone would miss most Chinese libraries.
+ */
+data class TmdbPersonDetail(
+    val person: TmdbPerson,
+    val names: List<String> = listOf(person.name),
+    val knownForDepartment: String? = null,
+    val biography: String? = null,
+    val birthday: String? = null,
+    val deathday: String? = null,
+    val placeOfBirth: String? = null,
+    /** Films and shows they act in; for someone known for directing or writing, those too. */
+    val credits: List<TmdbItem> = emptyList(),
+)
+
 @Serializable
 data class TmdbRow(
     val title: String,

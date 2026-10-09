@@ -56,8 +56,9 @@ def center(node):
 
 
 class Session:
-    def __init__(self, output, expected, source_run):
+    def __init__(self, output, expected, source_run, expected_api=None):
         self.expected = expected
+        self.expected_api = expected_api
         self.output = output
         self.serial = ""
         self.cases = []
@@ -84,6 +85,7 @@ class Session:
                    "detail": str(error)}
             self.cases.append(row)
             self.save()
+            print(json.dumps(row, ensure_ascii=False), flush=True)
             raise
         row["elapsed_seconds_observation"] = round(time.monotonic() - began, 2)
         self.cases.append(row)
@@ -127,10 +129,17 @@ class Session:
         (self.output / "device-properties.txt").write_text(properties)
         result = {key: self.adb("shell", "getprop", key) for key in
                   ["ro.build.version.sdk", "ro.product.cpu.abilist", "ro.dalvik.vm.native.bridge"]}
+        # A release gate names each API level it covers; a mislabelled system image must not
+        # stand in for one (Android 17 images carry a minor version, android-37.0).
+        if self.expected_api is not None and result["ro.build.version.sdk"] != str(self.expected_api):
+            raise EnvironmentBlocked(f"Emulator reports API {result['ro.build.version.sdk'] or 'unknown'}; "
+                                     f"this check requires API {self.expected_api}")
         if "arm64-v8a" not in result["ro.product.cpu.abilist"].split(","):
             raise EnvironmentBlocked("System image does not advertise ARM64 ABI translation")
         self.original = {key: self.adb("shell", "settings", "get", "system", key) for key in
                          ["font_scale", "accelerometer_rotation", "user_rotation"]}
+        night = re.search(r"Night mode: (\w+)", self.adb("shell", "cmd", "uimode", "night", check=False))
+        self.original_night = night.group(1) if night and night.group(1) in ("yes", "no", "auto") else "auto"
         return result
 
     def install(self):
@@ -307,27 +316,120 @@ class Session:
             except Exception as error:
                 (self.output / (name + ".error")).write_text(str(error))
 
+    def reset_configuration(self, check=True):
+        """Puts back the font scale, rotation and night mode the smoke cases changed."""
+        for key, value in self.original.items():
+            operation = ["delete", "system", key] if value == "null" else ["put", "system", key, value]
+            self.adb("shell", "settings", *operation, check=check)
+        self.adb("shell", "cmd", "uimode", "night", getattr(self, "original_night", "auto"), check=check)
+
+    def restore_display(self, name="09b-display-restored"):
+        """Puts back the device's own font, rotation and theme, and captures Yfuse redrawn in them."""
+        self.reset_configuration()
+        time.sleep(3)
+        self.wait_label("我的")
+        return self.capture(name)
+
+    def settle_for_layout_probe(self):
+        # The probe samples its own rotations and font scales; it must not start from the
+        # smoke's landscape, 1.3 font and dark theme.
+        return self.restore_display("layout-start")
+
     def restore(self):
         if not hasattr(self, "original"):
             return
-        for key, value in self.original.items():
-            operation = ["delete", "system", key] if value == "null" else ["put", "system", key, value]
-            self.adb("shell", "settings", *operation, check=False)
-        for args in [("wm", "size", "reset"), ("wm", "density", "reset"), ("cmd", "uimode", "night", "auto")]:
+        self.reset_configuration(check=False)
+        for args in [("wm", "size", "reset"), ("wm", "density", "reset")]:
             self.adb("shell", *args, check=False)
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--apk-directory", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--soak-seconds", type=int, default=120)
-    parser.add_argument("--layout-probe", action="store_true")
-    parser.add_argument("--source-run", type=int, required=True)
-    args = parser.parse_args()
-    if not 0 <= args.soak_seconds <= 600:
-        parser.error("soak-seconds must be between 0 and 600")
-    args.output.mkdir(parents=True, exist_ok=True)
+def tail(path, lines):
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return None
+    return "\n".join(text.splitlines()[-lines:])
+
+
+def print_failure(summary, trace):
+    """Puts the cause in the job log itself; the evidence artifact is not always reachable."""
+    failed = [case for case in summary["cases"] if case.get("status") != "passed"]
+    print("==== Cloud UI failure ====", flush=True)
+    print(json.dumps({"result": summary.get("result"), "error": summary.get("error"),
+                      "failed_case": failed[-1] if failed else None}, ensure_ascii=False, indent=2))
+    print(trace, flush=True)
+
+
+def print_failure_logs(output):
+    """The device's own account of the failure, once diagnostics() has pulled it."""
+    hierarchy = tail(output / "hierarchy-capture-errors.txt", 20)
+    if hierarchy is not None:
+        print("==== hierarchy-capture-errors.txt ====", flush=True)
+        print(hierarchy, flush=True)
+    for name, lines in (("crash-buffer.txt", 80), ("logcat.txt", 150)):
+        text = tail(output / name, lines)
+        if text is None:
+            error = tail(output / (name + ".error"), 5)
+            print(f"==== {name}: not captured" + (f" ({error})" if error else "") + " ====", flush=True)
+        else:
+            print(f"==== {name} (last {lines} lines) ====", flush=True)
+            print(text, flush=True)
+
+
+def run_cases(session, args):
+    session.case("APK identity, hash and signature", lambda: session.verify_apk(args.apk_directory))
+    session.case("Booted emulator and ARM64 translation", session.connect)
+    session.case("Clean install", session.install)
+    session.case("App launch and foreground hierarchy", session.launch)
+    session.case("Profile page reachable", lambda: session.navigate("我的", "账号与同步", "02-profile"))
+    session.case("Account signed-out page reachable", lambda: session.navigate("账号与同步", "登录账号", "03-account-signed-out"))
+    session.back()
+    session.case("Servers tab reachable", lambda: session.navigate("服务器", "服务器", "04-servers"))
+    session.case("Home tab reachable", lambda: session.navigate("首页", "首页", "05-home"))
+    session.case("Large-font foreground capture", lambda: session.configuration("06-font-130",
+                 ("settings", "put", "system", "font_scale", "1.3")))
+    session.case("Landscape foreground capture", lambda: session.configuration("07-landscape",
+                 ("settings", "put", "system", "accelerometer_rotation", "0"),
+                 ("settings", "put", "system", "user_rotation", "1")))
+    session.case("Dark-theme foreground capture", lambda: session.configuration("08-dark",
+                 ("cmd", "uimode", "night", "yes")))
+    session.case("UI survives disabling Wi-Fi and mobile data", session.offline)
+    # The soak cycles home and back from the device's own display state. Left in the landscape,
+    # large-font and dark state of the cases above, every cycle rotated the display between the
+    # portrait launcher and Yfuse's landscape 首页, whose live glass blurs the page afresh each
+    # frame. On the Android 15 image's software GPU that froze the whole emulator mid-rotation in
+    # 9 of 13 runs of 1.0.99; without the rotations the soak passed 4 of 4, and with Yfuse drawn as
+    # 静息, which turns the live glass off, 6 of 6. The cases above still cover landscape and dark.
+    session.case("Display settings restored before the soak", session.restore_display)
+    session.case("Short foreground/background stability", lambda: session.soak(args.soak_seconds))
+    session.summary["result"] = "smoke_completed_visual_review_required"
+    if args.layout_probe:
+        # The probe follows the smoke in the same session, so the navigation cases run on every
+        # workflow run instead of being skipped whenever the probe is asked for.
+        session.case("Display settings restored after the smoke", session.settle_for_layout_probe)
+        session.case("Targeted rotation, font and tablet viewport evidence", session.layout_probe)
+        session.summary["result"] = "smoke_and_layout_probe_completed_visual_review_required"
+
+
+def expected_release(parser, args):
+    """Identity the APK under test must have.
+
+    A release gate runs before any update manifest exists and may package a manually requested
+    version, so it passes the signed APK's SHA-256 and version explicitly. Otherwise the
+    checked-out release metadata and the package run's update.json supply them.
+    """
+    pinned = (args.expected_sha256, args.expected_version_code, args.expected_version_name)
+    if any(pinned):
+        if not all(pinned):
+            parser.error("--expected-sha256, --expected-version-code and --expected-version-name go together")
+        if not re.fullmatch(r"[a-f0-9]{64}", args.expected_sha256):
+            parser.error("--expected-sha256 must be 64 lowercase hexadecimal digits")
+        if not re.fullmatch(r"[1-9][0-9]*", args.expected_version_code):
+            parser.error("--expected-version-code must be a positive integer")
+        if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", args.expected_version_name):
+            parser.error("--expected-version-name must use numeric major.minor.patch format")
+        return {"versionCode": int(args.expected_version_code), "versionName": args.expected_version_name,
+                "sha256": args.expected_sha256}
     from release_metadata import read_release
     expected = read_release(Path(__file__).resolve().parents[1])
     manifests = list(args.apk_directory.rglob("update.json"))
@@ -339,36 +441,38 @@ def main():
     if not re.fullmatch(r"[a-f0-9]{64}", manifest.get("sha256", "")):
         parser.error("The update manifest must supply the APK SHA-256")
     expected["sha256"] = manifest["sha256"]
-    session = Session(args.output, expected, args.source_run)
+    return expected
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--apk-directory", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--soak-seconds", type=int, default=120)
+    parser.add_argument("--layout-probe", action="store_true",
+                        help="after the smoke cases, sample rotation, font scale and a tablet viewport")
+    parser.add_argument("--source-run", type=int, required=True)
+    # An empty value means "not given", so a workflow can pass these on every run.
+    parser.add_argument("--expected-sha256", default="", help="SHA-256 of the signed APK under release")
+    parser.add_argument("--expected-version-code", default="", help="versionCode that APK must declare")
+    parser.add_argument("--expected-version-name", default="", help="versionName that APK must declare")
+    parser.add_argument("--expected-api", type=int, help="API level the booted emulator must report")
+    args = parser.parse_args()
+    if not 0 <= args.soak_seconds <= 600:
+        parser.error("soak-seconds must be between 0 and 600")
+    args.output.mkdir(parents=True, exist_ok=True)
+    expected = expected_release(parser, args)
+    session = Session(args.output, expected, args.source_run, args.expected_api)
     code = 0
     try:
-        session.case("APK identity, hash and signature", lambda: session.verify_apk(args.apk_directory))
-        session.case("Booted emulator and ARM64 translation", session.connect)
-        session.case("Clean install", session.install)
-        session.case("App launch and foreground hierarchy", session.launch)
-        if args.layout_probe:
-            session.case("Targeted rotation, font and tablet viewport evidence", session.layout_probe)
-            session.summary["result"] = "layout_probe_completed_visual_review_required"
-            return 0
-        session.case("Profile page reachable", lambda: session.navigate("我的", "账号与同步", "02-profile"))
-        session.case("Account signed-out page reachable", lambda: session.navigate("账号与同步", "登录账号", "03-account-signed-out"))
-        session.back()
-        session.case("Servers tab reachable", lambda: session.navigate("服务器", "服务器", "04-servers"))
-        session.case("Home tab reachable", lambda: session.navigate("首页", "首页", "05-home"))
-        session.case("Large-font foreground capture", lambda: session.configuration("06-font-130",
-                     ("settings", "put", "system", "font_scale", "1.3")))
-        session.case("Landscape foreground capture", lambda: session.configuration("07-landscape",
-                     ("settings", "put", "system", "accelerometer_rotation", "0"),
-                     ("settings", "put", "system", "user_rotation", "1")))
-        session.case("Dark-theme foreground capture", lambda: session.configuration("08-dark",
-                     ("cmd", "uimode", "night", "yes")))
-        session.case("UI survives disabling Wi-Fi and mobile data", session.offline)
-        session.case("Short foreground/background stability", lambda: session.soak(args.soak_seconds))
-        session.summary["result"] = "smoke_completed_visual_review_required"
+        run_cases(session, args)
     except Exception as error:
         session.summary["result"] = "environment_blocked" if isinstance(error, EnvironmentBlocked) else "failed_requires_triage"
         session.summary["error"] = str(error)
-        (args.output / "failure.txt").write_text(traceback.format_exc())
+        trace = traceback.format_exc()
+        (args.output / "failure.txt").write_text(trace)
+        # Before diagnostics: pulling logs from an emulator that has gone away can take minutes.
+        print_failure(session.summary, trace)
         code = 2 if isinstance(error, EnvironmentBlocked) else 1
     finally:
         session.diagnostics()
@@ -377,6 +481,8 @@ def main():
         except Exception as error:
             session.summary["restore_error"] = str(error)
         session.save()
+    if code:
+        print_failure_logs(args.output)
     return code
 
 

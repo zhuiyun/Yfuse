@@ -5,6 +5,7 @@ import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.os.Build
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core2.api.YChapter
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.bitstream.YBitstream
@@ -16,6 +17,8 @@ import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.capability.YVideoRequirement
+import com.yfuse.core2.demux.YMatroskaChapterParser
+import com.yfuse.core2.demux.YMatroskaChaptersResult
 import com.yfuse.core2.dolby.YDolbyVisionCodecFamily
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.dolby.YDolbyVisionRouteDecision
@@ -69,6 +72,10 @@ internal sealed interface YCore2ProbeResult {
         val dolbyVisionStreamEvidence: YDolbyVisionStreamEvidence? = null,
         /** Dolby NAL units were observed even though the container omitted its profile record. */
         val unconfiguredDolbyVisionSignal: Boolean = false,
+        /** The video's pixel aspect ratio when the container states one; see [statedPixelAspectRatio]. */
+        val pixelAspectRatio: Double? = null,
+        /** Chapters the container declares, which MediaExtractor does not report. */
+        val chapters: List<YChapter> = emptyList(),
     ) : YCore2ProbeResult
 
     data class Failure(
@@ -122,7 +129,8 @@ internal data class YCore2RouteDecision(
                         (
                             probe.playbackRequest.video.hdrType == YHdrType.Sdr ||
                                 plan.softwareVideoToneMap &&
-                                plan.outputHdrType == YHdrType.Sdr
+                                plan.outputHdrType == YHdrType.Sdr &&
+                                probe.playbackRequest.video.softwareToneMapWithinBounds()
                         ) &&
                         probe.playbackRequest.video.softwareDecodeWithinBounds() ||
                         plan.decodePath != YDecodePath.Software &&
@@ -137,10 +145,23 @@ private fun YVideoRequirement.softwareDecodeWithinBounds(): Boolean =
         width.toLong() * height.toLong() <= SOFTWARE_VIDEO_MAX_PIXELS &&
         (frameRate <= 0f || frameRate <= SOFTWARE_VIDEO_MAX_FRAME_RATE)
 
+/**
+ * HDR-to-SDR mapping is per-pixel work on top of software decode: about 25 ms per 1080p frame over
+ * the conversion threads, and four times that at 4K. Past 1080p30 the route would drop most frames,
+ * so such sources go to a route that maps on the GPU.
+ */
+private fun YVideoRequirement.softwareToneMapWithinBounds(): Boolean =
+    width in 1..SOFTWARE_TONE_MAP_MAX_WIDTH &&
+        height in 1..SOFTWARE_TONE_MAP_MAX_HEIGHT &&
+        (frameRate <= 0f || frameRate <= SOFTWARE_TONE_MAP_MAX_FRAME_RATE)
+
 private const val SOFTWARE_VIDEO_MAX_WIDTH = 4096
 private const val SOFTWARE_VIDEO_MAX_HEIGHT = 4096
 private const val SOFTWARE_VIDEO_MAX_PIXELS = 4096L * 2160L
 private const val SOFTWARE_VIDEO_MAX_FRAME_RATE = 60f
+private const val SOFTWARE_TONE_MAP_MAX_WIDTH = 1920
+private const val SOFTWARE_TONE_MAP_MAX_HEIGHT = 1088
+private const val SOFTWARE_TONE_MAP_MAX_FRAME_RATE = 30.5f
 
 /**
  * Bounded metadata truth source for deciding whether one item may enter Core2.
@@ -348,6 +369,13 @@ internal class AndroidCore2MediaProbe(
                             YDolbyVisionStreamEvidence(config, observedDolbyVisionNals)
                         },
                     unconfiguredDolbyVisionSignal = unconfiguredDolbyVisionSignal,
+                    pixelAspectRatio = videoFormat.statedPixelAspectRatio(),
+                    chapters =
+                        if (container == YContainer.Matroska || container == YContainer.WebM) {
+                            demux.matroskaChapters()
+                        } else {
+                            emptyList()
+                        },
                 ).let(::retain)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
@@ -469,6 +497,35 @@ private fun AndroidMediaExtractorDemuxNode.matroskaDolbyVisionConfigOrNull(
         if (bytes.size < maximumBytes) return null
     }
     return null
+}
+
+/**
+ * The container's chapters, from the header MediaExtractor has just read, which the block cache
+ * therefore already holds. Chapters the SeekHead places further into the file are not fetched:
+ * that would put another remote read between the viewer and the first frame, for progress-bar
+ * marks.
+ */
+private fun AndroidMediaExtractorDemuxNode.matroskaChapters(): List<YChapter> {
+    for (maximumBytes in MATROSKA_CHAPTER_PROBE_BYTES) {
+        val bytes = runCatching { readSourcePrefix(maximumBytes) }.getOrNull() ?: return emptyList()
+        when (val result = YMatroskaChapterParser.parse(bytes)) {
+            is YMatroskaChaptersResult.Found -> {
+                AppLog.info(
+                    category = "player.core2",
+                    event = "matroska_chapters_read",
+                    message = "YCore read the container's chapters",
+                    attributes = mapOf("chapters" to result.chapters.size.toString()),
+                )
+                return result.chapters
+            }
+            YMatroskaChaptersResult.Truncated -> if (bytes.size < maximumBytes) return emptyList()
+            YMatroskaChaptersResult.Absent,
+            YMatroskaChaptersResult.Invalid,
+            is YMatroskaChaptersResult.Elsewhere,
+            -> return emptyList()
+        }
+    }
+    return emptyList()
 }
 
 /**
@@ -945,6 +1002,9 @@ internal fun YCore2ProbeResult.Success.preservingPlatformDemuxCapability(
                     playbackRequest.enhancedDemuxSupported ||
                         platform.playbackRequest.enhancedDemuxSupported,
             ),
+        // FFmpeg's probe reports neither; the tunnel route sizes the picture by the ratio.
+        pixelAspectRatio = pixelAspectRatio ?: platform.pixelAspectRatio,
+        chapters = chapters.ifEmpty { platform.chapters },
     )
 
 private fun YAudioRequirement?.hasReliableCodecWhen(platform: YAudioRequirement?): Boolean =
@@ -1203,6 +1263,9 @@ private const val COLOR_TRANSFER_HLG = 7
 private val MATROSKA_DOLBY_BASE_MIME_TYPES =
     setOf("video/hevc", "video/avc", "video/av01", MIME_DOLBY_VISION)
 private val MATROSKA_METADATA_PROBE_BYTES = intArrayOf(512 * 1024, 4 * 1024 * 1024)
+
+/** Within the first block the cache fetched for MediaExtractor's own header read. */
+private val MATROSKA_CHAPTER_PROBE_BYTES = intArrayOf(256 * 1024, 1024 * 1024)
 private const val DOLBY_SAMPLE_PROBE_COUNT = 24
 private const val DOLBY_SAMPLE_PROBE_MIN_BYTES = 256 * 1024
 private const val DOLBY_SAMPLE_PROBE_DEFAULT_BYTES = 2 * 1024 * 1024

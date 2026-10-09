@@ -1,5 +1,8 @@
 package com.yfuse.core2.android
 
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -97,5 +100,57 @@ class AndroidVideoOutputEpochTest {
         assertFalse(evidence.rendered(previous, 0L, 210L) {})
         assertFalse(evidence.verified)
         assertTrue(evidence.rendered(current, 0L, 210L) {})
+    }
+
+    @Test
+    fun concurrent_callbacks_count_every_submitted_frame_once_and_publish_the_first_frame_once() {
+        val evidence = AndroidVideoOutputEpoch()
+        val epoch = evidence.reset(0L)
+        repeat(200) { frame -> evidence.submitted(frame.toLong()) }
+        val gate = CountDownLatch(1)
+        val firstFrames = AtomicInteger()
+        val callbacks =
+            (0 until 4).map { worker ->
+                thread {
+                    gate.await()
+                    repeat(50) { frame ->
+                        evidence.rendered(epoch, (worker * 50 + frame).toLong(), 1L) { firstFrames.incrementAndGet() }
+                    }
+                }
+            }
+        gate.countDown()
+        callbacks.forEach { it.join() }
+        assertEquals(200L, evidence.renderedFrameCount)
+        assertEquals(1, firstFrames.get())
+    }
+
+    @Test
+    fun a_reset_racing_previous_generation_callbacks_always_wins() {
+        repeat(50) {
+            val evidence = AndroidVideoOutputEpoch()
+            val previous = evidence.reset(0L)
+            repeat(64) { frame -> evidence.submitted(frame.toLong()) }
+            val gate = CountDownLatch(1)
+            val firstFrames = AtomicInteger()
+            val callbacks =
+                thread {
+                    gate.await()
+                    repeat(64) { frame ->
+                        evidence.rendered(previous, frame.toLong(), 1L) { firstFrames.incrementAndGet() }
+                    }
+                }
+            val resetting =
+                thread {
+                    gate.await()
+                    evidence.reset(0L)
+                }
+            gate.countDown()
+            callbacks.join()
+            resetting.join()
+            // Whatever the interleaving, nothing the previous generation rendered survives the reset.
+            assertEquals(0L, evidence.renderedFrameCount)
+            assertFalse(evidence.verified)
+            assertTrue(firstFrames.get() <= 1)
+        }
     }
 }
