@@ -8,4 +8,10 @@
 
 原生库由同源、验签通过的 1.1.5 APK 恢复，二进制、构建 ID 与 CI 来源核验见 [native-runtime.md](native-runtime.md)。portable 测试限制见 [portable-native.json](portable-native.json)。原始本地日志与二进制产物保留在受忽略目录，审查元数据不包含用户目录、设备序列号或密钥。
 
-签名包验证结果将在构建完成后附加。本次仅本地交付 APK 和上传代码，提交使用 `[artifact only]`，禁止触发线上更新发布。完整版 MDK 分发确认仍待本次发布负责人回复。
+签名精简版已经构建并验证：`Yfuse-1.1.6-compact-arm64.apk`，包名 `com.yfuse`，APK 实际版本 `1.1.6 / 268`，arm64-v8a，23,572,646 字节。源码提交 `41a5c4cea832f41f60386d367187f31780af34a3`，构建时工作区干净。
+
+SHA-256：`5f842df8d469cac6ba36c49d441a22fa4fa249e5c16478102db6b6333572874d`。正式签名与上一份实际交付 APK 的证书一致，唯一签名者、v2 验证、16 KiB 对齐及 DEX 验证全部通过。APK 内 8 个 YCore 运行库逐字节匹配已核验的 AAR；精简版不含 MDK 运行库。
+
+实际元数据及构建命令见 [verification.json](verification.json)，包信息与 DEX 输出分别见 [apk-badging.txt](apk-badging.txt)、[apk-dex.txt](apk-dex.txt)。APK 与 R8 mapping 本地保存于 `artifacts-local/releases/merged-master-1.1.6-268/`，不纳入 Git。未安装新版 APK 到设备或修改现有 App 数据。
+
+本次仅本地交付 APK 和上传代码，提交使用 `[artifact only]`，禁止触发线上更新发布。完整版 MDK 分发确认仍待本次发布负责人回复。
