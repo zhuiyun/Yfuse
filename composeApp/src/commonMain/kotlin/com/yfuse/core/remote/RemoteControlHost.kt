@@ -1,5 +1,8 @@
 package com.yfuse.core.remote
 
+import com.yfuse.backend.BackendAccess
+import com.yfuse.backend.BackendFeature
+import com.yfuse.backend.BackendUnavailableException
 import com.yfuse.core.sync.AccountRequiredForWatchException
 import com.yfuse.core.sync.backoffDelayMs
 import com.yfuse.core.sync.isWatchAuthenticationFailure
@@ -55,6 +58,7 @@ class RemoteControlHost(
     private val connector: RemoteRelayConnector = KtorRemoteRelayConnector,
     private val retryDelayMs: (Int) -> Long = ::backoffDelayMs,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val backendAccess: BackendAccess = BackendAccess.Default,
 ) {
     private val active = MutableStateFlow(false)
     private val _hosting = MutableStateFlow(false)
@@ -72,7 +76,7 @@ class RemoteControlHost(
 
     /** The app is in the foreground: host while it is, and stop as soon as it is not. */
     fun setActive(value: Boolean) {
-        active.value = value
+        active.value = value && backendAccess.enabled
     }
 
     private suspend fun host() {
@@ -89,11 +93,18 @@ class RemoteControlHost(
                     }.exceptionOrNull()
                 _hosting.value = false
                 if (failure is CancellationException) throw failure
+                if (failure is BackendUnavailableException) return
                 if (failure is RemoteControlRefusedException && !failure.supported) return
                 if (failure != null && failure.isWatchAuthenticationFailure()) {
-                    if (refreshed || refreshAccessToken() == null) return
-                    refreshed = true
-                    continue
+                    if (refreshed) return
+                    when (refreshRemoteToken(refreshAccessToken)) {
+                        RemoteTokenRefresh.Renewed -> {
+                            refreshed = true
+                            continue
+                        }
+                        RemoteTokenRefresh.Expired -> return
+                        RemoteTokenRefresh.Unavailable -> Unit // Retry after the same backoff as a dropped socket.
+                    }
                 }
                 failures++
                 delay(retryDelayMs(failures))
@@ -104,6 +115,7 @@ class RemoteControlHost(
     }
 
     private suspend fun hostOnce(onHosting: () -> Unit) {
+        backendAccess.requireEnabled(BackendFeature.RemoteControl)
         val relay = url ?: throw RemoteControlRefusedException("手机遥控服务地址无效", supported = false)
         val token = accessToken() ?: throw AccountRequiredForWatchException()
         connector.connect(relay, token) { channel ->

@@ -1,17 +1,14 @@
 package com.yfuse.core.playback
 
 import com.russhwolf.settings.Settings
-import com.yfuse.core.account.ACCOUNT_BASE_URL
+import com.yfuse.backend.BackendEndpoints
+import com.yfuse.backend.HttpQoeBackendApi
+import com.yfuse.backend.QoeBackendApi
 import com.yfuse.core.data.PLAYBACK_QOE_OUTBOX_KEY
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.watch.protocol.AnonymousPlaybackQoeReport
 import com.yfuse.watch.protocol.QoeProtocol
 import io.ktor.client.HttpClient
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.http.ContentType
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -22,14 +19,17 @@ import kotlinx.serialization.json.Json
 class PlaybackQoeReporter(
     private val settings: Settings,
     private val preferences: PlaybackPreferences,
-    private val client: HttpClient,
+    private val api: QoeBackendApi,
     val appVersion: String,
-    baseUrl: String = ACCOUNT_BASE_URL,
 ) {
-    private val endpoint =
-        baseUrl.trimEnd('/').also {
-            require(it.startsWith("https://")) { "QoE aggregation requires HTTPS" }
-        } + "/api/v1/qoe"
+    constructor(
+        settings: Settings,
+        preferences: PlaybackPreferences,
+        client: HttpClient,
+        appVersion: String,
+        baseUrl: String = BackendEndpoints.ORIGIN,
+    ) : this(settings, preferences, HttpQoeBackendApi(client, baseUrl), appVersion)
+
     private val lock = Mutex()
     private val serializer = ListSerializer(AnonymousPlaybackQoeReport.serializer())
     private val json =
@@ -39,7 +39,7 @@ class PlaybackQoeReporter(
         }
 
     suspend fun submit(report: AnonymousPlaybackQoeReport): Boolean {
-        if (!preferences.anonymousQoeSharing.value) {
+        if (!api.enabled || !preferences.anonymousQoeSharing.value) {
             settings.remove(PLAYBACK_QOE_OUTBOX_KEY)
             return false
         }
@@ -72,11 +72,7 @@ class PlaybackQoeReporter(
 
     private suspend fun send(report: AnonymousPlaybackQoeReport): Boolean =
         try {
-            client
-                .post(endpoint) {
-                    contentType(ContentType.Application.Json)
-                    setBody(report)
-                }.status in setOf(HttpStatusCode.Accepted, HttpStatusCode.OK, HttpStatusCode.NoContent)
+            api.send(report)
         } catch (failure: CancellationException) {
             throw failure
         } catch (_: Throwable) {

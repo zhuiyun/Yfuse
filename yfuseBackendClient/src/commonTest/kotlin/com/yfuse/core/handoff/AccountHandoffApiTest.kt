@@ -1,8 +1,11 @@
 package com.yfuse.core.handoff
 
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.account.AccountAccessTokenSource
-import com.yfuse.core.account.createAccountClient
+import com.yfuse.core.account.createBackendAccountClient
 import com.yfuse.watch.protocol.HandoffHeartbeat
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
@@ -15,20 +18,21 @@ import kotlin.test.assertTrue
 
 class AccountHandoffApiTest {
     private val origin = "https://account.example.test"
+    private val enabled = BackendAccess(enabled = true)
 
     @Test
     fun missing_heartbeat_endpoint_preserves_service_error_without_refreshing_the_account() =
         runTest {
             var refreshes = 0
             val tokens =
-                AccountAccessTokenSource(origin).apply {
+                AccountAccessTokenSource(origin, enabled).apply {
                     bind(provider = { "access" }, refreshProvider = {
                         refreshes++
                         "fresh"
                     })
                 }
             val client =
-                createAccountClient(
+                enabledAccountClient(
                     MockEngine { request ->
                         assertEquals("/api/v1/account/handoff/heartbeat", request.url.encodedPath)
                         assertEquals("Bearer access", request.headers["Authorization"])
@@ -38,7 +42,12 @@ class AccountHandoffApiTest {
             try {
                 val failure =
                     assertFailsWith<HandoffApiException> {
-                        AccountHandoffApi(client, tokens, origin).heartbeat(HandoffHeartbeat("Phone", "Android", true))
+                        AccountHandoffApi(
+                            client,
+                            tokens,
+                            origin,
+                            enabled,
+                        ).heartbeat(HandoffHeartbeat("Phone", "Android", true))
                     }
                 assertEquals(HttpStatusCode.NotFound, failure.status)
                 assertTrue(failure.message.orEmpty().contains("服务端更新"))
@@ -54,7 +63,7 @@ class AccountHandoffApiTest {
         runTest {
             var refreshes = 0
             val tokens =
-                AccountAccessTokenSource(origin).apply {
+                AccountAccessTokenSource(origin, enabled).apply {
                     bind(provider = { "stale" }, refreshProvider = {
                         refreshes++
                         "fresh"
@@ -62,7 +71,7 @@ class AccountHandoffApiTest {
                 }
             val auth = mutableListOf<String?>()
             val client =
-                createAccountClient(
+                enabledAccountClient(
                     MockEngine { request ->
                         auth += request.headers["Authorization"]
                         if (auth.size == 1) {
@@ -77,7 +86,7 @@ class AccountHandoffApiTest {
                     },
                 )
             try {
-                val inbox = AccountHandoffApi(client, tokens, origin).inbox()
+                val inbox = AccountHandoffApi(client, tokens, origin, enabled).inbox()
                 assertEquals("session", inbox.currentSessionId)
                 assertEquals<List<String?>>(listOf("Bearer stale", "Bearer fresh"), auth)
                 assertEquals(1, refreshes)
@@ -91,18 +100,19 @@ class AccountHandoffApiTest {
         runTest {
             var attempts = 0
             val tokens =
-                AccountAccessTokenSource(origin).apply {
+                AccountAccessTokenSource(origin, enabled).apply {
                     bind(provider = { "stale" }, refreshProvider = { "fresh" })
                 }
             val client =
-                createAccountClient(
+                enabledAccountClient(
                     MockEngine {
                         attempts++
                         respond("", HttpStatusCode.Unauthorized)
                     },
                 )
             try {
-                val failure = assertFailsWith<HandoffApiException> { AccountHandoffApi(client, tokens, origin).inbox() }
+                val failure =
+                    assertFailsWith<HandoffApiException> { AccountHandoffApi(client, tokens, origin, enabled).inbox() }
                 assertEquals(HttpStatusCode.Unauthorized, failure.status)
                 assertTrue(failure.message.orEmpty().contains("凭证已失效"))
                 assertEquals(2, attempts)
@@ -116,7 +126,7 @@ class AccountHandoffApiTest {
         runTest {
             var attempts = 0
             val client =
-                createAccountClient(
+                enabledAccountClient(
                     MockEngine {
                         attempts++
                         respond("", HttpStatusCode.OK)
@@ -125,7 +135,7 @@ class AccountHandoffApiTest {
             try {
                 val failure =
                     assertFailsWith<HandoffApiException> {
-                        AccountHandoffApi(client, AccountAccessTokenSource(origin), origin).inbox()
+                        AccountHandoffApi(client, AccountAccessTokenSource(origin, enabled), origin, enabled).inbox()
                     }
                 assertEquals(HttpStatusCode.Unauthorized, failure.status)
                 assertEquals(0, attempts)
@@ -134,3 +144,6 @@ class AccountHandoffApiTest {
             }
         }
 }
+
+private fun enabledAccountClient(engine: HttpClientEngine): HttpClient =
+    createBackendAccountClient(engine, access = BackendAccess(enabled = true))

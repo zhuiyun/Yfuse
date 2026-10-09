@@ -11,7 +11,7 @@ import kotlinx.coroutines.CancellationException
 fun MediaItem.toPersonalMediaRef(serverId: String): PersonalMediaRef =
     PersonalMediaRef(
         mediaKey = providerIds.watchKey(id),
-        title = title,
+        title = title.take(MAX_PERSONAL_MEDIA_TITLE_CHARS),
         mediaType = type,
         tmdbId =
             providerIds.entries
@@ -26,7 +26,7 @@ fun MediaItem.toPersonalMediaRef(serverId: String): PersonalMediaRef =
 fun TmdbItem.toPersonalMediaRef(): PersonalMediaRef =
     PersonalMediaRef(
         mediaKey = "tmdb:$id",
-        title = title,
+        title = title.take(MAX_PERSONAL_MEDIA_TITLE_CHARS),
         mediaType = if (mediaType == "tv") "Series" else "Movie",
         tmdbId = id,
         year = year?.toIntOrNull(),

@@ -4,6 +4,7 @@ import com.yfuse.core.data.FollowedSeries
 import kotlinx.serialization.Serializable
 
 const val DEFAULT_PERSONAL_PROFILE = "default"
+internal const val MAX_PERSONAL_MEDIA_TITLE_CHARS = 240
 
 @Serializable
 data class PersonalStamp(

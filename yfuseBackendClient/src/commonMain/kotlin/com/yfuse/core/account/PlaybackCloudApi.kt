@@ -1,5 +1,7 @@
 package com.yfuse.core.account
 
+import com.yfuse.backend.BackendAccess
+import com.yfuse.backend.BackendFeature
 import com.yfuse.core.sync.playback.PlaybackDeltaResponse
 import com.yfuse.core.sync.playback.PlaybackPushRequest
 import com.yfuse.core.sync.playback.PlaybackPushResponse
@@ -16,9 +18,17 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 
 class PlaybackCloudApi(
-    private val client: HttpClient,
+    client: HttpClient,
     baseUrl: String = ACCOUNT_BASE_URL,
+    private val backendAccess: BackendAccess = BackendAccess.Default,
 ) {
+    private val rawClient = client
+    private val client: HttpClient
+        get() {
+            backendAccess.requireEnabled(BackendFeature.PlaybackSync)
+            return rawClient
+        }
+
     val origin: String =
         baseUrl.trimEnd('/').also {
             require(it.startsWith("https://")) { "账号服务必须使用 HTTPS" }
@@ -62,11 +72,5 @@ private const val PLAYBACK_CLOUD_TIMEOUT_MS = 30_000L
 
 private suspend inline fun <reified T> HttpResponse.decodedPlayback(): T {
     if (status.isSuccess()) return body()
-    val envelope = runCatching { body<ErrorEnvelope>() }.getOrNull()
-    throw AccountApiException(
-        code = envelope?.error?.code ?: "http_${status.value}",
-        message = envelope?.error?.message ?: "播放记录同步暂时不可用（HTTP ${status.value}）",
-        status = status,
-        currentVersion = envelope?.error?.currentVersion,
-    )
+    throw decodeAccountError("播放记录同步暂时不可用（HTTP ${status.value}）")
 }

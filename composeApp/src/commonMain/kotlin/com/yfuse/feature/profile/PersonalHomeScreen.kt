@@ -3,6 +3,7 @@ package com.yfuse.feature.profile
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.SettingRow
@@ -40,24 +41,28 @@ internal fun PersonalSettingsSection(
                 icon = AppIcons.User,
                 iconTint = SettingTint.account,
             )
-            SettingsDivider()
-            SettingRow(
-                "设备接力",
-                "在另一台设备继续观看",
-                embedded = true,
-                onClick = onOpenHandoff,
-                icon = AppIcons.Play,
-                iconTint = SettingTint.playback,
-            )
-            SettingsDivider()
-            SettingRow(
-                "Trakt",
-                "授权与观影记录同步",
-                embedded = true,
-                onClick = onOpenTrakt,
-                icon = AppIcons.Refresh,
-                iconTint = SettingTint.account,
-            )
+            if (BackendAccess.Default.enabled) {
+                SettingsDivider()
+                SettingRow(
+                    "设备接力",
+                    "在另一台设备继续观看",
+                    embedded = true,
+                    onClick = onOpenHandoff,
+                    icon = AppIcons.Play,
+                    iconTint = SettingTint.playback,
+                )
+            }
+            if (BackendAccess.Default.enabled) {
+                SettingsDivider()
+                SettingRow(
+                    "Trakt",
+                    "授权与观影记录同步",
+                    embedded = true,
+                    onClick = onOpenTrakt,
+                    icon = AppIcons.Refresh,
+                    iconTint = SettingTint.account,
+                )
+            }
         }
     }
 }

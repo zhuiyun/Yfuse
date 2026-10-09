@@ -1,12 +1,15 @@
 package com.yfuse.core.account
 
-import com.yfuse.core.logging.AppLog
-import com.yfuse.core.network.embyHttpEngine
+import com.yfuse.backend.BackendAccess
+import com.yfuse.backend.BackendDiagnostics
+import com.yfuse.backend.BackendFeature
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.plugins.HttpSend
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.plugin
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -28,7 +31,10 @@ class AccountApiException(
     val currentVersion: Long? = null,
 ) : Exception(message)
 
-fun createAccountClient(engine: HttpClientEngine = embyHttpEngine()): HttpClient =
+fun createBackendAccountClient(
+    engine: HttpClientEngine,
+    access: BackendAccess = BackendAccess.Default,
+): HttpClient =
     HttpClient(engine) {
         expectSuccess = false
         install(HttpTimeout) {
@@ -44,12 +50,26 @@ fun createAccountClient(engine: HttpClientEngine = embyHttpEngine()): HttpClient
                 },
             )
         }
+    }.also { client ->
+        client.plugin(HttpSend).intercept { request ->
+            access.requireEnabled(BackendFeature.Account)
+            execute(request)
+        }
     }
 
 class AccountApi(
-    private val client: HttpClient,
+    client: HttpClient,
     baseUrl: String = ACCOUNT_BASE_URL,
+    private val backendAccess: BackendAccess = BackendAccess.Default,
+    private val diagnostics: BackendDiagnostics = BackendDiagnostics.None,
 ) {
+    private val rawClient = client
+    private val client: HttpClient
+        get() {
+            backendAccess.requireEnabled(BackendFeature.Account)
+            return rawClient
+        }
+
     private val origin =
         baseUrl.trimEnd('/').also {
             require(it.startsWith("https://")) { "账号服务必须使用 HTTPS" }
@@ -91,14 +111,13 @@ class AccountApi(
                 setBody(RefreshRequest(refreshToken, deviceName, requestId))
             }
         if (response.status.isSuccess()) return response.body()
-        val error = response.decodedError()
+        val error = response.decodeAccountError("账号服务暂时不可用")
         if (!error.rejectsRefreshSchema() || (deviceName == null && requestId == null)) throw error
         // The APK and the account backend ship independently. A backend older than the client
         // decodes request bodies strictly and answers `invalid_json` to fields it does not know,
         // which read on the device as "登录失败" until the backend was redeployed. The body it does
         // know still refreshes the session; only the idempotency key and device label are lost.
-        AppLog.warning(
-            category = "account",
+        diagnostics.warning(
             event = "refresh_legacy_schema_fallback",
             message = "Account backend rejected the refresh request schema; retrying with the legacy body",
             attributes = mapOf("code" to error.code),
@@ -110,8 +129,7 @@ class AccountApi(
                         contentType(ContentType.Application.Json)
                         setBody(LegacyRefreshRequest(refreshToken))
                     }.decoded<AuthResponse>()
-            AppLog.info(
-                category = "account",
+            diagnostics.info(
                 event = "refresh_legacy_schema_result",
                 message = "Account legacy refresh completed",
                 attributes = mapOf("outcome" to "success"),
@@ -119,8 +137,7 @@ class AccountApi(
             auth
         } catch (failure: Throwable) {
             // Never log the request body, rotating token, or raw HTTP exception message.
-            AppLog.warning(
-                category = "account",
+            diagnostics.warning(
                 event = "refresh_legacy_schema_result",
                 message = "Account legacy refresh did not complete",
                 attributes =
@@ -252,24 +269,14 @@ class AccountApi(
 
 private suspend inline fun <reified T> HttpResponse.decoded(): T {
     if (status.isSuccess()) return body()
-    throw decodedError()
+    throw decodeAccountError("账号服务暂时不可用")
 }
 
 private suspend fun HttpResponse.decodedUnit() {
     if (status.isSuccess()) return
-    throw decodedError()
+    throw decodeAccountError("账号服务暂时不可用")
 }
 
 /** A well-formed body the backend still could not decode: the request schema, not the JSON. */
 private fun AccountApiException.rejectsRefreshSchema(): Boolean =
     status == HttpStatusCode.BadRequest && code == "invalid_json"
-
-private suspend fun HttpResponse.decodedError(): AccountApiException {
-    val envelope = runCatching { body<ErrorEnvelope>() }.getOrNull()
-    return AccountApiException(
-        code = envelope?.error?.code ?: "http_${status.value}",
-        message = envelope?.error?.message ?: "账号服务暂时不可用",
-        status = status,
-        currentVersion = envelope?.error?.currentVersion,
-    )
-}

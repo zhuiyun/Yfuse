@@ -93,8 +93,7 @@ fun <T : Any> OfficialNavDisplay(
         if (zoom != null) {
             zoom.onBack = { latestBack() }
             zoom.blocked = { liftMenu?.isOpen == true || screenReader }
-            zoom.standIn.isBackEnabled = shownStack.size > 1
-            zoom.onStack(shownStack.map(contentKey), pushedFrom)
+            zoom.onStack(shownStack.map(contentKey), pushedFrom, visible = parentRouteVisible)
         }
         previousDepth[0] = shownStack.size
     }

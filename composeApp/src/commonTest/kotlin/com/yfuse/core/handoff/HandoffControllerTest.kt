@@ -26,6 +26,25 @@ import kotlin.test.assertTrue
 
 class HandoffControllerTest {
     @Test
+    fun cachedNowPlayingCardCannotBeReplayedAsAnotherDevice() =
+        runTest {
+            val api = FakeApi { testScheduler.currentTime }
+            val cipher = FakeCipher().apply { expectedCardOwner = "now-playing:tv" }
+            api.devices = listOf(television, television.copy(sessionId = "other-device"))
+            val controller = controller(api, FakePlayback(), cipher)
+            controller.start()
+            runCurrent()
+
+            assertEquals(
+                listOf("tv"),
+                controller.state.value.playingElsewhere
+                    .map { it.sessionId },
+            )
+            assertEquals(2, cipher.openings)
+            controller.close()
+        }
+
+    @Test
     fun missing_service_keeps_the_account_signed_in_and_recovery_clears_the_connection_error() =
         runTest {
             val api =
@@ -517,6 +536,7 @@ class HandoffControllerTest {
         var lastRequestId: String? = null
         var lastOpenedId: String? = null
         var openings = 0
+        var expectedCardOwner: String? = null
 
         override fun encrypt(
             requestId: String,
@@ -533,6 +553,7 @@ class HandoffControllerTest {
             if (requestId.startsWith("now-playing:")) {
                 lastOpenedId = requestId
                 openings++
+                check(expectedCardOwner == null || expectedCardOwner == requestId) { "Wrong card owner" }
             }
             return media
         }

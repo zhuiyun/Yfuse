@@ -1,6 +1,8 @@
 package com.yfuse.core.handoff
 
-import com.yfuse.core.account.ACCOUNT_BASE_URL
+import com.yfuse.backend.BackendAccess
+import com.yfuse.backend.BackendEndpoints
+import com.yfuse.backend.BackendFeature
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.watch.protocol.HandoffHeartbeat
 import com.yfuse.watch.protocol.HandoffInbox
@@ -51,7 +53,8 @@ class HandoffApiException(
 class AccountHandoffApi(
     private val client: HttpClient,
     private val tokens: AccountAccessTokenSource,
-    baseUrl: String = ACCOUNT_BASE_URL,
+    baseUrl: String = BackendEndpoints.ORIGIN,
+    private val access: BackendAccess = BackendAccess.Default,
 ) : HandoffApi {
     private val endpoint =
         "${baseUrl.trimEnd('/')}/api/v1/account/handoff".also {
@@ -90,6 +93,7 @@ class AccountHandoffApi(
     }
 
     private suspend fun send(block: suspend (String) -> HttpResponse): HttpResponse {
+        access.requireEnabled(BackendFeature.Handoff)
         var response =
             block(
                 tokens.validAccessTokenFor(endpoint) ?: throw HandoffApiException(HttpStatusCode.Unauthorized),

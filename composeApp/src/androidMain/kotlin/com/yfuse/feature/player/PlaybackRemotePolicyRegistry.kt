@@ -1,12 +1,14 @@
 package com.yfuse.feature.player
 
 import android.content.Context
+import com.yfuse.backend.BackendAccess
+import com.yfuse.backend.BackendBinaryTransport
+import com.yfuse.backend.BackendEndpoints
+import com.yfuse.backend.BackendFeature
 import com.yfuse.core.logging.AppLog
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import java.io.InputStream
 import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -18,9 +20,9 @@ import java.util.concurrent.atomic.AtomicReference
  */
 internal object PlaybackRemotePolicyRegistry {
     private const val PREFS = "yfuse_playback_remote_policy_v1"
-    private const val POLICY_URL = "https://47.112.219.60/yfuse/playback-policy-v1.json"
     private const val MAX_POLICY_BYTES = 32 * 1024
     private val json = Json { ignoreUnknownKeys = true }
+    private val transport = BackendBinaryTransport()
     private val active = AtomicReference(PlaybackRemotePolicyState())
     private lateinit var appContext: Context
 
@@ -30,6 +32,10 @@ internal object PlaybackRemotePolicyRegistry {
         nowEpochMs: Long = System.currentTimeMillis(),
     ) {
         appContext = context.applicationContext
+        if (!BackendAccess.Default.enabled) {
+            active.set(PlaybackRemotePolicyState())
+            return
+        }
         val preferences = prefs()
         val revision = preferences.getLong("revision", 0L)
         val expiresAt = preferences.getLong("expiresAtEpochMs", 0L)
@@ -52,42 +58,37 @@ internal object PlaybackRemotePolicyRegistry {
         path: PlaybackRemotePath,
         nowEpochMs: Long = System.currentTimeMillis(),
     ): Boolean {
+        if (!BackendAccess.Default.enabled) return false
         val state = active.get()
         return state.expiresAtEpochMs > nowEpochMs && path in state.disabledPaths
     }
 
     /** Called from the update manager's IO dispatcher; update checking still succeeds on failure. */
     fun refreshFromNetwork(nowEpochMs: Long = System.currentTimeMillis()) {
+        if (!BackendAccess.Default.enabled) return
         // No policy has ever been published for most builds. Re-asking on every process start
         // costs a request and a log line per launch while the answer cannot change that fast.
         if (nowEpochMs < prefs().getLong(KEY_UNPUBLISHED_UNTIL, 0L)) return
-        val connection =
-            (URL(POLICY_URL).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 5_000
-                readTimeout = 5_000
-                useCaches = false
-                instanceFollowRedirects = false
-            }
-        try {
-            val status = connection.responseCode
-            if (status == HttpURLConnection.HTTP_NOT_FOUND || status == HttpURLConnection.HTTP_GONE) {
-                prefs()
-                    .edit()
-                    .putLong(KEY_UNPUBLISHED_UNTIL, nowEpochMs + UNPUBLISHED_RECHECK_INTERVAL_MS)
-                    .apply()
-                throw PlaybackRemotePolicyUnpublishedException(status)
-            }
-            check(status == HttpURLConnection.HTTP_OK) { "Playback policy HTTP $status" }
-            check(connection.contentLengthLong < 0L || connection.contentLengthLong <= MAX_POLICY_BYTES) {
-                "Playback policy is too large"
-            }
-            val bytes = connection.inputStream.use { it.readAtMost(MAX_POLICY_BYTES + 1) }
-            check(bytes.size <= MAX_POLICY_BYTES) { "Playback policy is too large" }
-            prefs().edit().remove(KEY_UNPUBLISHED_UNTIL).apply()
-            apply(json.decodeFromString<PlaybackRemotePolicyDocument>(bytes.decodeToString()), nowEpochMs)
-        } finally {
-            connection.disconnect()
+        val document =
+            transport.fetchDocument(
+                url = BackendEndpoints.PLAYBACK_POLICY,
+                feature = BackendFeature.PlaybackPolicy,
+                maxBytes = MAX_POLICY_BYTES,
+                connectTimeoutMillis = 5_000,
+                readTimeoutMillis = 5_000,
+                tooLargeMessage = "Playback policy is too large",
+            )
+        val status = document.statusCode
+        if (status == HttpURLConnection.HTTP_NOT_FOUND || status == HttpURLConnection.HTTP_GONE) {
+            prefs()
+                .edit()
+                .putLong(KEY_UNPUBLISHED_UNTIL, nowEpochMs + UNPUBLISHED_RECHECK_INTERVAL_MS)
+                .apply()
+            throw PlaybackRemotePolicyUnpublishedException(status)
         }
+        check(status == HttpURLConnection.HTTP_OK) { "Playback policy HTTP $status" }
+        prefs().edit().remove(KEY_UNPUBLISHED_UNTIL).apply()
+        apply(json.decodeFromString<PlaybackRemotePolicyDocument>(document.bytes.decodeToString()), nowEpochMs)
     }
 
     @Synchronized
@@ -95,6 +96,7 @@ internal object PlaybackRemotePolicyRegistry {
         document: PlaybackRemotePolicyDocument,
         nowEpochMs: Long = System.currentTimeMillis(),
     ): Boolean {
+        if (!BackendAccess.Default.enabled) return false
         val currentRevision = prefs().getLong("revision", 0L)
         val sanitized = sanitizePlaybackRemotePolicy(document, currentRevision, nowEpochMs) ?: return false
         prefs()
@@ -187,21 +189,3 @@ internal fun sanitizePlaybackRemotePolicy(
 }
 
 private const val MAX_PLAYBACK_POLICY_LIFETIME_MS = 31L * 24L * 60L * 60L * 1_000L
-
-private fun InputStream.readAtMost(limit: Int): ByteArray {
-    require(limit > 0) { "Read limit must be positive" }
-    val buffer = ByteArray(limit)
-    var offset = 0
-    while (offset < limit) {
-        val read = read(buffer, offset, limit - offset)
-        if (read < 0) break
-        if (read == 0) {
-            val next = read()
-            if (next < 0) break
-            buffer[offset++] = next.toByte()
-        } else {
-            offset += read
-        }
-    }
-    return buffer.copyOf(offset)
-}

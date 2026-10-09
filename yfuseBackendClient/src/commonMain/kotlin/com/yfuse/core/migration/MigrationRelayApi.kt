@@ -1,7 +1,8 @@
 package com.yfuse.core.migration
 
-import com.yfuse.core.account.ACCOUNT_BASE_URL
-import com.yfuse.core.security.base64UrlToBytes
+import com.yfuse.backend.BackendAccess
+import com.yfuse.backend.BackendEndpoints
+import com.yfuse.backend.BackendFeature
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.HttpClientEngine
@@ -22,9 +23,7 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-
-/** A short-lived engine whose connection pool belongs exclusively to one migration client. */
-internal expect fun migrationRelayHttpEngine(): HttpClientEngine
+import kotlin.io.encoding.Base64
 
 @Serializable
 data class MigrationRelayTicket(
@@ -43,15 +42,16 @@ class MigrationRelayApiException(
 ) : Exception(message)
 
 class MigrationRelayApi(
-    client: HttpClient? = null,
-    baseUrl: String = ACCOUNT_BASE_URL,
+    private val client: HttpClient,
+    baseUrl: String = BackendEndpoints.ORIGIN,
+    private val access: BackendAccess = BackendAccess.Default,
+    /** Only a factory transferring ownership supplies this engine; injected clients remain caller-owned. */
+    private val ownedEngine: HttpClientEngine? = null,
 ) {
     private val origin =
         baseUrl.trimEnd('/').also {
             require(it.startsWith("https://")) { "迁移服务必须使用 HTTPS" }
         }
-    private val ownedEngine = if (client == null) migrationRelayHttpEngine() else null
-    private val client = client ?: createMigrationRelayClient(requireNotNull(ownedEngine), origin)
 
     /** Injected clients and their engines belong to the caller and must stay usable after close. */
     fun close() {
@@ -68,12 +68,14 @@ class MigrationRelayApi(
         relayId: String,
         transferSecret: String,
         payloadSha256: String,
-    ): MigrationRelayTicket =
-        client
+    ): MigrationRelayTicket {
+        access.requireEnabled(BackendFeature.Migration)
+        return client
             .post("$origin/api/v1/migration-relays") {
                 contentType(ContentType.Application.Json)
                 setBody(CreateRelayRequest(relayId, transferSecret, payloadSha256))
             }.decoded()
+    }
 
     /** A successful redemption consumes the key even if later local decryption fails. */
     suspend fun redeem(
@@ -81,6 +83,7 @@ class MigrationRelayApi(
         code: String,
         payloadSha256: String,
     ): ByteArray {
+        access.requireEnabled(BackendFeature.Migration)
         require(code.length == 6 && code.all { it in '0'..'9' }) { "请输入 6 位数字迁移码" }
         val response: RedeemRelayResponse =
             client
@@ -93,8 +96,9 @@ class MigrationRelayApi(
 }
 
 fun createMigrationRelayClient(
-    engine: HttpClientEngine = migrationRelayHttpEngine(),
-    trustedOrigin: String = ACCOUNT_BASE_URL,
+    engine: HttpClientEngine,
+    trustedOrigin: String = BackendEndpoints.ORIGIN,
+    access: BackendAccess = BackendAccess.Default,
 ): HttpClient =
     HttpClient(engine) {
         expectSuccess = false
@@ -114,6 +118,7 @@ fun createMigrationRelayClient(
     }.also { client ->
         val trusted = Url(trustedOrigin)
         client.plugin(HttpSend).intercept { request ->
+            access.requireEnabled(BackendFeature.Migration)
             val target = request.url.build()
             check(
                 target.protocol == URLProtocol.HTTPS &&
@@ -170,7 +175,7 @@ private suspend inline fun <reified T> HttpResponse.decoded(): T {
 
 private fun String.decodeTransferSecret(): ByteArray {
     val decoded =
-        runCatching { base64UrlToBytes() }
+        runCatching { Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT_OPTIONAL).decode(this) }
             .getOrElse { throw IllegalArgumentException("服务返回了无效的迁移密钥", it) }
     require(decoded.size == 32) { "服务返回了无效的迁移密钥" }
     return decoded

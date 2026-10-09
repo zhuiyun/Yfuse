@@ -20,7 +20,8 @@ def check(label: str, condition: bool, detail: str) -> bool:
 
 
 def main() -> int:
-    subprocess.run([sys.executable, str(ROOT / "scripts/verify-harmony-port.py")], check=True)
+    subprocess.run([sys.executable, str(ROOT / "scripts/verify-harmony-port.py"),
+                    "--require-host"], check=True)
     ok = True
     cjc = shutil.which("cjc")
     cjpm = shutil.which("cjpm")

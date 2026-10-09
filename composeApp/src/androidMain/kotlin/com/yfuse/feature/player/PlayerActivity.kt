@@ -55,6 +55,7 @@ import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.dto.toMediaVersion
 import com.yfuse.core.data.preferredVersion
+import com.yfuse.core.data.runCatchingCancellable
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassMaterials
 import com.yfuse.core.designsystem.GlassStyle
@@ -88,7 +89,9 @@ import com.yfuse.tv.player.TvRemoteInputController
 import com.yfuse.tv.player.isTelevisionDevice
 import com.yfuse.tv.player.withoutServerTranscodeForTv
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.drop
@@ -192,6 +195,7 @@ class PlayerActivity : ComponentActivity() {
     private var activeQueueAppender: ((List<PlayerMediaItem>) -> Boolean)? = null
     private var activeQueueUpdater: ((List<PlayerMediaItem>, Int) -> Boolean)? = null
     private var enrichmentJob: Job? = null
+    private var preparationJob: Job? = null
     private var pendingEnrichment: PlayerState? = null
     private var playerLaunchGeneration = 0L
     private var playbackGate: WatchGatedPlayback? = null
@@ -215,7 +219,6 @@ class PlayerActivity : ComponentActivity() {
     private var stopRequested = false
     private var activityStarted = false
     private var activityHasStarted = false
-    private var lifecyclePauseRequested = false
     private var screenStateReceiverRegistered = false
     private var playbackKeepAliveRequested = false
     private var playbackKeepAliveStartDeferred = false
@@ -254,7 +257,6 @@ class PlayerActivity : ComponentActivity() {
             ) {
                 when (intent?.action) {
                     Intent.ACTION_SCREEN_OFF -> pausePlaybackForLifecycle("screen_off")
-                    Intent.ACTION_SCREEN_ON -> lifecyclePauseRequested = false
                     AudioManager.ACTION_AUDIO_BECOMING_NOISY -> pausePlaybackForNoisyOutput()
                 }
             }
@@ -410,7 +412,10 @@ class PlayerActivity : ComponentActivity() {
         audioFocusController =
             PlayerAudioFocusController(
                 audioManager = audioManager,
-                isPlaying = { activeState.playing },
+                playbackRequested = { activePlayer?.playbackRequested ?: activeState.playing },
+                canResume = {
+                    playbackAllowedByLifecycle() && remoteCastManager?.state?.value?.hasActiveSession != true
+                },
                 onPause = { activePlayer?.pause() },
                 onResume = { activePlayer?.play() },
             )
@@ -524,12 +529,16 @@ class PlayerActivity : ComponentActivity() {
                 motionTheme = motionTheme,
             ) {
                 val leavePreparation = {
-                    val drawn =
-                        transition?.requestExit {
-                            transitionClosing = true
-                            finish()
-                        }
-                    if (drawn != true) finish()
+                    if (!stopRequested) {
+                        stopRequested = true
+                        preparationJob?.cancel()
+                        val drawn =
+                            transition?.requestExit {
+                                transitionClosing = true
+                                finish()
+                            }
+                        if (drawn != true) finish()
+                    }
                 }
                 // The system back gesture leaves on the transition too, not only the button.
                 PlatformPredictiveBackHandler(
@@ -546,54 +555,64 @@ class PlayerActivity : ComponentActivity() {
                 PlayerTransitionLayer(transition, ready = state.error != null, inPictureInPicture = false)
             }
         }
-        lifecycleScope.launch {
-            val state = pending.store.states.first { it.items.isNotEmpty() }
-            val koin = GlobalContext.get()
-            val registry = runCatching { koin.get<ServerRegistry>() }.getOrNull()
-            val preparedItems =
-                runCatching {
-                    val localPrepared =
-                        prepareNativeLocalBluRayRoute(
-                            state.items,
-                            state.startIndex,
-                            this@PlayerActivity,
+        preparationJob?.cancel()
+        preparationJob =
+            lifecycleScope.launch {
+                val state = pending.store.states.first { it.items.isNotEmpty() }
+                currentCoroutineContext().ensureActive()
+                if (launchViewModel.pending !== pending || stopRequested || isFinishing || isDestroyed) return@launch
+                val koin = GlobalContext.get()
+                val registry = runCatching { koin.get<ServerRegistry>() }.getOrNull()
+                val preparedItems =
+                    runCatchingCancellable {
+                        val localPrepared =
+                            prepareNativeLocalBluRayRoute(
+                                state.items,
+                                state.startIndex,
+                                this@PlayerActivity,
+                            )
+                        prepareNativeRemoteBluRayRoutes(localPrepared, state.startIndex, registry)
+                    }.onFailure { error ->
+                        AppLog.warning(
+                            category = "feature.player",
+                            event = "native_disc_route_preparation_failed",
+                            message = "Optional native disc route preparation failed; using resolved source",
+                            throwable = error,
                         )
-                    prepareNativeRemoteBluRayRoutes(localPrepared, state.startIndex, registry)
-                }.onFailure { error ->
-                    AppLog.warning(
-                        category = "feature.player",
-                        event = "native_disc_route_preparation_failed",
-                        message = "Optional native disc route preparation failed; using resolved source",
-                        throwable = error,
+                    }.getOrDefault(state.items)
+                currentCoroutineContext().ensureActive()
+                val preferences = runCatching { koin.get<ThemePreferences>() }.getOrNull()
+                val request =
+                    PlayerLaunchRequest.create(
+                        items = preparedItems,
+                        startIndex = state.startIndex,
+                        startPositionMs = state.startPositionMs,
+                        engine =
+                            offlineSubtitlePlaybackEngine(
+                                preferred = preferences?.engine?.value ?: PlayerEngine.Exo,
+                                items = preparedItems,
+                            ),
+                        decoder = preferences?.decoder?.value ?: DecoderMode.Hardware,
+                        autoNext = preferences?.autoNext?.value ?: true,
+                        startPlaybackRequested = pending.startPlaybackRequested,
                     )
-                }.getOrDefault(state.items)
-            PlaybackSelection.update(preparedItems.getOrNull(state.startIndex))
-            val preferences = runCatching { koin.get<ThemePreferences>() }.getOrNull()
-            val request =
-                PlayerLaunchRequest.create(
-                    items = preparedItems,
-                    startIndex = state.startIndex,
-                    startPositionMs = state.startPositionMs,
-                    engine =
-                        offlineSubtitlePlaybackEngine(
-                            preferred = preferences?.engine?.value ?: PlayerEngine.Exo,
-                            items = preparedItems,
-                        ),
-                    decoder = preferences?.decoder?.value ?: DecoderMode.Hardware,
-                    autoNext = preferences?.autoNext?.value ?: true,
-                    startPlaybackRequested = pending.startPlaybackRequested,
+                if (!launchViewModel.completePreparation(
+                        expected = pending,
+                        prepared = request,
+                        stopping = stopRequested || isFinishing || isDestroyed,
+                    )
+                ) {
+                    return@launch
+                }
+                PlaybackSelection.update(preparedItems.getOrNull(state.startIndex))
+                AppLog.info(
+                    category = "feature.player",
+                    event = "preparation_completed_in_activity",
+                    message = "Playback preparation completed inside player activity",
+                    attributes = mapOf("itemCount" to preparedItems.size.toString()),
                 )
-            launchViewModel.request = request
-            launchViewModel.pending = null
-            launchViewModel.enriching = pending
-            AppLog.info(
-                category = "feature.player",
-                event = "preparation_completed_in_activity",
-                message = "Playback preparation completed inside player activity",
-                attributes = mapOf("itemCount" to preparedItems.size.toString()),
-            )
-            initializePlayer(request)
-        }
+                initializePlayer(request)
+            }
     }
 
     private fun observePlaybackEnrichment() {
@@ -644,7 +663,12 @@ class PlayerActivity : ComponentActivity() {
         sessionTitles = updated.map { it.title }
         val position = activePlayer?.currentPositionMs() ?: launchViewModel.resume?.second ?: state.startPositionMs
         launchViewModel.request = launchViewModel.request?.copy(items = updated, startIndex = selectedIndex)
-        launchViewModel.resume = selectedIndex to position
+        launchViewModel.rememberPlayback(
+            generation = playerLaunchGeneration,
+            index = selectedIndex,
+            positionMs = position,
+            requested = activePlayer?.playbackRequested ?: launchViewModel.startPlaybackRequested(),
+        )
         pendingEnrichment = null
         if (!state.enrichmentPending) {
             launchViewModel.enriching?.store?.dispose()
@@ -655,6 +679,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun initializePlayer(launchRequest: PlayerLaunchRequest) {
+        if (stopRequested || isFinishing || isDestroyed) return
         val personal = GlobalContext.get().get<com.yfuse.core.personal.PersonalLibraryRepository>()
         val owner = personal.storageNamespace
 
@@ -678,7 +703,7 @@ class PlayerActivity : ComponentActivity() {
                     }
                 }
             }
-        val launchGeneration = ++playerLaunchGeneration
+        val launchGeneration = launchViewModel.beginPlayback().also { playerLaunchGeneration = it }
         launchViewModel.request = launchRequest
         val items =
             if (televisionDevice) {
@@ -689,7 +714,7 @@ class PlayerActivity : ComponentActivity() {
         val initialEngine = launchRequest.engine
         val decoderMode = launchRequest.decoder
         val autoNext = launchRequest.autoNext
-        val startPlaybackRequested = launchRequest.startPlaybackRequested
+        val startPlaybackRequested = launchViewModel.startPlaybackRequested()
         val retainedResume = launchViewModel.resume
         val initialStartIndex = retainedResume?.first ?: launchRequest.startIndex
         val initialStartPositionMs = retainedResume?.second ?: launchRequest.startPositionMs
@@ -741,6 +766,7 @@ class PlayerActivity : ComponentActivity() {
                         Toast.makeText(this, "当前由房主控制播放", Toast.LENGTH_SHORT).show()
                     }
                 },
+                onPauseRequested = audioFocusController::cancelResume,
             )
         playbackGate = playbackController
         capabilityMonitorJob =
@@ -764,7 +790,7 @@ class PlayerActivity : ComponentActivity() {
             },
             close = ::stopPlaybackAndFinish,
         )
-        ensureAudioFocus()
+        if (startPlaybackRequested && playbackAllowedByLifecycle()) ensureAudioFocus()
         val playbackSinkFor =
             runCatching {
                 val registry = koin.get<ServerRegistry>()
@@ -857,8 +883,10 @@ class PlayerActivity : ComponentActivity() {
                         // Presentation changes only (transport, index, error, geometry): everything
                         // here talks to the system — notification, media session, PiP params, the
                         // foreground service — and must not run on the 500 ms position tick.
-                        onPlaybackState = { state, item ->
+                        onPlaybackState = stateChanged@{ state, item ->
+                            if (!launchViewModel.isPlaybackCurrent(launchGeneration)) return@stateChanged
                             activeState = state
+                            rememberPlaybackResume(launchGeneration, state)
                             applyScreenOnPolicy()
                             if (state.ended && item?.serverId != null) {
                                 val completedKey = "${item.serverId}#${item.id}"
@@ -890,7 +918,8 @@ class PlayerActivity : ComponentActivity() {
                         },
                         // Every tick: in-process position consumers, plus a ten-second (or post-seek)
                         // media-session position refresh that does not rebuild the notification.
-                        onPlaybackProgress = { state, item ->
+                        onPlaybackProgress = progressChanged@{ state, item ->
+                            if (!launchViewModel.isPlaybackCurrent(launchGeneration)) return@progressChanged
                             activeState = state
                             applyPendingEnrichment()
                             if (
@@ -900,12 +929,7 @@ class PlayerActivity : ComponentActivity() {
                             ) {
                                 refreshEpisodes()
                             }
-                            if (
-                                playerLaunchGeneration == launchGeneration &&
-                                state.currentIndex in playbackItems.value.indices
-                            ) {
-                                launchViewModel.resume = state.currentIndex to state.positionMs.coerceAtLeast(0L)
-                            }
+                            rememberPlaybackResume(launchGeneration, state)
                             ActivePlayback.update(
                                 item?.title.orEmpty(),
                                 state,
@@ -955,17 +979,18 @@ class PlayerActivity : ComponentActivity() {
                 Toast.makeText(this, "新的播放会话已过期，继续当前播放", Toast.LENGTH_SHORT).show()
                 return
             }
+            stopRequested = true
+            preparationJob?.cancel()
             launchViewModel.enriching?.store?.dispose()
             launchViewModel.enriching = null
             enrichmentJob?.cancel()
             pendingEnrichment = null
-            launchViewModel.pending?.store?.dispose()
+            launchViewModel.disposePending()
             launchViewModel.pending = replacement
             launchViewModel.launchStartedElapsedMs = SystemClock.elapsedRealtime()
             launchViewModel.request = null
-            launchViewModel.resume = null
+            launchViewModel.clearPlaybackResume()
             setIntent(intent)
-            stopRequested = true
             AppLog.info(
                 category = "feature.player",
                 event = "pending_launch_replaced",
@@ -978,6 +1003,9 @@ class PlayerActivity : ComponentActivity() {
         val payload = PlayerLaunchIntentPayload.readFrom(intent) ?: return
         when (val replacement = resolveFreshPlayerLaunch(payload)) {
             is PlayerLaunchResolution.Ready -> {
+                stopRequested = true
+                preparationJob?.cancel()
+                launchViewModel.disposePending()
                 launchViewModel.enriching?.store?.dispose()
                 launchViewModel.enriching = null
                 enrichmentJob?.cancel()
@@ -985,9 +1013,7 @@ class PlayerActivity : ComponentActivity() {
                 setIntent(intent)
                 launchViewModel.request = replacement.request
                 launchViewModel.launchStartedElapsedMs = SystemClock.elapsedRealtime()
-                launchViewModel.resume = null
-                // Suppress leave-to-PiP while Activity.recreate tears down the old composition.
-                stopRequested = true
+                launchViewModel.clearPlaybackResume()
                 AppLog.info(
                     category = "feature.player",
                     event = "launch_replaced",
@@ -1023,7 +1049,6 @@ class PlayerActivity : ComponentActivity() {
         activityStarted = true
         activityHasStarted = true
         PlayerForegroundRegistry.setVisible(true)
-        if (isScreenInteractive()) lifecyclePauseRequested = false
         if (activeState.playing) startPlaybackKeepAliveService()
         refreshEpisodes()
     }
@@ -1101,6 +1126,9 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // Capture the last command directly; a pause may be newer than the 500 ms progress tick.
+        // A replacement request has already invalidated this generation and cannot inherit it.
+        if (isChangingConfigurations && !stopRequested) rememberPlaybackResume(playerLaunchGeneration, activeState)
         // Gone without drawing the way back (an error, a permission change, a replacement): the
         // page must not stay dimmed under whatever comes next.
         transition?.let { if (!it.finished) PlayerHandoff.release(it.launch) }
@@ -1164,6 +1192,7 @@ class PlayerActivity : ComponentActivity() {
         if (stopRequested) return
         stopRequested = true
         activePlayer?.pause()
+        abandonAudioFocus()
         // Only the cheap bookkeeping happens before finish(). The engine itself is released when
         // PlayerRoot's composition is disposed in onDestroy, which Android delivers after the
         // Activity underneath has resumed and drawn. Releasing it here used to block the main
@@ -1171,7 +1200,6 @@ class PlayerActivity : ComponentActivity() {
         // on screen, so the player looked frozen for a beat before it finally went away.
         // Audio focus is abandoned first, so nothing resumes the paused engine in between.
         val finishPlayback = {
-            abandonAudioFocus()
             ActivePlayback.clear()
             stopPlaybackKeepAliveService()
             finish()
@@ -1567,7 +1595,6 @@ class PlayerActivity : ComponentActivity() {
         val filter =
             IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_OFF)
-                addAction(Intent.ACTION_SCREEN_ON)
                 addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
             }
         ContextCompat.registerReceiver(
@@ -1880,12 +1907,27 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun playbackAllowedByLifecycle(): Boolean =
-        isScreenInteractive() &&
-            (
-                !activityHasStarted ||
-                    activityStarted ||
-                    isInPictureInPictureMode
-            )
+        playerPlaybackAllowed(
+            screenInteractive = isScreenInteractive(),
+            activityHasStarted = activityHasStarted,
+            activityStarted = activityStarted,
+            inPictureInPicture = isInPictureInPictureMode,
+            stopping = stopRequested || isFinishing || isDestroyed,
+        )
+
+    private fun rememberPlaybackResume(
+        generation: Long,
+        state: PlaybackState,
+    ) {
+        if (stopRequested) return
+        val player = activePlayer ?: return
+        launchViewModel.rememberPlayback(
+            generation = generation,
+            index = player.state.value.currentIndex,
+            positionMs = player.currentPositionMs(),
+            requested = player.playbackRequested && !state.ended,
+        )
+    }
 
     private fun activePictureInPictureAspectRatio(): Rational {
         val width =
@@ -1914,18 +1956,17 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun pausePlaybackForLifecycle(reason: String) {
-        if (stopRequested || lifecyclePauseRequested) return
+        if (stopRequested) return
         // Nothing plays here during a cast: the local engine is already paused under it, and the
         // film is on the receiver. Locking the phone or leaving the app used to pause the
         // television along with it, which is the opposite of why anyone casts.
         if (remoteCastManager?.state?.value?.hasActiveSession == true) return
-        val playbackActive = activeState.playing || activeState.buffering
+        val playbackActive = activePlayer?.playbackRequested == true || activeState.playing || activeState.buffering
+        // Cancel a pending focus resume even if the transient loss has already paused output.
+        abandonAudioFocus()
         if (!playbackActive) return
-
-        lifecyclePauseRequested = true
         // Lifecycle safety must not be rejected by watch-together guest controls.
         activePlayer?.pause()
-        abandonAudioFocus()
         AppLog.info(
             category = "feature.player",
             event = "playback_paused_for_lifecycle",

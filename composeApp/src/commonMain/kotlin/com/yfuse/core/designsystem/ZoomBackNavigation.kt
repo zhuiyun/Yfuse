@@ -57,21 +57,40 @@ internal class RelayBackHandler : NavigationEventHandler<NavigationEventInfo>(Na
     var onProgressed: (NavigationEvent) -> Unit = {}
     var onCompleted: () -> Unit = {}
     var onCancelled: () -> Unit = {}
+    var acceptsBack: () -> Boolean = { true }
+    private var gestureAccepted: Boolean? = null
+
+    /** Disabling a handler does not cancel the gesture the dispatcher already assigned to it. */
+    fun rejectGesture() {
+        if (gestureAccepted == true) {
+            gestureAccepted = false
+            onCancelled()
+        }
+    }
 
     override fun onBackStarted(event: NavigationEvent) {
-        onStarted(event)
+        gestureAccepted = acceptsBack()
+        if (gestureAccepted == true) onStarted(event)
     }
 
     override fun onBackProgressed(event: NavigationEvent) {
-        onProgressed(event)
+        if (!acceptsBack()) rejectGesture()
+        if (gestureAccepted == true) onProgressed(event)
     }
 
     override fun onBackCompleted() {
-        onCompleted()
+        val accepted = gestureAccepted
+        gestureAccepted = null
+        when {
+            accepted != false && acceptsBack() -> onCompleted()
+            accepted == true -> onCancelled()
+        }
     }
 
     override fun onBackCancelled() {
-        onCancelled()
+        val accepted = gestureAccepted
+        gestureAccepted = null
+        if (accepted != false) onCancelled()
     }
 }
 
@@ -94,13 +113,14 @@ internal class PrivateNavigation {
     }
 
     fun dispose() {
+        cancelled()
         runCatching { dispatcher.removeInput(input) }
         runCatching { dispatcher.dispose() }
     }
 
     fun started(event: NavigationEvent) {
-        input.backStarted(event)
         inProgress = true
+        input.backStarted(event)
     }
 
     fun progressed(event: NavigationEvent) {
@@ -108,13 +128,14 @@ internal class PrivateNavigation {
     }
 
     fun completed() {
-        input.backCompleted()
         inProgress = false
+        input.backCompleted()
     }
 
     fun cancelled() {
-        if (inProgress) input.backCancelled()
+        val wasInProgress = inProgress
         inProgress = false
+        if (wasInProgress) input.backCancelled()
     }
 }
 
@@ -158,6 +179,8 @@ internal class ZoomBackNavHost(
     private val frames = mutableMapOf<String, ZoomFrame>()
     private var stack: List<String> = emptyList()
     private var system = SystemRoute.None
+    private var systemStack: List<String>? = null
+    private var visible = true
 
     val sources = ZoomBackSources()
 
@@ -220,6 +243,7 @@ internal class ZoomBackNavHost(
     }
 
     fun detach() {
+        abandonGesture()
         standIn.remove()
         navigation.dispose()
     }
@@ -251,7 +275,13 @@ internal class ZoomBackNavHost(
     fun onStack(
         keys: List<String>,
         pushedFrom: MediaSharedElementKey?,
+        visible: Boolean = true,
     ) {
+        this.visible = visible
+        standIn.isBackEnabled = visible && keys.size > 1
+        // A gesture belongs to the page it previewed, even when an external action changes
+        // the route before the platform sends its terminal event.
+        if (!visible || (systemStack != null && systemStack != keys)) abandonGesture()
         if (pushedFrom != null && keys.size >= 2) {
             val underlay = keys[keys.size - 2]
             origins[keys.last()] = ZoomOrigin(pushedFrom, underlay, frames[underlay]?.size ?: Size.Zero)
@@ -286,7 +316,8 @@ internal class ZoomBackNavHost(
     }
 
     fun canPull(key: String): Boolean =
-        controller.idle &&
+        visible &&
+            controller.idle &&
             system == SystemRoute.None &&
             stack.size > 1 &&
             stack.last() == key &&
@@ -314,9 +345,10 @@ internal class ZoomBackNavHost(
 
     private fun systemStarted(event: NavigationEvent) {
         val top = stack.lastOrNull()
+        systemStack = stack.toList()
         system =
             when {
-                !controller.idle -> SystemRoute.Ignored
+                !visible || !controller.idle -> SystemRoute.Ignored
                 top != null && stack.size > 1 && origins.containsKey(top) && !blocked() && beginGesture(top) -> {
                     if (controller.startSide(zoomBackToward(event.swipeEdge), event.touchY, event.progress)) {
                         navigation.started(
@@ -350,23 +382,37 @@ internal class ZoomBackNavHost(
     }
 
     private fun systemCompleted() {
-        when (system) {
+        val route = system
+        system = SystemRoute.None
+        systemStack = null
+        when (route) {
             SystemRoute.Zoom -> controller.commitSide()
             SystemRoute.Forward -> navigation.completed()
             SystemRoute.Ignored -> Unit
             // A back with no preview: what NavDisplay's own handler would have done.
-            SystemRoute.None -> if (controller.idle) onBack()
+            SystemRoute.None -> if (visible && controller.idle) onBack()
         }
-        system = SystemRoute.None
     }
 
     private fun systemCancelled() {
-        when (system) {
+        val route = system
+        system = SystemRoute.None
+        systemStack = null
+        when (route) {
             SystemRoute.Zoom -> controller.cancelSide()
             SystemRoute.Forward -> navigation.cancelled()
             SystemRoute.None, SystemRoute.Ignored -> Unit
         }
-        system = SystemRoute.None
+    }
+
+    private fun abandonGesture() {
+        // Disabling a NavigationEventHandler does not detach it from a gesture already
+        // in progress. Keep ignoring that gesture's completion rather than treating it
+        // as an ordinary back on the replacement page.
+        if (system != SystemRoute.None) system = SystemRoute.Ignored
+        navigation.cancelled()
+        controller.reset()
+        clearGesture()
     }
 
     private fun beginGesture(key: String): Boolean {
@@ -547,6 +593,8 @@ internal fun ZoomBackSystemBack(
     onCompleted: () -> Unit,
     onCancelled: () -> Unit,
 ) {
+    val visibility = rememberRouteVisibility()
+    val latestEnabled by rememberUpdatedState(enabled)
     val owner = LocalNavigationEventDispatcherOwner.current
     if (owner == null) {
         PlatformBackHandler(enabled = enabled, onBack = onCompleted)
@@ -559,13 +607,18 @@ internal fun ZoomBackSystemBack(
     val handler =
         remember {
             RelayBackHandler().apply {
+                this.acceptsBack = { latestEnabled && visibility.value }
                 this.onStarted = { latestStarted(it) }
                 this.onProgressed = { latestProgressed(it) }
                 this.onCompleted = { latestCompleted() }
                 this.onCancelled = { latestCancelled() }
             }
         }
-    SideEffect { handler.isBackEnabled = enabled }
+    SideEffect {
+        val active = enabled && visibility.value
+        if (!active) handler.rejectGesture()
+        handler.isBackEnabled = active
+    }
     DisposableEffect(owner, handler) {
         owner.navigationEventDispatcher.addHandler(handler)
         onDispose { handler.remove() }
@@ -597,12 +650,31 @@ internal fun ZoomBackOverlay(
     val latestVisible by rememberUpdatedState(visible)
     val screenReader = rememberScreenReaderActive()
     val latestScreenReader by rememberUpdatedState(screenReader)
+    val gestureSource = remember { arrayOfNulls<ZoomBackAnchor>(1) }
+    val wasVisible = remember { booleanArrayOf(visible) }
     ConfigureZoomBack(controller)
+    DisposableEffect(controller) {
+        onDispose {
+            controller.reset()
+            gestureSource[0]?.wanted = false
+            gestureSource[0] = null
+        }
+    }
     SideEffect {
-        controller.onStarted = { latestSource?.wanted = true }
+        if ((!visible && controller.phase != ZoomBackPhase.Done) || (visible && !wasVisible[0])) {
+            controller.reset()
+            gestureSource[0]?.wanted = false
+            gestureSource[0] = null
+        }
+        wasVisible[0] = visible
+        controller.onStarted = {
+            gestureSource[0] = latestSource
+            gestureSource[0]?.wanted = true
+        }
         controller.onFinished = { committed ->
-            latestSource?.wanted = false
-            if (committed) {
+            gestureSource[0]?.wanted = false
+            gestureSource[0] = null
+            if (committed && latestVisible) {
                 latestAway()
                 latestBack()
             }

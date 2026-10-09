@@ -19,6 +19,24 @@ internal data class OfflineStoredVideo(
     val size: Long,
 )
 
+/** The final file still occupies storage after its .part has been renamed away. */
+internal inline fun offlineTransferredVideoBytes(
+    finalized: OfflineStoredVideo?,
+    partialSize: () -> Long,
+): Long = finalized?.size ?: partialSize()
+
+/** Remember the published file before index I/O can fail after its partial has been renamed. */
+internal inline fun finalizeOfflineVideo(
+    publish: () -> OfflineStoredVideo,
+    onPublished: (OfflineStoredVideo) -> Unit,
+    persist: (OfflineStoredVideo) -> Unit,
+): OfflineStoredVideo {
+    val stored = publish()
+    onPublished(stored)
+    persist(stored)
+    return stored
+}
+
 internal interface OfflineVideoTarget {
     fun partialSize(): Long
 

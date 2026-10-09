@@ -20,8 +20,11 @@ const val ZOOM_BACK_PULL_EXTENT = 0.45f
 /** A release whose projected progress is past this goes back; short of it the page springs home. */
 const val ZOOM_BACK_COMMIT = 0.3f
 
-/** |dy| > 0.8 |dx| is a pull: a horizontal drag has to cover 1.25 times the vertical one. */
-const val ZOOM_BACK_HORIZONTAL_BIAS = 1.25f
+/** A pull must travel at least 1.5 times as far vertically as horizontally. */
+const val ZOOM_BACK_HORIZONTAL_BIAS = 1f / 1.5f
+
+/** A flick may supply at most half the commit distance; the finger must cover the rest. */
+internal const val ZOOM_BACK_FLICK_CREDIT = ZOOM_BACK_COMMIT / 2f
 
 /** How much a full pull shrinks the page about the finger. */
 internal const val ZOOM_BACK_PULL_SHRINK = 0.3f
@@ -157,14 +160,20 @@ fun zoomBackUnderlayScale(progress: Float): Float =
 fun zoomBackUnderlayDim(progress: Float): Float = ZOOM_BACK_UNDERLAY_DIM * (1f - progress.coerceIn(0f, 1f))
 
 /**
- * Whether letting go of a pull sends the page back: [offset] and [velocity] along the pull, projected
- * 170 ms ahead, against [extent] — see [DragProgress.commits].
+ * Whether letting go of a pull sends the page back. Project 170 ms ahead, but require real
+ * downward travel and cap the flick's contribution so a short, fast scroll cannot dismiss a page.
  */
 fun zoomBackCommits(
     offset: Float,
     velocity: Float,
     extent: Float,
-): Boolean = DragProgress(offset = offset, velocity = velocity, extent = extent).commits(ZOOM_BACK_COMMIT)
+): Boolean {
+    if (!offset.isFinite() || !velocity.isFinite() || !extent.isFinite() || extent <= 0f) return false
+    val flickCredit = extent * ZOOM_BACK_FLICK_CREDIT
+    if (offset < flickCredit) return false
+    val projectedTravel = offset + (velocity * DRAG_PROJECTION_MS / 1_000f).coerceAtMost(flickCredit)
+    return projectedTravel > extent * ZOOM_BACK_COMMIT
+}
 
 /** The content scale at which the page covers [target] completely, keeping its own proportions. */
 fun zoomBackFillScale(

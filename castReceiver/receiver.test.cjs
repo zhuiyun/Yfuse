@@ -37,13 +37,19 @@ function receiver() {
       events: { EventType: {
         PLAYING: 'PLAYING', MEDIA_STATUS: 'MEDIA_STATUS', ERROR: 'ERROR', PLAYER_LOAD_COMPLETE: 'LOAD_COMPLETE',
       } },
-      messages: { HdrType: { DV: 'DV' }, PlayerState: { PLAYING: 'PLAYING' }, MessageType: { LOAD: 'LOAD' } },
+      messages: {
+        HdrType: { DV: 'DV' }, PlayerState: { PLAYING: 'PLAYING' }, MessageType: { LOAD: 'LOAD' },
+        ErrorData: function (type) { this.type = type; },
+        ErrorType: { LOAD_FAILED: 'LOAD_FAILED' }, ErrorReason: { INVALID_REQUEST: 'INVALID_REQUEST' },
+      },
     } },
     document: { getElementById: () => null },
+    URL,
   });
   const emit = (type, event = {}) => listeners.get(type).forEach((fn) => fn(event));
   return {
     messages, emit,
+    loadRequest: (request) => interceptors.get('LOAD')(request),
     receipt: () => messages.filter((message) => message.type === 'output.receipt').at(-1),
     load(revision, intercept = true) {
       media = mediaFor(revision);
@@ -111,4 +117,17 @@ test('reloading the same revision clears previous playback evidence', () => {
   app.load(1);
   app.emit('PLAYING');
   assert.equal(app.receipt().playbackConfirmed, false);
+});
+
+test('malformed HTTP URLs are rejected before CAF starts a stalled load', () => {
+  const app = receiver();
+  for (const contentId of ['https://', 'http://[invalid]/video', 'https://host:invalid/video', '/relative/video', 'file:///video']) {
+    const error = app.loadRequest({ media: { contentId } });
+    assert.equal(error.type, 'LOAD_FAILED', contentId);
+    assert.equal(error.reason, 'INVALID_REQUEST', contentId);
+  }
+  for (const contentId of ['http://192.168.1.10:8096/movie', 'https://media.example.com/movie?token=test', 'http://[fd00::1]:8096/movie']) {
+    const request = { media: { contentId } };
+    assert.equal(app.loadRequest(request), request, 'user media URLs including LAN addresses remain supported');
+  }
 });

@@ -3,6 +3,7 @@ name: HarmonyOS Cangjie source gates
 on:
   push:
     branches:
+      - master
       - feature/harmony-cangjie
     paths:
       - .github/workflows/harmony-source-gates.yml
@@ -11,6 +12,11 @@ on:
       - scripts/harmony-release-gate.py
       - scripts/validate-cangjie-sources.py
       - scripts/verify-harmony-port.py
+      - scripts/verify-cangjie-host.py
+      - scripts/check-validation-env.py
+      - scripts/requirements-validation.txt
+      - scripts/tests/test_harmony_validation.py
+      - scripts/tests/test_validation_env.py
       - third_party/harmony-media/**
       - ycore-native/**
   pull_request:
@@ -21,6 +27,11 @@ on:
       - scripts/harmony-release-gate.py
       - scripts/validate-cangjie-sources.py
       - scripts/verify-harmony-port.py
+      - scripts/verify-cangjie-host.py
+      - scripts/check-validation-env.py
+      - scripts/requirements-validation.txt
+      - scripts/tests/test_harmony_validation.py
+      - scripts/tests/test_validation_env.py
       - third_party/harmony-media/**
       - ycore-native/**
 
@@ -44,11 +55,17 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install source-gate dependency
-        run: python3 -m pip install 'PyYAML==6.0.3'
+        run: python3 -m pip install -r scripts/requirements-validation.txt
+      - name: Check source validation prerequisites
+        run: python3 scripts/check-validation-env.py --profile harmony-source --report build/validation/harmony-env.json
+      - name: Test validation coverage and workflow triggers
+        run: |
+          python3 -m unittest discover -s scripts/tests -p 'test_harmony_validation.py'
+          python3 -m unittest discover -s scripts/tests -p 'test_validation_env.py'
       - name: Validate Cangjie source structure
         run: python3 scripts/validate-cangjie-sources.py
       - name: Verify parity contracts and portable YCore ABI
-        run: python3 scripts/verify-harmony-port.py
+        run: python3 scripts/verify-harmony-port.py --report build/validation/harmony-source.json
       - name: Confirm unsigned releases fail closed
         shell: bash
         run: |
@@ -60,3 +77,10 @@ jobs:
             echo "::error::Unsigned CI preflight must stop with exit code 2; got $status"
             exit 1
           fi
+      - name: Save actual source and host coverage
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: harmony-source-validation
+          path: build/validation/*.json
+          if-no-files-found: warn

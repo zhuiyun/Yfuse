@@ -384,12 +384,16 @@ int32_t ycore_session_select_track(
 int32_t ycore_session_set_video_output(ycore_session_t *session, void *native_output) {
     if (session == nullptr) return YCORE_ERROR_INVALID_ARGUMENT;
     std::lock_guard<std::recursive_mutex> lock(session->mutex);
-    session->video_output = native_output;
-    if (session->active_index < 0) return YCORE_OK;
+    if (session->active_index < 0) {
+        session->video_output = native_output;
+        return YCORE_OK;
+    }
     Engine &engine = session->engines[static_cast<size_t>(session->active_index)];
-    return engine.vtable.set_video_output == nullptr
+    const int result = engine.vtable.set_video_output == nullptr
         ? YCORE_ERROR_UNSUPPORTED
         : engine.vtable.set_video_output(engine.context, native_output);
+    if (result == YCORE_OK) session->video_output = native_output;
+    return result;
 }
 
 int32_t ycore_session_retry(ycore_session_t *session) {
@@ -400,7 +404,14 @@ int32_t ycore_session_retry(ycore_session_t *session) {
     session->attempted.clear();
     if (session->active_index < 0) return session->has_request ? session->open_next() : YCORE_ERROR_NOT_READY;
     Engine &engine = session->engines[static_cast<size_t>(session->active_index)];
-    if (engine.vtable.retry != nullptr && engine.vtable.retry(engine.context) == YCORE_OK) return YCORE_OK;
+    const int retry_result = engine.vtable.retry == nullptr
+        ? YCORE_ERROR_UNSUPPORTED : engine.vtable.retry(engine.context);
+    if (retry_result != YCORE_ERROR_UNSUPPORTED) {
+        // A dedicated retry participates in this attempt even when it fails. An unsupported
+        // retry must still fall back to close/open, including when this is the only engine.
+        session->attempted.push_back(session->active_index);
+        if (retry_result == YCORE_OK) return YCORE_OK;
+    }
     return ycore_session_handover(session);
 }
 

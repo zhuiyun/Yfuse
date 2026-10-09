@@ -10,21 +10,20 @@ import com.yfuse.core.logging.AppLog
 /** Owns Android audio-focus state independently from the activity and playback UI. */
 internal class PlayerAudioFocusController(
     private val audioManager: AudioManager,
-    private val isPlaying: () -> Boolean,
+    private val playbackRequested: () -> Boolean,
+    private val canResume: () -> Boolean,
     private val onPause: () -> Unit,
     private val onResume: () -> Unit,
 ) {
     private var request: AudioFocusRequest? = null
-    private var hasFocus = false
-    private var resumeAfterTransientLoss = false
+    private val state = PlayerAudioFocusState()
 
-    private val listener =
+    private fun listener(requestId: Long) =
         AudioManager.OnAudioFocusChangeListener { change ->
+            if (!state.isActive(requestId)) return@OnAudioFocusChangeListener
             when (change) {
                 AudioManager.AUDIOFOCUS_GAIN -> {
-                    hasFocus = true
-                    if (resumeAfterTransientLoss) {
-                        resumeAfterTransientLoss = false
+                    if (state.gained(requestId, canResume())) {
                         // Audio focus is local, so resuming must not pass through the room gate.
                         onResume()
                     }
@@ -47,8 +46,7 @@ internal class PlayerAudioFocusController(
                 }
 
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                    resumeAfterTransientLoss = isPlaying()
-                    hasFocus = false
+                    state.lost(requestId, transient = true, playbackRequested = playbackRequested())
                     onPause()
                     AppLog.info(
                         category = "player.audio",
@@ -58,8 +56,7 @@ internal class PlayerAudioFocusController(
                 }
 
                 AudioManager.AUDIOFOCUS_LOSS -> {
-                    resumeAfterTransientLoss = false
-                    hasFocus = false
+                    state.lost(requestId, transient = false, playbackRequested = playbackRequested())
                     onPause()
                     AppLog.info(
                         category = "player.audio",
@@ -71,7 +68,7 @@ internal class PlayerAudioFocusController(
         }
 
     fun ensure(): Boolean {
-        if (hasFocus) return true
+        if (state.hasFocus) return true
         val focusRequest =
             request ?: AudioFocusRequest
                 .Builder(AudioManager.AUDIOFOCUS_GAIN)
@@ -82,12 +79,12 @@ internal class PlayerAudioFocusController(
                         .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
                         .build(),
                 ).setWillPauseWhenDucked(false)
-                .setOnAudioFocusChangeListener(listener, Handler(Looper.getMainLooper()))
+                .setOnAudioFocusChangeListener(listener(state.beginRequest()), Handler(Looper.getMainLooper()))
                 .build()
                 .also { request = it }
         val result = audioManager.requestAudioFocus(focusRequest)
-        hasFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        if (hasFocus) {
+        state.requested(result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        if (state.hasFocus) {
             AppLog.info(
                 category = "player.audio",
                 event = "focus_granted",
@@ -101,14 +98,16 @@ internal class PlayerAudioFocusController(
                 attributes = mapOf("result" to result.toString()),
             )
         }
-        return hasFocus
+        return state.hasFocus
     }
 
+    fun cancelResume() = state.cancelResume()
+
     fun abandon() {
-        if (!hasFocus && request == null) return
-        request?.let(audioManager::abandonAudioFocusRequest)
+        // Invalidate first: Android may already have queued a callback for the old listener.
+        state.abandon()
+        val abandoned = request
         request = null
-        hasFocus = false
-        resumeAfterTransientLoss = false
+        abandoned?.let(audioManager::abandonAudioFocusRequest)
     }
 }

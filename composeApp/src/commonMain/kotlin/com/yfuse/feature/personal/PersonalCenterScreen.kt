@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.data.EmbyRepository
@@ -331,95 +332,97 @@ private fun PersonalCenterPage(
                 }
             }
             PersonalCenterTab.Sync -> {
-                item {
-                    Section(title = "个人内容") {
-                        SettingsCard {
-                            SettingRow(
-                                "清单、历史与追剧",
-                                when {
-                                    state.syncing -> "正在同步…"
-                                    state.pendingSync -> "有本机更改待同步"
-                                    else -> "本机更改已同步"
-                                },
-                                embedded = true,
-                            )
-                            SettingsDivider()
-                            SettingRow(
-                                "最近成功",
-                                state.lastSyncedAtEpochMs?.let {
-                                    java.time.Instant
-                                        .ofEpochMilli(it)
-                                        .toString()
-                                }
-                                    ?: "暂无同步记录",
-                                embedded = true,
-                            )
-                            SettingsDivider()
-                            SettingRow(
-                                "立即同步",
-                                if (accountState !is AccountState.SignedIn) "请先登录鱼服账号" else "合并个人数据并重试",
-                                embedded = true,
-                                icon = AppIcons.Refresh,
-                                onClick =
-                                    if (accountState !is AccountState.SignedIn ||
-                                        state.syncing
-                                    ) {
-                                        null
-                                    } else {
-                                        (
-                                            {
-                                                attempt {
-                                                    account
-                                                        .syncPersonalNow()
-                                                        .onSuccess { message = "个人数据已同步" }
+                if (BackendAccess.Default.enabled) {
+                    item {
+                        Section(title = "个人内容") {
+                            SettingsCard {
+                                SettingRow(
+                                    "清单、历史与追剧",
+                                    when {
+                                        state.syncing -> "正在同步…"
+                                        state.pendingSync -> "有本机更改待同步"
+                                        else -> "本机更改已同步"
+                                    },
+                                    embedded = true,
+                                )
+                                SettingsDivider()
+                                SettingRow(
+                                    "最近成功",
+                                    state.lastSyncedAtEpochMs?.let {
+                                        java.time.Instant
+                                            .ofEpochMilli(it)
+                                            .toString()
+                                    }
+                                        ?: "暂无同步记录",
+                                    embedded = true,
+                                )
+                                SettingsDivider()
+                                SettingRow(
+                                    "立即同步",
+                                    if (accountState !is AccountState.SignedIn) "请先登录鱼服账号" else "合并个人数据并重试",
+                                    embedded = true,
+                                    icon = AppIcons.Refresh,
+                                    onClick =
+                                        if (accountState !is AccountState.SignedIn ||
+                                            state.syncing
+                                        ) {
+                                            null
+                                        } else {
+                                            (
+                                                {
+                                                    attempt {
+                                                        account
+                                                            .syncPersonalNow()
+                                                            .onSuccess { message = "个人数据已同步" }
+                                                    }
                                                 }
-                                            }
-                                        )
-                                    },
-                            )
+                                            )
+                                        },
+                                )
+                            }
                         }
                     }
-                }
-                item { PersonalNotice("个人数据加密合并，保留删除记录；服务器配置与设置备份仍需手动操作。") }
-                item {
-                    Section(title = "播放进度") {
-                        SettingsCard {
-                            SettingRow(
-                                "同步状态",
-                                "待上传 " + playbackState.pendingCount + " 项 · " +
-                                    if (playbackState.syncing) "同步中" else "空闲",
-                                embedded = true,
-                            )
-                            SettingsDivider()
-                            SettingRow(
-                                "最近成功",
-                                playbackState.lastSyncedAtEpochMs?.let {
-                                    java.time.Instant
-                                        .ofEpochMilli(it)
-                                        .toString()
-                                }
-                                    ?: "暂无同步记录",
-                                embedded = true,
-                            )
-                            SettingsDivider()
-                            SettingRow(
-                                "刷新与重试",
-                                "拉取最新播放进度",
-                                embedded = true,
-                                icon = AppIcons.Refresh,
-                                onClick =
-                                    if (playbackState.syncing ||
-                                        accountState !is AccountState.SignedIn
-                                    ) {
-                                        null
-                                    } else {
-                                        playbackSync::refreshNow
-                                    },
-                            )
+                    item { PersonalNotice("个人数据加密合并，保留删除记录；服务器配置与设置备份仍需手动操作。") }
+                    item {
+                        Section(title = "播放进度") {
+                            SettingsCard {
+                                SettingRow(
+                                    "同步状态",
+                                    "待上传 " + playbackState.pendingCount + " 项 · " +
+                                        if (playbackState.syncing) "同步中" else "空闲",
+                                    embedded = true,
+                                )
+                                SettingsDivider()
+                                SettingRow(
+                                    "最近成功",
+                                    playbackState.lastSyncedAtEpochMs?.let {
+                                        java.time.Instant
+                                            .ofEpochMilli(it)
+                                            .toString()
+                                    }
+                                        ?: "暂无同步记录",
+                                    embedded = true,
+                                )
+                                SettingsDivider()
+                                SettingRow(
+                                    "刷新与重试",
+                                    "拉取最新播放进度",
+                                    embedded = true,
+                                    icon = AppIcons.Refresh,
+                                    onClick =
+                                        if (playbackState.syncing ||
+                                            accountState !is AccountState.SignedIn
+                                        ) {
+                                            null
+                                        } else {
+                                            playbackSync::refreshNow
+                                        },
+                                )
+                            }
                         }
                     }
+                    playbackState.error?.let { error -> item { PersonalNotice(error, error = true) } }
                 }
-                playbackState.error?.let { error -> item { PersonalNotice(error, error = true) } }
                 item {
                     Section(title = "媒体服务器") {
                         SettingsCard {

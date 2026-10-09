@@ -20,6 +20,7 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.handoff.HandoffController
@@ -73,7 +74,7 @@ actual fun BindProductServices(root: RootComponent) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, receiver) {
         bridge.receiver = receiver
-        controller.start()
+        if (BackendAccess.Default.enabled) controller.start()
         val observer =
             LifecycleEventObserver { _, event ->
                 when (event) {
@@ -104,6 +105,7 @@ actual fun BindProductServices(root: RootComponent) {
     // A television keeps the dialog: a remote moves focus, and a banner that takes none could
     // never be reached from it.
     val television = remember(context) { isTelevisionDevice(context) }
+    if (!BackendAccess.Default.enabled) return
     if (television) {
         HandoffIncomingPrompt(controller)
     } else {

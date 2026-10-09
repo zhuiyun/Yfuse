@@ -57,21 +57,50 @@ class PreparingPlaybackGateTest {
         assertTrue(engine.playbackRequested)
     }
 
+    @Test
+    fun explicit_pause_through_the_gate_cancels_focus_recovery() {
+        val focus = PlayerAudioFocusState()
+        val request = focus.beginRequest()
+        focus.lost(request, transient = true, playbackRequested = true)
+        val engine = IntentEngine(playing = false, requested = false)
+        val gate = gate(LegacyYPlayerAdapter(engine), onPauseRequested = focus::cancelResume)
+
+        assertTrue(gate.pause())
+        assertFalse(focus.gained(request, canResume = true))
+        assertFalse(engine.playbackRequested)
+    }
+
+    @Test
+    fun toggle_to_pause_cancels_focus_recovery_while_output_is_buffering() {
+        val focus = PlayerAudioFocusState()
+        val request = focus.beginRequest()
+        focus.lost(request, transient = true, playbackRequested = true)
+        val engine = preparing(requested = true)
+        val gate = gate(LegacyYPlayerAdapter(engine), onPauseRequested = focus::cancelResume)
+
+        assertTrue(gate.togglePlayPause())
+        assertFalse(focus.gained(request, canResume = true))
+        assertFalse(engine.playbackRequested)
+    }
+
     private fun preparing(requested: Boolean) =
         PreparingVideoEngine(
             PlaybackEngineInput(listOf(item), PlaybackHandoverSnapshot(0, 25L, requested, 1f)),
         )
 
-    private fun gate(player: LegacyYPlayerAdapter) =
-        WatchGatedPlayback(
-            watchTogether =
-                WatchTogetherClient(
-                    preferences = WatchTogetherPreferences(MapSettings()),
-                    accountTokens = AccountAccessTokenSource("https://other.example"),
-                ),
-            items = { listOf(item) },
-            player = { player },
-        )
+    private fun gate(
+        player: LegacyYPlayerAdapter,
+        onPauseRequested: () -> Unit = {},
+    ) = WatchGatedPlayback(
+        watchTogether =
+            WatchTogetherClient(
+                preferences = WatchTogetherPreferences(MapSettings()),
+                accountTokens = AccountAccessTokenSource("https://other.example"),
+            ),
+        items = { listOf(item) },
+        player = { player },
+        onPauseRequested = onPauseRequested,
+    )
 
     private inner class IntentEngine(
         playing: Boolean,

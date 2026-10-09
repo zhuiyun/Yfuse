@@ -38,7 +38,6 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.unit.Density
@@ -421,8 +420,8 @@ private data class ZoomCardShape(
 
 /**
  * The pull-down: watches the finger from outside the page and takes over when the page's own
- * scrolling has nothing left to give — the list is at its top — and the drag has been decided
- * vertical (|dy| > 0.8 |dx| after 8 dp). A horizontal drag belongs to whatever shelf it began on;
+ * scrolling has nothing left to give from the start of the gesture, and the drag is deliberately
+ * downward after touch slop (dy >= 1.5 |dx|). A drag that already scrolled content stays a scroll;
  * a second finger sends a pull home. Until [canStart] says yes and [onStart] starts it, this only
  * listens. With [swallowLeftover] a downward drag the page cannot scroll goes no further up, so a
  * page drawn over another never pulls the one beneath it.
@@ -434,7 +433,7 @@ internal fun Modifier.zoomBackPull(
     onStart: (Offset) -> Unit,
     swallowLeftover: Boolean = false,
 ): Modifier {
-    val tracker = remember { PullTracker() }
+    val tracker = remember { ZoomBackPullTracker() }
     val latestCanStart by rememberUpdatedState(canStart)
     val latestOnStart by rememberUpdatedState(onStart)
     val latestSwallow by rememberUpdatedState(swallowLeftover)
@@ -452,13 +451,14 @@ internal fun Modifier.zoomBackPull(
                     source: NestedScrollSource,
                 ): Offset {
                     if (tracker.pulled && controller.pullFollowing) return available
-                    if (source != NestedScrollSource.UserInput || available.y <= 0f) return Offset.Zero
+                    if (source != NestedScrollSource.UserInput) return Offset.Zero
+                    tracker.onScroll(consumed)
+                    if (available.y <= 0f) return Offset.Zero
                     val leftover = if (latestSwallow) Offset(0f, available.y) else Offset.Zero
-                    if (!tracker.pressed || tracker.multiTouch || tracker.pulled) return leftover
-                    if (tracker.axisNow() != DragAxis.Vertical || !latestCanStart()) return leftover
+                    if (!tracker.canPull || !latestCanStart()) return leftover
                     latestOnStart(tracker.current)
                     if (!controller.pullFollowing) return leftover
-                    tracker.pulled = true
+                    tracker.beginPull()
                     return Offset(0f, available.y)
                 }
 
@@ -469,28 +469,33 @@ internal fun Modifier.zoomBackPull(
         }
     return this
         .pointerInput(controller, tracker) {
-            val slop = ZoomBackSlop.toPx()
+            val slop = max(ZoomBackSlop.toPx(), viewConfiguration.touchSlop)
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 tracker.start(down.position, down.uptimeMillis)
                 try {
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Initial)
-                        if (!tracker.multiTouch && event.changes.count { it.pressed } > 1) {
+                        if (!tracker.multiTouch && event.changes.any { it.id != down.id && it.pressed }) {
                             tracker.multiTouch = true
                             controller.interruptPull()
                         }
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (!change.pressed) {
-                            tracker.velocity.addPosition(change.uptimeMillis, change.position)
+                            tracker.move(change.position, change.uptimeMillis, slop)
                             if (tracker.pulled && controller.pullFollowing) {
+                                controller.movePull(change.position)
+                                change.consume()
                                 val velocity = tracker.velocity.calculateVelocity()
                                 controller.releasePull(Offset(velocity.x, velocity.y))
                             }
                             break
                         }
                         tracker.move(change.position, change.uptimeMillis, slop)
-                        if (tracker.pulled) controller.movePull(change.position)
+                        if (tracker.pulled && controller.pullFollowing) {
+                            controller.movePull(change.position)
+                            change.consume()
+                        }
                     }
                 } finally {
                     tracker.pressed = false
@@ -498,53 +503,6 @@ internal fun Modifier.zoomBackPull(
                 }
             }
         }.nestedScroll(connection)
-}
-
-/** One finger's way across the page: where it began, where it is, and which way it has gone. */
-private class PullTracker {
-    var down = Offset.Zero
-    var current = Offset.Zero
-    var pressed = false
-    var multiTouch = false
-    var axis = DragAxis.Undecided
-
-    /** This gesture became a pull; its release and its fling are the pull's. */
-    var pulled = false
-    val velocity = VelocityTracker()
-
-    fun start(
-        position: Offset,
-        timeMillis: Long,
-    ) {
-        down = position
-        current = position
-        pressed = true
-        multiTouch = false
-        axis = DragAxis.Undecided
-        pulled = false
-        velocity.resetTracking()
-        velocity.addPosition(timeMillis, position)
-    }
-
-    fun move(
-        position: Offset,
-        timeMillis: Long,
-        slop: Float,
-    ) {
-        current = position
-        velocity.addPosition(timeMillis, position)
-        if (axis == DragAxis.Undecided) {
-            axis = resolveDragAxis(position.x - down.x, position.y - down.y, slop, ZOOM_BACK_HORIZONTAL_BIAS)
-        }
-    }
-
-    /** The decided axis, or — when the list began scrolling before 8 dp — the one the travel so far points to. */
-    fun axisNow(): DragAxis =
-        if (axis != DragAxis.Undecided) {
-            axis
-        } else {
-            resolveDragAxis(current.x - down.x, current.y - down.y, 0f, ZOOM_BACK_HORIZONTAL_BIAS)
-        }
 }
 
 // ---------------------------------------------------------------- sources

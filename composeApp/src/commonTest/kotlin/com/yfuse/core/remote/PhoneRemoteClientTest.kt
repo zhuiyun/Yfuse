@@ -1,8 +1,12 @@
 package com.yfuse.core.remote
 
+import com.yfuse.backend.BackendAccess
+import com.yfuse.core.account.AccountApiException
 import com.yfuse.watch.protocol.RemoteControlKey
 import com.yfuse.watch.protocol.WatchProtocol
 import com.yfuse.watch.protocol.WatchWireMessage
+import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.advanceTimeBy
@@ -116,6 +120,142 @@ class PhoneRemoteClientTest {
             runCurrent()
             assertEquals(PhoneRemoteState.Failed("电视已断开手机遥控", retryable = true), client.state.value)
             assertEquals(3, relay.connects)
+        }
+
+    @Test
+    fun a_refresh_outage_is_retryable_and_a_manual_retry_can_join() =
+        runTest {
+            val relay = FakeRelay()
+            var token: String? = null
+            var refreshes = 0
+            val client =
+                PhoneRemoteClient(
+                    accessToken = { token },
+                    refreshAccessToken = {
+                        refreshes++
+                        if (refreshes == 1) error("account service unavailable")
+                        token = "renewed"
+                        token
+                    },
+                    connector = relay,
+                    scope = backgroundScope,
+                )
+            client.connect("tv-session")
+            runCurrent()
+            assertEquals(PhoneRemoteState.Failed("登录服务暂时不可用，请重试"), client.state.value)
+            assertEquals(0, relay.connects)
+
+            client.connect("tv-session")
+            val socket = relay.sessions.receive()
+            socket.sent.receive()
+            socket.push(joined)
+            runCurrent()
+            assertEquals(PhoneRemoteState.Connected, client.state.value)
+            assertEquals(2, refreshes)
+        }
+
+    @Test
+    fun an_expired_refresh_requires_sign_in() =
+        runTest {
+            val relay = FakeRelay()
+            val client =
+                PhoneRemoteClient(
+                    accessToken = { null },
+                    refreshAccessToken = { null },
+                    connector = relay,
+                    scope = backgroundScope,
+                )
+            client.connect("tv-session")
+            runCurrent()
+            assertEquals(
+                PhoneRemoteState.Failed("登录状态已失效，请重新登录鱼服账号", retryable = false),
+                client.state.value,
+            )
+            assertEquals(0, relay.connects)
+        }
+
+    @Test
+    fun a_rejected_refresh_token_requires_sign_in_while_a_server_error_can_retry() =
+        runTest {
+            for (status in listOf(HttpStatusCode.Unauthorized, HttpStatusCode.ServiceUnavailable)) {
+                val relay = FakeRelay()
+                val client =
+                    PhoneRemoteClient(
+                        accessToken = { null },
+                        refreshAccessToken = {
+                            throw AccountApiException("refresh_failed", "refresh failed", status)
+                        },
+                        connector = relay,
+                        scope = backgroundScope,
+                    )
+                client.connect("tv-session")
+                runCurrent()
+                val expected =
+                    if (status == HttpStatusCode.Unauthorized) {
+                        PhoneRemoteState.Failed("登录状态已失效，请重新登录鱼服账号", retryable = false)
+                    } else {
+                        PhoneRemoteState.Failed("登录服务暂时不可用，请重试")
+                    }
+                assertEquals(expected, client.state.value)
+                assertEquals(0, relay.connects)
+                client.close()
+            }
+        }
+
+    @Test
+    fun closing_during_refresh_cancels_it_without_publishing_failure() =
+        runTest {
+            val relay = FakeRelay()
+            val refresh = CompletableDeferred<String?>()
+            var refreshFinished = false
+            val client =
+                PhoneRemoteClient(
+                    accessToken = { null },
+                    refreshAccessToken = {
+                        try {
+                            refresh.await()
+                        } finally {
+                            refreshFinished = true
+                        }
+                    },
+                    connector = relay,
+                    scope = backgroundScope,
+                )
+            client.connect("tv-session")
+            runCurrent()
+            assertFalse(refreshFinished)
+            client.close()
+            runCurrent()
+            assertTrue(refreshFinished)
+            assertEquals(PhoneRemoteState.Idle, client.state.value)
+            assertEquals(0, relay.connects)
+        }
+
+    @Test
+    fun disabledBackendDoesNotReadTokensOrConnectWhenAskedToJoin() =
+        runTest {
+            var tokenReads = 0
+            val relay = FakeRelay()
+            val client =
+                PhoneRemoteClient(
+                    accessToken = {
+                        tokenReads++
+                        "token"
+                    },
+                    refreshAccessToken = {
+                        tokenReads++
+                        "token"
+                    },
+                    connector = relay,
+                    scope = backgroundScope,
+                    backendAccess = BackendAccess(enabled = false),
+                )
+            client.connect("tv-session")
+            advanceTimeBy(60_000)
+            runCurrent()
+            assertEquals(0, tokenReads)
+            assertEquals(0, relay.connects)
+            assertEquals(false, (client.state.value as PhoneRemoteState.Failed).retryable)
         }
 
     private fun client(

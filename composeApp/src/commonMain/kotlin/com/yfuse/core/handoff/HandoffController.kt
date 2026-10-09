@@ -94,8 +94,8 @@ class HandoffController(
     /** Pulls this device has answered with an offer, so a slow heartbeat never answers twice. */
     private val answeredPulls = ArrayDeque<String>()
 
-    /** 正在播放 cards already opened, by envelope: a device resends the same one between changes. */
-    private val opened = mutableMapOf<HandoffEnvelope, HandoffMedia>()
+    /** Decryption is authenticated for one session; another device cannot reuse its cached card. */
+    private val opened = mutableMapOf<Pair<String, HandoffEnvelope>, HandoffMedia>()
 
     /** Cuts the wait for the next heartbeat short, so 在此继续 is sent at once. */
     private val wake = Channel<Unit>(Channel.CONFLATED)
@@ -456,12 +456,13 @@ class HandoffController(
     /** The account's other devices that are playing, opened; a card that cannot be opened is skipped. */
     private suspend fun openNowPlaying(inbox: HandoffInbox): List<HandoffElsewhere> {
         val sealed = inbox.devices.mapNotNull { device -> device.nowPlaying?.let { device to it } }
-        opened.keys.retainAll(sealed.mapTo(HashSet()) { it.second })
+        opened.keys.retainAll(sealed.mapTo(HashSet()) { (device, envelope) -> device.sessionId to envelope })
         return sealed.mapNotNull { (device, envelope) ->
+            val cacheKey = device.sessionId to envelope
             val media =
-                opened[envelope] ?: try {
+                opened[cacheKey] ?: try {
                     withContext(cryptoDispatcher) { cipher.decrypt(nowPlayingId(device.sessionId), envelope) }
-                        .also { opened[envelope] = it }
+                        .also { opened[cacheKey] = it }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {

@@ -19,7 +19,9 @@ class PersonalScopedSettings(
     override val size: Int get() = keys.size
 
     override fun clear() {
-        keys.forEach(::remove)
+        // Capture fully qualified keys once: a profile switch must not redirect later removals.
+        val prefix = key("")
+        delegate.keys.filter { it.startsWith(prefix) }.forEach(delegate::remove)
     }
 
     override fun remove(key: String) = delegate.remove(key(key))

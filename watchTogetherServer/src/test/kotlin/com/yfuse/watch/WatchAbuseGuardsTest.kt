@@ -20,9 +20,9 @@ class WatchAbuseGuardsTest {
         assertFalse(limiter.isPenalized("other", nowMs = 4_000L))
         assertFalse(limiter.isPenalized("ip", nowMs = 5_300L))
         // Failures spread beyond the window never add up.
-        assertFalse(limiter.recordFailure("slow", nowMs = 0L))
-        assertFalse(limiter.recordFailure("slow", nowMs = 2_000L))
-        assertFalse(limiter.recordFailure("slow", nowMs = 4_000L))
+        assertFalse(limiter.recordFailure("slow", nowMs = 6_000L))
+        assertFalse(limiter.recordFailure("slow", nowMs = 8_000L))
+        assertFalse(limiter.recordFailure("slow", nowMs = 10_000L))
     }
 
     @Test
@@ -31,6 +31,76 @@ class WatchAbuseGuardsTest {
         assertFalse(limiter.recordFailure("ip", nowMs = 0L))
         limiter.clear("ip")
         assertFalse(limiter.recordFailure("ip", nowMs = 10L))
+    }
+
+    @Test
+    fun rotating_addresses_cannot_grow_or_evict_live_failure_counters() {
+        val limiter = WatchJoinFailureLimiter(maxFailures = 2, windowMs = 1_000L, maxTrackedKeys = 2)
+        assertFalse(limiter.recordFailure("first", nowMs = 0L))
+        assertFalse(limiter.recordFailure("second", nowMs = 0L))
+        repeat(100) {
+            assertTrue(limiter.isPenalized("new-$it", nowMs = 100L))
+            assertTrue(limiter.recordFailure("new-$it", nowMs = 100L))
+        }
+        assertEquals(2, limiter.trackedKeyCount())
+        assertTrue(limiter.recordFailure("first", nowMs = 100L), "first identity retains its failed attempt")
+        assertEquals(2, limiter.trackedKeyCount(), "moving to a penalty does not free an entry")
+        assertFalse(limiter.isPenalized("new", nowMs = 1_000L), "expired failure entries free capacity")
+        assertFalse(limiter.recordFailure("new", nowMs = 1_000L))
+        assertTrue(limiter.isPenalized("first", nowMs = 1_000L))
+    }
+
+    @Test
+    fun penalty_only_traffic_is_bounded_and_expired_entries_are_reclaimed() {
+        val limiter = WatchJoinFailureLimiter(maxFailures = 1, penaltyMs = 1_000L, maxTrackedKeys = 2)
+        assertTrue(limiter.recordFailure("first", nowMs = 0L))
+        assertTrue(limiter.recordFailure("second", nowMs = 0L))
+        repeat(100) { assertTrue(limiter.recordFailure("new-$it", nowMs = 100L)) }
+        assertEquals(2, limiter.trackedKeyCount())
+        assertFalse(limiter.isPenalized("new", nowMs = 1_000L))
+        assertEquals(0, limiter.trackedKeyCount())
+        assertTrue(limiter.recordFailure("new", nowMs = 1_000L))
+        limiter.clear("new")
+        assertEquals(0, limiter.trackedKeyCount())
+    }
+
+    @Test
+    fun delayed_failures_do_not_extend_an_existing_penalty() {
+        val limiter = WatchJoinFailureLimiter(maxFailures = 1, penaltyMs = 1_000L)
+        assertTrue(limiter.recordFailure("ip", nowMs = 0L))
+        assertTrue(limiter.recordFailure("ip", nowMs = 999L))
+        assertFalse(limiter.isPenalized("ip", nowMs = 1_000L))
+    }
+
+    @Test
+    fun out_of_order_clock_observations_preserve_penalties_and_their_capacity() {
+        val limiter = WatchJoinFailureLimiter(maxFailures = 1, penaltyMs = 1_000L, maxTrackedKeys = 2)
+        assertTrue(limiter.recordFailure("first", nowMs = 100L))
+        assertTrue(limiter.isPenalized("first", nowMs = 101L))
+        assertTrue(limiter.isPenalized("first", nowMs = 100L))
+        assertTrue(limiter.recordFailure("second", nowMs = 99L))
+        assertTrue(limiter.isPenalized("third", nowMs = 98L))
+        assertTrue(limiter.recordFailure("third", nowMs = 98L))
+        assertEquals(2, limiter.trackedKeyCount())
+        assertTrue(limiter.isPenalized("first", nowMs = 1_099L))
+        assertFalse(limiter.isPenalized("third", nowMs = 1_100L), "first penalty naturally frees capacity")
+        assertTrue(limiter.isPenalized("second", nowMs = 1_100L), "late failure uses the observed high water mark")
+        assertFalse(limiter.isPenalized("second", nowMs = 1_101L))
+        assertEquals(0, limiter.trackedKeyCount())
+    }
+
+    @Test
+    fun out_of_order_failures_preserve_existing_counters_and_do_not_admit_rotating_addresses() {
+        val limiter = WatchJoinFailureLimiter(maxFailures = 2, windowMs = 1_000L, maxTrackedKeys = 2)
+        assertFalse(limiter.recordFailure("first", nowMs = 101L))
+        assertFalse(limiter.recordFailure("second", nowMs = 100L))
+        assertTrue(limiter.recordFailure("third", nowMs = 99L))
+        assertEquals(2, limiter.trackedKeyCount())
+        assertTrue(limiter.recordFailure("first", nowMs = 98L), "original failed attempt is retained")
+        assertTrue(limiter.isPenalized("first", nowMs = 97L))
+        assertEquals(2, limiter.trackedKeyCount())
+        assertFalse(limiter.isPenalized("third", nowMs = 1_101L), "expired counters still free capacity")
+        assertTrue(limiter.isPenalized("first", nowMs = 1_101L), "the active penalty is retained")
     }
 
     @Test

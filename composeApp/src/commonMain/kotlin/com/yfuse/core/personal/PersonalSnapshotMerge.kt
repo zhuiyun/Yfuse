@@ -71,7 +71,11 @@ fun validatePersonalSnapshot(snapshot: PersonalSnapshot) {
     snapshot.entries.forEach {
         require(it.profileId in snapshot.profiles.map(PersonalProfile::id))
         require(it.media.mediaKey.isNotBlank() && it.media.mediaKey.length <= 512)
-        require(it.media.title.isNotBlank() && it.media.title.length <= 240 && it.media.mediaType.length <= 40)
+        require(
+            it.media.title.isNotBlank() &&
+                it.media.title.length <= MAX_PERSONAL_MEDIA_TITLE_CHARS &&
+                it.media.mediaType.length <= 40,
+        )
         require(
             it.media.posterPath
                 .orEmpty()

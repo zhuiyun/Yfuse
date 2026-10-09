@@ -1,8 +1,10 @@
 package com.yfuse.core.remote
 
+import com.yfuse.backend.BackendAccess
 import com.yfuse.watch.protocol.RemoteControlKey
 import com.yfuse.watch.protocol.WatchProtocol
 import com.yfuse.watch.protocol.WatchWireMessage
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +16,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class RemoteControlHostTest {
     private val hosting =
@@ -112,6 +115,139 @@ class RemoteControlHostTest {
             advanceTimeBy(RETRY_MS * 10)
             runCurrent()
             assertEquals(1, relay.connects)
+        }
+
+    @Test
+    fun a_refresh_outage_retries_and_keeps_the_lifecycle_observer_alive() =
+        runTest {
+            val relay = FakeRelay()
+            var token: String? = null
+            var refreshes = 0
+            val host =
+                RemoteControlHost(
+                    signedIn = MutableStateFlow(true),
+                    accessToken = { token },
+                    refreshAccessToken = {
+                        refreshes++
+                        if (refreshes == 1) error("account service unavailable")
+                        token = "renewed"
+                        token
+                    },
+                    connector = relay,
+                    retryDelayMs = { RETRY_MS },
+                    scope = backgroundScope,
+                )
+            host.setActive(true)
+            runCurrent()
+            assertEquals(1, refreshes)
+            assertFalse(host.hosting.value)
+            advanceTimeBy(RETRY_MS - 1)
+            runCurrent()
+            assertEquals(1, refreshes)
+            advanceTimeBy(1)
+            runCurrent()
+            val socket = relay.sessions.receive()
+            socket.sent.receive()
+            socket.push(hosting)
+            runCurrent()
+            assertTrue(host.hosting.value)
+            assertEquals(2, refreshes)
+
+            host.setActive(false)
+            runCurrent()
+            assertFalse(host.hosting.value)
+            host.setActive(true)
+            runCurrent()
+            assertEquals(2, relay.connects)
+        }
+
+    @Test
+    fun an_expired_refresh_stops_retrying_until_reactivated() =
+        runTest {
+            var refreshes = 0
+            val host =
+                RemoteControlHost(
+                    signedIn = MutableStateFlow(true),
+                    accessToken = { null },
+                    refreshAccessToken = {
+                        refreshes++
+                        null
+                    },
+                    retryDelayMs = { RETRY_MS },
+                    scope = backgroundScope,
+                )
+            host.setActive(true)
+            advanceTimeBy(RETRY_MS * 10)
+            runCurrent()
+            assertEquals(1, refreshes)
+            assertFalse(host.hosting.value)
+            host.setActive(false)
+            runCurrent()
+            host.setActive(true)
+            runCurrent()
+            assertEquals(2, refreshes)
+        }
+
+    @Test
+    fun deactivating_during_refresh_cancels_it_without_retrying() =
+        runTest {
+            val relay = FakeRelay()
+            val refresh = CompletableDeferred<String?>()
+            var refreshes = 0
+            var refreshFinished = false
+            val host =
+                RemoteControlHost(
+                    signedIn = MutableStateFlow(true),
+                    accessToken = { null },
+                    refreshAccessToken = {
+                        refreshes++
+                        try {
+                            refresh.await()
+                        } finally {
+                            refreshFinished = true
+                        }
+                    },
+                    connector = relay,
+                    retryDelayMs = { RETRY_MS },
+                    scope = backgroundScope,
+                )
+            host.setActive(true)
+            runCurrent()
+            host.setActive(false)
+            advanceTimeBy(RETRY_MS * 10)
+            runCurrent()
+            assertTrue(refreshFinished)
+            assertEquals(1, refreshes)
+            assertEquals(0, relay.connects)
+            assertFalse(host.hosting.value)
+        }
+
+    @Test
+    fun disabledBackendDoesNotReadTokensOrHostEvenWhenSignedInAndActive() =
+        runTest {
+            var tokenReads = 0
+            val relay = FakeRelay()
+            val host =
+                RemoteControlHost(
+                    signedIn = MutableStateFlow(true),
+                    accessToken = {
+                        tokenReads++
+                        "token"
+                    },
+                    refreshAccessToken = {
+                        tokenReads++
+                        "token"
+                    },
+                    connector = relay,
+                    scope = backgroundScope,
+                    backendAccess = BackendAccess(enabled = false),
+                )
+            host.setActive(true)
+            advanceTimeBy(60_000)
+            runCurrent()
+            assertEquals(0, tokenReads)
+            assertEquals(0, relay.connects)
+            assertFalse(host.hosting.value)
         }
 
     private fun host(

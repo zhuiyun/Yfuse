@@ -66,6 +66,7 @@ fun AppUpdateOverlay(
     manager: AppUpdateManager,
     root: RootComponent,
 ) {
+    if (!manager.enabled) return
     val activeTab by root.activeTab.subscribeAsState()
     LaunchedEffect(Unit) { manager.checkOnLaunch() }
     LaunchedEffect(activeTab) {

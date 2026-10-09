@@ -45,6 +45,7 @@ class WatchGatedPlayback(
     private val items: () -> List<PlayerMediaItem>,
     private val player: () -> YPlayer?,
     private val onLocked: () -> Unit = {},
+    private val onPauseRequested: () -> Unit = {},
 ) {
     private var observedIndex: Int? = null
     private val playlistMatcher = WatchMediaMatcher(onWarning = {})
@@ -61,7 +62,12 @@ class WatchGatedPlayback(
             // During buffering or engine retirement no frames are playing yet, but the user can
             // still withdraw a play request. Toggle intent, including while a pause is settling.
             val willPlay = !player.playbackRequested
-            if (willPlay) player.play() else player.pause()
+            if (willPlay) {
+                player.play()
+            } else {
+                onPauseRequested()
+                player.pause()
+            }
             publish(paused = !willPlay)
         }
 
@@ -73,6 +79,7 @@ class WatchGatedPlayback(
 
     fun pause(): Boolean =
         gated { player ->
+            onPauseRequested()
             player.pause()
             publish(paused = true)
         }

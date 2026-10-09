@@ -12,10 +12,6 @@ internal class RoomUnavailableException(
     message: String,
 ) : Exception(message)
 
-internal class AccountRequiredForWatchException : Exception("请先登录 Yfuse 账号后使用一起看")
-
-internal class WatchAuthenticationException : Exception("一起看登录状态已失效")
-
 /** Maps the server epoch clock onto the process monotonic clock using ping/pong samples. */
 internal class ClockSync {
     private data class ServerSample(
@@ -224,7 +220,6 @@ internal const val DRIFT_REPORT_INTERVAL_MS = 5_000L
 
 /** Drift at or beyond this is a visible seek on the guest and is reported without waiting. */
 internal const val DRIFT_URGENT_MS = 2_000L
-internal val WATCH_AUTH_CLOSE_REASONS = setOf("account_auth_required", "account_auth_expired")
 
 private const val BASE_BACKOFF_MS = 1_000L
 private const val MAX_BACKOFF_MS = 20_000L

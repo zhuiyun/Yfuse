@@ -68,8 +68,8 @@ enum class DragAxis { Undecided, Horizontal, Vertical }
  * [horizontalBias] times |dy|, so a slightly diagonal scroll stays a scroll; the caller locks
  * the answer for the rest of the gesture rather than asking again.
  *
- * 1.2 is the list rows' bias (5.4); 跟手返回 wants vertical whenever |dy| > 0.8 |dx|, which is a
- * horizontal bias of 1.25.
+ * 1.2 is the list rows' bias (5.4); callers requiring a more deliberate vertical drag use a
+ * horizontal bias below 1.
  */
 fun resolveDragAxis(
     dx: Float,

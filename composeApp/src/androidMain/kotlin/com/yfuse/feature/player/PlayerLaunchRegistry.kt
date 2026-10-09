@@ -8,6 +8,8 @@ import androidx.lifecycle.ViewModel
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.util.UUID
 
 /**
@@ -344,13 +346,61 @@ internal fun resolveFreshPlayerLaunch(
 internal class PlayerLaunchViewModel : ViewModel() {
     var request: PlayerLaunchRequest? = null
     var resume: Pair<Int, Long>? = null
+        private set
+    var playbackRequested: Boolean? = null
+        private set
+    private var playbackGeneration = 0L
     var pending: PendingPlayerLaunch? = null
     var enriching: PendingPlayerLaunch? = null
     var launchStartedElapsedMs = SystemClock.elapsedRealtime()
 
-    override fun onCleared() {
-        pending?.store?.dispose()
+    fun beginPlayback(): Long = ++playbackGeneration
+
+    fun isPlaybackCurrent(generation: Long): Boolean = playbackGeneration == generation
+
+    /** Replacement invalidates old callbacks before Activity.recreate disposes the old engine. */
+    fun clearPlaybackResume() {
+        playbackGeneration++
+        resume = null
+        playbackRequested = null
+    }
+
+    fun rememberPlayback(
+        generation: Long,
+        index: Int,
+        positionMs: Long,
+        requested: Boolean,
+    ) {
+        if (!isPlaybackCurrent(generation) || index !in (request?.items?.indices ?: return)) return
+        resume = index to positionMs.coerceAtLeast(0L)
+        playbackRequested = requested
+    }
+
+    fun startPlaybackRequested(): Boolean = playbackRequested ?: request?.startPlaybackRequested ?: true
+
+    /** Only the still-owned preparation may become the active queue and enrichment source. */
+    suspend fun completePreparation(
+        expected: PendingPlayerLaunch,
+        prepared: PlayerLaunchRequest,
+        stopping: Boolean,
+    ): Boolean {
+        currentCoroutineContext().ensureActive()
+        if (stopping || pending !== expected || request != null) return false
+        request = prepared
         pending = null
+        enriching = expected
+        return true
+    }
+
+    fun disposePending() {
+        val previous = pending
+        // Invalidate first, before disposal can synchronously deliver another store callback.
+        pending = null
+        previous?.store?.dispose()
+    }
+
+    override fun onCleared() {
+        disposePending()
         enriching?.store?.dispose()
         enriching = null
     }

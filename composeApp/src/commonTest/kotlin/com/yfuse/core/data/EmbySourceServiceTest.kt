@@ -23,6 +23,80 @@ class EmbySourceServiceTest {
     private val server = SavedServer("one", "http://host:8096", "Media", "u1", "viewer", "token")
 
     @Test
+    fun a_fuzzy_title_hit_cannot_supply_a_different_movie_or_adaptation() =
+        runTest {
+            val requests = mutableListOf<HttpRequestData>()
+            val client =
+                client { request ->
+                    requests += request
+                    if (request.url.parameters["AnyProviderIdEquals"] != null) {
+                        json("""{"Items":[]}""")
+                    } else {
+                        json(
+                            """
+                            {"Items":[
+                                {"Id":"sequel","Name":"The Matrix Reloaded","Type":"Movie","ProductionYear":2003},
+                                {"Id":"remake","Name":"The Matrix","Type":"Movie","ProductionYear":2026},
+                                {"Id":"series","Name":"The Matrix","Type":"Series","ProductionYear":1999}
+                            ]}
+                            """.trimIndent(),
+                        )
+                    }
+                }
+            try {
+                val source =
+                    service(client)
+                        .compareSources(
+                            servers = listOf(server),
+                            currentServerId = null,
+                            title = "The Matrix",
+                            tmdbId = 603,
+                            mediaType = "movie",
+                            year = 1999,
+                        ).single()
+                assertEquals(2, requests.size)
+                assertTrue(source.reachable)
+                assertNull(source.itemId)
+                assertNull(source.source)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
+    fun a_provider_match_keeps_a_translated_title_available() =
+        runTest {
+            val client =
+                client {
+                    json(
+                        """
+                        {"Items":[{
+                            "Id":"matrix","Name":"黑客帝国","Type":"Movie","ProductionYear":1999,
+                            "MediaSources":[{"Id":"source","Container":"mkv",
+                                "MediaStreams":[{"Type":"Video","Height":1080,"Codec":"h264"}]}]
+                        }]}
+                        """.trimIndent(),
+                    )
+                }
+            try {
+                val source =
+                    service(client)
+                        .compareSources(
+                            servers = listOf(server),
+                            currentServerId = null,
+                            title = "The Matrix",
+                            tmdbId = 603,
+                            mediaType = "movie",
+                            year = 1999,
+                        ).single()
+                assertEquals("matrix", source.itemId)
+                assertNotNull(source.source)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
     fun a_provider_match_reports_the_best_source_of_the_current_server() =
         runTest {
             val requests = mutableListOf<HttpRequestData>()

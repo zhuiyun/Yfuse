@@ -191,7 +191,7 @@ class PlayerLaunchRegistryTest {
         val viewModel =
             PlayerLaunchViewModel().apply {
                 request = retained
-                resume = 2 to 98_765L
+                rememberPlayback(beginPlayback(), index = 2, positionMs = 98_765L, requested = true)
             }
 
         val resolution =
@@ -203,6 +203,63 @@ class PlayerLaunchRegistryTest {
 
         assertSame(retained, assertIs<PlayerLaunchResolution.Ready>(resolution).request)
         assertEquals(2 to 98_765L, viewModel.resume)
+    }
+
+    @Test
+    fun configuration_recreation_preserves_pause_instead_of_the_original_autoplay_request() {
+        val viewModel = PlayerLaunchViewModel().apply { request = request(count = 3) }
+        viewModel.rememberPlayback(viewModel.beginPlayback(), index = 2, positionMs = 98_765L, requested = false)
+
+        viewModel.beginPlayback()
+
+        assertFalse(viewModel.startPlaybackRequested())
+        assertEquals(2 to 98_765L, viewModel.resume)
+    }
+
+    @Test
+    fun configuration_recreation_preserves_play_after_an_initially_paused_launch() {
+        val viewModel =
+            PlayerLaunchViewModel().apply { request = request(count = 3).copy(startPlaybackRequested = false) }
+        viewModel.rememberPlayback(viewModel.beginPlayback(), index = 1, positionMs = 22_000L, requested = true)
+
+        viewModel.beginPlayback()
+
+        assertTrue(viewModel.startPlaybackRequested())
+        assertEquals(1 to 22_000L, viewModel.resume)
+    }
+
+    @Test
+    fun late_old_player_callbacks_cannot_restore_position_or_pause_over_a_replacement() {
+        val viewModel = PlayerLaunchViewModel().apply { request = request(count = 3) }
+        val oldGeneration = viewModel.beginPlayback()
+        viewModel.rememberPlayback(oldGeneration, index = 2, positionMs = 98_765L, requested = false)
+        viewModel.request = request(count = 4)
+        viewModel.clearPlaybackResume()
+
+        viewModel.rememberPlayback(oldGeneration, index = 2, positionMs = 99_000L, requested = false)
+
+        assertNull(viewModel.resume)
+        assertTrue(viewModel.startPlaybackRequested())
+        val newGeneration = viewModel.beginPlayback()
+        viewModel.rememberPlayback(newGeneration, index = 0, positionMs = 500L, requested = true)
+        viewModel.rememberPlayback(oldGeneration, index = 2, positionMs = 99_500L, requested = false)
+        assertEquals(0 to 500L, viewModel.resume)
+        assertTrue(viewModel.startPlaybackRequested())
+    }
+
+    @Test
+    fun pending_replacement_forgets_old_play_intent_before_its_queue_is_ready() {
+        val viewModel = PlayerLaunchViewModel().apply { request = request(count = 3) }
+        val oldGeneration = viewModel.beginPlayback()
+        viewModel.rememberPlayback(oldGeneration, index = 2, positionMs = 98_765L, requested = true)
+        viewModel.request = null
+        viewModel.clearPlaybackResume()
+        viewModel.rememberPlayback(oldGeneration, index = 2, positionMs = 99_000L, requested = true)
+        viewModel.request = request().copy(startPlaybackRequested = false)
+        viewModel.beginPlayback()
+
+        assertNull(viewModel.resume)
+        assertFalse(viewModel.startPlaybackRequested())
     }
 
     @Test

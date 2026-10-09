@@ -1,5 +1,8 @@
 package com.yfuse.core.account
 
+import com.yfuse.backend.BackendAccess
+import com.yfuse.backend.BackendFeature
+import com.yfuse.backend.BackendUnavailableException
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.ServerRegistry
@@ -73,7 +76,10 @@ class AccountRepository(
     /** A stalled session request must always return the account page to a retryable state. */
     private val restoreRequestTimeoutMillis: Long = 15_000,
     private val personal: PersonalLibraryRepository? = null,
+    private val backendAccess: BackendAccess = BackendAccess.Default,
 ) {
+    val enabled: Boolean get() = backendAccess.enabled
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
     private val restoreAttempts = MutableStateFlow(0L)
@@ -82,7 +88,7 @@ class AccountRepository(
             ignoreUnknownKeys = true
             encodeDefaults = true
         }
-    private val _state = MutableStateFlow<AccountState>(AccountState.Restoring)
+    private val _state = MutableStateFlow<AccountState>(if (enabled) AccountState.Restoring else AccountState.SignedOut)
     val state: StateFlow<AccountState> = _state.asStateFlow()
 
     @Volatile
@@ -90,9 +96,11 @@ class AccountRepository(
 
     init {
         accessTokenSource.bind(::validAccessTokenForWatch, ::refreshAccessTokenForWatch)
+        if (!enabled) accessTokenSource.markUnavailable()
     }
 
     fun start() {
+        if (!enabled) return
         if (started) return
         started = true
         enqueueRestore("startup")
@@ -120,13 +128,17 @@ class AccountRepository(
     ): Result<T> =
         detached {
             try {
-                runCatching { mutex.withLock { block() } }.onFailure(onFailure)
+                runCatching {
+                    backendAccess.requireEnabled(BackendFeature.Account)
+                    mutex.withLock { block() }
+                }.onFailure(onFailure)
             } finally {
                 secrets.forEach { it.fill('\u0000') }
             }
         }
 
     fun retryRestore() {
+        if (!enabled) return
         val previous = _state.value
         AppLog.info(
             category = "account",
@@ -236,7 +248,8 @@ class AccountRepository(
                 )
             acceptAuth(auth)
             val remote = authorized { api.getSync(it) }
-            if (remote.payload == null) {
+            val payload = remote.payload
+            if (payload == null) {
                 initializeEmptyVaultLocked(auth.user.id, password)
                 _state.value =
                     requireSignedIn().copy(
@@ -246,7 +259,6 @@ class AccountRepository(
                     )
             } else {
                 require(remote.version > 0L) { "云端同步版本无效" }
-                val payload = remote.payload
                 val recovery = payload.toRecoveryEnvelope()
                 val vaultKey =
                     withContext(cryptoDispatcher) {
@@ -272,6 +284,7 @@ class AccountRepository(
 
     /** Merges personal assets only, preserving cloud server/settings fields and CAS conflicts. */
     suspend fun syncPersonalNow(): Result<Unit> {
+        if (!enabled) return Result.failure(BackendUnavailableException(BackendFeature.Account))
         val library = personal ?: return Result.failure(IllegalStateException("个人资料未初始化"))
         library.beginSync()
         return guarded(
@@ -710,18 +723,26 @@ class AccountRepository(
     }
 
     private suspend fun validAccessTokenForWatch(): String? =
-        detached {
-            mutex.withLock {
-                if (_state.value !is AccountState.SignedIn) return@withLock null
-                authorized { it }
+        if (!enabled) {
+            null
+        } else {
+            detached {
+                mutex.withLock {
+                    if (_state.value !is AccountState.SignedIn) return@withLock null
+                    authorized { it }
+                }
             }
         }
 
     private suspend fun refreshAccessTokenForWatch(): String? =
-        detached {
-            mutex.withLock {
-                if (_state.value !is AccountState.SignedIn) return@withLock null
-                refreshLocked().session.accessToken
+        if (!enabled) {
+            null
+        } else {
+            detached {
+                mutex.withLock {
+                    if (_state.value !is AccountState.SignedIn) return@withLock null
+                    refreshLocked().session.accessToken
+                }
             }
         }
 
@@ -884,6 +905,7 @@ class AccountRepository(
     }
 
     private suspend fun <T> authorized(block: suspend (String) -> T): T {
+        backendAccess.requireEnabled(BackendFeature.Account)
         var session = requireSignedIn().session
         if (session.accessExpiresAtEpochMs <= nowEpochMs() + ACCESS_REFRESH_SKEW_MS) {
             session = refreshLocked().session

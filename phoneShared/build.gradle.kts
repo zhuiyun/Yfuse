@@ -24,6 +24,7 @@ kotlin {
             kotlin.srcDir("../composeApp/src/commonMain/kotlin")
             dependencies {
                 api(project(":watchTogetherProtocol"))
+                api(project(":yfuseBackendClient"))
                 api(compose.runtime)
                 api(compose.foundation)
                 api(compose.material3)

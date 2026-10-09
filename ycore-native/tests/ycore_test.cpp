@@ -15,6 +15,7 @@ struct FakeEngine {
     int speed_result = YCORE_OK;
     int track_result = YCORE_OK;
     int output_result = YCORE_OK;
+    int retry_result = YCORE_ERROR_UNSUPPORTED;
     int open_count = 0;
     int close_count = 0;
     int play_count = 0;
@@ -23,6 +24,7 @@ struct FakeEngine {
     int output_count = 0;
     int64_t opened_position = -1;
     float speed = 1.0f;
+    void *last_output = nullptr;
     ycore_state_t state{};
 
     FakeEngine() {
@@ -79,12 +81,13 @@ int32_t fake_track(void *context, ycore_track_type_t, const char *) {
     ++fake->track_count;
     return fake->track_result;
 }
-int32_t fake_output(void *context, void *) {
+int32_t fake_output(void *context, void *output) {
     auto *fake = static_cast<FakeEngine *>(context);
     ++fake->output_count;
+    if (fake->output_result == YCORE_OK) fake->last_output = output;
     return fake->output_result;
 }
-int32_t fake_retry(void *) { return YCORE_ERROR_UNSUPPORTED; }
+int32_t fake_retry(void *context) { return static_cast<FakeEngine *>(context)->retry_result; }
 
 int32_t fake_poll(void *context, ycore_state_t *state) {
     *state = static_cast<FakeEngine *>(context)->state;
@@ -468,6 +471,73 @@ void test_rejected_speed_does_not_replace_the_last_accepted_value() {
     ycore_session_destroy(session);
 }
 
+void test_rejected_output_does_not_replace_the_surface_restored_on_handover() {
+    auto *session = ycore_session_create();
+    FakeEngine primary;
+    FakeEngine fallback;
+    const auto first = registration("Primary", YCORE_ROUTE_SYSTEM, 100, YCORE_CAP_REMOTE_URL, &primary);
+    const auto second = registration("Fallback", YCORE_ROUTE_NATIVE_DIRECT, 50, YCORE_CAP_REMOTE_URL, &fallback);
+    assert(ycore_session_register_engine(session, &first) == YCORE_OK);
+    assert(ycore_session_register_engine(session, &second) == YCORE_OK);
+    int accepted_output = 1;
+    int rejected_output = 2;
+    assert(ycore_session_set_video_output(session, &accepted_output) == YCORE_OK);
+    auto media = request();
+    assert(ycore_session_open(session, &media) == YCORE_OK);
+    primary.output_result = YCORE_ERROR_UNSUPPORTED;
+    assert(ycore_session_set_video_output(session, &rejected_output) == YCORE_ERROR_UNSUPPORTED);
+    assert(ycore_session_handover(session) == YCORE_OK);
+    assert(fallback.last_output == &accepted_output);
+    ycore_session_destroy(session);
+}
+
+void test_retry_does_not_reopen_the_backend_it_just_retried() {
+    for (const int retry_result : {YCORE_OK, YCORE_ERROR_ENGINE_OPEN}) {
+        auto *session = ycore_session_create();
+        FakeEngine primary;
+        FakeEngine fallback;
+        primary.retry_result = retry_result;
+        const auto first = registration("Primary", YCORE_ROUTE_SYSTEM, 100, YCORE_CAP_REMOTE_URL, &primary);
+        const auto second = registration("Fallback", YCORE_ROUTE_NATIVE_DIRECT, 50, YCORE_CAP_REMOTE_URL, &fallback);
+        assert(ycore_session_register_engine(session, &first) == YCORE_OK);
+        assert(ycore_session_register_engine(session, &second) == YCORE_OK);
+        auto media = request();
+        assert(ycore_session_open(session, &media) == YCORE_OK);
+        assert(ycore_session_retry(session) == YCORE_OK);
+        if (retry_result == YCORE_OK) {
+            primary.state.phase = YCORE_PHASE_FAILED;
+            primary.state.failure_category = YCORE_FAILURE_DECODER;
+            assert(ycore_session_tick(session) == YCORE_OK);
+        }
+        assert(primary.open_count == 1);
+        assert(primary.close_count == 1);
+        assert(fallback.open_count == 1);
+        assert(std::string(ycore_session_state_engine(session)) == "Fallback");
+        ycore_session_destroy(session);
+    }
+}
+
+void test_single_engine_retry_reopens_when_dedicated_retry_is_unavailable() {
+    for (const bool has_retry_callback : {false, true}) {
+        auto *session = ycore_session_create();
+        FakeEngine engine;
+        engine.retry_result = YCORE_ERROR_UNSUPPORTED;
+        auto value = registration("Only engine", YCORE_ROUTE_SYSTEM, 100, YCORE_CAP_REMOTE_URL, &engine);
+        if (!has_retry_callback) value.vtable.retry = nullptr;
+        assert(ycore_session_register_engine(session, &value) == YCORE_OK);
+        auto media = request();
+        assert(ycore_session_open(session, &media) == YCORE_OK);
+        assert(ycore_session_seek_to(session, 91'250) == YCORE_OK);
+        assert(ycore_session_retry(session) == YCORE_OK);
+        assert(engine.open_count == 2);
+        assert(engine.close_count == 1);
+        assert(engine.opened_position == 91'250);
+        assert(ycore_session_state_phase(session) == YCORE_PHASE_READY);
+        assert(std::string(ycore_session_state_engine(session)) == "Only engine");
+        ycore_session_destroy(session);
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -486,5 +556,8 @@ int main() {
     test_track_restore_failure_is_reported();
     test_new_media_clears_tracks_and_output_evidence();
     test_rejected_speed_does_not_replace_the_last_accepted_value();
+    test_rejected_output_does_not_replace_the_surface_restored_on_handover();
+    test_retry_does_not_reopen_the_backend_it_just_retried();
+    test_single_engine_retry_reopens_when_dedicated_retry_is_unavailable();
     return 0;
 }

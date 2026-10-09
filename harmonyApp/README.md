@@ -1,6 +1,6 @@
 # Yfuse HarmonyOS (Cangjie)
 
-This is the native HarmonyOS product implementation. UI, application state, networking and system
+This is the native HarmonyOS Cangjie port under development. UI, application state, networking and system
 integration are written in Cangjie. Native media libraries are exposed only through the stable C ABI
 in `../ycore-native`.
 
@@ -17,19 +17,24 @@ locally, then run the module's Release HAP task.
 Run the repository checks with:
 
 ```bash
-python3 scripts/verify-harmony-port.py
+python3 scripts/verify-harmony-port.py --report build/validation/harmony-source.json
 python3 scripts/harmony-release-gate.py
 ```
 
-The first command is SDK-independent. The second intentionally fails until the Cangjie SDK,
-production signing and every runtime evidence gate are present. See `RELEASE_CHECKLIST.md`.
+The first command checks source contracts and optional host coverage; missing host tooling
+is SKIPPED and missing stdx coverage is PARTIAL. It does not build a HAP. Use
+`--require-host` to reject incomplete host results, and see
+[the validation environment guide](../docs/VALIDATION_ENVIRONMENT.md). The second command
+intentionally fails until the Cangjie SDK, production signing and every runtime evidence
+gate are present. See `RELEASE_CHECKLIST.md`.
 
 ## Capability gate
 
 The current public Cangjie ArkUI wrapper provides `Video`, but still documents `XComponent` and
 custom render nodes as unsupported. Therefore:
 
-- system playback can ship through the Cangjie `Video`/AVPlayer surface;
+- system playback is wired through the Cangjie `Video`/AVPlayer surface in source, but needs
+  matching SDK/HAP compilation and device evidence before it can ship;
 - the native coordinator and C ABI are implemented and host-tested;
 - AVCodec/NativeWindow custom rendering must remain disabled until the installed Cangjie SDK exposes
   a supported surface host, or a verified C++ ArkUI native-node bridge is available;

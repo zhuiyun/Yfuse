@@ -8,6 +8,16 @@
 
   const nullableBoolean = (value) => typeof value === 'boolean' ? value : null;
 
+  function isMediaUrl(value) {
+    if (typeof value !== 'string') return false;
+    try {
+      const url = new URL(value);
+      return (url.protocol === 'http:' || url.protocol === 'https:') && Boolean(url.hostname);
+    } catch (_) {
+      return false;
+    }
+  }
+
   function deviceFacts() {
     const capabilities = context.getDeviceCapabilities() || {};
     return {
@@ -230,7 +240,7 @@
     (request) => {
       const media = request && request.media;
       const contentId = media && (media.contentUrl || media.contentId);
-      if (typeof contentId !== 'string' || !/^https?:\/\//i.test(contentId)) {
+      if (!isMediaUrl(contentId)) {
         const error = new cast.framework.messages.ErrorData(cast.framework.messages.ErrorType.LOAD_FAILED);
         error.reason = cast.framework.messages.ErrorReason.INVALID_REQUEST;
         showError('手机发来的播放地址无效');

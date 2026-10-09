@@ -18,6 +18,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.yfuse.app.RootComponent
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.account.ACCOUNT_BASE_URL
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.handoff.HandoffController
@@ -202,6 +203,7 @@ internal class TvPhoneRemote private constructor(
             application: Application,
             koin: Koin,
         ) {
+            if (!BackendAccess.Default.enabled) return
             val tokens = koin.get<AccountAccessTokenSource>()
             val host =
                 RemoteControlHost(

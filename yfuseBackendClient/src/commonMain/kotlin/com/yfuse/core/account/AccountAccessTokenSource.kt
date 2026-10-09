@@ -1,5 +1,6 @@
 package com.yfuse.core.account
 
+import com.yfuse.backend.BackendAccess
 import io.ktor.http.Url
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,6 +15,7 @@ import kotlin.concurrent.Volatile
  */
 class AccountAccessTokenSource(
     accountOrigin: String = ACCOUNT_BASE_URL,
+    private val backendAccess: BackendAccess = BackendAccess.Default,
 ) {
     private val trustedOrigin = Url(accountOrigin)
 
@@ -27,7 +29,7 @@ class AccountAccessTokenSource(
     private val _sessionAvailable = MutableStateFlow(false)
     val sessionAvailable: StateFlow<Boolean> = _sessionAvailable.asStateFlow()
 
-    internal fun bind(
+    fun bind(
         provider: suspend () -> String?,
         refreshProvider: suspend () -> String?,
     ) {
@@ -35,23 +37,23 @@ class AccountAccessTokenSource(
         this.refreshProvider = refreshProvider
     }
 
-    internal fun markAvailable() {
-        _sessionAvailable.value = true
+    fun markAvailable() {
+        _sessionAvailable.value = backendAccess.enabled
     }
 
-    internal fun markUnavailable() {
+    fun markUnavailable() {
         _sessionAvailable.value = false
     }
 
     fun trusts(endpoint: String): Boolean = endpoint.sameServiceOriginAs(trustedOrigin)
 
     suspend fun validAccessTokenFor(endpoint: String): String? {
-        if (!trusts(endpoint)) return null
+        if (!backendAccess.enabled || !trusts(endpoint)) return null
         return provider()?.takeIf(String::isNotBlank)
     }
 
     suspend fun refreshAccessTokenFor(endpoint: String): String? {
-        if (!trusts(endpoint)) return null
+        if (!backendAccess.enabled || !trusts(endpoint)) return null
         return refreshProvider()?.takeIf(String::isNotBlank)
     }
 }

@@ -1,5 +1,6 @@
 package com.yfuse.core.trakt
 
+import com.yfuse.core.personal.MAX_PERSONAL_MEDIA_TITLE_CHARS
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.personal.PersonalMediaRef
 import java.time.Instant
@@ -25,7 +26,7 @@ internal fun TraktListItem.toPersonalMedia(): PersonalMediaRef? =
                 media.ids.key()?.let {
                     PersonalMediaRef(
                         it,
-                        media.title.take(512),
+                        media.title.take(MAX_PERSONAL_MEDIA_TITLE_CHARS),
                         "Movie",
                         media.ids.tmdb,
                         media.year,
@@ -37,7 +38,7 @@ internal fun TraktListItem.toPersonalMedia(): PersonalMediaRef? =
                 media.ids.key()?.let {
                     PersonalMediaRef(
                         it,
-                        media.title.take(512),
+                        media.title.take(MAX_PERSONAL_MEDIA_TITLE_CHARS),
                         "Series",
                         media.ids.tmdb,
                         media.year,
@@ -59,7 +60,9 @@ internal fun TraktListItem.toPersonalMedia(): PersonalMediaRef? =
                 key?.let {
                     PersonalMediaRef(
                         it,
-                        "${show?.title.orEmpty()} · S${ep.season}E${ep.number} ${ep.title}".take(512),
+                        "${show?.title.orEmpty()} · S${ep.season}E${ep.number} ${ep.title}".take(
+                            MAX_PERSONAL_MEDIA_TITLE_CHARS,
+                        ),
                         "Episode",
                         ep.ids.tmdb,
                         show?.year,

@@ -13,6 +13,7 @@ import java.security.Signature
 import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class CalendarScheduleRoutesTest {
@@ -67,4 +68,27 @@ class CalendarScheduleRoutesTest {
             assertTrue(payload.contains("\"confidence\":100"))
             assertTrue(payload.contains("\"type\":\"VerifiedAccount\""))
         }
+
+    @Test
+    fun applicationsWithDifferentKeysDoNotReuseEachOthersSignedPublication() {
+        val keyPairs = List(2) { KeyPairGenerator.getInstance("Ed25519").generateKeyPair() }
+        keyPairs.forEachIndexed { index, keyPair ->
+            testApplication {
+                val signer = CalendarScheduleSigner.fromPkcs8Base64(Base64.getEncoder().encodeToString(keyPair.private.encoded))
+                application { routing { calendarScheduleRoutes(signer) } }
+                val response = client.get("/api/v1/calendar/schedules")
+                assertEquals(HttpStatusCode.OK, response.status)
+                val envelope = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+                val payload = envelope.getValue("payload").jsonPrimitive.content.encodeToByteArray()
+                val signature = Base64.getDecoder().decode(envelope.getValue("signature").jsonPrimitive.content)
+                fun verifiedBy(keyIndex: Int) = Signature.getInstance("Ed25519").run {
+                    initVerify(keyPairs[keyIndex].public)
+                    update(payload)
+                    verify(signature)
+                }
+                assertTrue(verifiedBy(index), "response must be signed with this application's key")
+                assertFalse(verifiedBy(1 - index), "another application's cached signature must not be reused")
+            }
+        }
+    }
 }

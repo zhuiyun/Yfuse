@@ -3,12 +3,8 @@ package com.yfuse.di
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.Settings
-import com.yfuse.core.account.AccountAccessTokenSource
-import com.yfuse.core.account.AccountApi
 import com.yfuse.core.account.AccountRepository
-import com.yfuse.core.account.PlaybackCloudApi
 import com.yfuse.core.account.PlaybackVaultCipher
-import com.yfuse.core.account.createAccountClient
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.createCastManager
 import com.yfuse.core.data.AiringCalendarRepository
@@ -91,7 +87,7 @@ fun appModule(
     feedCacheSettings: () -> Settings = { settings },
 ) = module {
     single { settings }
-    single(named("account-http")) { createAccountClient() } onClose { it?.close() }
+    includes(backendModule())
     single(named("trakt-http")) {
         com.yfuse.core.trakt
             .createTraktHttpClient()
@@ -145,7 +141,7 @@ fun appModule(
         PlaybackQoeReporter(
             settings = get(),
             preferences = get(),
-            client = get(named("account-http")),
+            api = get(),
             appVersion = appVersion,
         )
     }
@@ -202,7 +198,7 @@ fun appModule(
     }
     single { ServerHealthMonitor(get(), get()) }
     single { CalendarFollowStore(get(), personal = get()) }
-    single { OfficialAiringScheduleCatalog(get(named("account-http")), get()) }
+    single { OfficialAiringScheduleCatalog(get<com.yfuse.backend.CalendarBackendApi>(), get()) }
     single {
         AiringCalendarRepository(
             emby = get(),
@@ -218,11 +214,9 @@ fun appModule(
     single(named("danmaku-http")) { createDanmakuClient() } onClose { it?.close() }
     single { DanmakuRepository(get(named("danmaku-http"))) }
     single { ServerSyncManager(get(), get(), get(), get(), get()) }
-    single { AccountAccessTokenSource() }
     single { WatchTogetherClient(get(), get(), WatchRoomResumeStore(get())) }
     single { WatchInviteResolver(get(), get()) }
     single<SecureStore> { createSecureStore(get(), namespace = "account") }
-    single { AccountApi(get(named("account-http"))) }
     single {
         AccountRepository(
             api = get(),
@@ -241,7 +235,6 @@ fun appModule(
             personal = get(),
         )
     }
-    single { PlaybackCloudApi(get(named("account-http"))) }
     single { PlaybackVaultCipher(get(), get(), get()) }
     single {
         PlaybackSyncManager(
@@ -267,9 +260,7 @@ fun appModule(
                 api =
                     com.yfuse.core.trakt
                         .HttpTraktApi(get(named("trakt-http"))),
-                auth =
-                    com.yfuse.core.trakt
-                        .AccountTraktAuthApi(get(named("account-http")), get()),
+                auth = get<com.yfuse.core.trakt.AccountTraktAuthApi>(),
                 secureStore = get(),
                 owner = session.owner,
                 importSink =
@@ -281,10 +272,6 @@ fun appModule(
     single {
         com.yfuse.core.handoff
             .HandoffPlaybackRegistry()
-    }
-    single {
-        com.yfuse.core.handoff
-            .AccountHandoffApi(get(named("account-http")), get())
     }
     single {
         com.yfuse.core.handoff

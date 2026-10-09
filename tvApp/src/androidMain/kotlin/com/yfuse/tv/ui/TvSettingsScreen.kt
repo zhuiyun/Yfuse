@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -48,6 +49,9 @@ internal fun TvSettingsScreen(
     contentRequester: FocusRequester,
 ) {
     var page by rememberSaveable { mutableStateOf(TvSettingsPage.Root) }
+    LaunchedEffect(page) {
+        if (!page.availableInCurrentBuild()) page = TvSettingsPage.Root
+    }
     // Each page keeps its saveable state — the root list's scroll position above all — while
     // another is open. A bare `when` rebuilt the root from the top, so back from a sub-page far
     // down the list could not find the row that had opened it.
@@ -60,7 +64,7 @@ internal fun TvSettingsScreen(
     }
 
     AnimatedContent(
-        targetState = page,
+        targetState = page.takeIf { it.availableInCurrentBuild() } ?: TvSettingsPage.Root,
         transitionSpec = {
             // Into a sub-page arrives from the right, and back arrives from the left.
             val direction = if (targetState.depth >= initialState.depth) 1 else -1
@@ -84,11 +88,22 @@ internal fun TvSettingsScreen(
                 navigationRequester = navigationRequester,
                 contentRequester = contentRequester,
                 pageRequester = pageRequester,
-                onOpen = { page = it },
+                onOpen = { if (it.availableInCurrentBuild()) page = it },
             )
         }
     }
 }
+
+private fun TvSettingsPage.availableInCurrentBuild(): Boolean =
+    BackendAccess.Default.enabled ||
+        this !in
+        setOf(
+            TvSettingsPage.Account,
+            TvSettingsPage.AccountSessions,
+            TvSettingsPage.Handoff,
+            TvSettingsPage.WatchTogether,
+            TvSettingsPage.Trakt,
+        )
 
 /** How far below the settings root a page sits; a deeper page arrives from the right. */
 private val TvSettingsPage.depth: Int
@@ -315,7 +330,7 @@ private fun TvSettingsRootPage(
             TvSettingsPage.SyncStatus,
             TvSettingsPage.Handoff,
             TvSettingsPage.Trakt,
-        ).forEach { target ->
+        ).filter { it.availableInCurrentBuild() }.forEach { target ->
             item(key = "settings-product:${target.name}") {
                 TvSettingRow(
                     title = target.title,
@@ -348,18 +363,20 @@ private fun TvSettingsRootPage(
                 navigationRequester = navigationRequester,
             )
         }
-        item(key = "settings-account") {
-            TvSettingRow(
-                title = TvSettingsPage.Account.title,
-                value = account.shortLabel(),
-                stableId = "settings:account",
-                focusMemory = focusMemory,
-                onClick = { onOpen(TvSettingsPage.Account) },
-                icon = AppIcons.User,
-                focusScope = scope,
-                subtitle = TvSettingsPage.Account.subtitle,
-                navigationRequester = navigationRequester,
-            )
+        if (BackendAccess.Default.enabled) {
+            item(key = "settings-account") {
+                TvSettingRow(
+                    title = TvSettingsPage.Account.title,
+                    value = account.shortLabel(),
+                    stableId = "settings:account",
+                    focusMemory = focusMemory,
+                    onClick = { onOpen(TvSettingsPage.Account) },
+                    icon = AppIcons.User,
+                    focusScope = scope,
+                    subtitle = TvSettingsPage.Account.subtitle,
+                    navigationRequester = navigationRequester,
+                )
+            }
         }
 
         // No 界面模式 here: the television shell is dark glass on a dark room and nothing else.
@@ -436,18 +453,20 @@ private fun TvSettingsRootPage(
                 navigationRequester = navigationRequester,
             )
         }
-        item(key = "settings-watch-together") {
-            TvSettingRow(
-                title = TvSettingsPage.WatchTogether.title,
-                value = "",
-                stableId = "settings:watch-together",
-                focusMemory = focusMemory,
-                onClick = { onOpen(TvSettingsPage.WatchTogether) },
-                icon = AppIcons.Chat,
-                focusScope = scope,
-                subtitle = TvSettingsPage.WatchTogether.subtitle,
-                navigationRequester = navigationRequester,
-            )
+        if (BackendAccess.Default.enabled) {
+            item(key = "settings-watch-together") {
+                TvSettingRow(
+                    title = TvSettingsPage.WatchTogether.title,
+                    value = "",
+                    stableId = "settings:watch-together",
+                    focusMemory = focusMemory,
+                    onClick = { onOpen(TvSettingsPage.WatchTogether) },
+                    icon = AppIcons.Chat,
+                    focusScope = scope,
+                    subtitle = TvSettingsPage.WatchTogether.subtitle,
+                    navigationRequester = navigationRequester,
+                )
+            }
         }
 
         item(key = "settings-section-support") { TvSettingsSectionTitle("数据与支持") }
@@ -569,7 +588,7 @@ internal fun searchTvSettings(query: String): List<TvSettingsPage> {
     val needle = query.trim().lowercase()
     if (needle.isEmpty()) return emptyList()
     return TvSettingsPage.entries
-        .filter { it != TvSettingsPage.Root }
+        .filter { it != TvSettingsPage.Root && it.availableInCurrentBuild() }
         .filter { page ->
             page.title.lowercase().contains(needle) ||
                 page.subtitle.lowercase().contains(needle) ||

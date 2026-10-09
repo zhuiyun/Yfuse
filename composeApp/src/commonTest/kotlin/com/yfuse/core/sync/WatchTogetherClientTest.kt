@@ -1,6 +1,7 @@
 package com.yfuse.core.sync
 
 import com.russhwolf.settings.MapSettings
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.security.TestSecureStore
@@ -117,6 +118,22 @@ class WatchTogetherClientTest {
         assertEquals(WatchTogetherState(), client.state.value)
         assertNull(client.timeline.value)
         assertNull(client.resumableRoom.value)
+    }
+
+    @Test
+    fun disabledBackendRejectsRoomEntryWithoutCallingTheTransport() {
+        var connections = 0
+        val client =
+            WatchTogetherClient(
+                preferences = WatchTogetherPreferences(MapSettings()),
+                accountTokens = AccountAccessTokenSource(),
+                backendAccess = BackendAccess(enabled = false),
+                connector = WatchRelayConnector { _, _, _ -> connections++ },
+            )
+        client.createRoom(WatchTogetherPreferences.DEFAULT_ENDPOINT, "tmdb:603")
+        assertEquals(0, connections)
+        assertEquals("此版本未启用在线服务", client.state.value.error)
+        assertFalse(client.state.value.connecting)
     }
 
     private fun client(

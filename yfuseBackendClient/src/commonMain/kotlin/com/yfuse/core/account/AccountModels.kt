@@ -1,8 +1,9 @@
 package com.yfuse.core.account
 
+import com.yfuse.backend.BackendEndpoints
 import kotlinx.serialization.Serializable
 
-const val ACCOUNT_BASE_URL: String = "https://47.112.219.60"
+const val ACCOUNT_BASE_URL: String = BackendEndpoints.ORIGIN
 const val INVITE_ISSUE_CAPABILITY: String = "invite:issue"
 
 @Serializable
@@ -20,7 +21,7 @@ data class AccountUser(
 fun AccountUser.canIssueInvites(): Boolean = INVITE_ISSUE_CAPABILITY in capabilities
 
 @Serializable
-internal data class RegisterRequest(
+data class RegisterRequest(
     val username: String,
     val password: String,
     val nickname: String? = null,
@@ -30,14 +31,14 @@ internal data class RegisterRequest(
 )
 
 @Serializable
-internal data class LoginRequest(
+data class LoginRequest(
     val username: String,
     val password: String,
     val deviceName: String? = null,
 )
 
 @Serializable
-internal data class RefreshRequest(
+data class RefreshRequest(
     val refreshToken: String,
     val deviceName: String? = null,
     val requestId: String? = null,
@@ -49,23 +50,17 @@ internal data class RefreshRequest(
  * so the client falls back to this shape rather than leaving the user signed out.
  */
 @Serializable
-internal data class LegacyRefreshRequest(
+data class LegacyRefreshRequest(
     val refreshToken: String,
 )
 
 @Serializable
-internal data class PendingAccountRefresh(
-    val refreshToken: String,
-    val requestId: String,
-)
-
-@Serializable
-internal data class DeleteAccountRequest(
+data class DeleteAccountRequest(
     val password: String,
 )
 
 @Serializable
-internal data class UpdateProfileRequest(
+data class UpdateProfileRequest(
     val nickname: String? = null,
     val avatarId: Int? = null,
 )
@@ -127,7 +122,7 @@ data class AccountDeviceSession(
 )
 
 @Serializable
-internal data class AccountSessionsResponse(
+data class AccountSessionsResponse(
     val sessions: List<AccountDeviceSession>,
 )
 
@@ -140,20 +135,20 @@ data class AccountExport(
 )
 
 @Serializable
-internal data class PutSyncRequest(
+data class PutSyncRequest(
     val baseVersion: Long,
     val payload: EncryptedSyncPayload,
 )
 
 @Serializable
-internal data class ErrorBody(
+data class ErrorBody(
     val code: String,
     val message: String,
     val currentVersion: Long? = null,
 )
 
 @Serializable
-internal data class ErrorEnvelope(
+data class ErrorEnvelope(
     val error: ErrorBody,
 )
 
@@ -162,32 +157,3 @@ data class IssuedInviteCode(
     val code: String,
     val expiresAtEpochMs: Long,
 )
-
-data class AccountSession(
-    val user: AccountUser,
-    val accessToken: String,
-    val accessExpiresAtEpochMs: Long,
-    val refreshExpiresAtEpochMs: Long,
-)
-
-sealed interface AccountState {
-    data object SignedOut : AccountState
-
-    data object Restoring : AccountState
-
-    data class RestoreFailed(
-        val message: String,
-    ) : AccountState
-
-    data class SignedIn(
-        val session: AccountSession,
-        val syncVersion: Long = 0,
-        val cloudHasData: Boolean = false,
-        val syncing: Boolean = false,
-        val lastSyncedAtEpochMs: Long? = null,
-        val message: String? = null,
-    ) : AccountState
-}
-
-/** Together Watch is an account-bound service; every client surface uses this same gate. */
-fun AccountState.canUseWatchTogether(): Boolean = this is AccountState.SignedIn

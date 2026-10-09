@@ -296,11 +296,16 @@ internal class MigrationRelayRateLimiter(
     private val maxTrackedKeys: Int = 10_000,
 ) {
     private data class Window(
-        var startedAtMs: Long,
+        val expiresAtMs: Long,
         var count: Int,
     )
 
-    private val windows = LinkedHashMap<String, Window>()
+    private val windows = HashMap<String, Window>()
+    private var lastObservedAtMs = Long.MIN_VALUE
+
+    init {
+        require(maxTrackedKeys > 0)
+    }
 
     @Synchronized
     fun requireAllowed(
@@ -310,19 +315,29 @@ internal class MigrationRelayRateLimiter(
         windowMs: Long,
         nowEpochMs: Long,
     ) {
+        require(limit > 0 && windowMs > 0L)
+        // Concurrent callers can sample the clock before entering this synchronized method.
+        val effectiveNowMs = maxOf(lastObservedAtMs, nowEpochMs)
+        lastObservedAtMs = effectiveNowMs
         val ip = rawClientIp.trim().take(128).ifBlank { "unknown" }
         val key = "$bucket:$ip"
         val current = windows[key]
-        if (current == null || nowEpochMs - current.startedAtMs >= windowMs || nowEpochMs < current.startedAtMs) {
-            if (windows.size >= maxTrackedKeys) windows.remove(windows.keys.first())
-            windows[key] = Window(nowEpochMs, 1)
+        if (current != null && effectiveNowMs < current.expiresAtMs) {
+            if (current.count >= limit) limited()
+            current.count++
             return
         }
-        if (current.count >= limit) {
-            throw MigrationRelayException("rate_limited", "请求过于频繁，请稍后重试", rateLimited = true)
+        if (current == null && windows.size >= maxTrackedKeys) {
+            windows.values.removeAll { effectiveNowMs >= it.expiresAtMs }
+            // Preserve live counters: evicting one lets rotating identities reset their quota.
+            if (windows.size >= maxTrackedKeys) limited()
         }
-        current.count++
+        val expiresAtMs = if (effectiveNowMs > Long.MAX_VALUE - windowMs) Long.MAX_VALUE else effectiveNowMs + windowMs
+        windows[key] = Window(expiresAtMs, 1)
     }
+
+    private fun limited(): Nothing =
+        throw MigrationRelayException("rate_limited", "请求过于频繁，请稍后重试", rateLimited = true)
 }
 
 private interface MigrationRelayStore : AutoCloseable {

@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.app.systemNavigationContentInset
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.account.canUseWatchTogether
 import com.yfuse.core.data.DanmakuSource
@@ -168,6 +169,17 @@ private data class SettingsSearchDestination(
     val icon: ImageVector,
     val tint: Color,
 )
+
+private fun ProfilePage.availableInCurrentBuild(): Boolean =
+    BackendAccess.Default.enabled ||
+        this !in
+        setOf(
+            ProfilePage.Account,
+            ProfilePage.AccountSessions,
+            ProfilePage.Handoff,
+            ProfilePage.WatchTogether,
+            ProfilePage.Trakt,
+        )
 
 private val SettingsSearchDestinations =
     listOf(
@@ -348,6 +360,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val screenScope = rememberCoroutineScope()
 
     fun openPage(target: ProfilePage) {
+        if (!target.availableInCurrentBuild()) return
         pageStack = pageStack + target.name
     }
 
@@ -374,7 +387,13 @@ fun ProfileScreen(component: ProfileComponent) {
 
     LaunchedEffect(pageStack) {
         // Drop routes persisted by older versions after their settings page is removed.
-        val valid = pageStack.filter { saved -> ProfilePage.entries.any { it.name == saved } }
+        val valid =
+            pageStack.filter { saved ->
+                ProfilePage.entries.any {
+                    it.name == saved &&
+                        it.availableInCurrentBuild()
+                }
+            }
         if (valid != pageStack) pageStack = valid
     }
 
@@ -637,21 +656,23 @@ fun ProfileScreen(component: ProfileComponent) {
                             motionItem {
                                 Section(title = "服务器与账号") {
                                     SettingsCard {
-                                        SettingRow(
-                                            icon = AppIcons.User,
-                                            iconTint = SettingTint.account,
-                                            title = "账号与同步",
-                                            value =
-                                                when (val account = accountState) {
-                                                    AccountState.Restoring -> "正在恢复"
-                                                    is AccountState.RestoreFailed -> "连接失败 · 点此重试"
-                                                    AccountState.SignedOut -> "未登录"
-                                                    is AccountState.SignedIn -> "${account.session.user.nickname} · 加密同步"
-                                                },
-                                            embedded = true,
-                                            onClick = { openPage(ProfilePage.Account) },
-                                        )
-                                        SettingsDivider()
+                                        if (BackendAccess.Default.enabled) {
+                                            SettingRow(
+                                                icon = AppIcons.User,
+                                                iconTint = SettingTint.account,
+                                                title = "账号与同步",
+                                                value =
+                                                    when (val account = accountState) {
+                                                        AccountState.Restoring -> "正在恢复"
+                                                        is AccountState.RestoreFailed -> "连接失败 · 点此重试"
+                                                        AccountState.SignedOut -> "未登录"
+                                                        is AccountState.SignedIn -> "${account.session.user.nickname} · 加密同步"
+                                                    },
+                                                embedded = true,
+                                                onClick = { openPage(ProfilePage.Account) },
+                                            )
+                                            SettingsDivider()
+                                        }
                                         SettingRow(
                                             icon = AppIcons.Server,
                                             iconTint = SettingTint.servers,
@@ -724,28 +745,30 @@ fun ProfileScreen(component: ProfileComponent) {
                                             icon = AppIcons.Play,
                                             iconTint = SettingTint.playback,
                                         )
-                                        SettingsDivider()
-                                        SettingRow(
-                                            "一起看",
-                                            when {
-                                                !watchAvailable -> "登录后使用"
-                                                watchState.connected ->
-                                                    "房间 ${watchState.roomCode.orEmpty()}"
-                                                else -> "$watchNickname"
-                                            },
-                                            embedded = true,
-                                            onClick = {
-                                                openPage(
-                                                    if (watchAvailable) {
-                                                        ProfilePage.WatchTogether
-                                                    } else {
-                                                        ProfilePage.Account
-                                                    },
-                                                )
-                                            },
-                                            icon = AppIcons.Chat,
-                                            iconTint = SettingTint.watchTogether,
-                                        )
+                                        if (BackendAccess.Default.enabled) {
+                                            SettingsDivider()
+                                            SettingRow(
+                                                "一起看",
+                                                when {
+                                                    !watchAvailable -> "登录后使用"
+                                                    watchState.connected ->
+                                                        "房间 ${watchState.roomCode.orEmpty()}"
+                                                    else -> "$watchNickname"
+                                                },
+                                                embedded = true,
+                                                onClick = {
+                                                    openPage(
+                                                        if (watchAvailable) {
+                                                            ProfilePage.WatchTogether
+                                                        } else {
+                                                            ProfilePage.Account
+                                                        },
+                                                    )
+                                                },
+                                                icon = AppIcons.Chat,
+                                                iconTint = SettingTint.watchTogether,
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1262,6 +1285,7 @@ private fun SettingsSearchResults(
     val needle = query.trim().lowercase()
     val results =
         SettingsSearchDestinations
+            .filter { it.page?.availableInCurrentBuild() != false }
             .filter { destination ->
                 listOf(destination.title, destination.summary, destination.keywords)
                     .any { needle in it.lowercase() }

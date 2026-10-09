@@ -1,21 +1,14 @@
 package com.yfuse.core.sync
 
+import com.yfuse.backend.BackendAccess
+import com.yfuse.backend.BackendFeature
+import com.yfuse.backend.BackendUnavailableException
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.embyHttpEngine
 import com.yfuse.watch.protocol.WatchProtocol
 import com.yfuse.watch.protocol.WatchWireMessage
-import io.ktor.client.HttpClient
-import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
-import io.ktor.client.plugins.websocket.WebSockets
-import io.ktor.client.plugins.websocket.webSocket
-import io.ktor.client.request.bearerAuth
-import io.ktor.websocket.CloseReason
-import io.ktor.websocket.Frame
-import io.ktor.websocket.close
-import io.ktor.websocket.readText
-import io.ktor.websocket.send
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -40,15 +33,16 @@ class WatchTogetherClient internal constructor(
     private val preferences: WatchTogetherPreferences,
     private val accountTokens: AccountAccessTokenSource,
     private val resumeStore: WatchRoomResumeStore = WatchRoomResumeStore(null),
+    private val backendAccess: BackendAccess = BackendAccess.Default,
+    private val connector: WatchRelayConnector = KtorWatchRelayConnector(::embyHttpEngine, backendAccess),
 ) {
     private val json =
         Json {
             ignoreUnknownKeys = true
             encodeDefaults = false
         }
-    private val client = HttpClient(embyHttpEngine()) { install(WebSockets) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val sessionOwnership = WatchConnectionOwnership<DefaultClientWebSocketSession>()
+    private val sessionOwnership = WatchConnectionOwnership<WatchRelaySession>()
 
     // Bumped by the UI (own reactions) and the connection coroutine (echoes); a plain `++`
     // handed the same id to two bursts, and the overlay keys its animations on it.
@@ -57,7 +51,7 @@ class WatchTogetherClient internal constructor(
     private val clock = ClockSync()
 
     private var connectionJob: Job? = null
-    private var currentSession: DefaultClientWebSocketSession? = null
+    private var currentSession: WatchRelaySession? = null
 
     // Session parameters are written by UI callers and read on the connection coroutine;
     // each is a single reference or primitive, so volatile publication is what they need.
@@ -107,7 +101,7 @@ class WatchTogetherClient internal constructor(
     val roomPlaylist = WatchRoomPlaylistController(::send)
 
     private val outgoingMessages =
-        WatchOutgoingQueue<DefaultClientWebSocketSession, WatchWireMessage>(
+        WatchOutgoingQueue<WatchRelaySession, WatchWireMessage>(
             scope = scope,
             capacity = WATCH_OUTGOING_QUEUE_CAPACITY,
             isCurrentOwner = { sessionOwnership.current() === it },
@@ -519,7 +513,7 @@ class WatchTogetherClient internal constructor(
         if (session != null) {
             scope.launch {
                 runCatching {
-                    session.close(CloseReason(CloseReason.Codes.NORMAL, "leave"))
+                    session.close("leave")
                 }.onFailure {
                     AppLog.warning(
                         category = "watch_together",
@@ -540,6 +534,11 @@ class WatchTogetherClient internal constructor(
         resumeCapability: String? = null,
         hostCapability: String? = null,
     ) {
+        if (!backendAccess.enabled) {
+            leaveInternal()
+            _state.value = WatchTogetherState(error = BackendUnavailableException(BackendFeature.WatchTogether).message)
+            return
+        }
         if (!WatchTogetherPreferences.isOfficialEndpoint(endpoint) || !accountTokens.trusts(endpoint)) {
             _state.value =
                 WatchTogetherState(
@@ -675,17 +674,15 @@ class WatchTogetherClient internal constructor(
     private suspend fun runSession(generation: Long) {
         val url = pendingUrl ?: return
         val endpoint = url.substringBeforeLast("/watch")
-        val accessToken =
-            accountTokens.validAccessTokenFor(endpoint)
-                ?: throw AccountRequiredForWatchException()
+        backendAccess.requireEnabled(BackendFeature.WatchTogether)
         try {
-            client.webSocket(
-                urlString = url,
-                request = { bearerAuth(accessToken) },
+            connector.connect(
+                url = url,
+                accessToken = { accountTokens.validAccessTokenFor(endpoint) },
             ) {
                 if (!claimSession(generation, this)) {
-                    close(CloseReason(CloseReason.Codes.NORMAL, "superseded"))
-                    return@webSocket
+                    close("superseded")
+                    return@connect
                 }
                 send(
                     json.encodeToString(
@@ -720,9 +717,8 @@ class WatchTogetherClient internal constructor(
                     }
                 try {
                     var welcomedThisAttempt = false
-                    for (frame in incoming) {
-                        if (frame !is Frame.Text) continue
-                        val frameText = frame.readText()
+                    while (true) {
+                        val frameText = receiveText() ?: break
                         val decoded =
                             runCatching {
                                 json.decodeFromString(WatchWireMessage.serializer(), frameText)
@@ -926,12 +922,6 @@ class WatchTogetherClient internal constructor(
                             }
                         }
                     }
-                    val closed = closeReason.await()
-                    if (closed?.code == CloseReason.Codes.VIOLATED_POLICY.code &&
-                        closed.message in WATCH_AUTH_CLOSE_REASONS
-                    ) {
-                        throw WatchAuthenticationException()
-                    }
                 } finally {
                     pingJob.cancel()
                 }
@@ -948,7 +938,7 @@ class WatchTogetherClient internal constructor(
 
     private fun claimSession(
         generation: Long,
-        session: DefaultClientWebSocketSession,
+        session: WatchRelaySession,
     ): Boolean =
         synchronized(this) {
             if (!sessionOwnership.claim(generation, session)) return@synchronized false

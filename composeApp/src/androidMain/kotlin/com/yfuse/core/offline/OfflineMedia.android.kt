@@ -17,6 +17,7 @@ import androidx.work.WorkRequest
 import com.russhwolf.settings.Settings
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.runCatchingCancellable
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.redactDiagnosticText
 import com.yfuse.core.model.Episode
@@ -31,6 +32,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -232,7 +235,7 @@ internal fun validateOfflineSubtitleContentLength(
 }
 
 /** Copies an untrusted subtitle response without allowing an unknown-length body to fill storage. */
-internal fun copyOfflineSubtitleBounded(
+internal suspend fun copyOfflineSubtitleBounded(
     input: InputStream,
     output: OutputStream,
     maxBytes: Long = MAX_OFFLINE_SUBTITLE_BYTES,
@@ -243,7 +246,7 @@ internal fun copyOfflineSubtitleBounded(
     val buffer = ByteArray(32 * 1024)
     while (true) {
         if (!isCurrent()) return null
-        val read = input.read(buffer)
+        val read = readOfflineChunk(input, buffer)
         if (read < 0) return writtenBytes
         if (!isCurrent()) return null
         if (read.toLong() > maxBytes - writtenBytes) {
@@ -1336,7 +1339,9 @@ internal class AndroidOfflineMediaManager(
     private suspend fun download(snapshot: OfflineMedia) =
         withContext(Dispatchers.IO) {
             val target = offlineVideoTarget(context, directory, snapshot)
-            var existing = target.partialSize()
+            var finalizedVideo =
+                snapshot.localPath?.let { offlineStoredVideo(context, it) } ?: target.published()
+            var existing = if (finalizedVideo == null) target.partialSize() else 0L
             var expectedValidator = snapshot.resumeValidator?.takeIf { existing > 0L }
             if (existing > 0L && expectedValidator == null) {
                 // Legacy partial files have no proof that the remote object is unchanged.
@@ -1354,7 +1359,8 @@ internal class AndroidOfflineMediaManager(
                     claimed = true
                     it.copy(
                         status = DownloadStatus.Downloading,
-                        downloadedBytes = existing,
+                        downloadedBytes = offlineTransferredVideoBytes(finalizedVideo) { existing },
+                        totalBytes = finalizedVideo?.size ?: it.totalBytes,
                         resumeValidator = expectedValidator,
                         error = null,
                         nextRetryAt = 0L,
@@ -1367,18 +1373,15 @@ internal class AndroidOfflineMediaManager(
 
             var connection: HttpURLConnection? = null
             try {
-                reserveVideoBytes(snapshot.id, existing, 0L)
+                reserveVideoBytes(snapshot.id, offlineTransferredVideoBytes(finalizedVideo) { existing }, 0L)
                 // A process may stop after the video was fsync'ed and renamed but before its
                 // subtitle and Completed index entry were published. That video is verified
                 // enough to reuse: continue with the sidecar phase instead of downloading it
                 // from byte zero again.
-                val finalizedVideo =
-                    snapshot.localPath
-                        ?.let { offlineStoredVideo(context, it) }
-                        ?: target.published()
-                if (finalizedVideo != null) {
+                val recoveredVideo = finalizedVideo
+                if (recoveredVideo != null) {
                     val subtitlePart = downloadSubtitlePart(snapshot)
-                    if (!publishCompletedDownload(snapshot, finalizedVideo, subtitlePart)) {
+                    if (!publishCompletedDownload(snapshot, recoveredVideo, subtitlePart)) {
                         return@withContext
                     }
                     AppLog.info(
@@ -1416,6 +1419,7 @@ internal class AndroidOfflineMediaManager(
                 var append: Boolean
                 var responseValidator: String?
                 while (true) {
+                    currentCoroutineContext().ensureActive()
                     if (!isCurrentDownload(snapshot)) return@withContext
                     val resumeFrom = existing
                     val validatorToMatch = expectedValidator
@@ -1524,7 +1528,7 @@ internal class AndroidOfflineMediaManager(
                         var lastPolicyCheck = 0L
                         while (true) {
                             if (!isCurrentDownload(snapshot)) return@withContext
-                            val read = input.read(buffer)
+                            val read = readOfflineChunk(input, buffer)
                             if (read < 0) break
                             // The request can be replaced while input.read() is blocked.
                             if (!isCurrentDownload(snapshot)) return@withContext
@@ -1583,7 +1587,9 @@ internal class AndroidOfflineMediaManager(
                 if (total > 0L) {
                     if (target.partialSize() != total) throw IOException("下载连接提前结束，内容不完整")
                 }
-                val storedVideo = finalizeVideo(snapshot, target) ?: return@withContext
+                currentCoroutineContext().ensureActive()
+                val storedVideo =
+                    finalizeVideo(snapshot, target) { finalizedVideo = it } ?: return@withContext
                 val subtitlePart = downloadSubtitlePart(snapshot)
                 if (!publishCompletedDownload(snapshot, storedVideo, subtitlePart)) return@withContext
                 AppLog.info(
@@ -1609,7 +1615,7 @@ internal class AndroidOfflineMediaManager(
                                 } else {
                                     DownloadStatus.Queued
                                 },
-                            downloadedBytes = target.partialSize(),
+                            downloadedBytes = offlineTransferredVideoBytes(finalizedVideo, target::partialSize),
                             error = null,
                             nextRetryAt = 0L,
                             lastFailureKind = null,
@@ -1653,7 +1659,7 @@ internal class AndroidOfflineMediaManager(
                     } else {
                         it.copy(
                             status = if (retry == null) DownloadStatus.Failed else DownloadStatus.Queued,
-                            downloadedBytes = target.partialSize(),
+                            downloadedBytes = offlineTransferredVideoBytes(finalizedVideo, target::partialSize),
                             error = failureMessage,
                             retryCount = retry?.retryCount ?: it.retryCount,
                             nextRetryAt = retry?.nextRetryAt ?: 0L,
@@ -1713,6 +1719,7 @@ internal class AndroidOfflineMediaManager(
     private fun finalizeVideo(
         snapshot: OfflineMedia,
         target: OfflineVideoTarget,
+        onPublished: (OfflineStoredVideo) -> Unit,
     ): OfflineStoredVideo? =
         synchronized(indexLock) {
             val current =
@@ -1723,25 +1730,25 @@ internal class AndroidOfflineMediaManager(
                             it.status == DownloadStatus.Downloading
                     }
                     ?: return@synchronized null
-            val stored = target.publishPartial()
-            // Durably remember the finalized video before the subtitle phase. On an interrupted
-            // run this lets the next worker resume from the local video, not byte zero.
-            commitLocked(
-                _items.value.map {
-                    if (it.id == current.id) {
-                        it.copy(
-                            localPath = stored.path,
-                            downloadedBytes = stored.size,
-                            totalBytes = stored.size,
-                            resumeValidator = null,
-                            updatedAtEpochMs = now(),
-                        )
-                    } else {
-                        it
-                    }
-                },
-            )
-            stored
+            finalizeOfflineVideo(target::publishPartial, onPublished) { stored ->
+                // Durably remember the finalized video before the subtitle phase. On an interrupted
+                // run this lets the next worker resume from the local video, not byte zero.
+                commitLocked(
+                    _items.value.map {
+                        if (it.id == current.id) {
+                            it.copy(
+                                localPath = stored.path,
+                                downloadedBytes = stored.size,
+                                totalBytes = stored.size,
+                                resumeValidator = null,
+                                updatedAtEpochMs = now(),
+                            )
+                        } else {
+                            it
+                        }
+                    },
+                )
+            }
         }
 
     private suspend fun downloadSubtitlePart(snapshot: OfflineMedia): File? =
@@ -1750,7 +1757,7 @@ internal class AndroidOfflineMediaManager(
                 registry.serverById(snapshot.serverId)
                     ?: return@withContext null
             val sourceUrl =
-                runCatching {
+                runCatchingCancellable {
                     if (server.kind == MediaServerKind.Plex) {
                         resolvePlexOfflineSubtitleUrl(snapshot, server, repository)
                     } else {

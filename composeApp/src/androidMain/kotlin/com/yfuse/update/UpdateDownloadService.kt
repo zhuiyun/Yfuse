@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import com.yfuse.MainActivity
+import com.yfuse.backend.BackendAccess
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -56,6 +57,10 @@ class UpdateDownloadService : Service() {
         flags: Int,
         startId: Int,
     ): Int {
+        if (!BackendAccess.Default.enabled) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         lastStartId = startId
         startForeground(NOTIFICATION_ID, notification("正在准备下载新版本", 0f, indeterminate = true))
         startProgressUpdates()

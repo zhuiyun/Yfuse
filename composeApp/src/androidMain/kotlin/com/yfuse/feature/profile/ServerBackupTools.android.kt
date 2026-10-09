@@ -40,6 +40,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
@@ -55,6 +56,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sc
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.migration.MigrationRelayApi
+import com.yfuse.core.migration.createMigrationRelayApi
 import com.yfuse.core.security.RelayMigrationDescriptor
 import com.yfuse.core.security.RelayMigrationPackage
 import com.yfuse.core.security.ServerMigrationCrypto
@@ -112,6 +114,18 @@ actual fun ServerBackupTools(
 
     suspend fun createProtectedPayload(): String? {
         val now = System.currentTimeMillis() / 1_000L
+        if (!BackendAccess.Default.enabled) {
+            if (!validateLegacyPassphrase()) return null
+            val secret = passphrase.toCharArray()
+            return withContext(Dispatchers.Default) {
+                try {
+                    onExport(secret, now)
+                } finally {
+                    secret.fill('\u0000')
+                }
+            }.onFailure { message = it.message ?: "生成受保护备份失败" }
+                .getOrNull()
+        }
         val migration =
             withContext(Dispatchers.Default) { onExportRelay(now) }
                 .onFailure {
@@ -153,6 +167,11 @@ actual fun ServerBackupTools(
                 message = it.message ?: "迁移包无效"
                 return
             }
+        if (!BackendAccess.Default.enabled && onIsRelay(decoded)) {
+            pendingImportPayload = null
+            message = "此版本支持强口令离线备份，请从原设备导出强口令文件后导入"
+            return
+        }
         pendingImportPayload = decoded
         passphrase = ""
         message =
@@ -407,8 +426,10 @@ actual fun ServerBackupTools(
                 Text(
                     if (pendingImportPayload?.let(onIsRelay) == true) {
                         "6 位数字迁移码"
-                    } else {
+                    } else if (BackendAccess.Default.enabled) {
                         "迁移码（新文件为 6 位；旧文件为原口令）"
+                    } else {
+                        "保护口令（至少 12 个字符）"
                     },
                 )
             },
@@ -436,7 +457,7 @@ actual fun ServerBackupTools(
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             YfButton(
-                label = "生成迁移码",
+                label = if (BackendAccess.Default.enabled) "生成迁移码" else "生成离线二维码",
                 onClick = {
                     scope.launch {
                         val payload = createProtectedPayload() ?: return@launch
@@ -524,10 +545,15 @@ actual fun ServerBackupTools(
             )
         }
         Text(
-            "新迁移包由随机 256 位密钥使用 AES-256-GCM 加密；6 位迁移码仅能在线尝试 5 次，" +
-                "15 分钟后失效且只能兑换一次。服务端不接收或保存备份内容。旧版强口令文件仍可导入。" +
-                "导入后请删除文件/二维码；" +
-                "若曾外泄，请在 Emby 注销会话以轮换访问令牌。",
+            if (BackendAccess.Default.enabled) {
+                "新迁移包由随机 256 位密钥使用 AES-256-GCM 加密；6 位迁移码仅能在线尝试 5 次，" +
+                    "15 分钟后失效且只能兑换一次。服务端不接收或保存备份内容。旧版强口令文件仍可导入。" +
+                    "导入后请删除文件/二维码；" +
+                    "若曾外泄，请在 Emby 注销会话以轮换访问令牌。"
+            } else {
+                "使用至少 12 个字符的保护口令在本机加密备份；接收设备需输入同一口令。" +
+                    "文件和二维码包含服务器登录信息，导入后请妥善清理。"
+            },
             style = mr(9.5f, 400),
             color = palette.sub2,
         )
@@ -538,7 +564,12 @@ actual fun ServerBackupTools(
         GlassDialog(onDismiss = { showQr = false }) {
             OverlayHeader(
                 title = "受保护的服务器迁移码",
-                subtitle = "迁移码 ${activeMigrationCode ?: "------"} · 15 分钟内仅可使用一次",
+                subtitle =
+                    if (BackendAccess.Default.enabled) {
+                        "迁移码 ${activeMigrationCode ?: "------"} · 15 分钟内仅可使用一次"
+                    } else {
+                        "接收设备需输入相同的保护口令"
+                    },
                 onClose = { showQr = false },
             )
             Image(
@@ -567,7 +598,7 @@ actual fun ServerBackupTools(
 }
 
 /** Process-wide, immutable client; it owns a pooled HTTP engine and is safe to reuse. */
-private val migrationRelayApi: MigrationRelayApi by lazy { MigrationRelayApi() }
+private val migrationRelayApi: MigrationRelayApi by lazy { createMigrationRelayApi() }
 
 @Composable
 private fun MigrationLink(

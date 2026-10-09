@@ -7,6 +7,11 @@ import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.embyPlaybackHeaders
 import com.yfuse.core.security.TestSecureStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -19,6 +24,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class OfflineMediaSecurityTest {
@@ -483,6 +489,114 @@ class OfflineMediaSecurityTest {
     }
 
     @Test
+    fun finalized_video_retains_its_progress_and_budget_when_the_partial_file_is_gone() {
+        val directory = Files.createTempDirectory("yfuse-offline-finalized-budget-").toFile()
+        try {
+            val partial = File(directory, "video.part").apply { writeBytes(ByteArray(123)) }
+            val finished = File(directory, "video.4.media")
+            Files.move(partial.toPath(), finished.toPath())
+            val stored = OfflineStoredVideo(finished.absolutePath, finished.length())
+            // Cancellation and the next claim both use this accounting, even though .part is gone.
+            val used = offlineTransferredVideoBytes(stored) { error("Finalized video must not read its old partial") }
+            assertEquals(123L, used)
+            assertTrue(offlineBudgetAllows(limitBytes = 130, usedBytes = used, additionalBytes = 7))
+            assertFalse(offlineBudgetAllows(limitBytes = 130, usedBytes = used, additionalBytes = 8))
+            assertFalse(offlineBudgetAllows(limitBytes = 100, usedBytes = used, additionalBytes = 0))
+            assertTrue(finished.isFile)
+            assertFalse(partial.exists())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun finalized_video_is_remembered_when_index_persistence_fails_or_is_cancelled() {
+        listOf(IOException("Index write failed"), CancellationException("Index write cancelled")).forEach { failure ->
+            val directory = Files.createTempDirectory("yfuse-offline-index-failure-").toFile()
+            try {
+                val partial = File(directory, "video.part").apply { writeBytes(ByteArray(123)) }
+                val finished = File(directory, "video.4.media")
+                var finalized: OfflineStoredVideo? = null
+
+                val thrown =
+                    assertFailsWith<Exception> {
+                        finalizeOfflineVideo(
+                            publish = {
+                                Files.move(partial.toPath(), finished.toPath())
+                                OfflineStoredVideo(finished.absolutePath, finished.length())
+                            },
+                            onPublished = { finalized = it },
+                            persist = { throw failure },
+                        )
+                    }
+
+                assertSame(failure, thrown)
+                assertEquals(finished.absolutePath, finalized?.path)
+                val used =
+                    offlineTransferredVideoBytes(finalized) {
+                        error("Index failure must not query a renamed partial or its SAF provider")
+                    }
+                assertEquals(123L, used)
+                assertTrue(offlineBudgetAllows(limitBytes = 130, usedBytes = used, additionalBytes = 7))
+                assertFalse(offlineBudgetAllows(limitBytes = 130, usedBytes = used, additionalBytes = 8))
+                assertTrue(finished.isFile)
+                assertFalse(partial.exists())
+            } finally {
+                directory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun failed_video_publication_keeps_partial_accounting_and_skips_index_persistence() {
+        val directory = Files.createTempDirectory("yfuse-offline-publication-failure-").toFile()
+        try {
+            val partial = File(directory, "video.part").apply { writeBytes(ByteArray(37)) }
+            val failure = IOException("Video publication failed")
+            var finalized: OfflineStoredVideo? = null
+            var persisted = false
+
+            val thrown =
+                assertFailsWith<IOException> {
+                    finalizeOfflineVideo(
+                        publish = { throw failure },
+                        onPublished = { finalized = it },
+                        persist = { persisted = true },
+                    )
+                }
+
+            assertSame(failure, thrown)
+            assertNull(finalized)
+            assertFalse(persisted)
+            assertTrue(partial.isFile)
+            assertEquals(37L, offlineTransferredVideoBytes(finalized, partial::length))
+            partial.appendBytes(ByteArray(12))
+            val used = offlineTransferredVideoBytes(finalized, partial::length)
+            assertEquals(49L, used)
+            assertFalse(offlineBudgetAllows(limitBytes = 50, usedBytes = used, additionalBytes = 2))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun unfinished_video_accounting_reads_the_current_partial_instead_of_stale_progress() {
+        val directory = Files.createTempDirectory("yfuse-offline-partial-budget-").toFile()
+        try {
+            val partial = File(directory, "video.part").apply { writeBytes(ByteArray(37)) }
+            assertEquals(37L, offlineTransferredVideoBytes(null, partial::length))
+            partial.appendBytes(ByteArray(12))
+            val used = offlineTransferredVideoBytes(null, partial::length)
+            assertEquals(49L, used)
+            assertFalse(offlineBudgetAllows(limitBytes = 50, usedBytes = used, additionalBytes = 2))
+            partial.writeBytes(byteArrayOf())
+            assertEquals(0L, offlineTransferredVideoBytes(null, partial::length))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun only_known_offline_artifact_suffixes_are_cleaned_without_an_index_entry() {
         assertTrue(isOfflineArtifactName("ab.media"))
         assertTrue(isOfflineArtifactName("ab.part"))
@@ -557,21 +671,86 @@ class OfflineMediaSecurityTest {
     }
 
     @Test
-    fun unknown_length_subtitle_is_stopped_when_streamed_bytes_cross_the_limit() {
-        val maxBytes = 32L * 1024L
-        val output = ByteArrayOutputStream()
+    fun unknown_length_subtitle_is_stopped_when_streamed_bytes_cross_the_limit() =
+        runTest {
+            val maxBytes = 32L * 1024L
+            val output = ByteArrayOutputStream()
 
-        assertFailsWith<IOException> {
-            copyOfflineSubtitleBounded(
-                input = ByteArrayInputStream(ByteArray(maxBytes.toInt() + 1)),
-                output = output,
-                maxBytes = maxBytes,
-            )
+            assertFailsWith<IOException> {
+                copyOfflineSubtitleBounded(
+                    input = ByteArrayInputStream(ByteArray(maxBytes.toInt() + 1)),
+                    output = output,
+                    maxBytes = maxBytes,
+                )
+            }
+
+            // The first chunk may be written, but the byte that crosses the cumulative bound is not.
+            assertEquals(maxBytes, output.size().toLong())
         }
 
-        // The first chunk may be written, but the byte that crosses the cumulative bound is not.
-        assertEquals(maxBytes, output.size().toLong())
-    }
+    @Test
+    fun cancellation_during_a_blocking_read_does_not_write_the_returned_chunk() =
+        runTest {
+            var reads = 0
+            var closed = false
+            val output = ByteArrayOutputStream()
+            val copy =
+                async {
+                    val job = currentCoroutineContext().job
+                    val input =
+                        object : ByteArrayInputStream(ByteArray(64 * 1024)) {
+                            override fun read(
+                                buffer: ByteArray,
+                                offset: Int,
+                                length: Int,
+                            ): Int {
+                                reads++
+                                val count = super.read(buffer, offset, length)
+                                job.cancel()
+                                return count
+                            }
+
+                            override fun close() {
+                                closed = true
+                                super.close()
+                            }
+                        }
+                    input.use { copyOfflineSubtitleBounded(it, output) }
+                }
+            assertFailsWith<CancellationException> { copy.await() }
+            assertEquals(1, reads)
+            assertEquals(0, output.size())
+            assertTrue(closed)
+        }
+
+    @Test
+    fun cancellation_during_read_failure_preserves_cancellation_instead_of_retry_error() =
+        runTest {
+            var failure: Throwable? = null
+            val copy =
+                async {
+                    val job = currentCoroutineContext().job
+                    val input =
+                        object : ByteArrayInputStream(byteArrayOf(1)) {
+                            override fun read(
+                                buffer: ByteArray,
+                                offset: Int,
+                                length: Int,
+                            ): Int {
+                                job.cancel()
+                                throw IOException("connection closed")
+                            }
+                        }
+                    try {
+                        input.use { readOfflineChunk(it, ByteArray(16)) }
+                    } catch (error: Exception) {
+                        failure = error
+                        throw error
+                    }
+                }
+            assertFailsWith<CancellationException> { copy.await() }
+            assertTrue(failure is CancellationException)
+        }
 
     @Test
     fun removing_an_item_while_its_subtitle_is_prepared_cannot_publish_an_orphan() {

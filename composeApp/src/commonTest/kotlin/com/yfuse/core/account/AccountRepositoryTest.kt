@@ -1,6 +1,8 @@
 package com.yfuse.core.account
 
 import com.russhwolf.settings.MapSettings
+import com.yfuse.backend.BackendAccess
+import com.yfuse.backend.BackendUnavailableException
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
@@ -9,6 +11,8 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.personal.PersonalLibraryRepository
+import com.yfuse.core.personal.PersonalMediaRef
 import com.yfuse.core.security.SecureStore
 import com.yfuse.core.security.TestSecureStore
 import com.yfuse.core.security.VaultCrypto
@@ -212,6 +216,82 @@ class AccountRepositoryTest {
             assertEquals(replacementToken, fourth.registry.defaultServer?.accessToken)
         }
 
+    @Test
+    fun disabled_backend_skips_restore_and_preserves_saved_account_material() =
+        runTest {
+            var requests = 0
+            val api =
+                AccountApi(
+                    createAccountClient(
+                        MockEngine {
+                            requests += 1
+                            error("Disabled account must not contact its backend")
+                        },
+                    ),
+                )
+            val dependencies = testDependencies()
+            dependencies.secrets.put("refresh_token", "existing-refresh".encodeToByteArray())
+            dependencies.secrets.put("vault_key", byteArrayOf(1, 2, 3))
+            val previousPersonal = PersonalLibraryRepository(dependencies.settings)
+            previousPersonal.bindAccount("previous-account")
+            previousPersonal.setFavorite(PersonalMediaRef("tmdb:603", "黑客帝国", "Movie", tmdbId = 603), true)
+            // Recreate the local library as an installed build does, retaining its adult profile.
+            val personal = PersonalLibraryRepository(dependencies.settings)
+            val namespace = personal.storageNamespace
+            val snapshot = personal.snapshot()
+            val profiles = personal.state.value.profiles
+            assertFalse(personal.state.value.activeProfile.child)
+            val repository = dependencies.repository(api, BackendAccess(false), personal)
+
+            assertEquals(AccountState.SignedOut, repository.state.value)
+            listOf(repository::start, repository::retryRestore).forEach { restore ->
+                restore()
+                assertEquals(AccountState.SignedOut, repository.state.value)
+                assertEquals(namespace, personal.storageNamespace)
+                assertEquals(snapshot, personal.snapshot())
+                assertEquals(profiles, personal.state.value.profiles)
+            }
+            assertEquals(namespace, PersonalLibraryRepository(dependencies.settings).storageNamespace)
+            assertEquals(0, requests)
+            assertEquals("existing-refresh", dependencies.secrets.get("refresh_token")?.decodeToString())
+            assertTrue(dependencies.secrets.get("vault_key")!!.contentEquals(byteArrayOf(1, 2, 3)))
+        }
+
+    @Test
+    fun disabled_account_actions_fail_without_clearing_credentials_or_leaving_loading_state() =
+        runTest {
+            var requests = 0
+            val api =
+                AccountApi(
+                    createAccountClient(
+                        MockEngine {
+                            requests += 1
+                            error("Disabled account must not contact its backend")
+                        },
+                    ),
+                )
+            val dependencies = testDependencies()
+            dependencies.secrets.put("refresh_token", "existing-refresh".encodeToByteArray())
+            val repository = dependencies.repository(api, BackendAccess(false))
+            val password = "temporary password".toCharArray()
+            val results =
+                listOf(
+                    repository.login("viewer_01", password),
+                    repository.uploadNow(),
+                    repository.downloadNow(),
+                    repository.syncPersonalNow(),
+                    repository.sessions(),
+                    repository.issueInvite(),
+                    repository.logout(),
+                )
+
+            results.forEach { assertIs<BackendUnavailableException>(it.exceptionOrNull()) }
+            assertTrue(password.all { it == '\u0000' })
+            assertEquals(AccountState.SignedOut, repository.state.value)
+            assertEquals("existing-refresh", dependencies.secrets.get("refresh_token")?.decodeToString())
+            assertEquals(0, requests)
+        }
+
     private fun authResponse() =
         AuthResponse(
             user =
@@ -240,7 +320,11 @@ class AccountRepositoryTest {
         val serverSync: ServerSyncManager,
         val secrets: MemorySecureStore,
     ) {
-        fun repository(api: AccountApi): AccountRepository =
+        fun repository(
+            api: AccountApi,
+            backendAccess: BackendAccess = BackendAccess.Default,
+            personal: PersonalLibraryRepository? = null,
+        ): AccountRepository =
             AccountRepository(
                 api = api,
                 secureStore = secrets,
@@ -253,6 +337,8 @@ class AccountRepositoryTest {
                 skip = skip,
                 serverSync = serverSync,
                 nowEpochMs = { 1_700_000_000_000 },
+                backendAccess = backendAccess,
+                personal = personal,
             )
     }
 

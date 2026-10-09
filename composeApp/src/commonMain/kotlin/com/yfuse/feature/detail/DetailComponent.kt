@@ -20,6 +20,7 @@ import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.data.calendarPreviewDays
 import com.yfuse.core.data.libraryAiringSchedule
 import com.yfuse.core.data.smartFailoverServerIds
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.capabilities
@@ -77,6 +78,11 @@ class DetailComponent(
         kotlin.time.TimeSource.Monotonic
             .markNow()
     private var firstContentRecorded = false
+    private val preloadTraceId =
+        kotlin.random.Random
+            .nextLong()
+            .toULong()
+            .toString(16)
 
     internal fun recordFirstContentFrame() {
         if (firstContentRecorded) return
@@ -346,6 +352,8 @@ class DetailComponent(
 
         var preloadKey: PlaybackPreloadKey? = null
         var preloadStore: PreparedPlayerStore? = null
+        var preloadGeneration = 0L
+        var preloadPreparedAt: kotlin.time.TimeMark? = null
 
         /**
          * The selection whose prepared queue a player has already taken.
@@ -376,7 +384,7 @@ class DetailComponent(
             sourceWarmup = sourcePreloader?.preload(selected, playback.startPositionMs, tracks)
         }
 
-        fun releaseOwnedPreload() {
+        fun releaseOwnedPreload(reason: String = "selection_changed") {
             preloadObserver?.cancel()
             preloadObserver = null
             sourceWarmup?.cancel()
@@ -387,10 +395,23 @@ class DetailComponent(
                 prepared != null &&
                 PreparedPlaybackRegistry.removeIfOwned(key, prepared)
             ) {
+                AppLog.info(
+                    category = "feature.detail",
+                    event = "detail_preload_released",
+                    attributes =
+                        mapOf(
+                            "traceId" to preloadTraceId,
+                            "generation" to preloadGeneration.toString(),
+                            "reason" to reason,
+                            "loading" to prepared.state.loading.toString(),
+                            "ageMs" to (preloadPreparedAt?.elapsedNow()?.inWholeMilliseconds ?: 0L).toString(),
+                        ),
+                )
                 prepared.dispose()
             }
             preloadKey = null
             preloadStore = null
+            preloadPreparedAt = null
         }
 
         store.labels
@@ -474,13 +495,24 @@ class DetailComponent(
                     sourceWarmup = null
                     preloadKey = null
                     preloadStore = null
+                    preloadPreparedAt = null
                     preloadObserver?.cancel()
                     preloadObserver = null
                     return@detailState
                 }
                 if (key == handedOffPreloadKey) return@detailState
 
-                releaseOwnedPreload()
+                val previousKey = preloadKey
+                val changeReason =
+                    when {
+                        previousKey == null -> "initial"
+                        previousKey.serverId != key.serverId -> "server_changed"
+                        previousKey.itemId != key.itemId -> "item_changed"
+                        previousKey.mediaSourceId != key.mediaSourceId -> "source_changed"
+                        previousKey.startPositionTicks != key.startPositionTicks -> "position_changed"
+                        else -> "ownership_changed"
+                    }
+                releaseOwnedPreload(changeReason)
                 handedOffPreloadKey = null
                 if (dependencies.playbackPreferences.smartCrossServerSource.value) {
                     dependencies.playbackFailoverRequest.set(
@@ -500,6 +532,10 @@ class DetailComponent(
                     dependencies.playbackFailoverRequest.clear()
                 }
                 val enrichmentGate = PreparedPlaybackGate()
+                val preparationStarted =
+                    kotlin.time.TimeSource.Monotonic
+                        .markNow()
+                val generation = ++preloadGeneration
                 val prepared =
                     PlayerStoreFactory(
                         storeFactory = storeFactory,
@@ -516,6 +552,17 @@ class DetailComponent(
                     ).create()
                 preloadKey = key
                 preloadStore = prepared
+                preloadPreparedAt = preparationStarted
+                AppLog.info(
+                    category = "feature.detail",
+                    event = "detail_preload_created",
+                    attributes =
+                        mapOf(
+                            "traceId" to preloadTraceId,
+                            "generation" to generation.toString(),
+                            "reason" to changeReason,
+                        ),
+                )
                 PreparedPlaybackRegistry
                     .register(key, prepared, enrichmentGate)
                     ?.takeIf { previous -> previous !== prepared }
@@ -527,6 +574,17 @@ class DetailComponent(
                     prepared.states
                         .onEach playbackState@{ playback ->
                             if (playback.loading) return@playbackState
+                            AppLog.info(
+                                category = "feature.detail",
+                                event = "detail_preload_ready",
+                                attributes =
+                                    mapOf(
+                                        "traceId" to preloadTraceId,
+                                        "generation" to generation.toString(),
+                                        "outcome" to if (playback.error == null) "ready" else "failed",
+                                        "elapsedMs" to preparationStarted.elapsedNow().inWholeMilliseconds.toString(),
+                                    ),
+                            )
                             val selected = playback.items.getOrNull(playback.startIndex)
                             if (
                                 pageVisible.value &&
@@ -557,7 +615,7 @@ class DetailComponent(
                 }.launchIn(scope)
         }
         lifecycle.doOnDestroy {
-            releaseOwnedPreload()
+            releaseOwnedPreload("detail_destroyed")
             store.dispose()
         }
     }

@@ -1,5 +1,6 @@
 package com.yfuse.core.migration
 
+import com.yfuse.backend.BackendAccess
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondRedirect
@@ -13,6 +14,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class MigrationRelayApiTest {
+    private val enabled = BackendAccess(enabled = true)
+
     @Test
     fun closing_api_keeps_an_injected_client_usable() =
         runTest {
@@ -24,9 +27,9 @@ class MigrationRelayApiTest {
                         headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
                     )
                 }
-            val client = createMigrationRelayClient(engine, "https://account.example")
+            val client = createMigrationRelayClient(engine, "https://account.example", enabled)
             try {
-                val api = MigrationRelayApi(client, "https://account.example")
+                val api = MigrationRelayApi(client, "https://account.example", enabled)
                 api.close()
                 api.close()
                 assertEquals("000042", api.create("relay", "secret", "hash").code)
@@ -52,8 +55,9 @@ class MigrationRelayApiTest {
                             }
                         },
                     trustedOrigin = "https://account.example",
+                    access = enabled,
                 )
-            val api = MigrationRelayApi(client, "https://account.example")
+            val api = MigrationRelayApi(client, "https://account.example", enabled)
 
             val failure = runCatching { api.create("relay", "secret", "hash") }.exceptionOrNull()
             assertTrue(
@@ -77,10 +81,11 @@ class MigrationRelayApiTest {
                             )
                         },
                     trustedOrigin = "https://account.example",
+                    access = enabled,
                 )
 
             val ticket =
-                MigrationRelayApi(client, "https://account.example")
+                MigrationRelayApi(client, "https://account.example", enabled)
                     .create("relay", "secret", "hash")
 
             assertEquals("000042", ticket.code)

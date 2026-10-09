@@ -17,8 +17,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.migration.MigrationRelayApi
+import com.yfuse.core.migration.createMigrationRelayApi
 import com.yfuse.feature.profile.ProfileComponent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -48,7 +49,7 @@ internal fun TvServerBackupPage(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state by component.store.states.collectAsState(component.store.state)
-    val relayApi = remember { MigrationRelayApi() }
+    val relayApi = remember { createMigrationRelayApi() }
 
     DisposableEffect(relayApi) {
         onDispose(relayApi::close)
@@ -197,6 +198,8 @@ internal fun TvServerBackupPage(
                 TvSettingsNote(
                     if (loadingSelection || selectedBackup == null) {
                         if (loadingSelection) "正在读取备份…" else "请重新选择可读取的备份文件。"
+                    } else if (selectedIsRelay && !BackendAccess.Default.enabled) {
+                        "此版本支持强口令离线备份，请从原设备导出强口令文件后导入。"
                     } else if (selectedIsRelay) {
                         "这是一次性迁移包，请在上方输入源设备显示的 6 位迁移码。"
                     } else {
@@ -213,6 +216,7 @@ internal fun TvServerBackupPage(
                     focusMemory = focusMemory,
                     onClick = {
                         val backup = selectedBackup?.takeIf { it.file == file } ?: return@TvSettingRow
+                        if (backup.isRelay && !BackendAccess.Default.enabled) return@TvSettingRow
                         val enteredPassphrase = passphrase
                         busy = true
                         status = null
@@ -241,7 +245,12 @@ internal fun TvServerBackupPage(
                     icon = AppIcons.Check,
                     focusScope = focusScope,
                     subtitle = "同名服务器会被覆盖，其余保持不变",
-                    enabled = !busy && !loadingSelection && selectedBackup?.file == file && passphrase.isNotBlank(),
+                    enabled =
+                        !busy &&
+                            !loadingSelection &&
+                            selectedBackup?.file == file &&
+                            passphrase.isNotBlank() &&
+                            (!selectedIsRelay || BackendAccess.Default.enabled),
                     navigationRequester = navigationRequester,
                 )
             }

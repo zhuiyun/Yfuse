@@ -85,6 +85,7 @@ import com.yfuse.core.designsystem.rememberArtworkPainter
 import com.yfuse.core.designsystem.rememberScreenGeometrySource
 import com.yfuse.core.designsystem.timing
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.PI
@@ -151,7 +152,8 @@ internal class PlayerTransitionState(
     var snapshotSource: (suspend () -> ImageBitmap?)? = null
 
     private var completeExit: (() -> Unit)? = null
-    private var capturing = false
+    private var snapshotJob: Job? = null
+    private var snapshotGeneration = 0
     private var smallFrame: ImageBitmap? = null
 
     val playerTime: Float get() = now - (lag ?: 0f)
@@ -177,6 +179,7 @@ internal class PlayerTransitionState(
      * for, and the overlay — the one surface that can say the network is why — takes over.
      */
     fun tick(handsOverLate: Boolean) {
+        val previousNow = now
         now = launch.elapsedMs()
         if (lag == null) lag = handoffPlayerLag(timing, now)
         if (style == PlayerTransitionStyle.Curtain && gateAt == null) {
@@ -192,7 +195,8 @@ internal class PlayerTransitionState(
             lateAt = playerTime
         }
         if (!backActive && !closing && backProgress > 0f) {
-            backProgress = (backProgress - FRAME_MS / BACK_CANCEL_MS).coerceAtLeast(0f)
+            backProgress = (backProgress - (now - previousNow).coerceAtLeast(0f) / BACK_CANCEL_MS).coerceAtLeast(0f)
+            if (backProgress == 0f) cancelSnapshot(clearFrame = true)
         }
         if (!settled && entered()) settled = true
         if (exitTime >= timing.exitFinish && !finished) finish()
@@ -267,13 +271,17 @@ internal class PlayerTransitionState(
 
     fun onBackProgress(progress: Float) {
         if (disabled || closing || finished) return
+        if (!backActive) cancelSnapshot(clearFrame = true)
         backActive = true
         backProgress = progress.coerceIn(0f, 1f) * GESTURE_REACH
         captureFrame()
     }
 
     fun onBackCancel() {
+        if (closing || finished) return
         backActive = false
+        now = launch.elapsedMs()
+        cancelSnapshot()
     }
 
     /**
@@ -284,38 +292,64 @@ internal class PlayerTransitionState(
     fun requestExit(action: () -> Unit): Boolean {
         if (disabled || finished) return false
         if (closing) return true
+        cancelSnapshot()
         closing = true
         closingAt = launch.elapsedMs()
         backAtCommit = backProgress
         backActive = false
         completeExit = action
-        scope.launch {
-            val frame = exitFrame ?: withTimeoutOrNull(SNAPSHOT_TIMEOUT_MS) { snapshotSource?.invoke() }
-            exitFrame = frame
-            smallFrame = frame?.let(::shrink)
-            exitAt = launch.elapsedMs()
-        }
+        val generation = snapshotGeneration
+        snapshotJob =
+            scope.launch {
+                val frame = exitFrame ?: withTimeoutOrNull(SNAPSHOT_TIMEOUT_MS) { snapshotSource?.invoke() }
+                if (generation != snapshotGeneration || disabled || finished) return@launch
+                exitFrame = frame
+                smallFrame = frame?.let(::shrink)
+                exitAt = launch.elapsedMs()
+            }
         return true
     }
 
     fun disable() {
         if (disabled) return
         disabled = true
+        backActive = false
+        backProgress = 0f
+        cancelSnapshot(clearFrame = true)
         PlayerHandoff.release(launch)
-    }
-
-    private fun captureFrame() {
-        if (exitFrame != null || capturing) return
-        val source = snapshotSource ?: return
-        capturing = true
-        scope.launch {
-            exitFrame = withTimeoutOrNull(SNAPSHOT_TIMEOUT_MS) { source() }
-            capturing = false
+        // The layer stops ticking as soon as motion is disabled. A committed exit must
+        // still finish the Activity rather than waiting for a frame that will never run.
+        if (closing) {
+            finished = true
+            completeExit?.also { completeExit = null }?.invoke()
         }
     }
 
+    private fun cancelSnapshot(clearFrame: Boolean = false) {
+        snapshotGeneration++
+        snapshotJob?.cancel()
+        snapshotJob = null
+        if (clearFrame) {
+            exitFrame = null
+            smallFrame = null
+        }
+    }
+
+    private fun captureFrame() {
+        if (exitFrame != null || snapshotJob?.isActive == true) return
+        val source = snapshotSource ?: return
+        val generation = snapshotGeneration
+        snapshotJob =
+            scope.launch {
+                val frame = withTimeoutOrNull(SNAPSHOT_TIMEOUT_MS) { source() }
+                if (generation == snapshotGeneration && backActive && !disabled && !finished) exitFrame = frame
+            }
+    }
+
     private fun finish() {
+        if (finished) return
         finished = true
+        cancelSnapshot()
         PlayerHandoff.comeBack(launch, smallFrame)
         completeExit?.also { completeExit = null }?.invoke()
     }
@@ -1077,7 +1111,6 @@ private val GLASS_BASE = Color(0xFF0B0809)
 private val GLASS_CLEAR = Color(0xFF121620)
 private val SATURATE_FIELD = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(1.35f) })
 
-private const val FRAME_MS = 16f
 private const val BACK_CANCEL_MS = 220f
 private const val GESTURE_REACH = 0.85f
 private const val SNAPSHOT_TIMEOUT_MS = 160L

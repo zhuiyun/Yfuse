@@ -7,6 +7,7 @@ import com.yfuse.watch.protocol.TraktAuthStatus
 import com.yfuse.watch.protocol.TraktConfiguration
 import com.yfuse.watch.protocol.TraktRefreshRequest
 import com.yfuse.watch.protocol.TraktToken
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -131,15 +132,96 @@ class TraktRepositoryTest {
             fixture.repository.close()
         }
 
+    @Test
+    fun optingOutDuringTokenRefreshDoesNotSendQueuedPlayback() =
+        runTest {
+            val fixture = fixture()
+            fixture.auth.token = token.copy(createdAt = 1, expiresIn = 60)
+            fixture.connect()
+            fixture.repository.setScrobbling(true)
+            val gate = CompletableDeferred<Unit>()
+            fixture.auth.refreshGate = gate
+            fixture.record(TraktPlaybackAction.Stop)
+            runCurrent()
+            assertEquals(1, fixture.auth.refreshes.size)
+
+            fixture.repository.setScrobbling(false)
+            gate.complete(Unit)
+            runCurrent()
+            assertTrue(fixture.api.writes.isEmpty())
+            assertEquals(0, fixture.repository.state.value.pending)
+
+            fixture.repository.setScrobbling(true)
+            advanceTimeBy(1_000)
+            fixture.record(TraktPlaybackAction.Start)
+            runCurrent()
+            assertEquals(listOf(TraktPlaybackAction.Start), fixture.api.writes)
+            fixture.repository.close()
+        }
+
+    @Test
+    fun disconnectedImportCannotPublishAfterAnotherTraktAccountConnects() =
+        runTest {
+            val fixture = fixture()
+            fixture.connect()
+            val gate = CompletableDeferred<Unit>()
+            fixture.api.watchlistGate = gate
+            fixture.api.watchlistItems = listOf(TraktListItem(type = "movie"))
+            fixture.repository.importWatchlist()
+            runCurrent()
+            assertTrue(fixture.repository.state.value.busy)
+
+            fixture.repository.disconnect()
+            runCurrent()
+            assertFalse(fixture.repository.state.value.busy)
+            fixture.auth.token = token.copy(accessToken = "another-access", refreshToken = "another-refresh")
+            fixture.connect()
+            fixture.repository.setScrobbling(true)
+
+            gate.complete(Unit)
+            runCurrent()
+            assertTrue(fixture.imported.isEmpty())
+            assertTrue(fixture.repository.state.value.connected)
+            assertTrue(fixture.repository.state.value.scrobbling)
+            assertEquals("Trakt 已连接；播放上报默认关闭", fixture.repository.state.value.message)
+            fixture.repository.close()
+        }
+
+    @Test
+    fun refreshStartedByRetryLoopDoesNotStopLoopAfterDisconnect() =
+        runTest {
+            val fixture = fixture()
+            fixture.connect()
+            fixture.repository.setScrobbling(true)
+            fixture.api.failure = TraktApiException(503)
+            fixture.record(TraktPlaybackAction.Stop)
+            runCurrent()
+            // A rejected credential makes the periodic retry wait for token refresh.
+            val gate = CompletableDeferred<Unit>()
+            fixture.auth.refreshGate = gate
+            fixture.api.failure = TraktApiException(401)
+            advanceTimeBy(5_000)
+            runCurrent()
+            assertEquals(1, fixture.auth.refreshes.size)
+            fixture.repository.disconnect()
+            runCurrent()
+            gate.complete(Unit)
+            runCurrent()
+            fixture.auth.refreshGate = null
+            fixture.connect()
+            fixture.repository.close()
+        }
+
     private fun TestScope.fixture(): Fixture {
         val api = FakeApi()
         val auth = FakeAuth { BASE_TIME + testScheduler.currentTime }
         val owner = MutableStateFlow<String?>("account:adult")
+        val imported = mutableListOf<TraktListItem>()
         val sink =
             object : TraktImportSink {
-                override suspend fun importWatchlist(item: TraktListItem) = true
+                override suspend fun importWatchlist(item: TraktListItem) = imported.add(item)
 
-                override suspend fun importHistory(item: TraktListItem) = true
+                override suspend fun importHistory(item: TraktListItem) = imported.add(item)
             }
         val repository =
             TraktRepository(api, auth, TestSecureStore(), owner, sink, backgroundScope) {
@@ -148,7 +230,7 @@ class TraktRepositoryTest {
             }
         repository.start()
         runCurrent()
-        return Fixture(repository, api, auth, owner, this)
+        return Fixture(repository, api, auth, owner, imported, this)
     }
 
     private class Fixture(
@@ -156,6 +238,7 @@ class TraktRepositoryTest {
         val api: FakeApi,
         val auth: FakeAuth,
         val owner: MutableStateFlow<String?>,
+        val imported: List<TraktListItem>,
         val scope: TestScope,
     ) {
         fun connect() {
@@ -175,6 +258,7 @@ class TraktRepositoryTest {
     ) : TraktAuthApi {
         var token = TraktRepositoryTest.token
         val refreshes = mutableListOf<TraktRefreshRequest>()
+        var refreshGate: CompletableDeferred<Unit>? = null
 
         override suspend fun configuration() = TraktConfiguration("public-id", true, true)
 
@@ -192,6 +276,7 @@ class TraktRepositoryTest {
 
         override suspend fun refresh(request: TraktRefreshRequest): TraktToken {
             refreshes += request
+            refreshGate?.await()
             return TraktRepositoryTest.token.copy(accessToken = "rotated-access", refreshToken = "rotated-refresh")
         }
 
@@ -205,6 +290,8 @@ class TraktRepositoryTest {
         var failPage: Int? = null
         var morePages = false
         var lastToken: String? = null
+        var watchlistGate: CompletableDeferred<Unit>? = null
+        var watchlistItems = emptyList<TraktListItem>()
 
         override suspend fun history(
             clientId: String,
@@ -223,8 +310,9 @@ class TraktRepositoryTest {
             page: Int,
         ): TraktPage {
             pages += page
+            watchlistGate?.await()
             if (page == failPage) error("network unavailable")
-            return TraktPage(emptyList(), morePages && page == 1)
+            return TraktPage(watchlistItems, morePages && page == 1)
         }
 
         override suspend fun scrobble(

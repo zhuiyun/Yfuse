@@ -1,7 +1,10 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
-import com.yfuse.core.account.ACCOUNT_BASE_URL
+import com.yfuse.backend.BackendEndpoints
+import com.yfuse.backend.CalendarBackendApi
+import com.yfuse.backend.HttpCalendarBackendApi
+import com.yfuse.backend.OfficialScheduleEnvelope
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.AiringAccessTier
 import com.yfuse.core.model.AiringEpisode
@@ -12,16 +15,10 @@ import com.yfuse.core.security.verifyEd25519Signature
 import com.yfuse.core.util.currentEpochMillis
 import com.yfuse.core.util.scheduledEpochMillis
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -34,11 +31,17 @@ import kotlin.concurrent.Volatile
  * checks media availability locally; schedule discovery belongs to the backend.
  */
 class OfficialAiringScheduleCatalog(
-    private val client: HttpClient,
+    private val api: CalendarBackendApi,
     private val settings: Settings,
-    private val endpoint: String = "$ACCOUNT_BASE_URL/api/v1/calendar/schedules",
     private val nowEpochMs: () -> Long = ::currentEpochMillis,
 ) {
+    constructor(
+        client: HttpClient,
+        settings: Settings,
+        endpoint: String = BackendEndpoints.CALENDAR,
+        nowEpochMs: () -> Long = ::currentEpochMillis,
+    ) : this(HttpCalendarBackendApi(client, endpoint), settings, nowEpochMs)
+
     private val json =
         Json {
             ignoreUnknownKeys = true
@@ -94,6 +97,7 @@ class OfficialAiringScheduleCatalog(
         refreshMutex.withLock { refreshLocked(force) }
 
     private suspend fun refreshLocked(force: Boolean): Result<Boolean> {
+        if (!api.enabled) return Result.success(false)
         val now = nowEpochMs()
         val lastAttempt = settings.getLong(KEY_LAST_ATTEMPT_EPOCH_MS, 0L)
         val lastSuccess = settings.getLong(KEY_LAST_SUCCESS_EPOCH_MS, 0L)
@@ -106,22 +110,11 @@ class OfficialAiringScheduleCatalog(
         if (!force && now - lastAttempt in 0 until retryInterval) return Result.success(false)
         settings.putLong(KEY_LAST_ATTEMPT_EPOCH_MS, now)
         return runCatching {
-            val response =
-                withTimeout(REMOTE_DEADLINE_MS) {
-                    client.get(endpoint) {
-                        settings
-                            .getString(KEY_REVISION, "")
-                            .takeIf(String::isNotBlank)
-                            ?.let { revision ->
-                                header(HttpHeaders.IfNoneMatch, "\"calendar-$revision\"")
-                            }
-                    }
-                }
-            if (response.status == HttpStatusCode.NotModified) {
+            val envelope = api.fetch(settings.getString(KEY_REVISION, ""))
+            if (envelope == null) {
                 settings.putLong(KEY_LAST_SUCCESS_EPOCH_MS, now)
                 return@runCatching false
             }
-            val envelope = response.body<OfficialScheduleEnvelope>()
             require(envelope.schemaVersion == SCHEMA_VERSION) { "Unsupported calendar schema" }
             require(
                 verifyEd25519Signature(
@@ -216,7 +209,7 @@ class OfficialAiringScheduleCatalog(
             revision = settings.getString(KEY_REVISION, BUNDLED_REVISION),
             lastSuccessfulRefreshEpochMs = settings.getLong(KEY_LAST_SUCCESS_EPOCH_MS, 0L),
             seriesCount = schedules.size,
-            remoteConfigured = endpoint.startsWith("https://"),
+            remoteConfigured = api.enabled,
         )
 
     private fun loadCachedSchedules(): Map<Int, OfficialSeriesSchedule>? {
@@ -422,7 +415,6 @@ class OfficialAiringScheduleCatalog(
         const val KEY_CHANGES = "calendar.official.changes.v1"
         const val REFRESH_INTERVAL_MS = 60 * 60 * 1_000L
         const val FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000L
-        const val REMOTE_DEADLINE_MS = 5_000L
         const val MAX_SERIES = 1_000
         const val MAX_EPISODES_PER_SERIES = 500
         const val MAX_RECORDED_CHANGES = 50
@@ -533,16 +525,6 @@ internal fun calendarRevisionIsAtLeast(
         candidate >= existing
     }
 }
-
-@Serializable
-internal data class OfficialScheduleEnvelope(
-    val schemaVersion: Int,
-    val revision: String,
-    val generatedAt: String,
-    /** Exact JSON bytes (UTF-8) covered by [signature]. */
-    val payload: String,
-    val signature: String,
-)
 
 @Serializable
 internal data class OfficialSchedulePayload(

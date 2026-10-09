@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.data.Anime4KMode
 import com.yfuse.core.data.MediaVersionPreference
 import com.yfuse.core.data.PlaybackAudioPassthrough
@@ -215,9 +216,17 @@ internal fun PlaybackSettingsScreen(
                         embedded = true,
                         description =
                             if (progressSyncEnabled) {
-                                "同步到 Emby/Jellyfin 与 Yfuse 云端，支持跨设备续播"
+                                if (BackendAccess.Default.enabled) {
+                                    "同步到 Emby/Jellyfin 与 Yfuse 云端，支持跨设备续播"
+                                } else {
+                                    "同步到 Emby/Jellyfin，支持媒体服务器续播"
+                                }
                             } else {
-                                "仅保留本机进度，不向 Emby/Jellyfin 或 Yfuse 云端上报"
+                                if (BackendAccess.Default.enabled) {
+                                    "仅保留本机进度，不向 Emby/Jellyfin 或 Yfuse 云端上报"
+                                } else {
+                                    "仅保留本机进度，不向 Emby/Jellyfin 上报"
+                                }
                             },
                         onChange = onProgressSync,
                     )
@@ -275,15 +284,17 @@ internal fun PlaybackSettingsScreen(
                 }
             }
         }
-        motionItem(key = "playback-privacy") {
-            Section(title = "隐私") {
-                SettingsCard {
-                    SwitchRow(
-                        "匿名播放质量分享",
-                        anonymousQoeSharing,
-                        true,
-                        onChange = onAnonymousQoeSharing,
-                    )
+        if (BackendAccess.Default.enabled) {
+            motionItem(key = "playback-privacy") {
+                Section(title = "隐私") {
+                    SettingsCard {
+                        SwitchRow(
+                            "匿名播放质量分享",
+                            anonymousQoeSharing,
+                            true,
+                            onChange = onAnonymousQoeSharing,
+                        )
+                    }
                 }
             }
         }

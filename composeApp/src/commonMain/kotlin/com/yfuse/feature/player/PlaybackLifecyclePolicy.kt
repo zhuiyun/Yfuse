@@ -1,5 +1,14 @@
 package com.yfuse.feature.player
 
+/** Shared by user play commands and asynchronous audio-focus recovery. */
+internal fun playerPlaybackAllowed(
+    screenInteractive: Boolean,
+    activityHasStarted: Boolean,
+    activityStarted: Boolean,
+    inPictureInPicture: Boolean,
+    stopping: Boolean,
+): Boolean = !stopping && screenInteractive && (!activityHasStarted || activityStarted || inPictureInPicture)
+
 /**
  * Action to take when Android stops the fullscreen player activity.
  *

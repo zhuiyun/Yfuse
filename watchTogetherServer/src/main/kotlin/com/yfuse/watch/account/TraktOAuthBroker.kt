@@ -41,8 +41,14 @@ internal class TraktOAuthBroker(
     private val clientSecret: String = System.getenv("TRAKT_CLIENT_SECRET").orEmpty().trim(),
     private val redirectUri: String = System.getenv("TRAKT_REDIRECT_URI").orEmpty().trim(),
     private val transport: TraktOAuthTransport = ProductionTraktOAuthTransport(),
+    private val maxPendingChallenges: Int = 1024,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
+    private class Starting(
+        val sessionId: String,
+        var superseded: Boolean = false,
+    )
+
     private class Pending(
         val sessionId: String,
         val challenge: TraktAuthChallenge,
@@ -61,9 +67,14 @@ internal class TraktOAuthBroker(
     )
 
     private val pending = mutableMapOf<String, Pending>()
+    private val starting = mutableMapOf<String, Starting>()
     private val refreshResults = mutableMapOf<String, RefreshResult>()
     private val refreshLock = Mutex()
     private val json = Json { ignoreUnknownKeys = true }
+
+    init {
+        require(maxPendingChallenges > 0)
+    }
 
     fun configuration() =
         TraktConfiguration(
@@ -78,11 +89,33 @@ internal class TraktOAuthBroker(
     ): TraktAuthChallenge {
         checkRequest(configured() && (device || validRedirect()), "trakt_not_configured", "Trakt 尚未配置，请联系应用维护者")
         cleanup()
-        synchronized(pending) {
-            checkRequest(pending.size < 1024, "trakt_busy", "授权服务繁忙，请稍后重试")
-            pending.entries.removeAll { it.value.sessionId == account.sessionId }
-        }
         val id = UUID.randomUUID().toString()
+        val reservation = Starting(account.sessionId)
+        synchronized(pending) {
+            val replaced = pending.values.count { it.sessionId == account.sessionId }
+            checkRequest(pending.size - replaced + starting.size < maxPendingChallenges, "trakt_busy", "授权服务繁忙，请稍后重试")
+            pending.entries.removeAll { it.value.sessionId == account.sessionId }
+            starting.values.filter { it.sessionId == account.sessionId }.forEach { it.superseded = true }
+            starting[id] = reservation
+        }
+        try {
+            val entry = createPending(account, device, id)
+            synchronized(pending) {
+                checkRequest(!reservation.superseded, "trakt_authorization_superseded", "已开始新的授权，请使用最新的授权代码")
+                pending[id] = entry
+                starting.remove(id)
+            }
+            return entry.challenge
+        } finally {
+            synchronized(pending) { starting.remove(id) }
+        }
+    }
+
+    private suspend fun createPending(
+        account: AuthenticatedAccount,
+        device: Boolean,
+        id: String,
+    ): Pending {
         val state = if (device) null else UUID.randomUUID().toString() + UUID.randomUUID().toString()
         var deviceCode: String? = null
         val challenge =
@@ -130,11 +163,7 @@ internal class TraktOAuthBroker(
                         now() + 600_000,
                 )
             }
-        synchronized(pending) {
-            pending[id] =
-                Pending(account.sessionId, challenge, state, deviceCode, now() + challenge.intervalSeconds * 1000L)
-        }
-        return challenge
+        return Pending(account.sessionId, challenge, state, deviceCode, now() + challenge.intervalSeconds * 1000L)
     }
 
     suspend fun poll(

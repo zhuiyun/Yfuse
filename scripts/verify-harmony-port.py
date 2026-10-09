@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import re
 import json
 import shutil
@@ -11,11 +12,18 @@ import sys
 import tempfile
 from pathlib import Path
 
-import yaml
+try:
+    import yaml
+except ModuleNotFoundError:
+    yaml = None
 
 
 ROOT = Path(__file__).resolve().parents[1]
 ANDROID_FEATURE_ROOT = ROOT / "composeApp/src/commonMain/kotlin/com/yfuse"
+
+
+class CheckBlocked(RuntimeError):
+    """A required validation tool/dependency is unavailable."""
 
 
 def fail(message: str) -> None:
@@ -28,6 +36,8 @@ def load_json(relative: str) -> object:
 
 
 def check_contracts() -> None:
+    if yaml is None:
+        raise CheckBlocked("PyYAML missing; run python -m pip install -r scripts/requirements-validation.txt")
     tokens = load_json("parity/design-tokens.json")
     features = load_json("parity/feature-matrix.json")
     gates = load_json("parity/capability-gates.json")
@@ -182,7 +192,7 @@ def check_scaffold() -> None:
 def check_native_core() -> None:
     compiler = shutil.which("g++") or shutil.which("clang++")
     if compiler is None:
-        fail("no host C++ compiler available")
+        raise CheckBlocked("No host C++ compiler; install g++ or clang++ for portable YCore checks")
     with tempfile.TemporaryDirectory(prefix="yfuse-ycore-") as temp:
         executable = Path(temp) / "ycore_test"
         command = [
@@ -228,7 +238,7 @@ def check_native_core() -> None:
         subprocess.run(shared_command, check=True)
         symbol_tool = shutil.which("nm")
         if symbol_tool is None:
-            fail("nm is required to verify the YCore shared-library ABI")
+            raise CheckBlocked("nm is required to verify the YCore shared-library ABI")
         symbols = subprocess.run(
             [symbol_tool, "-D", "--defined-only", str(shared_library)],
             check=True,
@@ -255,11 +265,21 @@ def check_cangjie_sources() -> None:
     subprocess.run([sys.executable, str(ROOT / "scripts/validate-cangjie-sources.py")], check=True)
 
 
-def check_cangjie_host_build() -> None:
-    # Compiles and runs every package that does not import `ohos.*`. Skips itself when no host
-    # Cangjie compiler is installed, so this stays runnable on a machine that only has Android
-    # tooling; it is the only executable evidence the Cangjie side has.
-    subprocess.run([sys.executable, str(ROOT / "scripts/verify-cangjie-host.py")], check=True)
+def check_cangjie_host_build() -> dict:
+    # Host verification is optional in source-only CI, but its actual coverage must survive
+    # aggregation. Exit 0 alone does not distinguish complete, blocked and skipped runs.
+    with tempfile.TemporaryDirectory(prefix="yfuse-cangjie-report-") as temp:
+        report_path = Path(temp) / "host.json"
+        completed = subprocess.run([sys.executable, str(ROOT / "scripts/verify-cangjie-host.py"),
+                                    "--report", str(report_path)])
+        if not report_path.is_file():
+            fail(f"Cangjie verifier did not produce coverage (exit {completed.returncode})")
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        if report.get("status") not in {"passed", "partial", "skipped", "failed"}:
+            fail("Invalid Cangjie host status")
+        if completed.returncode != report.get("exitCode"):
+            fail("Cangjie verifier exit code does not match its report")
+        return report
 
 
 def check_fixtures() -> None:
@@ -281,7 +301,12 @@ def check_fixtures() -> None:
         fail("media matrix coverage is incomplete")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--require-host", action="store_true",
+                        help="Reject skipped/blocked Cangjie host coverage with exit 2; does not validate a HAP")
+    parser.add_argument("--report", type=Path, help="Write source and host results as JSON")
+    args = parser.parse_args(argv)
     checks = [
         ("parity contracts", check_contracts),
         ("Harmony scaffold", check_scaffold),
@@ -290,15 +315,37 @@ def main() -> int:
         ("Cangjie host build and tests", check_cangjie_host_build),
         ("portable YCore", check_native_core),
     ]
+    report = {"schemaVersion": 1, "scope": "harmony-source-and-host",
+              "platformValidated": False, "requireHost": args.require_host, "checks": []}
+    yaml_error = yaml.YAMLError if yaml is not None else ValueError
     for label, check in checks:
-        check()
-        print(f"PASS {label}")
-    return 0
+        item = {"name": label, "status": "passed"}
+        try:
+            details = check()
+            if details is not None:
+                item.update(status=details["status"], details=details)
+        except CheckBlocked as error:
+            item.update(status="blocked", reason=str(error))
+        except (AssertionError, KeyError, ValueError, OSError,
+                subprocess.CalledProcessError, yaml_error) as error:
+            item.update(status="failed", reason=str(error))
+        report["checks"].append(item)
+        label_status = {"passed": "PASS", "failed": "FAIL", "blocked": "BLOCKED",
+                        "partial": "PARTIAL", "skipped": "SKIP"}[item["status"]]
+        print(f"{label_status} {label}" + (f": {item['reason']}" if "reason" in item else ""), flush=True)
+    statuses = [item["status"] for item in report["checks"]]
+    status = "failed" if "failed" in statuses else "blocked" if "blocked" in statuses else (
+        "partial" if any(value != "passed" for value in statuses) else "passed")
+    report["status"] = status
+    exit_code = 1 if status == "failed" else 2 if status == "blocked" or (
+        args.require_host and status != "passed") else 0
+    report["exitCode"] = exit_code
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"{status.upper()} Harmony source/host verification; platform/HAP validation not performed.")
+    return exit_code
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except (AssertionError, KeyError, OSError, subprocess.CalledProcessError, yaml.YAMLError) as error:
-        print(f"FAIL {error}", file=sys.stderr)
-        sys.exit(1)
+    sys.exit(main())

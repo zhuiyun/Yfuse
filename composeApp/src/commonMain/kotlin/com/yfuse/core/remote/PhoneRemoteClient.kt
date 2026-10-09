@@ -1,5 +1,8 @@
 package com.yfuse.core.remote
 
+import com.yfuse.backend.BackendAccess
+import com.yfuse.backend.BackendFeature
+import com.yfuse.backend.BackendUnavailableException
 import com.yfuse.core.sync.AccountRequiredForWatchException
 import com.yfuse.core.sync.backoffDelayMs
 import com.yfuse.core.sync.isWatchAuthenticationFailure
@@ -50,6 +53,7 @@ class PhoneRemoteClient(
     private val textDebounceMs: Long = REMOTE_TEXT_DEBOUNCE_MS,
     private val retryDelayMs: (Int) -> Long = ::backoffDelayMs,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val backendAccess: BackendAccess = BackendAccess.Default,
 ) {
     private val _state = MutableStateFlow<PhoneRemoteState>(PhoneRemoteState.Idle)
     val state: StateFlow<PhoneRemoteState> = _state.asStateFlow()
@@ -61,6 +65,15 @@ class PhoneRemoteClient(
     fun connect(televisionSessionId: String) {
         session?.cancel()
         drainKeys()
+        if (!backendAccess.enabled) {
+            session = null
+            _state.value =
+                PhoneRemoteState.Failed(
+                    BackendUnavailableException(BackendFeature.RemoteControl).message.orEmpty(),
+                    retryable = false,
+                )
+            return
+        }
         _state.value = PhoneRemoteState.Connecting
         session = scope.launch { run(televisionSessionId) }
     }
@@ -93,14 +106,27 @@ class PhoneRemoteClient(
                     }
                 }.exceptionOrNull()
             if (failure is CancellationException) throw failure
+            if (failure is BackendUnavailableException) {
+                _state.value = PhoneRemoteState.Failed(failure.message.orEmpty(), retryable = false)
+                return
+            }
             if (failure is RemoteControlRefusedException) {
                 _state.value = PhoneRemoteState.Failed(failure.message ?: "无法连接电视", retryable = failure.supported)
                 return
             }
             if (failure != null && failure.isWatchAuthenticationFailure()) {
-                if (!refreshed && refreshAccessToken() != null) {
-                    refreshed = true
-                    continue
+                if (!refreshed) {
+                    when (refreshRemoteToken(refreshAccessToken)) {
+                        RemoteTokenRefresh.Renewed -> {
+                            refreshed = true
+                            continue
+                        }
+                        RemoteTokenRefresh.Unavailable -> {
+                            _state.value = PhoneRemoteState.Failed("登录服务暂时不可用，请重试")
+                            return
+                        }
+                        RemoteTokenRefresh.Expired -> Unit
+                    }
                 }
                 _state.value = PhoneRemoteState.Failed("登录状态已失效，请重新登录鱼服账号", retryable = false)
                 return
@@ -119,6 +145,7 @@ class PhoneRemoteClient(
         target: String,
         onJoined: () -> Unit,
     ) {
+        backendAccess.requireEnabled(BackendFeature.RemoteControl)
         val relay = url ?: throw RemoteControlRefusedException("手机遥控服务地址无效", supported = false)
         val token = accessToken() ?: throw AccountRequiredForWatchException()
         connector.connect(relay, token) { channel ->

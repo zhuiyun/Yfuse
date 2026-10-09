@@ -85,8 +85,11 @@ host library. Missing dependencies prevent a complete type check of these packag
 ## Executable evidence
 
 `scripts/verify-cangjie-host.py` compiles those eight packages and runs 33 unit tests against them.
-It is wired into `verify-harmony-port.py` and skips itself with a notice when no host compiler is
-installed, so a machine with only Android tooling still passes.
+It is wired into `verify-harmony-port.py`. Missing host compilers are reported as SKIPPED;
+missing stdx packages are PARTIAL, never an overall host PASS. Source-only checks allow these
+optional results with exit 0 and preserve actual coverage in `--report` JSON. Use
+`--require-complete` for the standalone host check or `--require-host` for the aggregate to
+reject incomplete coverage with exit 2. Neither mode validates a HAP or platform execution.
 
 The tests cover the decisions a release claim rests on: playback route selection and its refusal to
 pick the native engine without a surface, subtitle routing failing closed for ASS and PGS, HDR and

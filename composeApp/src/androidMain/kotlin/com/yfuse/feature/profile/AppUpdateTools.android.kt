@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalPalette
@@ -24,6 +25,7 @@ import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 @Composable
 actual fun AppUpdateTools() {
+    if (!BackendAccess.Default.enabled) return
     val manager = LocalAppUpdateManager.current
     if (manager == null) {
         SettingsCard {

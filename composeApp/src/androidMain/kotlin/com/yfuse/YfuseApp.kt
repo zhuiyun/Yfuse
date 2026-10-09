@@ -13,6 +13,7 @@ import coil3.disk.DiskCache
 import coil3.intercept.Interceptor
 import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.cast.initializeCastApplicationContext
 import com.yfuse.core.data.AndroidCalendarLocalStore
@@ -163,7 +164,7 @@ open class YfuseApp :
             },
             startServices = {
                 startupTrace.mark("session_restore")
-                koinApplication.koin.get<AccountRepository>().start()
+                if (BackendAccess.Default.enabled) koinApplication.koin.get<AccountRepository>().start()
                 koinApplication.koin.get<PlaybackSyncManager>().start()
             },
         )

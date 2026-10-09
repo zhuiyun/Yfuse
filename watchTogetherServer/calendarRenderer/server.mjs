@@ -3,6 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import { chromium } from "playwright";
 import { RenderScheduler, withRenderContext, cancelOnDisconnect } from "./render-scheduler.mjs";
+import { isAllowedUrl, isSafeSubresourceUrl } from "./network-policy.mjs";
 
 const bindHost = process.env.YFUSE_RENDERER_HOST || "127.0.0.1";
 const port = Number.parseInt(process.env.YFUSE_RENDERER_PORT || "8091", 10);
@@ -25,43 +26,8 @@ if (bearerToken.length < 24) {
   throw new Error("YFUSE_CALENDAR_RENDERER_TOKEN must contain at least 24 characters");
 }
 
-const allowedHostSuffixes = [
-  "weibo.com",
-  "iqiyi.com",
-  "youku.com",
-  "v.qq.com",
-  "mgtv.com"
-];
 const cache = new Map();
 const scheduler = new RenderScheduler({ concurrency: maxConcurrentPages, maxQueued: 8, timeoutMs: renderTimeoutMs });
-
-function isAllowedUrl(value) {
-  try {
-    const parsed = new URL(value);
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password) return false;
-    const host = parsed.hostname.toLowerCase();
-    return allowedHostSuffixes.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
-  } catch {
-    return false;
-  }
-}
-
-function isPrivateNetworkHost(hostname) {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host === "::1" || host === "0.0.0.0" || host.endsWith(".local")) return true;
-  if (/^(?:127|10)\./.test(host) || /^169\.254\./.test(host) || /^192\.168\./.test(host)) return true;
-  const private172 = host.match(/^172\.(\d{1,3})\./);
-  return private172 ? Number(private172[1]) >= 16 && Number(private172[1]) <= 31 : false;
-}
-
-function isSafeSubresourceUrl(value) {
-  try {
-    const parsed = new URL(value);
-    return ["http:", "https:"].includes(parsed.protocol) && !isPrivateNetworkHost(parsed.hostname);
-  } catch {
-    return false;
-  }
-}
 
 function authorized(header) {
   const supplied = typeof header === "string" && header.startsWith("Bearer ") ? header.slice(7) : "";

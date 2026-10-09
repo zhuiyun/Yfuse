@@ -15,6 +15,7 @@ import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import com.russhwolf.settings.SharedPreferencesSettings
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.cast.initializeCastApplicationContext
 import com.yfuse.core.data.AndroidCalendarLocalStore
@@ -129,7 +130,7 @@ open class TvApplication :
                     koinApplication.koin.get<LibraryCache>(),
                 )
 
-                koinApplication.koin.get<AccountRepository>().start()
+                if (BackendAccess.Default.enabled) koinApplication.koin.get<AccountRepository>().start()
                 koinApplication.koin.get<PlaybackSyncManager>().start()
                 koinApplication.koin.get<PlaybackReportingCoordinator>().flushPending()
                 TvContinueWatchingRuntime.refresh(this)

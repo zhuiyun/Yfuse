@@ -2,6 +2,9 @@ package com.yfuse.core.offline
 
 import com.yfuse.core.network.embyPlaybackHeaders
 import com.yfuse.core.platform.AppBuildConfig
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -9,6 +12,25 @@ import java.net.URL
 internal const val MAX_OFFLINE_REDIRECTS = 8
 
 private val OFFLINE_REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+
+/** A stopped worker must not write a chunk that arrived after its coroutine was cancelled. */
+internal suspend fun readOfflineChunk(
+    input: InputStream,
+    buffer: ByteArray,
+): Int {
+    val context = currentCoroutineContext()
+    context.ensureActive()
+    val count =
+        try {
+            input.read(buffer)
+        } catch (error: Exception) {
+            // A disconnect/read timeout while stopping is cancellation, not a failed download.
+            context.ensureActive()
+            throw error
+        }
+    context.ensureActive()
+    return count
+}
 
 /**
  * Opens [source] for an offline transfer the way playback opens the same file: presenting the

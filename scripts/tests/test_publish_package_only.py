@@ -38,7 +38,7 @@ def run_with_fake(tool, body, step_script, env):
         fake.write_text("#!/usr/bin/env bash\n" + body)
         fake.chmod(0o755)
         output = work / "github-output"
-        environment = dict(os.environ, PATH=f"{work}:{os.environ['PATH']}", GITHUB_OUTPUT=str(output), **env)
+        environment = dict(os.environ, PATH=f"{work}{os.pathsep}{os.environ['PATH']}", GITHUB_OUTPUT=str(output), **env)
         result = subprocess.run(["bash", "-c", step_script], cwd=work, env=environment,
                                 capture_output=True, text=True)
         return result, output.read_text() if output.exists() else ""

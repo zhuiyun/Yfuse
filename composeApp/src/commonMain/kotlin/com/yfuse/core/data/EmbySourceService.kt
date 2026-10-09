@@ -159,6 +159,8 @@ internal class EmbySourceService(
                                         providerItems.ifEmpty {
                                             query(providerMatch = false).Items
                                         }
+                                    // Provider matches can use translated titles; fuzzy title searches
+                                    // must not turn an unrelated sequel or adaptation into a source.
                                     candidates.firstOrNull { candidate ->
                                         val titleMatches = candidate.Name.equals(title, ignoreCase = true)
                                         val yearMatches = year == null || candidate.ProductionYear == year
@@ -169,7 +171,7 @@ internal class EmbySourceService(
                                                 else -> true
                                             }
                                         titleMatches && yearMatches && typeMatches
-                                    } ?: candidates.firstOrNull()
+                                    } ?: providerItems.firstOrNull()
                                 }
                             lookup.onFailure {
                                 AppLog.warning(

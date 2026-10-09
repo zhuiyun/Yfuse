@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   fast-jvm:
-    name: Protocol and server tests
+    name: Backend, protocol and server tests
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -27,8 +27,10 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: gradle
-      - name: Run protocol and server tests without native bootstrap
-        run: ./gradlew :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
+      - name: Run backend, protocol and server tests without native bootstrap
+        run: ./gradlew :yfuseBackendClient:jvmTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
+      - name: Verify backend disabled configuration
+        run: ./gradlew :yfuseBackendClient:jvmTest -PyfuseBackendEnabled=false --no-daemon
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -37,6 +39,7 @@ jobs:
           path: |
             watchTogetherProtocol/build/test-results/
             watchTogetherServer/build/test-results/
+            yfuseBackendClient/build/test-results/
           retention-days: 7
 
   fast-contracts:
@@ -46,14 +49,23 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up validation Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6
+        with:
+          python-version: "3.13"
+      - name: Install validation dependencies
+        run: python3 -m pip install -r scripts/requirements-validation.txt
+      - name: Check script prerequisites
+        run: python3 scripts/check-validation-env.py --profile scripts --report build/validation/scripts-env.json
       - name: Verify release metadata and script behavior
         run: |
           python3 scripts/release_metadata.py
           python3 -m unittest discover -s scripts/tests -p 'test_*.py'
           python3 scripts/verify-tv-source.py --manifest tvApp/src/androidMain/AndroidManifest.xml --banner tvApp/src/main/res/drawable-nodpi/tv_banner.png
           python3 scripts/verify-module-boundaries.py
+          python3 scripts/check-backend-boundary.py
       - name: Verify renderer cancellation and Cast media-state isolation
-        run: node --test castReceiver/receiver.test.cjs watchTogetherServer/calendarRenderer/render-scheduler.test.mjs
+        run: node --test castReceiver/receiver.test.cjs watchTogetherServer/calendarRenderer/*.test.mjs
 
   verify:
     name: Compile, test, lint, and verify design contracts

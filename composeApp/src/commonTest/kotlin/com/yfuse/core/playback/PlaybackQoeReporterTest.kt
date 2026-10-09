@@ -1,6 +1,8 @@
 package com.yfuse.core.playback
 
 import com.russhwolf.settings.MapSettings
+import com.yfuse.backend.BackendAccess
+import com.yfuse.backend.HttpQoeBackendApi
 import com.yfuse.core.account.createAccountClient
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.watch.protocol.AnonymousPlaybackQoeReport
@@ -113,6 +115,45 @@ class PlaybackQoeReporterTest {
             try {
                 assertFalse(reporter.submit(report()))
                 assertEquals(0, reporter.pendingReports())
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
+    fun disabled_backend_clears_existing_qoe_queue_and_does_not_send_with_saved_consent() =
+        runTest {
+            var requests = 0
+            val settings = MapSettings()
+            val preferences = PlaybackPreferences(settings).also { it.setAnonymousQoeSharing(true) }
+            val client =
+                createAccountClient(
+                    MockEngine {
+                        requests++
+                        respond("", HttpStatusCode.ServiceUnavailable)
+                    },
+                    access = BackendAccess(true),
+                )
+            try {
+                val enabled =
+                    PlaybackQoeReporter(
+                        settings,
+                        preferences,
+                        HttpQoeBackendApi(client, access = BackendAccess(true)),
+                        "test",
+                    )
+                assertFalse(enabled.submit(report()))
+                assertEquals(1, enabled.pendingReports())
+                val disabled =
+                    PlaybackQoeReporter(
+                        settings,
+                        preferences,
+                        HttpQoeBackendApi(client, access = BackendAccess(false)),
+                        "test",
+                    )
+                assertFalse(disabled.submit(report()))
+                assertEquals(1, requests)
+                assertEquals(0, disabled.pendingReports())
             } finally {
                 client.close()
             }

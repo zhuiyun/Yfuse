@@ -12,7 +12,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -90,6 +92,9 @@ class TraktRepository(
     private var local = TraktLocalState()
     private var currentOwner: String? = null
     private var playbackGeneration = 0L
+
+    // An owner can disconnect and connect a different Trakt account without changing profile.
+    private var authorizationGeneration = 0L
     private var activeScope: CoroutineScope? = null
     private var lifetime: Job? = null
     private var authJob: Job? = null
@@ -105,6 +110,7 @@ class TraktRepository(
             scope.launch {
                 owner.collectLatest { identity ->
                     playbackGeneration++
+                    authorizationGeneration++
                     currentOwner = identity
                     local = TraktLocalState()
                     _state.value = TraktUiState(signedIn = identity != null)
@@ -166,24 +172,25 @@ class TraktRepository(
         val identity = currentOwner ?: return
         if (_state.value.busy) return
         val currentScope = activeScope ?: return
+        val generation = ++authorizationGeneration
         _state.update { it.copy(busy = true, error = null, message = null) }
         authJob =
             currentScope.launch {
                 var challenge: TraktAuthChallenge? = null
                 try {
                     val config = auth.configuration()
-                    ensureOwner(identity)
+                    ensureAuthorization(identity, generation)
                     _state.update { it.copy(configuration = config) }
                     check(if (device) config.deviceAvailable else config.oauthAvailable) { "Trakt 尚未配置" }
                     challenge = auth.begin(device)
-                    ensureOwner(identity)
+                    ensureAuthorization(identity, generation)
                     _state.update { it.copy(challenge = challenge) }
                     withTimeout((challenge.expiresAtEpochMs - now()).coerceIn(1, 1_800_000)) {
                         var interval = challenge.intervalSeconds.coerceIn(1, 60)
                         while (true) {
                             delay(interval * 1000L)
                             val response = auth.poll(challenge.id)
-                            ensureOwner(identity)
+                            ensureAuthorization(identity, generation)
                             when (response.status) {
                                 TraktAuthStatus.Pending -> interval = response.retryAfterSeconds.coerceIn(1, 3600)
                                 TraktAuthStatus.Connected -> {
@@ -200,10 +207,22 @@ class TraktRepository(
                         }
                     }
                 } catch (cancelled: CancellationException) {
-                    if (owner.value == identity) _state.update { it.copy(error = "Trakt 授权已取消或过期") }
+                    if (isAuthorizationCurrent(
+                            identity,
+                            generation,
+                        )
+                    ) {
+                        _state.update { it.copy(error = "Trakt 授权已取消或过期") }
+                    }
                     throw cancelled
                 } catch (_: Exception) {
-                    if (owner.value == identity) _state.update { it.copy(error = "Trakt 未连接，请确认配置或重新授权") }
+                    if (isAuthorizationCurrent(
+                            identity,
+                            generation,
+                        )
+                    ) {
+                        _state.update { it.copy(error = "Trakt 未连接，请确认配置或重新授权") }
+                    }
                 } finally {
                     withContext(NonCancellable) {
                         challenge?.let {
@@ -213,7 +232,13 @@ class TraktRepository(
                             }
                         }
                     }
-                    if (owner.value == identity) _state.update { it.copy(challenge = null, busy = false) }
+                    if (isAuthorizationCurrent(
+                            identity,
+                            generation,
+                        )
+                    ) {
+                        _state.update { it.copy(challenge = null, busy = false) }
+                    }
                 }
             }
     }
@@ -232,17 +257,21 @@ class TraktRepository(
         val identity = currentOwner ?: return
         val token = local.token ?: return
         // Local opt-out is immediate even if remote revoke fails; no queued data can leave afterwards.
+        val generation = ++authorizationGeneration
         authJob?.cancel()
         save(identity, TraktLocalState())
+        _state.update { it.copy(busy = false, challenge = null) }
         activeScope?.launch {
             try {
                 auth.revoke(token.accessToken)
-                ensureOwner(identity)
+                ensureAuthorization(identity, generation)
                 _state.update { it.copy(message = "Trakt 已断开", error = null) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                if (owner.value == identity) _state.update { it.copy(error = "本机已断开；远端撤销失败，可在 Trakt 的应用设置中移除授权") }
+                if (isAuthorizationCurrent(identity, generation)) {
+                    _state.update { it.copy(error = "本机已断开；远端撤销失败，可在 Trakt 的应用设置中移除授权") }
+                }
             }
         }
     }
@@ -257,8 +286,10 @@ class TraktRepository(
     private fun importItems(history: Boolean) {
         val identity = currentOwner ?: return
         if (_state.value.busy || local.token == null) return
+        val currentScope = activeScope ?: return
+        val generation = authorizationGeneration
         _state.update { it.copy(busy = true, error = null) }
-        activeScope?.launch {
+        currentScope.launch {
             var imported = 0
             var retained = 0
             try {
@@ -274,7 +305,7 @@ class TraktRepository(
                     val pageNumber = if (history) local.historyPage else local.watchlistPage
                     val endAt = local.historyEndAt.orEmpty()
                     val page =
-                        authorized(identity) { token ->
+                        authorized(identity, generation) { token ->
                             if (history) {
                                 api.history(
                                     local.clientId,
@@ -286,10 +317,11 @@ class TraktRepository(
                                 api.watchlist(local.clientId, token, pageNumber)
                             }
                         }
-                    ensureOwner(identity)
+                    ensureAuthorization(identity, generation)
                     for (item in page.items) {
-                        ensureOwner(identity)
+                        ensureAuthorization(identity, generation)
                         val changed = if (history) importSink.importHistory(item) else importSink.importWatchlist(item)
+                        ensureAuthorization(identity, generation)
                         if (changed) imported++ else retained++
                     }
                     done = !page.hasNext
@@ -310,9 +342,11 @@ class TraktRepository(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                if (owner.value == identity) _state.update { it.copy(error = "导入未完成，已完成内容已保留；重试将从上次页继续") }
+                if (isAuthorizationCurrent(identity, generation)) {
+                    _state.update { it.copy(error = "导入未完成，已完成内容已保留；重试将从上次页继续") }
+                }
             } finally {
-                if (owner.value == identity) _state.update { it.copy(busy = false) }
+                if (isAuthorizationCurrent(identity, generation)) _state.update { it.copy(busy = false) }
             }
         }
     }
@@ -354,6 +388,7 @@ class TraktRepository(
 
     private suspend fun flush(identity: String) {
         if (!local.scrobbling || local.token == null || !flushMutex.tryLock()) return
+        val generation = authorizationGeneration
         try {
             val event = local.events.firstOrNull() ?: return
             if (maxOf(event.nextAttemptAtEpochMs, nextWriteAtEpochMs) > now()) return
@@ -369,13 +404,34 @@ class TraktRepository(
                 nextWriteAtEpochMs = now() + 1_000
                 authorized(
                     identity,
-                ) { token -> api.scrobble(local.clientId, token, event.media, event.action, event.progress) }
-                ensureOwner(identity)
+                    generation,
+                ) { token ->
+                    // Opting out removes the event even if token refresh was already in flight.
+                    if (!local.scrobbling || local.events.none { it.id == event.id }) {
+                        throw CancellationException("Trakt playback reporting stopped")
+                    }
+                    api.scrobble(local.clientId, token, event.media, event.action, event.progress)
+                }
+                ensureAuthorization(identity, generation)
                 if (local.scrobbling) save(identity, local.copy(events = local.events.filterNot { it.id == event.id }))
             } catch (cancelled: CancellationException) {
+                // Invalidating one authorization/event must not stop the owner's retry loop.
+                if (!isAuthorizationCurrent(identity, generation) ||
+                    !local.scrobbling ||
+                    local.events.none { it.id == event.id }
+                ) {
+                    currentCoroutineContext().ensureActive()
+                    return
+                }
                 throw cancelled
             } catch (failure: Exception) {
-                ensureOwner(identity)
+                if (!isAuthorizationCurrent(identity, generation) ||
+                    !local.scrobbling ||
+                    local.events.none { it.id == event.id }
+                ) {
+                    return
+                }
+                ensureAuthorization(identity, generation)
                 val seconds =
                     maxOf(
                         (failure as? TraktApiException)?.retryAfterSeconds ?: 0,
@@ -408,23 +464,28 @@ class TraktRepository(
 
     private suspend fun <T> authorized(
         identity: String,
+        generation: Long,
         block: suspend (String) -> T,
     ): T {
-        val token = token(identity)
-        return try {
-            block(token.accessToken)
-        } catch (failure: TraktApiException) {
-            if (failure.status != 401) throw failure
-            block(token(identity, rejectedAccessToken = token.accessToken).accessToken)
-        }
+        val token = token(identity, generation)
+        val result =
+            try {
+                block(token.accessToken)
+            } catch (failure: TraktApiException) {
+                if (failure.status != 401) throw failure
+                block(token(identity, generation, rejectedAccessToken = token.accessToken).accessToken)
+            }
+        ensureAuthorization(identity, generation)
+        return result
     }
 
     private suspend fun token(
         identity: String,
+        generation: Long,
         rejectedAccessToken: String? = null,
     ): TraktToken =
         refreshMutex.withLock {
-            ensureOwner(identity)
+            ensureAuthorization(identity, generation)
             val token = local.token ?: error("请连接 Trakt")
             if (token.accessToken != rejectedAccessToken &&
                 token.createdAt * 1000 + token.expiresIn * 1000 > now() + 60_000
@@ -434,7 +495,7 @@ class TraktRepository(
             val pending = local.refresh ?: TraktRefreshRequest(token.refreshToken, UUID.randomUUID().toString())
             save(identity, local.copy(refresh = pending))
             val replacement = auth.refresh(pending)
-            ensureOwner(identity)
+            ensureAuthorization(identity, generation)
             check(replacement.valid())
             // A disconnect/reconnect while the request was in flight must not resurrect old credentials.
             if (local.token?.refreshToken != token.refreshToken) throw CancellationException("Trakt account changed")
@@ -474,6 +535,18 @@ class TraktRepository(
         ) {
             throw CancellationException("Trakt profile changed")
         }
+    }
+
+    private fun isAuthorizationCurrent(
+        identity: String,
+        generation: Long,
+    ): Boolean = identity == currentOwner && identity == owner.value && generation == authorizationGeneration
+
+    private fun ensureAuthorization(
+        identity: String,
+        generation: Long,
+    ) {
+        if (!isAuthorizationCurrent(identity, generation)) throw CancellationException("Trakt authorization changed")
     }
 
     private fun storageKey(identity: String) = "trakt:${identity.encodeToByteArray().toBase64Url()}"

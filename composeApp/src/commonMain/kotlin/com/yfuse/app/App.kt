@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.account.canUseWatchTogether
 import com.yfuse.core.data.WatchTogetherPreferences
@@ -486,6 +487,9 @@ fun App(root: RootComponent) {
                         // The shell's own dialogs are windows above everything, the launch splash
                         // included; they wait for the app to be on screen before asking anything.
                         val launchSettled = LocalRouteVisible.current
+                        LaunchedEffect(pendingInvite) {
+                            if (!BackendAccess.Default.enabled && pendingInvite != null) root.dismissInvite()
+                        }
                         val resumableRoom by watchTogether.resumableRoom.collectAsState()
                         val rejoinOffer =
                             resumableRoom?.takeIf {
@@ -521,7 +525,7 @@ fun App(root: RootComponent) {
                             )
                         }
 
-                        pendingInvite?.takeIf { launchSettled }?.let { invite ->
+                        pendingInvite?.takeIf { launchSettled && BackendAccess.Default.enabled }?.let { invite ->
                             if (invite.unsupportedEndpoint != null || watchAvailable) {
                                 WatchInviteSheet(
                                     roomCode = invite.roomCode,

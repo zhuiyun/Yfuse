@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.focus.FocusRequester
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.data.MediaVersionPreference
 import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackFrameRateMatch
@@ -108,19 +109,21 @@ internal fun TvPlaybackSettingsPage(
             )
         }
 
-        item(key = "playback-section-privacy") { TvSettingsSectionTitle("隐私") }
-        item(key = "playback-qoe") {
-            TvToggleRow(
-                title = "匿名播放质量反馈",
-                checked = qoeSharing,
-                stableId = "playback:qoe",
-                focusMemory = focusMemory,
-                onToggle = component.playbackPreferences::setAnonymousQoeSharing,
-                icon = AppIcons.Info,
-                focusScope = focusScope,
-                subtitle = "只上报卡顿与解码统计，不包含片名、账号或服务器地址",
-                navigationRequester = navigationRequester,
-            )
+        if (BackendAccess.Default.enabled) {
+            item(key = "playback-section-privacy") { TvSettingsSectionTitle("隐私") }
+            item(key = "playback-qoe") {
+                TvToggleRow(
+                    title = "匿名播放质量反馈",
+                    checked = qoeSharing,
+                    stableId = "playback:qoe",
+                    focusMemory = focusMemory,
+                    onToggle = component.playbackPreferences::setAnonymousQoeSharing,
+                    icon = AppIcons.Info,
+                    focusScope = focusScope,
+                    subtitle = "只上报卡顿与解码统计，不包含片名、账号或服务器地址",
+                    navigationRequester = navigationRequester,
+                )
+            }
         }
     }
 }

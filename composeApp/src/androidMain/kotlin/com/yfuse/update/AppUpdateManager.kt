@@ -15,6 +15,11 @@ import android.os.storage.StorageManager
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.core.content.FileProvider
 import com.russhwolf.settings.Settings
+import com.yfuse.backend.BackendAccess
+import com.yfuse.backend.BackendBinaryTransport
+import com.yfuse.backend.BackendDownloadResponse
+import com.yfuse.backend.BackendEndpoints
+import com.yfuse.backend.BackendFeature
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.security.verifyEd25519Signature
 import com.yfuse.feature.player.PlaybackRemotePolicyRegistry
@@ -47,7 +52,7 @@ import android.provider.Settings as AndroidSettings
 import com.yfuse.core.platform.AppBuildConfig as BuildConfig
 
 /** The production update origin is TLS-only; [validateForUpdateSource] also rejects downgrades. */
-private const val UPDATE_MANIFEST = "https://47.112.219.60/yfuse/update-v2.json"
+private const val UPDATE_MANIFEST = BackendEndpoints.UPDATE_MANIFEST
 internal const val UPDATE_STORAGE_RESERVE_BYTES = 256L * 1024L * 1024L
 internal const val UPDATE_MANIFEST_MAX_BYTES = 64 * 1024
 
@@ -678,7 +683,11 @@ internal fun updateCheckSnapshotStillCurrent(
 class AppUpdateManager(
     context: Context,
     private val settings: Settings,
+    private val backendAccess: BackendAccess = BackendAccess.Default,
 ) {
+    val enabled: Boolean get() = backendAccess.enabled
+    private val transport = BackendBinaryTransport(backendAccess)
+
     private val appContext: Context = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val json =
@@ -736,42 +745,47 @@ class AppUpdateManager(
     )
 
     init {
-        restoreInterruptedDownload()
-        (appContext as? Application)?.registerActivityLifecycleCallbacks(
-            object : Application.ActivityLifecycleCallbacks {
-                override fun onActivityResumed(activity: Activity) {
-                    val wasBackground = foregroundActivities == 0
-                    foregroundActivities += 1
-                    // Returning to Yfuse is the other moment 首页 is entered; the gate keeps
-                    // this from turning into a request every time the user switches apps. The
-                    // initial resume precedes the splash-gated overlay, so its check is owned by
-                    // checkOnLaunch rather than racing it and consuming the prompt allowance.
-                    if (shouldCheckForUpdateOnForeground(wasBackground, launchCheckStarted)) {
-                        checkIfDue()
+        if (enabled) {
+            restoreInterruptedDownload()
+            (appContext as? Application)?.registerActivityLifecycleCallbacks(
+                object : Application.ActivityLifecycleCallbacks {
+                    override fun onActivityResumed(activity: Activity) {
+                        val wasBackground = foregroundActivities == 0
+                        foregroundActivities += 1
+                        // Returning to Yfuse is the other moment 首页 is entered; the gate keeps
+                        // this from turning into a request every time the user switches apps. The
+                        // initial resume precedes the splash-gated overlay, so its check is owned by
+                        // checkOnLaunch rather than racing it and consuming the prompt allowance.
+                        if (shouldCheckForUpdateOnForeground(wasBackground, launchCheckStarted)) {
+                            checkIfDue()
+                        }
                     }
-                }
 
-                override fun onActivityPaused(activity: Activity) {
-                    foregroundActivities = (foregroundActivities - 1).coerceAtLeast(0)
-                }
+                    override fun onActivityPaused(activity: Activity) {
+                        foregroundActivities = (foregroundActivities - 1).coerceAtLeast(0)
+                    }
 
-                override fun onActivityCreated(
-                    activity: Activity,
-                    saved: Bundle?,
-                ) = Unit
+                    override fun onActivityCreated(
+                        activity: Activity,
+                        saved: Bundle?,
+                    ) = Unit
 
-                override fun onActivityStarted(activity: Activity) = Unit
+                    override fun onActivityStarted(activity: Activity) = Unit
 
-                override fun onActivityStopped(activity: Activity) = Unit
+                    override fun onActivityStopped(activity: Activity) = Unit
 
-                override fun onActivitySaveInstanceState(
-                    activity: Activity,
-                    out: Bundle,
-                ) = Unit
+                    override fun onActivitySaveInstanceState(
+                        activity: Activity,
+                        out: Bundle,
+                    ) = Unit
 
-                override fun onActivityDestroyed(activity: Activity) = Unit
-            },
-        )
+                    override fun onActivityDestroyed(activity: Activity) = Unit
+                },
+            )
+        } else {
+            // An installed build may retain a resumable transfer from before the backend was removed.
+            clearDownloadRecord()
+        }
     }
 
     /**
@@ -779,6 +793,7 @@ class AppUpdateManager(
      * follows is limited separately to once a day.
      */
     fun checkIfDue() {
+        if (!enabled) return
         if (!automaticCheckGate.tryAcquire()) {
             AppLog.info(
                 category = "update",
@@ -801,6 +816,7 @@ class AppUpdateManager(
      */
     @Synchronized
     fun checkOnLaunch() {
+        if (!enabled) return
         if (launchCheckStarted) return
         launchCheckStarted = true
         automaticCheckGate.tryAcquire(force = true)
@@ -811,6 +827,7 @@ class AppUpdateManager(
     fun check() = runCheck(automatic = false)
 
     private fun runCheck(automatic: Boolean) {
+        if (!enabled) return
         if (checkJob?.isActive == true) return
         val checkSnapshot = snapshotUpdateCheck()
         val previous = checkSnapshot.previous
@@ -850,31 +867,20 @@ class AppUpdateManager(
                                     )
                                 }
                             }
-                        val connection =
-                            (URL(UPDATE_MANIFEST).openConnection() as HttpURLConnection).apply {
-                                connectTimeout = 8_000
-                                readTimeout = 8_000
-                                useCaches = false
-                                // A redirect would move the trust decision to whatever host
-                                // the response names; the manifest lives at one address.
-                                instanceFollowRedirects = false
-                            }
-                        try {
-                            check(
-                                connection.contentLengthLong < 0L ||
-                                    connection.contentLengthLong <= UPDATE_MANIFEST_MAX_BYTES,
-                            ) {
-                                "升级信息过大"
-                            }
-                            connection.inputStream.use { input ->
-                                json
-                                    .decodeFromString<UpdateManifest>(input.readUpdateManifestText())
-                                    .validateForUpdateSource(UPDATE_MANIFEST)
-                                    .requireTrusted()
-                            }
-                        } finally {
-                            connection.disconnect()
-                        }
+                        val document =
+                            transport.fetchDocument(
+                                url = UPDATE_MANIFEST,
+                                feature = BackendFeature.Updates,
+                                maxBytes = UPDATE_MANIFEST_MAX_BYTES,
+                                connectTimeoutMillis = 8_000,
+                                readTimeoutMillis = 8_000,
+                                tooLargeMessage = "升级信息过大",
+                            )
+                        check(document.statusCode in 200..299) { "HTTP ${document.statusCode}" }
+                        json
+                            .decodeFromString<UpdateManifest>(document.bytes.toString(Charsets.UTF_8))
+                            .validateForUpdateSource(UPDATE_MANIFEST)
+                            .requireTrusted()
                     }
                 }.onSuccess { manifest ->
                     if (!isUpdateCheckSnapshotCurrent(checkSnapshot)) return@onSuccess
@@ -1171,6 +1177,7 @@ class AppUpdateManager(
     /** Starts or resumes the background download. Safe to call while one is already running. */
     @Synchronized
     fun download(manifest: UpdateManifest) {
+        if (!enabled) return
         if (_state.value is UpdateState.Downloading) return
         runCatching { manifest.validateForUpdateSource(UPDATE_MANIFEST).requireTrusted() }
             .onFailure { error ->
@@ -1241,6 +1248,7 @@ class AppUpdateManager(
     }
 
     fun showPrompt() {
+        if (!enabled) return
         _promptVisible.value = true
     }
 
@@ -1257,12 +1265,14 @@ class AppUpdateManager(
      * one is still winding down waits its turn instead of being dropped on the floor.
      */
     internal suspend fun runActiveDownload() {
+        if (!enabled) return
         downloadMutex.withLock {
             runActiveDownloadLocked()
         }
     }
 
     private suspend fun runActiveDownloadLocked() {
+        if (!enabled) return
         val request = snapshotActiveDownloadRequest() ?: return
         val generation = request.generation
         val manifest = request.manifest
@@ -1384,7 +1394,8 @@ class AppUpdateManager(
     }
 
     /** A transfer that was paused, or replaced by a newer request, may no longer write state. */
-    private fun isCurrentRequest(generation: Int): Boolean = !pauseRequested && generation == requestGeneration
+    private fun isCurrentRequest(generation: Int): Boolean =
+        enabled && !pauseRequested && generation == requestGeneration
 
     /** Returns true once the package is downloaded, verified and staged for install. */
     private suspend fun downloadOnce(
@@ -1475,31 +1486,26 @@ class AppUpdateManager(
                     ),
             )
 
-            var connection: HttpURLConnection? = null
+            var connection: BackendDownloadResponse? = null
             try {
                 var append: Boolean
                 var responseValidator: String?
                 while (true) {
                     connection =
-                        (URL(manifest.apkUrl).openConnection() as HttpURLConnection).apply {
-                            connectTimeout = 15_000
-                            readTimeout = 30_000
-                            useCaches = false
-                            // The source check validated `apkUrl`; a redirect target was never checked.
-                            instanceFollowRedirects = false
-                            if (existing > 0L) {
-                                setRequestProperty("Range", "bytes=$existing-")
-                                validator?.let { setRequestProperty("If-Range", it.validatorHeaderValue()) }
-                            }
-                        }
-                    val code = connection.responseCode
-                    responseValidator = connection.updateResumeValidator()
+                        transport.openDownload(
+                            url = manifest.apkUrl,
+                            feature = BackendFeature.Updates,
+                            startBytes = existing,
+                            validator = validator,
+                        )
+                    val code = connection.statusCode
+                    responseValidator = connection.validator
                     append =
                         canAppendUpdateRange(
                             existingBytes = existing,
                             expectedTotalBytes = manifest.size,
                             statusCode = code,
-                            contentRange = connection.getHeaderField("Content-Range"),
+                            contentRange = connection.contentRange,
                             expectedValidator = validator,
                             responseValidator = responseValidator,
                         )
@@ -1516,7 +1522,7 @@ class AppUpdateManager(
                             message = "Update range response did not continue the partial file",
                             attributes = mapOf("status" to code.toString()),
                         )
-                        connection.disconnect()
+                        connection.close()
                         connection = null
                         when (deleteDownloadFileIfCurrent(manifest, generation, partial)) {
                             OwnedUpdateCacheDeleteResult.StaleOwner -> return@withContext false
@@ -1547,7 +1553,7 @@ class AppUpdateManager(
                     break
                 }
                 val activeConnection = checkNotNull(connection) { "升级连接已关闭" }
-                validateUpdateContentLength(activeConnection.contentLengthLong, manifest.size - existing)
+                validateUpdateContentLength(activeConnection.contentLength, manifest.size - existing)
                 if (!putDownloadRecordIfCurrent(
                         generation,
                         UpdateDownloadRecord(manifest, validator = responseValidator),
@@ -1598,7 +1604,7 @@ class AppUpdateManager(
                 }
                 promoteAndFinishIfCurrent(manifest, partial, target, generation)
             } finally {
-                connection?.disconnect()
+                connection?.close()
             }
         }
 
@@ -1746,6 +1752,7 @@ class AppUpdateManager(
     }
 
     fun install(apk: File) {
+        if (!enabled) return
         val ready = (_state.value as? UpdateState.Ready)?.takeIf { it.apk == apk } ?: return
         val manifest = ready.manifest
         runCatching { manifest.validateForUpdateSource(UPDATE_MANIFEST).requireTrusted() }
@@ -1827,6 +1834,7 @@ class AppUpdateManager(
     }
 
     fun resumeInstall() {
+        if (!enabled) return
         val apk = pendingInstall?.takeIf(File::isFile) ?: return
         if (appContext.packageManager.canRequestPackageInstalls()) install(apk)
     }
@@ -1836,6 +1844,7 @@ class AppUpdateManager(
      * so 断点续传 survives more than a lost connection.
      */
     private fun restoreInterruptedDownload() {
+        if (!enabled) return
         val record = downloadRecord() ?: return
         runCatching {
             record.validateForRestore(
@@ -2043,24 +2052,6 @@ class AppUpdateManager(
         const val HTTP_RANGE_NOT_SATISFIABLE = 416
     }
 }
-
-/**
- * A value that changes whenever the remote package does, sent back as `If-Range` so the server
- * itself decides whether the partial file may be continued.
- */
-private fun HttpURLConnection.updateResumeValidator(): String? {
-    val strongEtag =
-        getHeaderField("ETag")
-            ?.trim()
-            ?.takeIf { it.isNotBlank() && !it.startsWith("W/", ignoreCase = true) }
-    if (strongEtag != null) return "etag:$strongEtag"
-    return getHeaderField("Last-Modified")
-        ?.trim()
-        ?.takeIf { it.isNotBlank() }
-        ?.let { "last-modified:$it" }
-}
-
-private fun String.validatorHeaderValue(): String = substringAfter(':')
 
 private fun File.sha256(): String {
     val digest = MessageDigest.getInstance("SHA-256")

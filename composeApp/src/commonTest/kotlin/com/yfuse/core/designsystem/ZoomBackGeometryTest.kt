@@ -131,15 +131,29 @@ class ZoomBackGeometryTest {
                 Triple(0f, 0f, false),
                 Triple(250f, 0f, false), // 28%, slow: springs home
                 Triple(280f, 0f, true), // 31%, slow: goes back
-                Triple(100f, 1200f, true), // a short flick: 100 + 204 = 304 px, 34%
+                Triple(100f, 1200f, false), // too little real travel, despite the flick
+                Triple(150f, 1200f, true), // 150 + capped 135 = 285 px, 32%
                 Triple(100f, 800f, false), // 100 + 136 = 236 px, 26%
                 Triple(400f, -1000f, false), // pulled far, flung back up: 400 − 170 = 230 px
                 Triple(400f, -500f, true), // 400 − 85 = 315 px
-                Triple(-50f, 3000f, true), // a hard downward flick from just above the start
+                Triple(-50f, 3000f, false), // above the start cannot commit
+                Triple(0f, 3000f, false), // release speed alone cannot go back
+                Triple(50f, 10000f, false), // a fast, short scroll cannot go back
+                Triple(134f, 10000f, false), // below the minimum actual pull
+                Triple(136f, 10000f, true), // enough actual pull and capped flick credit
             )
         table.forEach { (offset, velocity, commits) ->
             assertEquals(commits, zoomBackCommits(offset, velocity, extent), "offset $offset velocity $velocity")
         }
+    }
+
+    @Test
+    fun anInvalidPageOrReleaseCannotCommit() {
+        assertFalse(zoomBackCommits(400f, 1000f, 0f))
+        assertFalse(zoomBackCommits(400f, 1000f, -900f))
+        assertFalse(zoomBackCommits(Float.NaN, 1000f, 900f))
+        assertFalse(zoomBackCommits(400f, Float.POSITIVE_INFINITY, 900f))
+        assertFalse(zoomBackCommits(400f, 1000f, Float.POSITIVE_INFINITY))
     }
 
     @Test

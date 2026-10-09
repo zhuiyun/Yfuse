@@ -14,6 +14,9 @@ devices, x86/x86_64 Android emulators, or x86 Chromebooks.
 
 ## Build
 
+For reproducible script/CI checks and explicit partial/blocked Harmony results, see
+[the validation environment guide](docs/VALIDATION_ENVIRONMENT.md).
+
 The build uses AGP 9.1.1, Kotlin 2.4.20, and Android SDK Platform 37.0. Install
 `platforms;android-37.0` before building. The current phone, TV and performance-test
 source targets Android API 37; that migration is newer than the last delivered APK.
