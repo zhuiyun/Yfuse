@@ -1,0 +1,38 @@
+{
+  "sourceCommit": "eba6060b6960a2e8539c9365cccac1c7a6885cd2",
+  "mdkApprovalTests": {
+    "tests": 4,
+    "failures": 0,
+    "errors": 0
+  },
+  "publishTests": {
+    "tests": 19,
+    "failures": 0,
+    "errors": 0
+  },
+  "localPowerShellMdkCheck": {
+    "parser": "passed",
+    "rejected": [
+      "missing libraries",
+      "empty libraries",
+      "missing JNI bridge",
+      "empty JNI bridge"
+    ],
+    "accepted": [
+      "both runtime libraries present and nonempty"
+    ]
+  },
+  "workflowYaml": "parsed successfully",
+  "gitDiffCheck": "passed",
+  "fullBuild": {
+    "result": "BUILD SUCCESSFUL",
+    "duration": "2m 48s"
+  },
+  "logs": [
+    "build/tmp/mdk-ci-publish-tests.log",
+    "build/tmp/release-1.1.6-full.log"
+  ],
+  "limitations": [
+    "No new APK device installation or real media playback acceptance was performed."
+  ]
+}

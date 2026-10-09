@@ -1,0 +1,2 @@
+artifacts-local\releases\merged-master-1.1.6-268\Yfuse-1.1.6-full-arm64.apk (R8 9.1.31): 14057 classes, 61713 methods with code, 0 findings, 0 methods not analysable
+  largest method of the app's own code: 207 registers (limit 256), com.yfuse.feature.player.PlayerRootKt.PlayerRoot$lambda$58

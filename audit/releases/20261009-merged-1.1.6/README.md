@@ -8,7 +8,13 @@
 
 原生库由同源、验签通过的 1.1.5 APK 恢复，二进制、构建 ID 与 CI 来源核验见 [native-runtime.md](native-runtime.md)。portable 测试限制见 [portable-native.json](portable-native.json)。原始本地日志与二进制产物保留在受忽略目录，审查元数据不包含用户目录、设备序列号或密钥。
 
-签名精简版已经构建并验证：`Yfuse-1.1.6-compact-arm64.apk`，包名 `com.yfuse`，APK 实际版本 `1.1.6 / 268`，arm64-v8a，23,572,646 字节。源码提交 `41a5c4cea832f41f60386d367187f31780af34a3`，构建时工作区干净。
+本次最终交付为包含 MDK 的签名完整版：`Yfuse-1.1.6-full-arm64.apk`，包名 `com.yfuse`，APK 实际版本 `1.1.6 / 268`，arm64-v8a，29,822,670 字节（28.44 MiB）。源码提交 `eba6060b6960a2e8539c9365cccac1c7a6885cd2`，构建时工作区干净，未通过参数覆盖版本。
+
+完整版 SHA-256：`c7cf73d483a7fc37efa7e116f4bf3b4f3501a7d62344282fa346c85b5dbb4246`。正式证书与先前交付一致，唯一签名者、v2 签名、16 KiB 对齐均通过；14,057 个类、61,713 个有代码方法的 DEX 验证为 0 发现、0 未能分析。APK 内 MDK 内核逐字节匹配固定 SDK，JNI 桥接库非空，8 个 YCore 运行库逐字节匹配已核验的 AAR。详见 [verification-full.json](verification-full.json)、[apk-full-badging.txt](apk-full-badging.txt)、[apk-full-dex.txt](apk-full-dex.txt)、[apk-full-signature.txt](apk-full-signature.txt)。
+
+本地标准脚本只生成 full；自动打包显式启用 MDK，并在最终签名 APK 检查双库可读取且非空。MDK 确认记录 4 项测试、发布门控 19 项测试通过；本地 PowerShell 校验覆盖缺少库、空库、缺少 JNI、空 JNI、正常双库 5 个场景。验证范围见 [mdk-packaging-validation.json](mdk-packaging-validation.json)。
+
+此前精简版记录保留用于追溯：`Yfuse-1.1.6-compact-arm64.apk`，包名 `com.yfuse`，APK 实际版本 `1.1.6 / 268`，arm64-v8a，23,572,646 字节。源码提交 `41a5c4cea832f41f60386d367187f31780af34a3`，构建时工作区干净。
 
 SHA-256：`5f842df8d469cac6ba36c49d441a22fa4fa249e5c16478102db6b6333572874d`。正式签名与上一份实际交付 APK 的证书一致，唯一签名者、v2 验证、16 KiB 对齐及 DEX 验证全部通过。APK 内 8 个 YCore 运行库逐字节匹配已核验的 AAR；精简版不含 MDK 运行库。
 
