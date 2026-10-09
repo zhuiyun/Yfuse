@@ -14,4 +14,4 @@ SHA-256：`5f842df8d469cac6ba36c49d441a22fa4fa249e5c16478102db6b6333572874d`。�
 
 实际元数据及构建命令见 [verification.json](verification.json)，包信息与 DEX 输出分别见 [apk-badging.txt](apk-badging.txt)、[apk-dex.txt](apk-dex.txt)。APK 与 R8 mapping 本地保存于 `artifacts-local/releases/merged-master-1.1.6-268/`，不纳入 Git。未安装新版 APK 到设备或修改现有 App 数据。
 
-本次仅本地交付 APK 和上传代码，提交使用 `[artifact only]`，禁止触发线上更新发布。完整版 MDK 分发确认仍待本次发布负责人回复。
+本次仅本地交付 APK 和上传代码，提交使用 `[artifact only]`，禁止触发线上更新发布。用户于 2026-10-09 明确要求“以后打包都需要包含mdk”，已保存为项目长期要求，并据此继续本次待补齐的 1.1.6 / 268 完整版打包；沿用相同 MDK 校验和与 package-only 范围。本次为同一交付的完整配置补齐，版本不重复递增，已有精简包证据保留。

@@ -1,9 +1,10 @@
 {
-  "versionName": "1.1.5",
-  "versionCode": 267,
+  "versionName": "1.1.6",
+  "versionCode": 268,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-07T16:52:58+08:00",
-  "confirmedBy": "release owner"
+  "confirmedAt": "2026-10-09T14:05:44+08:00",
+  "confirmedBy": "release owner",
+  "confirmationBasis": "User standing instruction on 2026-10-09: all future packages must include MDK; same pinned artifact, package-only delivery."
 }

@@ -512,6 +512,8 @@ jobs:
           # gates build: a throwaway debug signature that the sign job replaces. Gradle then
           # skips its production-signing checks; the request and sign jobs enforce them.
           ./gradlew :composeApp:assembleRelease \
+            -PyfuseNativeOnlyRuntime=false \
+            -PyfuseIncludeMdk=true \
             -PyfuseVersionCode="$VERSION_CODE" \
             -PyfuseVersionName="$VERSION_NAME" \
             -PconfirmMdkDistributionRights="$CONFIRM_MDK_DISTRIBUTION_RIGHTS" \
@@ -761,6 +763,16 @@ jobs:
             if ! grep -Fxq "$scheme" <<<"$signer_output"; then
               echo "::error::Signed APK does not report '$scheme'"
               printf '%s\n' "$signer_output"
+              exit 1
+            fi
+          done
+
+          # Check this final signed artifact, not just the separate quality-gate build.
+          # Reading the entries also rejects empty or unreadable runtime libraries.
+          for library in libmdk.so libyfuse-mdk-jni.so; do
+            entry="lib/arm64-v8a/$library"
+            if ! entry_size="$(unzip -p "$apk" "$entry" | wc -c)" || (( entry_size == 0 )); then
+              echo "::error::Required MDK runtime $entry is missing, empty, or unreadable in the signed APK"
               exit 1
             fi
           done

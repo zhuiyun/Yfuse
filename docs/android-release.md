@@ -377,14 +377,17 @@ For a package-only push, the owner's explicit confirmation may be recorded in
 the version name, integer version code, and pinned MDK archive SHA-256 all match the
 current source, `confirmed` is the boolean `true`, and the scope is `package-only`.
 This record is an acknowledgement, not a license grant. It does not authorize publishing
-or carry over to a different version or MDK artifact. Update it only after the owner
-has explicitly confirmed the intended delivery. Manual inputs and the existing
+or carry over to a different version or MDK artifact. Update it for each version based on
+the owner's applicable confirmation. The owner's 2026-10-09 standing instruction requires
+MDK in all future standard packages; it covers package-only deliveries using the same
+pinned component, without requesting the same confirmation on each version bump. A changed
+component or distribution scope needs a fresh review. Manual inputs and the existing
 `MDK_DISTRIBUTION_CONFIRMED` repository variable remain available as before.
 
 The equivalent Gradle invocation is:
 
 ```bash
-./gradlew :composeApp:assembleRelease -PconfirmMdkDistributionRights=true
+./gradlew :composeApp:assembleRelease -PyfuseNativeOnlyRuntime=false -PyfuseIncludeMdk=true -PconfirmMdkDistributionRights=true
 ```
 
 This property is an auditable acknowledgement, not a license key and not a substitute for the
@@ -396,18 +399,19 @@ non-distributable verification artifacts and do not satisfy the production gate.
 points pass `-Pkotlin.incremental=false` so signed packages are recompiled from the checked-out
 source; ordinary development builds keep incremental compilation.
 
-Two production profiles are available. The default/full profile contains Exo, MPV, and MDK; the
-compact profile contains Exo and MPV only. Build both signed APKs with:
+Every standard delivery uses the full profile containing Exo, MPV, and MDK, as required by the
+release owner. Build the signed full APK with:
 
 ```powershell
 .\scripts\build-release-packages.ps1 -ConfirmMdkDistributionRights
 ```
 
-The script writes versioned artifacts to `composeApp/build/outputs/distribution`. To build only the
-compact profile, pass `-PyfuseIncludeMdk=false` to Gradle. MDK is then a compile-only adapter API:
-its Java facade and native libraries are not packaged, it is removed from engine selection, and any
-persisted MDK lock fails closed to automatic routing. The full profile remains the default so an
-ordinary release command preserves the existing three-engine product.
+The script verifies that the final APK contains a nonempty MDK runtime and writes only the full
+artifact to `composeApp/build/outputs/distribution`. Existing compact artifacts in that directory
+are excluded from the new verification record. The compact Gradle configuration
+(`-PyfuseIncludeMdk=false`) remains available only for explicitly requested diagnostic builds;
+it must not replace the standard MDK-inclusive delivery. Its adapter is compile-only, MDK is
+removed from engine selection, and persisted MDK locks fall back to automatic routing.
 
 ## DEX verification
 

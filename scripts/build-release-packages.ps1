@@ -1,7 +1,7 @@
 param(
     [switch]$AllowDebugSigning,
-    # Per-release acknowledgement of the MDK SDK distribution terms. It is intentionally not
-    # stored in gradle.properties: the release owner passes it for each production build.
+    # Record the release owner's applicable MDK acknowledgement for this build (including a
+    # standing instruction for the same pinned component and distribution scope).
     [switch]$ConfirmMdkDistributionRights,
     # A release built from an uncommitted working tree cannot be reproduced from git history
     # alone and must not silently claim to be the clean commit it was built on top of. Refused by
@@ -92,6 +92,23 @@ function Assert-DexVerifies([string]$Apk, [string]$Mapping) {
     }
 }
 
+# The release owner requires MDK in every standard delivery. Check the output itself so a
+# future build configuration change cannot silently produce a package without the engine.
+function Assert-MdkIncluded([string]$Apk) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($Apk)
+    try {
+        foreach ($library in @('libmdk.so', 'libyfuse-mdk-jni.so')) {
+            $engine = $archive.GetEntry("lib/arm64-v8a/$library")
+            if ($null -eq $engine -or $engine.Length -eq 0) {
+                throw "Required MDK library $library is missing or empty in $Apk; do not distribute this package"
+            }
+        }
+    } finally {
+        $archive.Dispose()
+    }
+}
+
 # Signed release validation recompiles from the checked-out source instead of reusing incremental
 # Kotlin state, so a stale local cache cannot leak deleted or renamed classes into the package.
 $commonArgs = @('-Pkotlin.incremental=false')
@@ -105,6 +122,7 @@ $fullArgs = @(
 if ($ConfirmMdkDistributionRights) { $fullArgs += '-PconfirmMdkDistributionRights=true' }
 & (Join-Path $root 'gradlew.bat') @fullArgs
 if ($LASTEXITCODE -ne 0) { throw 'Full release build failed' }
+Assert-MdkIncluded (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk')
 Assert-DexVerifies `
     (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
     (Join-Path $root 'composeApp/build/outputs/mapping/release/mapping.txt')
@@ -112,20 +130,8 @@ Copy-Item -Force `
     (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
     (Join-Path $destination "Yfuse-$($version.VERSION_NAME)-full-arm64.apk")
 
-& (Join-Path $root 'gradlew.bat') `
-    ':composeApp:assembleRelease' `
-    '-PyfuseNativeOnlyRuntime=false' `
-    '-PyfuseIncludeMdk=false' `
-    @commonArgs
-if ($LASTEXITCODE -ne 0) { throw 'Compact release build failed' }
-Assert-DexVerifies `
-    (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
-    (Join-Path $root 'composeApp/build/outputs/mapping/release/mapping.txt')
-Copy-Item -Force `
-    (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
-    (Join-Path $destination "Yfuse-$($version.VERSION_NAME)-compact-arm64.apk")
-
-$artifacts = Get-ChildItem $destination -Filter "Yfuse-$($version.VERSION_NAME)-*-arm64.apk" |
+# List only the artifact produced by this invocation, excluding stale compact packages.
+$artifacts = Get-Item (Join-Path $destination "Yfuse-$($version.VERSION_NAME)-full-arm64.apk") |
     Select-Object Name, Length, @{Name='SHA256'; Expression={(Get-FileHash $_.FullName -Algorithm SHA256).Hash}}
 $artifacts
 
@@ -136,6 +142,7 @@ $verification = [ordered]@{
     generatedAt  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     versionName  = $version.VERSION_NAME
     versionCode  = $version.VERSION_CODE
+    mdkIncluded = $true
     sourceCommit = $sourceCommit
     treeDirty    = $treeDirty
     diffHash     = $diffHash
