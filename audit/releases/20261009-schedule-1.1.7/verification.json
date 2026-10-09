@@ -1,0 +1,71 @@
+{
+  "versionName": "1.1.7",
+  "versionCode": 269,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "aeb27fbf81b1e0610f5ddfb6d5695a2efbbe0cf6",
+  "treeDirtyAtBuild": false,
+  "file": "Yfuse-1.1.7-full-arm64.apk",
+  "bytes": 29822778,
+  "sha256": "760311d02b6418c007d01c53d3464dec45da54f3f824f0936529e0a06dc6948a",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "numberOfSigners": 1,
+  "zipAlignment16K": true,
+  "dexVerified": true,
+  "dexClasses": 14059,
+  "dexMethodsWithCode": 61719,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "dexFiles": [
+    "classes.dex",
+    "classes2.dex"
+  ],
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575",
+      "matchesPrevious": true
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1191008,
+      "sha256": "8c3fdfef2629af11a999325b21864ad2d262879d61065e282abab73a5f3dd7a5",
+      "matchesPrevious": true
+    }
+  },
+  "mdkEngineMatchesPinnedSdk": true,
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "ycoreLibrariesMatchedPrevious": {
+    "lib/arm64-v8a/libavcodec.so": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c",
+    "lib/arm64-v8a/libavformat.so": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc",
+    "lib/arm64-v8a/libavutil.so": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a",
+    "lib/arm64-v8a/libc++_shared.so": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b",
+    "lib/arm64-v8a/libswresample.so": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0",
+    "lib/arm64-v8a/libswscale.so": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8",
+    "lib/arm64-v8a/libycore_demux.so": "5035f0d2f1704875dcdb2c7dfc01bce3294a0702a061a67a14613b48e39ba3fd",
+    "lib/arm64-v8a/libycore_gpu.so": "ccaa620b53d59902b05905f50ef0e7a525a2455ce2e4e92eb511109f32495102"
+  },
+  "previousActualVersionName": "1.1.6",
+  "previousActualVersionCode": 268,
+  "previousArtifactSha256": "c7cf73d483a7fc37efa7e116f4bf3b4f3501a7d62344282fa346c85b5dbb4246",
+  "releaseNotesFirstLine": "1.1.7",
+  "spdxLockPackages": 788,
+  "spdxSha256": "fef01e54a9e4330a5945c25f9e0f84b28d5531fef0be29bdbdbdd698669b4968",
+  "onlineVulnerabilityScanPerformed": false,
+  "tests": {
+    "ShowScheduleTest": {
+      "passed": 11,
+      "failed": 0
+    },
+    "offlinePython": {
+      "passed": 20,
+      "failed": 0
+    }
+  },
+  "deviceTestPerformed": false,
+  "published": false,
+  "uploaded": false,
+  "verifiedAtUtc": "2026-10-09T10:02:58.744492+00:00"
+}
