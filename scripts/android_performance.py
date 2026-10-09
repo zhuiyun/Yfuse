@@ -26,6 +26,7 @@ EXPECTED = {
     "StartupBenchmark": ("coldStartupAndFirstFrames", "timeToInitialDisplayMs", "metrics"),
     "HomeJourneyBenchmark": ("homeScrollFrames", "frameDurationCpuMs", "sampledMetrics"),
     "NavigationJourneyBenchmark": ("searchAndTabTransitions", "frameDurationCpuMs", "sampledMetrics"),
+    "DanmakuJourneyBenchmark": ("denseDanmakuFrames", "frameDurationCpuMs", "sampledMetrics"),
 }
 
 
@@ -69,12 +70,15 @@ def numeric_samples(values, name: str) -> list[float]:
     return [float(value) for value in values]
 
 
-def summarize_results(documents: list[dict], iterations: int = 5) -> dict:
+def summarize_results(documents: list[dict], iterations: int = 5, benchmark_names=None) -> dict:
+    expected = set(EXPECTED if benchmark_names is None else benchmark_names)
+    if not expected or not expected <= set(EXPECTED):
+        raise ValueError("Unknown or empty benchmark selection")
     selected = {}
     for document in documents:
         for benchmark in document.get("benchmarks", []):
             short_class = benchmark.get("className", "").split(".")[-1]
-            if short_class not in EXPECTED:
+            if short_class not in expected:
                 continue
             method, metric, bucket = EXPECTED[short_class]
             if benchmark.get("name", "").split("[")[0] != method:
@@ -96,8 +100,8 @@ def summarize_results(documents: list[dict], iterations: int = 5) -> dict:
                 "median_ms": statistics.median(values), "p95_ms": percentile(values, 0.95),
                 "params": benchmark.get("params", {}),
             }
-    if set(selected) != set(EXPECTED):
-        raise ValueError(f"Incomplete benchmark run; missing {sorted(set(EXPECTED) - set(selected))}")
+    if set(selected) != expected:
+        raise ValueError(f"Incomplete benchmark run; missing {sorted(expected - set(selected))}")
     return selected
 
 
@@ -105,8 +109,10 @@ def compare_results(current: dict, baseline: dict, maximum_regression: float | N
     for key in ("device", "fixture_hash", "package", "variant", "runtime_profile"):
         if current.get(key) != baseline.get(key):
             raise ValueError(f"Incompatible baseline: {key} differs")
+    if set(current["measurements"]) != set(baseline["measurements"]):
+        raise ValueError("Incompatible baseline: benchmark selection differs")
     changes = {}
-    for name in EXPECTED:
+    for name in current["measurements"]:
         now, old = current["measurements"][name], baseline["measurements"][name]
         for key in ("iterations", "params", "metric"):
             if now.get(key) != old.get(key):
@@ -225,6 +231,7 @@ def fixture_hash() -> str:
     files = sorted((ROOT / "composeApp/src/performance").rglob("*"))
     files += [ROOT / "macrobenchmark/src/main/kotlin/com/yfuse/macrobenchmark" / name for name in (
         "HomeJourney.kt", "HomeJourneyBenchmark.kt", "StartupBenchmark.kt", "NavigationJourneyBenchmark.kt",
+        "DanmakuJourneyBenchmark.kt",
     )]
     for path in files:
         if path.is_file():
@@ -236,6 +243,7 @@ def fixture_hash() -> str:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("benchmark", "profile"), default="benchmark")
+    parser.add_argument("--benchmark", action="append", choices=EXPECTED, help="Run only the named benchmark; repeat to select several")
     parser.add_argument("--serial", required=True, help="Explicit physical device serial")
     parser.add_argument("--sdk", type=Path, default=os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME"))
     parser.add_argument("--app-id", default="com.yfuse")
@@ -246,6 +254,11 @@ def main(argv=None) -> int:
     parser.add_argument("--export-profiles", action="store_true", help="After real profile capture, update production source rules")
     parser.add_argument("--gradle-arg", action="append", default=[])
     args = parser.parse_args(argv)
+    selected_benchmarks = tuple(args.benchmark or EXPECTED)
+    if len(selected_benchmarks) != len(set(selected_benchmarks)):
+        raise ValueError("Duplicate benchmark selection")
+    if args.mode == "profile" and args.benchmark:
+        raise ValueError("Benchmark selection is only valid in benchmark mode")
     if any(value.startswith(("-PyfuseApplicationId=", "-PyfuseNativeOnlyRuntime=")) for value in args.gradle_arg):
         raise ValueError("Use --app-id/--runtime-profile so the recorded benchmark identity remains accurate")
     package = target_package(args.app_id)
@@ -282,6 +295,8 @@ def main(argv=None) -> int:
     }
     variant = args.mode
     metadata = {"device": device, "package": package, "variant": variant, "runtime_profile": args.runtime_profile, "fixture_hash": fixture_hash(), "started_epoch": time.time()}
+    if variant == "benchmark":
+        metadata["benchmark_classes"] = list(selected_benchmarks)
     (output / "device.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     (output / "battery-before.txt").write_text(shell("dumpsys", "battery"), encoding="utf-8")
     env = dict(os.environ, ANDROID_SERIAL=args.serial)
@@ -305,7 +320,7 @@ def main(argv=None) -> int:
         metadata["r8_mapping_sha256"] = sha256(mapping)
     remote = f"/sdcard/Android/media/{TEST_NAMESPACE}/performance-{uuid.uuid4().hex}"
     shell("mkdir", "-p", remote)
-    classes = (f"{TEST_NAMESPACE}.BaselineProfileGenerator" if variant == "profile" else ",".join(f"{TEST_NAMESPACE}.{name}" for name in EXPECTED))
+    classes = (f"{TEST_NAMESPACE}.BaselineProfileGenerator" if variant == "profile" else ",".join(f"{TEST_NAMESPACE}.{name}" for name in selected_benchmarks))
     run([
         *base, f":macrobenchmark:connected{title}AndroidTest",
         # AGP normally uninstalls test APKs and removes their Android/media output.
@@ -324,7 +339,7 @@ def main(argv=None) -> int:
             export_profiles(raw, ROOT / "composeApp/src/androidMain")
     else:
         documents = [json.loads(path.read_text(encoding="utf-8")) for path in raw.rglob("*benchmarkData.json")]
-        metadata["measurements"] = summarize_results(documents)
+        metadata["measurements"] = summarize_results(documents, benchmark_names=selected_benchmarks)
         (output / "summary.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
         if args.baseline:
             baseline = json.loads(args.baseline.read_text(encoding="utf-8"))

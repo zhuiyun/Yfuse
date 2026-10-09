@@ -63,7 +63,7 @@ class ShowScheduleTest {
     }
 
     @Test
-    fun a_day_names_its_run_of_episodes_or_only_how_many_there_are() {
+    fun a_day_names_the_specific_episodes_including_gaps_and_season_changes() {
         val single = scheduleDaySpan(listOf(entry(39, "2026-10-01")))
         assertEquals(ScheduleDaySpan.Run(39, 39), single)
         assertEquals("39", single?.cellLabel)
@@ -73,13 +73,16 @@ class ShowScheduleTest {
         assertEquals("40-44", run?.cellLabel)
         assertEquals("第 40-44 集", run?.phrase)
 
-        // A gap would be claimed by a range, so only the count is said.
+        // A gap must not be claimed by a range or hidden behind a count.
         val gapped = scheduleDaySpan(listOf(entry(41, "2026-10-03"), entry(45, "2026-10-03")))
-        assertEquals(ScheduleDaySpan.Count(2), gapped)
-        assertEquals("2 集", gapped?.cellLabel)
+        assertEquals(ScheduleDaySpan.Episodes(listOf(1 to 41, 1 to 45)), gapped)
+        assertEquals("41,45", gapped?.cellLabel)
+        assertEquals("第 41、45 集", gapped?.phrase)
 
         val twoSeasons = scheduleDaySpan(listOf(entry(10, "2026-10-03"), entry(1, "2026-10-03", season = 2)))
-        assertEquals(ScheduleDaySpan.Count(2), twoSeasons)
+        assertEquals(ScheduleDaySpan.Episodes(listOf(1 to 10, 2 to 1)), twoSeasons)
+        assertEquals("S1E10/S2E1", twoSeasons?.cellLabel)
+        assertEquals("第 1 季第 10 集、第 2 季第 1 集", twoSeasons?.phrase)
 
         // The same episode from two platforms is still one episode.
         assertEquals(

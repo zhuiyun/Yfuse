@@ -1048,16 +1048,19 @@ private fun HeroSlide(
     val artworkUrls: List<String?> =
         remember(item) { tmdbHeroArtworkUrls(item) }
     var resolvedArtworkUrl by remember(item?.id) { mutableStateOf<String?>(null) }
+    // Colour sampling makes a second image request. Let the selected slide's visible artwork
+    // finish first, and avoid decoding colours for neighbours that may never be shown.
+    val colorArtworkUrl = resolvedArtworkUrl.takeIf { settled }
     val artworkAccent =
         rememberArtworkAccentTarget(
-            url = artworkUrls.firstOrNull { it != null },
+            url = colorArtworkUrl,
             fallback = Brand.Primary, // design-system: brand-identity
             darkTheme = palette.isDark,
             identity = item?.id,
         )
     val artworkPageColor =
         rememberArtworkPageColor(
-            url = resolvedArtworkUrl,
+            url = colorArtworkUrl,
             targetAspectRatio = artworkAspectRatio,
             fadeFraction = artworkFadeFraction,
         )

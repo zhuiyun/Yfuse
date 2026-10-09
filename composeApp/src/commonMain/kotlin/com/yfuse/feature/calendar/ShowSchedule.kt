@@ -98,10 +98,12 @@ internal sealed interface ScheduleDaySpan {
         val last: Int,
     ) : ScheduleDaySpan
 
-    /**
-     * Episodes that are not one run — two seasons on one day, or a gap between them. A range would
-     * claim the episodes in the gap, so only how many there are is said.
-     */
+    /** Known episodes that cannot be represented by one unbroken range. */
+    data class Episodes(
+        val coordinates: List<Pair<Int, Int>>,
+    ) : ScheduleDaySpan
+
+    /** A source with no usable episode coordinates can only provide a count. */
     data class Count(
         val count: Int,
     ) : ScheduleDaySpan
@@ -114,32 +116,50 @@ internal fun scheduleDaySpan(entries: List<CalendarEntry>): ScheduleDaySpan? {
     val episodes = entries.map(CalendarEntry::episode)
     if (episodes.isEmpty()) return null
     if (episodes.any(AiringEpisode::isMovie)) return ScheduleDaySpan.Release
-    val coordinates = episodes.map { it.seasonNumber to it.episodeNumber }.distinct()
+    val coordinates =
+        episodes
+            .map { it.seasonNumber to it.episodeNumber }
+            .distinct()
+            .sortedWith(compareBy({ it.first }, { it.second }))
     val numbers = coordinates.map { it.second }.sorted()
     val first = numbers.first()
     val last = numbers.last()
     val oneSeason = coordinates.map { it.first }.distinct().size == 1
-    return if (oneSeason && first > 0 && last - first + 1 == numbers.size) {
-        ScheduleDaySpan.Run(first, last)
-    } else {
-        ScheduleDaySpan.Count(coordinates.size)
+    return when {
+        first <= 0 -> ScheduleDaySpan.Count(coordinates.size)
+        oneSeason && last - first + 1 == numbers.size -> ScheduleDaySpan.Run(first, last)
+        else -> ScheduleDaySpan.Episodes(coordinates)
     }
 }
 
-/** Under the date: `39`, `40-44`, `3 集`, or 上映. */
+/** Under the date: `39`, `40-44`, `41,45`, `S1E10/S2E1`, or 上映. */
 internal val ScheduleDaySpan.cellLabel: String
     get() =
         when (this) {
             is ScheduleDaySpan.Run -> if (first == last) "$first" else "$first-$last"
+            is ScheduleDaySpan.Episodes ->
+                if (coordinates.map { it.first }.distinct().size == 1) {
+                    coordinates.joinToString(",") { it.second.toString() }
+                } else {
+                    coordinates.joinToString("/") { (season, episode) -> "S${season}E$episode" }
+                }
             is ScheduleDaySpan.Count -> "$count 集"
             ScheduleDaySpan.Release -> "上映"
         }
 
-/** In a sentence: `第 39 集`, `第 40-44 集`, `3 集`, or 上映. */
+/** In a sentence, retain every known episode number, including gaps and season changes. */
 internal val ScheduleDaySpan.phrase: String
     get() =
         when (this) {
             is ScheduleDaySpan.Run -> if (first == last) "第 $first 集" else "第 $first-$last 集"
+            is ScheduleDaySpan.Episodes ->
+                if (coordinates.map { it.first }.distinct().size == 1) {
+                    "第 ${coordinates.joinToString("、") { it.second.toString() }} 集"
+                } else {
+                    coordinates.joinToString("、") { (season, episode) ->
+                        if (season > 0) "第 $season 季第 $episode 集" else "特别篇第 $episode 集"
+                    }
+                }
             is ScheduleDaySpan.Count -> "$count 集"
             ScheduleDaySpan.Release -> "上映"
         }

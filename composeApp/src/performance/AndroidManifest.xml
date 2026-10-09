@@ -15,5 +15,10 @@
             android:name="com.yfuse.performance.HomeFixtureActivity"
             android:exported="true"
             android:theme="@style/Theme.Yfuse" />
+        <activity
+            android:name="com.yfuse.performance.DanmakuFixtureActivity"
+            android:exported="true"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.Yfuse" />
     </application>
 </manifest>

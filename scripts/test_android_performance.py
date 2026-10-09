@@ -63,6 +63,9 @@ def measured_documents():
         {"className": "com.yfuse.macrobenchmark.NavigationJourneyBenchmark", "name": "searchAndTabTransitions", "sampledMetrics": {
             "frameDurationCpuMs": {"runs": [[7, 9, 11]] * 5},
         }},
+        {"className": "com.yfuse.macrobenchmark.DanmakuJourneyBenchmark", "name": "denseDanmakuFrames", "sampledMetrics": {
+            "frameDurationCpuMs": {"runs": [[9, 12, 15]] * 5},
+        }},
     ]}]
 
 
@@ -216,17 +219,26 @@ class AndroidPerformanceTest(unittest.TestCase):
         require_profile_device(33, False)
         require_profile_device(28, True)
 
-    def test_summary_requires_both_actual_five_iteration_metrics(self):
+    def test_summary_requires_all_actual_five_iteration_metrics(self):
         summary = summarize_results(measured_documents())
         self.assertEqual(410, summary["StartupBenchmark"]["median_ms"])
         self.assertEqual(12, summary["HomeJourneyBenchmark"]["p95_ms"])
         self.assertEqual(15, summary["HomeJourneyBenchmark"]["samples"])
+        self.assertEqual(15, summary["DanmakuJourneyBenchmark"]["p95_ms"])
         with self.assertRaises(ValueError):
             summarize_results([])
         incomplete = measured_documents()
         incomplete[0]["benchmarks"].pop()
         with self.assertRaises(ValueError):
             summarize_results(incomplete)
+
+    def test_selected_benchmark_accepts_only_its_own_result(self):
+        selected = summarize_results(measured_documents(), benchmark_names=("DanmakuJourneyBenchmark",))
+        self.assertEqual(["DanmakuJourneyBenchmark"], list(selected))
+        with self.assertRaises(ValueError):
+            summarize_results(measured_documents(), benchmark_names=())
+        with self.assertRaises(ValueError):
+            summarize_results(measured_documents(), benchmark_names=("UnknownBenchmark",))
 
     def test_empty_nan_and_missing_iterations_cannot_pass(self):
         for bad_runs in ([], [[8]] * 4, [[8], [8], [], [8], [8]], [[8], [8], [float("nan")], [8], [8]]):

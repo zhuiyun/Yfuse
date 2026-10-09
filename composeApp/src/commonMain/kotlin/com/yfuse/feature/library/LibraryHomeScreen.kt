@@ -628,7 +628,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                     )
                                 }
                                 state.content.rows.libraryShelfRows().forEach { row ->
-                                    waveItem(key = "library-shelf:${row.libraryId}:${row.title}") {
+                                    waveItem(
+                                        key = "library-shelf:${row.libraryId}:${row.title}",
+                                        contentType = "library-shelf",
+                                    ) {
                                         CategorySection(
                                             baseUrl = baseUrl,
                                             accessToken = accessToken,
@@ -1579,9 +1582,10 @@ private fun LibraryArrivalScope(
  */
 private fun LazyListScope.waveItem(
     key: Any?,
+    contentType: Any? = null,
     content: @Composable LazyItemScope.() -> Unit,
 ) {
-    motionItem(key = key) {
+    motionItem(key = key, contentType = contentType) {
         val itemScope = this
         Box(Modifier.launchWaveItem()) { itemScope.content() }
     }

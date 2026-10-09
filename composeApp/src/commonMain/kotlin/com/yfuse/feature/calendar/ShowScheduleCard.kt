@@ -909,6 +909,7 @@ private fun ScheduleDayCell(
                 color = selectionColor(if (selected) accent.accent else palette.sub2),
                 maxLines = 1,
                 softWrap = false,
+                overflow = TextOverflow.Ellipsis,
                 modifier =
                     Modifier
                         .clip(CircleShape)
