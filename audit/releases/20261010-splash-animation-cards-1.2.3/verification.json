@@ -1,0 +1,122 @@
+{
+  "versionName": "1.2.3",
+  "versionCode": 275,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "ab36742935a2a8c2fd6373c8890d97a0ca85adef",
+  "file": "Yfuse-1.2.3-full-arm64.apk",
+  "bytes": 29869947,
+  "sha256": "5d7bc46b93793170ef9a4bfb0c2c48825387b33c57f952e95ad2ce440ac02539",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "numberOfSigners": 1,
+  "zipAlignment4Verified": true,
+  "applicationPayloadUnchangedBySigning": true,
+  "dexFiles": {
+    "classes.dex": "e1a03314de8612bbc45c4003fae4fdf33c017b22862631e528c791c99aa22c25",
+    "classes2.dex": "52335035880d922134349f178339222f47b60f963614f62889d0a4acb71793d3"
+  },
+  "dexVerifiedInBuild": true,
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1191928,
+      "sha256": "c8da625231316e33b8d4cf94e6d003fd90a77daea1ebf41777faff03ec20ce2b"
+    }
+  },
+  "mdkEngineMatchesPinnedSdk": true,
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "previousActualVersionName": "1.2.2",
+  "previousActualVersionCode": 274,
+  "packageRun": 38054293439,
+  "deliveryScope": "package-only",
+  "updatePublished": false,
+  "physicalDeviceTestPerformed": false,
+  "verifiedAtUtc": "2026-10-10T13:54:15.919376+00:00",
+  "startupSmokePassedApis": [
+    35,
+    36,
+    37
+  ],
+  "startupSmokeEvidence": [
+    {
+      "api": 35,
+      "jobId": 114227299953,
+      "reportedLatestJobId": 114227299953,
+      "artifactId": 11671268890,
+      "artifactSha256": "bd3a5814a88aa2bfc95e0701f9e1ba26f8d6e2333fee3b67200bb97222b86eb6",
+      "attempt": 5,
+      "result": "success",
+      "casesPassed": 14
+    },
+    {
+      "api": 36,
+      "jobId": 114225684582,
+      "reportedLatestJobId": 114227300563,
+      "artifactId": 11672027300,
+      "artifactSha256": "50e69429962e58bd54064320157002edece98b19cf1ebbec3aec62a0264a79a7",
+      "attempt": 4,
+      "result": "success",
+      "casesPassed": 14
+    },
+    {
+      "api": 37,
+      "jobId": 114223940501,
+      "reportedLatestJobId": 114227300947,
+      "artifactId": 11671691644,
+      "artifactSha256": "be9f7356f5bc49d86c759900eb83d2a1a967d0e9cb98e2072a267d8a6edb6d10",
+      "attempt": 3,
+      "result": "success",
+      "casesPassed": 14
+    }
+  ],
+  "startupSmokeScope": "Unauthenticated installation, startup, navigation, display configuration, offline UI and short foreground/background checks; not full acceptance or physical-device performance.",
+  "qualityGatesRun": 38054293261,
+  "qualityGatesResult": "success",
+  "qualityGatesAttempt": 1,
+  "instrumentedTests": {
+    "tests": 60,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3
+  },
+  "packageRunAttempt": 5,
+  "dexClasses": 14101,
+  "dexMethodsWithCode": 61948,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "releaseNotesFirstLine": "1.2.3",
+  "previousArtifactSha256": "6ae8066a048cf016a94ff011d0419aa746b67d9e383c2b6bc4470a9583ec3080",
+  "packageArtifactId": 11672053114,
+  "packageArtifactSha256": "2c272ebc8c4d9658d51b7e24b7f94de4d3b56b86e22f19c9fc61d3b29b3f59a4",
+  "readyForDelivery": true,
+  "startupRetryObservations": [
+    {
+      "api": 35,
+      "attempt": 3,
+      "jobId": 114223940527,
+      "observation": "Pixel Launcher ANR dialog obstructed the already-started app. Reviewed screenshot and empty app crash/exit buffers.",
+      "artifactId": 11671930991
+    },
+    {
+      "api": 35,
+      "attempt": 4,
+      "jobId": 114225684615,
+      "observation": "Android SDK command-line tools download failed with HTTP 502 before application checks.",
+      "artifactId": 11671942158
+    },
+    {
+      "api": 36,
+      "attempt": 3,
+      "jobId": 114223940550,
+      "observation": "Yfuse focus-event input ANR during the foreground/background check. High emulator rendering/kernel CPU load was observed; this does not establish a root cause. The unchanged signed APK passed all 14 cases on attempt 4, including 21 foreground/background cycles over 123 seconds.",
+      "artifactId": 11672006145
+    }
+  ],
+  "applicationOrTestsChangedForStartupRetries": false
+}
