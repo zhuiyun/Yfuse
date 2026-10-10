@@ -21,7 +21,9 @@ class LocalViewingMetadataTest {
                 seasonNumber = 2,
                 episodeNumber = 3,
                 mediaType = "Episode",
-                posterUrl = "https://server/photo/:/transcode?url=%2Flibrary%2Fmetadata%2F100%2Fthumb%3Ftoken%3Dsecret&X-Plex-Token=secret",
+                posterUrl =
+                    "https://server/photo/:/transcode?url=%2Flibrary%2Fmetadata%2F100%2Fthumb" +
+                        "%3Ftoken%3Dsecret&X-Plex-Token=secret",
             )
         val session = item.localViewingSession("viewing", 100L)
         assertEquals("tmdb:tv:100", session.seriesKey)
