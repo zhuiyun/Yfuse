@@ -150,6 +150,202 @@ class PlaybackEngineSlotTest {
         }
 
     @Test
+    fun a_failed_serialized_release_is_resumed_before_a_new_root_can_play() =
+        runTest {
+            var cleaned = false
+            var attempts = 0
+            var releasedCallbacks = 0
+            val retirements =
+                PlaybackEngineRetirements(
+                    backgroundScope,
+                    release = {
+                        attempts++
+                        if (attempts == 1) error("decoder join timed out")
+                        cleaned = true
+                    },
+                    completed = { cleaned },
+                )
+            val oldSlot =
+                PlaybackEngineSlot(input(), this, retirements, onReleased = { _, _ -> releasedCallbacks++ })
+            oldSlot.request(PlaybackEngineRequest(input()) { _, _ -> SlotTestEngine(input()) })
+            runCurrent()
+            oldSlot.close()
+            runCurrent()
+            assertEquals(1, attempts)
+            assertEquals(0, releasedCallbacks)
+
+            val otherInput = PlaybackEngineInput(listOf(item("previously-playable")), input().handover)
+            val newSlot = PlaybackEngineSlot(otherInput, this, retirements)
+            val fresh = SlotTestEngine(otherInput)
+            newSlot.request(PlaybackEngineRequest(otherInput) { _, _ -> fresh })
+            runCurrent()
+            assertSame(fresh, newSlot.binding.value.engine)
+            assertTrue(cleaned)
+            assertEquals(2, attempts)
+            assertEquals(1, releasedCallbacks)
+            newSlot.close()
+        }
+
+    @Test
+    fun retrying_cleanup_never_constructs_a_decoder_while_release_is_still_incomplete() =
+        runTest {
+            var attempts = 0
+            val retirements =
+                PlaybackEngineRetirements(backgroundScope, { attempts++ }, completed = { false })
+            retirements.retire(SlotTestEngine(input()))
+            runCurrent()
+            val slot = PlaybackEngineSlot(input(), this, retirements)
+            var built = 0
+            slot.request(
+                PlaybackEngineRequest(input()) { _, _ ->
+                    built++
+                    SlotTestEngine(input())
+                },
+            )
+            runCurrent()
+            assertEquals(2, attempts)
+            assertNotNull(slot.binding.value.engine.state.value.error)
+            slot.binding.value.engine
+                .retry()
+            runCurrent()
+            assertEquals(3, attempts)
+            assertEquals(0, built)
+            assertNotNull(slot.binding.value.engine.state.value.error)
+            slot.close()
+        }
+
+    @Test
+    fun concurrent_roots_share_one_cleanup_retry_and_one_construction_lease() =
+        runTest {
+            val finish = CompletableDeferred<Unit>()
+            var cleaned = false
+            var attempts = 0
+            val retired = SlotTestEngine(input())
+            val retirements =
+                PlaybackEngineRetirements(
+                    backgroundScope,
+                    release = {
+                        if (it === retired) {
+                            attempts++
+                            if (attempts == 1) error("decoder join timed out")
+                            finish.await()
+                            cleaned = true
+                        }
+                    },
+                    completed = { if (it === retired) cleaned else null },
+                )
+            retirements.retire(retired)
+            runCurrent()
+            val first = PlaybackEngineSlot(input(), this, retirements)
+            val second = PlaybackEngineSlot(input(), this, retirements)
+            val factoryFinish = CompletableDeferred<Unit>()
+            var built = 0
+            first.request(
+                PlaybackEngineRequest(input()) { _, _ ->
+                    built++
+                    factoryFinish.await()
+                    SlotTestEngine(input())
+                },
+            )
+            second.request(
+                PlaybackEngineRequest(input()) { _, _ ->
+                    built++
+                    SlotTestEngine(input())
+                },
+            )
+            runCurrent()
+            assertEquals(2, attempts)
+            assertEquals(0, built)
+            finish.complete(Unit)
+            runCurrent()
+            assertEquals(1, built)
+            factoryFinish.complete(Unit)
+            runCurrent()
+            assertEquals(2, built)
+            assertEquals(2, attempts)
+            first.close()
+            second.close()
+        }
+
+    @Test
+    fun a_late_completed_release_clears_the_failed_attempt_without_releasing_twice() =
+        runTest {
+            var cleaned = false
+            var attempts = 0
+            var callbacks = 0
+            val retired = SlotTestEngine(input())
+            val retirements =
+                PlaybackEngineRetirements(
+                    backgroundScope,
+                    release = {
+                        attempts++
+                        error("decoder join timed out")
+                    },
+                    completed = { cleaned },
+                )
+            retirements.retire(retired) { callbacks++ }
+            runCurrent()
+            cleaned = true
+            val slot = PlaybackEngineSlot(input(), this, retirements)
+            val fresh = SlotTestEngine(input())
+            slot.request(PlaybackEngineRequest(input()) { _, _ -> fresh })
+            runCurrent()
+            assertSame(fresh, slot.binding.value.engine)
+            assertEquals(1, attempts)
+            assertEquals(1, callbacks)
+            slot.close()
+        }
+
+    @Test
+    fun a_timed_out_wait_does_not_cancel_cleanup_and_manual_retry_can_resume_playback() =
+        runTest {
+            val finish = CompletableDeferred<Unit>()
+            var cleaned = false
+            var attempts = 0
+            val retired = SlotTestEngine(input())
+            val retirements =
+                PlaybackEngineRetirements(
+                    backgroundScope,
+                    release = {
+                        if (it === retired) {
+                            attempts++
+                            if (attempts == 1) error("decoder join timed out")
+                            finish.await()
+                            cleaned = true
+                        }
+                    },
+                    completed = { if (it === retired) cleaned else null },
+                )
+            retirements.retire(retired)
+            runCurrent()
+            val slot = PlaybackEngineSlot(input(), this, retirements, waitTimeoutMs = 100L)
+            val fresh = SlotTestEngine(input())
+            var built = 0
+            slot.request(
+                PlaybackEngineRequest(input()) { _, _ ->
+                    built++
+                    fresh
+                },
+            )
+            runCurrent()
+            advanceTimeBy(101L)
+            runCurrent()
+            assertNotNull(slot.binding.value.engine.state.value.error)
+            assertEquals(0, built)
+            assertEquals(2, attempts)
+            finish.complete(Unit)
+            runCurrent()
+            assertTrue(cleaned)
+            slot.binding.value.engine
+                .retry()
+            runCurrent()
+            assertSame(fresh, slot.binding.value.engine)
+            assertEquals(1, built)
+            assertEquals(2, attempts)
+            slot.close()
+        }
+
+    @Test
     fun a_noncooperative_factory_result_is_retired_when_the_slot_has_closed() =
         runTest {
             val finish = CompletableDeferred<Unit>()
