@@ -1,4 +1,4 @@
-"""Import the approved player-splash PNG layers; cache small blur mipmaps for Android 8+.
+"""Import approved splash layers as lossless WebP; cache blur mipmaps for Android 8+.
 
 Usage: python import_splash_artwork.py <player-splash/assets>
 No redesign: all layers retain their common registration and original aspect ratio.
@@ -20,11 +20,11 @@ for name in ("logo", "blue", "orange", "gold", "outline"):
     original.thumbnail((432, 432), Image.Resampling.LANCZOS)
     aligned = Image.new("RGBA", (512, 512))
     aligned.alpha_composite(original, ((512 - original.width) // 2, (512 - original.height) // 2))
-    aligned.save(target / f"water_fire_{name}.png", optimize=True)
+    aligned.save(target / f"water_fire_{name}.webp", lossless=True, exact=True, method=6)
     if name != "outline":
         for radius in (8, 24):
             aligned.filter(ImageFilter.GaussianBlur(radius)).resize((256, 256), Image.Resampling.LANCZOS).save(
-                target / f"water_fire_{name}_blur{radius}.png", optimize=True
+                target / f"water_fire_{name}_blur{radius}.webp", lossless=True, exact=True, method=6
             )
 print(f"Imported registered artwork to {target}")
 

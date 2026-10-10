@@ -1,0 +1,219 @@
+{
+  "format": "lossless WebP",
+  "rgbaVerified": true,
+  "originalTotalBytes": 1045586,
+  "compressedTotalBytes": 620370,
+  "resources": [
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/cloud_player_logo.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/cloud_player_logo.webp",
+      "width": 1254,
+      "height": 1254,
+      "originalBytes": 181020,
+      "compressedBytes": 127800,
+      "rgbaSha256": "59a06bef56b5f377ccdb71abe6ccb962ed531c53ce5f85c2c2fabd2bc5da2919",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_blue.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_blue.webp",
+      "width": 512,
+      "height": 512,
+      "originalBytes": 39059,
+      "compressedBytes": 24980,
+      "rgbaSha256": "2ebadb4a4fcbf4200a104d35b386546e76021665a8d412cfe1f4878de2e278fa",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_blue_blur24.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_blue_blur24.webp",
+      "width": 256,
+      "height": 256,
+      "originalBytes": 38685,
+      "compressedBytes": 27146,
+      "rgbaSha256": "1ed81f2d2174bc72b9ab1264ce7a3815fc84101fa1983eb445dbd89f5b25ce95",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_blue_blur8.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_blue_blur8.webp",
+      "width": 256,
+      "height": 256,
+      "originalBytes": 23671,
+      "compressedBytes": 15868,
+      "rgbaSha256": "53faeffe4d381d86f03f59f68fe3f1bbbe9202f45c5f36be1d39d466e19f8c01",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_gold.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_gold.webp",
+      "width": 512,
+      "height": 512,
+      "originalBytes": 10552,
+      "compressedBytes": 6426,
+      "rgbaSha256": "cab2e7274a142f88cc6e3f1729b077511e90faf840d927b6d6ae09b920c9dc3c",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_gold_blur24.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_gold_blur24.webp",
+      "width": 256,
+      "height": 256,
+      "originalBytes": 13241,
+      "compressedBytes": 9416,
+      "rgbaSha256": "50ed1ee6cc9a53a31f0513b0c5c8fe611fe15f39dfbeba2d35f7f2d3f9ebda83",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_gold_blur8.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_gold_blur8.webp",
+      "width": 256,
+      "height": 256,
+      "originalBytes": 8244,
+      "compressedBytes": 5564,
+      "rgbaSha256": "ca0e61ac4accd0249d1d745568034f33a56dcbe8260328d906e5801796f85546",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_logo.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_logo.webp",
+      "width": 512,
+      "height": 512,
+      "originalBytes": 65056,
+      "compressedBytes": 45958,
+      "rgbaSha256": "456585594f1774f196127b73fde2ae676b0181893f980251e4cf60f9b27ff2bc",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_logo_blur24.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_logo_blur24.webp",
+      "width": 256,
+      "height": 256,
+      "originalBytes": 59284,
+      "compressedBytes": 42474,
+      "rgbaSha256": "7db4d045f41bf162d688fd50b6461e68ebae18e566c05118bb54cc132208b771",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_logo_blur8.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_logo_blur8.webp",
+      "width": 256,
+      "height": 256,
+      "originalBytes": 42716,
+      "compressedBytes": 30422,
+      "rgbaSha256": "b124e45a7ac35e98fdd5d48bf4ff2ee749262ccec6c5b7bffc6153ff2aeea580",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_orange.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_orange.webp",
+      "width": 512,
+      "height": 512,
+      "originalBytes": 23598,
+      "compressedBytes": 16950,
+      "rgbaSha256": "31bdc020ba0003f4174953097cdac53d8f382a3f22017b180328ce90e6d23c52",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_orange_blur24.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_orange_blur24.webp",
+      "width": 256,
+      "height": 256,
+      "originalBytes": 27774,
+      "compressedBytes": 19850,
+      "rgbaSha256": "d2d61e651e2077491abdafacf6c6f1ad731efb2874c49f93613d75091c7d6cb5",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_orange_blur8.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_orange_blur8.webp",
+      "width": 256,
+      "height": 256,
+      "originalBytes": 18141,
+      "compressedBytes": 12058,
+      "rgbaSha256": "6aa8b0e8533cdd841f07777eb12d115a4628e82f67af5fdf9b32f6a482d4ec82",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_outline.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/water_fire_outline.webp",
+      "width": 512,
+      "height": 512,
+      "originalBytes": 42696,
+      "compressedBytes": 17160,
+      "rgbaSha256": "ac739f4a8c1a2cbbfdbf0180ba4bb029e72481ef3ac990aad85855c38ab2836e",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/yfuse_mark.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/yfuse_mark.webp",
+      "width": 512,
+      "height": 512,
+      "originalBytes": 163703,
+      "compressedBytes": 78038,
+      "rgbaSha256": "7ae2af5fa67c0674e784ad283c0583283fc50553a8d7b479684534247607f755",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/drawable-nodpi/yfuse_mark_ribbon.png",
+      "output": "composeApp/src/androidMain/res/drawable-nodpi/yfuse_mark_ribbon.webp",
+      "width": 512,
+      "height": 512,
+      "originalBytes": 148008,
+      "compressedBytes": 71606,
+      "rgbaSha256": "a70dc3f9a39e7f266c3a1af9a1b3bff03d51f8d0bdbd0a0d81b58a0defa64413",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/mipmap-hdpi/ic_launcher_foreground.png",
+      "output": "composeApp/src/androidMain/res/mipmap-hdpi/ic_launcher_foreground.webp",
+      "width": 162,
+      "height": 162,
+      "originalBytes": 13031,
+      "compressedBytes": 7292,
+      "rgbaSha256": "a701bf88625f5a5d92e676e8314cab6d85780143982e5c3ab089f30e7ba75362",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/mipmap-mdpi/ic_launcher_foreground.png",
+      "output": "composeApp/src/androidMain/res/mipmap-mdpi/ic_launcher_foreground.webp",
+      "width": 108,
+      "height": 108,
+      "originalBytes": 6735,
+      "compressedBytes": 4176,
+      "rgbaSha256": "036e6e7778527e62dc5cf80a731dad5f8cd89636e737829712d29605c5b3cd1a",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/mipmap-xhdpi/ic_launcher_foreground.png",
+      "output": "composeApp/src/androidMain/res/mipmap-xhdpi/ic_launcher_foreground.webp",
+      "width": 216,
+      "height": 216,
+      "originalBytes": 20435,
+      "compressedBytes": 10364,
+      "rgbaSha256": "7dde7db61483e48e5c0d1e1d07f59a7e5ff0a11ba685f1a7d35e051bd7cb84fb",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/mipmap-xxhdpi/ic_launcher_foreground.png",
+      "output": "composeApp/src/androidMain/res/mipmap-xxhdpi/ic_launcher_foreground.webp",
+      "width": 324,
+      "height": 324,
+      "originalBytes": 39201,
+      "compressedBytes": 18456,
+      "rgbaSha256": "40d2549dc4d1feda587b4d83b7aaba3b9795f2ff69f9853ac797b35d40ed3db3",
+      "pixelsUnchanged": true
+    },
+    {
+      "source": "composeApp/src/androidMain/res/mipmap-xxxhdpi/ic_launcher_foreground.png",
+      "output": "composeApp/src/androidMain/res/mipmap-xxxhdpi/ic_launcher_foreground.webp",
+      "width": 432,
+      "height": 432,
+      "originalBytes": 60736,
+      "compressedBytes": 28366,
+      "rgbaSha256": "d8083ccdc487c1bc26e8d9a26b906ffe0bf20d510658e37efdefa81532a0a686",
+      "pixelsUnchanged": true
+    }
+  ],
+  "savedBytes": 425216
+}

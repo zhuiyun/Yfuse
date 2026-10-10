@@ -16,8 +16,6 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.OverlayOptionRow
-import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -30,7 +28,7 @@ internal fun LoadingAnimationSheet(
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             "加载动画",
-            "${LoadingAnimation.entries.size} 款多彩样式，点击预览并保存，应用于页面、按钮与播放缓冲",
+            "${LoadingAnimation.entries.size} 款多彩样式，左右滑动卡片，点击选择并立即保存",
             onClose = onDismiss,
         )
         if (LocalAccessibilityOptions.current.reduceMotion) {
@@ -39,29 +37,33 @@ internal fun LoadingAnimationSheet(
                 color = LocalPalette.current.sub,
                 style = AppTypography.caption.regular,
             )
-            Spacer(Modifier.height(OverlayOptionSpacing))
         }
+        Spacer(Modifier.height(12.dp))
         val routeVisible = LocalRouteVisible.current
-        LoadingAnimation.entries.forEach { animation ->
-            OverlayOptionRow(
-                label = animation.label,
-                description = animation.description,
-                selected = selected == animation,
-                onClick = { onSelect(animation) },
-                leadingContent = {
-                    // One live preview; the remaining choices show their resting frames.
-                    CompositionLocalProvider(LocalRouteVisible provides (routeVisible && selected == animation)) {
-                        OrbProgress(
-                            modifier = Modifier.clearAndSetSemantics {},
-                            size = 36.dp,
-                            animation = animation,
-                            contentDescription = null,
-                        )
-                    }
-                },
-            )
-            Spacer(Modifier.height(OverlayOptionSpacing))
+        AnimationCardList(
+            options = LoadingAnimation.entries,
+            selected = selected,
+            key = { "loading-animation-${it.name}" },
+            label = { it.label },
+            description = { it.description },
+            onSelect = onSelect,
+        ) { animation, active ->
+            CompositionLocalProvider(LocalRouteVisible provides (routeVisible && active)) {
+                OrbProgress(
+                    modifier = Modifier.clearAndSetSemantics {},
+                    size = 64.dp,
+                    animation = animation,
+                    contentDescription = null,
+                )
+            }
         }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "${selected.label} · ${selected.description}",
+            color = LocalPalette.current.sub,
+            style = AppTypography.caption.regular,
+        )
+        Spacer(Modifier.height(12.dp))
         OverlayButton("完成", onClick = overlayDismiss(onDismiss))
     }
 }
