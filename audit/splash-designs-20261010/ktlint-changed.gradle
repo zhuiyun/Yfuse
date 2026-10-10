@@ -1,0 +1,28 @@
+def changedSources = [
+    'composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Theme.kt',
+    'composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SplashPreview.kt',
+    'composeApp/src/commonMain/kotlin/com/yfuse/core/data/ThemePreferences.kt',
+    'composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppIconVariant.kt',
+    'composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/app/AnimatedSplashApp.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/app/SplashChoreography.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/app/SplashCloud.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/app/WaterFireSplash.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/app/WaterFireCrafts.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/core/designsystem/CloudPlayerLogo.android.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/core/designsystem/SplashPreview.android.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/feature/profile/AppIconVariant.android.kt',
+    'composeApp/src/androidUnitTest/kotlin/com/yfuse/app/SplashTimingPolicyTest.kt',
+    'composeApp/src/commonTest/kotlin/com/yfuse/core/data/SplashSelectionTest.kt',
+    'composeApp/src/commonTest/kotlin/com/yfuse/core/sync/CloudSyncSnapshotTest.kt',
+]
+
+gradle.projectsEvaluated {
+    def p = gradle.rootProject.project(':phoneShared')
+    ['runKtlintFormatOverAndroidMainSourceSet', 'runKtlintCheckOverAndroidMainSourceSet'].each { taskName ->
+        p.tasks.named(taskName).configure { t ->
+            t.setSource(p.rootProject.files(changedSources))
+            t.doFirst { assert t.source.files.size() == changedSources.size() }
+        }
+    }
+}

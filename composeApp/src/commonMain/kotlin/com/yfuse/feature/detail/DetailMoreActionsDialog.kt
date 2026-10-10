@@ -122,7 +122,7 @@ internal fun DetailMoreActionsDialog(
                 add(
                     DetailQuickAction(
                         icon = AppIcons.WatchCalendar,
-                        label = "播出日历",
+                        label = "追更日历",
                         color = DecorativeTints.coral,
                         onClick = onCalendar,
                     ),
@@ -428,7 +428,7 @@ private fun DetailQuickActionStrip(actions: List<DetailQuickAction>) {
     }
 }
 
-/** Every quick action closes the sheet; 下载 and 播出日历 open the next panel once it has left. */
+/** Every quick action closes the sheet; 下载 and 追更日历 open the next panel once it has left. */
 @Composable
 private fun RowScope.DetailQuickActionItem(action: DetailQuickAction) {
     val palette = LocalPalette.current
@@ -559,7 +559,7 @@ private fun DetailManagementActions(
         if (isSeries) {
             DetailManagementRow(
                 icon = AppIcons.Bell,
-                label = if (followed) "已加入追剧" else "加入追剧",
+                label = if (followed) "已加入追更" else "加入追更",
                 description = if (followed) "追剧中心优先显示并接收更新提醒" else "关注排期和新集入库",
                 color = DecorativeTints.teal,
                 checked = followed,

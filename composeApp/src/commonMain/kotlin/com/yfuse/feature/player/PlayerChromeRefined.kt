@@ -385,6 +385,7 @@ internal fun RefinedBottomBar(
     playKeyModifier: Modifier = Modifier,
     /** An upright phone window: the transport and the keys stack, 选集 first. */
     compact: Boolean = false,
+    speedUnavailableReason: String? = null,
 ) {
     // A new timeline sample arrives twice a second, and this function is called with it. Only
     // this frame stops here: everything below takes the holder and reads it from a draw or a
@@ -428,6 +429,7 @@ internal fun RefinedBottomBar(
         onSeekBackwardLongPress = onSeekBackwardLongPress,
         playKeyModifier = playKeyModifier,
         compact = compact,
+        speedUnavailableReason = speedUnavailableReason,
     )
 }
 
@@ -468,6 +470,7 @@ private fun RefinedBottomBarContent(
     onSeekBackwardLongPress: (() -> Unit)? = null,
     playKeyModifier: Modifier = Modifier,
     compact: Boolean = false,
+    speedUnavailableReason: String? = null,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val tips = LocalTips.current
@@ -793,7 +796,7 @@ private fun RefinedBottomBarContent(
                 },
                 onLongClickLabel = "弹幕设置",
             )
-            RefinedSpeedControl(speed, onOpenSpeed)
+            RefinedSpeedControl(speed, onOpenSpeed, speedUnavailableReason)
             // Which of these three exist is decided by the item, and the item changes under
             // the bar every time the queue advances: a source list resolves, a series gains
             // 片头 markers, a film has no 选集. Each one used to blink into the cluster and
@@ -995,19 +998,21 @@ private fun AnimatedContentTransitionScope<*>.barSwapTransform(reduceMotion: Boo
 private fun RefinedSpeedControl(
     speed: Float,
     onClick: () -> Unit,
+    unavailableReason: String?,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val figure = if (speed % 1f == 0f) "${speed.toInt()}" else "$speed"
-    val label = "$figure×"
+    val label = if (unavailableReason == null) "$figure×" else "倍速"
     // The same ring as its neighbours: 26 dp in reach of a thumb, larger across a room.
     val ring = chromeKeySize(26.dp)
     Box(
         Modifier
             // Named for what it sets, with the rate as its state: read out, 「1.25×」 alone was a
             // number with nothing to say what it was the rate of.
-            .pressable(label = "播放速度", onClick = onClick)
+            .pressable(enabled = unavailableReason == null, label = "播放速度", onClick = onClick)
             .touchTarget()
-            .semantics { stateDescription = "$figure 倍" }
+            .semantics { stateDescription = unavailableReason ?: "$figure 倍" }
+            .graphicsLayer { alpha = if (unavailableReason == null) 1f else 0.44f }
             .size(ring + ControlTouchPadding * 2),
         contentAlignment = Alignment.Center,
     ) {

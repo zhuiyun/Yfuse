@@ -24,6 +24,7 @@ import com.yfuse.core2.demux.YDemuxOpenResult
 import com.yfuse.core2.demux.YDemuxTrackType
 import com.yfuse.core2.demux.YTrackId
 import com.yfuse.core2.demux.shownVideoSize
+import com.yfuse.core2.network.DEFAULT_FORWARD_CACHE_TARGET_US
 import com.yfuse.core2.recovery.YPlaybackFailureReporter
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.strategy.YDemuxPath
@@ -382,7 +383,7 @@ internal class AndroidNativeEnhancedYPlayer(
                             ?.value
                             .orEmpty(),
                     cacheMaximumBytes = request.items.maxOfOrNull { it.cacheMaximumBytes } ?: 0L,
-                    forwardCacheTargetUs = preferredRemoteBufferTargetUs ?: 60_000_000L,
+                    forwardCacheTargetUs = preferredRemoteBufferTargetUs ?: DEFAULT_FORWARD_CACHE_TARGET_US,
                 )
             }.getOrNull()
         val session =

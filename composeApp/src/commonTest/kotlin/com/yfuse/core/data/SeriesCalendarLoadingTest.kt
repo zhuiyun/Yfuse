@@ -34,6 +34,35 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SeriesCalendarLoadingTest {
+    @Test
+    fun detailIncludesEveryPublishedDateBeyondTheOldSixtyDayWindow() =
+        runTest {
+            val external = client { json("{}") }
+            val library = client { error("No server configured") }
+            try {
+                val settings = MapSettings()
+                val schedules = OfficialAiringScheduleCatalog(external, settings)
+                val known = schedules.series(272938, "师兄太稳健").orEmpty()
+                assertTrue(known.isNotEmpty())
+                val today =
+                    com.yfuse.core.util
+                        .shiftIsoDate(known.minOf { it.airDate }, -61)
+                val repository =
+                    AiringCalendarRepository(
+                        EmbyRepository(library),
+                        ServerRegistry(settings, TestSecureStore()),
+                        schedules,
+                        CalendarIdentityResolver(schedules, settings),
+                        CalendarFollowStore(settings),
+                    )
+                val result = repository.seriesCalendar(272938, "师兄太稳健", today = today).getOrThrow()
+                assertEquals(known.map { it.airDate }.distinct().sorted(), result.map { it.date })
+            } finally {
+                external.close()
+                library.close()
+            }
+        }
+
     private val server = SavedServer("server", "https://library.example", "家庭影院", "user", "用户", "token")
     private val episode =
         Episode(

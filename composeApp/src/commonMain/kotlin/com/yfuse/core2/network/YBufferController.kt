@@ -169,7 +169,7 @@ object YBufferController {
                 else -> REMOTE_HEALTHY_TARGET_US
             }
         val requestedTargetUs =
-            (minOf(requestedWallTimeUs, REMOTE_PRESSURE_TARGET_US).toDouble() * conditions.speed).toLong()
+            (requestedWallTimeUs.toDouble() * conditions.speed).toLong().coerceAtMost(MAXIMUM_REMOTE_TARGET_US)
         val memoryLimitedUs =
             if (conditions.mediaBitRateBitsPerSecond > 0L) {
                 conditions.memoryBudgetBytes
@@ -192,7 +192,8 @@ object YBufferController {
             maximumBytes = conditions.memoryBudgetBytes,
             startupPlaybackUs = startupUs,
             forwardCacheTargetUs =
-                ((conditions.preferredTargetAheadUs ?: 60_000_000L).toDouble() * conditions.speed).toLong(),
+                ((conditions.preferredTargetAheadUs ?: DEFAULT_FORWARD_CACHE_TARGET_US).toDouble() * conditions.speed)
+                    .toLong(),
         )
     }
 }
@@ -206,9 +207,11 @@ private const val DEFAULT_BUFFER_MEMORY_BYTES = 64L * 1024L * 1024L
 private const val LOCAL_TARGET_US = 1_500_000L
 private const val LOCAL_RESUME_US = 500_000L
 private const val LIVE_TARGET_US = 3_000_000L
-private const val REMOTE_HEALTHY_TARGET_US = 6_000_000L
-private const val REMOTE_INITIAL_TARGET_US = 8_000_000L
-private const val REMOTE_UNKNOWN_BITRATE_TARGET_US = 10_000_000L
-private const val REMOTE_NARROW_MARGIN_TARGET_US = 15_000_000L
-private const val REMOTE_PRESSURE_TARGET_US = 20_000_000L
+private const val REMOTE_HEALTHY_TARGET_US = 30_000_000L
+private const val REMOTE_INITIAL_TARGET_US = 60_000_000L
+private const val REMOTE_UNKNOWN_BITRATE_TARGET_US = 60_000_000L
+private const val REMOTE_NARROW_MARGIN_TARGET_US = 90_000_000L
+private const val REMOTE_PRESSURE_TARGET_US = 120_000_000L
+private const val MAXIMUM_REMOTE_TARGET_US = 300_000_000L
+internal const val DEFAULT_FORWARD_CACHE_TARGET_US = 300_000_000L
 private const val MIN_HEALTHY_THROUGHPUT_RATIO = 1.4

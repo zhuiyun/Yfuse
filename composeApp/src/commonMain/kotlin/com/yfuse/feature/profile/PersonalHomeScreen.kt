@@ -17,6 +17,7 @@ import com.yfuse.core.personal.PersonalLibraryRepository
 internal fun PersonalSettingsSection(
     personal: PersonalLibraryRepository,
     onOpenContent: () -> Unit,
+    onOpenStatistics: () -> Unit,
     onOpenFamily: () -> Unit,
     onOpenHandoff: () -> Unit,
     onOpenTrakt: () -> Unit,
@@ -30,6 +31,15 @@ internal fun PersonalSettingsSection(
                 embedded = true,
                 onClick = onOpenContent,
                 icon = AppIcons.Bookmark,
+                iconTint = SettingTint.account,
+            )
+            SettingsDivider()
+            SettingRow(
+                "观影统计",
+                "时长 · 日历 · 趋势 · 观影回顾",
+                embedded = true,
+                onClick = onOpenStatistics,
+                icon = AppIcons.WatchCalendar,
                 iconTint = SettingTint.account,
             )
             SettingsDivider()

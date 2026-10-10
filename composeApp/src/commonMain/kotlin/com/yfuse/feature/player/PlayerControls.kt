@@ -271,6 +271,8 @@ internal fun PlayerControls(
     // The picture's gestures and the HUD that answers them. This body reads only what the whole
     // screen answers to — the middle held, a finger on the rail — never a sample's value.
     val gestureState = rememberPlayerGestureState()
+    var holdSeek by remember { mutableStateOf<PictureHoldSeek?>(null) }
+    var holdSeekItemIndex by remember { mutableIntStateOf(state.currentIndex) }
     // 双击's pulse counts from each item's start, so the next item never replays the last one's.
     val pulseItemStart = remember(state.currentIndex) { gestureState.pulseRevision }
     // The app's own vocabulary, not Compose's two-constant one. These two call sites were
@@ -290,6 +292,7 @@ internal fun PlayerControls(
     val latestVolume by rememberUpdatedState(picture.volume)
     val latestBrightness by rememberUpdatedState(picture.brightness)
     val latestOnSeek by rememberUpdatedState(transportActions.onSeek)
+    val latestInteractionKey by rememberUpdatedState(transport.interactionKey)
     val latestOnPlayPause by rememberUpdatedState(transportActions.onPlayPause)
     val latestOnVolume by rememberUpdatedState(pictureActions.onVolume)
     val latestOnBrightness by rememberUpdatedState(pictureActions.onBrightness)
@@ -385,16 +388,18 @@ internal fun PlayerControls(
             )
         }
 
+    fun picturePanelOpen(): Boolean =
+        chrome.watchChatOpen ||
+            chrome.danmakuSendOpen ||
+            chrome.danmakuSearchOpen ||
+            chrome.quickPopup != null ||
+            chrome.settingsPanelKind != null ||
+            chrome.drawerOpen
+
     /** Why a hold may not speed playback up at this moment; null when it may. */
     fun currentSpeedBoostRefusal(): SpeedBoostRefusal? =
         speedBoostRefusal(
-            panelOpen =
-                chrome.watchChatOpen ||
-                    chrome.danmakuSendOpen ||
-                    chrome.danmakuSearchOpen ||
-                    chrome.quickPopup != null ||
-                    chrome.settingsPanelKind != null ||
-                    chrome.drawerOpen,
+            panelOpen = picturePanelOpen(),
             watchGuest = latestWatchLocked,
             watchRoom = latestWatchConnected,
             casting = latestCasting,
@@ -423,6 +428,52 @@ internal fun PlayerControls(
     /** Lets go of 长按中间; nothing to do when no boost is held. */
     fun endSpeedBoost() {
         if (gestureState.endBoost()) latestOnSpeedBoost(null)
+    }
+
+    fun startHoldSeek(direction: Int): Boolean {
+        val live = playback.value
+        if (picturePanelOpen() || live.durationMs <= 0L) return false
+        if (latestWatchLocked) {
+            gestureState.say("房主控制播放")
+            haptics.play(HapticSignal.Reject)
+            return false
+        }
+        holdSeekItemIndex = live.currentIndex
+        holdSeek = PictureHoldSeek(direction, live.positionMs, live.durationMs)
+        chrome.poke()
+        return true
+    }
+
+    LaunchedEffect(holdSeek) {
+        val held = holdSeek ?: return@LaunchedEffect
+        val itemIndex = holdSeekItemIndex
+        val interactionKey = latestInteractionKey
+        var firstStep = true
+        try {
+            held.deliverSeeks(
+                canContinue = {
+                    val live = playback.value
+                    holdSeek === held &&
+                        !chrome.locked &&
+                        !latestWatchLocked &&
+                        live.error == null &&
+                        live.currentIndex == itemIndex &&
+                        latestInteractionKey == interactionKey &&
+                        !picturePanelOpen()
+                },
+                stepMs = { latestGestures.doubleTapSeekMs },
+                durationMs = { playback.value.durationMs },
+            ) { target ->
+                latestOnSeek(target)
+                gestureState.say(
+                    "${if (held.direction < 0) "快退" else "快进"} ${held.movedMs / 1_000L} 秒 · ${target.asClock()}",
+                )
+                if (firstStep) haptics.play(HapticSignal.Confirm)
+                firstStep = false
+            }
+        } finally {
+            if (holdSeek === held) holdSeek = null
+        }
     }
 
     // 没听清: the subtitle a held ⟲10 brought up for the replay, until the line has been heard.
@@ -673,6 +724,9 @@ internal fun PlayerControls(
             state.error == null &&
             !stoppedAtItemEnd
 
+    val pictureSeeking by remember { derivedStateOf { gestureState.previewMs != null } }
+    val keepControlsForSeek =
+        pictureSeekKeepsControlsVisible(holdSeek != null, pictureSeeking, gestureState.scrubbing)
     LaunchedEffect(
         chrome.visible,
         chrome.locked,
@@ -683,7 +737,7 @@ internal fun PlayerControls(
         accessibilityManager,
         controlsHaveFocus,
         screenReaderActive,
-        gestureState.scrubbing,
+        keepControlsForSeek,
     ) {
         // Keep the hide timer stable across NativeDirect's playing <-> buffering handoff.
         // A remote Range stall is still an active playback request, not a user pause.
@@ -703,7 +757,7 @@ internal fun PlayerControls(
             // focused key alone must not park the controls over the picture for good.
             (controlsHaveFocus && remoteChrome == null) ||
             screenReaderActive ||
-            gestureState.scrubbing
+            keepControlsForSeek
         ) {
             return@LaunchedEffect
         }
@@ -803,10 +857,21 @@ internal fun PlayerControls(
     LaunchedEffect(watch.connected, cast.deviceId) {
         if (watch.connected || cast.deviceId != null) endSpeedBoost()
     }
+    // A replacement item or output route never inherits the finger's previous hold.
+    LaunchedEffect(transport.interactionKey, state.currentIndex, cast.deviceId) {
+        holdSeek = null
+        endSpeedBoost()
+        gestureState.resetBurst()
+        gestureState.cancelDrag()
+        gestureState.endScrub()
+    }
     // Leaving the player mid-hold, or into 画中画, lets go too: the release that ends the boost
     // would otherwise never arrive.
     DisposableEffect(Unit) {
-        onDispose { endSpeedBoost() }
+        onDispose {
+            holdSeek = null
+            endSpeedBoost()
+        }
     }
     SubtitlePeekEffect(
         peek = subtitlePeek,
@@ -1049,7 +1114,7 @@ internal fun PlayerControls(
                 // Every picture gesture stands down while playback has failed. The failure
                 // surface takes no touches of its own, and a double tap or a swipe used to reach
                 // the failed engine through it, moving the position a 重试 then resumed from.
-                .pointerInput(Unit) {
+                .pointerInput(transport.interactionKey) {
                     fun burstSeek(
                         direction: Int,
                         at: Offset,
@@ -1072,10 +1137,12 @@ internal fun PlayerControls(
                     }
                     detectTapGestures(
                         onPress = {
-                            tryAwaitRelease()
-                            // 长按中间 goes back to how it found things, and leaves the chrome
-                            // hidden: the hold was for watching.
-                            endSpeedBoost()
+                            try {
+                                tryAwaitRelease()
+                            } finally {
+                                holdSeek = null
+                                endSpeedBoost()
+                            }
                         },
                         onTap = { offset ->
                             // Once a double tap is seeking, a tap on the same side keeps it going.
@@ -1085,22 +1152,23 @@ internal fun PlayerControls(
                                         !latestWatchLocked &&
                                         allowsPlayerDrag(offset.y, currentSystemGestureTop)
                                 }
-                            when {
-                                state.error != null -> Unit
-                                chrome.locked -> chrome.revealLock(explain = false)
-                                chrome.watchChatOpen -> chrome.watchChatOpen = false
-                                chrome.danmakuSendOpen -> chrome.danmakuSendOpen = false
-                                chrome.danmakuSearchOpen -> chrome.danmakuSearchOpen = false
-                                chrome.quickPopup != null -> chrome.quickPopup = null
-                                chrome.settingsPanelKind != null -> chrome.settingsPanelKind = null
-                                chrome.drawerOpen -> chrome.drawerOpen = false
-                                burstSide != null -> burstSeek(burstSide, offset, taps = 1)
-                                // 点弹幕 with the chrome up only: with it away, a tap always brings it up first.
-                                !chrome.locked && chrome.visible && latestExtras.onPictureTap(offset) -> {
-                                    tips?.markUsed(Tips.PLAYER_DANMAKU_PICK)
-                                }
-                                chrome.visible -> chrome.visible = false
-                                else -> chrome.poke()
+                            if (state.error == null) {
+                                chrome.tapPicture(
+                                    buffering = state.buffering,
+                                    continueSeek = {
+                                        if (burstSide != null) {
+                                            burstSeek(burstSide, offset, taps = 1)
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    },
+                                    onVisiblePictureTap = {
+                                        latestExtras.onPictureTap(offset).also { picked ->
+                                            if (picked) tips?.markUsed(Tips.PLAYER_DANMAKU_PICK)
+                                        }
+                                    },
+                                )
                             }
                         },
                         onDoubleTap = { offset ->
@@ -1143,12 +1211,16 @@ internal fun PlayerControls(
                                 return@detectTapGestures
                             }
                             if (!allowsPlayerDrag(offset.y, currentSystemGestureTop)) return@detectTapGestures
-                            // Only the middle third holds anything: where the double tap plays and
-                            // pauses, a hold plays faster for as long as it lasts. The two sides,
-                            // where the double tap seeks, hold nothing on purpose, and neither does
-                            // the middle with 中间长按 · 关闭 in 播放设置.
-                            val middle = pictureThird(offset.x, size.width) == 0
-                            if (middle && latestGestures.centerHoldSpeedBoost && startSpeedBoost(offset.x)) {
+                            val started =
+                                when (pictureHoldAction(offset.x, size.width)) {
+                                    PictureHoldAction.Rewind -> startHoldSeek(-1)
+                                    PictureHoldAction.Forward -> startHoldSeek(1)
+                                    PictureHoldAction.SpeedBoost ->
+                                        latestGestures.centerHoldSpeedBoost &&
+                                            startSpeedBoost(offset.x)
+                                    PictureHoldAction.None -> false
+                                }
+                            if (started) {
                                 return@detectTapGestures
                             }
                             chrome.poke()
@@ -1156,6 +1228,7 @@ internal fun PlayerControls(
                     )
                 }.pointerInput(
                     state.currentIndex,
+                    transport.interactionKey,
                 ) {
                     detectPlayerDragGestures(
                         canStart = { origin ->
@@ -1183,7 +1256,7 @@ internal fun PlayerControls(
                                 )
                             val landing = gestureState.endDrag(latestDuration, latestWatchLocked)
                             // 长按中间 ends in its own release, with the chrome left hidden.
-                            if (!gestureState.boosting) {
+                            if (!gestureState.boosting && holdSeek == null) {
                                 landing?.takeIf { state.error == null }?.let { target ->
                                     latestOnSeek(target)
                                     tips?.markUsed(Tips.PLAYER_SWIPE_SEEK)
@@ -1259,6 +1332,7 @@ internal fun PlayerControls(
                         },
                         filled = { latestFilled },
                         onSecondFinger = {
+                            holdSeek = null
                             if (gestureState.secondFinger()) latestOnSpeedBoost(null)
                         },
                         onFill = { fill ->

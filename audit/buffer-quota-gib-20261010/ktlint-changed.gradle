@@ -1,0 +1,29 @@
+def changedSources = [
+    'composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNode.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidForwardCacheWarmer.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeEnhancedYPlayer.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudget.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt',
+    'composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNodeTest.kt',
+    'composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudgetTest.kt',
+    'composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidProxyFileProtocolTest.kt',
+    'composeApp/src/commonMain/kotlin/com/yfuse/core/data/PlaybackPreferences.kt',
+    'composeApp/src/commonMain/kotlin/com/yfuse/core2/network/YBufferController.kt',
+    'composeApp/src/commonTest/kotlin/com/yfuse/core/data/PlaybackPreferencesTest.kt',
+    'composeApp/src/commonTest/kotlin/com/yfuse/core2/network/YBufferControllerTest.kt',
+    'tvApp/src/androidMain/kotlin/com/yfuse/tv/TvApplication.kt',
+]
+
+gradle.projectsEvaluated {
+    def p = gradle.rootProject.project(':phoneShared')
+    ['runKtlintFormatOverAndroidMainSourceSet', 'runKtlintCheckOverAndroidMainSourceSet'].each { taskName ->
+        p.tasks.named(taskName).configure { t ->
+            t.setSource(p.rootProject.files(changedSources))
+            t.doFirst {
+                assert t.source.files.size() == changedSources.size()
+                println("Checking ${t.source.files.size()} changed Kotlin files")
+            }
+        }
+    }
+}

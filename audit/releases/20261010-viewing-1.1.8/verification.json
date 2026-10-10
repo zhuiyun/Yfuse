@@ -1,0 +1,78 @@
+{
+  "versionName": "1.1.8",
+  "versionCode": 270,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "6a70a9fa47bd24a3997db1ce2eeb68d3a6ebaa1a",
+  "treeDirtyAtBuild": true,
+  "diffHash": "c6237acb2e1f",
+  "sourceFilesArchived": 66,
+  "file": "Yfuse-1.1.8-full-arm64.apk",
+  "bytes": 29852490,
+  "sha256": "a4ab60b7f4406bfc80c30ec7de8954e772edda97df3507abcd8f9c26c98abed3",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "numberOfSigners": 1,
+  "zipAlignment16K": true,
+  "dexVerified": true,
+  "dexClasses": 14086,
+  "dexMethodsWithCode": 61829,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "dexFiles": [
+    "classes.dex",
+    "classes2.dex"
+  ],
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575",
+      "matchesPrevious": true
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1191008,
+      "sha256": "8c3fdfef2629af11a999325b21864ad2d262879d61065e282abab73a5f3dd7a5",
+      "matchesPrevious": true
+    }
+  },
+  "mdkEngineMatchesPinnedSdk": true,
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "unchangedNativeLibraries": {
+    "lib/arm64-v8a/libmpv.so": "d06566edd8dd09c7419f61f9888d2f29e5e186ff578f8a984f1c968cab7baee6",
+    "lib/arm64-v8a/libycore_demux.so": "5035f0d2f1704875dcdb2c7dfc01bce3294a0702a061a67a14613b48e39ba3fd",
+    "lib/arm64-v8a/libycore_gpu.so": "ccaa620b53d59902b05905f50ef0e7a525a2455ce2e4e92eb511109f32495102",
+    "lib/arm64-v8a/libavcodec.so": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c",
+    "lib/arm64-v8a/libavformat.so": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc",
+    "lib/arm64-v8a/libavutil.so": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a",
+    "lib/arm64-v8a/libswresample.so": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0",
+    "lib/arm64-v8a/libswscale.so": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8",
+    "lib/arm64-v8a/libc++_shared.so": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b"
+  },
+  "previousActualVersionName": "1.1.7",
+  "previousActualVersionCode": 269,
+  "previousArtifactSha256": "760311d02b6418c007d01c53d3464dec45da54f3f824f0936529e0a06dc6948a",
+  "releaseNotesFirstLine": "1.1.8",
+  "tests": {
+    "phoneShared": {
+      "tests": 4741,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "tvShared": {
+      "tests": 118,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "spdxLockPackages": 788,
+  "spdxSha256": "9f8886d6c529a04fed1094e59fbe567ceb0f5d2dd8e240b111f0890168803d7c",
+  "onlineVulnerabilityScanPerformed": false,
+  "deviceTestPerformed": false,
+  "published": false,
+  "uploaded": false,
+  "verifiedAtUtc": "2026-10-10T03:43:05.232905+00:00"
+}

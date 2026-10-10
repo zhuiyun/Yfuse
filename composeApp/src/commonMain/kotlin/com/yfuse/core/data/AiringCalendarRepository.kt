@@ -481,7 +481,7 @@ class AiringCalendarRepository(
     suspend fun seriesCalendar(
         series: FollowedSeries,
         pastDays: Int = 7,
-        futureDays: Int = 60,
+        futureDays: Int? = null,
         today: String = currentIsoDate(),
         forceRefresh: Boolean = false,
         onPreview: (List<CalendarDay>) -> Unit = {},
@@ -508,14 +508,14 @@ class AiringCalendarRepository(
     private suspend fun calendarForSeries(
         series: List<FollowedSeries>,
         pastDays: Int,
-        futureDays: Int,
+        futureDays: Int?,
         today: String,
         forceRefresh: Boolean,
         onPreview: (List<CalendarDay>) -> Unit = {},
     ): Result<List<CalendarDay>> {
         if (series.isEmpty()) return Result.success(emptyList())
         val from = shiftIsoDate(today, -pastDays)
-        val to = shiftIsoDate(today, futureDays)
+        val to = futureDays?.let { shiftIsoDate(today, it) } ?: "9999-12-31"
         val ids = series.map(FollowedSeries::tmdbId).toSet()
 
         fun rows() = officialSchedules.between(from, to).filter { it.showTmdbId in ids }
@@ -540,7 +540,7 @@ class AiringCalendarRepository(
     suspend fun refreshTrackedSeries(
         series: FollowedSeries,
         pastDays: Int = 7,
-        futureDays: Int = 60,
+        futureDays: Int? = null,
         today: String = currentIsoDate(),
     ): Result<List<CalendarDay>> =
         calendarForSeries(
@@ -693,10 +693,10 @@ class AiringCalendarRepository(
         libraryHint: SeriesCalendarLibraryHint? = null,
         forceRefresh: Boolean = false,
         pastDays: Int = 7,
-        futureDays: Int = 60,
+        futureDays: Int? = null,
     ): Result<List<CalendarDay>> {
         val localFrom = shiftIsoDate(today, -pastDays)
-        val localTo = shiftIsoDate(today, futureDays)
+        val localTo = futureDays?.let { shiftIsoDate(today, it) } ?: "9999-12-31"
         val cacheScope =
             "server-feed-detail:$today:$pastDays:$futureDays:$showTmdbId:" +
                 registry.data.value.servers

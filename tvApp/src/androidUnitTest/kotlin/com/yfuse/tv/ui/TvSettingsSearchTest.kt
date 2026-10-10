@@ -108,4 +108,11 @@ class TvSettingsSearchTest {
                 }
         assertEquals(TvSettingsPage.entries.size - 1, reachable.size)
     }
+
+    @Test
+    fun `local viewing statistics can be found without a backend account`() {
+        assertTrue(TvSettingsPage.ViewingStatistics in searchTvSettings("观影"))
+        assertTrue(TvSettingsPage.ViewingStatistics in searchTvSettings("时长"))
+        assertTrue(TvSettingsPage.ViewingStatistics in searchTvSettings("回顾"))
+    }
 }

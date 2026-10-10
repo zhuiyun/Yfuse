@@ -31,7 +31,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.ItemAction
@@ -79,7 +78,7 @@ internal fun TvTmdbInfoScreen(
                     .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
                     .background(TvSurface),
             ) {
-                AsyncImage(
+                TvLoadingImage(
                     model = rememberTvImage(TmdbImages.backdrop(item.backdropPath, "w1280")),
                     // Silent: the title is written over it, and the backdrop read it a second time.
                     contentDescription = null,

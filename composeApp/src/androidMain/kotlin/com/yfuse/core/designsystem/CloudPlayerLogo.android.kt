@@ -17,6 +17,7 @@ actual fun CloudPlayerLogo(modifier: Modifier) {
         when (variant) {
             AppIconVariant.Default, AppIconVariant.Graphite -> R.drawable.yfuse_mark
             AppIconVariant.CloudPlayer -> R.drawable.cloud_player_logo
+            AppIconVariant.WaterOverFire -> R.drawable.water_fire_logo
             // Aurora and the vector icons: each mark is made for its own ground, so the whole tile.
             else -> null
         }

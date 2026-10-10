@@ -1,0 +1,20 @@
+def changedSources = [
+    'composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Theme.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/app/SplashChoreography.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/app/WaterFireSplash.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/app/WaterFireMechanisms.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/app/WaterFireMechanismMotion.kt',
+    'composeApp/src/androidUnitTest/kotlin/com/yfuse/app/WaterFireMechanismMotionTest.kt',
+    'composeApp/src/commonTest/kotlin/com/yfuse/core/data/SplashSelectionTest.kt',
+    'composeApp/src/commonTest/kotlin/com/yfuse/core/sync/CloudSyncSnapshotTest.kt',
+]
+
+gradle.projectsEvaluated {
+    def p = gradle.rootProject.project(':phoneShared')
+    ['runKtlintFormatOverAndroidMainSourceSet', 'runKtlintCheckOverAndroidMainSourceSet'].each { taskName ->
+        p.tasks.named(taskName).configure { t ->
+            t.setSource(p.rootProject.files(changedSources))
+            t.doFirst { assert t.source.files.size() == changedSources.size() }
+        }
+    }
+}

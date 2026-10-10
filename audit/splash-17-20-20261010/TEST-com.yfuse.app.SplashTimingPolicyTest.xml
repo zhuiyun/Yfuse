@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.app.SplashTimingPolicyTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-10T10:30:17.311Z" hostname="DESKTOP-HM2J0FM" time="0.039">
+  <properties/>
+  <testcase name="selected_design_plays_from_its_beginning_on_returning_launches_but_respects_reduced_motion" classname="com.yfuse.app.SplashTimingPolicyTest" time="0.035"/>
+  <testcase name="a_returning_launch_is_a_600ms_greeting" classname="com.yfuse.app.SplashTimingPolicyTest" time="0.0"/>
+  <testcase name="splash_artwork_fades_without_requiring_the_surface_to_crossfade" classname="com.yfuse.app.SplashTimingPolicyTest" time="0.001"/>
+  <testcase name="a_shorter_launch_joins_the_timeline_later_instead_of_playing_it_faster" classname="com.yfuse.app.SplashTimingPolicyTest" time="0.0"/>
+  <testcase name="launch_window_matches_the_first_visible_layer" classname="com.yfuse.app.SplashTimingPolicyTest" time="0.0"/>
+  <testcase name="reduced_motion_and_system_zero_never_run_the_choreography" classname="com.yfuse.app.SplashTimingPolicyTest" time="0.0"/>
+  <testcase name="the_first_launch_plays_the_whole_welcome" classname="com.yfuse.app.SplashTimingPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

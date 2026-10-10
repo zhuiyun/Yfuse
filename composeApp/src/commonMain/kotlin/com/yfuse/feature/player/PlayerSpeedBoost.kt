@@ -26,12 +26,11 @@ import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /**
- * 长按中间 — the playback speed while a press on the middle third of the picture is held.
+ * 长按中间 — the playback speed while a press on the central 20% of the picture is held.
  *
- * The middle third, where a double tap plays and pauses, held nothing. Holding it now plays faster
- * the way B 站 and YouTube do: 2× to start, a sideways slide shifts between the gears, and letting
+ * Holding the centre plays faster: 2× to start, a sideways slide shifts between the gears, and letting
  * go restores whatever speed was set before. The boost is never remembered as the series' speed.
- * It is the only hold on the picture: the two outer thirds, where a double tap seeks, hold nothing.
+ * The outer 40% on each side belongs to held rewind/forward; double taps keep their thirds.
  */
 internal val SPEED_BOOST_GEARS = listOf(1.5f, 2f, 3f)
 
@@ -82,7 +81,7 @@ internal fun speedBoostLabel(speed: Float): String {
     return if (tenths % 10 == 0) "${tenths / 10}×" else "${tenths / 10}.${tenths % 10}×"
 }
 
-/** Why a hold on the middle third does not speed playback up. */
+/** Why a hold on the centre does not speed playback up. */
 internal enum class SpeedBoostRefusal(
     /** What the gesture HUD says; null where saying nothing is the right answer. */
     val message: String?,

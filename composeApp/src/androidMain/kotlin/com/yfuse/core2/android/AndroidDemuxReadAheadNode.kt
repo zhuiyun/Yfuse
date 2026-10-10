@@ -11,6 +11,7 @@ import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.core2.subtitle.YSubtitlePayload
 import kotlinx.coroutines.CancellationException
 import java.util.ArrayDeque
+import java.util.TreeMap
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
@@ -31,9 +32,11 @@ internal class AndroidDemuxReadAheadNode(
     private val controlTimeoutMs: Long = 1_500L,
     /** Deterministic test barrier outside the queue lock, at the fill/consumer handoff. */
     private val beforeFillFinished: (() -> Unit)? = null,
+    private val memoryLeaseOverride: PlaybackMemoryLease? = null,
 ) {
     private val monitor = Any()
     private val samples = ArrayDeque<YQueuedDemuxResult.Sample>()
+    private val trackTimeSpans = mutableMapOf<YTrackId, QueuedTrackTimeSpan>()
     private var nativeSubtitleTracks = emptySet<YTrackId>()
     private var subtitleTracks = emptySet<YTrackId>()
     private var generation = 0L
@@ -54,6 +57,8 @@ internal class AndroidDemuxReadAheadNode(
     private var memoryLease: PlaybackMemoryLease? = null
 
     private fun queueBudgetBytes() = minOf(maximumQueueBytes, memoryLease?.limitBytes ?: maximumQueueBytes)
+
+    private fun memoryBudgetBytes() = minOf(MAXIMUM_QUEUE_BYTES, memoryLease?.limitBytes ?: DEFAULT_MAXIMUM_QUEUE_BYTES)
 
     private var maximumQueuedBytesObserved = 0L
     private var starvationCount = 0L
@@ -102,7 +107,9 @@ internal class AndroidDemuxReadAheadNode(
 
     private fun configureSubtitleTracks(result: YDemuxOpenResult) {
         if (memoryLease == null) {
-            memoryLease = AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.Demux, MAXIMUM_QUEUE_BYTES)
+            memoryLease =
+                memoryLeaseOverride
+                    ?: AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.Demux, MAXIMUM_QUEUE_BYTES)
         }
         val decoder = delegate as? YSubtitlePacketDecoder
         subtitleTracks = result.tracks.filter { it.subtitle != null }.mapTo(mutableSetOf()) { it.id }
@@ -166,6 +173,9 @@ internal class AndroidDemuxReadAheadNode(
                 }
             }
             if (sample != null) {
+                val span = trackTimeSpans.getValue(sample.value.trackId)
+                span.remove(sample.value)
+                if (span.isEmpty) trackTimeSpans.remove(sample.value.trackId)
                 queuedBytes = (queuedBytes - sample.memoryBytes).coerceAtLeast(0L)
                 if (bufferedDurationUsLocked() <= lowWatermarkUs) requestFillLocked()
                 return sample
@@ -194,6 +204,8 @@ internal class AndroidDemuxReadAheadNode(
             YDemuxReadAheadSnapshot(
                 queuedSamples = samples.size,
                 queuedBytes = queuedBytes,
+                memoryBudgetBytes = memoryBudgetBytes(),
+                queueBudgetBytes = queueBudgetBytes(),
                 bufferedDurationUs = bufferedDurationUsLocked(),
                 maximumQueuedBytesObserved = maximumQueuedBytesObserved,
                 starvationCount = starvationCount,
@@ -208,10 +220,7 @@ internal class AndroidDemuxReadAheadNode(
                 trackBufferedUs =
                     if (includeTrackDetails) {
                         selectedTrackIds.filter { it !in subtitleTracks }.associate { id ->
-                            val queued = samples.filter { it.value.trackId == id }
-                            val first = queued.minOfOrNull { it.value.presentationTimeUs }
-                            val last = queued.maxOfOrNull { it.value.presentationTimeUs + (it.value.durationUs ?: 0L) }
-                            id.value to if (first == null || last == null) 0L else (last - first).coerceAtLeast(0L)
+                            id.value to (trackTimeSpans[id]?.durationUs ?: 0L)
                         }
                     } else {
                         emptyMap()
@@ -409,6 +418,7 @@ internal class AndroidDemuxReadAheadNode(
                         return
                     }
                     samples.addLast(queued)
+                    trackTimeSpans.getOrPut(queued.value.trackId) { QueuedTrackTimeSpan() }.add(queued.value)
                     lastPacketNs = System.nanoTime()
                     packetsRead++
                     queuedBytes += queued.memoryBytes
@@ -454,17 +464,9 @@ internal class AndroidDemuxReadAheadNode(
         if (playbackTracks.isEmpty()) return 0L
         var shortest = Long.MAX_VALUE
         for (trackId in playbackTracks) {
-            var first = Long.MAX_VALUE
-            var last = Long.MIN_VALUE
-            for (queued in samples) {
-                val sample = queued.value
-                if (sample.trackId != trackId) continue
-                first = minOf(first, sample.presentationTimeUs)
-                last = maxOf(last, sample.presentationTimeUs + (sample.durationUs ?: 0L))
-            }
             // A video span cannot stand in for an empty audio queue, or vice versa.
-            if (first == Long.MAX_VALUE) return 0L
-            shortest = minOf(shortest, (last - first).coerceAtLeast(0L))
+            val span = trackTimeSpans[trackId] ?: return 0L
+            shortest = minOf(shortest, span.durationUs)
         }
         return shortest
     }
@@ -472,6 +474,7 @@ internal class AndroidDemuxReadAheadNode(
     private fun clearQueueLocked() {
         generation++
         samples.clear()
+        trackTimeSpans.clear()
         queuedBytes = 0L
         lastPacketNs = 0L
         throughput.reset()
@@ -500,6 +503,34 @@ internal class AndroidDemuxReadAheadNode(
 
     private companion object {
         val threadIndex = AtomicInteger()
+    }
+}
+
+/** Indexed endpoints keep minute-long queues from rescanning every packet on each fill/poll. */
+private class QueuedTrackTimeSpan {
+    private val starts = TreeMap<Long, Int>()
+    private val ends = TreeMap<Long, Int>()
+    val isEmpty: Boolean get() = starts.isEmpty()
+    val durationUs: Long get() = (ends.lastKey() - starts.firstKey()).coerceAtLeast(0L)
+
+    fun add(sample: YCompressedSample) {
+        val start = sample.presentationTimeUs
+        val end = start + (sample.durationUs ?: 0L)
+        starts[start] = (starts[start] ?: 0) + 1
+        ends[end] = (ends[end] ?: 0) + 1
+    }
+
+    fun remove(sample: YCompressedSample) {
+        removeEndpoint(starts, sample.presentationTimeUs)
+        removeEndpoint(ends, sample.presentationTimeUs + (sample.durationUs ?: 0L))
+    }
+
+    private fun removeEndpoint(
+        endpoints: TreeMap<Long, Int>,
+        timeUs: Long,
+    ) {
+        val count = endpoints.getValue(timeUs)
+        if (count == 1) endpoints.remove(timeUs) else endpoints[timeUs] = count - 1
     }
 }
 
@@ -612,6 +643,9 @@ internal sealed interface YQueuedDemuxResult {
 internal data class YDemuxReadAheadSnapshot(
     val queuedSamples: Int,
     val queuedBytes: Long,
+    /** Lease capacity, independent of the previous plan's configured queue limit. */
+    val memoryBudgetBytes: Long,
+    val queueBudgetBytes: Long,
     val bufferedDurationUs: Long,
     val maximumQueuedBytesObserved: Long,
     val starvationCount: Long,
@@ -643,9 +677,9 @@ private const val QUEUE_HEADROOM_DENOMINATOR = 2L
 private const val MINIMUM_SAMPLES_BEFORE_TIME_LIMIT = 8
 private const val MINIMUM_LOW_WATERMARK_US = 500_000L
 private const val MINIMUM_HIGH_WATERMARK_US = 1_000_000L
-private const val MAXIMUM_HIGH_WATERMARK_US = 30_000_000L
+private const val MAXIMUM_HIGH_WATERMARK_US = 300_000_000L
 private const val DEFAULT_LOW_WATERMARK_US = 1_500_000L
 private const val DEFAULT_HIGH_WATERMARK_US = 3_000_000L
 private const val MINIMUM_QUEUE_BYTES = 4L * 1024L * 1024L
-private const val DEFAULT_MAXIMUM_QUEUE_BYTES = 24L * 1024L * 1024L
-private const val MAXIMUM_QUEUE_BYTES = 64L * 1024L * 1024L
+private const val DEFAULT_MAXIMUM_QUEUE_BYTES = 256L * 1024L * 1024L
+private const val MAXIMUM_QUEUE_BYTES = 1024L * 1024L * 1024L

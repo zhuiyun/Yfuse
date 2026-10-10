@@ -10,6 +10,8 @@ import com.yfuse.core2.demux.YDemuxer
 import com.yfuse.core2.demux.YSubtitlePacketDecoder
 import com.yfuse.core2.demux.YSubtitleTrackFormat
 import com.yfuse.core2.demux.YTrackId
+import com.yfuse.core2.network.YBufferConditions
+import com.yfuse.core2.network.YBufferController
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleCueBuffer
 import com.yfuse.core2.subtitle.YSubtitleDecodeResult
@@ -24,6 +26,142 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class AndroidDemuxReadAheadNodeTest {
+    @Test
+    fun lease_shrink_and_recovery_replan_without_being_capped_by_the_previous_queue_limit() {
+        val mib = 1024L * 1024L
+        val pool = PlaybackMemoryPool(128L * mib)
+        val transport = pool.acquire(PlaybackBufferKind.Transport, 64L * mib)
+        val lease = pool.acquire(PlaybackBufferKind.Demux, 128L * mib)
+        val staging = pool.reserve().also { it.resize(32L * mib) }
+        val node = AndroidDemuxReadAheadNode(FakeDemuxer(emptyList()), memoryLeaseOverride = lease)
+        try {
+            node.open(YDemuxSource("file:///budget.mkv"))
+            node.configure(20_000_000L, 78_938_975L, 24L * mib)
+            val original = node.snapshot()
+            assertTrue(original.memoryBudgetBytes > 24L * mib)
+            assertEquals(24L * mib, original.queueBudgetBytes)
+
+            pool.setPressure(true)
+            val pressure = node.snapshot()
+            assertTrue(pressure.memoryBudgetBytes < 24L * mib)
+            assertEquals(pressure.memoryBudgetBytes, pressure.queueBudgetBytes)
+            val smallerPlan =
+                YBufferController.plan(
+                    YBufferConditions(
+                        remote = true,
+                        mediaBitRateBitsPerSecond = 78_938_975L,
+                        preferredTargetAheadUs = 20_000_000L,
+                        memoryBudgetBytes = playbackDemuxMemoryBudgetBytes(pressure.memoryBudgetBytes),
+                    ),
+                )
+            node.configure(smallerPlan.targetAheadUs, 78_938_975L, smallerPlan.maximumBytes)
+
+            pool.setPressure(false)
+            val recovered = node.snapshot()
+            assertEquals(original.memoryBudgetBytes, recovered.memoryBudgetBytes)
+            assertEquals(smallerPlan.maximumBytes, recovered.queueBudgetBytes)
+            val recoveredPlan =
+                YBufferController.plan(
+                    YBufferConditions(
+                        remote = true,
+                        mediaBitRateBitsPerSecond = 78_938_975L,
+                        preferredTargetAheadUs = 20_000_000L,
+                        memoryBudgetBytes = playbackDemuxMemoryBudgetBytes(recovered.memoryBudgetBytes),
+                    ),
+                )
+            assertTrue(recoveredPlan.targetAheadUs > smallerPlan.targetAheadUs)
+            assertTrue(recoveredPlan.resumePlaybackUs > smallerPlan.resumePlaybackUs)
+            node.configure(recoveredPlan.targetAheadUs, 78_938_975L, recoveredPlan.maximumBytes)
+            assertTrue(node.snapshot().queueBudgetBytes > 24L * mib)
+            assertTrue(node.snapshot().queueBudgetBytes <= recovered.memoryBudgetBytes)
+        } finally {
+            node.release()
+            staging.close()
+            transport.close()
+        }
+    }
+
+    @Test
+    fun high_bitrate_queue_can_fill_past_128_mib_and_thirty_seconds() {
+        val mib = 1024L * 1024L
+        val pool = PlaybackMemoryPool(1024L * mib)
+        val packet = ByteArray(mib.toInt())
+        val fake =
+            FakeDemuxer(
+                List(270) { index ->
+                    YCompressedSample(TRACK, packet, index * 250_000L, durationUs = 250_000L)
+                },
+            )
+        val node =
+            AndroidDemuxReadAheadNode(
+                fake,
+                memoryLeaseOverride = pool.acquire(PlaybackBufferKind.Demux, 1024L * mib),
+            )
+        try {
+            node.open(YDemuxSource("file:///high-bitrate.mkv"))
+            node.configure(120_000_000L, 80_000_000L, 1024L * mib)
+            node.selectTracks(setOf(TRACK))
+            awaitQueuedSamples(node, fake, 270)
+            assertEquals(270L * mib, node.snapshot().queuedBytes)
+            assertEquals(67_500_000L, node.snapshot().bufferedDurationUs)
+            assertEquals(1024L * mib, node.snapshot().queueBudgetBytes)
+        } finally {
+            node.release()
+        }
+    }
+
+    @Test
+    fun indexed_queue_duration_preserves_duplicate_and_reordered_timestamps_when_packets_are_removed() {
+        val fake =
+            FakeDemuxer(
+                listOf(
+                    YCompressedSample(TRACK, byteArrayOf(1), 2_000_000L, durationUs = 1_000_000L),
+                    YCompressedSample(TRACK, byteArrayOf(1), 0L, durationUs = 10_000_000L),
+                    YCompressedSample(TRACK, byteArrayOf(1), 2_000_000L, durationUs = 2_000_000L),
+                    YCompressedSample(TRACK, byteArrayOf(1), 1_000_000L, durationUs = 1_000_000L),
+                ),
+            )
+        val node = AndroidDemuxReadAheadNode(fake)
+        try {
+            node.open(YDemuxSource("file:///reordered.mkv"))
+            node.configure(120_000_000L, 8_000_000L)
+            node.selectTracks(setOf(TRACK))
+            awaitQueuedSamples(node, fake, 4)
+            assertEquals(10_000_000L, node.snapshot().bufferedDurationUs)
+            assertTrue(node.pollSample() is YQueuedDemuxResult.Sample)
+            assertEquals(10_000_000L, node.snapshot().bufferedDurationUs)
+            assertTrue(node.pollSample() is YQueuedDemuxResult.Sample)
+            assertEquals(3_000_000L, node.snapshot().bufferedDurationUs)
+            assertTrue(node.pollSample() is YQueuedDemuxResult.Sample)
+            assertEquals(mapOf(0 to 1_000_000L), node.snapshot(includeTrackDetails = true).trackBufferedUs)
+            assertTrue(node.pollSample() is YQueuedDemuxResult.Sample)
+            assertEquals(mapOf(0 to 0L), node.snapshot(includeTrackDetails = true).trackBufferedUs)
+        } finally {
+            node.release()
+        }
+    }
+
+    @Test
+    fun minute_long_queue_with_many_small_packets_keeps_its_time_span_without_full_queue_scans() {
+        val packet = byteArrayOf(1)
+        val fake =
+            FakeDemuxer(
+                List(50_000) { index -> YCompressedSample(TRACK, packet, index * 1_200L, durationUs = 1_200L) },
+            )
+        val node = AndroidDemuxReadAheadNode(fake)
+        try {
+            node.open(YDemuxSource("file:///many-packets.mkv"))
+            node.configure(120_000_000L, 1_000_000L)
+            node.selectTracks(setOf(TRACK))
+            awaitQueuedSamples(node, fake, 50_000)
+            assertEquals(60_000_000L, node.snapshot().bufferedDurationUs)
+            assertTrue(node.pollSample() is YQueuedDemuxResult.Sample)
+            assertEquals(59_998_800L, node.snapshot().bufferedDurationUs)
+        } finally {
+            node.release()
+        }
+    }
+
     @Test
     fun refill_request_at_owner_exit_survives_without_another_consumer_poll() {
         val finishing = CountDownLatch(1)

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -60,6 +61,11 @@ internal fun BoxScope.PlayerSettingsLayers(
     onEndSubtitlePeek: () -> Unit,
 ) {
     val state by controlState
+    LaunchedEffect(transport.speedUnavailableReason) {
+        if (transport.speedUnavailableReason != null && chrome.quickPopup == QuickPopup.Speed) {
+            chrome.quickPopup = null
+        }
+    }
     // Every playback function popup uses the same bottom-right anchor. Content may be
     // shorter or taller, but switching buttons never makes the surface jump position.
     val functionPopupModifier =
@@ -236,7 +242,9 @@ internal fun BoxScope.PlayerSettingsLayers(
                             speeds = SPEEDS,
                             selectedSpeed = state.speed,
                             onSelect = {
-                                transportActions.onSpeed(it)
+                                if (transport.speedUnavailableReason == null && !watchLocked && !cast.active) {
+                                    transportActions.onSpeed(it)
+                                }
                                 chrome.quickPopup = null
                             },
                             onDismiss = { chrome.quickPopup = null },

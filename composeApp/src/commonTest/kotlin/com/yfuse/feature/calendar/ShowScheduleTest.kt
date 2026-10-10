@@ -10,6 +10,7 @@ import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.CalendarSource
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.ShowOrigin
+import com.yfuse.core.model.upcomingScheduleDays
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -17,6 +18,17 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ShowScheduleTest {
+    @Test
+    fun allPublishedDatesIncludeTodayAndHaveNoFutureCutoff() {
+        val rows =
+            listOf("2026-12-30", "2026-12-31", "2027-01-01", "2027-01-07", "2027-06-08")
+                .mapIndexed { index, date -> CalendarDay(date, listOf(entry(index + 1, date))) }
+        val upcoming = upcomingScheduleDays(rows.reversed() + rows[2], "2026-12-31")
+        assertEquals(listOf("2026-12-31", "2027-01-01", "2027-01-07", "2027-06-08"), upcoming.map { it.date })
+        assertEquals(1, upcoming.first().entries.size)
+        assertTrue(upcomingScheduleDays(rows, "invalid").isEmpty())
+    }
+
     @Test
     fun a_month_is_laid_out_in_weeks_that_start_on_sunday() {
         val october = scheduleMonthWeeks(ScheduleMonth(2026, 10))

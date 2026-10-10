@@ -65,10 +65,12 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.SplashAnimation
+import com.yfuse.core.designsystem.SplashMark
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.drawPhaseLight
 import com.yfuse.core.designsystem.rememberPhaseLightCount
 import com.yfuse.core.designsystem.resolveDark
+import com.yfuse.feature.profile.currentAppIconVariant
 import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.lerp as lerpColor
 
@@ -92,7 +94,8 @@ fun AnimatedSplashApp(
     val context = LocalContext.current
     val systemAnimationsOff = remember(context) { context.systemAnimationsOff() }
     val stillFrame = reduceMotion || systemAnimationsOff
-    val variant = SplashAnimation.forMotion(stillFrame)
+    val preferred by root.themePreferences.splashVariant.collectAsState()
+    val variant = SplashAnimation.forMark(currentAppIconVariant().splashMark, preferred)
     val splashHistory =
         remember(context) {
             context.getSharedPreferences(SPLASH_HISTORY_PREFERENCES, Context.MODE_PRIVATE)
@@ -102,11 +105,12 @@ fun AnimatedSplashApp(
             !splashHistory.getBoolean(SPLASH_HISTORY_SEEN_KEY, false)
         }
     val timing =
-        remember(firstSplash, reduceMotion, systemAnimationsOff) {
+        remember(firstSplash, reduceMotion, systemAnimationsOff, variant) {
             splashTiming(
                 firstLaunch = firstSplash,
                 reduceMotion = reduceMotion,
                 systemAnimationsOff = systemAnimationsOff,
+                selectedMotionDurationMs = variant.takeIf { it.mark != SplashMark.WaterFire }?.motionDurationMs(),
             )
         }
 
@@ -251,10 +255,10 @@ private fun AnimatedSplashScreen(
     timing: SplashTiming,
     onFinished: () -> Unit,
 ) {
-    StatusBarIconStyle(darkIcons = !dark)
+    val choreography = rememberSplashChoreography(variant)
+    StatusBarIconStyle(darkIcons = choreography.background != null || !dark)
     val finish by rememberUpdatedState(onFinished)
 
-    val choreography = variant.choreography
     // Where on the authored timeline this launch starts: 0 for the whole welcome, later for the
     // compact returning launch. The clock always runs at the speed the beats were drawn for.
     val clockStart =
@@ -286,7 +290,7 @@ private fun AnimatedSplashScreen(
 
     val lightCount = rememberPhaseLightCount(!stillFrame, enhancedOnly = true)
     val entryColor = splashBackground(entryDark)
-    val targetColor = splashBackground(dark)
+    val targetColor = choreography.background ?: splashBackground(dark)
 
     Box(
         modifier =
@@ -298,7 +302,8 @@ private fun AnimatedSplashScreen(
                 .pointerInput(Unit) { detectTapGestures { finish() } }
                 .drawBehind {
                     val tint = smooth(span(clock.value, clockStart, ENTRY_TINT_MS))
-                    drawRect(lerpColor(entryColor, targetColor, tint))
+                    val handoff = smooth(span(clock.value, choreography.fadeStartMs, FADE_MS))
+                    drawRect(lerpColor(lerpColor(entryColor, targetColor, tint), splashBackground(dark), handoff))
                 },
         contentAlignment = Alignment.Center,
     ) {
@@ -335,25 +340,29 @@ private fun AnimatedSplashScreen(
                     // Taken in from 0.74: at three quarters of the width the mark dominated
                     // a launch that lasts about a second, and left the wordmark under it
                     // looking like a caption rather than the other half of a lockup.
-                    .fillMaxWidth(0.64f)
+                    .fillMaxWidth(if (choreography.showWordmark) 0.64f else 0.78f)
                     .sizeIn(maxWidth = 330.dp)
                     .aspectRatio(1f),
             ) {
                 with(choreography) { drawMark(clock.value, mark) }
-                drawPhaseLight(
-                    androidx.compose.ui.geometry.Rect(
-                        size.width * 0.25f,
-                        size.height * 0.3f,
-                        size.width * 0.75f,
-                        size.height * 0.7f,
-                    ),
-                    (clock.value / choreography.fadeStartMs).coerceIn(0f, 1f),
-                    lightCount,
-                    if (dark) Color.White else Color.Black,
-                )
+                if (choreography.showWordmark) {
+                    drawPhaseLight(
+                        androidx.compose.ui.geometry.Rect(
+                            size.width * 0.25f,
+                            size.height * 0.3f,
+                            size.width * 0.75f,
+                            size.height * 0.7f,
+                        ),
+                        (clock.value / choreography.fadeStartMs).coerceIn(0f, 1f),
+                        lightCount,
+                        if (dark) Color.White else Color.Black,
+                    )
+                }
             }
-            Spacer(Modifier.height(18.dp))
-            SplashWordmark(wordmark = { choreography.wordmark(clock.value) })
+            if (choreography.showWordmark) {
+                Spacer(Modifier.height(18.dp))
+                SplashWordmark(wordmark = { choreography.wordmark(clock.value) })
+            }
         }
     }
 }
@@ -452,6 +461,7 @@ internal fun splashTiming(
     firstLaunch: Boolean,
     reduceMotion: Boolean,
     systemAnimationsOff: Boolean,
+    selectedMotionDurationMs: Int? = null,
 ): SplashTiming =
     when {
         systemAnimationsOff ->
@@ -465,6 +475,12 @@ internal fun splashTiming(
                 motionDurationMs = 0,
                 fadeDurationMs = REDUCED_MOTION_FADE_MS,
                 stillFrameHoldMs = REDUCED_MOTION_HOLD_MS,
+            )
+        selectedMotionDurationMs != null ->
+            SplashTiming(
+                motionDurationMs = selectedMotionDurationMs,
+                fadeDurationMs = FIRST_LAUNCH_FADE_MS,
+                stillFrameHoldMs = 0,
             )
         firstLaunch ->
             SplashTiming(

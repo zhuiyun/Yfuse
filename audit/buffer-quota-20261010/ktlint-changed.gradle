@@ -1,0 +1,24 @@
+def changedSources = [
+    'composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudget.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNode.kt',
+    'composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt',
+    'composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudgetTest.kt',
+    'composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNodeTest.kt',
+    'composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidProxyFileProtocolTest.kt',
+]
+
+gradle.projectsEvaluated {
+    def p = gradle.rootProject.project(':phoneShared')
+    [
+        'runKtlintFormatOverAndroidMainSourceSet',
+        'runKtlintCheckOverAndroidMainSourceSet',
+    ].each { taskName ->
+        p.tasks.named(taskName).configure { t ->
+            t.setSource(p.rootProject.files(changedSources))
+            t.doFirst {
+                assert t.source.files.size() == changedSources.size()
+                println("Checking ${t.source.files.size()} changed Kotlin files")
+            }
+        }
+    }
+}

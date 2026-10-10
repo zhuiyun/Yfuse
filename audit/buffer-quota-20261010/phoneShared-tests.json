@@ -1,0 +1,6690 @@
+{
+  "totals": {
+    "tests": 4711,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suites": [
+    {
+      "name": "com.yfuse.Android16CompatibilityPolicyTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:36.902Z"
+    },
+    {
+      "name": "com.yfuse.app.CapsuleFlashTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:36.906Z"
+    },
+    {
+      "name": "com.yfuse.app.DockLiquidTest",
+      "tests": "19",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:36.911Z"
+    },
+    {
+      "name": "com.yfuse.app.FloatingNavigationInsetsTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:37.066Z"
+    },
+    {
+      "name": "com.yfuse.app.NavigationCollapseConnectionTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:37.118Z"
+    },
+    {
+      "name": "com.yfuse.app.NavigationCollapseGuardTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:37.129Z"
+    },
+    {
+      "name": "com.yfuse.app.NavigationGlassVisualsTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:37.130Z"
+    },
+    {
+      "name": "com.yfuse.app.RootTabMotionTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:37.155Z"
+    },
+    {
+      "name": "com.yfuse.app.SearchMorphOriginTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:37.163Z"
+    },
+    {
+      "name": "com.yfuse.app.SplashTimingPolicyTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:37.165Z"
+    },
+    {
+      "name": "com.yfuse.app.TopLevelBackStackTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:37.168Z"
+    },
+    {
+      "name": "com.yfuse.core.account.AccountAccessTokenSourceTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:37.170Z"
+    },
+    {
+      "name": "com.yfuse.core.account.AccountInviteCapabilityTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:37.212Z"
+    },
+    {
+      "name": "com.yfuse.core.account.AccountRepositoryStateTest",
+      "tests": "17",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:37.352Z"
+    },
+    {
+      "name": "com.yfuse.core.account.AccountRepositoryTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:39.559Z"
+    },
+    {
+      "name": "com.yfuse.core.account.PersonalAutoSyncTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:40.531Z"
+    },
+    {
+      "name": "com.yfuse.core.account.PersonalCloudSyncTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:40.554Z"
+    },
+    {
+      "name": "com.yfuse.core.account.PlaybackCloudApiTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:41.945Z"
+    },
+    {
+      "name": "com.yfuse.core.account.SyncDocumentCodecTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:41.955Z"
+    },
+    {
+      "name": "com.yfuse.core.account.WatchTogetherAccountPolicyTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:42.134Z"
+    },
+    {
+      "name": "com.yfuse.core.cast.CastLiveProgressTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:42.135Z"
+    },
+    {
+      "name": "com.yfuse.core.cast.CastResponseBoundaryTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:42.143Z"
+    },
+    {
+      "name": "com.yfuse.core.cast.CastStateMachineTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:42.150Z"
+    },
+    {
+      "name": "com.yfuse.core.cast.DlnaMediaRelayTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:42.173Z"
+    },
+    {
+      "name": "com.yfuse.core.cast.DlnaMediaTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.421Z"
+    },
+    {
+      "name": "com.yfuse.core.cast.DlnaOperationsTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.425Z"
+    },
+    {
+      "name": "com.yfuse.core.cast.DlnaStartupTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.438Z"
+    },
+    {
+      "name": "com.yfuse.core.data.AiringCalendarMergeTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.444Z"
+    },
+    {
+      "name": "com.yfuse.core.data.AiringCalendarTest",
+      "tests": "13",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.457Z"
+    },
+    {
+      "name": "com.yfuse.core.data.AsyncServerSessionStartupTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.471Z"
+    },
+    {
+      "name": "com.yfuse.core.data.CalendarFollowStoreTest",
+      "tests": "13",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.477Z"
+    },
+    {
+      "name": "com.yfuse.core.data.CalendarIdentityGuessTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.489Z"
+    },
+    {
+      "name": "com.yfuse.core.data.CalendarIdentityRetentionTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.507Z"
+    },
+    {
+      "name": "com.yfuse.core.data.CalendarLocalStoreTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.554Z"
+    },
+    {
+      "name": "com.yfuse.core.data.CalendarServerHealthTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.555Z"
+    },
+    {
+      "name": "com.yfuse.core.data.DanmakuSimilarRuleTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.599Z"
+    },
+    {
+      "name": "com.yfuse.core.data.DanmakuTest",
+      "tests": "35",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.605Z"
+    },
+    {
+      "name": "com.yfuse.core.data.DetailLoadingPerformanceTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.659Z"
+    },
+    {
+      "name": "com.yfuse.core.data.DiagnosticPreferencesTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.712Z"
+    },
+    {
+      "name": "com.yfuse.core.data.DisabledBackendCalendarTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.714Z"
+    },
+    {
+      "name": "com.yfuse.core.data.dto.DolbyVisionLayerMappingTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.869Z"
+    },
+    {
+      "name": "com.yfuse.core.data.dto.ImageBlurHashMappingTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.870Z"
+    },
+    {
+      "name": "com.yfuse.core.data.dto.MediaSegmentsTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.872Z"
+    },
+    {
+      "name": "com.yfuse.core.data.dto.PlaybackChaptersTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.874Z"
+    },
+    {
+      "name": "com.yfuse.core.data.dto.PlaybackSegmentsTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.876Z"
+    },
+    {
+      "name": "com.yfuse.core.data.dto.RuntimeMinutesTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.876Z"
+    },
+    {
+      "name": "com.yfuse.core.data.EmbyApiCallTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.717Z"
+    },
+    {
+      "name": "com.yfuse.core.data.EmbyAuthServiceTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.726Z"
+    },
+    {
+      "name": "com.yfuse.core.data.EmbyDetailServiceTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.765Z"
+    },
+    {
+      "name": "com.yfuse.core.data.EmbyDeviceProfileFactoryTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.790Z"
+    },
+    {
+      "name": "com.yfuse.core.data.EmbyHomeServiceTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.799Z"
+    },
+    {
+      "name": "com.yfuse.core.data.EmbyLookupServiceTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.935Z"
+    },
+    {
+      "name": "com.yfuse.core.data.EmbyPathContractTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.965Z"
+    },
+    {
+      "name": "com.yfuse.core.data.EmbyPlaybackServiceTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:43.993Z"
+    },
+    {
+      "name": "com.yfuse.core.data.EmbyRepositoryTest",
+      "tests": "73",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:44.036Z"
+    },
+    {
+      "name": "com.yfuse.core.data.EmbySearchServiceTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:44.745Z"
+    },
+    {
+      "name": "com.yfuse.core.data.EmbyServerServiceTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:44.772Z"
+    },
+    {
+      "name": "com.yfuse.core.data.EmbySourceServiceTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:44.781Z"
+    },
+    {
+      "name": "com.yfuse.core.data.EmbySubtitleServiceTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:44.801Z"
+    },
+    {
+      "name": "com.yfuse.core.data.EmbyUserDataServiceTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:44.815Z"
+    },
+    {
+      "name": "com.yfuse.core.data.GenreFacetNormalizationTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:44.840Z"
+    },
+    {
+      "name": "com.yfuse.core.data.HomeShelfPreferencesTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:44.841Z"
+    },
+    {
+      "name": "com.yfuse.core.data.LibraryCacheTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:44.844Z"
+    },
+    {
+      "name": "com.yfuse.core.data.LocalHistoryWindowTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:44.877Z"
+    },
+    {
+      "name": "com.yfuse.core.data.MediaExtrasTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:44.973Z"
+    },
+    {
+      "name": "com.yfuse.core.data.MediaServerKindTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.066Z"
+    },
+    {
+      "name": "com.yfuse.core.data.MediaVersionSelectionTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.067Z"
+    },
+    {
+      "name": "com.yfuse.core.data.MetadataEditorServiceTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.070Z"
+    },
+    {
+      "name": "com.yfuse.core.data.OfficialAiringScheduleCatalogTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.114Z"
+    },
+    {
+      "name": "com.yfuse.core.data.PlaybackBookmarksTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.129Z"
+    },
+    {
+      "name": "com.yfuse.core.data.PlaybackEventOutboxTest",
+      "tests": "17",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.152Z"
+    },
+    {
+      "name": "com.yfuse.core.data.PlaybackFailoverRequestTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.210Z"
+    },
+    {
+      "name": "com.yfuse.core.data.PlaybackMetadataCacheTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.212Z"
+    },
+    {
+      "name": "com.yfuse.core.data.PlaybackNegotiationContractTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.228Z"
+    },
+    {
+      "name": "com.yfuse.core.data.PlaybackPreferencesTest",
+      "tests": "21",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.236Z"
+    },
+    {
+      "name": "com.yfuse.core.data.PlaybackProgressProjectionTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.285Z"
+    },
+    {
+      "name": "com.yfuse.core.data.PlaybackTrackRequestTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.290Z"
+    },
+    {
+      "name": "com.yfuse.core.data.PlayerGestureSettingsTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.299Z"
+    },
+    {
+      "name": "com.yfuse.core.data.PlexCloudAccountServiceTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.302Z"
+    },
+    {
+      "name": "com.yfuse.core.data.PlexIdentityIsolationTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.341Z"
+    },
+    {
+      "name": "com.yfuse.core.data.PlexMediaServerAdapterTest",
+      "tests": "14",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.390Z"
+    },
+    {
+      "name": "com.yfuse.core.data.SeriesCalendarLoadingTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.483Z"
+    },
+    {
+      "name": "com.yfuse.core.data.SeriesPlaybackResolutionTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.576Z"
+    },
+    {
+      "name": "com.yfuse.core.data.ServerDatesTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.585Z"
+    },
+    {
+      "name": "com.yfuse.core.data.ServerHealthRefreshResultTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.586Z"
+    },
+    {
+      "name": "com.yfuse.core.data.ServerHealthScheduleTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.597Z"
+    },
+    {
+      "name": "com.yfuse.core.data.ServerManagementTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.657Z"
+    },
+    {
+      "name": "com.yfuse.core.data.ServerRegistryTest",
+      "tests": "22",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:45.682Z"
+    },
+    {
+      "name": "com.yfuse.core.data.ServerSessionRecoveryTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.488Z"
+    },
+    {
+      "name": "com.yfuse.core.data.SkipSegmentPreferencesTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.514Z"
+    },
+    {
+      "name": "com.yfuse.core.data.SmartPlaylistStoreTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.516Z"
+    },
+    {
+      "name": "com.yfuse.core.data.SmartShelfQueryTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.520Z"
+    },
+    {
+      "name": "com.yfuse.core.data.SmartSourceSelectionTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.522Z"
+    },
+    {
+      "name": "com.yfuse.core.data.SourceTitleMatchTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.530Z"
+    },
+    {
+      "name": "com.yfuse.core.data.ThemePreferencesTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.531Z"
+    },
+    {
+      "name": "com.yfuse.core.data.TmdbHomeCacheTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.541Z"
+    },
+    {
+      "name": "com.yfuse.core.data.TmdbHomeRefreshTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.560Z"
+    },
+    {
+      "name": "com.yfuse.core.data.TmdbHomeTimeoutTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.714Z"
+    },
+    {
+      "name": "com.yfuse.core.data.TmdbPeopleTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.738Z"
+    },
+    {
+      "name": "com.yfuse.core.data.TmdbRepositoryTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.768Z"
+    },
+    {
+      "name": "com.yfuse.core.data.TmdbTitleSearchTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.841Z"
+    },
+    {
+      "name": "com.yfuse.core.data.UserAgentPreferencesTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.866Z"
+    },
+    {
+      "name": "com.yfuse.core.data.WatchTogetherPreferencesTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.868Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.AmbientLightTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.878Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.AmbientLightTransitionTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.889Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.AnimatedColorStateTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.901Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ArtworkBlurCacheTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.913Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ArtworkColorCacheTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.919Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ArtworkColorMotionTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.939Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ArtworkPageSurfaceTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.942Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ArtworkPageThemeTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.948Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ArtworkPlaceholderColorsTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.952Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.BackdropFramesTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.956Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.BlurHashTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.962Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.CarouselAutoAdvanceTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.968Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.CarouselMotionTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.974Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ChipSectionHeaderBadgeTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.981Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ContentHandoffTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.996Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.CuriousDialogMotionTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:46.998Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.DecorativePhaseTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.007Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.DelightDialogMotionTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.111Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.DesignSystemContractTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.116Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.DialogAnimationTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.119Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.DialogFlingTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.144Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.DialogMotionPolishTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.145Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.DominantColorTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.153Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.DragProgressTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.155Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.DragSelectTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.158Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.GlassButtonStyleTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.161Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.GlassMaterialTest",
+      "tests": "13",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.163Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.GlassTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.174Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.HandoffEffectCacheTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.177Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.HapticsMappingTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.183Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.HapticThrottleTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.181Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ImageRevealMotionTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.185Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.LaunchWaveTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.188Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.LiftExpansionTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.194Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.LiftMenuTest",
+      "tests": "39",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.200Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.LightParticlesTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.208Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.LiquidSplitTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.220Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.LivingPosterArtworkTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.228Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.LivingPosterHeroHeightTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.231Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.LivingPosterMetadataTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.237Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.LoadingAnimationTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.238Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.LoadingMotionTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.242Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.LoopingCarouselTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.247Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.MaterialDialogMotionTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.248Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.MediaLazyItemKeyTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.250Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.MotionAccessibilityPolicyTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.256Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.MotionBudgetTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.260Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.MotionHandoffPolicyTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.265Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.MotionThemeTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.283Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.NarrowArtworkFitTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.284Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.NavigationGlassTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.285Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.NavigationIdentityTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.290Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.NavigationPearlGlassTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.293Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.NavigationRailPolicyTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.294Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.OverlayVisibilityTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.295Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.PlayerArtworkOriginTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.301Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.PlayerHandoffGeometryTest",
+      "tests": "15",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.304Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.PosterRatingTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.312Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.RollingNumberTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.313Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.SelectionTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.319Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.SharedMediaTransitionTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.322Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.SwipeActionsRowTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.326Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ThemeCrossfadeStateTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.332Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ThemeCrossfadeTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.402Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.TipsStateTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.415Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ToastQueueTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.421Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ToastTimingTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.437Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.TouchTargetFocusShapeTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.441Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.UndoWindowTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.448Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.WaitingPulsePolicyTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.454Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ZoomBackCatchTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.480Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ZoomBackGeometryTest",
+      "tests": "15",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.493Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ZoomBackNavigationTest",
+      "tests": "16",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.498Z"
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ZoomBackPullTrackerTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.536Z"
+    },
+    {
+      "name": "com.yfuse.core.filesource.AndroidFileSourceClientTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.543Z"
+    },
+    {
+      "name": "com.yfuse.core.filesource.FileSourceAddressTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.798Z"
+    },
+    {
+      "name": "com.yfuse.core.filesource.FileSourceEntryTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.803Z"
+    },
+    {
+      "name": "com.yfuse.core.filesource.FileSourceLibraryFileStorageTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.805Z"
+    },
+    {
+      "name": "com.yfuse.core.filesource.FileSourceLibraryTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.838Z"
+    },
+    {
+      "name": "com.yfuse.core.filesource.FileSourceProgressTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.901Z"
+    },
+    {
+      "name": "com.yfuse.core.filesource.FileSourceQueueTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.913Z"
+    },
+    {
+      "name": "com.yfuse.core.filesource.FileSourceRegistryTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.933Z"
+    },
+    {
+      "name": "com.yfuse.core.filesource.FileSourceSubtitleCacheTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.956Z"
+    },
+    {
+      "name": "com.yfuse.core.filesource.MediaNameParserTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:47.981Z"
+    },
+    {
+      "name": "com.yfuse.core.filesource.SubtitlePairingTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.038Z"
+    },
+    {
+      "name": "com.yfuse.core.filesource.TmdbTitleMatcherTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.045Z"
+    },
+    {
+      "name": "com.yfuse.core.filesource.WebDavMultistatusTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.090Z"
+    },
+    {
+      "name": "com.yfuse.core.handoff.HandoffControllerTest",
+      "tests": "17",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.109Z"
+    },
+    {
+      "name": "com.yfuse.core.handoff.HandoffPlaybackRegistryTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.211Z"
+    },
+    {
+      "name": "com.yfuse.core.handoff.HandoffVaultCipherTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.238Z"
+    },
+    {
+      "name": "com.yfuse.core.logging.DiagnosticLogBoundaryTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.379Z"
+    },
+    {
+      "name": "com.yfuse.core.logging.DiagnosticRedactorTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.405Z"
+    },
+    {
+      "name": "com.yfuse.core.logging.PlaybackDiagnosticTraceTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.407Z"
+    },
+    {
+      "name": "com.yfuse.core.logging.SafeLogcatOutputGateTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.408Z"
+    },
+    {
+      "name": "com.yfuse.core.logging.ThrowableDiagnosticsTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.409Z"
+    },
+    {
+      "name": "com.yfuse.core.migration.MigrationRelayHttpEngineTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.410Z"
+    },
+    {
+      "name": "com.yfuse.core.model.DolbyVisionTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.462Z"
+    },
+    {
+      "name": "com.yfuse.core.model.DolbyVisionUnknownProfileTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.463Z"
+    },
+    {
+      "name": "com.yfuse.core.model.EpisodeLabelsTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.464Z"
+    },
+    {
+      "name": "com.yfuse.core.model.EpisodeRangesTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.466Z"
+    },
+    {
+      "name": "com.yfuse.core.model.MediaServerCapabilitiesTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.470Z"
+    },
+    {
+      "name": "com.yfuse.core.model.PlaybackHistoryTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.471Z"
+    },
+    {
+      "name": "com.yfuse.core.model.ShortDramaTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.475Z"
+    },
+    {
+      "name": "com.yfuse.core.navigation.SingleFlightNavigationGuardTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.476Z"
+    },
+    {
+      "name": "com.yfuse.core.network.AndroidHttpEnginePolicyTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.477Z"
+    },
+    {
+      "name": "com.yfuse.core.network.BackendMediaSeparationTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.787Z"
+    },
+    {
+      "name": "com.yfuse.core.network.EmbyAuthTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.792Z"
+    },
+    {
+      "name": "com.yfuse.core.network.EmbyErrorMessagesTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.793Z"
+    },
+    {
+      "name": "com.yfuse.core.network.EmbyImagesTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.795Z"
+    },
+    {
+      "name": "com.yfuse.core.network.EmbyPlaybackHeadersTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.797Z"
+    },
+    {
+      "name": "com.yfuse.core.network.EmbyRequestForegroundTimelineTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.802Z"
+    },
+    {
+      "name": "com.yfuse.core.network.EmbyStreamTest",
+      "tests": "22",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.804Z"
+    },
+    {
+      "name": "com.yfuse.core.network.FallbackTranscodeContractTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.812Z"
+    },
+    {
+      "name": "com.yfuse.core.network.HttpClientFactoryTest",
+      "tests": "16",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.814Z"
+    },
+    {
+      "name": "com.yfuse.core.network.ImageCacheKeyTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.945Z"
+    },
+    {
+      "name": "com.yfuse.core.network.Jellyfin12CompatibilityTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.947Z"
+    },
+    {
+      "name": "com.yfuse.core.network.LocalNetworkPermissionTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.964Z"
+    },
+    {
+      "name": "com.yfuse.core.network.ServerEndpointPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.965Z"
+    },
+    {
+      "name": "com.yfuse.core.network.ServiceEndpointPolicyTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.967Z"
+    },
+    {
+      "name": "com.yfuse.core.network.TmdbHttpCacheTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:48.969Z"
+    },
+    {
+      "name": "com.yfuse.core.network.TmdbImagesTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.027Z"
+    },
+    {
+      "name": "com.yfuse.core.network.TmdbRoutingTest",
+      "tests": "18",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.033Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.AutoDownloadPlanTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.091Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.DownloadLiveProgressTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.097Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.DownloadLiveTextTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.099Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.DownloadNotificationRateLimitTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.101Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.DownloadSummaryTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.104Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.OfflineAddedOrderTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.106Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.OfflineBatchCommandTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.109Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.OfflineBatchSelectionTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.119Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.OfflineCommandQueueTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.125Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.OfflineDownloadBudgetTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.135Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.OfflineEnqueueBatchTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.136Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.OfflineForegroundRefusalTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.139Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.OfflineIndexMigrationTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.141Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.OfflineIndexRecoveryTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.144Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.OfflineMediaSecurityTest",
+      "tests": "33",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.156Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.OfflineResumePositionTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.237Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.OfflineRetryPolicyTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.238Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.OfflineTransferResponseTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.240Z"
+    },
+    {
+      "name": "com.yfuse.core.offline.OfflineWakeWorkTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.241Z"
+    },
+    {
+      "name": "com.yfuse.core.performance.FrameOverrunStatsTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.251Z"
+    },
+    {
+      "name": "com.yfuse.core.performance.HighRefreshRateTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.255Z"
+    },
+    {
+      "name": "com.yfuse.core.performance.JankFrameWindowTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.258Z"
+    },
+    {
+      "name": "com.yfuse.core.personal.PersonalLibraryRepositoryTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.275Z"
+    },
+    {
+      "name": "com.yfuse.core.personal.PersonalScopedSettingsTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.508Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.AndroidBlockingMediaProbeLaneTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:49.513Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.DolbyVisionEnhancementValidationTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.045Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.DolbyVisionMediaEvidenceMappingTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.047Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.NativeCrashIsolationTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.047Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.NativeCrashTombstoneTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.050Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.OpticalPlaybackReleaseValidationTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.056Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackAdaptiveManifestTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.059Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackBufferPolicyTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.061Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackCodecMappingTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.062Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackDeviceCapabilitiesAndroidTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.064Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackDiscImageInspectorTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.066Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackDiscNavigationTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.068Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackDiscPolicyTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.073Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackDolbyVisionRoutingTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.077Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackDrmTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.082Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackFailureMemoryTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.087Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackHdrPolicyTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.093Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackHealthTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.095Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackNetworkRecoveryControllerTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.098Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackOfflineLicenseCatalogTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.100Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackOfflineLicenseNativeTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.108Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackPerformanceMemoryTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.116Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackPlannerTest",
+      "tests": "22",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.120Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackProxyLimitsTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.124Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackQoeReporterTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.137Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackReleaseValidationTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.160Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackRuntimeEnvironmentTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.165Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackRuntimeFaultDetectorTest",
+      "tests": "30",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.168Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.PlaybackStartupPolicyTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.171Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.ProResPlaybackPlanningTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.173Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.RemoteDiscRoutingTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.174Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.UhdBluRayPlaybackPlannerTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.174Z"
+    },
+    {
+      "name": "com.yfuse.core.playback.YCorePlaybackSessionTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.177Z"
+    },
+    {
+      "name": "com.yfuse.core.remote.PhoneRemoteClientTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.183Z"
+    },
+    {
+      "name": "com.yfuse.core.remote.RemoteControlHostTest",
+      "tests": "17",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.220Z"
+    },
+    {
+      "name": "com.yfuse.core.remote.RemotePairingTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.313Z"
+    },
+    {
+      "name": "com.yfuse.core.remote.RemotePhoneIdentityTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.316Z"
+    },
+    {
+      "name": "com.yfuse.core.remote.RemoteSignInClientTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.319Z"
+    },
+    {
+      "name": "com.yfuse.core.remote.RemoteSignInTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.338Z"
+    },
+    {
+      "name": "com.yfuse.core.security.Base64UrlTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.339Z"
+    },
+    {
+      "name": "com.yfuse.core.security.CredentialPersistingSettingsTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.341Z"
+    },
+    {
+      "name": "com.yfuse.core.security.SecureStoreEnvelopeCodecTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.346Z"
+    },
+    {
+      "name": "com.yfuse.core.security.ServerMigrationRelayCryptoTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.347Z"
+    },
+    {
+      "name": "com.yfuse.core.security.VaultCryptoTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:50.883Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.ClockSyncTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.036Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.CloudSyncSnapshotTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.038Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.playback.PlaybackCloudSyncPolicyTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.123Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.playback.PlaybackConflictResolverTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.125Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.playback.PlaybackServerApplyPolicyTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.128Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.playback.PlaybackStartPositionTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.132Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.playback.PlaybackSyncManagerTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.136Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.playback.PlaybackSyncStoreServerDatesTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.634Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.playback.PlaybackSyncStoreTest",
+      "tests": "24",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.674Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.playback.PlaybackWireCompatibilityTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.700Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.ServerSyncManagerTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.048Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.UserStateWriterTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.076Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.WatchConnectionOwnershipTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.080Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.WatchDurationMismatchTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.082Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.WatchInviteTest",
+      "tests": "18",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.085Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.WatchRoomPlaylistTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.089Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.WatchRoomResumeStoreTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.093Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.WatchStickerTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.096Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.WatchTogetherCapabilityTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.101Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.WatchTogetherChatTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.101Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.WatchTogetherClientTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.104Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.WatchTogetherOutgoingQueueTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.111Z"
+    },
+    {
+      "name": "com.yfuse.core.sync.WatchTogetherTransportTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:51.120Z"
+    },
+    {
+      "name": "com.yfuse.core.trakt.HttpTraktApiTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.704Z"
+    },
+    {
+      "name": "com.yfuse.core.trakt.PersonalTraktImportSinkTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.733Z"
+    },
+    {
+      "name": "com.yfuse.core.trakt.TraktRepositoryTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.737Z"
+    },
+    {
+      "name": "com.yfuse.core.util.DateWindowTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.808Z"
+    },
+    {
+      "name": "com.yfuse.core.util.LatestWinsTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.810Z"
+    },
+    {
+      "name": "com.yfuse.core.util.PosterCardShareSeriesLinkTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.830Z"
+    },
+    {
+      "name": "com.yfuse.core.util.PosterCardShareTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.836Z"
+    },
+    {
+      "name": "com.yfuse.core.util.UnicodeTextTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.837Z"
+    },
+    {
+      "name": "com.yfuse.core2.adaptive.YAdaptiveBitrateTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.841Z"
+    },
+    {
+      "name": "com.yfuse.core2.adaptive.YAdaptiveReopenCompatibilityTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.854Z"
+    },
+    {
+      "name": "com.yfuse.core2.adaptive.YDashFinitePlaybackTimelineTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.858Z"
+    },
+    {
+      "name": "com.yfuse.core2.adaptive.YDashParserTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.866Z"
+    },
+    {
+      "name": "com.yfuse.core2.adaptive.YDashPresentationTimelineTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.872Z"
+    },
+    {
+      "name": "com.yfuse.core2.adaptive.YHlsParserTest",
+      "tests": "13",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.876Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidActiveAudioOutputFingerprintTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.885Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryFailureTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.887Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.901Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidAdaptiveDrmInitializationDataTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.905Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidAdaptiveHttpMediaTransportTest",
+      "tests": "17",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.907Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidAdaptiveManifestDiscoveryTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:52.984Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidAdaptivePresentationStateTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:53.099Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidAdaptiveProxyTransitionTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:53.105Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidAssSubtitleRendererTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:53.221Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidAudioClockProgressGuardTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:53.236Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidAudioCodecMappingTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:53.238Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidAudioRouteEvidenceTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:53.240Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidAudioTrackRenderNodePolicyTest",
+      "tests": "16",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:53.243Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidBoundedProbeTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:53.247Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidBufferWaitMonitorTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:53.739Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidCore2DolbyTrialGuardTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:53.741Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidCore2FallbackPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:53.754Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidCore2ProbeTruthMergeTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:53.756Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidCore2RouterDispatcherTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:53.757Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidCore2SoftwareRouteTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:56.747Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidCore2TrialTest",
+      "tests": "17",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:56.749Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidCronetHostHealthTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:56.757Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidDemuxAnalysisPolicyTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:56.761Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidDemuxReadAheadBufferTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:56.767Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidDemuxReadAheadNodeTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:56.777Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidDemuxReadControlTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:56.815Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidDolbyProfileMappingTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:58.534Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidEncodedAudioTrackRenderNodeTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:58.534Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidEnhancedAudioSelectionTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:58.536Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidEnhancedMediaProbeFailureMemoryTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:58.539Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidExternalSubtitleCancellationTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:58.545Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidExternalSubtitleSessionTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:58.710Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidFfmpegDemuxerMappingTest",
+      "tests": "16",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:58.714Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidForwardCacheWarmerTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:58.717Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidHttpMediaTransportTest",
+      "tests": "17",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:58.755Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidHttpRangeHeadersTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.049Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidHttpRangeMediaDataSourceTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.050Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidMediaCodecVideoNodePolicyTest",
+      "tests": "25",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.070Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidMediaExtractorReadAheadNodeTest",
+      "tests": "22",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.083Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidMediaSourceFailureTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.171Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidMetadataProbeStageTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.173Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidNativeDirectAudioRoutePreviewTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.435Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidNetworkRecoveryWindowTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.436Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidNextItemPreloadWindowTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.437Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidNextItemPreparationTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.445Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidPausedVideoPreviewTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.455Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidPcmEffectStageTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.458Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidPlatformAacIdentityTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.460Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidPlaybackMemoryBudgetTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.462Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidPlaybackProbeFactsTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.463Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidPlaybackProxyAdmissionTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.466Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidPlaybackStagingBufferTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.724Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidPlaybackTimingTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.727Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidPlaybackWorkerStepTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.729Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidPreparedMediaSlotTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.731Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidProbeBudgetTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:59.976Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidProxyFailureLogGateTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:00.204Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidProxyFileProtocolTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:36.652Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidProxyMediaSessionsTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:00.208Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidQueueCursorTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:01.090Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidRangeReadWatchdogTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:01.092Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidRuntimeCapabilityRegistryTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:01.787Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidSecureSurfacePolicyTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:01.789Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidSourceRouteStateRegistryTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:01.790Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidSubtitleTextTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:01.791Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidSurfacePlaybackCompletionTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:01.809Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidTransportCancellationTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:01.811Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidTransportDiscBlockSourceTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:01.818Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidTransportMediaDataSourcePrefetchTest",
+      "tests": "20",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:01.830Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidTransportMemoryPressureTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:03.055Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidTransportRequestFactoryTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:03.075Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidTransportStartupAndResumeTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:03.076Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidTunnelSeekAudioTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.606Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidVideoCodecSpecificDataTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.608Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidVideoEosGateTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.612Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidVideoOutputEpochTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.613Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidVideoShapeTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.630Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidYCoreBlockCacheTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.631Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidYCoreBluRayPlayerReleaseTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.807Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidYCoreCryptoInfoTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.812Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidYCoreHttpProxyTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.815Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidYCoreProxyCloseTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.817Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidYCoreVerifiedRouteMemoryTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.932Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.Anime4KFrameLedgerTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.934Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.BoundedFrameLeasePoolTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.936Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.BoundedRenderFenceTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.938Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.CodecFrameTimestampMapperTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.975Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.CodecOutputFormatReplayTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.976Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.Core2NativeBaselineTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.977Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.CurrentItemNetworkPolicyTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.978Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.Hdr10PlusFrameMetadataTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.979Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.MediaCredentialScopeTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.981Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.NativeDirectCommandPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.982Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.NativeDirectHdr10PlusTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.985Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.NativeDirectPacingPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.987Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.NativeDirectStartupPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.988Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.NativeEnhancedCommandPolicyTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.989Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.NextItemCancellationTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.992Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.NextItemIntroWarmTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:11.995Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.NextItemNetworkGateTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.NextItemOutputHandoffTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.002Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.NextItemRangeReuseTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.003Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.PcmWriteCursorTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.116Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.PlaybackAuditRegressionTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.117Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.PlaybackStartupLatencyTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.207Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.PlaybackTransportAuditTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.209Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.SharedOriginConnectionPoolTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.263Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.SharedRouteHttpMediaTransportTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.289Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.SoftwarePcmOutputTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.318Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.TunnelSourceFailureCategoryTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.321Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.YAdaptiveBufferModelTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.321Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.YAdaptiveReopenGateTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.322Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.YEnhancedAudioSelectionTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.323Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.YEnhancedDemuxSourceTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.324Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.YProgressiveTransportBlockTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.326Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.YTransportReadHeadsTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.327Z"
+    },
+    {
+      "name": "com.yfuse.core2.api.YDualDolbyEvidenceTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.328Z"
+    },
+    {
+      "name": "com.yfuse.core2.api.YInitialTrackSelectionTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.329Z"
+    },
+    {
+      "name": "com.yfuse.core2.api.YPlayerDiagnosticsTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.330Z"
+    },
+    {
+      "name": "com.yfuse.core2.api.YPlayerQueueTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.331Z"
+    },
+    {
+      "name": "com.yfuse.core2.api.YRebufferTrackerTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.331Z"
+    },
+    {
+      "name": "com.yfuse.core2.audio.YAudioEffectProcessorTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.333Z"
+    },
+    {
+      "name": "com.yfuse.core2.bitstream.YAudioConfigurationTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.836Z"
+    },
+    {
+      "name": "com.yfuse.core2.bitstream.YBitstreamTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.837Z"
+    },
+    {
+      "name": "com.yfuse.core2.bitstream.YCodecConfigurationTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.839Z"
+    },
+    {
+      "name": "com.yfuse.core2.capability.YCapabilityTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.841Z"
+    },
+    {
+      "name": "com.yfuse.core2.demux.ShownVideoSizeTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.842Z"
+    },
+    {
+      "name": "com.yfuse.core2.demux.YMatroskaChaptersTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.844Z"
+    },
+    {
+      "name": "com.yfuse.core2.dolby.YDolbyVisionBitstreamTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.850Z"
+    },
+    {
+      "name": "com.yfuse.core2.dolby.YDolbyVisionConfigEncodingTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.851Z"
+    },
+    {
+      "name": "com.yfuse.core2.dolby.YDolbyVisionConfigTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.851Z"
+    },
+    {
+      "name": "com.yfuse.core2.dolby.YDolbyVisionFelEvidenceProviderTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.855Z"
+    },
+    {
+      "name": "com.yfuse.core2.dolby.YDolbyVisionLayerSynchronizerTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.856Z"
+    },
+    {
+      "name": "com.yfuse.core2.dolby.YDolbyVisionRouterTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.858Z"
+    },
+    {
+      "name": "com.yfuse.core2.dolby.YMatroskaDolbyVisionMetadataParserTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.864Z"
+    },
+    {
+      "name": "com.yfuse.core2.dolby.YMatroskaTrackCodecParserTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.869Z"
+    },
+    {
+      "name": "com.yfuse.core2.drm.YDrmRenewalPolicyTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.872Z"
+    },
+    {
+      "name": "com.yfuse.core2.graph.YPlaybackGraphTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.872Z"
+    },
+    {
+      "name": "com.yfuse.core2.hdr.YHdr10PlusParserTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.875Z"
+    },
+    {
+      "name": "com.yfuse.core2.hdr.YHdrMetadataTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.876Z"
+    },
+    {
+      "name": "com.yfuse.core2.hdr.YHdrRouterTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.877Z"
+    },
+    {
+      "name": "com.yfuse.core2.learning.YPlaybackLearningTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.880Z"
+    },
+    {
+      "name": "com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactoryTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.882Z"
+    },
+    {
+      "name": "com.yfuse.core2.legacy.LegacyYPlayerAdapterTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.883Z"
+    },
+    {
+      "name": "com.yfuse.core2.legacy.YAudioEffectMappingTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.891Z"
+    },
+    {
+      "name": "com.yfuse.core2.legacy.YPlayerChapterMappingTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.893Z"
+    },
+    {
+      "name": "com.yfuse.core2.legacy.YPlayerVideoEngineAdapterTest",
+      "tests": "13",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.895Z"
+    },
+    {
+      "name": "com.yfuse.core2.network.YAggregateBandwidthMeterTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.898Z"
+    },
+    {
+      "name": "com.yfuse.core2.network.YBufferControllerTest",
+      "tests": "16",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.900Z"
+    },
+    {
+      "name": "com.yfuse.core2.network.YMediaTransportTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.901Z"
+    },
+    {
+      "name": "com.yfuse.core2.network.YTransportRetryPolicyTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.902Z"
+    },
+    {
+      "name": "com.yfuse.core2.quirk.YCore2FailureLedgerTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.903Z"
+    },
+    {
+      "name": "com.yfuse.core2.quirk.YDeviceQuirkDatabaseTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.906Z"
+    },
+    {
+      "name": "com.yfuse.core2.recovery.YAudioHandoverPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.909Z"
+    },
+    {
+      "name": "com.yfuse.core2.recovery.YPlaybackRecoveryPolicyTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.910Z"
+    },
+    {
+      "name": "com.yfuse.core2.release.YCoreNativeReadinessTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.912Z"
+    },
+    {
+      "name": "com.yfuse.core2.render.YFrameRatePolicyTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.915Z"
+    },
+    {
+      "name": "com.yfuse.core2.render.YGpuColorPipelineTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.917Z"
+    },
+    {
+      "name": "com.yfuse.core2.render.YGpuPipelineTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.920Z"
+    },
+    {
+      "name": "com.yfuse.core2.render.YNativeGpuRuntimeTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.922Z"
+    },
+    {
+      "name": "com.yfuse.core2.render.YRenderedFrameRateSamplerTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.923Z"
+    },
+    {
+      "name": "com.yfuse.core2.security.YCoreMalformedInputFuzzTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.924Z"
+    },
+    {
+      "name": "com.yfuse.core2.strategy.YAudioOnlyStrategyTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.984Z"
+    },
+    {
+      "name": "com.yfuse.core2.strategy.YPlatformAudioDemuxStrategyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.985Z"
+    },
+    {
+      "name": "com.yfuse.core2.strategy.YPlaybackStrategyTest",
+      "tests": "18",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.987Z"
+    },
+    {
+      "name": "com.yfuse.core2.strategy.YProbeTruthPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.990Z"
+    },
+    {
+      "name": "com.yfuse.core2.strategy.YTunnelPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.991Z"
+    },
+    {
+      "name": "com.yfuse.core2.subtitle.YDualSubtitleTimelineTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.992Z"
+    },
+    {
+      "name": "com.yfuse.core2.subtitle.YEmbeddedTextSubtitleQueueTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.993Z"
+    },
+    {
+      "name": "com.yfuse.core2.subtitle.YExtraTextSubtitleFormatsTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:12.998Z"
+    },
+    {
+      "name": "com.yfuse.core2.subtitle.YSamiBoundsTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.005Z"
+    },
+    {
+      "name": "com.yfuse.core2.subtitle.YSubtitleCharsetTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.235Z"
+    },
+    {
+      "name": "com.yfuse.core2.subtitle.YSubtitleClockAnchorTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.238Z"
+    },
+    {
+      "name": "com.yfuse.core2.subtitle.YSubtitleCueBufferTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.241Z"
+    },
+    {
+      "name": "com.yfuse.core2.subtitle.YSubtitleParserCancellationTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.271Z"
+    },
+    {
+      "name": "com.yfuse.core2.subtitle.YSubtitleRegexRegressionTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.279Z"
+    },
+    {
+      "name": "com.yfuse.core2.subtitle.YTextSubtitleParserTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.283Z"
+    },
+    {
+      "name": "com.yfuse.core2.subtitle.YTtmlTimingTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.287Z"
+    },
+    {
+      "name": "com.yfuse.core2.sync.YAvSyncTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.292Z"
+    },
+    {
+      "name": "com.yfuse.core2.sync.YMediaClockTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.296Z"
+    },
+    {
+      "name": "com.yfuse.core2.sync.YMediaTimestampTimelineTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.299Z"
+    },
+    {
+      "name": "com.yfuse.core2.sync.YPcmTimelineTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.302Z"
+    },
+    {
+      "name": "com.yfuse.core2.test.YMediaTestSuiteTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.310Z"
+    },
+    {
+      "name": "com.yfuse.di.AppModuleGraphTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.321Z"
+    },
+    {
+      "name": "com.yfuse.feature.calendar.AiringLocalTimeTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.363Z"
+    },
+    {
+      "name": "com.yfuse.feature.calendar.AiringShowCalendarDialogTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.370Z"
+    },
+    {
+      "name": "com.yfuse.feature.calendar.CalendarFilterTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.371Z"
+    },
+    {
+      "name": "com.yfuse.feature.calendar.CalendarIcsTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.372Z"
+    },
+    {
+      "name": "com.yfuse.feature.calendar.CalendarLoadDeadlineTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.375Z"
+    },
+    {
+      "name": "com.yfuse.feature.calendar.CalendarStateTest",
+      "tests": "13",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.383Z"
+    },
+    {
+      "name": "com.yfuse.feature.calendar.ShowScheduleTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.386Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.DetailActionColorTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.392Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.DetailActionFormattingTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.395Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.DetailActionKeysTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.398Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.DetailCastTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.406Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.DetailHeroPhysicsTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.444Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.DetailKeyLiquidTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.445Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.DetailMoreLiftMenuTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.508Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.DetailPlaybackSelectionTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.513Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.DetailReducerTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.521Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.DetailStateColorsTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.534Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.DetailStatusTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.535Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.DetailStoreTest",
+      "tests": "39",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:13.538Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.DetailTrackChoiceTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.089Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.DetailTrailersTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.092Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.EpisodeFocusTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.098Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.EpisodeLiftMenuTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.100Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.EpisodeMarkTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.102Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.EpisodeProgressReducerTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.103Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.EpisodeScrubTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.107Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.ExternalLinksTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.110Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.MediaQualitySortingTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.113Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.MetadataEditorMessageTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.115Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.OfflineDownloadDraftTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.116Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.OfflineDownloadFeedbackTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.117Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.SeasonTabsTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.120Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.SeriesAiringCalendarTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.121Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.SourceSelectionPresentationTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.122Z"
+    },
+    {
+      "name": "com.yfuse.feature.detail.WatchRoomActionTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.124Z"
+    },
+    {
+      "name": "com.yfuse.feature.extras.DetailThemeSongTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.124Z"
+    },
+    {
+      "name": "com.yfuse.feature.extras.TrailerPlaybackTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.126Z"
+    },
+    {
+      "name": "com.yfuse.feature.filesource.FileSourceLibraryShelfTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.128Z"
+    },
+    {
+      "name": "com.yfuse.feature.filesource.FileSourcePlaybackTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.130Z"
+    },
+    {
+      "name": "com.yfuse.feature.filesource.FileSourcesControllerTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.136Z"
+    },
+    {
+      "name": "com.yfuse.feature.handoff.DeviceHandoffStoreTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.153Z"
+    },
+    {
+      "name": "com.yfuse.feature.handoff.HandoffBannerTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.165Z"
+    },
+    {
+      "name": "com.yfuse.feature.handoff.HandoffTargetIdentityTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.169Z"
+    },
+    {
+      "name": "com.yfuse.feature.handoff.HandoffTimelineTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.170Z"
+    },
+    {
+      "name": "com.yfuse.feature.handoff.RemoteSwipeTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.171Z"
+    },
+    {
+      "name": "com.yfuse.feature.home.HomeCalendarOpenTargetTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.172Z"
+    },
+    {
+      "name": "com.yfuse.feature.home.HomeLibraryShelvesTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.175Z"
+    },
+    {
+      "name": "com.yfuse.feature.home.HomeLiftMenuTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.249Z"
+    },
+    {
+      "name": "com.yfuse.feature.home.HomePlaybackRecoveryTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.253Z"
+    },
+    {
+      "name": "com.yfuse.feature.home.HomePlayerRouteAutoplayTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.254Z"
+    },
+    {
+      "name": "com.yfuse.feature.home.HomeResumeRemovalTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.264Z"
+    },
+    {
+      "name": "com.yfuse.feature.home.HomeShelfEditorTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.265Z"
+    },
+    {
+      "name": "com.yfuse.feature.home.HomeShelfRevisionTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.267Z"
+    },
+    {
+      "name": "com.yfuse.feature.home.HomeStoreTest",
+      "tests": "18",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.268Z"
+    },
+    {
+      "name": "com.yfuse.feature.library.LibraryContainerRouteTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.490Z"
+    },
+    {
+      "name": "com.yfuse.feature.library.LibraryFreshnessTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.499Z"
+    },
+    {
+      "name": "com.yfuse.feature.library.LibraryGridDensityTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.509Z"
+    },
+    {
+      "name": "com.yfuse.feature.library.LibraryGridIndexTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.512Z"
+    },
+    {
+      "name": "com.yfuse.feature.library.LibraryGridReflowTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.515Z"
+    },
+    {
+      "name": "com.yfuse.feature.library.LibraryGridStoreTest",
+      "tests": "24",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.520Z"
+    },
+    {
+      "name": "com.yfuse.feature.library.LibraryHeroUiContractTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.637Z"
+    },
+    {
+      "name": "com.yfuse.feature.library.LibraryHomeSharedKeyTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.637Z"
+    },
+    {
+      "name": "com.yfuse.feature.library.LibraryRefreshRevisionTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.638Z"
+    },
+    {
+      "name": "com.yfuse.feature.library.LibraryStoreTest",
+      "tests": "13",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.640Z"
+    },
+    {
+      "name": "com.yfuse.feature.library.MediaItemLiftMenuTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.735Z"
+    },
+    {
+      "name": "com.yfuse.feature.library.PlayerRouteLaunchGateTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.744Z"
+    },
+    {
+      "name": "com.yfuse.feature.library.UnifiedLibraryPagerTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.746Z"
+    },
+    {
+      "name": "com.yfuse.feature.person.PersonFactsTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.781Z"
+    },
+    {
+      "name": "com.yfuse.feature.person.PersonTmdbMatchTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.785Z"
+    },
+    {
+      "name": "com.yfuse.feature.personal.PersonalCenterScreenTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.800Z"
+    },
+    {
+      "name": "com.yfuse.feature.personal.PersonalCenterStoreTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.806Z"
+    },
+    {
+      "name": "com.yfuse.feature.personal.PersonalRemovalMessageTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.939Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ActivePlaybackTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.940Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.AdaptiveStartupLoadControlTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.942Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.AmbientCopyTest",
+      "tests": "13",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.976Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.AmbientSamplingPolicyTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:15.999Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.AndroidDolbyVisionRuntimeTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.002Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.AndroidPlaybackHttpProxyTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.005Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.AndroidPlaybackOutputTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.197Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ArtworkProgressBarTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.201Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.AudioControlPolicyTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.206Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.AudioOutputDelayPreferencesTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.207Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.AudioTrackMatchingTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.209Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.BackgroundPlaybackProbePolicyTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.211Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.BdJDiscNavigationBackendTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.211Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.BufferedPositionTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.214Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.CastLiveHandoverTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.215Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.CastMediaProfileTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.216Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ChapterProgressMarkersTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.217Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.Core2SurfaceTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.219Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.CreditsTakeoverTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.222Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.DanmakuHeatTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.224Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.DanmakuKeyTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.226Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.DanmakuLayoutTest",
+      "tests": "15",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.238Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.DanmakuPickTest",
+      "tests": "15",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.243Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.DiscMenuAndroidInputTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.250Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.DiscNavigationBackendTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.251Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.DualSubtitlePreferencesTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.255Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.EmbyPlaybackInterceptorTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.256Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.EpisodeStripTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.296Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.EpisodeSwipeTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.299Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ExoDrmConfigurationTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.300Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ExoDualSubtitleCueMergerTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.303Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ExoMainFeatureSupportTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.313Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ExoSecondarySubtitleRecoveryTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.318Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ExternalMetadataLookupTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:16.344Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ExternalPlaybackIntentTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.367Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ExternalPlaybackTest",
+      "tests": "14",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.370Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.FittedPictureBoundsTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.371Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.FlipStandOrientationTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.373Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.HandoffPreferenceResolutionTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.375Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.HdmvDiscNavigationBackendTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.377Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.HdmvOverlayMappingTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.378Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.HlsManifestGuardDataSourceTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.379Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.InitialPlaybackTracksTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.380Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ManifestTrackDeduplicationTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.383Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.MdkEndStateGateTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.384Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.MdkLoadStateGateTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.384Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.MdkPlaybackEvidenceTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.386Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.MissedLineRewindTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.389Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.MpvDiscNavigationMetadataTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.392Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.MpvDiscPlaybackUrlTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.393Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.MpvDolbyRuntimeEvidenceTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.394Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.MpvEndFileTrackerTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.395Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.MpvExternalSubtitleCommandTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.396Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.MpvFileLoadWatchdogTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.397Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.MpvNativeBuildCapabilitiesTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.399Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.MpvOutputStateTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.408Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.MpvSubtitleTextTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.408Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.MpvVideoReadinessGateTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.409Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.NativeCrashContextOwnershipTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.410Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.NativeLocalBdmvPathTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.411Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.NativePlaybackFailureTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.412Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.NativeRemoteBluRayPlanningTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.413Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.NativeRemoteBluRayPreflightTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.413Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.NextItemCreditsBoundaryTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.414Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.NextItemIntroEndTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.416Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.NextSourcePreloadWindowTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.417Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.NextUpRingCompositionTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.418Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.NextUpRingStateTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.431Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.NextUpWindowTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.434Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.OfflineSubtitleConfigurationTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.435Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.OffsetStepperTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.437Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PauseInfoTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.440Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PendingPlayerPreparationTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.442Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PendingProgressiveSwitchesTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.450Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PersistentPlaybackCachePolicyTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.452Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PictureInPictureAspectRatioTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.453Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PinchFillTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.454Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackBackgroundFlushTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.456Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackBackgroundNotifierTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.462Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackDiagnosticsTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.463Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackEndsAtTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.465Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackEngineBindingLabelTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.466Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackEngineSlotTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.468Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackEventSinkTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.498Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackFailoverPolicyTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.503Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackFailureKindReportingTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.504Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackHandoverTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.505Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackHealthStartupMsTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.507Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackKeepAliveServiceTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.507Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackLaunchTimingTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.508Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackLifecyclePolicyTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.512Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackNegotiationPolicyTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.512Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackNetworkShortfallTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.513Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackOutboxWorkTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.514Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackOutputCapabilitiesTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.515Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackOutputEvidenceTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.518Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackOutputReadinessTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.519Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackPreloaderPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.525Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackPreloadTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.519Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackProbeCompletionGateTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.526Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackProblemExplanationTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.529Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackProgressReporterTest",
+      "tests": "13",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.531Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackProxyRequestsTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.554Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackProxyRoutesTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.556Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackQueueUpdateTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.566Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackRecoveryStepTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.568Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackReleaseTimingTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.571Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackRemotePolicyTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.573Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackRenderEvidenceTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.575Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackReportingCoordinatorTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.576Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackReportingTargetTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.590Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackReportOriginTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.575Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackResourceCleanupTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.591Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackRoadmapTest",
+      "tests": "20",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.594Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackRuntimeCadenceTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.600Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackRuntimeContentTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.601Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackRuntimeFaultLadderTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.623Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackSourceLadderTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.626Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackSourceSwitchCoordinatorTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.628Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackSpeedSendingTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.644Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackStateFanoutTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.646Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackStreamLadderTest",
+      "tests": "14",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.649Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackTrackRestoreTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.652Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackTransportStateTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.652Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlaybackTruthTest",
+      "tests": "13",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.654Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerArtworkTransformTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.655Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerAudioFocusStateTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.656Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerAudioSourceHintsTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.657Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerBackendExtensionsTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.658Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerBatteryStatusTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.661Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerChromeStateTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.662Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerControlFormattingDolbyTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.668Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerControlFormattingTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.669Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerControlLabelsTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.670Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerControlSnapshotTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.671Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerControlsTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.680Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerDanmakuCoordinatorTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.683Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerDragGesturesTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.685Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerEndLiquidTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.687Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerEndReplayTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.733Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerEngineFactoryPolicyTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.738Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerFrameRateReadoutTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.739Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerGestureCommandsTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.740Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerGestureHelpTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.745Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerGestureStateTest",
+      "tests": "16",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.748Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerItemEndTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.754Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerKeyShortcutsTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.756Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerLaunchRegistryTest",
+      "tests": "15",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.760Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerMicroMotionTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.769Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerMotionPhysicsTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.770Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerOrientationTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.779Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerPredictiveBackTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.781Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerQuickPickTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.794Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerRootEngineLabelTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.796Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerRootOutputRepeatTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.802Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerSeekGesturesTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.802Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerSeriesLaunchTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.803Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerSessionStateTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.839Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerSkipCoordinatorTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.843Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerSleepTimerTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.844Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerSpeedBoostTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.848Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerStatusAnnouncementTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.849Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerStoreLoadTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.850Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerStoreTest",
+      "tests": "27",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.854Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerSurfaceStatusTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.966Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerTabletopTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.967Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayerVersionMarshallingTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.968Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlayPauseGlyphTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.455Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PlexPlaybackRouteTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.970Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.PreparingPlaybackGateTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.972Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ProResPlaybackTruthTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.976Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.RemoteCastPlaybackTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.977Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.RemoteDiscAuthRetryTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.978Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.RemoteDiscBlockSourceTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:17.987Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ResumeNoticeTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.SeekFeedbackTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.018Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.SeekScrubTiersTest",
+      "tests": "16",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.021Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ServerTranscodeFallbackPolicyTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.023Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.ServerTranscodeFallbackTruthTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.024Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.SidecarSubtitleUrlTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.025Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.SkipTimeInputTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.028Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.SkipWithoutCountdownTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.030Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.StartupTransferEvidenceTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.031Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.SubtitleAppearanceTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.034Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.SubtitleBitmapCanvasTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.035Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.SubtitleLibraryPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.037Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.SystemVolumeMathTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.041Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.TransportStatusTextTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.042Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.TrickplayRegionTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.044Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.UhdBluRayPlaybackTruthTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.046Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.UhdBluRayServerStreamTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.047Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.UprightSubtitleWidthTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.048Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.VersionFallbackTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.049Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.VideoCacheKeyTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.050Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.WatchChatDanmakuOverlayTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.051Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.WatchChatPanelTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.056Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.WatchPlaybackPolicyTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.059Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.WatchStickerTrayTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.062Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.WatchTogetherStatusTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.065Z"
+    },
+    {
+      "name": "com.yfuse.feature.player.WindowBrightnessMathTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.067Z"
+    },
+    {
+      "name": "com.yfuse.feature.profile.AccountInviteUiContractTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.068Z"
+    },
+    {
+      "name": "com.yfuse.feature.profile.AccountSessionsUiContractTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.073Z"
+    },
+    {
+      "name": "com.yfuse.feature.profile.DownloadOrderingTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.077Z"
+    },
+    {
+      "name": "com.yfuse.feature.profile.DownloadRemovalCopyTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.079Z"
+    },
+    {
+      "name": "com.yfuse.feature.profile.DownloadSelectionActionsTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.085Z"
+    },
+    {
+      "name": "com.yfuse.feature.profile.DownloadSortMemoryTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.088Z"
+    },
+    {
+      "name": "com.yfuse.feature.profile.DownloadsStillLeavingTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.090Z"
+    },
+    {
+      "name": "com.yfuse.feature.profile.DownloadSwipeTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.089Z"
+    },
+    {
+      "name": "com.yfuse.feature.profile.DownloadTrackGeometryTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.089Z"
+    },
+    {
+      "name": "com.yfuse.feature.profile.ProfilePagesTest",
+      "tests": "13",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.094Z"
+    },
+    {
+      "name": "com.yfuse.feature.profile.ProfileSettingsLogicTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.156Z"
+    },
+    {
+      "name": "com.yfuse.feature.profile.ProtectedExportPassphraseTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.170Z"
+    },
+    {
+      "name": "com.yfuse.feature.profile.ServerBackupPayloadTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.182Z"
+    },
+    {
+      "name": "com.yfuse.feature.search.AggregatedSearchRankingTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.185Z"
+    },
+    {
+      "name": "com.yfuse.feature.search.SearchResultsHandoffTest",
+      "tests": "19",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.195Z"
+    },
+    {
+      "name": "com.yfuse.feature.search.SearchStoreTest",
+      "tests": "24",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.208Z"
+    },
+    {
+      "name": "com.yfuse.feature.servers.LoginFormInputTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.443Z"
+    },
+    {
+      "name": "com.yfuse.feature.servers.PlexLoginFormTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.450Z"
+    },
+    {
+      "name": "com.yfuse.feature.servers.ServerConnectionPermissionTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.452Z"
+    },
+    {
+      "name": "com.yfuse.feature.servers.ServerListPolicyTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.457Z"
+    },
+    {
+      "name": "com.yfuse.feature.servers.ServerManagementControllerTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.481Z"
+    },
+    {
+      "name": "com.yfuse.feature.servers.ServerRefreshStateTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.523Z"
+    },
+    {
+      "name": "com.yfuse.feature.servers.ServersStoreTest",
+      "tests": "35",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.552Z"
+    },
+    {
+      "name": "com.yfuse.feature.servers.ServerStatsRefreshTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.540Z"
+    },
+    {
+      "name": "com.yfuse.feature.trakt.TraktScrobbleTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.727Z"
+    },
+    {
+      "name": "com.yfuse.feature.trakt.TraktSettingsStoreTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.729Z"
+    },
+    {
+      "name": "com.yfuse.feature.watch.WatchInviteResolverTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.749Z"
+    },
+    {
+      "name": "com.yfuse.feature.watch.WatchTogetherSettingsStoreTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.758Z"
+    },
+    {
+      "name": "com.yfuse.tv.focus.FocusRepositoryTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.772Z"
+    },
+    {
+      "name": "com.yfuse.tv.focus.FocusRestorePolicyTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.775Z"
+    },
+    {
+      "name": "com.yfuse.tv.focus.FocusScopeStateMachineTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.779Z"
+    },
+    {
+      "name": "com.yfuse.tv.focus.RemoteKeyIntentTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.781Z"
+    },
+    {
+      "name": "com.yfuse.tv.integration.CastConnectLoadMapperTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.785Z"
+    },
+    {
+      "name": "com.yfuse.tv.integration.ContinueWatchingPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.798Z"
+    },
+    {
+      "name": "com.yfuse.tv.integration.EngageContinueWatchingPublisherTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.803Z"
+    },
+    {
+      "name": "com.yfuse.tv.integration.TvContinueWatchingWorkTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.811Z"
+    },
+    {
+      "name": "com.yfuse.tv.integration.TvPlaybackDeepLinkTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.812Z"
+    },
+    {
+      "name": "com.yfuse.tv.player.TvLocalPlaybackPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.815Z"
+    },
+    {
+      "name": "com.yfuse.tv.player.TvMediaSessionAdapterTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.816Z"
+    },
+    {
+      "name": "com.yfuse.tv.player.TvPlayerChromeControllerTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.817Z"
+    },
+    {
+      "name": "com.yfuse.tv.player.TvRemoteInputControllerTest",
+      "tests": "15",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.820Z"
+    },
+    {
+      "name": "com.yfuse.update.AutomaticUpdateCheckGateTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.831Z"
+    },
+    {
+      "name": "com.yfuse.update.DisabledBackendUpdateTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.837Z"
+    },
+    {
+      "name": "com.yfuse.update.UpdateCheckPolicyTest",
+      "tests": "16",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.848Z"
+    },
+    {
+      "name": "com.yfuse.update.UpdateDownloadBoundaryTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.859Z"
+    },
+    {
+      "name": "com.yfuse.update.UpdateManifestPolicyTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.908Z"
+    },
+    {
+      "name": "com.yfuse.update.UpdatePackageIdentityTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.910Z"
+    },
+    {
+      "name": "com.yfuse.update.UpdateRestoreTrustTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.911Z"
+    },
+    {
+      "name": "com.yfuse.update.UpdateResumePolicyTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:32:18.912Z"
+    }
+  ]
+}

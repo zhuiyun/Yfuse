@@ -139,7 +139,7 @@ class CalendarFollowStoreTest {
     }
 
     @Test
-    fun library_series_are_auto_followed_with_availability_reminders() {
+    fun library_series_are_auto_followed_without_enabling_notifications() {
         val settings = MapSettings()
         val store = CalendarFollowStore(settings)
 
@@ -151,7 +151,7 @@ class CalendarFollowStoreTest {
         assertEquals(1, added)
         val followed = store.followed.value.single()
         assertEquals(CalendarTrackingOrigin.LibraryAuto, followed.trackingOrigin)
-        assertEquals(CalendarReminderMode.WhenAvailable, followed.reminderMode)
+        assertEquals(CalendarReminderMode.Off, followed.reminderMode)
         assertEquals(followed, CalendarFollowStore(settings).followed.value.single())
     }
 

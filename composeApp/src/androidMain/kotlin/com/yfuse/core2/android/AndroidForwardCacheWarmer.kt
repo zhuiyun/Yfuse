@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.network.DEFAULT_FORWARD_CACHE_TARGET_US
 import com.yfuse.core2.network.YMediaTransport
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.ExecutorService
@@ -104,7 +105,7 @@ internal class AndroidForwardCacheWarmer(
 
 /** Immutable feedback published without taking the data source's blocking read monitor. */
 internal data class YTransportPlaybackWindow(
-    val targetAheadUs: Long = 60_000_000L,
+    val targetAheadUs: Long = DEFAULT_FORWARD_CACHE_TARGET_US,
     val speed: Float = 1f,
     val bufferedUs: Long = 0L,
     val minimumWarmBufferUs: Long = 3_000_000L,

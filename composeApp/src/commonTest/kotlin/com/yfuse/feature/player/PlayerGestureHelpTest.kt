@@ -9,10 +9,10 @@ class PlayerGestureHelpTest {
     private fun List<Pair<String, String>>.row(gesture: String): String? = firstOrNull { it.first == gesture }?.second
 
     @Test
-    fun defaults_describe_the_player_as_it_always_was() {
+    fun defaults_describe_the_current_player_gestures() {
         val rows = pictureGestureHelpRows(PlayerGestureSettings())
         assertEquals("快退 / 快进 10 秒，随后同侧每点一下再加一步；也可拖动进度条", rows.row("双击左侧 / 右侧"))
-        assertTrue(rows.row("长按中间")!!.startsWith("临时 2 倍速"))
+        assertTrue(rows.row("长按中间")!!.contains("临时 2 倍速"))
         assertTrue(rows.row("左半屏上下滑")!!.startsWith("调节亮度"))
         assertTrue(rows.row("右半屏上下滑")!!.startsWith("调节音量"))
     }
@@ -56,11 +56,17 @@ class PlayerGestureHelpTest {
     }
 
     @Test
-    fun only_the_middle_is_held_so_no_long_press_is_offered_on_the_sides() {
+    fun side_holds_remain_available_when_the_middle_speed_boost_is_disabled() {
         val holds = pictureGestureHelpRows(PlayerGestureSettings()).map { it.first }.filter { it.startsWith("长按") }
-        assertEquals(listOf("长按中间"), holds)
+        assertEquals(listOf("长按中间", "长按左侧 / 右侧"), holds)
         val boostOff = pictureGestureHelpRows(PlayerGestureSettings(centerHoldSpeedBoost = false))
-        assertTrue(boostOff.none { it.first.startsWith("长按") })
+        assertEquals(listOf("长按左侧 / 右侧"), boostOff.map { it.first }.filter { it.startsWith("长按") })
+        assertTrue(boostOff.row("长按左侧 / 右侧")!!.contains("40%"))
+        assertTrue(
+            pictureGestureHelpRows(
+                PlayerGestureSettings(doubleTapSeekSeconds = 30),
+            ).row("长按左侧 / 右侧")!!.contains("30 秒"),
+        )
     }
 
     @Test

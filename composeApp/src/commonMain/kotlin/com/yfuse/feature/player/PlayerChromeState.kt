@@ -99,6 +99,37 @@ internal class PlayerChromeState {
         lockedRevealRevision++
     }
 
+    /** Loading and hidden chrome always reveal the exit before a tap can act on the picture. */
+    fun tapPicture(
+        buffering: Boolean,
+        continueSeek: () -> Boolean,
+        onVisiblePictureTap: () -> Boolean,
+    ) {
+        when {
+            locked -> {
+                revealLock(explain = false)
+                return
+            }
+            watchChatOpen -> watchChatOpen = false
+            danmakuSendOpen -> danmakuSendOpen = false
+            danmakuSearchOpen -> danmakuSearchOpen = false
+            quickPopup != null -> quickPopup = null
+            settingsPanelKind != null -> settingsPanelKind = null
+            drawerOpen -> drawerOpen = false
+            buffering || !visible -> {
+                poke()
+                return
+            }
+            continueSeek() -> return
+            onVisiblePictureTap() -> return
+            else -> {
+                visible = false
+                return
+            }
+        }
+        poke()
+    }
+
     /** 聊天, over whatever else was open; [transcript] counts as read. */
     fun openWatchChat(transcript: List<WatchChatMessage>) {
         settingsPanelKind = null

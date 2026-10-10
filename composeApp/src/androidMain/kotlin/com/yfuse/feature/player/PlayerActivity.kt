@@ -589,8 +589,10 @@ class PlayerActivity :
                         state = state,
                         onRetry = { pending.store.accept(PlayerIntent.Retry) },
                         onBack = leavePreparation,
+                        loadingOverlay = {
+                            PlayerTransitionLayer(transition, ready = state.error != null, inPictureInPicture = false)
+                        },
                     )
-                    PlayerTransitionLayer(transition, ready = state.error != null, inPictureInPicture = false)
                 }
             }
         }

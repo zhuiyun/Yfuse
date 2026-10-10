@@ -6,6 +6,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.FAVORITES_COLLECTION_ID
 import com.yfuse.core.data.LIBRARY_PAGE_SIZE
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
@@ -18,6 +19,7 @@ import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaContainerPage
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.deduplicateFavoriteItems
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.toUserMessage
@@ -73,6 +75,7 @@ data class GridState(
     val actionMessage: String? = null,
     /** True only while old cards bridge a sort/filter request to prevent a blank-frame flash. */
     val retainingPreviousCriteria: Boolean = false,
+    val isFavoriteCollection: Boolean = false,
 ) {
     val canLoadMore: Boolean get() = nextStartIndex < totalCount
     val loadedCount: Int get() = if (directoryKind != null) containers.size else items.size
@@ -99,6 +102,9 @@ internal const val GRID_INDEX_FILL_LIMIT = 3_000
 
 /** The index loads the rest in pages this large: a handful of requests, not one per screenful. */
 internal const val GRID_INDEX_FILL_PAGE_SIZE = 300
+
+private fun List<MediaItem>.uniqueGridItems(favorites: Boolean): List<MediaItem> =
+    if (favorites) deduplicateFavoriteItems(this) else distinctBy { it.containerRowId }
 
 sealed interface GridIntent {
     data object Retry : GridIntent
@@ -277,6 +283,7 @@ class LibraryGridStoreFactory(
             name = "LibraryGridStore",
             initialState =
                 GridState(
+                    isFavoriteCollection = libraryId == FAVORITES_COLLECTION_ID,
                     sort = sortMemory?.read(libraryId) ?: LibrarySort.RecentlyAdded,
                     sortable =
                         libraryId != WATCH_LATER_COLLECTION_ID &&
@@ -720,13 +727,13 @@ class LibraryGridStoreFactory(
                         locallyRemovedRowIds = if (msg.page.startIndex == 0) emptySet() else locallyRemovedRowIds,
                         items =
                             msg.page.items
-                                .distinctBy { it.containerRowId }
+                                .uniqueGridItems(isFavoriteCollection)
                                 .filterNot { it.containerRowId in locallyRemovedRowIds },
                         totalCount =
                             deduplicatedTotalCount(
                                 uniqueCount =
                                     msg.page.items
-                                        .distinctBy { it.containerRowId }
+                                        .uniqueGridItems(isFavoriteCollection)
                                         .count { it.containerRowId !in locallyRemovedRowIds },
                                 rawNextStartIndex = msg.page.startIndex + msg.page.items.size,
                                 reportedTotal =
@@ -764,10 +771,12 @@ class LibraryGridStoreFactory(
                     // a duplicated key drops one of the copies, so the merge is by id.
                     val seen = items.mapTo(HashSet()) { it.containerRowId }
                     val appended =
-                        items +
-                            msg.page.items.filter {
-                                it.containerRowId !in locallyRemovedRowIds && seen.add(it.containerRowId)
-                            }
+                        (
+                            items +
+                                msg.page.items.filter {
+                                    it.containerRowId !in locallyRemovedRowIds && seen.add(it.containerRowId)
+                                }
+                        ).uniqueGridItems(isFavoriteCollection)
                     // Offset follows the raw server page, not the number of unique cards. An
                     // entirely duplicated page must still move forward instead of requesting
                     // the same boundary forever.

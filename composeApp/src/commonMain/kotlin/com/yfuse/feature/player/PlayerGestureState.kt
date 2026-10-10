@@ -85,6 +85,14 @@ internal class PlayerGestureState(
     /** Whether a tap going [direction] now adds to the running burst. */
     fun burstContinues(direction: Int): Boolean = burst.continues(direction)
 
+    private var burstTargetMs: Long? = null
+
+    fun resetBurst() {
+        burst.reset()
+        burstTargetMs = null
+        hud = null
+    }
+
     /**
      * [taps] more taps going [direction], at [at], each worth [stepMs]. Taps in quick succession on
      * the same side add up, and the HUD reports the running total rather than "10 秒" each time.
@@ -100,16 +108,25 @@ internal class PlayerGestureState(
         durationMs: Long,
     ): Long? {
         if (doubleTapSeekTarget(positionMs, durationMs, 0L) == null) return null
+        // A receiver may not have reported the previous seek yet. Keep the target advancing;
+        // once playback passes that target, include its natural progress in the next step.
+        val previous = burstTargetMs.takeIf { burst.continues(direction) }
+        val base =
+            when {
+                previous == null -> positionMs
+                direction < 0 -> minOf(positionMs, previous)
+                else -> maxOf(positionMs, previous)
+            }
         val moved = burst.add(direction, stepMs, taps)
         pulsePosition = at
         pulseRevision++
         hud = "${if (direction < 0) "快退" else "快进"} ${burst.totalMs / 1_000L} 秒"
-        return doubleTapSeekTarget(positionMs, durationMs, direction * moved)
+        return doubleTapSeekTarget(base, durationMs, direction * moved).also { burstTargetMs = it }
     }
 
     // -------------------------------------------------------- 长按中间
 
-    /** The gear while the middle third is held, null otherwise. */
+    /** The gear while the centre is held, null otherwise. */
     var boostGear: Int? by mutableStateOf(null)
         private set
 

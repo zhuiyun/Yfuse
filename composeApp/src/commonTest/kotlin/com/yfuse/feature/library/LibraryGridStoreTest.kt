@@ -31,6 +31,50 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class LibraryGridStoreTest {
+    @Test
+    fun favoriteCopiesDeduplicateAcrossPagesWithoutRepeatingTheServerOffset() =
+        runTest {
+            val starts = mutableListOf<Int>()
+            val repo =
+                gridRepo { request ->
+                    if (request.url.encodedPath.endsWith("/Genres")) {
+                        json("""{"Items":[]}""")
+                    } else {
+                        val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
+                        starts += start
+                        val rows =
+                            if (start == 0) {
+                                """{"Id":"copy1","Name":"电影","Type":"Movie","ProviderIds":{"Tmdb":"603"}},
+                       {"Id":"copy2","Name":"电影","Type":"Movie","ProviderIds":{"Tmdb":"603"}}"""
+                            } else {
+                                """{"Id":"copy3","Name":"电影","Type":"Movie","ProviderIds":{"Tmdb":"603"}},
+                       {"Id":"next","Name":"续集","Type":"Movie","ProviderIds":{"Tmdb":"604"}}"""
+                            }
+                        json("""{"Items":[$rows],"TotalRecordCount":4}""")
+                    }
+                }
+            val store =
+                LibraryGridStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry(),
+                    FAVORITES_COLLECTION_ID,
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                ).create()
+            try {
+                val first = store.states.first { !it.loading && it.items.isNotEmpty() }
+                assertEquals(listOf("copy1"), first.items.map { it.id })
+                assertEquals(2, first.nextStartIndex)
+                store.accept(GridIntent.LoadMore)
+                val last = store.states.first { it.nextStartIndex == 4 }
+                assertEquals(listOf("copy1", "next"), last.items.map { it.id })
+                assertFalse(last.canLoadMore)
+                assertEquals(listOf(0, 2), starts)
+            } finally {
+                store.dispose()
+            }
+        }
+
     private fun registry() =
         testRegistry().apply {
             addOrUpdate(SavedServer("id1", "http://host:8096", "我的服务器", "u1", "zhuiyun", "tok"))

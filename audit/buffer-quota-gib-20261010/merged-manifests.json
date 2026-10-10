@@ -1,0 +1,18 @@
+[
+  {
+    "module": "composeApp",
+    "path": "composeApp/build/intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml",
+    "sha256": "a82959d20fda155fa806506fbd9ce5b23c9c1fd71f834db518b90525821ba5d2",
+    "applicationName": "com.yfuse.shell.PhoneApplication",
+    "largeHeap": "true",
+    "modified": 1791598391.633422
+  },
+  {
+    "module": "tvApp",
+    "path": "tvApp/build/intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml",
+    "sha256": "ea8760adf70166d8c49a9bef6faba572dc4c8477d6b0c61e2981a4da51bc40fd",
+    "applicationName": "com.yfuse.shell.TvApplicationShell",
+    "largeHeap": "true",
+    "modified": 1791598305.9639823
+  }
+]

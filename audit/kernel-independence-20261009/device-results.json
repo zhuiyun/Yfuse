@@ -1,0 +1,28 @@
+{
+  "device": "RF8M223V4MD",
+  "sample": "D:\\Demo\\Yfuse\\audit\\project-audit-20260811\\cold-start.mp4",
+  "sampleSha256": "4f3e9ceefc74f646cd51bd2a1847dc3193263de000397c6570767da6a95a7dfa",
+  "nativeLibrariesFrom": "Yfuse 1.1.7 versionCode 269 full APK",
+  "applicationInstalled": false,
+  "scope": "Independent runtime loading, baseline video output or software decoding and teardown; not full app UI or format coverage",
+  "engines": {
+    "mpv": {
+      "status": "passed",
+      "output": "LOADED libavutil.so\nLOADED libswresample.so\nLOADED libavcodec.so\nLOADED libavfilter.so\nLOADED libavformat.so\nLOADED libc++_shared.so\nLOADED libswscale.so\nLOADED libavdevice.so\nLOADED libmpv.so\nLOADED libplayer.so\nPASS mpv independent video playback position=0.5716777777777778 frames=3 decoder=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10\nPASS mpv independent release\n",
+      "dexSha256": "fb925fc479f07771da8a906e0ecfcade35aac9fc2285c77b35e9221d836d3898"
+    },
+    "mdk": {
+      "status": "failed",
+      "error": "mdk-device: LOADED libffmpeg.so\nLOADED libc++_shared.so\nLOADED libmdk.so\nLOADED libass.so\nLOADED libdav1d.so\nLOADED libyfuse-mdk-jni.so\nWARNING: linker: Warning: \"/data/local/tmp/yfuse-kernel-independence-20261009/mdk/libc++_shared.so\" unused DT entry: unknown processor-specific (type 0x70000001 arg 0x0) (ignoring)\njava.lang.AssertionError: MDK no output: status=65 position=8384 frames=0 evidence=[1, FFmpeg, , h264, yuv420p, 1440, 3040, 1103435, 14.521582, Unknown, 0, 66, , 0, 0, 0, 136716, 32, 9472]\n\tat MdkProbe$1.run(MdkProbe.java:36)\n\tat android.os.Handler.handleCallback(Handler.java:873)\n\tat android.os.Handler.dispatchMessage(Handler.java:99)\n\tat android.os.Looper.loop(Looper.java:214)\n\tat MdkProbe.main(MdkProbe.java:44)\n\tat java.lang.reflect.Method.invoke(Native Method)\n\tat ProbeEntry.main(ProbeEntry.java:7)\n\tat com.android.internal.os.RuntimeInit.nativeFinishInit(Native Method)\n\tat com.android.internal.os.RuntimeInit.main(RuntimeInit.java:341)\n"
+    },
+    "ycore": {
+      "status": "passed",
+      "output": "LOADED libavutil.so\nLOADED libswresample.so\nLOADED libavcodec.so\nLOADED libavformat.so\nLOADED libswscale.so\nLOADED libc++_shared.so\nLOADED libycore_demux.so\nLOADED libycore_gpu.so\nPASS ycore independent software decode api=4 packets=11 frames=4\nPASS ycore independent gpu load api=3 capabilityMask=3\nPASS ycore independent release\n",
+      "dexSha256": "b78502d6fb547e1a9dbcdd3dc6557ac3b84e5bb68453a872777b466950396018"
+    },
+    "exo": {
+      "status": "failed",
+      "error": "exo-javac: \u8b66\u544a: [options] \u672a\u4e0e -source 8 \u4e00\u8d77\u8bbe\u7f6e\u5f15\u5bfc\u7c7b\u8def\u5f84\n\u8b66\u544a: [options] \u6e90\u503c 8 \u5df2\u8fc7\u65f6\uff0c\u5c06\u5728\u672a\u6765\u53d1\u884c\u7248\u4e2d\u5220\u9664\n\u8b66\u544a: [options] \u76ee\u6807\u503c 8 \u5df2\u8fc7\u65f6\uff0c\u5c06\u5728\u672a\u6765\u53d1\u884c\u7248\u4e2d\u5220\u9664\n\u8b66\u544a: [options] \u8981\u9690\u85cf\u6709\u5173\u5df2\u8fc7\u65f6\u9009\u9879\u7684\u8b66\u544a, \u8bf7\u4f7f\u7528 -Xlint:-options\u3002\nD:\\Demo\\Yfuse\\audit\\kernel-independence-20261009\\ExoProbe.java:15: \u9519\u8bef: \u5bf9\u4e8eDefaultTrackSelector(\u6ca1\u6709\u53c2\u6570), \u627e\u4e0d\u5230\u5408\u9002\u7684\u6784\u9020\u5668\n        ExoPlayer player = new ExoPlayer.Builder(context).setTrackSelector(new DefaultTrackSelector()).build();\n                                                                           ^\n    \u6784\u9020\u5668 DefaultTrackSelector.DefaultTrackSelector(Context)\u4e0d\u9002\u7528\n      (\u5b9e\u9645\u53c2\u6570\u5217\u8868\u548c\u5f62\u5f0f\u53c2\u6570\u5217\u8868\u957f\u5ea6\u4e0d\u540c)\n    \u6784\u9020\u5668 DefaultTrackSelector.DefaultTrackSelector(Context,Factory)\u4e0d\u9002\u7528\n      (\u5b9e\u9645\u53c2\u6570\u5217\u8868\u548c\u5f62\u5f0f\u53c2\u6570\u5217\u8868\u957f\u5ea6\u4e0d\u540c)\n    \u6784\u9020\u5668 DefaultTrackSelector.DefaultTrackSelector(Context,TrackSelectionParameters)\u4e0d\u9002\u7528\n      (\u5b9e\u9645\u53c2\u6570\u5217\u8868\u548c\u5f62\u5f0f\u53c2\u6570\u5217\u8868\u957f\u5ea6\u4e0d\u540c)\n    \u6784\u9020\u5668 DefaultTrackSelector.DefaultTrackSelector(TrackSelectionParameters,Factory)\u4e0d\u9002\u7528\n      (\u5b9e\u9645\u53c2\u6570\u5217\u8868\u548c\u5f62\u5f0f\u53c2\u6570\u5217\u8868\u957f\u5ea6\u4e0d\u540c)\n    \u6784\u9020\u5668 DefaultTrackSelector.DefaultTrackSelector(Context,TrackSelectionParameters,Factory)\u4e0d\u9002\u7528\n      (\u5b9e\u9645\u53c2\u6570\u5217\u8868\u548c\u5f62\u5f0f\u53c2\u6570\u5217\u8868\u957f\u5ea6\u4e0d\u540c)\n    \u6784\u9020\u5668 DefaultTrackSelector.DefaultTrackSelector(TrackSelectionParameters,Factory,Context)\u4e0d\u9002\u7528\n      (\u5b9e\u9645\u53c2\u6570\u5217\u8868\u548c\u5f62\u5f0f\u53c2\u6570\u5217\u8868\u957f\u5ea6\u4e0d\u540c)\n\u8b66\u544a: \u672a\u77e5\u7684\u679a\u4e3e\u5e38\u91cf Scope.LIBRARY_GROUP\n  \u539f\u56e0: \u627e\u4e0d\u5230androidx.annotation.RestrictTo$Scope\u7684\u7c7b\u6587\u4ef6\n\u8b66\u544a: \u672a\u77e5\u7684\u679a\u4e3e\u5e38\u91cf Scope.LIBRARY_GROUP\n\u6ce8: D:\\Demo\\Yfuse\\audit\\kernel-independence-20261009\\ProbeSupport.java\u4f7f\u7528\u6216\u8986\u76d6\u4e86\u5df2\u8fc7\u65f6\u7684 API\u3002\n\u6ce8: \u6709\u5173\u8be6\u7ec6\u4fe1\u606f, \u8bf7\u4f7f\u7528 -Xlint:deprecation \u91cd\u65b0\u7f16\u8bd1\u3002\n1 \u4e2a\u9519\u8bef\n6 \u4e2a\u8b66\u544a\n"
+    }
+  }
+}

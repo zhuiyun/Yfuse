@@ -8,7 +8,7 @@ internal enum class PlaybackBufferKind(
     val weight: Int,
 ) {
     Transport(4),
-    Demux(3),
+    Demux(6),
     Render(4),
 
     /** ASS canvases: small next to read-ahead, and on screen the whole time. */
@@ -127,7 +127,14 @@ internal class PlaybackMemoryLease internal constructor(
 internal fun playbackMemoryBudgetBytes(
     heapBytes: Long,
     lowRam: Boolean,
-): Long = (heapBytes / if (lowRam) 5 else 3).coerceIn(12L * MIB, if (lowRam) 32L * MIB else 96L * MIB)
+): Long = (heapBytes / if (lowRam) 5 else 2).coerceIn(12L * MIB, if (lowRam) 32L * MIB else 2048L * MIB)
+
+/** Round budgets down so small staging fluctuations do not continually rebuild the plan. */
+internal fun playbackDemuxMemoryBudgetBytes(availableBytes: Long): Long {
+    val positiveBytes = availableBytes.coerceAtLeast(1L)
+    val step = 4L * MIB
+    return if (positiveBytes < step) positiveBytes else positiveBytes / step * step
+}
 
 /** OS pressure can concern the whole device while this process still has free Java heap. */
 internal class PlaybackMemoryPressurePolicy(
@@ -182,7 +189,9 @@ internal object AndroidPlaybackMemoryBudget {
 
     fun initialize(context: Context) {
         val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-        val heap = minOf(Runtime.getRuntime().maxMemory(), (manager?.memoryClass ?: 256).toLong() * MIB)
+        // Runtime reports this process's actual limit, including a platform-granted large heap.
+        // Clamping it to memoryClass would silently discard that additional playback capacity.
+        val heap = Runtime.getRuntime().maxMemory()
         pool = PlaybackMemoryPool(playbackMemoryBudgetBytes(heap, manager?.isLowRamDevice == true))
     }
 

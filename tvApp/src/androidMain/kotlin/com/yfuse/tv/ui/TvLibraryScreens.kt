@@ -38,7 +38,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.LiftMenu
@@ -284,7 +283,7 @@ private fun TvLibraryHero(
             .background(TvPlaceholder)
             .onFocusChanged { focused = it.hasFocus },
     ) {
-        AsyncImage(
+        TvLoadingImage(
             model =
                 rememberTvImage(
                     EmbyImages.backdrop(server.baseUrl, item, accessToken = server.accessToken)

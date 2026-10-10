@@ -1,0 +1,106 @@
+{
+  "verifiedAt": "2026-10-10T16:31:07.439286+08:00",
+  "sourceHead": "6a70a9fa47bd24a3997db1ce2eeb68d3a6ebaa1a",
+  "comparisonRelease": "1.1.9 (271)",
+  "apkGenerated": false,
+  "deviceUiVerified": false,
+  "phoneCompile": "passed",
+  "tvCompile": "passed",
+  "kotlinStyle": "passed (17 files)",
+  "gitDiffCheck": "passed",
+  "regression": {
+    "suites": 205,
+    "tests": 1017,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "validationCommand": "gradlew :phoneShared:testAndroidHostTest --tests com.yfuse.feature.player.* :tvShared:compileAndroidMain -PyfuseIncludeMdk=true -PyfuseNativeOnlyRuntime=false --no-parallel --max-workers=1 --console=plain",
+  "changedSources": [
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerInteractionPolicy.kt",
+      "sha256": "f13acaaf2073799c6ac2e77fcb847239e1f72dc30287801afe681c6ea741473e",
+      "comparisonBase": "new file"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerGestureCommands.kt",
+      "sha256": "38882752cdca06d260c0ae63813f301be4126f41e0c90b3db50f9c33e9e64295",
+      "comparisonBase": "release source HEAD"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSeekGestures.kt",
+      "sha256": "a8e5b078371b088bc3eb72ab278a11d22c17585668d640f97521ca8faf78ded2",
+      "comparisonBase": "release source HEAD"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerGestureState.kt",
+      "sha256": "c8689025dba3e5c1042fcd463b74e1be8af74dd9b2f1701a51bd75c14ac2c1b0",
+      "comparisonBase": "delivered 1.1.9 source archive"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlAreas.kt",
+      "sha256": "eef662cf86f74cf3416adcd5b8f399a2a84afd55e3588957436685125eed443c",
+      "comparisonBase": "release source HEAD"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchGatedPlayback.kt",
+      "sha256": "7d00342f4b5f388ed479da67fe4a72ca5e686c906353fbe478ac443f56b2b7e2",
+      "comparisonBase": "release source HEAD"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt",
+      "sha256": "85fa898361093fa4f3fe6f88ee991dc26d2d40fdfeb9dd195f164e1996f8e9e5",
+      "comparisonBase": "delivered 1.1.9 source archive"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlBars.kt",
+      "sha256": "b8766eccaf319f5fb0bc434f00489329d03ce45a504edb1c0d49db30d96fc047",
+      "comparisonBase": "release source HEAD"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt",
+      "sha256": "0419efcb63fc5f00ae8d7a6b3d29927363487dabfc67568c3356ef60a65945ce",
+      "comparisonBase": "release source HEAD"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlPanels.kt",
+      "sha256": "3f87277987ba970e78efa1cb9b9f379e68015cffaf85f6fa11c1b39f6967164f",
+      "comparisonBase": "release source HEAD"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+      "sha256": "b89af309fcbe15aca26c66c03507cfc0c93d47e9d23f663ddeb61f44f4336108",
+      "comparisonBase": "release source HEAD"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRootControls.kt",
+      "sha256": "77417d36bbd05ad5f5f3a6e90dac4b0aac1e051fdd1d1601665737585d19932f",
+      "comparisonBase": "release source HEAD"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerTrackEffects.android.kt",
+      "sha256": "4e967542b946538fbddd614ae386639799d7548db4e34a0ac8fbe8ac9f195a8d",
+      "comparisonBase": "release source HEAD"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerGestureCommandsTest.kt",
+      "sha256": "a0cd7a08f823494b7412f1c13b04f8261026a60318ecc4396ec5b1a97c7cdc34",
+      "comparisonBase": "release source HEAD"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerGestureStateTest.kt",
+      "sha256": "2157be6cb25a0f7afdc41fcbb9dfaa491f8b5490455db90d2dac90b5a2d58fef",
+      "comparisonBase": "release source HEAD"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerPlaybackSpeedPolicyTest.kt",
+      "sha256": "dd98d72a9c5b4500b95bd5a814d880aba7a64aadf295cc37e35d62b97a7cf462",
+      "comparisonBase": "new file"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/PreparingPlaybackGateTest.kt",
+      "sha256": "deafb54048991fa9acb066e1f810b01075c0ac0f60f61d60ffbb4e4b924395c8",
+      "comparisonBase": "release source HEAD"
+    }
+  ]
+}

@@ -23,15 +23,51 @@ internal const val SEEK_MERGE_DEBOUNCE_MS = 120L
  * callbacks and the effect delivering the seeks.
  */
 @Stable
-internal class PlayerGestureCommands {
+internal class PlayerGestureCommands(
+    private val currentContext: () -> PlaybackInteractionContext? = { null },
+) {
+    private data class ContextKey(
+        val context: PlaybackInteractionContext?,
+        val revision: Long,
+    )
+
+    private data class SeekRequest(
+        val positionMs: Long,
+        val owner: ContextKey,
+    )
+
+    private var revision = 0L
+
+    val contextKey: Any get() = ContextKey(currentContext(), revision)
+    val localContextKey: Any get() = ContextKey(currentContext()?.local(), revision)
+    val localMediaKey: Any? get() = currentContext()?.local()
+
+    /** Called before replacing media, retrying, changing output or leaving the player. */
+    fun invalidate() {
+        revision++
+        seekRequests.tryReceive()
+        heldBoost = null
+        boostOwner = null
+        boostResumedPlayback = false
+    }
+
     // Seek requests travel on a conflating channel rather than through composition. As a
     // `sequence` counter in a MutableState, a held rewind key re-keyed the delivering effect — and
     // so recomposed the entire player root — every 300ms while the finger stayed down.
-    private val seekRequests = Channel<Long>(Channel.CONFLATED)
+    private val seekRequests = Channel<SeekRequest>(Channel.CONFLATED)
 
     /** Proposes a seek to [positionMs]; a newer proposal inside the merge window replaces it. */
     fun seek(positionMs: Long) {
-        seekRequests.trySend(positionMs.coerceAtLeast(0L))
+        seek(positionMs, contextKey)
+    }
+
+    /** A control removed by a media replacement cannot submit its old drag on cancellation. */
+    fun seek(
+        positionMs: Long,
+        owner: Any,
+    ) {
+        if (owner != contextKey) return
+        seekRequests.trySend(SeekRequest(positionMs.coerceAtLeast(0L), ContextKey(currentContext(), revision)))
     }
 
     /**
@@ -41,14 +77,14 @@ internal class PlayerGestureCommands {
      */
     suspend fun deliverSeeks(seekTo: suspend (Long) -> Unit) {
         for (offered in seekRequests) {
-            var positionMs = offered
+            var request = offered
             // Trailing debounce: a newer target arriving inside the window replaces this one
             // and restarts it, so only the position the user stopped on is ever sent.
             while (true) {
                 delay(SEEK_MERGE_DEBOUNCE_MS)
-                positionMs = seekRequests.tryReceive().getOrNull() ?: break
+                request = seekRequests.tryReceive().getOrNull() ?: break
             }
-            seekTo(positionMs)
+            if (request.owner == ContextKey(currentContext(), revision)) seekTo(request.positionMs)
         }
     }
 
@@ -56,8 +92,11 @@ internal class PlayerGestureCommands {
      * 长按中间: the rate while the middle of the picture is held, over the chosen one; null when it is
      * not held. Only the engine sees it — never the room, the series memory or the preference.
      */
-    var boost: Float? by mutableStateOf(null)
-        private set
+    private var heldBoost: Float? by mutableStateOf(null)
+    private var boostOwner: ContextKey? = null
+
+    val boost: Float?
+        get() = heldBoost.takeIf { boostOwner == ContextKey(currentContext(), revision) }
 
     // Whether the hold started playback from a pause. Nothing composes from it, so a plain field.
     private var boostResumedPlayback = false
@@ -75,18 +114,26 @@ internal class PlayerGestureCommands {
         locked: () -> Boolean,
     ) {
         if (rate != null) {
-            if (boost == null) {
+            val owner = ContextKey(currentContext(), revision)
+            if (heldBoost == null || boostOwner != owner) {
+                boostOwner = owner
                 // Judged on the play intent, not on frames: a stream that is
                 // buffering towards playback is not paused.
                 boostResumedPlayback = !playbackRequested() && play()
             }
-            boost = rate
-        } else if (boost != null) {
-            boost = null
-            if (boostResumedPlayback && playbackRequested() && !locked()) {
+            heldBoost = rate
+        } else if (heldBoost != null) {
+            heldBoost = null
+            if (
+                boostOwner == ContextKey(currentContext(), revision) &&
+                boostResumedPlayback &&
+                playbackRequested() &&
+                !locked()
+            ) {
                 pause()
             }
             boostResumedPlayback = false
+            boostOwner = null
         }
     }
 }

@@ -9,7 +9,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import com.yfuse.core.handoff.HandoffPlaybackRegistry
+import com.yfuse.core.personal.LocalViewingStore
 import com.yfuse.core.personal.PersonalLibraryRepository
+import com.yfuse.core.personal.ViewingTimeCounter
+import com.yfuse.core.personal.viewingDayDurations
 import com.yfuse.core.trakt.TraktRepository
 import com.yfuse.core.trakt.traktPlaybackMedia
 import com.yfuse.core2.api.YPlaybackPhase
@@ -17,10 +20,12 @@ import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerState
 import com.yfuse.feature.handoff.HandoffPlaybackBinding
 import com.yfuse.feature.trakt.TraktPlaybackReportingEffect
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
 import org.koin.core.context.GlobalContext
 
 /** Account integrations read the mounted item; they never start playback during composition. */
@@ -39,6 +44,7 @@ internal fun PlayerAccountBindings(
 ) {
     val registry = remember { GlobalContext.get().getOrNull<HandoffPlaybackRegistry>() }
     val trakt = remember { GlobalContext.get().getOrNull<TraktRepository>() }
+    val viewing = remember { GlobalContext.get().getOrNull<LocalViewingStore>() }
     val latestItem by rememberUpdatedState(item)
     val latestCasting by rememberUpdatedState(casting)
     val latestHandoffAllowed by rememberUpdatedState(handoffAllowed)
@@ -58,6 +64,57 @@ internal fun PlayerAccountBindings(
                 .randomUUID()
                 .toString()
         }
+    LaunchedEffect(player, item?.subtitleItemKey(), reportSession, viewing, ownerToken) {
+        val mounted = item?.takeUnless { it.isTrailerPlayback } ?: return@LaunchedEffect
+        val store = viewing ?: return@LaunchedEffect
+        val owner = ownerToken ?: return@LaunchedEffect
+        val counter = ViewingTimeCounter()
+        var session =
+            mounted.localViewingSession(
+                java.util.UUID
+                    .randomUUID()
+                    .toString(),
+                System.currentTimeMillis(),
+            )
+        var lastWriteMs = android.os.SystemClock.elapsedRealtime()
+        var previouslyActive = false
+        try {
+            while (isActive && store.scopeToken == owner) {
+                val state = player.state.value
+                val now = android.os.SystemClock.elapsedRealtime()
+                val active = state.playing && !state.buffering && !latestCasting && state.phase == YPlaybackPhase.Ready
+                val elapsed = counter.sample(now, player.currentPositionMs(), active, state.speed)
+                if (elapsed > 0L) {
+                    val wallNow = System.currentTimeMillis()
+                    val additions = viewingDayDurations(wallNow, elapsed, java.time.ZoneId.systemDefault())
+                    val days = session.watchedByDay.toMutableMap()
+                    additions.forEach { (day, duration) -> days[day] = (days[day] ?: 0L) + duration }
+                    session =
+                        session.copy(
+                            startedAtEpochMs =
+                                if (session.watchedMs ==
+                                    0L
+                                ) {
+                                    wallNow - elapsed
+                                } else {
+                                    session.startedAtEpochMs
+                                },
+                            lastWatchedAtEpochMs = wallNow,
+                            watchedByDay = days,
+                        )
+                }
+                if (state.phase == YPlaybackPhase.Ended) session = session.copy(completed = true)
+                if (active != previouslyActive || now - lastWriteMs >= 15_000L || state.phase == YPlaybackPhase.Ended) {
+                    store.record(session, owner)
+                    lastWriteMs = now
+                }
+                previouslyActive = active
+                delay(1_000L)
+            }
+        } finally {
+            store.record(session, owner)
+        }
+    }
     if (trakt != null) {
         TraktPlaybackReportingEffect(
             repository = trakt,

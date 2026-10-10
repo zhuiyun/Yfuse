@@ -101,6 +101,44 @@ class PlayerGestureStateTest {
     }
 
     @Test
+    fun aSlowBackendCannotLoseStepsInAForwardOrRewindBurst() {
+        assertEquals(70_000L, tap(1, 2, 60_000L))
+        now += 100L
+        assertEquals(80_000L, tap(1, 1, 60_000L))
+        now += 100L
+        assertEquals(100_000L, tap(1, 2, 60_000L))
+        assertEquals("快进 40 秒", gestures.hud)
+        gestures.resetBurst()
+        assertEquals(50_000L, tap(-1, 2, 60_000L))
+        now += 100L
+        assertEquals(40_000L, tap(-1, 1, 60_000L))
+    }
+
+    @Test
+    fun anAcknowledgedForwardSeekIncludesPlaybackProgressWithoutDoubleCounting() {
+        assertEquals(70_000L, tap(1, 2, 60_000L))
+        now += 500L
+        assertEquals(80_500L, tap(1, 1, 70_500L))
+    }
+
+    @Test
+    fun replacementClearsTheBurstAndItsOldTargetBeforeTheNextTap() {
+        tap(1, 2, 60_000L)
+        gestures.resetBurst()
+        assertFalse(gestures.burstContinues(1))
+        assertNull(gestures.hud)
+        assertEquals(15_000L, tap(1, 2, 5_000L))
+        assertEquals("快进 10 秒", gestures.hud)
+    }
+
+    @Test
+    fun aNewBurstAfterTheWindowUsesTheCurrentPlayhead() {
+        tap(1, 2, 60_000L)
+        now += DOUBLE_TAP_BURST_WINDOW_MS
+        assertEquals(30_000L, tap(1, 2, 20_000L))
+    }
+
+    @Test
     fun theHeldMiddleStartsAtTwiceAndASlideShiftsAGearAtATime() {
         gestures.say("快进 10 秒")
         assertEquals(2f, gestures.startBoost(x = 300f))

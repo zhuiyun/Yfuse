@@ -1,0 +1,81 @@
+{
+  "date": "2026-10-09",
+  "sourceCommit": "6a70a9fa47bd24a3997db1ce2eeb68d3a6ebaa1a",
+  "result": "partial_runtime_verification",
+  "conclusion": "Cannot mark every kernel as independently running and presenting video.",
+  "userRequestedConclusionFromExistingEvidenceAfterDeviceDisconnected": true,
+  "phoneTests": {
+    "tests": 1280,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "tvTests": {
+    "tests": 23,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "totalTestsPassed": 1303,
+  "artifactChecks": {
+    "verifyCustomMpvArtifact": "passed_rerun",
+    "verifyStandaloneYCoreArtifact": "passed_rerun",
+    "verifyMdkArtifact": "passed_rerun"
+  },
+  "apk": {
+    "packageName": "com.yfuse",
+    "versionName": "1.1.7",
+    "versionCode": 269,
+    "profile": "full",
+    "sha256": "760311d02b6418c007d01c53d3464dec45da54f3f824f0936529e0a06dc6948a"
+  },
+  "kernels": {
+    "ExoPlayer": {
+      "independentImplementation": true,
+      "runtimeVideoOutput": "not_verified",
+      "reason": "Shell application context restrictions; final adaptation was not run after device disconnected."
+    },
+    "MPV": {
+      "independentImplementation": true,
+      "runtimeVideoOutput": "passed",
+      "release": "passed",
+      "nativeEntryLibrariesFromOtherKernels": false,
+      "positionSeconds": 0.5716777777777778,
+      "framesReceived": 3
+    },
+    "MDK": {
+      "independentImplementation": true,
+      "nativeLibraryLoading": "passed",
+      "mediaRecognition": "passed",
+      "videoDecoderInitialized": "FFmpeg",
+      "positionMilliseconds": 8384,
+      "runtimeVideoOutput": "not_verified",
+      "framesReceived": 0,
+      "reason": "ImageReader probe did not receive frames; SurfaceTexture follow-up was not executed after device disconnected. Engine failure versus harness limitation remains unresolved."
+    },
+    "YCore": {
+      "independentImplementation": true,
+      "softwareDecode": "passed",
+      "softwareDecoderApi": 4,
+      "demuxPacketsRead": 11,
+      "softwareFramesDecoded": 4,
+      "release": "passed",
+      "gpuLibraryLoading": "passed",
+      "gpuApi": 3,
+      "gpuCapabilityMask": 3,
+      "runtimeVideoPresentation": "not_verified",
+      "fullProfileMayUseMpvCompatibilityFallback": true
+    }
+  },
+  "platformBoundaries": {
+    "phone": "Independent engine implementations with documented routing exceptions.",
+    "tv": "Main playback is fixed YCore native; MPV/MDK runtime unavailable.",
+    "harmony": "Source adapters inspected; SDK/HAP/device runtime not verified."
+  },
+  "unchangedVersionPropertiesSha256": "9554c2bb104325aacac5cbb385ba7ce66a4d2713b93b6cb5f70d94bebc7118b8",
+  "applicationInstalled": false,
+  "newApkPackaged": false,
+  "published": false,
+  "uploaded": false,
+  "probeScope": "Pinned engine runtimes in independent app_process invocations, not complete application UI, audio output, codec/format matrix, HDR/DRM or endurance verification."
+}

@@ -34,6 +34,9 @@ internal data class PlayerTransportState(
     /** The file's named chapters: the progress bar is divided at them and the preview names them. */
     val chapters: List<PlaybackChapter> = emptyList(),
     val skip: SkipSegmentState = SkipSegmentState(),
+    /** Changes on media/output replacement, so controls cancel the previous video's gestures. */
+    val interactionKey: Any? = null,
+    val speedUnavailableReason: String? = null,
 )
 
 @Immutable

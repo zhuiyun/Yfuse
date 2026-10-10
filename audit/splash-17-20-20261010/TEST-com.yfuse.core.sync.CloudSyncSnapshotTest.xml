@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.sync.CloudSyncSnapshotTest" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-10-10T10:30:17.427Z" hostname="DESKTOP-HM2J0FM" time="0.198">
+  <properties/>
+  <testcase name="v1_snapshot_without_server_sync_settings_keeps_legacy_true_defaults" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.007"/>
+  <testcase name="explicit_empty_skip_domain_still_clears_boundaries" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.154"/>
+  <testcase name="calendar_follows_and_reminders_round_trip_in_encrypted_snapshot" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.003"/>
+  <testcase name="invalid_cloud_user_agent_is_rejected_before_local_settings_change" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.0"/>
+  <testcase name="selected_splash_survives_cloud_round_trip_and_receiver_restart" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.019"/>
+  <testcase name="legacy_snapshot_without_skip_domain_does_not_clear_local_boundaries" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.0"/>
+  <testcase name="custom_user_agent_and_complete_danmaku_configuration_round_trip" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.005"/>
+  <testcase name="unknown_motion_theme_is_ignored_and_a_known_one_still_applies" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.001"/>
+  <testcase name="cloud_appearance_defaults_to_dark_and_falls_back_to_dark_on_unknown_theme_mode" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.001"/>
+  <testcase name="legacy_v1_snapshot_defaults_to_stock_user_agent" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.0"/>
+  <testcase name="snapshot_from_before_motion_theme_was_synced_keeps_the_local_choice" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.001"/>
+  <testcase name="motion_theme_round_trips_and_persists_on_the_receiving_device" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.001"/>
+  <testcase name="server_sync_settings_capture_apply_and_persist_without_runtime_state" classname="com.yfuse.core.sync.CloudSyncSnapshotTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -27,9 +27,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * Persisted appearance, accessibility, and playback preferences.
  *
  * Appearance keeps the switches that change what the product does — theme, glass, wallpaper,
- * server layout, where a launch lands — and the on/off for the few decorative systems. The
- * pickers that only chose *which* of many variants to show (particle style, splash variant,
- * the dialog "lab") went with the variants; their stored values are scrubbed on load.
+ * server layout, where a launch lands — and launch playback and choreography. Retired particle,
+ * v2 splash and dialog-lab keys are scrubbed; current splash choices use the v3 key.
  */
 class ThemePreferences(
     private val settings: Settings,
@@ -47,6 +46,7 @@ class ThemePreferences(
         const val KEY_LIBRARY_CAROUSEL = "appearance.libraryCarousel"
         const val KEY_NAV_COLLAPSE_ON_SCROLL = "appearance.navCollapseOnScroll"
         const val KEY_SPLASH_ANIMATION = "appearance.splashAnimation"
+        const val KEY_SPLASH_VARIANT = "appearance.splashVariant.v3"
         const val KEY_STARTUP_TAB = "appearance.startupTab"
         const val KEY_DIALOG_ANIMATION = "appearance.dialogAnimation"
         const val KEY_GLASS_STYLE = "appearance.glassStyle"
@@ -144,8 +144,7 @@ class ThemePreferences(
         _navCollapseOnScroll.value = enabled
     }
 
-    // Whether a launch plays the splash at all — a real choice, unlike *which* one plays: that is
-    // [SplashAnimation.forMotion] and nothing is stored for it.
+    // Playback and choreography are independent preferences.
     private val _splashAnimation = MutableStateFlow(settings.getBoolean(KEY_SPLASH_ANIMATION, true))
     val splashAnimation: StateFlow<Boolean> = _splashAnimation.asStateFlow()
 
@@ -227,18 +226,15 @@ class ThemePreferences(
         )
     val backgroundDim: StateFlow<Float> = _backgroundDim.asStateFlow()
 
-    /**
-     * The launch choreography. There is one now, and the shell picks its still-frame variant
-     * from the accessibility state, so this is fixed and never persisted. Kept as a flow for
-     * the cloud snapshot until that schema drops the field.
-     */
-    @Deprecated("There is one launch animation; see SplashAnimation.forMotion.")
-    val splashVariant: StateFlow<SplashAnimation> = MutableStateFlow(SplashAnimation.One).asStateFlow()
+    private val _splashVariant =
+        MutableStateFlow(load(KEY_SPLASH_VARIANT, SplashAnimation.selectable, SplashAnimation.One))
+    val splashVariant: StateFlow<SplashAnimation> = _splashVariant.asStateFlow()
 
-    /** No-op: see [splashVariant]. */
-    @Deprecated("There is one launch animation; nothing to set.")
-    @Suppress("UNUSED_PARAMETER")
-    fun setSplashVariant(variant: SplashAnimation) = Unit
+    fun setSplashVariant(variant: SplashAnimation) {
+        val selected = variant.takeIf { it in SplashAnimation.selectable } ?: SplashAnimation.One
+        settings.putString(KEY_SPLASH_VARIANT, selected.name)
+        _splashVariant.value = selected
+    }
 
     fun setEngine(engine: PlayerEngine) {
         if (!engine.available) return

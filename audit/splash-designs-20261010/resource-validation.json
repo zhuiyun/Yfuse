@@ -1,0 +1,14 @@
+{
+  "beads": {
+    "count": 448,
+    "inside_logo_alpha": 448,
+    "inside_fraction": 1.0
+  },
+  "sand": {
+    "count": 1266,
+    "inside_logo_alpha": 1264,
+    "inside_fraction": 0.9984202211690363,
+    "last_settled_ms": 2087.54,
+    "fade_start_ms": 2400
+  }
+}

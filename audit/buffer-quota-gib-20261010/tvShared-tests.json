@@ -1,0 +1,208 @@
+{
+  "totals": {
+    "tests": 117,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suites": [
+    {
+      "name": "com.yfuse.tv.focus.FocusRepositoryTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.026,
+      "sha256": "ffd9b3562d03c56b821d13bf16f4f2eb925ea2092060139ebb2caa5bb1b955e3"
+    },
+    {
+      "name": "com.yfuse.tv.focus.FocusRestorePolicyTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.017,
+      "sha256": "779c800fb4fd510cff25b1062ffa5ff2dafa7fe8b5fceb813ec85e4f5da82965"
+    },
+    {
+      "name": "com.yfuse.tv.focus.FocusScopeStateMachineTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.009,
+      "sha256": "1b37bd230fab7fc9fd1ab6cd8f27d58622548e3aaf2c0dde8de1205ba2c1e064"
+    },
+    {
+      "name": "com.yfuse.tv.focus.RemoteKeyIntentTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.006,
+      "sha256": "9793e134eb1237dcdb8beb6bdbc52d89d7502060e0e70854182b63e395842eac"
+    },
+    {
+      "name": "com.yfuse.tv.integration.CastConnectLoadMapperTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.036,
+      "sha256": "66698a191eaaed6796419d8cddd0f235fcf9febf7c2890d36987345a24a9d5ed"
+    },
+    {
+      "name": "com.yfuse.tv.integration.ContinueWatchingPolicyTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.011,
+      "sha256": "f9293d7e7732982fe723aeb4886061d198c1c4a3a5ba44b117b1f62727487381"
+    },
+    {
+      "name": "com.yfuse.tv.integration.EngageContinueWatchingPublisherTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.085,
+      "sha256": "b535f0b8c433095224521d5987d61cd22e187a3b1e40d9d29d77c092d205f9b2"
+    },
+    {
+      "name": "com.yfuse.tv.integration.TvContinueWatchingWorkTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.011,
+      "sha256": "fe954655bb36bf39379394e88cc21284744935ad368da9b09ebe45338447ff34"
+    },
+    {
+      "name": "com.yfuse.tv.integration.TvPlaybackDeepLinkTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.007,
+      "sha256": "881a4efe071f4128495b32d2d5ac917277a83e855b0232f4f3432788f001cbe2"
+    },
+    {
+      "name": "com.yfuse.tv.player.TvLocalPlaybackPolicyTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.007,
+      "sha256": "7c5f8f95cc5c5cc08e3a4031e97fa12d0e97be2fd30fc4fe777b6007b987c8ce"
+    },
+    {
+      "name": "com.yfuse.tv.player.TvMediaSessionAdapterTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.001,
+      "sha256": "62d822f3d1cc85453641a943bf494b937811202961bc79aeda58238fbc573c60"
+    },
+    {
+      "name": "com.yfuse.tv.player.TvPlayerChromeControllerTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.009,
+      "sha256": "a4e0207ffc39fde62b229a0b00c731b20b20917dcc0996aae165a57caff6a799"
+    },
+    {
+      "name": "com.yfuse.tv.player.TvRemoteInputControllerTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.015,
+      "sha256": "fab8b218e814e104e3be8fd70e48b5e557a430cd2efcddf25ff6322afc7594d1"
+    },
+    {
+      "name": "com.yfuse.tv.remote.TvPhoneRemoteKeysTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.001,
+      "sha256": "bd20f87eb71e01573ea82fe23c7fafadf6fc43eaf1e20e8fdb64706f8dbc4264"
+    },
+    {
+      "name": "com.yfuse.tv.remote.TvPhoneRemotePairingTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.028,
+      "sha256": "cf3ef9c83e56421f86a0b6785d0489c0d57e684854e4241e6cfaea219abf88d2"
+    },
+    {
+      "name": "com.yfuse.tv.ui.TvCalendarCardTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.006,
+      "sha256": "636a59b177841a4701eb32965d0fcf9384acf868297bbfc88d2874c49f58af63"
+    },
+    {
+      "name": "com.yfuse.tv.ui.TvFocusMemoryTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.051,
+      "sha256": "6b1d7fadb89c58b1adb279e11661395dd7a5a82956851ffa36c4feb43d00b4ca"
+    },
+    {
+      "name": "com.yfuse.tv.ui.TvFocusParallaxTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.043,
+      "sha256": "c8913d1774454bf15e508c2f62fd284e5cadf0086621df9824e1fa320dee8528"
+    },
+    {
+      "name": "com.yfuse.tv.ui.TvFocusPivotTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.006,
+      "sha256": "f2b5aed4b1de2f6e1c6fabd6998d1c32d35501a1a295b2c59c3bdff8b47e0713"
+    },
+    {
+      "name": "com.yfuse.tv.ui.TvQuickActionsTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.001,
+      "sha256": "03d5d4baf2f6c8f9723580e9d95323a8503dca5961e8d56bcac406194c5c681a"
+    },
+    {
+      "name": "com.yfuse.tv.ui.TvServerBackupFilesTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.021,
+      "sha256": "ad707043b10f043f516d8d1e5fef7e35a9d33985671172eb6073abd2d8f8aed0"
+    },
+    {
+      "name": "com.yfuse.tv.ui.TvSettingsSearchTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.005,
+      "sha256": "9e2ebb57a66b384ce889c45fb6e91661f6e87c73677e02f0f3634c12bd6f09eb"
+    }
+  ]
+}

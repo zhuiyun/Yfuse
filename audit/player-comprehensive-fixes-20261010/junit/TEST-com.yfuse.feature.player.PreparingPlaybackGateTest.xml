@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PreparingPlaybackGateTest" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-10-10T08:26:18.519Z" hostname="DESKTOP-HM2J0FM" time="0.026">
+  <properties/>
+  <testcase name="denied_play_from_a_paused_waiting_engine_keeps_the_intent_paused" classname="com.yfuse.feature.player.PreparingPlaybackGateTest" time="0.017"/>
+  <testcase name="paused_engine_requests_play_and_playing_engine_requests_pause" classname="com.yfuse.feature.player.PreparingPlaybackGateTest" time="0.004"/>
+  <testcase name="ended_engine_can_request_play_again" classname="com.yfuse.feature.player.PreparingPlaybackGateTest" time="0.0"/>
+  <testcase name="returning_from_cast_resumes_only_after_playback_admission" classname="com.yfuse.feature.player.PreparingPlaybackGateTest" time="0.0"/>
+  <testcase name="returning_from_cast_retains_position_but_stays_paused_when_background_or_focus_denies_play" classname="com.yfuse.feature.player.PreparingPlaybackGateTest" time="0.0"/>
+  <testcase name="focus_can_be_granted_on_a_later_tap_and_pause_never_requires_admission" classname="com.yfuse.feature.player.PreparingPlaybackGateTest" time="0.001"/>
+  <testcase name="toggle_to_pause_cancels_focus_recovery_while_output_is_buffering" classname="com.yfuse.feature.player.PreparingPlaybackGateTest" time="0.001"/>
+  <testcase name="admitted_retry_and_episode_selection_reach_the_engine" classname="com.yfuse.feature.player.PreparingPlaybackGateTest" time="0.0"/>
+  <testcase name="a_second_click_reverses_pending_pause_even_if_output_has_not_stopped_yet" classname="com.yfuse.feature.player.PreparingPlaybackGateTest" time="0.001"/>
+  <testcase name="denied_retry_and_episode_selection_do_not_dispatch_or_preserve_an_old_play_intent" classname="com.yfuse.feature.player.PreparingPlaybackGateTest" time="0.0"/>
+  <testcase name="a_paused_receiver_returns_paused_without_requesting_audio_focus" classname="com.yfuse.feature.player.PreparingPlaybackGateTest" time="0.0"/>
+  <testcase name="explicit_pause_through_the_gate_cancels_focus_recovery" classname="com.yfuse.feature.player.PreparingPlaybackGateTest" time="0.001"/>
+  <testcase name="waiting_engine_can_pause_and_resume_through_the_real_adapter_and_gate" classname="com.yfuse.feature.player.PreparingPlaybackGateTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

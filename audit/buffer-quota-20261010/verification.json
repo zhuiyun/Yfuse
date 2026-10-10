@@ -1,0 +1,53 @@
+{
+  "sourceBase": "6a70a9fa47bd24a3997db1ce2eeb68d3a6ebaa1a",
+  "changedFiles": [
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNode.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudget.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNodeTest.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudgetTest.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidProxyFileProtocolTest.kt"
+  ],
+  "sha256": {
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNode.kt": "3d77130d7a2f5bde0875ed2a9e55e7048485f97506059b34999866fdf6880cc5",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt": "7f4e05db7d46cc9c628773fdeee3124aa95d4915f149b1d83a1d992c72ffd1b8",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudget.kt": "d1c364389b939bd4eba566fd039ebd8a3c844005342f058d04ab719855d8b13a",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNodeTest.kt": "802c814fc145e556a836870fec22e779ba45e4f1bdd85d7b84a9efdbffa06904",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudgetTest.kt": "d28303acf16b3af607704a622f95c91a2ed11fb5445f874b43696220b0662372",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidProxyFileProtocolTest.kt": "f2c016904f64f902cb3d6c5d906c087e72b3a0081140e17846aa30cf27139436"
+  },
+  "policy": {
+    "normalPoolMaximumMiB": 256,
+    "normalHeapFraction": "1/2",
+    "lowRamPoolMaximumMiB": 32,
+    "lowRamHeapFraction": "1/5",
+    "enhancedDemuxMaximumMiB": 128,
+    "unknownBitrateDemuxDefaultMiB": 64,
+    "effectiveBudgetQuantumMiB": 4,
+    "demuxShareWeight": 6,
+    "budgetShrinkReplansImmediately": true,
+    "budgetGrowthReplanIntervalNs": 2000000000
+  },
+  "checks": {
+    "ktlintChangedFiles": 6,
+    "gitDiffCheck": "passed",
+    "fullHostTests": {
+      "phoneShared": {
+        "tests": 4711,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tvShared": {
+        "tests": 117,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    }
+  },
+  "apkBuilt": false,
+  "devicePlaybackRetested": false,
+  "versionName": "1.1.7",
+  "versionCode": 269
+}

@@ -27,6 +27,7 @@ import kotlinx.serialization.encoding.Encoder
 enum class ProfilePage {
     Root,
     Personal,
+    ViewingStatistics,
     Family,
     Sync,
     Handoff,

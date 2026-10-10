@@ -169,6 +169,57 @@ class PreparingPlaybackGateTest {
             PlaybackEngineInput(listOf(item), PlaybackHandoverSnapshot(0, 25L, requested, 1f)),
         )
 
+    @Test
+    fun returning_from_cast_retains_position_but_stays_paused_when_background_or_focus_denies_play() {
+        val engine = preparing(requested = true)
+        val player = LegacyYPlayerAdapter(engine)
+        var admissions = 0
+        var pauses = 0
+        val gate =
+            gate(
+                player,
+                onPlayRequested = {
+                    admissions++
+                    false
+                },
+                onPauseRequested = { pauses++ },
+            )
+
+        assertTrue(gate.restoreLocalPlayback(42_000L, resumePlayback = true))
+        assertEquals(42_000L, engine.snapshot().handover.positionMs)
+        assertFalse(player.playbackRequested)
+        assertEquals(1, admissions)
+        assertEquals(1, pauses)
+    }
+
+    @Test
+    fun returning_from_cast_resumes_only_after_playback_admission() {
+        val engine = preparing(requested = false)
+        val player = LegacyYPlayerAdapter(engine)
+        var admissions = 0
+        val gate =
+            gate(player, onPlayRequested = {
+                admissions++
+                true
+            })
+
+        assertTrue(gate.restoreLocalPlayback(12_000L, resumePlayback = true))
+        assertEquals(12_000L, engine.snapshot().handover.positionMs)
+        assertTrue(player.playbackRequested)
+        assertEquals(1, admissions)
+    }
+
+    @Test
+    fun a_paused_receiver_returns_paused_without_requesting_audio_focus() {
+        val engine = preparing(requested = true)
+        val player = LegacyYPlayerAdapter(engine)
+        val gate = gate(player, onPlayRequested = { error("Paused handoff must not request playback") })
+
+        assertTrue(gate.restoreLocalPlayback(12_000L, resumePlayback = false))
+        assertEquals(12_000L, engine.snapshot().handover.positionMs)
+        assertFalse(player.playbackRequested)
+    }
+
     private fun gate(
         player: LegacyYPlayerAdapter,
         onPauseRequested: () -> Unit = {},

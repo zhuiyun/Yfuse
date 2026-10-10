@@ -1,0 +1,28 @@
+def changedSources = [
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerInteractionPolicy.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerGestureCommands.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSeekGestures.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerGestureState.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlAreas.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchGatedPlayback.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlBars.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlPanels.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRootControls.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerTrackEffects.android.kt",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerGestureCommandsTest.kt",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerGestureStateTest.kt",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerPlaybackSpeedPolicyTest.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/PreparingPlaybackGateTest.kt"
+]
+gradle.projectsEvaluated {
+    def p = gradle.rootProject.project(':phoneShared')
+    ['runKtlintFormatOverAndroidMainSourceSet', 'runKtlintCheckOverAndroidMainSourceSet'].each { taskName ->
+        p.tasks.named(taskName).configure { t ->
+            t.setSource(p.rootProject.files(changedSources))
+            t.doFirst { assert t.source.files.size() == changedSources.size() }
+        }
+    }
+}

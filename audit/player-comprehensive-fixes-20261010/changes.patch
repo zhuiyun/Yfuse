@@ -1,0 +1,1268 @@
+--- 1.1.9/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerInteractionPolicy.kt
++++ working/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerInteractionPolicy.kt
+@@ -0,0 +1,50 @@
++package com.yfuse.feature.player
++
++/** Ownership of a gesture; position ticks do not change it, replacement media and outputs do. */
++internal data class PlaybackInteractionContext(
++    val engine: Any,
++    val itemIndex: Int = 0,
++    val itemId: String? = null,
++    val serverId: String? = null,
++    val versionId: String? = null,
++    val streamUrl: String? = null,
++    val engineGeneration: Int = 0,
++    val runtimeSessionGeneration: Int = 0,
++    val castRevision: Long = 0L,
++    val castDeviceId: String? = null,
++    val castQueueIndex: Int? = null,
++    val casting: Boolean = false,
++) {
++    /** A cast stopping changes the output, but must still return to the same local video. */
++    fun local(): PlaybackInteractionContext =
++        copy(castRevision = 0L, castDeviceId = null, castQueueIndex = null, casting = false)
++}
++
++internal fun playbackSpeedUnavailableReason(
++    watchLocked: Boolean,
++    casting: Boolean,
++): String? =
++    when {
++        watchLocked -> "房主控制播放速度"
++        casting -> "当前投屏不支持调整倍速"
++        else -> null
++    }
++
++/** Refused speed changes must not become a local choice or a remembered series preference. */
++internal inline fun applyRememberedPlaybackSpeed(
++    speed: Float,
++    canChange: () -> Boolean,
++    applySpeed: (Float) -> Boolean,
++    rememberSpeed: (Float) -> Unit,
++): Boolean {
++    if (!canChange() || !applySpeed(speed)) return false
++    rememberSpeed(speed)
++    return true
++}
++
++/** Keep the bar present for the entire seek, including a finger held still between steps. */
++internal fun pictureSeekKeepsControlsVisible(
++    holdSeeking: Boolean,
++    pictureScrubbing: Boolean,
++    railScrubbing: Boolean,
++): Boolean = holdSeeking || pictureScrubbing || railScrubbing
+--- 1.1.9/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerGestureCommands.kt
++++ working/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerGestureCommands.kt
+@@ -23,15 +23,51 @@
+  * callbacks and the effect delivering the seeks.
+  */
+ @Stable
+-internal class PlayerGestureCommands {
++internal class PlayerGestureCommands(
++    private val currentContext: () -> PlaybackInteractionContext? = { null },
++) {
++    private data class ContextKey(
++        val context: PlaybackInteractionContext?,
++        val revision: Long,
++    )
++
++    private data class SeekRequest(
++        val positionMs: Long,
++        val owner: ContextKey,
++    )
++
++    private var revision = 0L
++
++    val contextKey: Any get() = ContextKey(currentContext(), revision)
++    val localContextKey: Any get() = ContextKey(currentContext()?.local(), revision)
++    val localMediaKey: Any? get() = currentContext()?.local()
++
++    /** Called before replacing media, retrying, changing output or leaving the player. */
++    fun invalidate() {
++        revision++
++        seekRequests.tryReceive()
++        heldBoost = null
++        boostOwner = null
++        boostResumedPlayback = false
++    }
++
+     // Seek requests travel on a conflating channel rather than through composition. As a
+     // `sequence` counter in a MutableState, a held rewind key re-keyed the delivering effect — and
+     // so recomposed the entire player root — every 300ms while the finger stayed down.
+-    private val seekRequests = Channel<Long>(Channel.CONFLATED)
++    private val seekRequests = Channel<SeekRequest>(Channel.CONFLATED)
+ 
+     /** Proposes a seek to [positionMs]; a newer proposal inside the merge window replaces it. */
+     fun seek(positionMs: Long) {
+-        seekRequests.trySend(positionMs.coerceAtLeast(0L))
++        seek(positionMs, contextKey)
++    }
++
++    /** A control removed by a media replacement cannot submit its old drag on cancellation. */
++    fun seek(
++        positionMs: Long,
++        owner: Any,
++    ) {
++        if (owner != contextKey) return
++        seekRequests.trySend(SeekRequest(positionMs.coerceAtLeast(0L), ContextKey(currentContext(), revision)))
+     }
+ 
+     /**
+@@ -41,14 +77,14 @@
+      */
+     suspend fun deliverSeeks(seekTo: suspend (Long) -> Unit) {
+         for (offered in seekRequests) {
+-            var positionMs = offered
++            var request = offered
+             // Trailing debounce: a newer target arriving inside the window replaces this one
+             // and restarts it, so only the position the user stopped on is ever sent.
+             while (true) {
+                 delay(SEEK_MERGE_DEBOUNCE_MS)
+-                positionMs = seekRequests.tryReceive().getOrNull() ?: break
++                request = seekRequests.tryReceive().getOrNull() ?: break
+             }
+-            seekTo(positionMs)
++            if (request.owner == ContextKey(currentContext(), revision)) seekTo(request.positionMs)
+         }
+     }
+ 
+@@ -56,8 +92,11 @@
+      * 长按中间: the rate while the middle of the picture is held, over the chosen one; null when it is
+      * not held. Only the engine sees it — never the room, the series memory or the preference.
+      */
+-    var boost: Float? by mutableStateOf(null)
+-        private set
++    private var heldBoost: Float? by mutableStateOf(null)
++    private var boostOwner: ContextKey? = null
++
++    val boost: Float?
++        get() = heldBoost.takeIf { boostOwner == ContextKey(currentContext(), revision) }
+ 
+     // Whether the hold started playback from a pause. Nothing composes from it, so a plain field.
+     private var boostResumedPlayback = false
+@@ -75,18 +114,26 @@
+         locked: () -> Boolean,
+     ) {
+         if (rate != null) {
+-            if (boost == null) {
++            val owner = ContextKey(currentContext(), revision)
++            if (heldBoost == null || boostOwner != owner) {
++                boostOwner = owner
+                 // Judged on the play intent, not on frames: a stream that is
+                 // buffering towards playback is not paused.
+                 boostResumedPlayback = !playbackRequested() && play()
+             }
+-            boost = rate
+-        } else if (boost != null) {
+-            boost = null
+-            if (boostResumedPlayback && playbackRequested() && !locked()) {
++            heldBoost = rate
++        } else if (heldBoost != null) {
++            heldBoost = null
++            if (
++                boostOwner == ContextKey(currentContext(), revision) &&
++                boostResumedPlayback &&
++                playbackRequested() &&
++                !locked()
++            ) {
+                 pause()
+             }
+             boostResumedPlayback = false
++            boostOwner = null
+         }
+     }
+ }
+--- 1.1.9/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSeekGestures.kt
++++ working/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSeekGestures.kt
+@@ -53,6 +53,12 @@
+         private set
+ 
+     private var lastStepAtMs: Long? = null
++
++    fun reset() {
++        direction = 0
++        totalMs = 0L
++        lastStepAtMs = null
++    }
+ 
+     /** Whether a tap going [direction] now would add to the running burst. */
+     fun continues(direction: Int): Boolean {
+--- 1.1.9/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerGestureState.kt
++++ working/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerGestureState.kt
+@@ -85,6 +85,14 @@
+     /** Whether a tap going [direction] now adds to the running burst. */
+     fun burstContinues(direction: Int): Boolean = burst.continues(direction)
+ 
++    private var burstTargetMs: Long? = null
++
++    fun resetBurst() {
++        burst.reset()
++        burstTargetMs = null
++        hud = null
++    }
++
+     /**
+      * [taps] more taps going [direction], at [at], each worth [stepMs]. Taps in quick succession on
+      * the same side add up, and the HUD reports the running total rather than "10 秒" each time.
+@@ -100,11 +108,20 @@
+         durationMs: Long,
+     ): Long? {
+         if (doubleTapSeekTarget(positionMs, durationMs, 0L) == null) return null
++        // A receiver may not have reported the previous seek yet. Keep the target advancing;
++        // once playback passes that target, include its natural progress in the next step.
++        val previous = burstTargetMs.takeIf { burst.continues(direction) }
++        val base =
++            when {
++                previous == null -> positionMs
++                direction < 0 -> minOf(positionMs, previous)
++                else -> maxOf(positionMs, previous)
++            }
+         val moved = burst.add(direction, stepMs, taps)
+         pulsePosition = at
+         pulseRevision++
+         hud = "${if (direction < 0) "快退" else "快进"} ${burst.totalMs / 1_000L} 秒"
+-        return doubleTapSeekTarget(positionMs, durationMs, direction * moved)
++        return doubleTapSeekTarget(base, durationMs, direction * moved).also { burstTargetMs = it }
+     }
+ 
+     // -------------------------------------------------------- 长按中间
+--- 1.1.9/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlAreas.kt
++++ working/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlAreas.kt
+@@ -34,6 +34,9 @@
+     /** The file's named chapters: the progress bar is divided at them and the preview names them. */
+     val chapters: List<PlaybackChapter> = emptyList(),
+     val skip: SkipSegmentState = SkipSegmentState(),
++    /** Changes on media/output replacement, so controls cancel the previous video's gestures. */
++    val interactionKey: Any? = null,
++    val speedUnavailableReason: String? = null,
+ )
+ 
+ @Immutable
+--- 1.1.9/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchGatedPlayback.kt
++++ working/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchGatedPlayback.kt
+@@ -108,6 +108,26 @@
+             player.setSpeed(speed)
+             publish(rate = speed)
+         }
++
++    /** Return from Cast without rearming playback after backgrounding or losing audio focus. */
++    fun restoreLocalPlayback(
++        positionMs: Long,
++        resumePlayback: Boolean,
++    ): Boolean {
++        if (locked) return false
++        val player = player() ?: return false
++        val position = positionMs.coerceAtLeast(0L)
++        player.seekTo(position)
++        val resume = resumePlayback && onPlayRequested()
++        if (resume) {
++            player.play()
++        } else {
++            onPauseRequested()
++            player.pause()
++        }
++        publish(positionMs = position, paused = !resume)
++        return true
++    }
+ 
+     /**
+      * Re-anchors the room on the entry the player moved to on its own. Backends advance through the
+--- 1.1.9/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt
++++ working/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt
+@@ -292,6 +292,7 @@
+     val latestVolume by rememberUpdatedState(picture.volume)
+     val latestBrightness by rememberUpdatedState(picture.brightness)
+     val latestOnSeek by rememberUpdatedState(transportActions.onSeek)
++    val latestInteractionKey by rememberUpdatedState(transport.interactionKey)
+     val latestOnPlayPause by rememberUpdatedState(transportActions.onPlayPause)
+     val latestOnVolume by rememberUpdatedState(pictureActions.onVolume)
+     val latestOnBrightness by rememberUpdatedState(pictureActions.onBrightness)
+@@ -446,6 +447,7 @@
+     LaunchedEffect(holdSeek) {
+         val held = holdSeek ?: return@LaunchedEffect
+         val itemIndex = holdSeekItemIndex
++        val interactionKey = latestInteractionKey
+         var firstStep = true
+         try {
+             held.deliverSeeks(
+@@ -456,6 +458,7 @@
+                         !latestWatchLocked &&
+                         live.error == null &&
+                         live.currentIndex == itemIndex &&
++                        latestInteractionKey == interactionKey &&
+                         !picturePanelOpen()
+                 },
+                 stepMs = { latestGestures.doubleTapSeekMs },
+@@ -721,6 +724,9 @@
+             state.error == null &&
+             !stoppedAtItemEnd
+ 
++    val pictureSeeking by remember { derivedStateOf { gestureState.previewMs != null } }
++    val keepControlsForSeek =
++        pictureSeekKeepsControlsVisible(holdSeek != null, pictureSeeking, gestureState.scrubbing)
+     LaunchedEffect(
+         chrome.visible,
+         chrome.locked,
+@@ -731,7 +737,7 @@
+         accessibilityManager,
+         controlsHaveFocus,
+         screenReaderActive,
+-        gestureState.scrubbing,
++        keepControlsForSeek,
+     ) {
+         // Keep the hide timer stable across NativeDirect's playing <-> buffering handoff.
+         // A remote Range stall is still an active playback request, not a user pause.
+@@ -751,7 +757,7 @@
+             // focused key alone must not park the controls over the picture for good.
+             (controlsHaveFocus && remoteChrome == null) ||
+             screenReaderActive ||
+-            gestureState.scrubbing
++            keepControlsForSeek
+         ) {
+             return@LaunchedEffect
+         }
+@@ -852,9 +858,12 @@
+         if (watch.connected || cast.deviceId != null) endSpeedBoost()
+     }
+     // A replacement item or output route never inherits the finger's previous hold.
+-    LaunchedEffect(state.currentIndex, cast.deviceId) {
++    LaunchedEffect(transport.interactionKey, state.currentIndex, cast.deviceId) {
+         holdSeek = null
+         endSpeedBoost()
++        gestureState.resetBurst()
++        gestureState.cancelDrag()
++        gestureState.endScrub()
+     }
+     // Leaving the player mid-hold, or into 画中画, lets go too: the release that ends the boost
+     // would otherwise never arrive.
+@@ -1105,7 +1114,7 @@
+                 // Every picture gesture stands down while playback has failed. The failure
+                 // surface takes no touches of its own, and a double tap or a swipe used to reach
+                 // the failed engine through it, moving the position a 重试 then resumed from.
+-                .pointerInput(Unit) {
++                .pointerInput(transport.interactionKey) {
+                     fun burstSeek(
+                         direction: Int,
+                         at: Offset,
+@@ -1219,6 +1228,7 @@
+                     )
+                 }.pointerInput(
+                     state.currentIndex,
++                    transport.interactionKey,
+                 ) {
+                     detectPlayerDragGestures(
+                         canStart = { origin ->
+--- 1.1.9/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlBars.kt
++++ working/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlBars.kt
+@@ -6,6 +6,7 @@
+ import androidx.compose.runtime.State
+ import androidx.compose.runtime.derivedStateOf
+ import androidx.compose.runtime.getValue
++import androidx.compose.runtime.key
+ import androidx.compose.runtime.remember
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+@@ -119,104 +120,107 @@
+                 gestureState.endScrub()
+             }
+         }
+-        PlaybackTimelineContent(playback) { timelineState ->
+-            val remoteSeek = remoteChromeState?.seekTargetMs?.takeIf { remoteChromeState.seeking }
+-            RefinedBottomBar(
+-                state =
+-                    timelineState.transportState().let { transport ->
+-                        remoteSeek?.let { target ->
+-                            transport.copy(
+-                                positionMs =
+-                                    if (transport.durationMs >
+-                                        0L
+-                                    ) {
+-                                        target.coerceIn(0L, transport.durationMs)
+-                                    } else {
+-                                        target.coerceAtLeast(0L)
+-                                    },
++        key(transport.interactionKey) {
++            PlaybackTimelineContent(playback) { timelineState ->
++                val remoteSeek = remoteChromeState?.seekTargetMs?.takeIf { remoteChromeState.seeking }
++                RefinedBottomBar(
++                    state =
++                        timelineState.transportState().let { transport ->
++                            remoteSeek?.let { target ->
++                                transport.copy(
++                                    positionMs =
++                                        if (transport.durationMs >
++                                            0L
++                                        ) {
++                                            target.coerceIn(0L, transport.durationMs)
++                                        } else {
++                                            target.coerceAtLeast(0L)
++                                        },
++                                )
++                            } ?: transport
++                        },
++                    seekLocked = watchLocked,
++                    onPlayPause = {
++                        chrome.poke()
++                        transportActions.onPlayPause()
++                    },
++                    onPrevious = {
++                        chrome.poke()
++                        transportActions.onPreviousItem()
++                    },
++                    onNext = {
++                        chrome.poke()
++                        transportActions.onNextItem()
++                    },
++                    onSeek = {
++                        chrome.poke()
++                        transportActions.onSeek(it)
++                    },
++                    onScrub = {
++                        // Every touch sample lands here. `interactions` is read by this
++                        // whole control tree and keys two effects, so bumping it per sample
++                        // rebuilt ~2,300 lines of chrome each frame of a drag. The hide timer
++                        // already waits on `scrubbing`, and the release pokes it afresh.
++                        if (gestureState.scrub()) chrome.interactions++
++                    },
++                    onScrubEnd = {
++                        gestureState.endScrub()
++                        chrome.poke()
++                    },
++                    trickplay = transport.trickplay,
++                    progressMarkers =
++                        remember(
++                            skip.introStartSeconds,
++                            skip.introEndSeconds,
++                            skip.creditsLeadSeconds,
++                            state.durationMs,
++                            transport.chapters,
++                        ) {
++                            playbackProgressMarkers(
++                                skip,
++                                state.durationMs,
++                                transport.chapters.asProgressChapters(),
+                             )
+-                        } ?: transport
+-                    },
+-                seekLocked = watchLocked,
+-                onPlayPause = {
+-                    chrome.poke()
+-                    transportActions.onPlayPause()
+-                },
+-                onPrevious = {
+-                    chrome.poke()
+-                    transportActions.onPreviousItem()
+-                },
+-                onNext = {
+-                    chrome.poke()
+-                    transportActions.onNextItem()
+-                },
+-                onSeek = {
+-                    chrome.poke()
+-                    transportActions.onSeek(it)
+-                },
+-                onScrub = {
+-                    // Every touch sample lands here. `interactions` is read by this
+-                    // whole control tree and keys two effects, so bumping it per sample
+-                    // rebuilt ~2,300 lines of chrome each frame of a drag. The hide timer
+-                    // already waits on `scrubbing`, and the release pokes it afresh.
+-                    if (gestureState.scrub()) chrome.interactions++
+-                },
+-                onScrubEnd = {
+-                    gestureState.endScrub()
+-                    chrome.poke()
+-                },
+-                trickplay = transport.trickplay,
+-                progressMarkers =
+-                    remember(
+-                        skip.introStartSeconds,
+-                        skip.introEndSeconds,
+-                        skip.creditsLeadSeconds,
+-                        state.durationMs,
+-                        transport.chapters,
+-                    ) {
+-                        playbackProgressMarkers(
+-                            skip,
+-                            state.durationMs,
+-                            transport.chapters.asProgressChapters(),
+-                        )
+-                    },
+-                hasEpisodes = state.itemCount > 1,
+-                onOpenEpisodes = {
+-                    transportActions.onRefreshEpisodes()
+-                    chrome.openEpisodeDrawer()
+-                },
+-                hasMultipleSources = source.sourceOptions.size > 1,
+-                onOpenSources = { chrome.openQuickPopup(QuickPopup.Source) },
+-                onOpenSubtitles = {
+-                    chrome.openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Subtitle)
+-                },
+-                onOpenAudio = {
+-                    chrome.openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Audio)
+-                },
+-                onOpenSpeed = { chrome.openQuickPopup(QuickPopup.Speed) },
+-                skipSettingsAvailable = skip.seriesName != null,
+-                onOpenSkipSettings = { chrome.openSettingsPanel(SettingsPanelKind.Skip) },
+-                danmakuEnabled = danmaku.panel.enabled,
+-                onToggleDanmaku = {
+-                    // With no 弹幕来源 a switch has nothing to show either way, and the tap seemed to
+-                    // do nothing. The panel says where one is added.
+-                    if (danmaku.panel.configured) {
+-                        danmakuActions.onKeyToggle()
+-                    } else {
+-                        chrome.openSettingsPanel(SettingsPanelKind.Danmaku)
+-                    }
+-                },
+-                onOpenDanmaku = { chrome.openSettingsPanel(SettingsPanelKind.Danmaku) },
+-                // 进度条跟随作品取色: the series poster, or the episode still without one.
+-                artworkUrl =
+-                    transport.episodes.getOrNull(state.currentIndex)?.let { it.posterUrl ?: it.stillUrl },
+-                artworkIdentity = state.currentIndex,
+-                ambientLight = picture.ambientLight,
+-                danmakuHeat = danmaku.heat,
+-                onSeekBackwardLongPress = onMissedLine,
+-                playKeyModifier = playKeyModifier,
+-                compact = compact,
+-            )
++                        },
++                    hasEpisodes = state.itemCount > 1,
++                    onOpenEpisodes = {
++                        transportActions.onRefreshEpisodes()
++                        chrome.openEpisodeDrawer()
++                    },
++                    hasMultipleSources = source.sourceOptions.size > 1,
++                    onOpenSources = { chrome.openQuickPopup(QuickPopup.Source) },
++                    onOpenSubtitles = {
++                        chrome.openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Subtitle)
++                    },
++                    onOpenAudio = {
++                        chrome.openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Audio)
++                    },
++                    onOpenSpeed = { chrome.openQuickPopup(QuickPopup.Speed) },
++                    speedUnavailableReason = transport.speedUnavailableReason,
++                    skipSettingsAvailable = skip.seriesName != null,
++                    onOpenSkipSettings = { chrome.openSettingsPanel(SettingsPanelKind.Skip) },
++                    danmakuEnabled = danmaku.panel.enabled,
++                    onToggleDanmaku = {
++                        // With no 弹幕来源 a switch has nothing to show either way, and the tap seemed to
++                        // do nothing. The panel says where one is added.
++                        if (danmaku.panel.configured) {
++                            danmakuActions.onKeyToggle()
++                        } else {
++                            chrome.openSettingsPanel(SettingsPanelKind.Danmaku)
++                        }
++                    },
++                    onOpenDanmaku = { chrome.openSettingsPanel(SettingsPanelKind.Danmaku) },
++                    // 进度条跟随作品取色: the series poster, or the episode still without one.
++                    artworkUrl =
++                        transport.episodes.getOrNull(state.currentIndex)?.let { it.posterUrl ?: it.stillUrl },
++                    artworkIdentity = state.currentIndex,
++                    ambientLight = picture.ambientLight,
++                    danmakuHeat = danmaku.heat,
++                    onSeekBackwardLongPress = onMissedLine,
++                    playKeyModifier = playKeyModifier,
++                    compact = compact,
++                )
++            }
+         }
+     }
+ }
+--- 1.1.9/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt
++++ working/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt
+@@ -385,6 +385,7 @@
+     playKeyModifier: Modifier = Modifier,
+     /** An upright phone window: the transport and the keys stack, 选集 first. */
+     compact: Boolean = false,
++    speedUnavailableReason: String? = null,
+ ) {
+     // A new timeline sample arrives twice a second, and this function is called with it. Only
+     // this frame stops here: everything below takes the holder and reads it from a draw or a
+@@ -428,6 +429,7 @@
+         onSeekBackwardLongPress = onSeekBackwardLongPress,
+         playKeyModifier = playKeyModifier,
+         compact = compact,
++        speedUnavailableReason = speedUnavailableReason,
+     )
+ }
+ 
+@@ -468,6 +470,7 @@
+     onSeekBackwardLongPress: (() -> Unit)? = null,
+     playKeyModifier: Modifier = Modifier,
+     compact: Boolean = false,
++    speedUnavailableReason: String? = null,
+ ) {
+     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+     val tips = LocalTips.current
+@@ -793,7 +796,7 @@
+                 },
+                 onLongClickLabel = "弹幕设置",
+             )
+-            RefinedSpeedControl(speed, onOpenSpeed)
++            RefinedSpeedControl(speed, onOpenSpeed, speedUnavailableReason)
+             // Which of these three exist is decided by the item, and the item changes under
+             // the bar every time the queue advances: a source list resolves, a series gains
+             // 片头 markers, a film has no 选集. Each one used to blink into the cluster and
+@@ -995,19 +998,21 @@
+ private fun RefinedSpeedControl(
+     speed: Float,
+     onClick: () -> Unit,
++    unavailableReason: String?,
+ ) {
+     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+     val figure = if (speed % 1f == 0f) "${speed.toInt()}" else "$speed"
+-    val label = "$figure×"
++    val label = if (unavailableReason == null) "$figure×" else "倍速"
+     // The same ring as its neighbours: 26 dp in reach of a thumb, larger across a room.
+     val ring = chromeKeySize(26.dp)
+     Box(
+         Modifier
+             // Named for what it sets, with the rate as its state: read out, 「1.25×」 alone was a
+             // number with nothing to say what it was the rate of.
+-            .pressable(label = "播放速度", onClick = onClick)
++            .pressable(enabled = unavailableReason == null, label = "播放速度", onClick = onClick)
+             .touchTarget()
+-            .semantics { stateDescription = "$figure 倍" }
++            .semantics { stateDescription = unavailableReason ?: "$figure 倍" }
++            .graphicsLayer { alpha = if (unavailableReason == null) 1f else 0.44f }
+             .size(ring + ControlTouchPadding * 2),
+         contentAlignment = Alignment.Center,
+     ) {
+--- 1.1.9/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlPanels.kt
++++ working/composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlPanels.kt
+@@ -11,6 +11,7 @@
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.State
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Alignment
+@@ -60,6 +61,11 @@
+     onEndSubtitlePeek: () -> Unit,
+ ) {
+     val state by controlState
++    LaunchedEffect(transport.speedUnavailableReason) {
++        if (transport.speedUnavailableReason != null && chrome.quickPopup == QuickPopup.Speed) {
++            chrome.quickPopup = null
++        }
++    }
+     // Every playback function popup uses the same bottom-right anchor. Content may be
+     // shorter or taller, but switching buttons never makes the surface jump position.
+     val functionPopupModifier =
+@@ -236,7 +242,9 @@
+                             speeds = SPEEDS,
+                             selectedSpeed = state.speed,
+                             onSelect = {
+-                                transportActions.onSpeed(it)
++                                if (transport.speedUnavailableReason == null && !watchLocked && !cast.active) {
++                                    transportActions.onSpeed(it)
++                                }
+                                 chrome.quickPopup = null
+                             },
+                             onDismiss = { chrome.quickPopup = null },
+--- 1.1.9/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt
++++ working/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt
+@@ -276,7 +276,6 @@
+     val sourceSwitchCoordinator = remember { PlaybackSourceSwitchCoordinator() }
+     val latestQueueRevision by rememberUpdatedState(queueRevision)
+     // 长按中间's rate and the seeks a drag proposes, kept out of this composition.
+-    val gestures = remember { PlayerGestureCommands() }
+     // 片尾接管: the controls decide when the credits take the picture into its corner; the surface follows.
+     val creditsTakeover = remember { mutableStateOf(false) }
+     val audioOutputDelayPreferences = remember(context) { AudioOutputDelayPreferences(context) }
+@@ -601,12 +600,58 @@
+         )
+         val castManager = remember { GlobalContext.get().get<CastManager>() }
+         val liveCastState = castManager.state.collectAsState()
++        val latestActiveItemsSource = rememberUpdatedState(activeItems)
++        val latestActiveItems by latestActiveItemsSource
++        val latestPlayerForGestures = rememberUpdatedState(player)
++        val gestures =
++            remember {
++                PlayerGestureCommands {
++                    val currentPlayer = latestPlayerForGestures.value
++                    val index = currentPlayer.state.value.currentIndex
++                    val item = latestActiveItemsSource.value.getOrNull(index)
++                    val cast = castManager.state.value
++                    PlaybackInteractionContext(
++                        engine = currentPlayer,
++                        itemIndex = index,
++                        itemId = item?.id,
++                        serverId = item?.serverId,
++                        versionId = item?.versionId,
++                        streamUrl = item?.url,
++                        engineGeneration = build.engineGeneration,
++                        runtimeSessionGeneration = build.runtimeSessionGeneration,
++                        castRevision = cast.sessionRevision,
++                        castDeviceId = cast.activeDeviceId,
++                        castQueueIndex =
++                            cast.currentQueueIndex.takeIf {
++                                cast.hasActiveSession || cast.status == CastPlaybackStatus.Connecting
++                            },
++                        casting = cast.hasActiveSession || cast.status == CastPlaybackStatus.Connecting,
++                    )
++                }
++            }
++        DisposableEffect(gestures) {
++            onDispose { gestures.invalidate() }
++        }
+         val castStateSource = remember(liveCastState) { derivedStateOf { liveCastState.value.copy(positionMs = 0L) } }
+         val castState by castStateSource
++        // Freeze the media owner once this receiver session has caught up with the local queue.
++        // Later line/engine changes must not accept that session's old disconnect response.
++        var castHandoffContext by remember(castState.sessionRevision, castState.currentQueueIndex) {
++            mutableStateOf<Any?>(null)
++        }
++        SideEffect {
++            if (
++                castHandoffContext == null &&
++                (castState.hasActiveSession || castState.status == CastPlaybackStatus.Connecting) &&
++                localState.currentIndex == castState.currentQueueIndex
++            ) {
++                castHandoffContext = gestures.localMediaKey
++            }
++        }
+         // The controls' proposed seeks, merged latest-wins before a receiver or the room sees them.
+         LaunchedEffect(gestures, castManager, playbackGate) {
+             gestures.deliverSeeks { positionMs ->
+-                if (castState.hasActiveSession) {
++                if (castManager.state.value.hasActiveSession) {
+                     castManager.seekTo(positionMs)
+                 } else {
+                     playbackGate.seekTo(positionMs)
+@@ -854,9 +899,9 @@
+                     fallbackPositionMs = liveLocalState.value.positionMs,
+                 ) ?: return@LaunchedEffect
+             if (completedCastHandoffRevision == castState.sessionRevision) return@LaunchedEffect
+-            player.seekTo(decision.positionMs)
+-            if (decision.resumePlayback) player.play() else player.pause()
+             completedCastHandoffRevision = castState.sessionRevision
++            if (castHandoffContext != gestures.localMediaKey) return@LaunchedEffect
++            if (!playbackGate.restoreLocalPlayback(decision.positionMs, decision.resumePlayback)) return@LaunchedEffect
+             Toast
+                 .makeText(
+                     context,
+@@ -1080,8 +1125,6 @@
+             onPlaybackRequestChanged = sourceSwitchCoordinator::invalidate,
+         )
+         val latestState by livePlayback
+-        val latestActiveItemsSource = rememberUpdatedState(activeItems)
+-        val latestActiveItems by latestActiveItemsSource
+ 
+         fun sourceSwitchContext(): PlaybackSourceSwitchContext {
+             val index = latestState.currentIndex
+@@ -1272,6 +1315,10 @@
+             currentItemId = currentItem?.id,
+             handoverItemId = choices.handoverItemId,
+             requestedSpeed = { gestures.boost ?: choices.requestedPlaybackSpeed },
++            canApplySpeed = {
++                !playbackGate.locked &&
++                    castManager.state.value.let { !it.hasActiveSession && it.status != CastPlaybackStatus.Connecting }
++            },
+             audioRestore = choices.audioRestore,
+             subtitleRestore = choices.subtitleRestore,
+             secondarySubtitleRestore = choices.secondarySubtitleRestore,
+@@ -1340,6 +1387,7 @@
+             index: Int,
+             positionMs: Long,
+         ): Boolean {
++            gestures.invalidate()
+             val loaded = loadPlaybackCastItem(castManager, latestActiveItems, deviceId, index, positionMs)
+             if (!loaded) return false
+             if (localState.currentIndex != index) {
+--- 1.1.9/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRootControls.kt
++++ working/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRootControls.kt
+@@ -21,6 +21,7 @@
+ import com.yfuse.core.cast.CastManager
+ import com.yfuse.core.cast.CastPlaybackStatus
+ import com.yfuse.core.cast.CastState
++import com.yfuse.core.cast.CastTermination
+ import com.yfuse.core.cast.CastTrackKind
+ import com.yfuse.core.data.PlaybackPreferences
+ import com.yfuse.core.data.PlayerGestureSettings
+@@ -134,6 +135,7 @@
+     val state by stateSource
+     val castState by castStateSource
+     val watchState by watchStateSource
++    val controlOwner = gestures.contextKey
+     PlayerControls(
+         playback = livePlayback,
+         transport =
+@@ -144,6 +146,12 @@
+                 trickplay = currentTrickplay,
+                 chapters = currentItem?.chapters.orEmpty().ifEmpty { state.chapters },
+                 skip = skip.state,
++                interactionKey = controlOwner,
++                speedUnavailableReason =
++                    playbackSpeedUnavailableReason(
++                        watchLocked = playbackGate.locked,
++                        casting = castState.hasActiveSession || castState.status == CastPlaybackStatus.Connecting,
++                    ),
+             ),
+         transportActions =
+             PlayerTransportActions(
+@@ -168,6 +176,7 @@
+                     }
+                 },
+                 onRetry = {
++                    gestures.invalidate()
+                     sourceSwitchCoordinator.invalidate()
+                     val deviceId = castState.activeDeviceId
+                     if (castState.hasActiveSession && deviceId != null) {
+@@ -178,8 +187,9 @@
+                         playbackGate.retry()
+                     }
+                 },
+-                onSeek = gestures::seek,
++                onSeek = { positionMs -> gestures.seek(positionMs, controlOwner) },
+                 onSelectItem = { index ->
++                    gestures.invalidate()
+                     sourceSwitchCoordinator.invalidate()
+                     sleepTimer.follow(index, castState.sessionRevision.takeIf { castState.hasActiveSession })
+                     val deviceId = castState.activeDeviceId
+@@ -190,6 +200,7 @@
+                     }
+                 },
+                 onPreviousItem = {
++                    gestures.invalidate()
+                     sourceSwitchCoordinator.invalidate()
+                     val previous = state.currentIndex - 1
+                     if (previous in activeItems.indices) {
+@@ -209,6 +220,7 @@
+                     }
+                 },
+                 onNextItem = {
++                    gestures.invalidate()
+                     sourceSwitchCoordinator.invalidate()
+                     val next = state.currentIndex + 1
+                     if (next in activeItems.indices) {
+@@ -229,9 +241,24 @@
+                 onToggleAutoNext = onToggleAutoNext,
+                 onRefreshEpisodes = onRefreshEpisodes,
+                 onSpeed = { newSpeed ->
+-                    choices.requestedPlaybackSpeed = newSpeed
+-                    playbackGate.setSpeed(newSpeed)
+-                    rememberSeriesPlayback { remembered -> remembered.copy(speed = newSpeed) }
++                    val cast = castManager.state.value
++                    val refusal =
++                        playbackSpeedUnavailableReason(
++                            watchLocked = playbackGate.locked,
++                            casting = cast.hasActiveSession || cast.status == CastPlaybackStatus.Connecting,
++                        )
++                    if (refusal != null) {
++                        Toast.makeText(context, refusal, Toast.LENGTH_SHORT).show()
++                    }
++                    applyRememberedPlaybackSpeed(
++                        speed = newSpeed,
++                        canChange = { refusal == null },
++                        applySpeed = playbackGate::setSpeed,
++                        rememberSpeed = { accepted ->
++                            choices.requestedPlaybackSpeed = accepted
++                            rememberSeriesPlayback { remembered -> remembered.copy(speed = accepted) }
++                        },
++                    )
+                 },
+                 onSpeedBoost = { boost ->
+                     gestures.holdBoost(
+@@ -792,10 +819,17 @@
+             ),
+         sourceActions =
+             PlayerSourceActions(
+-                onSelectSource = selectServer,
+-                onSelectVersion = { versionId -> selectVersion(versionId) },
++                onSelectSource = { serverId ->
++                    gestures.invalidate()
++                    selectServer(serverId)
++                },
++                onSelectVersion = { versionId ->
++                    gestures.invalidate()
++                    selectVersion(versionId)
++                },
+                 onSelectEngine = { index ->
+                     packagedEngineStrategies().getOrNull(index)?.let { selection ->
++                        gestures.invalidate()
+                         selectEngineStrategy(selection)
+                         Toast
+                             .makeText(context, "仅覆盖当前视频；全局播放策略未更改", Toast.LENGTH_SHORT)
+@@ -804,6 +838,7 @@
+                 },
+                 onTranscode = {
+                     if (!core2NativeOnlyActive && !state.transcoding) {
++                        gestures.invalidate()
+                         backendExtensions.switchToTranscode("用户手动选择服务器转码")
+                     }
+                 },
+@@ -929,17 +964,27 @@
+                     }
+                 },
+                 onStop = {
++                    gestures.invalidate()
++                    val owner = gestures.localContextKey
++                    val cast = castManager.state.value
+                     scope.launch {
+                         val handoffPosition =
+-                            if (castState.positionConfirmed) {
+-                                liveCastState.value.positionMs
++                            if (cast.positionConfirmed) {
++                                cast.positionMs
+                             } else {
+                                 liveLocalState.value.positionMs
+                             }
+-                        val resumeLocally = castState.lastRemoteWasPlaying
+-                        if (castManager.stop()) {
+-                            player.seekTo(handoffPosition)
+-                            if (resumeLocally) player.play() else player.pause()
++                        val resumeLocally = cast.lastRemoteWasPlaying
++                        if (
++                            castManager.stop() &&
++                            owner == gestures.localContextKey &&
++                            castManager.state.value.let {
++                                it.sessionRevision == cast.sessionRevision &&
++                                    !it.hasActiveSession &&
++                                    it.termination == CastTermination.UserStop
++                            }
++                        ) {
++                            playbackGate.restoreLocalPlayback(handoffPosition, resumeLocally)
+                         }
+                     }
+                 },
+@@ -1006,7 +1051,10 @@
+             ),
+         host =
+             PlayerChromeHost(
+-                onBack = onBack,
++                onBack = {
++                    gestures.invalidate()
++                    onBack()
++                },
+                 onEnterPictureInPicture = onEnterPictureInPicture,
+                 remoteChrome = remoteChrome,
+                 hardwareKeyboard = hardwareKeyboardAttached(),
+--- 1.1.9/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerTrackEffects.android.kt
++++ working/composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerTrackEffects.android.kt
+@@ -40,13 +40,19 @@
+      * runs again the moment it ends.
+      */
+     subtitlePeekActive: Boolean = false,
++    /** A room guest follows reconciliation; a receiver owns its own playback speed. */
++    canApplySpeed: () -> Boolean = { true },
+ ) {
+     val speed = requestedSpeed()
++    val speedAllowed = canApplySpeed()
+     // Keyed on the item too: an engine that resets speed when it loads the next file would
+     // otherwise play it at 1x, since the requested speed itself had not changed.
+     val sentSpeed = remember(player) { arrayOfNulls<Float>(1) }
+-    LaunchedEffect(player, speed, currentItemId) {
+-        if (playbackSpeedNeedsSending(speed, reported = state.speed, lastSent = sentSpeed[0])) {
++    LaunchedEffect(player, speed, currentItemId, speedAllowed) {
++        if (speedAllowed &&
++            canApplySpeed() &&
++            playbackSpeedNeedsSending(speed, reported = state.speed, lastSent = sentSpeed[0])
++        ) {
+             player.setSpeed(speed)
+             sentSpeed[0] = speed
+         }
+--- 1.1.9/composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerGestureCommandsTest.kt
++++ working/composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerGestureCommandsTest.kt
+@@ -12,7 +12,8 @@
+ import kotlin.test.assertTrue
+ 
+ class PlayerGestureCommandsTest {
+-    private val commands = PlayerGestureCommands()
++    private var context: PlaybackInteractionContext? = null
++    private val commands = PlayerGestureCommands { context }
+     private val delivered = mutableListOf<Long>()
+ 
+     private fun TestScope.deliver() {
+@@ -64,6 +65,72 @@
+             advanceTimeBy(SEEK_MERGE_DEBOUNCE_MS * 2)
+             assertEquals(listOf(42_000L), delivered)
+         }
++
++    @Test
++    fun pending_seeks_are_discarded_when_the_video_source_engine_or_receiver_changes() =
++        runTest {
++            val original = PlaybackInteractionContext(engine = Any(), itemId = "e1", streamUrl = "source-a")
++            val replacements =
++                listOf(
++                    original.copy(itemIndex = 1, itemId = "e2"),
++                    original.copy(serverId = "other-server"),
++                    original.copy(versionId = "other-version"),
++                    original.copy(streamUrl = "source-b"),
++                    original.copy(engine = Any()),
++                    original.copy(engineGeneration = 1),
++                    original.copy(runtimeSessionGeneration = 1),
++                    original.copy(castDeviceId = "tv", castRevision = 1L, casting = true),
++                    original.copy(castRevision = 2L),
++                    original.copy(castQueueIndex = 1),
++                )
++            deliver()
++            for (replacement in replacements) {
++                context = original
++                commands.seek(90_000L)
++                runCurrent()
++                advanceTimeBy(SEEK_MERGE_DEBOUNCE_MS / 2)
++                context = replacement
++                advanceTimeBy(SEEK_MERGE_DEBOUNCE_MS * 2)
++                assertEquals(emptyList(), delivered, "An old seek reached replacement playback")
++            }
++        }
++
++    @Test
++    fun invalidating_an_in_flight_seek_does_not_discard_a_new_videos_seek() =
++        runTest {
++            deliver()
++            commands.seek(90_000L)
++            runCurrent()
++            advanceTimeBy(SEEK_MERGE_DEBOUNCE_MS / 2)
++            commands.invalidate()
++            commands.seek(5_000L)
++            advanceTimeBy(SEEK_MERGE_DEBOUNCE_MS * 3)
++            assertEquals(listOf(5_000L), delivered)
++        }
++
++    @Test
++    fun a_removed_control_cannot_submit_its_old_drag_after_replacement() =
++        runTest {
++            val owner = commands.contextKey
++            commands.invalidate()
++            deliver()
++            commands.seek(90_000L, owner)
++            advanceTimeBy(SEEK_MERGE_DEBOUNCE_MS * 2)
++            assertEquals(emptyList(), delivered)
++        }
++
++    @Test
++    fun local_handoff_accepts_output_stop_but_not_another_video_or_a_later_operation() {
++        context = PlaybackInteractionContext(engine = Any(), itemId = "e1", casting = true, castRevision = 7L)
++        val owner = commands.localContextKey
++        context = context!!.copy(casting = false, castDeviceId = null)
++        assertEquals(owner, commands.localContextKey)
++        context = context!!.copy(itemId = "e2")
++        assertFalse(owner == commands.localContextKey)
++        context = context!!.copy(itemId = "e1")
++        commands.invalidate()
++        assertFalse(owner == commands.localContextKey)
++    }
+ 
+     /** A player and a room gate the boost talks to, counting what it asked of them. */
+     private class Playback(
+@@ -156,4 +223,50 @@
+         assertEquals(0, playback.plays)
+         assertEquals(0, playback.pauses)
+     }
++
++    @Test
++    fun an_old_paused_videos_hold_never_pauses_the_next_video_on_release() {
++        context = PlaybackInteractionContext(engine = Any(), itemId = "e1")
++        val playback = Playback(requested = false)
++        playback.hold(commands, 2f)
++        context = context!!.copy(itemId = "e2", itemIndex = 1)
++        assertNull(commands.boost, "Replacement playback must not inherit the temporary rate")
++        playback.hold(commands, null)
++        assertEquals(0, playback.pauses)
++        assertTrue(playback.requested)
++    }
++
++    @Test
++    fun invalidating_a_hold_clears_it_without_restoring_the_previous_pause() {
++        val playback = Playback(requested = false)
++        playback.hold(commands, 2f)
++        commands.invalidate()
++        playback.hold(commands, null)
++        assertNull(commands.boost)
++        assertTrue(playback.requested)
++        assertEquals(0, playback.pauses)
++    }
++
++    @Test
++    fun a_hold_that_immediately_advances_the_episode_does_not_own_the_next_episodes_pause() {
++        context = PlaybackInteractionContext(engine = Any(), itemId = "e1")
++        commands.holdBoost(
++            rate = 2f,
++            playbackRequested = { false },
++            play = {
++                context = context!!.copy(itemId = "e2", itemIndex = 1)
++                true
++            },
++            pause = { error("The new episode must not be paused") },
++            locked = { false },
++        )
++        assertNull(commands.boost)
++        commands.holdBoost(
++            rate = null,
++            playbackRequested = { true },
++            play = { error("Release does not start playback") },
++            pause = { error("The new episode must not inherit a paused hold") },
++            locked = { false },
++        )
++    }
+ }
+--- 1.1.9/composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerGestureStateTest.kt
++++ working/composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerGestureStateTest.kt
+@@ -101,6 +101,44 @@
+     }
+ 
+     @Test
++    fun aSlowBackendCannotLoseStepsInAForwardOrRewindBurst() {
++        assertEquals(70_000L, tap(1, 2, 60_000L))
++        now += 100L
++        assertEquals(80_000L, tap(1, 1, 60_000L))
++        now += 100L
++        assertEquals(100_000L, tap(1, 2, 60_000L))
++        assertEquals("快进 40 秒", gestures.hud)
++        gestures.resetBurst()
++        assertEquals(50_000L, tap(-1, 2, 60_000L))
++        now += 100L
++        assertEquals(40_000L, tap(-1, 1, 60_000L))
++    }
++
++    @Test
++    fun anAcknowledgedForwardSeekIncludesPlaybackProgressWithoutDoubleCounting() {
++        assertEquals(70_000L, tap(1, 2, 60_000L))
++        now += 500L
++        assertEquals(80_500L, tap(1, 1, 70_500L))
++    }
++
++    @Test
++    fun replacementClearsTheBurstAndItsOldTargetBeforeTheNextTap() {
++        tap(1, 2, 60_000L)
++        gestures.resetBurst()
++        assertFalse(gestures.burstContinues(1))
++        assertNull(gestures.hud)
++        assertEquals(15_000L, tap(1, 2, 5_000L))
++        assertEquals("快进 10 秒", gestures.hud)
++    }
++
++    @Test
++    fun aNewBurstAfterTheWindowUsesTheCurrentPlayhead() {
++        tap(1, 2, 60_000L)
++        now += DOUBLE_TAP_BURST_WINDOW_MS
++        assertEquals(30_000L, tap(1, 2, 20_000L))
++    }
++
++    @Test
+     fun theHeldMiddleStartsAtTwiceAndASlideShiftsAGearAtATime() {
+         gestures.say("快进 10 秒")
+         assertEquals(2f, gestures.startBoost(x = 300f))
+--- 1.1.9/composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerPlaybackSpeedPolicyTest.kt
++++ working/composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerPlaybackSpeedPolicyTest.kt
+@@ -0,0 +1,58 @@
++package com.yfuse.feature.player
++
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertFalse
++import kotlin.test.assertTrue
++
++class PlayerPlaybackSpeedPolicyTest {
++    @Test
++    fun receiver_and_guest_speed_changes_reach_neither_the_engine_nor_series_memory() {
++        for ((guest, casting) in listOf(true to false, false to true, true to true)) {
++            assertFalse(
++                applyRememberedPlaybackSpeed(
++                    speed = 2f,
++                    canChange = { playbackSpeedUnavailableReason(guest, casting) == null },
++                    applySpeed = { error("Unsupported speed must not reach playback") },
++                    rememberSpeed = { error("Unsupported speed must not be remembered") },
++                ),
++            )
++        }
++    }
++
++    @Test
++    fun losing_room_control_before_dispatch_cannot_save_the_refused_choice() {
++        var chosenSpeed = 1f
++        var attempts = 0
++        assertFalse(
++            applyRememberedPlaybackSpeed(
++                speed = 2f,
++                canChange = { true },
++                applySpeed = {
++                    attempts++
++                    false
++                },
++                rememberSpeed = { chosenSpeed = it },
++            ),
++        )
++        assertEquals(1, attempts)
++        assertEquals(1f, chosenSpeed)
++    }
++
++    @Test
++    fun an_accepted_local_speed_is_applied_before_it_is_remembered() {
++        val calls = mutableListOf<String>()
++        assertTrue(
++            applyRememberedPlaybackSpeed(
++                speed = 1.5f,
++                canChange = { playbackSpeedUnavailableReason(false, false) == null },
++                applySpeed = {
++                    calls += "play:$it"
++                    true
++                },
++                rememberSpeed = { calls += "remember:$it" },
++            ),
++        )
++        assertEquals(listOf("play:1.5", "remember:1.5"), calls)
++    }
++}
+--- 1.1.9/composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/PreparingPlaybackGateTest.kt
++++ working/composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/PreparingPlaybackGateTest.kt
+@@ -168,6 +168,57 @@
+         PreparingVideoEngine(
+             PlaybackEngineInput(listOf(item), PlaybackHandoverSnapshot(0, 25L, requested, 1f)),
+         )
++
++    @Test
++    fun returning_from_cast_retains_position_but_stays_paused_when_background_or_focus_denies_play() {
++        val engine = preparing(requested = true)
++        val player = LegacyYPlayerAdapter(engine)
++        var admissions = 0
++        var pauses = 0
++        val gate =
++            gate(
++                player,
++                onPlayRequested = {
++                    admissions++
++                    false
++                },
++                onPauseRequested = { pauses++ },
++            )
++
++        assertTrue(gate.restoreLocalPlayback(42_000L, resumePlayback = true))
++        assertEquals(42_000L, engine.snapshot().handover.positionMs)
++        assertFalse(player.playbackRequested)
++        assertEquals(1, admissions)
++        assertEquals(1, pauses)
++    }
++
++    @Test
++    fun returning_from_cast_resumes_only_after_playback_admission() {
++        val engine = preparing(requested = false)
++        val player = LegacyYPlayerAdapter(engine)
++        var admissions = 0
++        val gate =
++            gate(player, onPlayRequested = {
++                admissions++
++                true
++            })
++
++        assertTrue(gate.restoreLocalPlayback(12_000L, resumePlayback = true))
++        assertEquals(12_000L, engine.snapshot().handover.positionMs)
++        assertTrue(player.playbackRequested)
++        assertEquals(1, admissions)
++    }
++
++    @Test
++    fun a_paused_receiver_returns_paused_without_requesting_audio_focus() {
++        val engine = preparing(requested = true)
++        val player = LegacyYPlayerAdapter(engine)
++        val gate = gate(player, onPlayRequested = { error("Paused handoff must not request playback") })
++
++        assertTrue(gate.restoreLocalPlayback(12_000L, resumePlayback = false))
++        assertEquals(12_000L, engine.snapshot().handover.positionMs)
++        assertFalse(player.playbackRequested)
++    }
+ 
+     private fun gate(
+         player: LegacyYPlayerAdapter,

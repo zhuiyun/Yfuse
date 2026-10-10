@@ -32,7 +32,7 @@ internal fun PlayerGestureSettingsSection(preferences: PlaybackPreferences) {
     val gestures by preferences.gestureSettings.collectAsState()
     val steps = PlayerGestureSettings.DOUBLE_TAP_SEEK_CHOICES
     GroupLabel("手势")
-    GestureSettingCaption("双击步长 · 双击左右两侧和键盘 J / L")
+    GestureSettingCaption("快进快退步长 · 双击、长按左右两侧和键盘 J / L")
     CompactChoiceGrid(
         options = steps.map { "$it 秒" },
         selectedIndex = steps.indexOf(gestures.doubleTapSeekSeconds),

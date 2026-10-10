@@ -41,6 +41,7 @@ import com.yfuse.core2.adaptive.renderDashTemplate
 import com.yfuse.core2.adaptive.rewriteYHlsResourceUris
 import com.yfuse.core2.adaptive.selectYDashPlaybackRepresentations
 import com.yfuse.core2.adaptive.selectYHlsPlaybackSet
+import com.yfuse.core2.network.DEFAULT_FORWARD_CACHE_TARGET_US
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
@@ -175,7 +176,7 @@ internal class AndroidYCoreHttpProxy(
     private val isMeteredNetwork: () -> Boolean = {
         currentPlaybackNetworkClass() == PlaybackNetworkClass.Metered
     },
-    private val forwardCacheTargetUs: Long = 60_000_000L,
+    private val forwardCacheTargetUs: Long = DEFAULT_FORWARD_CACHE_TARGET_US,
     cacheDirectory: File? = null,
     private val connectionAdmission: PlaybackProxyAdmission = PlaybackProxyAdmission(),
     private val headerTimeoutMs: Long = PLAYBACK_PROXY_HEADER_TIMEOUT_MS,

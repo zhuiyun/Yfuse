@@ -109,8 +109,6 @@ private fun scheduleNextCalendarAlarm(
 }
 
 private const val BROADCAST_LATE_WINDOW_MS = 90 * 60_000L
-private const val AUTOMATIC_FOLLOW_DISCOVERY_DEADLINE_MS = 25_000L
-private const val AUTOMATIC_FOLLOW_REFRESH_MAX_AGE_MS = 20 * 60_000L
 private const val REMINDER_WORK_DEADLINE_MS = 30_000L
 private const val MAX_REMINDER_DEDUP_KEYS = 1_000
 
@@ -133,25 +131,10 @@ class CalendarReminderWorker(
         val followStore = koin.get<CalendarFollowStore>()
         val scopeToken = followStore.scopeToken
         val settings = followStore.reminderSettings()
-        val automaticRefreshCompleted =
-            if (
-                followStore.automaticFollowRefreshDue(
-                    nowEpochMs = currentEpochMillis(),
-                    maxAgeMs = AUTOMATIC_FOLLOW_REFRESH_MAX_AGE_MS,
-                )
-            ) {
-                withTimeoutOrNull(AUTOMATIC_FOLLOW_DISCOVERY_DEADLINE_MS) {
-                    repository.refreshAutomaticFollows()
-                    true
-                } ?: false
-            } else {
-                true
-            }
         if (scopeToken != followStore.scopeToken) return Result.success()
-        val follows = followStore.followed.value
-        if (follows.isEmpty()) {
+        if (followStore.notificationSubscriptions().isEmpty()) {
             followStore.runInScope(scopeToken) { scheduleNextCalendarAlarm(applicationContext, null) }
-            return if (automaticRefreshCompleted) Result.success() else Result.retry()
+            return Result.success()
         }
         if (!notificationsAllowed()) {
             followStore.runInScope(scopeToken) { scheduleNextCalendarAlarm(applicationContext, null) }
@@ -162,7 +145,7 @@ class CalendarReminderWorker(
                 repository.followedCalendar(pastDays = 1, futureDays = 2)
             } ?: return Result.retry()
         val days = calendarResult.getOrElse { return Result.retry() }
-        followStore.runInScope(scopeToken) {
+        followStore.runWithReminderSubscriptions(scopeToken) { follows ->
             pruneReminderDedupKeys(settings)
             val now = currentEpochMillis()
             val nextWakeCandidates = mutableListOf<Long>()
@@ -173,7 +156,7 @@ class CalendarReminderWorker(
                     settings = settings,
                     key = "schedule-change.${change.tmdbId}.${change.revision}.${change.message.hashCode()}",
                     title = "${change.title} 排期有调整",
-                    text = change.message,
+                    text = change.displayMessage,
                     followed = followed,
                 )
             }
@@ -284,7 +267,7 @@ class CalendarReminderWorker(
         key: String,
         title: String,
         text: String,
-        followed: FollowedSeries? = null,
+        followed: FollowedSeries,
     ) {
         val settingKey = "calendar.reminder.sent.$key"
         if (settings.getBoolean(settingKey, false)) return
@@ -297,7 +280,7 @@ class CalendarReminderWorker(
         // otherwise open nothing.
         val launch =
             appEntryIntent(applicationContext).apply {
-                followed?.seriesItemId?.let {
+                followed.seriesItemId?.let {
                     putExtra("calendar_series_item_id", it)
                     putExtra("calendar_server_id", followed.serverId)
                 }

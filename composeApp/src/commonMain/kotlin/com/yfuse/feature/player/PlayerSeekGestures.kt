@@ -54,6 +54,12 @@ internal class DoubleTapSeekBurst(
 
     private var lastStepAtMs: Long? = null
 
+    fun reset() {
+        direction = 0
+        totalMs = 0L
+        lastStepAtMs = null
+    }
+
     /** Whether a tap going [direction] now would add to the running burst. */
     fun continues(direction: Int): Boolean {
         val last = lastStepAtMs ?: return false

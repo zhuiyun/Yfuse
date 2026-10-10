@@ -1,0 +1,26 @@
+def changedSources = [
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerScreen.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeState.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PictureHoldSeek.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerGestureHelp.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerGestureSettingsSection.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSpeedBoost.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerGestureState.kt",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerGestureHelpTest.kt",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PictureHoldSeekTest.kt",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerPictureTapTest.kt"
+]
+gradle.projectsEvaluated {
+    def p = gradle.rootProject.project(':phoneShared')
+    ['runKtlintFormatOverAndroidMainSourceSet', 'runKtlintCheckOverAndroidMainSourceSet'].each { taskName ->
+        p.tasks.named(taskName).configure { t ->
+            t.setSource(p.rootProject.files(changedSources))
+            t.doFirst {
+                assert t.source.files.size() == changedSources.size()
+                println("Checking ${t.source.files.size()} changed Kotlin files")
+            }
+        }
+    }
+}

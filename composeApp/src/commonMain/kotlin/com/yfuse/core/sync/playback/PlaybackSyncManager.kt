@@ -64,6 +64,8 @@ class PlaybackSyncManager(
     /** Null keeps the per-server backoff in memory only, as it always was before this. */
     settings: Settings? = null,
 ) {
+    internal val playbackScopeToken: String get() = store.scopeToken
+
     private val syncMutex = Mutex()
     private val serverApplier =
         EmbyCompatiblePlaybackStateApplier(repo, registry, nowEpochMs, personal, serverHealth, settings)
@@ -167,8 +169,10 @@ class PlaybackSyncManager(
         serverId: String?,
         serverItemId: String?,
         trigger: PlaybackSyncTrigger,
+        expectedScopeToken: String? = null,
     ) {
         synchronized(personal?.coordinationLock ?: sessionOwners) {
+            if (expectedScopeToken != null && expectedScopeToken != store.scopeToken) return
             if (mediaKey.isBlank()) return
             if (personal != null) {
                 val token = personal.scopeToken

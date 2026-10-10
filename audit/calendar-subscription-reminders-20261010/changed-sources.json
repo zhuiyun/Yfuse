@@ -1,0 +1,9 @@
+[
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/data/CalendarFollowStore.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/core/data/OfficialAiringScheduleCatalog.kt",
+  "composeApp/src/androidMain/kotlin/com/yfuse/feature/calendar/CalendarReminderWorker.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/core/data/CalendarFollowStoreTest.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/core/data/CalendarReminderSubscriptionTest.kt",
+  "composeApp/src/commonTest/kotlin/com/yfuse/core/data/OfficialAiringScheduleCatalogTest.kt",
+  "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarScreen.kt"
+]

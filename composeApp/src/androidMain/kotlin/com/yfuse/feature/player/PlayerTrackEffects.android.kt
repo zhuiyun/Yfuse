@@ -40,13 +40,19 @@ internal fun PlayerTrackEffects(
      * runs again the moment it ends.
      */
     subtitlePeekActive: Boolean = false,
+    /** A room guest follows reconciliation; a receiver owns its own playback speed. */
+    canApplySpeed: () -> Boolean = { true },
 ) {
     val speed = requestedSpeed()
+    val speedAllowed = canApplySpeed()
     // Keyed on the item too: an engine that resets speed when it loads the next file would
     // otherwise play it at 1x, since the requested speed itself had not changed.
     val sentSpeed = remember(player) { arrayOfNulls<Float>(1) }
-    LaunchedEffect(player, speed, currentItemId) {
-        if (playbackSpeedNeedsSending(speed, reported = state.speed, lastSent = sentSpeed[0])) {
+    LaunchedEffect(player, speed, currentItemId, speedAllowed) {
+        if (speedAllowed &&
+            canApplySpeed() &&
+            playbackSpeedNeedsSending(speed, reported = state.speed, lastSent = sentSpeed[0])
+        ) {
             player.setSpeed(speed)
             sentSpeed[0] = speed
         }

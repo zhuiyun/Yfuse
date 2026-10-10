@@ -19,6 +19,7 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.MotionTheme
+import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.security.TestSecureStore
 import com.yfuse.feature.json
@@ -31,6 +32,24 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class CloudSyncSnapshotTest {
+    @Test
+    fun selected_splash_survives_cloud_round_trip_and_receiver_restart() {
+        for (selected in SplashAnimation.selectable) {
+            val source = Fixture()
+            source.theme.setSplashVariant(selected)
+            val snapshot =
+                json.decodeFromString(
+                    CloudSyncSnapshotV1.serializer(),
+                    json.encodeToString(CloudSyncSnapshotV1.serializer(), source.capture()),
+                )
+            val settings = MapSettings()
+            val target = Fixture(themeSettings = settings)
+            target.apply(snapshot).getOrThrow()
+            assertEquals(selected, target.theme.splashVariant.value)
+            assertEquals(selected, ThemePreferences(settings).splashVariant.value)
+        }
+    }
+
     private val json =
         Json {
             ignoreUnknownKeys = true

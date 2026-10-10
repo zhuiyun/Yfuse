@@ -116,6 +116,20 @@ class CalendarFollowStore(
             _followed.value.any { it.tmdbId == tmdbId }
         }
 
+    /** Library discovery never grants permission to deliver notifications. */
+    fun notificationSubscriptions(): List<FollowedSeries> =
+        synchronized(stateLock) {
+            _followed.value.filter {
+                it.trackingOrigin == CalendarTrackingOrigin.Manual && it.reminderMode != CalendarReminderMode.Off
+            }
+        }
+
+    /** Re-read subscriptions under the profile lock after any suspended calendar lookup. */
+    fun runWithReminderSubscriptions(
+        expectedScopeToken: String,
+        action: (List<FollowedSeries>) -> Unit,
+    ): Boolean = runInScope(expectedScopeToken) { action(notificationSubscriptions()) }
+
     internal fun automaticFollowRefreshDue(
         nowEpochMs: Long,
         maxAgeMs: Long,
@@ -195,7 +209,7 @@ class CalendarFollowStore(
                     .take((MAX_FOLLOWED_SERIES - retainedIds.size).coerceAtLeast(0))
                     .map {
                         it.copy(
-                            reminderMode = CalendarReminderMode.WhenAvailable,
+                            reminderMode = CalendarReminderMode.Off,
                             trackingOrigin = CalendarTrackingOrigin.LibraryAuto,
                         )
                     }.toList()
@@ -286,6 +300,14 @@ class CalendarFollowStore(
                         it.copy(
                             reminderMode = mode,
                             remindBeforeMinutes = beforeMinutes.coerceIn(0, 24 * 60),
+                            trackingOrigin =
+                                if (mode !=
+                                    CalendarReminderMode.Off
+                                ) {
+                                    CalendarTrackingOrigin.Manual
+                                } else {
+                                    it.trackingOrigin
+                                },
                         )
                     } else {
                         it
@@ -295,24 +317,31 @@ class CalendarFollowStore(
         }
     }
 
-    /** Null [beforeMinutes] keeps each series' own lead time and switches only the mode. */
+    /** Bulk enabling applies to manual follows; disabling also clears old automatic reminder modes. */
     fun setReminderForAll(
         mode: CalendarReminderMode,
         beforeMinutes: Int? = null,
     ) {
         synchronized(stateLock) {
             val normalizedBefore = beforeMinutes?.coerceIn(0, 24 * 60)
-            _followed.value.forEach { previous ->
-                if (
-                    previous.reminderMode == CalendarReminderMode.WhenAvailable ||
-                    mode == CalendarReminderMode.WhenAvailable
-                ) {
-                    clearAvailabilityStateLocked(previous.tmdbId)
+            _followed.value
+                .filter {
+                    it.trackingOrigin == CalendarTrackingOrigin.Manual || mode == CalendarReminderMode.Off
+                }.forEach { previous ->
+                    if (
+                        previous.reminderMode == CalendarReminderMode.WhenAvailable ||
+                        mode == CalendarReminderMode.WhenAvailable
+                    ) {
+                        clearAvailabilityStateLocked(previous.tmdbId)
+                    }
                 }
-            }
             updateLocked(
                 _followed.value.map {
-                    it.copy(reminderMode = mode, remindBeforeMinutes = normalizedBefore ?: it.remindBeforeMinutes)
+                    if (it.trackingOrigin == CalendarTrackingOrigin.Manual || mode == CalendarReminderMode.Off) {
+                        it.copy(reminderMode = mode, remindBeforeMinutes = normalizedBefore ?: it.remindBeforeMinutes)
+                    } else {
+                        it
+                    }
                 },
             )
         }

@@ -67,7 +67,9 @@ class AndroidProxyFileProtocolTest {
                     isMeteredNetwork = { false },
                 )
 
-            fun blocks() = directory.walkTopDown().count { it.isFile && it.name.startsWith("block-") }
+            // A writer's block-*.tmp is not committed and can disappear during atomic replacement.
+            fun blocks() =
+                directory.walkTopDown().count { it.isFile && it.name.startsWith("block-") && it.name.endsWith(".bin") }
             try {
                 // Active playback requests a complete block after startup. Paused header-only
                 // slices deliberately rely on cancellable speculative fills and need not persist.

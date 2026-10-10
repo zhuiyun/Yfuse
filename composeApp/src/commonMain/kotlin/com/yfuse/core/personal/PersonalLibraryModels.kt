@@ -27,9 +27,24 @@ data class PersonalMediaRef(
     val serverItemId: String? = null,
 ) {
     val identity: String
-        get() =
-            "${mediaType.lowercase()}:$mediaKey" +
-                if (mediaKey.startsWith("emby:", ignoreCase = true)) ":server:${serverId.orEmpty()}" else ""
+        get() {
+            val type = mediaType.trim().lowercase()
+            val key = mediaKey.trim()
+            val provider = key.substringBefore(':').lowercase()
+            val value = key.substringAfter(':', "")
+            // An episode coordinate must retain its season/episode suffix. TMDB film/show
+            // metadata can otherwise reconcile a server-only or IMDb key with the same work.
+            val tmdb = if (provider == "tmdb") value.toIntOrNull() else tmdbId
+            val canonical =
+                when {
+                    type in setOf("movie", "series") && tmdb != null && tmdb > 0 && '/' !in key -> "tmdb:$tmdb"
+                    provider == "imdb" -> "imdb:${value.trim().lowercase()}"
+                    provider in setOf("tmdb", "tvdb") -> "$provider:${value.trim()}"
+                    else -> key
+                }
+            return "$type:$canonical" +
+                if (canonical.startsWith("emby:", ignoreCase = true)) ":server:${serverId.orEmpty()}" else ""
+        }
 }
 
 @Serializable

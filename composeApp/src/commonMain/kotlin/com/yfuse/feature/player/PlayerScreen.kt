@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -58,6 +58,7 @@ internal fun PlayerPreparationContent(
     state: PlayerState,
     onRetry: () -> Unit,
     onBack: () -> Unit,
+    loadingOverlay: @Composable () -> Unit = {},
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -94,12 +95,14 @@ internal fun PlayerPreparationContent(
             }
         }
 
+        // The transition may wait for metadata or the first frame. The way out stays above it.
+        loadingOverlay()
         Box(
             Modifier
-                .statusBarsPadding()
+                .safeDrawingPadding()
                 .padding(8.dp)
                 .align(Alignment.TopStart)
-                .pressable(onClickLabel = "返回", onClick = onBack)
+                .pressable(onClickLabel = "关闭播放", onClick = onBack)
                 .touchTarget()
                 .size(38.dp)
                 .glass(
@@ -110,10 +113,8 @@ internal fun PlayerPreparationContent(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                // The app's own mark, like every other 返回 in the app. This was the one
-                // Material icon left, and it cost a whole icon pack on the dependency list.
-                AppIcons.ChevronLeft,
-                contentDescription = "返回",
+                AppIcons.Close,
+                contentDescription = "关闭播放",
                 tint = Color.White,
                 modifier = Modifier.size(15.dp),
             )

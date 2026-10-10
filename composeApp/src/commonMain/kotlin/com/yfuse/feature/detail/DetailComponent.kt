@@ -421,27 +421,35 @@ class DetailComponent(
         )
     }
 
-    suspend fun toggleSeriesFollow(detail: MediaDetail): Result<Boolean> =
-        dependencies.calendarIdentityResolver
-            .resolve(detail, store.state.server?.id ?: serverId)
-            .map { tmdbId ->
-                val follows = dependencies.calendarFollowStore
-                if (follows.isFollowing(tmdbId)) {
-                    follows.unfollow(tmdbId)
-                    false
-                } else {
-                    follows.follow(
-                        FollowedSeries(
-                            tmdbId = tmdbId,
-                            title = detail.title,
-                            year = detail.year,
-                            serverId = store.state.server?.id ?: serverId,
-                            seriesItemId = detail.id,
-                        ),
-                    )
-                    true
-                }
+    suspend fun toggleSeriesFollow(detail: MediaDetail): Result<Boolean> {
+        val follows = dependencies.calendarFollowStore
+        val owner = follows.scopeToken
+        val originServerId = store.state.server?.id ?: serverId
+        return dependencies.calendarIdentityResolver
+            .resolve(detail, originServerId)
+            .mapCatching { tmdbId ->
+                var following = false
+                check(
+                    follows.runInScope(owner) {
+                        if (follows.isFollowing(tmdbId)) {
+                            follows.unfollow(tmdbId)
+                        } else {
+                            follows.follow(
+                                FollowedSeries(
+                                    tmdbId = tmdbId,
+                                    title = detail.title,
+                                    year = detail.year,
+                                    serverId = originServerId,
+                                    seriesItemId = detail.id,
+                                ),
+                            )
+                            following = true
+                        }
+                    },
+                ) { "资料已切换，请重试" }
+                following
             }
+    }
 
     init {
         val scope = componentScope(lifecycle)

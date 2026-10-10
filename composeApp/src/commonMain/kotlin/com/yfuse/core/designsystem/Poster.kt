@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -51,6 +52,7 @@ import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.decode.DataSource
 import coil3.request.ImageRequest
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -161,6 +163,14 @@ fun FallbackImage(
     var candidateIndex by remember(candidates) { mutableIntStateOf(0) }
     var loaded by remember(candidates, candidateIndex) { mutableStateOf(false) }
     var exhausted by remember(candidates) { mutableStateOf(candidates.isEmpty()) }
+    var sweepReady by remember(candidates) { mutableStateOf(false) }
+    LaunchedEffect(candidates, loaded, exhausted) {
+        sweepReady = false
+        if (!loaded && !exhausted) {
+            delay(150L)
+            sweepReady = true
+        }
+    }
     val placeholder = rememberArtworkPlaceholder(blurHash, candidates)
     // 静息 keeps the hand-off from the placeholder, not the resolve; see [ImageRevealMotion].
     val reveal =
@@ -281,6 +291,9 @@ fun FallbackImage(
                         },
                     )
                 }
+            }
+            if (!loaded && sweepReady) {
+                Box(Modifier.matchParentSize().skeletonSweep())
             }
         }
     }

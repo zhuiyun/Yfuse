@@ -44,6 +44,12 @@ internal fun TvProductSettingsPage(
             when (page) {
                 TvSettingsPage.Handoff -> DeviceHandoffScreen(component.handoff, onBack)
                 TvSettingsPage.Trakt -> TraktSettingsScreen(component.trakt, onBack, television = true)
+                TvSettingsPage.ViewingStatistics ->
+                    com.yfuse.feature.personal.ViewingStatisticsScreen(
+                        component.viewing,
+                        onBack,
+                        component.onOpenPersonalMedia,
+                    )
                 else ->
                     PersonalCenterScreen(
                         personal = component.personal,

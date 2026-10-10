@@ -21,6 +21,7 @@ import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.CastPlaybackStatus
 import com.yfuse.core.cast.CastState
+import com.yfuse.core.cast.CastTermination
 import com.yfuse.core.cast.CastTrackKind
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlayerGestureSettings
@@ -134,6 +135,7 @@ internal fun PlayerRootControls(
     val state by stateSource
     val castState by castStateSource
     val watchState by watchStateSource
+    val controlOwner = gestures.contextKey
     PlayerControls(
         playback = livePlayback,
         transport =
@@ -144,6 +146,12 @@ internal fun PlayerRootControls(
                 trickplay = currentTrickplay,
                 chapters = currentItem?.chapters.orEmpty().ifEmpty { state.chapters },
                 skip = skip.state,
+                interactionKey = controlOwner,
+                speedUnavailableReason =
+                    playbackSpeedUnavailableReason(
+                        watchLocked = playbackGate.locked,
+                        casting = castState.hasActiveSession || castState.status == CastPlaybackStatus.Connecting,
+                    ),
             ),
         transportActions =
             PlayerTransportActions(
@@ -168,6 +176,7 @@ internal fun PlayerRootControls(
                     }
                 },
                 onRetry = {
+                    gestures.invalidate()
                     sourceSwitchCoordinator.invalidate()
                     val deviceId = castState.activeDeviceId
                     if (castState.hasActiveSession && deviceId != null) {
@@ -178,8 +187,9 @@ internal fun PlayerRootControls(
                         playbackGate.retry()
                     }
                 },
-                onSeek = gestures::seek,
+                onSeek = { positionMs -> gestures.seek(positionMs, controlOwner) },
                 onSelectItem = { index ->
+                    gestures.invalidate()
                     sourceSwitchCoordinator.invalidate()
                     sleepTimer.follow(index, castState.sessionRevision.takeIf { castState.hasActiveSession })
                     val deviceId = castState.activeDeviceId
@@ -190,6 +200,7 @@ internal fun PlayerRootControls(
                     }
                 },
                 onPreviousItem = {
+                    gestures.invalidate()
                     sourceSwitchCoordinator.invalidate()
                     val previous = state.currentIndex - 1
                     if (previous in activeItems.indices) {
@@ -209,6 +220,7 @@ internal fun PlayerRootControls(
                     }
                 },
                 onNextItem = {
+                    gestures.invalidate()
                     sourceSwitchCoordinator.invalidate()
                     val next = state.currentIndex + 1
                     if (next in activeItems.indices) {
@@ -229,9 +241,24 @@ internal fun PlayerRootControls(
                 onToggleAutoNext = onToggleAutoNext,
                 onRefreshEpisodes = onRefreshEpisodes,
                 onSpeed = { newSpeed ->
-                    choices.requestedPlaybackSpeed = newSpeed
-                    playbackGate.setSpeed(newSpeed)
-                    rememberSeriesPlayback { remembered -> remembered.copy(speed = newSpeed) }
+                    val cast = castManager.state.value
+                    val refusal =
+                        playbackSpeedUnavailableReason(
+                            watchLocked = playbackGate.locked,
+                            casting = cast.hasActiveSession || cast.status == CastPlaybackStatus.Connecting,
+                        )
+                    if (refusal != null) {
+                        Toast.makeText(context, refusal, Toast.LENGTH_SHORT).show()
+                    }
+                    applyRememberedPlaybackSpeed(
+                        speed = newSpeed,
+                        canChange = { refusal == null },
+                        applySpeed = playbackGate::setSpeed,
+                        rememberSpeed = { accepted ->
+                            choices.requestedPlaybackSpeed = accepted
+                            rememberSeriesPlayback { remembered -> remembered.copy(speed = accepted) }
+                        },
+                    )
                 },
                 onSpeedBoost = { boost ->
                     gestures.holdBoost(
@@ -792,10 +819,17 @@ internal fun PlayerRootControls(
             ),
         sourceActions =
             PlayerSourceActions(
-                onSelectSource = selectServer,
-                onSelectVersion = { versionId -> selectVersion(versionId) },
+                onSelectSource = { serverId ->
+                    gestures.invalidate()
+                    selectServer(serverId)
+                },
+                onSelectVersion = { versionId ->
+                    gestures.invalidate()
+                    selectVersion(versionId)
+                },
                 onSelectEngine = { index ->
                     packagedEngineStrategies().getOrNull(index)?.let { selection ->
+                        gestures.invalidate()
                         selectEngineStrategy(selection)
                         Toast
                             .makeText(context, "仅覆盖当前视频；全局播放策略未更改", Toast.LENGTH_SHORT)
@@ -804,6 +838,7 @@ internal fun PlayerRootControls(
                 },
                 onTranscode = {
                     if (!core2NativeOnlyActive && !state.transcoding) {
+                        gestures.invalidate()
                         backendExtensions.switchToTranscode("用户手动选择服务器转码")
                     }
                 },
@@ -929,17 +964,27 @@ internal fun PlayerRootControls(
                     }
                 },
                 onStop = {
+                    gestures.invalidate()
+                    val owner = gestures.localContextKey
+                    val cast = castManager.state.value
                     scope.launch {
                         val handoffPosition =
-                            if (castState.positionConfirmed) {
-                                liveCastState.value.positionMs
+                            if (cast.positionConfirmed) {
+                                cast.positionMs
                             } else {
                                 liveLocalState.value.positionMs
                             }
-                        val resumeLocally = castState.lastRemoteWasPlaying
-                        if (castManager.stop()) {
-                            player.seekTo(handoffPosition)
-                            if (resumeLocally) player.play() else player.pause()
+                        val resumeLocally = cast.lastRemoteWasPlaying
+                        if (
+                            castManager.stop() &&
+                            owner == gestures.localContextKey &&
+                            castManager.state.value.let {
+                                it.sessionRevision == cast.sessionRevision &&
+                                    !it.hasActiveSession &&
+                                    it.termination == CastTermination.UserStop
+                            }
+                        ) {
+                            playbackGate.restoreLocalPlayback(handoffPosition, resumeLocally)
                         }
                     }
                 },
@@ -1006,7 +1051,10 @@ internal fun PlayerRootControls(
             ),
         host =
             PlayerChromeHost(
-                onBack = onBack,
+                onBack = {
+                    gestures.invalidate()
+                    onBack()
+                },
                 onEnterPictureInPicture = onEnterPictureInPicture,
                 remoteChrome = remoteChrome,
                 hardwareKeyboard = hardwareKeyboardAttached(),

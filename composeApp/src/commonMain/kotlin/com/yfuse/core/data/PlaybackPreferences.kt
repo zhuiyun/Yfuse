@@ -37,6 +37,7 @@ enum class VideoCacheSize(
     Medium("512 MB", 512L * 1024L * 1024L),
     Large("1 GB", 1024L * 1024L * 1024L),
     ExtraLarge("2 GB", 2L * 1024L * 1024L * 1024L),
+    Maximum("4 GB", 4L * 1024L * 1024L * 1024L),
 }
 
 /** What the phone player does with an upright picture — a 短剧 shot 9:16. */
@@ -191,7 +192,7 @@ class PlaybackPreferences(
             settings
                 .getStringOrNull(KEY_VIDEO_CACHE_SIZE)
                 ?.let { stored -> VideoCacheSize.entries.firstOrNull { it.name == stored } }
-                ?: VideoCacheSize.Medium,
+                ?: VideoCacheSize.Maximum,
         )
     val videoCacheSize: StateFlow<VideoCacheSize> = _videoCacheSize.asStateFlow()
 

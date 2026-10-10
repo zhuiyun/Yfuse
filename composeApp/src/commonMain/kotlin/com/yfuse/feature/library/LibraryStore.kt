@@ -8,6 +8,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.app.ProductSession
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.FAVORITES_COLLECTION_ID
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.designsystem.UndoWindow
@@ -15,6 +16,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.deduplicateFavoriteItems
 import com.yfuse.core.model.deduplicatePlaybackHistory
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.util.LatestWins
@@ -215,6 +217,21 @@ internal fun List<MediaItem>.restoringHistory(
     val at = index.coerceIn(0, rest.size)
     return rest.take(at) + item + rest.drop(at)
 }
+
+private fun HomeContent.withUniquePersonalRows(): HomeContent =
+    copy(
+        resume = deduplicatePlaybackHistory(resume),
+        rows =
+            rows.map { row ->
+                if (row.libraryId ==
+                    FAVORITES_COLLECTION_ID
+                ) {
+                    row.copy(items = deduplicateFavoriteItems(row.items))
+                } else {
+                    row
+                }
+            },
+    )
 
 /** Writes 已看 for one title: this device's progress record first, then the server through the sync queue. */
 typealias LibraryPlayedWriter =
@@ -528,7 +545,7 @@ class LibraryStoreFactory(
                     copy(loading = !msg.refresh, refreshing = msg.refresh, error = null)
                 is Msg.Cached ->
                     copy(
-                        content = msg.content.copy(resume = deduplicatePlaybackHistory(msg.content.resume)),
+                        content = msg.content.withUniquePersonalRows(),
                         contentSource = LibraryContentSource.Cached,
                         updatedAtEpochMs = msg.updatedAtEpochMs,
                         error = null,
@@ -537,13 +554,13 @@ class LibraryStoreFactory(
                     copy(
                         loading = false,
                         refreshing = false,
-                        content = msg.content.copy(resume = deduplicatePlaybackHistory(msg.content.resume)),
+                        content = msg.content.withUniquePersonalRows(),
                         contentSource = LibraryContentSource.Live,
                         updatedAtEpochMs = msg.updatedAtEpochMs,
                         error = null,
                     )
                 is Msg.Progress ->
-                    copy(content = msg.content.copy(resume = deduplicatePlaybackHistory(msg.content.resume)))
+                    copy(content = msg.content.withUniquePersonalRows())
                 is Msg.FavoriteChanged ->
                     copy(
                         content =

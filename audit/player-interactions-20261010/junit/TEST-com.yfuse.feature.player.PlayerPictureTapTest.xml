@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlayerPictureTapTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-10T07:35:06.657Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="loading_taps_keep_the_close_control_available_instead_of_hiding_it" classname="com.yfuse.feature.player.PlayerPictureTapTest" time="0.0"/>
+  <testcase name="a_hidden_picture_first_reveals_controls_even_during_a_seek_burst" classname="com.yfuse.feature.player.PlayerPictureTapTest" time="0.001"/>
+  <testcase name="the_lock_keeps_seek_and_danmaku_actions_out" classname="com.yfuse.feature.player.PlayerPictureTapTest" time="0.0"/>
+  <testcase name="dismissing_a_panel_restarts_the_controls_timer_without_seeking" classname="com.yfuse.feature.player.PlayerPictureTapTest" time="0.0"/>
+  <testcase name="visible_playback_still_accepts_seek_bursts_and_danmaku_before_hiding" classname="com.yfuse.feature.player.PlayerPictureTapTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

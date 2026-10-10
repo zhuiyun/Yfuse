@@ -193,9 +193,8 @@ class OfficialAiringScheduleCatalog(
                     oldSlots.keys.filterNot(nextSlots::containsKey).forEach { episodeNumber ->
                         add("第 $episodeNumber 集已从官方排期移除")
                     }
-                    if (old.airTime != next.airTime || old.timeZoneId != next.timeZoneId) {
-                        add("播出时间由 ${old.airTime} 调整为 ${next.airTime}")
-                    }
+                    scheduleBroadcastTimeChangeMessage(old.airTime, old.timeZoneId, next.airTime, next.timeZoneId)
+                        ?.let(::add)
                 }.map { message ->
                     OfficialScheduleChange(
                         tmdbId = next.tmdbId,
@@ -553,7 +552,33 @@ data class OfficialScheduleChange(
     val message: String,
     val revision: String,
     val detectedAtEpochMs: Long,
-)
+) {
+    /** Keep the stored message for stable dedup keys; display old nullable-time messages readably. */
+    val displayMessage: String
+        get() = message.replace(Regex("\\bnull\\b", RegexOption.IGNORE_CASE), "待公布")
+}
+
+internal fun scheduleBroadcastTimeChangeMessage(
+    previousTime: String?,
+    previousZone: String?,
+    nextTime: String?,
+    nextZone: String?,
+): String? {
+    if (previousTime == nextTime && previousZone == nextZone) return null
+
+    fun label(
+        time: String?,
+        zone: String?,
+    ): String {
+        val clock = time?.takeIf(String::isNotBlank) ?: return "待公布"
+        return if (previousTime != null && nextTime != null && previousZone != nextZone) {
+            "$clock（${zone?.takeIf(String::isNotBlank) ?: "时区待公布"}）"
+        } else {
+            clock
+        }
+    }
+    return "播出时间由 ${label(previousTime, previousZone)} 调整为 ${label(nextTime, nextZone)}"
+}
 
 data class OfficialScheduleDiagnostics(
     val revision: String,

@@ -37,7 +37,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.SingletonImageLoader
-import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.arkivanov.mvikotlin.extensions.coroutines.states
@@ -323,7 +322,7 @@ private fun TvHomeHero(
             animationSpec = if (reduceMotion) snap() else Motion.tween(Motion.AMBIENT),
             label = "tv-living-poster",
         ) { current ->
-            AsyncImage(
+            TvLoadingImage(
                 model = rememberTvImage(TmdbImages.backdrop(current?.backdropPath, "w1280")),
                 // Silent: the title is written over it, and the backdrop read it a second time.
                 contentDescription = null,

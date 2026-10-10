@@ -1,0 +1,111 @@
+{
+  "source_files": [
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/CalendarFollowStore.kt",
+      "sha256": "6fce3e916acf7455e18e9e86e83f4b5134e725ff26aad2a2d70aba41f9523482"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/OfficialAiringScheduleCatalog.kt",
+      "sha256": "06da046faa9a0112d70ee0bc0a10c963538c5e1295b1df5e0926fc2b6e1bf297"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/calendar/CalendarReminderWorker.kt",
+      "sha256": "3018ace1ff7ffba8a4ec49239916179739d8959ca65fc3c9f125d5f2caa590b0"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/CalendarFollowStoreTest.kt",
+      "sha256": "c2ca483e7461ee853323bdaf799ec975b5e541ab71c426ea7d150b1ed4d156f6"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/CalendarReminderSubscriptionTest.kt",
+      "sha256": "1c86abaaf5740f7bf5e05ff9f4803c244947348c540ec8f5990401ceffc45b85"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/OfficialAiringScheduleCatalogTest.kt",
+      "sha256": "d0d4396c92ace6b9acbc208eba4a4dca231abddbbe4ed1fc811b9210fac06cd7"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarScreen.kt",
+      "sha256": "4f816ccac929c35b403ba28b5d5271aae7451be259f8caf5dcb726a29a9baad1"
+    }
+  ],
+  "format_checked_files": 7,
+  "tests": {
+    "phoneShared": {
+      "tests": 4755,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "tvShared": {
+      "tests": 118,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "relevant_suites": {
+    "com.yfuse.core.data.CalendarFollowStoreTest": {
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "cases": [
+        "library_series_are_auto_followed_without_enabling_notifications",
+        "unfollow_removes_delivery_and_baseline_keys",
+        "cancelling_an_auto_follow_prevents_automatic_readdition",
+        "successful_server_scan_prunes_only_stale_automatic_follows",
+        "cloud_restore_validates_and_replaces_followed_series",
+        "follows_persist_and_reminders_are_bounded",
+        "failed_server_scan_never_prunes_automatic_follows",
+        "changing_reminder_mode_resets_availability_baseline",
+        "bulk_actions_update_reminders_and_clean_all_follow_state",
+        "cloud_restore_cleans_reminder_state_for_removed_series",
+        "automatic_refresh_timestamp_prevents_duplicate_background_scans",
+        "manual_follow_stays_manual_and_later_cancel_still_blocks_auto_follow",
+        "switching_every_mode_keeps_each_series_lead_time"
+      ]
+    },
+    "com.yfuse.core.data.CalendarReminderSubscriptionTest": {
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "cases": [
+        "disabling_during_lookup_prevents_pending_change_and_episode_reminders",
+        "bulk_disabling_also_clears_old_automatic_reminder_modes",
+        "old_automatic_follows_with_enabled_reminders_are_also_silent",
+        "account_switches_isolate_subscriptions_and_reject_work_from_an_earlier_login",
+        "individually_enabling_reminders_converts_an_automatic_row_to_a_manual_subscription",
+        "bulk_enabling_does_not_subscribe_automatically_discovered_series",
+        "unfollow_during_lookup_prevents_delivery_from_the_old_snapshot",
+        "old_profile_work_cannot_deliver_new_profile_subscriptions",
+        "only_manual_follows_with_enabled_reminders_can_notify"
+      ]
+    },
+    "com.yfuse.core.data.OfficialAiringScheduleCatalogTest": {
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "cases": [
+        "a_slashless_fixed_zone_is_a_valid_broadcast_zone",
+        "removed_broadcast_time_is_announced_as_pending_instead_of_null",
+        "a_row_this_build_cannot_read_is_skipped_without_rejecting_the_publication",
+        "official_coordinate_replaces_tmdb_date",
+        "double_digit_revisions_are_newer_than_single_digit_revisions",
+        "an_undecorated_official_row_reuses_another_row_poster_from_the_same_show",
+        "newly_announced_broadcast_time_has_a_readable_previous_value",
+        "homepage_merge_prioritizes_tracked_rows_without_dropping_official_titles",
+        "changed_zone_is_visible_even_when_the_clock_time_stays_the_same",
+        "unchanged_time_and_zone_do_not_generate_a_change",
+        "live_action_schedule_matches_the_revised_official_member_calendar",
+        "cached_old_change_messages_also_replace_literal_null",
+        "animation_with_a_similar_name_is_not_matched",
+        "homepage_merge_keeps_distinct_official_titles_while_tmdb_identity_is_pending"
+      ]
+    }
+  },
+  "new_regression_tests": 14,
+  "new_apk_built": false,
+  "device_notification_test_performed": false,
+  "pushed": false,
+  "deployed": false
+}

@@ -6,6 +6,15 @@ import kotlin.test.assertTrue
 
 class SplashTimingPolicyTest {
     @Test
+    fun selected_design_plays_from_its_beginning_on_returning_launches_but_respects_reduced_motion() {
+        val timing = splashTiming(false, false, false, selectedMotionDurationMs = 2250)
+        assertEquals(2250, timing.motionDurationMs)
+        assertEquals(0f, splashClockStart(2250f, timing.motionDurationMs))
+        assertEquals(0, splashTiming(false, true, false, selectedMotionDurationMs = 2250).motionDurationMs)
+        assertEquals(0, splashTiming(false, false, true, selectedMotionDurationMs = 2250).motionDurationMs)
+    }
+
+    @Test
     fun a_returning_launch_is_a_600ms_greeting() {
         val timing =
             splashTiming(

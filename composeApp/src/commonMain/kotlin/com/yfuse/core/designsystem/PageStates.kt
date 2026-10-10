@@ -265,6 +265,11 @@ fun SkeletonBlock(
 @Composable
 fun Modifier.skeletonSweep(): Modifier {
     val clock = LocalSkeletonPulseClock.current ?: return this
+    val visible = LocalRouteVisible.current
+    DisposableEffect(clock, visible) {
+        if (visible) clock.registerConsumer()
+        onDispose { if (visible) clock.unregisterConsumer() }
+    }
     val band = skeletonSweepBand()
     return drawWithContent {
         drawContent()

@@ -1,13 +1,16 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.data.plexArtworkTag
 import com.yfuse.core.handoff.HandoffMedia
+import com.yfuse.core.personal.LocalViewingSession
 import com.yfuse.core.personal.PersonalMediaRef
 import com.yfuse.core.sync.playback.PlaybackTrackPreference
+import io.ktor.http.Url
 
 internal fun PlayerMediaItem.personalMediaRef(): PersonalMediaRef =
     PersonalMediaRef(
         mediaKey = watchKey,
-        title = title.ifBlank { "未命名影片" },
+        title = title.ifBlank { "未命名影片" }.take(com.yfuse.core.personal.MAX_PERSONAL_MEDIA_TITLE_CHARS),
         mediaType = mediaType.ifBlank { if (seriesId != null) "Episode" else "Movie" },
         tmdbId =
             providerIds.entries
@@ -18,6 +21,31 @@ internal fun PlayerMediaItem.personalMediaRef(): PersonalMediaRef =
         serverId = serverId,
         serverItemId = id,
     )
+
+internal fun PlayerMediaItem.localViewingSession(
+    id: String,
+    startedAtEpochMs: Long,
+): LocalViewingSession {
+    val artwork = posterUrl?.let { runCatching { Url(it) }.getOrNull() }
+    return LocalViewingSession(
+        id = id,
+        media = personalMediaRef(),
+        seriesKey = seriesKey ?: seriesId?.let { "$serverId:$it" },
+        seriesTitle = seriesName,
+        seasonNumber = seasonNumber,
+        episodeNumber = episodeNumber,
+        posterItemId = seriesId ?: this.id,
+        // Plex carries its artwork path in `url`; persist neither host credentials nor query tokens.
+        posterTag =
+            artwork
+                ?.parameters
+                ?.get("url")
+                ?.substringBefore('?')
+                ?.plexArtworkTag()
+                ?: artwork?.parameters?.get("tag"),
+        startedAtEpochMs = startedAtEpochMs,
+    )
+}
 
 internal fun PlayerMediaItem.handoffMedia(
     state: PlaybackState,

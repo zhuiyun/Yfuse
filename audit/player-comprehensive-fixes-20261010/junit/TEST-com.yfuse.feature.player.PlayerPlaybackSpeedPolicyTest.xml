@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlayerPlaybackSpeedPolicyTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-10T08:26:18.058Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="losing_room_control_before_dispatch_cannot_save_the_refused_choice" classname="com.yfuse.feature.player.PlayerPlaybackSpeedPolicyTest" time="0.0"/>
+  <testcase name="receiver_and_guest_speed_changes_reach_neither_the_engine_nor_series_memory" classname="com.yfuse.feature.player.PlayerPlaybackSpeedPolicyTest" time="0.0"/>
+  <testcase name="an_accepted_local_speed_is_applied_before_it_is_remembered" classname="com.yfuse.feature.player.PlayerPlaybackSpeedPolicyTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

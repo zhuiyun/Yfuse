@@ -1,5 +1,6 @@
 package com.yfuse.core.model
 
+import com.yfuse.core.util.isoEpochDay
 import kotlinx.serialization.Serializable
 
 /**
@@ -259,3 +260,20 @@ data class CalendarDay(
     val date: String,
     val entries: List<CalendarEntry>,
 )
+
+/** Every published broadcast from today onward, without a fixed future-day cutoff. */
+fun upcomingScheduleDays(
+    days: List<CalendarDay>,
+    today: String,
+): List<CalendarDay> {
+    val current = isoEpochDay(today) ?: return emptyList()
+    return days
+        .filter { day ->
+            val date = isoEpochDay(day.date)
+            date != null && date >= current && day.entries.isNotEmpty()
+        }.groupBy { it.date }
+        .toSortedMap()
+        .map { (date, sameDay) ->
+            CalendarDay(date, sameDay.flatMap { it.entries }.distinctBy { it.episode.mediaKey })
+        }
+}

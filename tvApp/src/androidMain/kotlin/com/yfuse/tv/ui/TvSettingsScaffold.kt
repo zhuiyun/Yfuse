@@ -40,6 +40,7 @@ internal enum class TvSettingsPage(
 ) {
     Root("设置", ""),
     Personal("个人中心", "想看、收藏与观看历史"),
+    ViewingStatistics("观影统计", "本机观看时长、日历、趋势与观影回顾"),
     Family("家庭资料", "新建资料、家长 PIN 与关联服务器用户"),
     SyncStatus("同步状态", "个人数据合并、播放进度与冲突恢复"),
     Handoff("设备接力", "把当前观看转到另一台在线设备"),

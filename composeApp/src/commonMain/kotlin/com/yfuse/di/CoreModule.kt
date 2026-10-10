@@ -2,6 +2,7 @@ package com.yfuse.di
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.data.DiagnosticPreferences
+import com.yfuse.core.personal.LocalViewingStore
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.security.VaultCrypto
 import org.koin.core.module.Module
@@ -20,4 +21,5 @@ internal fun coreModule(
         single { diagnosticPreferences }
         single { VaultCrypto() }
         single { PersonalLibraryRepository(get(), get()) }
+        single { LocalViewingStore(get(), get()) }
     }

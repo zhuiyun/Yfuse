@@ -41,6 +41,7 @@ import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.data.rankServerSources
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AnimatedColorContent
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.ArtworkAccent
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.ConfirmDialog
@@ -52,6 +53,7 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.OverlayPage
+import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.WindowWidthTier
@@ -730,6 +732,17 @@ fun DetailScreen(component: DetailComponent) {
                                 // of keys there carries 收藏 / 稍后看 / 已看 / 下载 instead, and the title block
                                 // still says which lists hold the title.
                                 val overview = detail.overview
+                                if (detail.type.equals("Series", ignoreCase = true)) {
+                                    motionItem(key = "airing-calendar") {
+                                        SettingRow(
+                                            title = "追更日历",
+                                            value = if (detailFollow != null) "已加入追更" else "查看播出日期 · 加入追更",
+                                            icon = AppIcons.WatchCalendar,
+                                            onClick = { airingCalendarOpen = true },
+                                            modifier = Modifier.sectionPadding(),
+                                        )
+                                    }
+                                }
                                 if (!overview.isNullOrBlank()) {
                                     motionItem(key = "overview") {
                                         OverviewSection(

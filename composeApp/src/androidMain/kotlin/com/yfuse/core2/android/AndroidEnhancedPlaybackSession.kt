@@ -649,7 +649,7 @@ internal class AndroidEnhancedPlaybackSession(
                         mediaBitRateBitsPerSecond = result.bitRateBitsPerSecond,
                         preferredTargetAheadUs = preferredRemoteBufferTargetUs,
                         speed = speed,
-                        memoryBudgetBytes = 24L * 1024L * 1024L,
+                        memoryBudgetBytes = playbackDemuxMemoryBudgetBytes(demuxReadAhead.snapshot().memoryBudgetBytes),
                     ),
                 )
         lastBufferReplanNs = 0L
@@ -659,7 +659,7 @@ internal class AndroidEnhancedPlaybackSession(
                 remote = remote,
                 resumePlaybackUs = bufferPlan.resumePlaybackUs,
                 startupPlaybackUs = bufferPlan.startupPlaybackUs,
-            )
+            ).also { it.updateThresholds(bufferPlan) }
         demuxReadAhead.configure(
             targetAheadUs = maxInputAheadUs,
             mediaBitRateBitsPerSecond = result.bitRateBitsPerSecond,
@@ -2174,6 +2174,9 @@ internal class AndroidEnhancedPlaybackSession(
                         "targetMs" to (bufferPlan.targetAheadUs / 1_000L).toString(),
                         "waitMs" to (waitingUs / 1_000L).toString(),
                         "queueBytes" to readAhead.queuedBytes.toString(),
+                        "memoryBudgetBytes" to readAhead.memoryBudgetBytes.toString(),
+                        "queueBudgetBytes" to readAhead.queueBudgetBytes.toString(),
+                        "plannedBudgetBytes" to bufferPlan.maximumBytes.toString(),
                         "queueSamples" to readAhead.queuedSamples.toString(),
                         "fillScheduled" to readAhead.fillScheduled.toString(),
                         "readElapsedMs" to readAhead.readElapsedMs.toString(),
@@ -2214,14 +2217,17 @@ internal class AndroidEnhancedPlaybackSession(
         readAhead: YDemuxReadAheadSnapshot,
         force: Boolean = false,
     ) {
+        val memoryBudgetBytes = playbackDemuxMemoryBudgetBytes(readAhead.memoryBudgetBytes)
+        val budgetChanged = memoryBudgetBytes != bufferPlan.maximumBytes
+        val budgetShrank = memoryBudgetBytes < bufferPlan.maximumBytes
         val stalledRead =
             readAhead.fillScheduled &&
                 readAhead.readElapsedMs >= STALLED_BUFFER_READ_MS &&
                 readAhead.lastPacketAgeMs >= STALLED_BUFFER_READ_MS &&
                 readAhead.bufferedDurationUs < bufferPlan.resumePlaybackUs
-        if (!sourceRemote || !force && readAhead.throughputBitsPerSecond <= 0L && !stalledRead) return
+        if (!sourceRemote || !force && !budgetChanged && readAhead.throughputBitsPerSecond <= 0L && !stalledRead) return
         val nowNs = System.nanoTime()
-        if (!force && nowNs - lastBufferReplanNs < BUFFER_REPLAN_INTERVAL_NS) return
+        if (!force && !budgetShrank && nowNs - lastBufferReplanNs < BUFFER_REPLAN_INTERVAL_NS) return
         lastBufferReplanNs = nowNs
         val next =
             YBufferController.plan(
@@ -2233,7 +2239,7 @@ internal class AndroidEnhancedPlaybackSession(
                         if (stalledRead) 0L else readAhead.throughputBitsPerSecond.takeIf { it > 0L },
                     preferredTargetAheadUs = preferredRemoteBufferTargetUs,
                     speed = speed,
-                    memoryBudgetBytes = 24L * 1024L * 1024L,
+                    memoryBudgetBytes = memoryBudgetBytes,
                 ),
             )
         if (next == bufferPlan) return

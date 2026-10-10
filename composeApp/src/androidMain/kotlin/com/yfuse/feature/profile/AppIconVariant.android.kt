@@ -103,13 +103,13 @@ private fun enabledAppIconVariant(): AppIconVariant {
     } ?: AppIconVariant.Default
 }
 
-actual fun currentAppIconVariant(): AppIconVariant = pendingVariant ?: enabledAppIconVariant()
+actual fun currentAppIconVariant(): AppIconVariant = (pendingVariant ?: enabledAppIconVariant()).normalized
 
 actual fun setAppIconVariant(variant: AppIconVariant) {
     // Chosen now, applied on the way out. Everything that asks what the icon is goes through
     // [currentAppIconVariant], which answers with the pending choice, so the settings page and
     // the splash pairing both behave as though it had already happened.
-    pendingVariant = variant.takeIf { it != enabledAppIconVariant() }
+    pendingVariant = variant.normalized.takeIf { it != enabledAppIconVariant() }
 }
 
 /**
@@ -123,6 +123,9 @@ actual fun setAppIconVariant(variant: AppIconVariant) {
 fun watchForAppIconSwitch(application: Application) {
     if (switchWatchRegistered) return
     switchWatchRegistered = true
+    // Old installations may still have a retired launcher alias enabled.
+    val installed = enabledAppIconVariant()
+    if (installed != installed.normalized && pendingVariant == null) pendingVariant = installed.normalized
     application.registerActivityLifecycleCallbacks(
         object : Application.ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {

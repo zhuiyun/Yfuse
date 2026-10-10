@@ -126,6 +126,7 @@ class YBufferControllerTest {
                     remote = true,
                     mediaBitRateBitsPerSecond = 20_000_000L,
                     measuredNetworkBitsPerSecond = 40_000_000L,
+                    memoryBudgetBytes = 512L * 1024L * 1024L,
                 ),
             )
         val pressured =
@@ -134,11 +135,13 @@ class YBufferControllerTest {
                     remote = true,
                     mediaBitRateBitsPerSecond = 20_000_000L,
                     measuredNetworkBitsPerSecond = 15_000_000L,
+                    memoryBudgetBytes = 512L * 1024L * 1024L,
                 ),
             )
 
         assertTrue(pressured.targetAheadUs > healthy.targetAheadUs)
-        assertEquals(20_000_000L, pressured.targetAheadUs)
+        assertEquals(30_000_000L, healthy.targetAheadUs)
+        assertEquals(120_000_000L, pressured.targetAheadUs)
         assertEquals(5_000_000L, pressured.resumePlaybackUs)
     }
 
@@ -168,7 +171,7 @@ class YBufferControllerTest {
                 ),
             )
 
-        assertEquals(20_000_000L, plan.targetAheadUs)
+        assertEquals(30_000_000L, plan.targetAheadUs)
         assertEquals(30_000_000L, plan.forwardCacheTargetUs)
         assertEquals(2_500_000L, plan.resumePlaybackUs)
     }
@@ -186,6 +189,51 @@ class YBufferControllerTest {
             )
 
         assertTrue(plan.targetAheadUs in 3_500_000L..3_600_000L)
+    }
+
+    @Test
+    fun `one gibibyte high bitrate reserve grows past twenty seconds without delaying startup`() {
+        val budget = 1024L * 1024L * 1024L
+        val plan =
+            YBufferController.plan(
+                YBufferConditions(
+                    remote = true,
+                    mediaBitRateBitsPerSecond = 78_938_975L,
+                    memoryBudgetBytes = budget,
+                    preferredTargetAheadUs = 300_000_000L,
+                ),
+            )
+        assertEquals(budget * 8L * 1_000_000L / 78_938_975L, plan.targetAheadUs)
+        assertTrue(plan.targetAheadUs > 100_000_000L)
+        assertEquals(500_000L, plan.startupPlaybackUs)
+        assertEquals(2_500_000L, plan.resumePlaybackUs)
+        assertEquals(300_000_000L, plan.forwardCacheTargetUs)
+    }
+
+    @Test
+    fun `automatic forward cache keeps five minutes while live startup stays short`() {
+        val automatic = YBufferController.plan(YBufferConditions(remote = true))
+        assertEquals(300_000_000L, automatic.forwardCacheTargetUs)
+        val live = YBufferController.plan(YBufferConditions(remote = true, live = true))
+        assertEquals(3_000_000L, live.targetAheadUs)
+        assertEquals(500_000L, live.startupPlaybackUs)
+    }
+
+    @Test
+    fun `large low bitrate memory target stays within the demux time ceiling at higher speed`() {
+        val plan =
+            YBufferController.plan(
+                YBufferConditions(
+                    remote = true,
+                    mediaBitRateBitsPerSecond = 1_000_000L,
+                    memoryBudgetBytes = 1024L * 1024L * 1024L,
+                    preferredTargetAheadUs = 300_000_000L,
+                    speed = 2f,
+                ),
+            )
+        assertEquals(300_000_000L, plan.targetAheadUs)
+        assertEquals(600_000_000L, plan.forwardCacheTargetUs)
+        assertEquals(1_000_000L, plan.startupPlaybackUs)
     }
 
     @Test

@@ -58,6 +58,11 @@ class ProfileComponent(
             .get()
             .get<com.yfuse.core.personal.PersonalLibraryRepository>()
     }
+    val viewing by lazy {
+        org.koin.core.context.GlobalContext
+            .get()
+            .get<com.yfuse.core.personal.LocalViewingStore>()
+    }
     val playbackSync by lazy {
         org.koin.core.context.GlobalContext
             .get()

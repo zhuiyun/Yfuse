@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -69,7 +70,6 @@ import com.yfuse.core.designsystem.GlassSlider
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
-import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.MotionTheme
@@ -94,7 +94,6 @@ import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.YfFormField
-import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.overlayAction
@@ -176,6 +175,14 @@ private val SettingsSearchDestinations =
             "个人清单 最近观看 历史 收藏 想看",
             ProfilePage.Personal,
             icon = AppIcons.Bookmark,
+            tint = SettingTint.account,
+        ),
+        SettingsSearchDestination(
+            "观影统计",
+            "本地观看时长、日历与回顾",
+            "观影 统计 时长 天数 电影 剧集 日历 趋势 回顾",
+            ProfilePage.ViewingStatistics,
+            icon = AppIcons.WatchCalendar,
             tint = SettingTint.account,
         ),
         SettingsSearchDestination(
@@ -581,6 +588,13 @@ fun ProfileScreen(component: ProfileComponent) {
                         )
                     }
 
+                ProfilePage.ViewingStatistics ->
+                    com.yfuse.feature.personal.ViewingStatisticsScreen(
+                        store = component.viewing,
+                        onBack = component::closePage,
+                        onOpenMedia = component.onOpenPersonalMedia,
+                    )
+
                 ProfilePage.Handoff ->
                     (entry.instance as? ProfileComponent.Child.Handoff)?.let { handoffPage ->
                         com.yfuse.feature.handoff
@@ -667,6 +681,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                 PersonalSettingsSection(
                                     personal = component.personal,
                                     onOpenContent = { component.openPage(ProfilePage.Personal) },
+                                    onOpenStatistics = { component.openPage(ProfilePage.ViewingStatistics) },
                                     onOpenFamily = { component.openPage(ProfilePage.Family) },
                                     onOpenHandoff = { component.openPage(ProfilePage.Handoff) },
                                     onOpenTrakt = { component.openPage(ProfilePage.Trakt) },
@@ -1393,19 +1408,22 @@ private fun BrandAndSplashScreen(
 ) {
     val palette = LocalPalette.current
     val enabled by prefs.splashAnimation.collectAsState()
-    // The launch settles on its still frame under 静息 as well as under 减少动画 (the system's
-    // 移除动画 is folded into the latter), so the preview is picked the same way.
-    val variant = SplashAnimation.forMotion(LocalAccessibilityOptions.current.reduceMotion || calmMotion())
+    val preferred by prefs.splashVariant.collectAsState()
+    val variant = SplashAnimation.forMark(appIcon.splashMark, preferred)
+    var replay by remember { mutableStateOf(0) }
+    val pageState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     SettingsPage(
         title = "Logo 与开屏动画",
         subtitle = "返回桌面后更新图标，可能需要几秒刷新；开屏遵循减少动画与动效主题设置",
         onBack = onBack,
+        state = pageState,
     ) {
         motionItem {
             Section(title = "APP 图标") {
                 SettingsCard {
-                    AppIconVariant.entries.forEachIndexed { index, variant ->
+                    AppIconVariant.selectable.forEachIndexed { index, variant ->
                         if (index > 0) SettingsDivider()
                         AppIconRow(variant = variant, selected = variant == appIcon, onClick = { onAppIcon(variant) })
                     }
@@ -1432,11 +1450,13 @@ private fun BrandAndSplashScreen(
                         ).padding(horizontal = 14.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    SplashPreview(
-                        variant = variant,
-                        playing = true,
-                        modifier = Modifier.fillMaxWidth(0.72f).aspectRatio(1f),
-                    )
+                    key(variant, replay) {
+                        SplashPreview(
+                            variant = variant,
+                            playing = true,
+                            modifier = Modifier.fillMaxWidth(0.86f).aspectRatio(0.67f).clip(AppShapes.card),
+                        )
+                    }
                     Spacer(Modifier.height(10.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -1459,6 +1479,40 @@ private fun BrandAndSplashScreen(
                         color = palette.hint,
                         textAlign = TextAlign.Center,
                     )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "重播预览",
+                        style = AppTypography.body.strong,
+                        color = LocalAccentColors.current.accent,
+                        modifier =
+                            Modifier
+                                .pressable(role = Role.Button, onClick = { replay++ })
+                                .heightIn(min = MinTouchTarget)
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                    )
+                }
+            }
+            motionItem {
+                Section(title = "选择动画") {
+                    Column(
+                        Modifier.padding(horizontal = Dimens.pageHorizontal),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SplashAnimation.selectable.filter { it.mark == appIcon.splashMark }.forEach { choice ->
+                            OverlayOptionRow(
+                                label = choice.label,
+                                description = choice.description,
+                                selected = choice == variant,
+                                onClick = {
+                                    prefs.setSplashVariant(choice)
+                                    scope.launch {
+                                        pageState.scrollToItem(3)
+                                        replay++
+                                    }
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }

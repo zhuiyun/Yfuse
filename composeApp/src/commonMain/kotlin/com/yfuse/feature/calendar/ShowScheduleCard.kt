@@ -1,6 +1,5 @@
 package com.yfuse.feature.calendar
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,12 +25,12 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -45,15 +43,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
@@ -65,6 +60,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -108,17 +104,13 @@ import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
-import com.yfuse.core.util.isoEpochDay
+import com.yfuse.core.model.upcomingScheduleDays
 import com.yfuse.core.util.isoWeekdayLabel
 import com.yfuse.core.util.posterCardRating
 import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.core.util.tmdbTitleUrl
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.PI
-import kotlin.math.roundToInt
-import kotlin.math.sin
-import kotlin.random.Random
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -126,11 +118,13 @@ private val SchedulePosterWidth = 84.dp
 private val SchedulePosterShadow = CssShadow(0.dp, 6.dp, 16.dp, 0.dp, Color.Black.copy(alpha = 0.22f))
 private val ScheduleFallbackArtwork = Color(0xFFDAD4E8)
 
-/** The band a date and its brush stroke share, and the line under it for the episodes. */
+/** A separate rounded tile for each date, with its episode label below the day number. */
 private val ScheduleDateBand = 36.dp
-private val ScheduleStrokeThickness = 26.dp
 private val ScheduleLabelSlot = 18.dp
-private val ScheduleTodayDot = 6.dp
+private val ScheduleDayHeight = ScheduleDateBand + ScheduleLabelSlot + 4.dp
+private val ScheduleDayRadius = 13.dp
+private val ScheduleDayShape = RoundedCornerShape(ScheduleDayRadius)
+private val ScheduleTodayDot = 8.dp
 private val ScheduleReminderMinutes = listOf(10, 30, 60, 120, 360)
 private val ScheduleWeekdays = listOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")
 
@@ -138,8 +132,8 @@ private val ScheduleWeekdays = listOf("周日", "周一", "周二", "周三", "�
 private const val FOLLOW_SETTLE_MS = 3_000L
 
 /**
- * One title's 播出日历, as a card: its poster and where it stands, the month with a stroke of ink
- * under every day that broadcasts and the episodes it brings written beneath, and 分享 / 提醒 /
+ * One title's 播出日历, as a card: its poster and where it stands, the month with rounded date
+ * tiles distinguishing aired, upcoming and selected days, and 分享 / 提醒 /
  * 追剧 at the foot. The detail page's sheet and the one 追剧日历 opens for a show both show this,
  * so the two can no longer drift apart.
  *
@@ -235,7 +229,7 @@ internal fun ShowScheduleDialog(
         }
     }
 
-    // 取消追剧 clears the title's reminders with it, so it is done first and given 5 秒撤销; the
+    // 取消追更 clears the title's reminders with it, so it is done first and given 5 秒撤销; the
     // follow goes once the window closes, or with the card.
     var pendingUnfollow by remember { mutableStateOf(false) }
     // The follow state last asked for, shown until the store reports it: a second tap meanwhile
@@ -361,6 +355,15 @@ internal fun ShowScheduleDialog(
                                 )
                             }
                         }
+                        ScheduleUpcomingDays(
+                            days = entriesByDate.map { (date, entries) -> CalendarDay(date, entries) },
+                            today = today,
+                            onSelect = { date ->
+                                selectedDate = date
+                                panelDate = date
+                                picks++
+                            },
+                        )
                         ScheduleFooter(
                             text = footer,
                             busy = refreshing || loading,
@@ -786,47 +789,28 @@ private fun ScheduleMonthGrid(
     selectedDate: String?,
     onSelect: (String) -> Unit,
 ) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
     val weeks = remember(month) { scheduleMonthWeeks(month) }
-    // Ink with a breath of the poster's colour in it; the dates written on it take the page colour.
-    val ink = lerp(palette.text, accent.accent, 0.14f).copy(alpha = 0.82f)
-    val reveal = rememberInkReveal(month)
     Column(
         Modifier
             .fillMaxWidth()
             .padding(bottom = Dimens.space.xs),
+        verticalArrangement = Arrangement.spacedBy(Dimens.space.xs),
     ) {
         weeks.forEach { week ->
-            val runs = scheduleStrokeRuns(week.map { date -> date != null && !entriesByDate[date].isNullOrEmpty() })
-            Box(Modifier.fillMaxWidth()) {
-                if (runs.isNotEmpty()) {
-                    InkStrokes(
-                        runs = runs,
-                        seeds = runs.map { run -> week[run.first]?.let(::isoEpochDay) ?: 0L },
-                        ink = ink,
-                        reveal = reveal,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .height(ScheduleDateBand),
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Dimens.space.md),
+            ) {
+                week.forEach { date ->
+                    ScheduleDayCell(
+                        date = date,
+                        entries = date?.let(entriesByDate::get),
+                        today = today,
+                        selected = date != null && date == selectedDate,
+                        onSelect = onSelect,
+                        modifier = Modifier.weight(1f),
                     )
-                }
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = Dimens.space.md),
-                ) {
-                    week.forEach { date ->
-                        ScheduleDayCell(
-                            date = date,
-                            entries = date?.let(entriesByDate::get),
-                            today = today,
-                            selected = date != null && date == selectedDate,
-                            onSelect = onSelect,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
                 }
             }
         }
@@ -843,13 +827,46 @@ private fun ScheduleDayCell(
     modifier: Modifier = Modifier,
 ) {
     if (date == null) {
-        Spacer(modifier.height(ScheduleDateBand + ScheduleLabelSlot))
+        Spacer(modifier.height(ScheduleDayHeight))
         return
     }
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val span = remember(entries) { entries?.let(::scheduleDaySpan) }
     val isToday = date == today
+    // Match the season summary: a dated episode still explicitly marked Unaired stays upcoming.
+    val updated = entries.orEmpty().any { it.status != LibraryStatus.Unaired && it.episode.airDate <= today }
+    val status = if (updated) "已更新" else "待更新"
+    val fill =
+        selectionColor(
+            if (selected) {
+                accent.accent
+            } else if (updated) {
+                accent.container
+            } else {
+                Color.Transparent
+            },
+        )
+    val dateColor =
+        selectionColor(
+            if (selected) {
+                accent.onAccent
+            } else if (updated) {
+                accent.accent
+            } else {
+                palette.text
+            },
+        )
+    val labelColor =
+        selectionColor(
+            if (selected) {
+                accent.onAccent
+            } else if (updated) {
+                accent.accent
+            } else {
+                palette.sub2
+            },
+        )
     val description =
         remember(date, span, isToday) {
             buildList {
@@ -860,23 +877,39 @@ private fun ScheduleDayCell(
         }
     Column(
         modifier
-            .height(ScheduleDateBand + ScheduleLabelSlot)
+            .height(ScheduleDayHeight)
+            .padding(horizontal = 2.dp)
             .then(
                 if (span != null) {
                     Modifier.pressable(
                         pressedScale = 0.92f,
                         lightFeedback = false,
                         stateLayer = false,
+                        focusShape = ScheduleDayShape,
                         haptic = HapticSignal.Select,
                         onClickLabel = if (selected) "收起当天剧集" else "查看当天剧集",
                     ) { onSelect(date) }
                 } else {
                     Modifier
                 },
-            ).clearAndSetSemantics {
+            ).semantics(mergeDescendants = true) {
                 contentDescription = description
-                if (span != null) this.selected = selected
-            },
+                if (span != null) {
+                    this.selected = selected
+                    stateDescription = status
+                }
+            }.clip(ScheduleDayShape)
+            .background(fill)
+            .then(
+                if (span != null &&
+                    !updated &&
+                    !selected
+                ) {
+                    Modifier.scheduleUpcomingBorder(palette.border)
+                } else {
+                    Modifier
+                },
+            ).padding(vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
@@ -887,218 +920,60 @@ private fun ScheduleDayCell(
         ) {
             Text(
                 date.takeLast(2).trimStart('0'),
-                style = AppTypography.section.medium,
-                // A date on a stroke is written in the page colour, out of the ink.
-                color = if (span != null) palette.background else palette.text,
+                style = if (selected) AppTypography.section.strong else AppTypography.section.medium,
+                color = dateColor,
                 maxLines = 1,
+                modifier = Modifier.clearAndSetSemantics { },
             )
             if (isToday) {
                 Box(
                     Modifier
-                        .offset(x = 12.dp, y = (-11).dp)
+                        .align(Alignment.TopEnd)
+                        .padding(top = 3.dp, end = 3.dp)
                         .size(ScheduleTodayDot)
                         .clip(CircleShape)
+                        .background(palette.background)
+                        .padding(1.dp)
                         .background(palette.success),
                 )
             }
         }
         if (span != null) {
             Text(
-                span.cellLabel,
+                if (span is ScheduleDaySpan.Run) "${span.cellLabel}集" else span.cellLabel,
                 style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
-                color = selectionColor(if (selected) accent.accent else palette.sub2),
+                color = labelColor,
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis,
                 modifier =
                     Modifier
-                        .clip(CircleShape)
-                        .background(selectionColor(if (selected) accent.container else Color.Transparent))
-                        .padding(horizontal = 5.dp),
+                        .height(ScheduleLabelSlot)
+                        .padding(horizontal = 2.dp)
+                        .clearAndSetSemantics { },
             )
         }
     }
 }
 
-/** How far the month's strokes have been painted; they run on from where the brush came down. */
-@Composable
-private fun rememberInkReveal(month: ScheduleMonth): State<Float> {
-    val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
-    val progress = remember(month) { Animatable(if (still) 1f else 0f) }
-    LaunchedEffect(progress, still) {
-        if (still) {
-            progress.snapTo(1f)
-        } else {
-            progress.animateTo(1f, Motion.tween(Motion.ARRIVAL_REVEAL))
+/** A quiet dashed outline keeps a published future date distinct from an aired date. */
+private fun Modifier.scheduleUpcomingBorder(color: Color): Modifier =
+    drawWithCache {
+        val width = 1.dp.toPx()
+        val inset = width / 2f
+        val radius = (ScheduleDayRadius.toPx() - inset).coerceAtLeast(0f)
+        val stroke =
+            Stroke(width = width, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx())))
+        onDrawBehind {
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(inset, inset),
+                size = Size((size.width - width).coerceAtLeast(0f), (size.height - width).coerceAtLeast(0f)),
+                cornerRadius = CornerRadius(radius, radius),
+                style = stroke,
+            )
         }
     }
-    return progress.asState()
-}
-
-/**
- * One week's strokes, drawn across the card's whole width: a stroke's start and its dry tail
- * reach past the outer dates, into the grid's margin, and an offscreen layer is cut at its edges.
- */
-@Composable
-private fun InkStrokes(
-    runs: List<IntRange>,
-    seeds: List<Long>,
-    ink: Color,
-    reveal: State<Float>,
-    modifier: Modifier = Modifier,
-) {
-    Spacer(
-        modifier
-            // Offscreen, so the dry streaks take ink back out of the stroke rather than paint on it.
-            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-            .drawWithCache {
-                val margin = Dimens.space.md.toPx()
-                val cell = (size.width - margin * 2f) / 7f
-                val inset = cell * 0.06f
-                val strokes =
-                    runs.mapIndexed { index, run ->
-                        inkStroke(
-                            left = margin + run.first * cell + inset,
-                            right = margin + (run.last + 1) * cell - inset,
-                            centerY = size.height / 2f,
-                            thickness = ScheduleStrokeThickness.toPx(),
-                            seed = seeds.getOrElse(index) { 0L },
-                        )
-                    }
-                onDrawBehind {
-                    val shown = reveal.value
-                    strokes.forEach { stroke ->
-                        clipRect(left = stroke.start, right = stroke.start + (stroke.end - stroke.start) * shown) {
-                            drawPath(stroke.body, ink)
-                            stroke.streaks.forEach { streak ->
-                                drawLine(
-                                    color = Color.Black,
-                                    start = streak.from,
-                                    end = streak.to,
-                                    strokeWidth = streak.width,
-                                    cap = StrokeCap.Round,
-                                    blendMode = BlendMode.DstOut,
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-    )
-}
-
-private class InkStroke(
-    /** Leftmost x, the swollen start included. */
-    val start: Float,
-    /** Rightmost x, the dry tail included. */
-    val end: Float,
-    val body: Path,
-    val streaks: List<InkStreak>,
-)
-
-private class InkStreak(
-    val from: Offset,
-    val to: Offset,
-    val width: Float,
-)
-
-/**
- * One pass of a loaded brush from [left] to [right]: set down blunt, its edges swelling and
- * trembling as it travels, thinning as it runs dry until the bristles part at the end. Seeded by
- * the stroke's first date, so it keeps its shape from frame to frame and every time the month is
- * opened.
- */
-private fun inkStroke(
-    left: Float,
-    right: Float,
-    centerY: Float,
-    thickness: Float,
-    seed: Long,
-): InkStroke {
-    val random = Random(seed)
-    val half = thickness / 2f
-    val length = (right - left).coerceAtLeast(thickness)
-    val steps = (length / (thickness * 0.45f)).roundToInt().coerceAtLeast(3)
-    // The hand drifts a little up or down over the length of the stroke, and the pressure swells.
-    val drift = (random.nextFloat() - 0.5f) * thickness * 0.22f
-    val swell = random.nextFloat() * 2f * PI.toFloat()
-
-    fun edge(side: Float): List<Offset> =
-        List(steps + 1) { step ->
-            val along = step / steps.toFloat()
-            val width = half * (1f - 0.16f * along + 0.05f * sin(swell + along * 3.1f))
-            Offset(
-                x = left + length * along,
-                y = centerY + side * width + drift * (along - 0.5f) + (random.nextFloat() - 0.5f) * thickness * 0.09f,
-            )
-        }
-    val top = edge(-1f)
-    val bottom = edge(1f)
-    val tipTop = top.last()
-    val tipBottom = bottom.last()
-    var reach = 0f
-    val body =
-        Path().apply {
-            moveTo(bottom.first().x, bottom.first().y)
-            // Where the brush was set down: blunt, and a little swollen.
-            cubicTo(
-                left - thickness * 0.34f,
-                bottom.first().y - thickness * 0.06f,
-                left - thickness * 0.3f,
-                top.first().y + thickness * 0.04f,
-                top.first().x,
-                top.first().y,
-            )
-            smoothThrough(top)
-            // Where it ran dry: the bristles part into uneven tips.
-            val prongs = 4
-            for (prong in 0 until prongs) {
-                val upper = tipTop.y + (tipBottom.y - tipTop.y) * prong / prongs
-                val lower = tipTop.y + (tipBottom.y - tipTop.y) * (prong + 1) / prongs
-                val tip = thickness * (0.05f + random.nextFloat() * 0.24f)
-                reach = maxOf(reach, tip)
-                val tipY = upper + (lower - upper) * (0.35f + random.nextFloat() * 0.3f)
-                cubicTo(
-                    tipTop.x + tip * 0.55f,
-                    upper,
-                    tipTop.x + tip,
-                    tipY - (lower - upper) * 0.15f,
-                    tipTop.x + tip,
-                    tipY,
-                )
-                if (prong < prongs - 1) {
-                    val notch = thickness * (0.02f + random.nextFloat() * 0.1f)
-                    cubicTo(tipTop.x + tip * 0.45f, lower, tipTop.x - notch * 0.5f, lower, tipTop.x - notch, lower)
-                } else {
-                    cubicTo(tipTop.x + tip * 0.45f, lower, tipBottom.x, tipBottom.y, tipBottom.x, tipBottom.y)
-                }
-            }
-            smoothThrough(bottom.asReversed())
-            close()
-        }
-    // Dry streaks along the edges, clear of the date written across the middle.
-    val streaks =
-        List(3 + random.nextInt(3)) {
-            val side = if (random.nextFloat() < 0.5f) -1f else 1f
-            val y = centerY + side * thickness * (0.28f + random.nextFloat() * 0.14f)
-            InkStreak(
-                from = Offset(left + length * (0.45f + random.nextFloat() * 0.35f), y),
-                to = Offset(right + reach, y + (random.nextFloat() - 0.5f) * thickness * 0.06f),
-                width = thickness * (0.025f + random.nextFloat() * 0.035f),
-            )
-        }
-    return InkStroke(start = left - thickness * 0.34f, end = right + reach, body = body, streaks = streaks)
-}
-
-/** On through [points] by their midpoints, so the waver reads as a hand rather than a polygon. */
-private fun Path.smoothThrough(points: List<Offset>) {
-    for (index in 1 until points.lastIndex) {
-        val point = points[index]
-        val next = points[index + 1]
-        cubicTo(point.x, point.y, point.x, point.y, (point.x + next.x) / 2f, (point.y + next.y) / 2f)
-    }
-    lineTo(points.last().x, points.last().y)
-}
 
 /** The broadcasts of the date picked in the month: each episode, when and where, and its state. */
 @Composable
@@ -1236,6 +1111,46 @@ private fun scheduleStatus(
         LibraryStatus.Watched -> "已看" to resolveAccentColors(DecorativeTints.plum, palette.isDark).accent
         LibraryStatus.Unknown -> "仅供参考" to palette.sub2
     }
+
+@Composable
+private fun ScheduleUpcomingDays(
+    days: List<CalendarDay>,
+    today: String,
+    onSelect: (String) -> Unit,
+) {
+    val upcoming = remember(days, today) { upcomingScheduleDays(days, today) }
+    val palette = LocalPalette.current
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = Dimens.space.lg, vertical = Dimens.space.sm),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("后续更新安排", style = AppTypography.caption.strong, color = palette.text)
+        if (upcoming.isEmpty()) {
+            Text("暂无已公布的后续更新安排", style = AppTypography.caption.medium, color = palette.sub2)
+        }
+        upcoming.forEach { day ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .pressable(onClickLabel = "查看 ${day.date} 更新", onClick = { onSelect(day.date) })
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    day.date,
+                    style = AppTypography.caption.strong,
+                    color = LocalAccentColors.current.accent,
+                )
+                Text(
+                    scheduleDaySpan(day.entries)?.phrase ?: "${day.entries.size} 项更新",
+                    style = AppTypography.caption.medium,
+                    color = palette.text,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
 
 /** `Rex · 已入库 39 集 · 官方会员日历 · 20:00`, and the way to a different TMDB match. */
 @Composable
@@ -1376,7 +1291,7 @@ private fun ScheduleUndoNotice(onUndo: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "已取消追剧，更新提醒一并关闭",
+            "已取消追更，更新提醒一并关闭",
             style = AppTypography.caption.medium,
             color = palette.sub,
             maxLines = 2,
@@ -1388,7 +1303,7 @@ private fun ScheduleUndoNotice(onUndo: () -> Unit) {
             color = accent.accent,
             modifier =
                 Modifier
-                    .pressable(haptic = HapticSignal.Confirm, onClickLabel = "撤销取消追剧", onClick = onUndo)
+                    .pressable(haptic = HapticSignal.Confirm, onClickLabel = "撤销取消追更", onClick = onUndo)
                     .touchTarget()
                     .padding(horizontal = Dimens.space.md, vertical = Dimens.space.sm),
         )
@@ -1535,7 +1450,7 @@ private fun ScheduleActionBar(
                 }
                 if (onFollow != null) {
                     if (followed) {
-                        ScheduleTool(AppIcons.Remove, "取消追剧", palette.error, onFollow, haptic = HapticSignal.Tap)
+                        ScheduleTool(AppIcons.Remove, "取消追更", palette.error, onFollow, haptic = HapticSignal.Tap)
                     } else {
                         Row(
                             Modifier
@@ -1551,7 +1466,7 @@ private fun ScheduleActionBar(
                                 tint = accent.accent,
                                 modifier = Modifier.size(18.dp),
                             )
-                            Text("加入追剧", style = AppTypography.body.strong, color = accent.accent, maxLines = 1)
+                            Text("加入追更", style = AppTypography.body.strong, color = accent.accent, maxLines = 1)
                         }
                     }
                 }

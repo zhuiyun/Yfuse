@@ -6,6 +6,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -119,104 +120,107 @@ internal fun BoxScope.PlayerBottomChrome(
                 gestureState.endScrub()
             }
         }
-        PlaybackTimelineContent(playback) { timelineState ->
-            val remoteSeek = remoteChromeState?.seekTargetMs?.takeIf { remoteChromeState.seeking }
-            RefinedBottomBar(
-                state =
-                    timelineState.transportState().let { transport ->
-                        remoteSeek?.let { target ->
-                            transport.copy(
-                                positionMs =
-                                    if (transport.durationMs >
-                                        0L
-                                    ) {
-                                        target.coerceIn(0L, transport.durationMs)
-                                    } else {
-                                        target.coerceAtLeast(0L)
-                                    },
-                            )
-                        } ?: transport
+        key(transport.interactionKey) {
+            PlaybackTimelineContent(playback) { timelineState ->
+                val remoteSeek = remoteChromeState?.seekTargetMs?.takeIf { remoteChromeState.seeking }
+                RefinedBottomBar(
+                    state =
+                        timelineState.transportState().let { transport ->
+                            remoteSeek?.let { target ->
+                                transport.copy(
+                                    positionMs =
+                                        if (transport.durationMs >
+                                            0L
+                                        ) {
+                                            target.coerceIn(0L, transport.durationMs)
+                                        } else {
+                                            target.coerceAtLeast(0L)
+                                        },
+                                )
+                            } ?: transport
+                        },
+                    seekLocked = watchLocked,
+                    onPlayPause = {
+                        chrome.poke()
+                        transportActions.onPlayPause()
                     },
-                seekLocked = watchLocked,
-                onPlayPause = {
-                    chrome.poke()
-                    transportActions.onPlayPause()
-                },
-                onPrevious = {
-                    chrome.poke()
-                    transportActions.onPreviousItem()
-                },
-                onNext = {
-                    chrome.poke()
-                    transportActions.onNextItem()
-                },
-                onSeek = {
-                    chrome.poke()
-                    transportActions.onSeek(it)
-                },
-                onScrub = {
-                    // Every touch sample lands here. `interactions` is read by this
-                    // whole control tree and keys two effects, so bumping it per sample
-                    // rebuilt ~2,300 lines of chrome each frame of a drag. The hide timer
-                    // already waits on `scrubbing`, and the release pokes it afresh.
-                    if (gestureState.scrub()) chrome.interactions++
-                },
-                onScrubEnd = {
-                    gestureState.endScrub()
-                    chrome.poke()
-                },
-                trickplay = transport.trickplay,
-                progressMarkers =
-                    remember(
-                        skip.introStartSeconds,
-                        skip.introEndSeconds,
-                        skip.creditsLeadSeconds,
-                        state.durationMs,
-                        transport.chapters,
-                    ) {
-                        playbackProgressMarkers(
-                            skip,
+                    onPrevious = {
+                        chrome.poke()
+                        transportActions.onPreviousItem()
+                    },
+                    onNext = {
+                        chrome.poke()
+                        transportActions.onNextItem()
+                    },
+                    onSeek = {
+                        chrome.poke()
+                        transportActions.onSeek(it)
+                    },
+                    onScrub = {
+                        // Every touch sample lands here. `interactions` is read by this
+                        // whole control tree and keys two effects, so bumping it per sample
+                        // rebuilt ~2,300 lines of chrome each frame of a drag. The hide timer
+                        // already waits on `scrubbing`, and the release pokes it afresh.
+                        if (gestureState.scrub()) chrome.interactions++
+                    },
+                    onScrubEnd = {
+                        gestureState.endScrub()
+                        chrome.poke()
+                    },
+                    trickplay = transport.trickplay,
+                    progressMarkers =
+                        remember(
+                            skip.introStartSeconds,
+                            skip.introEndSeconds,
+                            skip.creditsLeadSeconds,
                             state.durationMs,
-                            transport.chapters.asProgressChapters(),
-                        )
+                            transport.chapters,
+                        ) {
+                            playbackProgressMarkers(
+                                skip,
+                                state.durationMs,
+                                transport.chapters.asProgressChapters(),
+                            )
+                        },
+                    hasEpisodes = state.itemCount > 1,
+                    onOpenEpisodes = {
+                        transportActions.onRefreshEpisodes()
+                        chrome.openEpisodeDrawer()
                     },
-                hasEpisodes = state.itemCount > 1,
-                onOpenEpisodes = {
-                    transportActions.onRefreshEpisodes()
-                    chrome.openEpisodeDrawer()
-                },
-                hasMultipleSources = source.sourceOptions.size > 1,
-                onOpenSources = { chrome.openQuickPopup(QuickPopup.Source) },
-                onOpenSubtitles = {
-                    chrome.openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Subtitle)
-                },
-                onOpenAudio = {
-                    chrome.openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Audio)
-                },
-                onOpenSpeed = { chrome.openQuickPopup(QuickPopup.Speed) },
-                skipSettingsAvailable = skip.seriesName != null,
-                onOpenSkipSettings = { chrome.openSettingsPanel(SettingsPanelKind.Skip) },
-                danmakuEnabled = danmaku.panel.enabled,
-                onToggleDanmaku = {
-                    // With no 弹幕来源 a switch has nothing to show either way, and the tap seemed to
-                    // do nothing. The panel says where one is added.
-                    if (danmaku.panel.configured) {
-                        danmakuActions.onKeyToggle()
-                    } else {
-                        chrome.openSettingsPanel(SettingsPanelKind.Danmaku)
-                    }
-                },
-                onOpenDanmaku = { chrome.openSettingsPanel(SettingsPanelKind.Danmaku) },
-                // 进度条跟随作品取色: the series poster, or the episode still without one.
-                artworkUrl =
-                    transport.episodes.getOrNull(state.currentIndex)?.let { it.posterUrl ?: it.stillUrl },
-                artworkIdentity = state.currentIndex,
-                ambientLight = picture.ambientLight,
-                danmakuHeat = danmaku.heat,
-                onSeekBackwardLongPress = onMissedLine,
-                playKeyModifier = playKeyModifier,
-                compact = compact,
-            )
+                    hasMultipleSources = source.sourceOptions.size > 1,
+                    onOpenSources = { chrome.openQuickPopup(QuickPopup.Source) },
+                    onOpenSubtitles = {
+                        chrome.openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Subtitle)
+                    },
+                    onOpenAudio = {
+                        chrome.openSettingsPanel(SettingsPanelKind.Tracks, TrackPanelMode.Audio)
+                    },
+                    onOpenSpeed = { chrome.openQuickPopup(QuickPopup.Speed) },
+                    speedUnavailableReason = transport.speedUnavailableReason,
+                    skipSettingsAvailable = skip.seriesName != null,
+                    onOpenSkipSettings = { chrome.openSettingsPanel(SettingsPanelKind.Skip) },
+                    danmakuEnabled = danmaku.panel.enabled,
+                    onToggleDanmaku = {
+                        // With no 弹幕来源 a switch has nothing to show either way, and the tap seemed to
+                        // do nothing. The panel says where one is added.
+                        if (danmaku.panel.configured) {
+                            danmakuActions.onKeyToggle()
+                        } else {
+                            chrome.openSettingsPanel(SettingsPanelKind.Danmaku)
+                        }
+                    },
+                    onOpenDanmaku = { chrome.openSettingsPanel(SettingsPanelKind.Danmaku) },
+                    // 进度条跟随作品取色: the series poster, or the episode still without one.
+                    artworkUrl =
+                        transport.episodes.getOrNull(state.currentIndex)?.let { it.posterUrl ?: it.stillUrl },
+                    artworkIdentity = state.currentIndex,
+                    ambientLight = picture.ambientLight,
+                    danmakuHeat = danmaku.heat,
+                    onSeekBackwardLongPress = onMissedLine,
+                    playKeyModifier = playKeyModifier,
+                    compact = compact,
+                )
+            }
         }
     }
 }

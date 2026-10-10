@@ -1,0 +1,186 @@
+{
+  "totals": {
+    "tests": 117,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suites": [
+    {
+      "name": "com.yfuse.tv.focus.FocusRepositoryTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.454Z"
+    },
+    {
+      "name": "com.yfuse.tv.focus.FocusRestorePolicyTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.477Z"
+    },
+    {
+      "name": "com.yfuse.tv.focus.FocusScopeStateMachineTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.495Z"
+    },
+    {
+      "name": "com.yfuse.tv.focus.RemoteKeyIntentTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.509Z"
+    },
+    {
+      "name": "com.yfuse.tv.integration.CastConnectLoadMapperTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.521Z"
+    },
+    {
+      "name": "com.yfuse.tv.integration.ContinueWatchingPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.559Z"
+    },
+    {
+      "name": "com.yfuse.tv.integration.EngageContinueWatchingPublisherTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.571Z"
+    },
+    {
+      "name": "com.yfuse.tv.integration.TvContinueWatchingWorkTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.669Z"
+    },
+    {
+      "name": "com.yfuse.tv.integration.TvPlaybackDeepLinkTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.679Z"
+    },
+    {
+      "name": "com.yfuse.tv.player.TvLocalPlaybackPolicyTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.685Z"
+    },
+    {
+      "name": "com.yfuse.tv.player.TvMediaSessionAdapterTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.693Z"
+    },
+    {
+      "name": "com.yfuse.tv.player.TvPlayerChromeControllerTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.695Z"
+    },
+    {
+      "name": "com.yfuse.tv.player.TvRemoteInputControllerTest",
+      "tests": "15",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.706Z"
+    },
+    {
+      "name": "com.yfuse.tv.remote.TvPhoneRemoteKeysTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.723Z"
+    },
+    {
+      "name": "com.yfuse.tv.remote.TvPhoneRemotePairingTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.726Z"
+    },
+    {
+      "name": "com.yfuse.tv.ui.TvCalendarCardTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.754Z"
+    },
+    {
+      "name": "com.yfuse.tv.ui.TvFocusMemoryTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.760Z"
+    },
+    {
+      "name": "com.yfuse.tv.ui.TvFocusParallaxTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.818Z"
+    },
+    {
+      "name": "com.yfuse.tv.ui.TvFocusPivotTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.865Z"
+    },
+    {
+      "name": "com.yfuse.tv.ui.TvQuickActionsTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.872Z"
+    },
+    {
+      "name": "com.yfuse.tv.ui.TvServerBackupFilesTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.875Z"
+    },
+    {
+      "name": "com.yfuse.tv.ui.TvSettingsSearchTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:31:03.896Z"
+    }
+  ]
+}

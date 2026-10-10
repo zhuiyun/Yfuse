@@ -257,7 +257,7 @@ fun CalendarScreen(component: CalendarComponent) {
                     )
                     scheduleChanges.take(3).forEach { change ->
                         Text(
-                            "${change.title} · ${change.message}",
+                            "${change.title} · ${change.displayMessage}",
                             style = AppTypography.caption.regular,
                             color = palette.sub,
                         )

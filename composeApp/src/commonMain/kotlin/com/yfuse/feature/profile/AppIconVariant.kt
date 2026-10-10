@@ -2,38 +2,41 @@ package com.yfuse.feature.profile
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.yfuse.core.designsystem.SplashMark
 
-/**
- * Which launcher icon the app presents.
- *
- * The current water-fire mark is available on light and graphite grounds, and the previous
- * cloud-player mark remains available alongside the light and dark Aurora artwork. The last
- * five are the 2026-10 concepts, drawn as vectors by scripts/launcher_icons/generate.py; each
- * mark is made for its own ground, so they are always shown whole, ground included.
- */
+/** Launcher identities, including retired aliases retained for installed-app migration. */
 enum class AppIconVariant(
     val label: String,
     val description: String,
 ) {
-    Default("当前 Logo", "当前水火标志，浅色底"),
+    Default("默认 Logo", "当前水火标志，浅色底"),
     Graphite("当前 Logo · 石墨", "当前水火标志，深灰底，适合深色主屏"),
 
-    /**
-     * The mark this app carried before the current one.
-     *
-     * Kept as a real choice rather than for nostalgia: people recognise their apps by the
-     * icon, and an update that replaces it makes the app briefly disappear from a home screen
-     * its owner navigates by shape. This puts the old one back for anyone who wants it — the
-     * icon only: every launch plays the water-fire ribbon, whichever icon is chosen.
-     */
-    CloudPlayer("旧版云朵播放器", "旧版云朵播放器 Logo，浅色底"),
+    /** The previous mark, paired with its own cloud splash. */
+    CloudPlayer("云朵播放器 Logo", "云朵与播放键，浅色底"),
     AuroraDark("极光 · 深色", "青蓝紫渐变折带，深色底"),
     AuroraLight("极光 · 浅色", "青蓝紫渐变折带，浅色底"),
     Prism("汇光", "三束彩光射进播放键，汇成一束白光，深色底"),
-    WaterOverFire("水火既济", "浪线分开上水下火的播放键，浅色底"),
+    WaterOverFire("水火即济 Logo", "浪线分开上水下火的播放键，浅色底"),
     Overprint("叠印", "青与品红两笔叠印成 Y，白底"),
     Danmaku("弹幕", "弹幕横条拼成的 Y，深色底"),
     LiquidGlass("液态", "两滴水汇成的磨砂玻璃 Y，极光渐变底"),
+    ;
+
+    val normalized: AppIconVariant get() = takeIf { it in selectable } ?: Default
+
+    val splashMark: SplashMark
+        get() =
+            when (normalized) {
+                CloudPlayer -> SplashMark.CloudPlayer
+                WaterOverFire -> SplashMark.WaterOverFire
+                else -> SplashMark.WaterFire
+            }
+
+    companion object {
+        // Retired enum entries remain only to disable previously enabled Android aliases safely.
+        val selectable: List<AppIconVariant> = listOf(Default, CloudPlayer, WaterOverFire)
+    }
 }
 
 /** The variant the launcher is currently showing. */

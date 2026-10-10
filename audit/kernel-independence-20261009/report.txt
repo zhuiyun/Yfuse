@@ -1,0 +1,37 @@
+项目内核独立运行检查（2026-10-09）
+
+结论
+当前不能把所有内核标记为“独立运行实测通过”。Android 手机端的 ExoPlayer、MPV、MDK 有各自的播放器实现、状态和释放流程；APK 内 MPV、MDK、YCore 的原生链接依赖完整，没有依赖另一播放内核的必需入口库。MPV 已通过独立视频播放和释放；YCore 已通过独立软件解码和释放。ExoPlayer 和 MDK 的完整视频输出仍未验证通过。按用户指示，设备断开后依据现有证据完成本报告。
+
+逐项结果
+1. ExoPlayer：代码上有独立实现，直接创建 Media3 ExoPlayer，不依赖 MPV/MDK/YCore。相关现有测试通过。独立 app_process 探针在注册广播、读取系统字幕设置时遇到未注册应用上下文限制；尚无有效的视频输出通过记录。最后一轮适配也未完成真机运行，不能据此认定内核不能播放。
+2. MPV：独立真机播放通过。只携带 libmpv、JNI libplayer 及其共有基础库，未携带 MDK 和 YCore 入口库。H.264 软件解码，播放位置 0.572 秒，收到 3 个真实 ImageReader 视频帧，正常释放。
+3. MDK：独立加载和媒体解码路径已建立；能够识别 H.264、1440×3040 媒体，运行证据显示 FFmpeg 视频解码，播放推进到 8384 毫秒。不携带 MPV 或 YCore 入口库。但是 ImageReader 探针未收到视频帧，不能将时间推进当作画面输出成功。原因尚未区分为探针 Surface 适配限制或真实渲染问题；SurfaceTexture 后续验证因设备断开未执行。完整视频播放结论为未验证。
+4. YCore：不携带 MPV/MDK 入口库时，独立原生解封装及软件解码通过；软件解码 API 4，读取 11 个包并输出 4 个有效像素帧，正常释放。GPU 库可独立加载，API 3、能力位 3；仅是静态探针结果，未验证 GPU swapchain 呈现、HDR、硬解或音频输出。full 模式默认可使用 MPV 兼容回退；会话 nativeOnly=true 时兼容工厂为空并且故障不切换其他内核。
+
+项目运行策略的边界
+“具备独立实现”不等于“任何片源都严格使用所选内核”：
+- 默认开启 YCore trial 且为自动模式时，所选兼容内核可能先进入 YCore。普通片源使用 LockExo、LockMpv、LockMdk 可关闭自动重排与跨内核故障回退；对应现有回归测试已通过。
+- WebDAV/SMB 文件来源队列强制使用 YCore，显式锁定兼容内核也不能改变这一点；YCore 不可用时直接报能力不足。
+- DRM 和特定 Dolby 专用平台输出可以覆盖 MPV/MDK 锁定，改用 Exo 平台路径；对应回归测试通过。
+- MDK 未打包或被远程安全策略停用，以及普通 MPV 片源被远程策略停用时，工厂可以返回 Exo。因此目前锁定策略不是覆盖所有情况的绝对隔离保证。
+- 当前 TV 应用固定 YFUSE_NATIVE_ONLY_RUNTIME=true、YFUSE_MDK_INCLUDED=false，MPV/MDK 仅 compileOnly；电视主播放不开放三个兼容内核的独立切换。Exo 运行依赖仍服务于电视辅助功能，但不构成主播放的可选兼容内核。仅设置手机 full/MDK 参数不会改变这些固定 TV 配置。
+- Harmony 另有 SystemYPlayer 和 NativeYPlayer。源码是两个独立适配实现，但没有本次 HAP、SDK 或鸿蒙真机验证。仓库文档明确原生自定义呈现需可用 NativeWindow/ArkUI surface host；不能宣称已独立运行通过。
+
+本次实际验证
+- :phoneShared:testAndroidHostTest：针对 core2、core.playback、MPV、MDK、Exo、内核工厂和资源切换执行现有测试，241 个测试套件、1280 项通过，失败/错误/跳过均为 0。
+- :tvShared:testAndroidHostTest：23 项电视播放策略测试通过，失败/错误/跳过均为 0。
+- :composeApp:verifyCustomMpvArtifact、verifyStandaloneYCoreArtifact、verifyMdkArtifact：使用 --rerun-tasks 实际重算并全部通过。
+- 读取最后已交付的 full APK：com.yfuse，versionName=1.1.7，versionCode=269；SHA-256=760311d02b6418c007d01c53d3464dec45da54f3f824f0936529e0a06dc6948a。
+- 从该实际 APK 提取 arm64-v8a 库解析 ELF DT_NEEDED，并按依赖闭包分开在三星 SM-G973U、Android API 28 上运行。测试进程只写 /data/local/tmp，没有安装或替换用户应用。
+- 检查 APK 的 sourceCommit aeb27fbf81b1e0610f5ddfb6d5695a2efbbe0cf6 至当前 HEAD 的 composeApp/src、mdkAndroid/src、scripts/native、composeApp/libs，无播放源码差异。
+
+证据与复跑
+native-dependencies.json：实际 APK 的库、校验和与三个原生内核的依赖闭包。
+host-test-summary.json、tv-test-summary.json：本次测试 XML 汇总。
+host-tests-final.log、tv-policy-tests.log、artifact-verification.log：最终构建与测试日志。
+device-results.json、各内核 *-device.log：探针原始结果。失败项是探针失败记录，不自动等价于应用内核故障；最终判断以本报告及 verification.json 的验证范围为准。
+inspect_native.py：重新解析既有 APK 并提取原生闭包。
+run_probes.py：独立进程探针复跑。可传 mpv/mdk/ycore/exo 仅执行指定项；恢复设备连接后仍需完成 Exo/MDK 视频输出验证。末轮未执行的 SurfaceTexture/Media3 适配不能当作已通过证据。
+
+未执行新 APK 打包、版本变更、发布或上传。当前版本配置与更新说明保持原值。项目播放实现未修改，仅新增本次审计报告、验证脚本和记录。

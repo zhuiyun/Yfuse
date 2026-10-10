@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PictureHoldSeekTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-10T07:35:05.786Z" hostname="DESKTOP-HM2J0FM" time="0.012">
+  <properties/>
+  <testcase name="rewinding_stops_at_zero_and_forward_seeking_stops_at_the_end" classname="com.yfuse.feature.player.PictureHoldSeekTest" time="0.0"/>
+  <testcase name="slow_engine_positions_do_not_prevent_successive_forward_steps" classname="com.yfuse.feature.player.PictureHoldSeekTest" time="0.0"/>
+  <testcase name="continuous_holds_deliver_each_step_through_the_real_seek_debounce_and_stop_on_release" classname="com.yfuse.feature.player.PictureHoldSeekTest" time="0.008"/>
+  <testcase name="side_holds_include_the_previous_middle_edges_on_portrait_and_landscape_windows" classname="com.yfuse.feature.player.PictureHoldSeekTest" time="0.0"/>
+  <testcase name="a_large_step_cannot_overflow_into_a_negative_seek" classname="com.yfuse.feature.player.PictureHoldSeekTest" time="0.0"/>
+  <testcase name="a_disappearing_timeline_stops_the_hold_without_seeking_to_zero" classname="com.yfuse.feature.player.PictureHoldSeekTest" time="0.0"/>
+  <testcase name="input_cancellation_and_loss_of_permission_stop_subsequent_commands" classname="com.yfuse.feature.player.PictureHoldSeekTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -75,6 +75,9 @@ internal class PlaybackProgressReporter(
     }
 
     private var items = items
+    private var observedItems = items
+    private val localScopeToken = playbackSync?.playbackScopeToken
+    private val generatedSessions = mutableMapOf<Pair<String, String>, String>()
     private var observedBinding = items.reportingBinding()
     private val commandLock = Any()
     private val pendingCommands = ArrayDeque<Command>()
@@ -248,13 +251,27 @@ internal class PlaybackProgressReporter(
         val binding = items.reportingBinding()
         if (binding == observedBinding) return
         observedBinding = binding
+        observedItems = items
         enqueue(Command.Rebind(items, state))
     }
 
     fun close(state: PlaybackState) {
-        if (closed) return
-        latestState = state
-        closed = true
+        synchronized(commandLock) {
+            if (closed) return
+            latestState = state
+            closed = true
+            // Persist the final sample before waiting for an in-flight server request. The actor
+            // cannot subsequently replace it with an older queued sample.
+            observedItems.getOrNull(state.currentIndex)?.let { item ->
+                recordLocalPlayback(
+                    item,
+                    state.positionMs,
+                    state.durationMs,
+                    sessionIdFor(item),
+                    if (state.ended) PlaybackSyncTrigger.Completed else PlaybackSyncTrigger.Stop,
+                )
+            }
+        }
         removeBackgroundListener()
         enqueue(Command.Close(state))
     }
@@ -514,21 +531,48 @@ internal class PlaybackProgressReporter(
                 trigger = trigger,
             ),
         )
-        playbackSync?.recordPlayback(
-            mediaKey = item.watchKey,
-            aliases = item.matchKeys,
-            positionMs = activePositionMs,
-            durationMs = activeDurationMs,
-            sessionId = activeSessionId,
-            serverId = item.serverId,
-            serverItemId = item.id,
-            trigger = trigger,
-        )
+        synchronized(commandLock) {
+            if (!closed) recordLocalPlayback(item, activePositionMs, activeDurationMs, activeSessionId, trigger)
+        }
     }
 
-    private fun sessionIdFor(index: Int): String =
-        items.getOrNull(index)?.playSessionId?.takeIf { it.isNotBlank() }
-            ?: "yfuse${Random.nextLong().toULong().toString(16)}"
+    private fun recordLocalPlayback(
+        item: PlayerMediaItem,
+        positionMs: Long,
+        durationMs: Long,
+        sessionId: String,
+        trigger: PlaybackSyncTrigger,
+    ) {
+        runCatching {
+            playbackSync?.recordPlayback(
+                mediaKey = item.watchKey,
+                aliases = item.matchKeys,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                sessionId = sessionId,
+                serverId = item.serverId,
+                serverItemId = item.id,
+                trigger = trigger,
+                expectedScopeToken = localScopeToken,
+            )
+        }.onFailure { error ->
+            AppLog.error(
+                category = "playback.reporting",
+                event = "local_progress_failed",
+                message = "Local progress could not be saved",
+                throwable = error,
+            )
+        }
+    }
+
+    private fun sessionIdFor(index: Int): String = sessionIdFor(items[index])
+
+    private fun sessionIdFor(item: PlayerMediaItem): String =
+        item.playSessionId.takeIf { it.isNotBlank() } ?: synchronized(commandLock) {
+            generatedSessions.getOrPut(
+                item.id to item.playSessionId,
+            ) { "yfuse${Random.nextLong().toULong().toString(16)}" }
+        }
 
     private fun Long.toTicks(): Long =
         coerceAtLeast(0L).coerceAtMost(Long.MAX_VALUE / TICKS_PER_MILLISECOND) * TICKS_PER_MILLISECOND

@@ -1,0 +1,6 @@
+/payload/
+/deps/
+/*-classes/
+/*-classes.jar
+/FfmpegNativeBridge.java
+/AndroidYCoreGpuNativeBridge.java

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.SplashSelectionTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-10-10T10:30:17.360Z" hostname="DESKTOP-HM2J0FM" time="0.02">
+  <properties/>
+  <testcase name="chosen_effect_survives_restart_and_toggling_playback_or_accessibility" classname="com.yfuse.core.data.SplashSelectionTest" time="0.019"/>
+  <testcase name="switching_logos_always_resolves_matching_artwork_without_overwriting_the_saved_effect" classname="com.yfuse.core.data.SplashSelectionTest" time="0.001"/>
+  <testcase name="corrupt_and_retired_choices_fall_back_to_default" classname="com.yfuse.core.data.SplashSelectionTest" time="0.0"/>
+  <testcase name="picker_has_three_logos_and_sixteen_water_fire_designs_including_mechanisms" classname="com.yfuse.core.data.SplashSelectionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

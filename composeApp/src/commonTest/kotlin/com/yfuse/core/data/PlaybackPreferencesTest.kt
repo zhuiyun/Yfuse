@@ -14,6 +14,20 @@ import kotlin.test.assertTrue
 
 class PlaybackPreferencesTest {
     @Test
+    fun forward_cache_defaults_to_four_gibibytes_and_preserves_explicit_smaller_or_disabled_limits() {
+        val settings = MapSettings()
+        val preferences = PlaybackPreferences(settings)
+        assertEquals(4L * 1024L * 1024L * 1024L, preferences.videoCacheSize.value.bytes)
+        assertEquals(YCoreBufferDuration.Auto, preferences.yCoreBufferDuration.value)
+        preferences.setVideoCacheSize(VideoCacheSize.Medium)
+        assertEquals(VideoCacheSize.Medium, PlaybackPreferences(settings).videoCacheSize.value)
+        preferences.setVideoCacheSize(VideoCacheSize.Off)
+        assertEquals(VideoCacheSize.Off, PlaybackPreferences(settings).videoCacheSize.value)
+        preferences.setVideoCacheSize(VideoCacheSize.Maximum)
+        assertEquals(VideoCacheSize.Maximum, PlaybackPreferences(settings).videoCacheSize.value)
+    }
+
+    @Test
     fun anime4k_is_opt_in_and_survives_restart() {
         val settings = MapSettings()
         val preferences = PlaybackPreferences(settings)

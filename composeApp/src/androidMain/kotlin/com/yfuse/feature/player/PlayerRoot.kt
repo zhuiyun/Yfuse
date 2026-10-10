@@ -276,7 +276,6 @@ internal fun PlayerRoot(
     val sourceSwitchCoordinator = remember { PlaybackSourceSwitchCoordinator() }
     val latestQueueRevision by rememberUpdatedState(queueRevision)
     // 长按中间's rate and the seeks a drag proposes, kept out of this composition.
-    val gestures = remember { PlayerGestureCommands() }
     // 片尾接管: the controls decide when the credits take the picture into its corner; the surface follows.
     val creditsTakeover = remember { mutableStateOf(false) }
     val audioOutputDelayPreferences = remember(context) { AudioOutputDelayPreferences(context) }
@@ -601,12 +600,58 @@ internal fun PlayerRoot(
         )
         val castManager = remember { GlobalContext.get().get<CastManager>() }
         val liveCastState = castManager.state.collectAsState()
+        val latestActiveItemsSource = rememberUpdatedState(activeItems)
+        val latestActiveItems by latestActiveItemsSource
+        val latestPlayerForGestures = rememberUpdatedState(player)
+        val gestures =
+            remember {
+                PlayerGestureCommands {
+                    val currentPlayer = latestPlayerForGestures.value
+                    val index = currentPlayer.state.value.currentIndex
+                    val item = latestActiveItemsSource.value.getOrNull(index)
+                    val cast = castManager.state.value
+                    PlaybackInteractionContext(
+                        engine = currentPlayer,
+                        itemIndex = index,
+                        itemId = item?.id,
+                        serverId = item?.serverId,
+                        versionId = item?.versionId,
+                        streamUrl = item?.url,
+                        engineGeneration = build.engineGeneration,
+                        runtimeSessionGeneration = build.runtimeSessionGeneration,
+                        castRevision = cast.sessionRevision,
+                        castDeviceId = cast.activeDeviceId,
+                        castQueueIndex =
+                            cast.currentQueueIndex.takeIf {
+                                cast.hasActiveSession || cast.status == CastPlaybackStatus.Connecting
+                            },
+                        casting = cast.hasActiveSession || cast.status == CastPlaybackStatus.Connecting,
+                    )
+                }
+            }
+        DisposableEffect(gestures) {
+            onDispose { gestures.invalidate() }
+        }
         val castStateSource = remember(liveCastState) { derivedStateOf { liveCastState.value.copy(positionMs = 0L) } }
         val castState by castStateSource
+        // Freeze the media owner once this receiver session has caught up with the local queue.
+        // Later line/engine changes must not accept that session's old disconnect response.
+        var castHandoffContext by remember(castState.sessionRevision, castState.currentQueueIndex) {
+            mutableStateOf<Any?>(null)
+        }
+        SideEffect {
+            if (
+                castHandoffContext == null &&
+                (castState.hasActiveSession || castState.status == CastPlaybackStatus.Connecting) &&
+                localState.currentIndex == castState.currentQueueIndex
+            ) {
+                castHandoffContext = gestures.localMediaKey
+            }
+        }
         // The controls' proposed seeks, merged latest-wins before a receiver or the room sees them.
         LaunchedEffect(gestures, castManager, playbackGate) {
             gestures.deliverSeeks { positionMs ->
-                if (castState.hasActiveSession) {
+                if (castManager.state.value.hasActiveSession) {
                     castManager.seekTo(positionMs)
                 } else {
                     playbackGate.seekTo(positionMs)
@@ -854,9 +899,9 @@ internal fun PlayerRoot(
                     fallbackPositionMs = liveLocalState.value.positionMs,
                 ) ?: return@LaunchedEffect
             if (completedCastHandoffRevision == castState.sessionRevision) return@LaunchedEffect
-            player.seekTo(decision.positionMs)
-            if (decision.resumePlayback) player.play() else player.pause()
             completedCastHandoffRevision = castState.sessionRevision
+            if (castHandoffContext != gestures.localMediaKey) return@LaunchedEffect
+            if (!playbackGate.restoreLocalPlayback(decision.positionMs, decision.resumePlayback)) return@LaunchedEffect
             Toast
                 .makeText(
                     context,
@@ -1080,8 +1125,6 @@ internal fun PlayerRoot(
             onPlaybackRequestChanged = sourceSwitchCoordinator::invalidate,
         )
         val latestState by livePlayback
-        val latestActiveItemsSource = rememberUpdatedState(activeItems)
-        val latestActiveItems by latestActiveItemsSource
 
         fun sourceSwitchContext(): PlaybackSourceSwitchContext {
             val index = latestState.currentIndex
@@ -1272,6 +1315,10 @@ internal fun PlayerRoot(
             currentItemId = currentItem?.id,
             handoverItemId = choices.handoverItemId,
             requestedSpeed = { gestures.boost ?: choices.requestedPlaybackSpeed },
+            canApplySpeed = {
+                !playbackGate.locked &&
+                    castManager.state.value.let { !it.hasActiveSession && it.status != CastPlaybackStatus.Connecting }
+            },
             audioRestore = choices.audioRestore,
             subtitleRestore = choices.subtitleRestore,
             secondarySubtitleRestore = choices.secondarySubtitleRestore,
@@ -1340,6 +1387,7 @@ internal fun PlayerRoot(
             index: Int,
             positionMs: Long,
         ): Boolean {
+            gestures.invalidate()
             val loaded = loadPlaybackCastItem(castManager, latestActiveItems, deviceId, index, positionMs)
             if (!loaded) return false
             if (localState.currentIndex != index) {

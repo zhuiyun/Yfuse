@@ -1,0 +1,119 @@
+{
+  "checkedAt": "2026-10-10T10:16:47.035605+08:00",
+  "sourceBase": "6a70a9fa47bd24a3997db1ce2eeb68d3a6ebaa1a",
+  "userSelected": "maximum 1 GiB memory queue and 5-minute read-ahead",
+  "changedFiles": [
+    "composeApp/src/androidMain/AndroidManifest.xml",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNode.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidForwardCacheWarmer.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeEnhancedYPlayer.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudget.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNodeTest.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudgetTest.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidProxyFileProtocolTest.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/data/PlaybackPreferences.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core2/network/YBufferController.kt",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/data/PlaybackPreferencesTest.kt",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core2/network/YBufferControllerTest.kt",
+    "tvApp/src/androidMain/AndroidManifest.xml",
+    "tvApp/src/androidMain/kotlin/com/yfuse/tv/TvApplication.kt"
+  ],
+  "sha256": {
+    "composeApp/src/androidMain/AndroidManifest.xml": "3ff7f0acfde76767f4bfa3967b751f7a557f97c387e5397f9bc091db36468f15",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNode.kt": "db01f10cc82458c75fe908287b83edf685c971dcdd6e121b036a205b2c242432",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt": "7f4e05db7d46cc9c628773fdeee3124aa95d4915f149b1d83a1d992c72ffd1b8",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidForwardCacheWarmer.kt": "c321ad5da864301f74f11abc8a7ffba3993505befdacb764a9d8e3438febd2e2",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeEnhancedYPlayer.kt": "37a0cda00ab680d16242e210892c7b6724beaffaf18cb5de4b1dc9e72753b1f7",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudget.kt": "f23134222c25da2eda6dbb6823697c252e5e41aaef3a93250d9076061479738b",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt": "6e49c65ed6ea4e9fb23764a4ccb5a664ecfdb4bf3a9b8f3ab01bab51901d6dd2",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNodeTest.kt": "abeab73c50688e892bdec2e3d62fb2560f22c06c34d96bf7737d4521c1435061",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudgetTest.kt": "4b20490e5481ff1bc88808245c9406843220fadede6fb59e8ec343b72b98db32",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidProxyFileProtocolTest.kt": "f2c016904f64f902cb3d6c5d906c087e72b3a0081140e17846aa30cf27139436",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/data/PlaybackPreferences.kt": "6342c97bc4fd7c4962204b0ba819d98f1e6ace7e652c69536cd5c630670a0edf",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core2/network/YBufferController.kt": "87b14700e4ec4e8fd031db8678a25092c41aad7268e251d2835741008b0fdd86",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/data/PlaybackPreferencesTest.kt": "13c2f959147baaba18146cef799f32bd20266370fc154e5a4528be69550ed588",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core2/network/YBufferControllerTest.kt": "ee4a130b1a923a655daec34529daaf4b916362ea67cad5bd4f5ef440a0f4b9a1",
+    "tvApp/src/androidMain/AndroidManifest.xml": "db8882b2314abf1000ec1fddaa2589b4a11078d0e027ec9ae1b77204a91f59f3",
+    "tvApp/src/androidMain/kotlin/com/yfuse/tv/TvApplication.kt": "760fb497e922a99811e821ec86232036ccf11df16a2c17b599a7a5bdadc42016"
+  },
+  "policy": {
+    "normalPoolMaximumMiB": 2048,
+    "normalHeapFraction": "1/2",
+    "heapLimitSource": "Runtime.maxMemory (includes platform-granted large heap)",
+    "lowRamPoolMaximumMiB": 32,
+    "lowRamHeapFraction": "1/5",
+    "minimumPoolMiB": 12,
+    "enhancedDemuxMaximumMiB": 1024,
+    "unknownBitrateDemuxDefaultMiB": 256,
+    "queueMaximumMediaTimeSeconds": 300,
+    "automaticQueueTargetsWallSeconds": {
+      "healthy": 30,
+      "initial": 60,
+      "unknownBitrate": 60,
+      "narrowThroughputMargin": 90,
+      "underThroughputPressure": 120
+    },
+    "defaultForwardCacheWallSeconds": 300,
+    "defaultVideoDiskCacheGiB": 4,
+    "explicitExistingCacheSettingsPreserved": true,
+    "largeHeapRequested": [
+      "phone",
+      "tv"
+    ],
+    "tvPoolInitializationAndPressureHooks": true,
+    "memoryPressureHalvesPoolAndDropsSpeculation": true,
+    "demuxShareWeight": 6,
+    "effectiveBudgetQuantumMiB": 4,
+    "budgetGrowthReplanIntervalNs": 2000000000,
+    "budgetShrinkReplansImmediately": true,
+    "queueTimeSpansIndexed": true
+  },
+  "theoreticalAtDiagnosticBitrate": {
+    "bitsPerSecond": 78938975,
+    "oneGiBCompressedSeconds": 108.81740726934952,
+    "fiveMinutesBytes": 2960211562.5,
+    "fiveMinutesGiB": 2.7569118537940085
+  },
+  "checks": {
+    "ktlintChangedKotlinFiles": 14,
+    "gitDiffCheck": "passed",
+    "fullHostTests": {
+      "phoneShared": {
+        "tests": 4718,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tvShared": {
+        "tests": 117,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "mergedManifests": [
+      {
+        "module": "composeApp",
+        "path": "composeApp/build/intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml",
+        "sha256": "a82959d20fda155fa806506fbd9ce5b23c9c1fd71f834db518b90525821ba5d2",
+        "applicationName": "com.yfuse.shell.PhoneApplication",
+        "largeHeap": "true",
+        "modified": 1791598391.633422
+      },
+      {
+        "module": "tvApp",
+        "path": "tvApp/build/intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml",
+        "sha256": "ea8760adf70166d8c49a9bef6faba572dc4c8477d6b0c61e2981a4da51bc40fd",
+        "applicationName": "com.yfuse.shell.TvApplicationShell",
+        "largeHeap": "true",
+        "modified": 1791598305.9639823
+      }
+    ]
+  },
+  "apkBuilt": false,
+  "devicePlaybackRetested": false,
+  "versionName": "1.1.7",
+  "versionCode": 269
+}

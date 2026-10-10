@@ -133,6 +133,7 @@ private fun TvSettingsPageContent(
                 onOpen = onOpen,
             )
         TvSettingsPage.Personal,
+        TvSettingsPage.ViewingStatistics,
         TvSettingsPage.Family,
         TvSettingsPage.SyncStatus,
         TvSettingsPage.Handoff,
@@ -323,6 +324,7 @@ private fun TvSettingsRootPage(
         }
         listOf(
             TvSettingsPage.Personal,
+            TvSettingsPage.ViewingStatistics,
             TvSettingsPage.Family,
             TvSettingsPage.SyncStatus,
             TvSettingsPage.Handoff,
@@ -344,6 +346,7 @@ private fun TvSettingsRootPage(
                     icon =
                         when (target) {
                             TvSettingsPage.Personal -> AppIcons.Heart
+                            TvSettingsPage.ViewingStatistics -> AppIcons.WatchCalendar
                             TvSettingsPage.PhoneRemote -> AppIcons.Cast
                             else -> AppIcons.User
                         },
@@ -587,6 +590,7 @@ private fun TvSettingsRootPage(
 private val tvSettingsKeywords: Map<TvSettingsPage, String> =
     mapOf(
         TvSettingsPage.Personal to "想看 收藏 观看 历史 清单 我的",
+        TvSettingsPage.ViewingStatistics to "观影 统计 时长 天数 电影 剧集 日历 趋势 回顾",
         TvSettingsPage.Family to "家庭 用户 儿童 资料 新建 家长 PIN 隔离",
         TvSettingsPage.SyncStatus to "同步 状态 重试 合并 冲突 恢复",
         TvSettingsPage.Handoff to "接力 设备 手机 平板 电视 转移",

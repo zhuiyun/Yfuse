@@ -1,0 +1,55 @@
+{
+  "suites": [
+    {
+      "name": "com.yfuse.core2.android.AndroidDemuxReadAheadBufferTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:24:08.715Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidDemuxReadAheadNodeTest",
+      "tests": "11",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:24:08.763Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidPlaybackMemoryBudgetTest",
+      "tests": "7",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:24:08.817Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidPlaybackStagingBufferTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:24:08.820Z"
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidTransportMemoryPressureTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:24:08.824Z"
+    },
+    {
+      "name": "com.yfuse.core2.network.YBufferControllerTest",
+      "tests": "16",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-10T01:24:08.912Z"
+    }
+  ],
+  "tests": 42,
+  "failures": 0,
+  "errors": 0
+}

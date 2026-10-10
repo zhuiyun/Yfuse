@@ -267,6 +267,7 @@ class AppModuleGraphTest {
                 "Singleton com.yfuse.core.data.DiagnosticPreferences",
                 "Singleton com.yfuse.core.data.CalendarLocalStore",
                 "Singleton com.yfuse.core.security.VaultCrypto",
+                "Singleton com.yfuse.core.personal.LocalViewingStore",
                 "Singleton com.yfuse.core.personal.PersonalLibraryRepository",
                 "Singleton com.yfuse.core.data.ServerRegistry",
                 "Singleton com.yfuse.core.filesource.FileSourceRegistry",

@@ -375,11 +375,12 @@ class PersonalLibraryRepository(
         collection: PersonalCollection,
         media: PersonalMediaRef,
     ): PersonalEntry? =
-        snapshot.entries.firstOrNull {
-            it.profileId == activeId &&
-                it.collection == collection &&
-                it.media.identity == media.identity
-        }
+        snapshot.entries
+            .filter {
+                it.profileId == activeId &&
+                    it.collection == collection &&
+                    it.media.identity == media.identity
+            }.maxWithOrNull(compareBy<PersonalEntry> { it.stamp }.thenBy { it.deleted }.thenBy { it.toString() })
 
     private fun putEntry(
         entry: PersonalEntry,
@@ -465,7 +466,16 @@ class PersonalLibraryRepository(
         val profiles = snapshot.profiles.filterNot { it.deleted }
         // Deleting the active profile on another device must not silently unlock the adult profile.
         val active = profiles.firstOrNull { it.id == activeId } ?: PersonalProfile(activeId, "资料已停用", child = true)
-        val entries = snapshot.entries.filter { it.profileId == activeId && !it.deleted }
+        val entries =
+            snapshot.entries
+                .filter { it.profileId == activeId }
+                .groupBy { it.identity }
+                .values
+                .map { versions ->
+                    versions.maxWith(
+                        compareBy<PersonalEntry> { it.stamp }.thenBy { it.deleted }.thenBy { it.toString() },
+                    )
+                }.filterNot { it.deleted }
         settings.putBoolean(pendingKey(), pending)
         val nextPolicy = PersonalAccessPolicy(active.id, active.child, active.serverIds)
         if (_policy.value != nextPolicy || publishedPin != snapshot.guardianPin) generation++

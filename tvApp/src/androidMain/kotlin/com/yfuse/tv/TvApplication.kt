@@ -36,6 +36,7 @@ import com.yfuse.core.security.ServerSessionRecovery
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.util.androidAppContext
 import com.yfuse.core.util.imageCacheContext
+import com.yfuse.core2.android.AndroidPlaybackMemoryBudget
 import com.yfuse.di.appModule
 import com.yfuse.feature.player.AndroidNativeCrashMonitor
 import com.yfuse.feature.player.AndroidPlaybackSourcePreloader
@@ -82,6 +83,7 @@ open class TvApplication :
 
     override fun onCreate() {
         super.onCreate()
+        AndroidPlaybackMemoryBudget.initialize(this)
         imageCacheContext = this
         androidAppContext = this
         offlineApplicationContext = this
@@ -161,11 +163,13 @@ open class TvApplication :
                 ProcessLifecycleOwner.get().lifecycle.addObserver(
                     object : DefaultLifecycleObserver {
                         override fun onStart(owner: LifecycleOwner) {
+                            AndroidPlaybackMemoryBudget.setBackground(false)
                             graph.setAppForeground(true)
                             CastConnectReceiverBridge.start()
                         }
 
                         override fun onStop(owner: LifecycleOwner) {
+                            AndroidPlaybackMemoryBudget.setBackground(true)
                             graph.setAppForeground(false)
                             CastConnectReceiverBridge.stop()
                         }
@@ -184,7 +188,11 @@ open class TvApplication :
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            AndroidPlaybackMemoryBudget.setBackground(true)
             notifyPlaybackAppBackground()
+        }
+        if (level in ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW..ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            AndroidPlaybackMemoryBudget.trim()
         }
     }
 

@@ -1,0 +1,30 @@
+[
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/CalendarFollowStore.kt",
+    "sha256": "6fce3e916acf7455e18e9e86e83f4b5134e725ff26aad2a2d70aba41f9523482"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/OfficialAiringScheduleCatalog.kt",
+    "sha256": "06da046faa9a0112d70ee0bc0a10c963538c5e1295b1df5e0926fc2b6e1bf297"
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/calendar/CalendarReminderWorker.kt",
+    "sha256": "3018ace1ff7ffba8a4ec49239916179739d8959ca65fc3c9f125d5f2caa590b0"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/CalendarFollowStoreTest.kt",
+    "sha256": "c2ca483e7461ee853323bdaf799ec975b5e541ab71c426ea7d150b1ed4d156f6"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/CalendarReminderSubscriptionTest.kt",
+    "sha256": "1c86abaaf5740f7bf5e05ff9f4803c244947348c540ec8f5990401ceffc45b85"
+  },
+  {
+    "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/OfficialAiringScheduleCatalogTest.kt",
+    "sha256": "d0d4396c92ace6b9acbc208eba4a4dca231abddbbe4ed1fc811b9210fac06cd7"
+  },
+  {
+    "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarScreen.kt",
+    "sha256": "4f816ccac929c35b403ba28b5d5271aae7451be259f8caf5dcb726a29a9baad1"
+  }
+]

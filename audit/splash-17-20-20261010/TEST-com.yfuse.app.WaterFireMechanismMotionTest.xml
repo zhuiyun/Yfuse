@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.app.WaterFireMechanismMotionTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-10T10:30:17.352Z" hostname="DESKTOP-HM2J0FM" time="0.006">
+  <properties/>
+  <testcase name="each_design_finishes_before_the_hand_off_and_reduced_motion_does_not_play_it" classname="com.yfuse.app.WaterFireMechanismMotionTest" time="0.005"/>
+  <testcase name="folded_paper_starts_on_one_pivot_ray_and_finishes_without_gaps_or_rotation" classname="com.yfuse.app.WaterFireMechanismMotionTest" time="0.001"/>
+  <testcase name="scan_lights_from_bottom_to_top_and_closes_every_band_before_launch_fades" classname="com.yfuse.app.WaterFireMechanismMotionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

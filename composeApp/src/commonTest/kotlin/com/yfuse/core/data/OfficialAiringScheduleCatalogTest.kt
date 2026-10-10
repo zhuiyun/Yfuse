@@ -10,6 +10,8 @@ import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.ShowOrigin
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -179,6 +181,57 @@ class OfficialAiringScheduleCatalogTest {
         val kept = catalog.validate(OfficialSchedulePayload(listOf(utc)), PUBLISHED_REVISION)
 
         assertEquals(listOf(3), kept.map { it.tmdbId })
+    }
+
+    @Test
+    fun removed_broadcast_time_is_announced_as_pending_instead_of_null() {
+        assertEquals(
+            "播出时间由 22:00 调整为 待公布",
+            scheduleBroadcastTimeChangeMessage("22:00", "Asia/Shanghai", null, null),
+        )
+    }
+
+    @Test
+    fun newly_announced_broadcast_time_has_a_readable_previous_value() {
+        assertEquals(
+            "播出时间由 待公布 调整为 20:00",
+            scheduleBroadcastTimeChangeMessage(null, null, "20:00", "Asia/Shanghai"),
+        )
+    }
+
+    @Test
+    fun changed_zone_is_visible_even_when_the_clock_time_stays_the_same() {
+        assertEquals(
+            "播出时间由 22:00（UTC） 调整为 22:00（Asia/Shanghai）",
+            scheduleBroadcastTimeChangeMessage("22:00", "UTC", "22:00", "Asia/Shanghai"),
+        )
+    }
+
+    @Test
+    fun unchanged_time_and_zone_do_not_generate_a_change() {
+        assertNull(scheduleBroadcastTimeChangeMessage("22:00", "UTC", "22:00", "UTC"))
+        assertNull(scheduleBroadcastTimeChangeMessage(null, null, null, null))
+    }
+
+    @Test
+    fun cached_old_change_messages_also_replace_literal_null() {
+        val settings = MapSettings()
+        settings.putString(
+            "calendar.official.changes.v1",
+            Json.encodeToString(
+                ListSerializer(OfficialScheduleChange.serializer()),
+                listOf(OfficialScheduleChange(1, "测试剧", "播出时间由 22:00 调整为 null", "2026-10-10-r1", 1L)),
+            ),
+        )
+        val cachedCatalog =
+            OfficialAiringScheduleCatalog(
+                client = HttpClient(MockEngine { error("Unexpected remote refresh") }),
+                settings = settings,
+            )
+
+        val change = cachedCatalog.recentChanges().single()
+        assertEquals("播出时间由 22:00 调整为 待公布", change.displayMessage)
+        assertEquals("播出时间由 22:00 调整为 null", change.message)
     }
 
     private fun publishedSchedule(

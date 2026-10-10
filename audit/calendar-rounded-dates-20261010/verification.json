@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-10",
+  "request": "采用圆角日期块方案",
+  "status": "passed",
+  "source": "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/ShowScheduleCard.kt",
+  "sourceSha256": "db786d757eeee0804d2783c4cf362fa559376312a9724022b1399f8c7e0062af",
+  "checks": {
+    "ktlint": "passed",
+    "phoneSharedCompile": "passed",
+    "tvSharedCompile": "passed",
+    "diffCheck": "passed",
+    "testSuite": "com.yfuse.feature.calendar.ShowScheduleTest",
+    "tests": 12,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "apkGenerated": false,
+  "deviceVisualValidation": false
+}

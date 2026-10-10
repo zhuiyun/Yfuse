@@ -1,0 +1,161 @@
+{
+  "verifiedAtUtc": "2026-10-10T10:34:03.234841+00:00",
+  "effects": [
+    "17 全息扫描成型",
+    "18 大理石纹成型",
+    "19 折扇成型",
+    "20 多米诺成型"
+  ],
+  "waterFireOptions": 16,
+  "tests": [
+    {
+      "suite": "com.yfuse.app.WaterFireMechanismMotionTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.yfuse.app.SplashTimingPolicyTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.yfuse.core.data.SplashSelectionTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.yfuse.core.data.ThemePreferencesTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.yfuse.core.sync.CloudSyncSnapshotTest",
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "compile": "passed",
+  "ktlint": "passed",
+  "referenceDominoSamples": 231,
+  "referenceSamplesExact": true,
+  "nativeRendering": {
+    "androidApi": 28,
+    "frames": 180,
+    "method": "app_process runs production Canvas renderer and motion source, with standalone artwork loading and original math helpers",
+    "installedApk": false,
+    "appUiTested": false
+  },
+  "finalLogoPixelDifference": {
+    "Hologram": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "Marble": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "Fan": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        0
+      ]
+    ]
+  },
+  "visualEvidence": [
+    "contact-sheet.png",
+    "preview.gif"
+  ],
+  "sourceFiles": [
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Theme.kt",
+      "sha256": "bb4f87f66b99f04ef39e290cc69e70b3fcd26be9a314badd51bc378928938faa"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/app/SplashChoreography.kt",
+      "sha256": "912df04f163901219a1397d67af5fb449ae0fab14b0e79e61b04b14827637896"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/app/WaterFireSplash.kt",
+      "sha256": "30fc47433261f4f18e8cc562039f43a8d4560d09c6f45eb10a52d6e756c5820c"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/app/WaterFireMechanisms.kt",
+      "sha256": "f54e98ef5428e40911966892a648e824bb685391e54580405d510760e66b1169"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/app/WaterFireMechanismMotion.kt",
+      "sha256": "b5997f78a2601d0cbf6fd53f1b52aa28c730bdeef85b78d02ea775e4110ac7da"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/app/WaterFireMechanismMotionTest.kt",
+      "sha256": "64a3f959395cfe5c6295ab72aafdb7f1d34ee2b3a09304c4d13541cf53782662"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/SplashSelectionTest.kt",
+      "sha256": "eb6ba505482c05aa60f5c2c781b551ab33db2a556afed7b7bc3f72479da99a1a"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/sync/CloudSyncSnapshotTest.kt",
+      "sha256": "f3d5167f57325b3d47134e3beba1741d55faccc1274ff5c83b918efd28a9646e"
+    },
+    {
+      "path": "composeApp/src/androidMain/res/raw/water_fire_domino.csv",
+      "sha256": "2763b5cc6b5157808e2b96eff08ad984b8a516274e8218c5b7eaa24475940d04"
+    },
+    {
+      "path": "scripts/launcher_icons/import_splash_artwork.py",
+      "sha256": "74e8b3892dc78871cae9fc7f992890e358bece622a8e4227100e6651a3c5d176"
+    }
+  ],
+  "releaseBuilt": false
+}

@@ -1,0 +1,324 @@
+{
+  "apk": "D:\\Demo\\Yfuse\\artifacts-local\\releases\\schedule-1.1.7-269\\Yfuse-1.1.7-full-arm64.apk",
+  "apkSha256": "760311d02b6418c007d01c53d3464dec45da54f3f824f0936529e0a06dc6948a",
+  "dex": [
+    "classes.dex",
+    "classes2.dex"
+  ],
+  "libraries": {
+    "libandroidx.graphics.path.so": {
+      "bytes": 10096,
+      "sha256": "41e9a793c43a0f4fddb19e33f346bace464f30f888ba7b9eaf96294ea115bfb6",
+      "needed": [
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    "libass.so": {
+      "bytes": 1345872,
+      "sha256": "e55c83c3d9bcb7d1bfd62d1ba3aa3c0e9bc796861dd9cf145e73a75017075266",
+      "needed": [
+        "liblog.so",
+        "libz.so",
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    "libavcodec.so": {
+      "bytes": 12044032,
+      "sha256": "2440fc79482e7ab4e40ba2f3e9fb7ba10f196935b39566c636e866e0dcdeb42c",
+      "needed": [
+        "libswresample.so",
+        "libavutil.so",
+        "libm.so",
+        "libz.so",
+        "libandroid.so",
+        "libmediandk.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    "libavdevice.so": {
+      "bytes": 9096,
+      "sha256": "c67959777c8137a98825e7e63bfd8e555090781c66b34c9d0053e54869110c08",
+      "needed": [
+        "libavformat.so",
+        "libavutil.so",
+        "libc.so"
+      ]
+    },
+    "libavfilter.so": {
+      "bytes": 138240,
+      "sha256": "d9736182d803c460569b4fae9fb0d588a6e02f71f213ec000641521a07cf7d28",
+      "needed": [
+        "libavutil.so",
+        "libc.so"
+      ]
+    },
+    "libavformat.so": {
+      "bytes": 3032992,
+      "sha256": "ee3fb014d6d12ff54e658fc1ae70dfcaae55d0259a34b46e4fc3cb2a41f773dc",
+      "needed": [
+        "libavcodec.so",
+        "libavutil.so",
+        "libm.so",
+        "libz.so",
+        "libc.so"
+      ]
+    },
+    "libavutil.so": {
+      "bytes": 741944,
+      "sha256": "2d2ab7b3071f9e4643f67ba65170f7290d821aa80e8b14dfcc356a15c493c47a",
+      "needed": [
+        "libm.so",
+        "libandroid.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    "libc++_shared.so": {
+      "bytes": 1374336,
+      "sha256": "c4c2fe5cbcb1fba0003a31fc7ab29a9bb12df6cc187ec45a806462540e83d93b",
+      "needed": [
+        "libc.so",
+        "libm.so",
+        "libdl.so"
+      ]
+    },
+    "libdav1d.so": {
+      "bytes": 612472,
+      "sha256": "290bbf17d72e0b50edfcc974b2dc7fa6d7106b82dbca3e68df8351a55bcd287b",
+      "needed": [
+        "libc.so"
+      ]
+    },
+    "libffmpeg.so": {
+      "bytes": 8003848,
+      "sha256": "7942b55e7950c32e0fcd5532f0af2435e43e22491a75e7609b2b63210104f371",
+      "needed": [
+        "libm.so",
+        "libandroid.so",
+        "libmediandk.so",
+        "libz.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    "libimage_processing_util_jni.so": {
+      "bytes": 32528,
+      "sha256": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2",
+      "needed": [
+        "liblog.so",
+        "libandroid.so",
+        "libjnigraphics.so",
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    "libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575",
+      "needed": [
+        "liblog.so",
+        "libOpenSLES.so",
+        "libdl.so",
+        "libmediandk.so",
+        "libandroid.so",
+        "libm.so",
+        "libc++_shared.so",
+        "libc.so"
+      ]
+    },
+    "libmpv.so": {
+      "bytes": 6946680,
+      "sha256": "d06566edd8dd09c7419f61f9888d2f29e5e186ff578f8a984f1c968cab7baee6",
+      "needed": [
+        "libm.so",
+        "libz.so",
+        "libdl.so",
+        "libavcodec.so",
+        "libavfilter.so",
+        "libavformat.so",
+        "libavutil.so",
+        "libc++_shared.so",
+        "libswresample.so",
+        "libswscale.so",
+        "libandroid.so",
+        "libavdevice.so",
+        "libOpenSLES.so",
+        "libEGL.so",
+        "libc.so"
+      ]
+    },
+    "libplayer.so": {
+      "bytes": 20288,
+      "sha256": "2a5b828f3da71049c7603d6432fce50af7ca2286c33e70028bbcf466ead09005",
+      "needed": [
+        "libmpv.so",
+        "libavcodec.so",
+        "liblog.so",
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    "libsurface_util_jni.so": {
+      "bytes": 4896,
+      "sha256": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba",
+      "needed": [
+        "libandroid.so",
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    "libswresample.so": {
+      "bytes": 97768,
+      "sha256": "59a2c9dbd713db7e4a17949b85334873745bf0183a2686300068093fe5b57ee0",
+      "needed": [
+        "libavutil.so",
+        "libm.so",
+        "libc.so"
+      ]
+    },
+    "libswscale.so": {
+      "bytes": 1247552,
+      "sha256": "48782396b8c8993a7bb72990b87cd460e57f65d3e69c26c9e04031b0ef9f43e8",
+      "needed": [
+        "libavutil.so",
+        "libm.so",
+        "libc.so"
+      ]
+    },
+    "libycore_demux.so": {
+      "bytes": 3614832,
+      "sha256": "5035f0d2f1704875dcdb2c7dfc01bce3294a0702a061a67a14613b48e39ba3fd",
+      "needed": [
+        "libavformat.so",
+        "libavcodec.so",
+        "libswscale.so",
+        "libswresample.so",
+        "libavutil.so",
+        "libm.so",
+        "libz.so",
+        "libdl.so",
+        "libc++_shared.so",
+        "libc.so"
+      ]
+    },
+    "libycore_gpu.so": {
+      "bytes": 108360,
+      "sha256": "ccaa620b53d59902b05905f50ef0e7a525a2455ce2e4e92eb511109f32495102",
+      "needed": [
+        "libandroid.so",
+        "libvulkan.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    "libyfuse-mdk-jni.so": {
+      "bytes": 1191008,
+      "sha256": "8c3fdfef2629af11a999325b21864ad2d262879d61065e282abab73a5f3dd7a5",
+      "needed": [
+        "libmdk.so",
+        "liblog.so",
+        "libandroid.so",
+        "libffmpeg.so",
+        "libass.so",
+        "libdav1d.so",
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    }
+  },
+  "engines": {
+    "mpv": {
+      "entryLibraries": [
+        "libplayer.so",
+        "libmpv.so"
+      ],
+      "loadOrder": [
+        "libavutil.so",
+        "libswresample.so",
+        "libavcodec.so",
+        "libavfilter.so",
+        "libavformat.so",
+        "libc++_shared.so",
+        "libswscale.so",
+        "libavdevice.so",
+        "libmpv.so",
+        "libplayer.so"
+      ],
+      "externalDependencies": [
+        "libEGL.so",
+        "libOpenSLES.so",
+        "libandroid.so",
+        "libc.so",
+        "libdl.so",
+        "liblog.so",
+        "libm.so",
+        "libmediandk.so",
+        "libz.so"
+      ]
+    },
+    "mdk": {
+      "entryLibraries": [
+        "libffmpeg.so",
+        "libmdk.so",
+        "libyfuse-mdk-jni.so",
+        "libdav1d.so"
+      ],
+      "loadOrder": [
+        "libffmpeg.so",
+        "libc++_shared.so",
+        "libmdk.so",
+        "libass.so",
+        "libdav1d.so",
+        "libyfuse-mdk-jni.so"
+      ],
+      "externalDependencies": [
+        "libOpenSLES.so",
+        "libandroid.so",
+        "libc.so",
+        "libdl.so",
+        "liblog.so",
+        "libm.so",
+        "libmediandk.so",
+        "libz.so"
+      ]
+    },
+    "ycore": {
+      "entryLibraries": [
+        "libycore_demux.so",
+        "libycore_gpu.so"
+      ],
+      "loadOrder": [
+        "libavutil.so",
+        "libswresample.so",
+        "libavcodec.so",
+        "libavformat.so",
+        "libswscale.so",
+        "libc++_shared.so",
+        "libycore_demux.so",
+        "libycore_gpu.so"
+      ],
+      "externalDependencies": [
+        "libandroid.so",
+        "libc.so",
+        "libdl.so",
+        "libm.so",
+        "libmediandk.so",
+        "libvulkan.so",
+        "libz.so"
+      ]
+    }
+  }
+}

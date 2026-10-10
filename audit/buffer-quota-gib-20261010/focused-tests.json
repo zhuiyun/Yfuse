@@ -1,0 +1,402 @@
+{
+  "totals": {
+    "tests": 78,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suites": [
+    {
+      "name": "com.yfuse.core.data.PlaybackPreferencesTest",
+      "tests": 22,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.13,
+      "cases": [
+        {
+          "name": "ycore_native_only_requires_automatic_engine_selection",
+          "timeSeconds": 0.041
+        },
+        {
+          "name": "stale_native_only_value_is_cleared_when_a_locked_engine_is_restored",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "anime4k_is_opt_in_and_survives_restart",
+          "timeSeconds": 0.001
+        },
+        {
+          "name": "double_tap_and_unlock_choices_survive_restart",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "ycore_device_quirks_are_bounded_and_persist_without_media_identity",
+          "timeSeconds": 0.024
+        },
+        {
+          "name": "source_preheat_defaults_to_wifi_and_mobile_and_survives_restart",
+          "timeSeconds": 0.001
+        },
+        {
+          "name": "media_version_preference_defaults_to_hdr_and_persists",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "smart_source_defaults_on_and_persists_off",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "forward_cache_defaults_to_four_gibibytes_and_preserves_explicit_smaller_or_disabled_limits",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "ambient_light_defaults_on_and_persists_off",
+          "timeSeconds": 0.001
+        },
+        {
+          "name": "ycore_optimization_mode_defaults_balanced_and_persists",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "ycore_performance_baselines_are_bounded_and_private",
+          "timeSeconds": 0.005
+        },
+        {
+          "name": "gesture_settings_default_to_the_old_behaviour_and_survive_restart",
+          "timeSeconds": 0.001
+        },
+        {
+          "name": "series_playback_memory_is_bounded_and_evicts_the_oldest_choice",
+          "timeSeconds": 0.034
+        },
+        {
+          "name": "ycore_native_only_defaults_off_and_cannot_outlive_the_core2_switch",
+          "timeSeconds": 0.001
+        },
+        {
+          "name": "a_film_keeps_its_choices_under_its_own_id_and_never_leaks_into_a_series",
+          "timeSeconds": 0.001
+        },
+        {
+          "name": "ycore_engine_selection_defaults_to_auto_and_persists_a_lock",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "series_playback_is_server_scoped_persistent_and_normalized",
+          "timeSeconds": 0.014
+        },
+        {
+          "name": "ycore_buffer_duration_defaults_to_auto_and_persists",
+          "timeSeconds": 0.001
+        },
+        {
+          "name": "detail_theme_song_defaults_off_and_persists_on",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "playback_output_preferences_default_off_and_persist",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "ycore2_defaults_on_and_persists_opt_out",
+          "timeSeconds": 0.0
+        }
+      ]
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidDemuxReadAheadNodeTest",
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.183,
+      "cases": [
+        {
+          "name": "blocking_demux_reads_run_off_the_codec_pump_thread",
+          "timeSeconds": 0.038
+        },
+        {
+          "name": "queue_diagnostics_distinguish_missing_audio_from_video_reserve",
+          "timeSeconds": 0.002
+        },
+        {
+          "name": "lease_shrink_and_recovery_replan_without_being_capped_by_the_previous_queue_limit",
+          "timeSeconds": 0.002
+        },
+        {
+          "name": "buffering_observes_read_failure_without_consuming_packets",
+          "timeSeconds": 0.006
+        },
+        {
+          "name": "indexed_queue_duration_preserves_duplicate_and_reordered_timestamps_when_packets_are_removed",
+          "timeSeconds": 0.001
+        },
+        {
+          "name": "prepared_demux_adoption_never_repeats_open",
+          "timeSeconds": 0.001
+        },
+        {
+          "name": "refill_request_at_owner_exit_survives_without_another_consumer_poll",
+          "timeSeconds": 0.005
+        },
+        {
+          "name": "high_bitrate_queue_can_fill_past_128_mib_and_thirty_seconds",
+          "timeSeconds": 0.006
+        },
+        {
+          "name": "seek_discards_prefetched_samples_before_refilling",
+          "timeSeconds": 0.006
+        },
+        {
+          "name": "subtitle_result_is_ready_without_waiting_for_the_next_blocking_network_read",
+          "timeSeconds": 0.004
+        },
+        {
+          "name": "backpressured_video_does_not_hide_audio_or_reorder_video_packets",
+          "timeSeconds": 0.001
+        },
+        {
+          "name": "future_subtitle_memory_pressure_does_not_hold_av_packets_behind_the_shared_queue",
+          "timeSeconds": 0.004
+        },
+        {
+          "name": "minute_long_queue_with_many_small_packets_keeps_its_time_span_without_full_queue_scans",
+          "timeSeconds": 0.107
+        }
+      ]
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidForwardCacheWarmerTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.064,
+      "cases": [
+        {
+          "name": "an abandoned seek response is never written to disk",
+          "timeSeconds": 0.035
+        },
+        {
+          "name": "disk warming respects the window and skips cached blocks",
+          "timeSeconds": 0.029
+        }
+      ]
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidPlaybackMemoryBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.001,
+      "cases": [
+        {
+          "name": "small_heap_and_low_ram_devices_use_smaller_budgets",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "expired_trim_requires_both_foreground_and_recovered_heap",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "high_bitrate_demux_gets_more_reserve_without_exceeding_the_shared_pool",
+          "timeSeconds": 0.001
+        },
+        {
+          "name": "concurrent_players_share_one_ceiling_and_release_returns_capacity",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "gibibyte_queues_share_the_runtime_heap_budget_and_shrink_together_under_pressure",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "pressure_reclaims_speculation_and_halves_active_budget_then_recovers",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "os_trim_survives_heap_sampling_and_repeated_trim_extends_the_cooldown",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "planning_budget_rounds_down_and_preserves_small_positive_leases",
+          "timeSeconds": 0.0
+        }
+      ]
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidProxyFileProtocolTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.174,
+      "cases": [
+        {
+          "name": "the_document_transport_reads_from_any_offset",
+          "timeSeconds": 0.018
+        },
+        {
+          "name": "an_upstream_that_ignores_ranges_is_streamed_instead_of_refused",
+          "timeSeconds": 0.083
+        },
+        {
+          "name": "a_streamed_document_skips_forward_instead_of_seeking",
+          "timeSeconds": 0.015
+        },
+        {
+          "name": "an_unencoded_smb_path_is_served_with_its_login",
+          "timeSeconds": 0.005
+        },
+        {
+          "name": "documents_are_served_but_never_copied_into_the_block_cache",
+          "timeSeconds": 0.053
+        }
+      ]
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidTransportMemoryPressureTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.023,
+      "cases": [
+        {
+          "name": "paused_owner_snapshot_releases_completed_prefetch_and_speculation_resumes_after_recovery",
+          "timeSeconds": 0.022
+        },
+        {
+          "name": "owner_snapshot_discards_the_startup_slice_without_waiting_for_a_future_read",
+          "timeSeconds": 0.001
+        }
+      ]
+    },
+    {
+      "name": "com.yfuse.core2.android.AndroidTransportStartupAndResumeTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 8.531,
+      "cases": [
+        {
+          "name": "changed entity after a partial response cannot splice different versions",
+          "timeSeconds": 0.121
+        },
+        {
+          "name": "cold seek after reading the header bypasses an unfinished full block prefetch",
+          "timeSeconds": 0.012
+        },
+        {
+          "name": "unknown length probe returns without downloading the full first block",
+          "timeSeconds": 0.008
+        },
+        {
+          "name": "first cold read at a resume position does not download preceding block bytes",
+          "timeSeconds": 0.007
+        },
+        {
+          "name": "retry resumes only remaining bytes under the same strong entity tag",
+          "timeSeconds": 0.114
+        },
+        {
+          "name": "retry without a strong validator restarts the entire block",
+          "timeSeconds": 0.218
+        },
+        {
+          "name": "metadata reads beyond the first slice do not wait for a full speculative block",
+          "timeSeconds": 8.05
+        }
+      ]
+    },
+    {
+      "name": "com.yfuse.core2.network.YBufferControllerTest",
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timeSeconds": 0.003,
+      "cases": [
+        {
+          "name": "manual remote target overrides automatic network policy",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "a full variable bitrate queue cannot deadlock rebuffer recovery",
+          "timeSeconds": 0.001
+        },
+        {
+          "name": "local input never waits for the buffer gate",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "manual remote target still respects the memory budget",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "keeps local playback latency low",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "one gibibyte high bitrate reserve grows past twenty seconds without delaying startup",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "healthy playback decays starvation history while pauses do not",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "caps high bitrate remux buffering by memory budget",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "short remote input opens gate at end of input",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "grows remote target under throughput pressure",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "long rebuffer wait drops extra reserve but still requires base buffer",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "double speed accounts for network consumption and media time",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "repeated starvation increases recovery reserve without delaying startup or deadlocking a full queue",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "remote startup opens before the rebuffer watermark",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "automatic forward cache keeps five minutes while live startup stays short",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "large low bitrate memory target stays within the demux time ceiling at higher speed",
+          "timeSeconds": 0.001
+        },
+        {
+          "name": "five minutes stays on disk and does not delay the first frame",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "adaptive resume watermark updates without resetting a healthy gate",
+          "timeSeconds": 0.0
+        },
+        {
+          "name": "remote starvation pauses until buffer is rebuilt",
+          "timeSeconds": 0.0
+        }
+      ]
+    }
+  ]
+}

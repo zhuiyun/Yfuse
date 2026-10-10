@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.data.CalendarIdentityAmbiguousException
+import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.overlayAction
@@ -33,6 +36,7 @@ import com.yfuse.feature.detail.DetailIntent
 import com.yfuse.feature.detail.DetailState
 import com.yfuse.feature.detail.EpisodeProgressAction
 import com.yfuse.feature.detail.EpisodeSelectionPreset
+import com.yfuse.feature.detail.airingCalendarTmdbId
 import com.yfuse.tv.focus.requestFocusWhenAttached
 import com.yfuse.tv.focus.tvFocusScope
 import kotlinx.coroutines.launch
@@ -61,7 +65,14 @@ internal fun TvDetailMoreDialog(
     val firstRequester = remember { FocusRequester() }
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    val isSeries = detail.seriesId != null || state.seasons.isNotEmpty()
+    val isSeries = detail.type.equals("Series", ignoreCase = true)
+    val followed by component.dependencies.calendarFollowStore.followed
+        .collectAsState()
+    val isFollowed =
+        followed.any {
+            it.tmdbId == detail.airingCalendarTmdbId() ||
+                (it.seriesItemId == detail.id && it.serverId == (state.server?.id ?: component.serverId))
+        }
     val isPlex = state.server?.kind == MediaServerKind.Plex
 
     LaunchedEffect(Unit) { firstRequester.requestFocusWhenAttached() }
@@ -81,7 +92,7 @@ internal fun TvDetailMoreDialog(
 
             if (isSeries) {
                 TvSettingRow(
-                    title = "播出日历",
+                    title = "追更日历",
                     value = "",
                     stableId = "more:calendar",
                     focusMemory = focusMemory,
@@ -92,7 +103,7 @@ internal fun TvDetailMoreDialog(
                     focusRequester = firstRequester,
                 )
                 TvSettingRow(
-                    title = "加入追剧",
+                    title = if (isFollowed) "取消追更" else "加入追更",
                     value = "",
                     stableId = "more:follow",
                     focusMemory = focusMemory,
@@ -103,16 +114,22 @@ internal fun TvDetailMoreDialog(
                                 .toggleSeriesFollow(detail)
                                 .fold(
                                     onSuccess = { following ->
-                                        status = if (following) "已加入追剧" else "已取消追剧"
+                                        status = if (following) "已加入追更" else "已取消追更"
                                     },
-                                    onFailure = { status = "追剧设置失败：${it.message ?: "请重试"}" },
+                                    onFailure = {
+                                        if (it is CalendarIdentityAmbiguousException) {
+                                            openCalendar()
+                                        } else {
+                                            status = "追更设置失败：${it.message ?: "请重试"}"
+                                        }
+                                    },
                                 )
                             busy = false
                         }
                     },
                     icon = AppIcons.Bell,
                     focusScope = focusScope,
-                    subtitle = "更新时出现在追剧日历里",
+                    subtitle = "更新时出现在追更日历里",
                     enabled = !busy,
                 )
                 TvSettingRow(
@@ -295,18 +312,38 @@ internal fun TvAiringCalendarDialog(
     var days by remember { mutableStateOf<List<CalendarDay>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var reload by remember { mutableStateOf(0) }
+    var busy by remember { mutableStateOf(false) }
+    var candidates by remember { mutableStateOf<List<TmdbSeriesIdentityCandidate>>(emptyList()) }
+    val scope = rememberCoroutineScope()
+    val followed by component.dependencies.calendarFollowStore.followed
+        .collectAsState()
+    val isFollowed =
+        followed.any {
+            it.tmdbId == detail.airingCalendarTmdbId() ||
+                (
+                    it.seriesItemId == detail.id &&
+                        it.serverId == (
+                            component.store.state.server
+                                ?.id ?: component.serverId
+                        )
+                )
+        }
     val closeRequester = remember { FocusRequester() }
 
-    // 关闭 is the one control here; focused only once the schedule had loaded, it left the dialog
-    // with nothing focused for as long as that took.
+    // Keep an immediate dismissal target focused while the schedule and follow state load.
     LaunchedEffect(Unit) { closeRequester.requestFocusWhenAttached() }
-    LaunchedEffect(detail.id) {
+    LaunchedEffect(detail.id, reload) {
         loading = true
+        error = null
         component
             .loadSeriesAiringCalendar(detail, onPreview = { preview -> days = preview })
             .fold(
                 onSuccess = { days = it },
-                onFailure = { error = it.message ?: "无法读取播出日历" },
+                onFailure = {
+                    if (it is CalendarIdentityAmbiguousException) candidates = it.candidates
+                    error = it.message ?: "无法读取播出日历"
+                },
             )
         loading = false
     }
@@ -316,11 +353,46 @@ internal fun TvAiringCalendarDialog(
             Modifier.fillMaxWidth().tvFocusScope(trapFocus = true),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("播出日历", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.ExtraBold)
+            Text("追更日历", color = TvOnSurface, fontSize = TvType.section, fontWeight = FontWeight.ExtraBold)
             Text(detail.title, color = TvOnSurfaceMuted, fontSize = TvType.caption)
 
+            if (candidates.isNotEmpty()) {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 240.dp)) {
+                    candidates.forEach { candidate ->
+                        item(key = "airing:identity:${candidate.tmdbId}") {
+                            TvSettingRow(
+                                title = candidate.title,
+                                value = candidate.year?.toString().orEmpty(),
+                                stableId = "airing:identity:${candidate.tmdbId}",
+                                focusScope = focusScope,
+                                focusMemory = focusMemory,
+                                icon = AppIcons.WatchCalendar,
+                                onClick = {
+                                    component.rememberSeriesCalendarIdentity(detail, candidate)
+                                    candidates = emptyList()
+                                    reload += 1
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            error?.let { Text(it, color = TvDanger, fontSize = TvType.caption) }
+            val today =
+                com.yfuse.core.util
+                    .currentIsoDate()
+            val upcoming =
+                remember(days, today) {
+                    com.yfuse.core.model
+                        .upcomingScheduleDays(days, today)
+                }
+            val orderedDays = upcoming + days.filter { it.date < today }.sortedByDescending { it.date }
+            if (days.isNotEmpty()) {
+                Text("已公布的更新安排", color = TvOnSurface, fontSize = TvType.caption, fontWeight = FontWeight.Bold)
+                if (upcoming.isEmpty()) Text("暂无后续更新日期", color = TvOnSurfaceMuted, fontSize = TvType.caption)
+            }
             when {
-                error != null -> Text(error.orEmpty(), color = TvDanger, fontSize = TvType.caption)
                 loading && days.isEmpty() -> Text("正在读取…", color = TvOnSurfaceMuted, fontSize = TvType.caption)
                 days.isEmpty() -> Text("暂时没有已公布的播出安排。", color = TvOnSurfaceMuted, fontSize = TvType.caption)
                 else ->
@@ -328,7 +400,7 @@ internal fun TvAiringCalendarDialog(
                         modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        days.forEach { day ->
+                        orderedDays.forEach { day ->
                             item(key = "airing-day:${day.date}") {
                                 Text(
                                     day.date,
@@ -359,6 +431,32 @@ internal fun TvAiringCalendarDialog(
             }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TvActionButton(
+                    label = if (isFollowed) "取消追更" else "加入追更",
+                    stableId = "airing:follow",
+                    focusScope = focusScope,
+                    focusMemory = focusMemory,
+                    enabled = !busy && candidates.isEmpty(),
+                    onClick = {
+                        busy = true
+                        scope.launch {
+                            component.toggleSeriesFollow(detail).onFailure {
+                                if (it is CalendarIdentityAmbiguousException) candidates = it.candidates
+                                error = it.toUserMessage("追更设置失败，请重试")
+                            }
+                            busy = false
+                        }
+                    },
+                )
+                if (error != null && candidates.isEmpty()) {
+                    TvActionButton(
+                        label = "重试",
+                        stableId = "airing:retry",
+                        focusScope = focusScope,
+                        focusMemory = focusMemory,
+                        onClick = { reload += 1 },
+                    )
+                }
                 TvActionButton(
                     label = "关闭",
                     stableId = "airing:close",

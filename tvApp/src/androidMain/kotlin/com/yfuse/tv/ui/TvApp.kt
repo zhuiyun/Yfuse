@@ -145,7 +145,9 @@ internal fun TvTheme(
         // Dialog panels stay opaque, like every other plate on the television (see TvTokens):
         // with no page backdrop to sample, the shared dialog paints its solid body instead of
         // blurring the whole page behind it for as long as it is open.
-        CompositionLocalProvider(LocalDialogBackdrop provides null, content = content)
+        com.yfuse.core.designsystem.SkeletonPulseProvider {
+            CompositionLocalProvider(LocalDialogBackdrop provides null, content = content)
+        }
     }
 }
 

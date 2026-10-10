@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlayerGestureHelpTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-10T07:35:06.596Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="defaults_describe_the_current_player_gestures" classname="com.yfuse.feature.player.PlayerGestureHelpTest" time="0.001"/>
+  <testcase name="a_double_tap_that_only_pauses_is_described_as_one_gesture" classname="com.yfuse.feature.player.PlayerGestureHelpTest" time="0.0"/>
+  <testcase name="keys_that_do_something_else_when_held_say_so" classname="com.yfuse.feature.player.PlayerGestureHelpTest" time="0.0"/>
+  <testcase name="keyboard_rows_share_the_double_tap_step" classname="com.yfuse.feature.player.PlayerGestureHelpTest" time="0.0"/>
+  <testcase name="side_holds_remain_available_when_the_middle_speed_boost_is_disabled" classname="com.yfuse.feature.player.PlayerGestureHelpTest" time="0.0"/>
+  <testcase name="rows_follow_the_gesture_settings" classname="com.yfuse.feature.player.PlayerGestureHelpTest" time="0.0"/>
+  <testcase name="the_lock_key_follows_its_setting" classname="com.yfuse.feature.player.PlayerGestureHelpTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

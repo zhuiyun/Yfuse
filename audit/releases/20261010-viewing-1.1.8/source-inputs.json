@@ -1,0 +1,337 @@
+{
+  "sourceCommit": "6a70a9fa47bd24a3997db1ce2eeb68d3a6ebaa1a",
+  "treeDirty": true,
+  "capturedAtUtc": "2026-10-10T03:34:10.754666+00:00",
+  "files": [
+    {
+      "path": ".github/mdk-distribution-approval.json",
+      "bytes": 492,
+      "sha256": "41a49583c3258e5daddea72f5f93c72706329d0e8dbfa304264ae6a6e735a935"
+    },
+    {
+      "path": "composeApp/src/androidMain/AndroidManifest.xml",
+      "bytes": 16648,
+      "sha256": "3ff7f0acfde76767f4bfa3967b751f7a557f97c387e5397f9bc091db36468f15"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNode.kt",
+      "bytes": 27061,
+      "sha256": "db01f10cc82458c75fe908287b83edf685c971dcdd6e121b036a205b2c242432"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt",
+      "bytes": 121399,
+      "sha256": "7f4e05db7d46cc9c628773fdeee3124aa95d4915f149b1d83a1d992c72ffd1b8"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidForwardCacheWarmer.kt",
+      "bytes": 4619,
+      "sha256": "c321ad5da864301f74f11abc8a7ffba3993505befdacb764a9d8e3438febd2e2"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeEnhancedYPlayer.kt",
+      "bytes": 63681,
+      "sha256": "37a0cda00ab680d16242e210892c7b6724beaffaf18cb5de4b1dc9e72753b1f7"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudget.kt",
+      "bytes": 7987,
+      "sha256": "f23134222c25da2eda6dbb6823697c252e5e41aaef3a93250d9076061479738b"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt",
+      "bytes": 101926,
+      "sha256": "6e49c65ed6ea4e9fb23764a4ccb5a664ecfdb4bf3a9b8f3ab01bab51901d6dd2"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerAccountBindings.android.kt",
+      "bytes": 10453,
+      "sha256": "0341e1110f643aa31f5baf66304267ce39843213ff57a474e9904e4cffd838e1"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNodeTest.kt",
+      "bytes": 22930,
+      "sha256": "abeab73c50688e892bdec2e3d62fb2560f22c06c34d96bf7737d4521c1435061"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPlaybackMemoryBudgetTest.kt",
+      "bytes": 5851,
+      "sha256": "4b20490e5481ff1bc88808245c9406843220fadede6fb59e8ec343b72b98db32"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidProxyFileProtocolTest.kt",
+      "bytes": 12237,
+      "sha256": "f2c016904f64f902cb3d6c5d906c087e72b3a0081140e17846aa30cf27139436"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/AiringCalendarRepository.kt",
+      "bytes": 83607,
+      "sha256": "b5914cf45a765f9e0a46f3c2d638ddb6768a4d09fed8b483ef029a1281c8d1ad"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/PlaybackPreferences.kt",
+      "bytes": 33119,
+      "sha256": "6342c97bc4fd7c4962204b0ba819d98f1e6ace7e652c69536cd5c630670a0edf"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/PageStates.kt",
+      "bytes": 13343,
+      "sha256": "16334a41455469eb10d43ea5e35a001fce005dc81cb23a94402121f078847300"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Poster.kt",
+      "bytes": 30816,
+      "sha256": "6cbeac417686357b6c08a71bb198dc63d5cacd10914abba90945865f086f8e08"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/model/AiringCalendar.kt",
+      "bytes": 11459,
+      "sha256": "d81092a30420e8a1bfc1aeb2059e8760ee1db0fc7eda56a1b4e1c575a895428e"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/model/FavoriteIdentity.kt",
+      "bytes": 1551,
+      "sha256": "e1c94a178c53532462f1d02c2e780ab5717bb74a7339d7cd4889c495477ee777"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/personal/LocalViewingStore.kt",
+      "bytes": 7283,
+      "sha256": "40324a989c0af236139af336f351bccaaaa54b8c5daa7af86316c258668a1fb3"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/personal/PersonalLibraryModels.kt",
+      "bytes": 4334,
+      "sha256": "94c818a40daf4ca6bb8b7ea8c15730b14670840cbd509ac47aed39b4357c7094"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/personal/PersonalLibraryRepository.kt",
+      "bytes": 21812,
+      "sha256": "0b31c28b559710726a071b6670b92cf6e80f912c25a5133ff5647d1fd52e05a1"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/personal/ViewingTimeCounter.kt",
+      "bytes": 1771,
+      "sha256": "cb9704d7b165c69dee71d5d21c24e7fb00d1e20cdea060f06c8ab821c4ab9ee3"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackSyncManager.kt",
+      "bytes": 48110,
+      "sha256": "58902a82d9c610414e5960c28864ea4a0732173590b480e1f67728046529d830"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core2/network/YBufferController.kt",
+      "bytes": 8606,
+      "sha256": "87b14700e4ec4e8fd031db8678a25092c41aad7268e251d2835741008b0fdd86"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/di/CoreModule.kt",
+      "bytes": 869,
+      "sha256": "95d1599e7b01e714e646934b17b5c07af77600a8cc5cd4e4224e09fb244783f7"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/ShowScheduleCard.kt",
+      "bytes": 64071,
+      "sha256": "86f60b66ccfda8b8b7809b07b4e67bfa69e7bb81c3d44d7abf6933cb4068a562"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailComponent.kt",
+      "bytes": 41168,
+      "sha256": "97bd743c1c802e0a354a1238a5c850e5cc4acec4829d56bb14f86eb810f025db"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailMoreActionsDialog.kt",
+      "bytes": 24449,
+      "sha256": "04ce12b3984c40b408b877d563490903fc5e97a0cf7c59fe00e661f2ac154dfe"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailScreen.kt",
+      "bytes": 79244,
+      "sha256": "24fcd00b4ca822c7db9e2fa406681dcd705b32277bad11a7b8f8b2b2294d636c"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryGridStore.kt",
+      "bytes": 42173,
+      "sha256": "f0d9994442ee142aaf279bf5c827f6755e0eaf56f8e9b15a19044c3c2a02fc2c"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryHomeComponent.kt",
+      "bytes": 4582,
+      "sha256": "a71d8b19ff445143e5c7585aaba58a7b57e2552b6a67e95d700b975e16aed260"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryStore.kt",
+      "bytes": 26883,
+      "sha256": "5bfad53c51c6663659b4aa43a03b3ad77c282f8eda8e986faf814e7afb18d537"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/personal/ViewingStatisticsScreen.kt",
+      "bytes": 22454,
+      "sha256": "e735cd4b5668972f22bc767e87de59ab8ece6c6bcb3469f85c132453f4f8adf2"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackProgressReporter.kt",
+      "bytes": 23756,
+      "sha256": "c2d9a62aadae01ce193077b516ea03257f52d770197f42160b3eb1040947de8d"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerAccountSnapshot.kt",
+      "bytes": 3898,
+      "sha256": "59b0b923a60eb69408739a71c6e141cccc4e91266966abbcd33d2abc312d7b58"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/PersonalHomeScreen.kt",
+      "bytes": 2775,
+      "sha256": "dff8e7f47d6a4be6b0a2e5b98d75f5c3073277048b431e6d8cf0c8ae5c2a3b17"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileComponent.kt",
+      "bytes": 9572,
+      "sha256": "c3260549bae124539ac2618628432f7f6e0e93f7591f3e7488e2424326f61137"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfilePages.kt",
+      "bytes": 5415,
+      "sha256": "bd833acf3f2347b52b9720ae5f299d8b3e172007a5f65c0927b9ec15f7e43921"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "bytes": 80221,
+      "sha256": "95785df9f9c16d037b58fcad78a2471b6f4564893f5c78cdcece284ed4ad99db"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/PlaybackPreferencesTest.kt",
+      "bytes": 15459,
+      "sha256": "13c2f959147baaba18146cef799f32bd20266370fc154e5a4528be69550ed588"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/SeriesCalendarLoadingTest.kt",
+      "bytes": 22574,
+      "sha256": "9ea979dae977676661b2d1db1daa5137307e474ac3f2fded6a4322506b508903"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/model/FavoriteIdentityTest.kt",
+      "bytes": 1411,
+      "sha256": "c09f224d03295063a3bf097ee5705f28e69c2939b9cde9d8f7a9fa5aa478839e"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/personal/LocalViewingTest.kt",
+      "bytes": 9893,
+      "sha256": "2c3c028fbfa23b942634261e055bc16d75344958d0ec8c5c99fe06e5a0ee294f"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/personal/PersonalLibraryRepositoryTest.kt",
+      "bytes": 19626,
+      "sha256": "981abdb1871ece4c414fd4ba786b0f2d248eaa70fe0f935076ee8149c7719959"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core2/network/YBufferControllerTest.kt",
+      "bytes": 11564,
+      "sha256": "ee4a130b1a923a655daec34529daaf4b916362ea67cad5bd4f5ef440a0f4b9a1"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/di/AppModuleGraphTest.kt",
+      "bytes": 17603,
+      "sha256": "5d69386a2533736b66c7f719cf32f0808d6c7b1525124c439decec5033777fbd"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/calendar/ShowScheduleTest.kt",
+      "bytes": 12846,
+      "sha256": "6b349769d43d1230f994e8e6d25a9de8b0ba1ea47fec728067ad45e2a9d2e791"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/library/LibraryGridStoreTest.kt",
+      "bytes": 42392,
+      "sha256": "cc01bfed7f1b5238d8592b41f052e6b91c5b46a7e79d6358ed8e3bebcdb339a7"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/LocalViewingMetadataTest.kt",
+      "bytes": 2275,
+      "sha256": "fa799f58251b7a83ef3f63c436fcb99b3c27365780bb476baecccc30e47ae7a4"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlaybackRecordDurabilityTest.kt",
+      "bytes": 7357,
+      "sha256": "3944d979afa8907385f16d671375c2135d016fb3092d75cbf6a208bddbd18d35"
+    },
+    {
+      "path": "release-notes.txt",
+      "bytes": 50986,
+      "sha256": "47dee897cf5d7ee427fe63315d94dbd534bf8e197ad74d734f264718cdae23ea"
+    },
+    {
+      "path": "tvApp/src/androidMain/AndroidManifest.xml",
+      "bytes": 8135,
+      "sha256": "db8882b2314abf1000ec1fddaa2589b4a11078d0e027ec9ae1b77204a91f59f3"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/TvApplication.kt",
+      "bytes": 12142,
+      "sha256": "760fb497e922a99811e821ec86232036ccf11df16a2c17b599a7a5bdadc42016"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvApp.kt",
+      "bytes": 29948,
+      "sha256": "1f976093815d30706ccdad0bf2310fb62273da9dc3ba9629e6c6a87f606075dd"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDetailMoreActions.kt",
+      "bytes": 26364,
+      "sha256": "486dcebde23e84cf565142aea7b9def77ccf1648e5a479bd0ce5bb2375b9ddd7"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDetailScreen.kt",
+      "bytes": 53228,
+      "sha256": "b58aa7489a4ef1a5b9d202a4af87a8cbc03d76af55e61b27c885293fc459d55e"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDiscoveryCalendarScreens.kt",
+      "bytes": 22035,
+      "sha256": "6801b4ef8d1d018e0205a3a2948b8aba9577d1ec3fec3ef7ec0808c95b96fe32"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvHomeScreen.kt",
+      "bytes": 21036,
+      "sha256": "466bbd40eed49d0f0bb59312dca5a995e9cd67d0f5fa06969454f1fb9895c1de"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvLibraryScreens.kt",
+      "bytes": 31739,
+      "sha256": "89f9380079d081c4333686506ed043f0a02ac4e058d6978637a22bbd0b98eda8"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvLoadingImage.kt",
+      "bytes": 1381,
+      "sha256": "a6b152dbc5e6e580021d34e5a491cb13215aaa7eacd98f7814e018087c2271f6"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPersonScreen.kt",
+      "bytes": 11819,
+      "sha256": "6b6a532c6ad0165bfde63808adcd73c80f906ecb4fc51dab712b73628931ea85"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvProductSettingsPages.kt",
+      "bytes": 3424,
+      "sha256": "0c899e1e2e1f8f97f42bb10b096e2cdcc2145e2e6a7268ef8892e83f5a707b64"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScaffold.kt",
+      "bytes": 10463,
+      "sha256": "f18f740271bc46249f5894697d70f1502ca988ca34121bc9a446a63db5689083"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "bytes": 27296,
+      "sha256": "e2b0a8d7125318b72511fccf8f2c1c3e609214fea8eb5f57444adc1a4901cbfb"
+    },
+    {
+      "path": "tvApp/src/androidUnitTest/kotlin/com/yfuse/tv/ui/TvSettingsSearchTest.kt",
+      "bytes": 4497,
+      "sha256": "1cb48dba87261be3f2861a054db5e506c5b0a429a0353753e5700df1d236e712"
+    },
+    {
+      "path": "version.properties",
+      "bytes": 209,
+      "sha256": "0aab526bbf71c886ffc24ba1a47a9de30b9a199b2c448a59258e78688a875716"
+    }
+  ]
+}

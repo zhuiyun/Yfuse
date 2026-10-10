@@ -24,6 +24,57 @@ class PersonalLibraryRepositoryTest {
     private val media = PersonalMediaRef("tmdb:603", "黑客帝国", "Movie", tmdbId = 603)
 
     @Test
+    fun favoritesReconcileProviderKeysAndOlderDuplicatesRespectTheLatestDeletion() {
+        val repository = PersonalLibraryRepository(MapSettings())
+        val imdb = media.copy(mediaKey = "IMDb:tt0133093", serverId = "one", serverItemId = "1")
+        val tmdb = media.copy(serverId = "two", serverItemId = "2")
+        assertTrue(repository.setFavorite(imdb, true))
+        assertTrue(repository.setFavorite(tmdb, true))
+        assertEquals(1, repository.state.value.favorites.size)
+        val oldRows =
+            repository.snapshot().copy(
+                entries =
+                    listOf(
+                        PersonalEntry(
+                            DEFAULT_PERSONAL_PROFILE,
+                            PersonalCollection.Favorite,
+                            imdb,
+                            PersonalStamp(1, "old"),
+                        ),
+                        PersonalEntry(
+                            DEFAULT_PERSONAL_PROFILE,
+                            PersonalCollection.Favorite,
+                            tmdb,
+                            PersonalStamp(2, "old"),
+                        ),
+                    ),
+            )
+        val restored = PersonalLibraryRepository(MapSettings())
+        restored.mergeRemote(oldRows)
+        assertEquals(1, restored.state.value.favorites.size)
+        assertTrue(restored.setFavorite(imdb, false))
+        restored.mergeRemote(oldRows)
+        assertTrue(
+            restored.state.value.favorites
+                .isEmpty(),
+        )
+    }
+
+    @Test
+    fun favoriteIdentityKeepsRemakesEpisodesAndServerOnlyItemsSeparate() {
+        val repository = PersonalLibraryRepository(MapSettings())
+        listOf(
+            media,
+            media.copy(mediaKey = "tmdb:604", tmdbId = 604, year = 2026),
+            media.copy(mediaKey = "tmdb:7/s1e1", mediaType = "Episode", tmdbId = 7),
+            media.copy(mediaKey = "tmdb:7/s1e2", mediaType = "Episode", tmdbId = 7),
+            media.copy(mediaKey = "emby:42", tmdbId = null, serverId = "one"),
+            media.copy(mediaKey = "emby:42", tmdbId = null, serverId = "two"),
+        ).forEach { assertTrue(repository.setFavorite(it, true)) }
+        assertEquals(6, repository.state.value.favorites.size)
+    }
+
+    @Test
     fun concurrentAdditionsMergeAndOfflineCopiesCannotResurrectDeletedItems() {
         val phone = PersonalLibraryRepository(MapSettings())
         val tablet = PersonalLibraryRepository(MapSettings())

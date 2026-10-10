@@ -1,8 +1,13 @@
 package com.yfuse.app
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.platform.LocalContext
 import com.yfuse.core.designsystem.SplashAnimation
+import com.yfuse.core.designsystem.SplashMark
 import com.yfuse.shared.R
 import kotlin.math.PI
 import kotlin.math.exp
@@ -24,6 +29,8 @@ internal interface SplashChoreography {
 
     /** Where the choreography ends and the cross-fade to the app begins. */
     val fadeStartMs: Float
+    val background: Color? get() = null
+    val showWordmark: Boolean get() = true
 
     /**
      * Draws the mark for [nowMs] into a square canvas.
@@ -43,11 +50,45 @@ internal interface SplashChoreography {
     fun wordmark(nowMs: Float): Float
 }
 
-internal val SplashAnimation.choreography: SplashChoreography
-    get() =
-        when (this) {
-            SplashAnimation.One, SplashAnimation.Still -> SplashOne
+@Composable
+internal fun rememberSplashChoreography(variant: SplashAnimation): SplashChoreography {
+    val resources = LocalContext.current.resources
+    val artwork =
+        if (variant.mark == SplashMark.WaterOverFire) {
+            remember(resources) { WaterFireArtwork(resources) }
+        } else {
+            null
         }
+    return remember(variant, artwork) {
+        when (variant.mark) {
+            SplashMark.WaterFire -> SplashOne
+            SplashMark.CloudPlayer -> SplashCloud
+            SplashMark.WaterOverFire -> WaterFireSplash(variant, requireNotNull(artwork))
+        }
+    }
+}
+
+internal fun SplashAnimation.motionDurationMs(): Int =
+    when (this) {
+        SplashAnimation.One, SplashAnimation.Still -> 1080
+        SplashAnimation.Cloud -> 1100
+        SplashAnimation.Magnet -> 1900
+        SplashAnimation.Bloom -> 1850
+        SplashAnimation.Register -> 2100
+        SplashAnimation.Pour -> 2300
+        SplashAnimation.Fold -> 2050
+        SplashAnimation.Stitch -> 2650
+        SplashAnimation.Crystal -> 2000
+        SplashAnimation.Focus -> 1900
+        SplashAnimation.Crayon -> 2250
+        SplashAnimation.Beads -> 2550
+        SplashAnimation.Sand -> 2400
+        SplashAnimation.Rubbing -> 1900
+        SplashAnimation.Hologram -> 2100
+        SplashAnimation.Marble -> 2100
+        SplashAnimation.Fan -> 1750
+        SplashAnimation.Domino -> 1800
+    }
 
 /**
  * The artwork a variant unfolds, or null when the choreography draws its own shapes.
@@ -56,8 +97,10 @@ internal val SplashAnimation.choreography: SplashChoreography
  * separately, and a mark that already carried one would draw two.
  */
 internal fun SplashAnimation.markResource(): Int? =
-    when (this) {
-        SplashAnimation.One, SplashAnimation.Still -> R.drawable.yfuse_mark_ribbon
+    when (mark) {
+        SplashMark.WaterFire -> R.drawable.yfuse_mark_ribbon
+        SplashMark.CloudPlayer -> R.drawable.cloud_player_logo
+        SplashMark.WaterOverFire -> null // Registered layers are owned by WaterFireArtwork.
     }
 
 /** How long every choreography leaves for the hand-off to the app. */

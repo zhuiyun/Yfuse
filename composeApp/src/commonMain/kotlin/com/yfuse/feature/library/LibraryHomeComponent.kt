@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
+import com.arkivanov.essenty.lifecycle.doOnResume
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
@@ -88,6 +89,9 @@ class LibraryHomeComponent(
         ).create()
 
     init {
+        lifecycle.doOnResume {
+            if (store.state.contentSource != LibraryContentSource.None) store.accept(LibraryIntent.Retry)
+        }
         lifecycle.doOnDestroy(store::dispose)
     }
 }

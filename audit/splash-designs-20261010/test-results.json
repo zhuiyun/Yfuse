@@ -1,0 +1,30 @@
+[
+  {
+    "suite": "com.yfuse.app.SplashTimingPolicyTest",
+    "tests": 7,
+    "failures": 0,
+    "errors": 0,
+    "timestamp": "2026-10-10T09:59:48.894Z"
+  },
+  {
+    "suite": "com.yfuse.core.data.SplashSelectionTest",
+    "tests": 4,
+    "failures": 0,
+    "errors": 0,
+    "timestamp": "2026-10-10T09:59:48.934Z"
+  },
+  {
+    "suite": "com.yfuse.core.data.ThemePreferencesTest",
+    "tests": 12,
+    "failures": 0,
+    "errors": 0,
+    "timestamp": "2026-10-10T09:59:48.956Z"
+  },
+  {
+    "suite": "com.yfuse.core.sync.CloudSyncSnapshotTest",
+    "tests": 13,
+    "failures": 0,
+    "errors": 0,
+    "timestamp": "2026-10-10T09:59:49.007Z"
+  }
+]

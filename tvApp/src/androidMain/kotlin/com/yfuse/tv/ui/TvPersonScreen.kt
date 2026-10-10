@@ -31,7 +31,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
@@ -141,7 +140,7 @@ private fun TvPersonHeader(
         Row(horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(132.dp).clip(CircleShape).background(TvPlaceholder)) {
                 portraits.firstOrNull()?.let { url ->
-                    AsyncImage(
+                    TvLoadingImage(
                         model = rememberTvImage(url),
                         // Silent: the name is written beside it.
                         contentDescription = null,

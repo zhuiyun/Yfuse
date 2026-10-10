@@ -109,6 +109,26 @@ class WatchGatedPlayback(
             publish(rate = speed)
         }
 
+    /** Return from Cast without rearming playback after backgrounding or losing audio focus. */
+    fun restoreLocalPlayback(
+        positionMs: Long,
+        resumePlayback: Boolean,
+    ): Boolean {
+        if (locked) return false
+        val player = player() ?: return false
+        val position = positionMs.coerceAtLeast(0L)
+        player.seekTo(position)
+        val resume = resumePlayback && onPlayRequested()
+        if (resume) {
+            player.play()
+        } else {
+            onPauseRequested()
+            player.pause()
+        }
+        publish(positionMs = position, paused = !resume)
+        return true
+    }
+
     /**
      * Re-anchors the room on the entry the player moved to on its own. Backends advance through the
      * queue internally when auto-next is on, so an episode ending is the one timeline change no

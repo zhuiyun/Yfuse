@@ -41,7 +41,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.rankServerSources
 import com.yfuse.core.designsystem.AppIcons
@@ -222,6 +221,7 @@ internal fun TvDetailScreen(
                         watchLaterBusy = state.watchLaterBusy,
                         onToggleWatchLater = { store.accept(DetailIntent.ToggleWatchLater) },
                         onOpenMore = { sheet = TvDetailSheet.More },
+                        onOpenCalendar = { sheet = TvDetailSheet.AiringCalendar },
                         downloadLabel = downloadLabel,
                         downloadEnabled =
                             state.playTarget != null && state.playServer != null && !state.selectionLoading,
@@ -569,6 +569,7 @@ private fun TvDetailHero(
     downloadEnabled: Boolean,
     onDownload: () -> Unit,
     onOpenMore: () -> Unit,
+    onOpenCalendar: () -> Unit,
     trailers: List<MediaTrailer>,
     onOpenTrailers: () -> Unit,
     /** Why the last trailer link did not open; see TvTrailerNoticeTimeout. */
@@ -590,7 +591,7 @@ private fun TvDetailHero(
             .background(TvPlaceholder)
             .onFocusChanged { heroFocused = it.hasFocus },
     ) {
-        AsyncImage(
+        TvLoadingImage(
             model = rememberTvImage(heroUrl),
             // Silent: the title is written over it, and the backdrop read it a second time.
             contentDescription = null,
@@ -716,6 +717,20 @@ private fun TvDetailHero(
                 contentPadding = PaddingValues(horizontal = TvFocusInset),
                 horizontalArrangement = Arrangement.spacedBy(11.dp),
             ) {
+                if (detail.type.equals("Series", ignoreCase = true)) {
+                    item(key = "airing-calendar") {
+                        TvActionButton(
+                            label = "追更日历",
+                            stableId = "detail:${detail.id}:calendar",
+                            focusScope = "detail:${detail.id}:hero",
+                            focusMemory = focusMemory,
+                            onClick = onOpenCalendar,
+                            icon = AppIcons.WatchCalendar,
+                            serverId = serverId,
+                            profileId = profileId,
+                        )
+                    }
+                }
                 item(key = "favorite") {
                     TvActionButton(
                         label = if (detail.isFavorite) "服务器已收藏" else "服务器收藏",
