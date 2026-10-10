@@ -1,10 +1,10 @@
 {
-  "versionName": "1.2.2",
-  "versionCode": 274,
+  "versionName": "1.2.3",
+  "versionCode": 275,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-10T19:04:52.160812+08:00",
+  "confirmedAt": "2026-10-10T21:02:41.036512+08:00",
   "confirmedBy": "release owner",
-  "confirmationBasis": "User standing instruction on 2026-10-09 and signed packaging request on 2026-10-10 apply to this 1.2.2/274 package-only delivery with the same verified pinned MDK artifact and distribution scope."
+  "confirmationBasis": "User standing instruction on 2026-10-09 and the request on 2026-10-10 to add horizontal splash animation cards and package the result apply to this 1.2.3/275 package-only delivery with the same verified pinned MDK artifact and distribution scope. Prior cloud push/sign approval remains in force for the ongoing task."
 }

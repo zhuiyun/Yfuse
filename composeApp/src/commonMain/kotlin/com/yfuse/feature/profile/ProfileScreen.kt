@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -1412,7 +1413,8 @@ private fun BrandAndSplashScreen(
     val variant = SplashAnimation.forMark(appIcon.splashMark, preferred)
     var replay by remember { mutableStateOf(0) }
     val pageState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
+    val animations =
+        remember(appIcon.splashMark) { SplashAnimation.selectable.filter { it.mark == appIcon.splashMark } }
 
     SettingsPage(
         title = "Logo 与开屏动画",
@@ -1436,6 +1438,39 @@ private fun BrandAndSplashScreen(
             }
         }
         if (enabled) {
+            motionItem {
+                Section(title = "选择动画") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "左右滑动卡片，点击切换并立即保存",
+                            style = AppTypography.caption.regular,
+                            color = palette.sub,
+                        )
+                        key(appIcon.splashMark) {
+                            AnimationCardList(
+                                options = animations,
+                                selected = variant,
+                                key = { "splash-animation-${it.name}" },
+                                label = { it.label },
+                                description = { it.description },
+                                category = { it.mark.label },
+                                onSelect = { choice ->
+                                    prefs.setSplashVariant(choice)
+                                    replay++
+                                },
+                            ) { choice, active ->
+                                key(choice, replay) {
+                                    SplashPreview(
+                                        variant = choice,
+                                        playing = active,
+                                        modifier = Modifier.fillMaxHeight().aspectRatio(0.67f).clip(AppShapes.thumb),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             motionItem {
                 Column(
                     Modifier
@@ -1490,29 +1525,6 @@ private fun BrandAndSplashScreen(
                                 .heightIn(min = MinTouchTarget)
                                 .padding(horizontal = 20.dp, vertical = 12.dp),
                     )
-                }
-            }
-            motionItem {
-                Section(title = "选择动画") {
-                    Column(
-                        Modifier.padding(horizontal = Dimens.pageHorizontal),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        SplashAnimation.selectable.filter { it.mark == appIcon.splashMark }.forEach { choice ->
-                            OverlayOptionRow(
-                                label = choice.label,
-                                description = choice.description,
-                                selected = choice == variant,
-                                onClick = {
-                                    prefs.setSplashVariant(choice)
-                                    scope.launch {
-                                        pageState.scrollToItem(3)
-                                        replay++
-                                    }
-                                },
-                            )
-                        }
-                    }
                 }
             }
         }
