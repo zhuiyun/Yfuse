@@ -1,0 +1,79 @@
+{
+  "versionName": "1.2.2",
+  "versionCode": 274,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "7390c1647585303bdbb2992cff4888b6d802597a",
+  "file": "Yfuse-1.2.2-full-arm64.apk",
+  "bytes": 29861755,
+  "sha256": "6ae8066a048cf016a94ff011d0419aa746b67d9e383c2b6bc4470a9583ec3080",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "numberOfSigners": 1,
+  "zipAlignment4Verified": true,
+  "applicationPayloadUnchangedBySigning": true,
+  "dexFiles": {
+    "classes.dex": "f86ff001c5824ce8a3812d5676e97594fb97bdc045d4ac5b9bb10c5c7ff66a08",
+    "classes2.dex": "27a50175e058f2e1f5fb294782e2a50cc000031d2938893b5813941a47ac0e68"
+  },
+  "dexVerifiedInBuild": true,
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1191928,
+      "sha256": "c8da625231316e33b8d4cf94e6d003fd90a77daea1ebf41777faff03ec20ce2b"
+    }
+  },
+  "mdkEngineMatchesPinnedSdk": true,
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "previousActualVersionName": "1.2.1",
+  "previousActualVersionCode": 273,
+  "packageRun": 38050391468,
+  "deliveryScope": "package-only",
+  "updatePublished": false,
+  "physicalDeviceTestPerformed": false,
+  "verifiedAtUtc": "2026-10-10T12:49:27.720061+00:00",
+  "startupSmokePassedApis": [
+    35,
+    36,
+    37
+  ],
+  "startupSmokeEvidence": [
+    {
+      "api": 36,
+      "jobId": 114215177288,
+      "result": "success",
+      "artifactId": 11670841241,
+      "artifactSha256": "ddaa8fd59b2e8f190c3f2585e4348960cdba84476fdb9fef906b923bf5ec1c79"
+    },
+    {
+      "api": 35,
+      "jobId": 114215177348,
+      "result": "success",
+      "artifactId": 11670306734,
+      "artifactSha256": "cb79439481d13faf8b61466be5b90e702cbd60144d90030942483cc868f247a1"
+    },
+    {
+      "api": 37,
+      "jobId": 114215177384,
+      "result": "success",
+      "artifactId": 11670242089,
+      "artifactSha256": "9438487d008cca44ccd705b214dc1dbae3a1735dad28e042c82ba7c064eb5961"
+    }
+  ],
+  "qualityGatesRun": 38050391177,
+  "qualityGatesResult": "success",
+  "packageRunAttempt": 4,
+  "dexClasses": 14101,
+  "dexMethodsWithCode": 61952,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "releaseNotesFirstLine": "1.2.2",
+  "previousArtifactSha256": "5eddc251e260403967227029b21c6e2392e5594a08100b55a7166bea36dcc9b9",
+  "readyForDelivery": true
+}
