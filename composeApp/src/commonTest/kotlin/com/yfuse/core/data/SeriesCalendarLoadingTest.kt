@@ -45,7 +45,7 @@ class SeriesCalendarLoadingTest {
                     } else {
                         json(
                             """{"Items":[{"Id":"unpublished","Name":"美人余","Type":"Series",
-                                "ProviderIds":{"Tmdb":"42"}}]}""",
+                                "ProviderIds":{"Tmdb":"42"},"UserData":{"IsFavorite":true}}]}""",
                         )
                     }
                 }
