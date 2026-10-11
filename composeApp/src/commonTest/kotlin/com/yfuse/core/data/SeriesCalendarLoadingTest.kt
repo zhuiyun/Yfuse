@@ -35,6 +35,60 @@ import kotlin.test.assertTrue
 
 class SeriesCalendarLoadingTest {
     @Test
+    fun library_series_outside_the_publication_gets_its_exact_future_schedule() =
+        runTest {
+            val external = client { json("{}") }
+            val library =
+                client { request ->
+                    if (request.url.encodedPath.endsWith("/Episodes") || request.url.encodedPath.endsWith("/NextUp")) {
+                        json("""{"Items":[]}""")
+                    } else {
+                        json(
+                            """{"Items":[{"Id":"unpublished","Name":"美人余","Type":"Series",
+                                "ProviderIds":{"Tmdb":"42"}}]}""",
+                        )
+                    }
+                }
+            try {
+                val settings = MapSettings()
+                val registry = ServerRegistry(settings, TestSecureStore()).apply { addOrUpdate(server) }
+                val schedules = OfficialAiringScheduleCatalog(external, settings)
+                val future =
+                    com.yfuse.core.model.AiringEpisode(
+                        showTmdbId = 42,
+                        showTitle = "美人余",
+                        posterPath = null,
+                        seasonNumber = 1,
+                        episodeNumber = 2,
+                        episodeTitle = null,
+                        airDate = "2026-10-12",
+                        origin = com.yfuse.core.model.ShowOrigin.Domestic,
+                    )
+                val requested = mutableListOf<Int>()
+                val repo =
+                    AiringCalendarRepository(
+                        EmbyRepository(library),
+                        registry,
+                        schedules,
+                        CalendarIdentityResolver(schedules, settings),
+                        CalendarFollowStore(settings),
+                        supplementalSchedules =
+                            SeriesAiringScheduleFallback(fetch = { id, _ ->
+                                requested += id
+                                Result.success(listOf(future))
+                            }),
+                    )
+                val rows = repo.calendar(today = "2026-10-11").getOrThrow().flatMap(CalendarDay::entries)
+                assertTrue(42 in requested)
+                assertEquals("2026-10-12", rows.single { it.episode.showTmdbId == 42 }.episode.airDate)
+                assertEquals(LibraryStatus.Unaired, rows.single { it.episode.showTmdbId == 42 }.status)
+            } finally {
+                external.close()
+                library.close()
+            }
+        }
+
+    @Test
     fun detailIncludesEveryPublishedDateBeyondTheOldSixtyDayWindow() =
         runTest {
             val external = client { json("{}") }

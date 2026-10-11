@@ -162,6 +162,9 @@ class AiringCalendarRepository(
      * series bypass that cap and are queried by their exact TMDB id.
      */
     private suspend fun activeLibrarySeries(forceRefresh: Boolean): List<FollowedSeries> {
+        if (!forceRefresh && !followStore.automaticFollowRefreshDue(currentEpochMillis(), 15 * 60_000L)) {
+            return followStore.followed.value.filter { it.trackingOrigin == CalendarTrackingOrigin.LibraryAuto }
+        }
         val scopeToken = followStore.scopeToken
         val servers = registry.data.value.servers
         val unavailable = unavailableServerIds(servers, fanOut = "active_library_series")
@@ -435,7 +438,16 @@ class AiringCalendarRepository(
         // A slow publication refresh must not postpone availability for an already verified schedule.
         return coroutineScope {
             val availability = async { if (cached.isEmpty()) null else resolve(cached) }
+            val tracking =
+                async {
+                    if (supplementalSchedules != null) {
+                        withTimeoutOrNull(6_000L) { activeLibrarySeries(forceRefresh) }
+                    } else {
+                        null
+                    }
+                }
             val refresh = officialSchedules.refreshIfDue(force = forceRefresh)
+            tracking.await()
             val episodes =
                 supplementTrackedSchedules(
                     officialSchedules.between(from, to),
