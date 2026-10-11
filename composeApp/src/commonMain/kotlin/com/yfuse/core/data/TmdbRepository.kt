@@ -839,12 +839,10 @@ class TmdbRepository(
                 }
 
             Result.success(
-                datedEpisodes(seasonEpisodes)
-                    .ifEmpty {
-                        datedEpisodes(
-                            listOfNotNull(show.lastEpisode, show.nextEpisode).map { it.seasonNumber to it },
-                        )
-                    }.distinctBy { it.seasonNumber to it.episodeNumber }
+                (
+                    datedEpisodes(seasonEpisodes) +
+                        datedEpisodes(listOfNotNull(show.lastEpisode, show.nextEpisode).map { it.seasonNumber to it })
+                ).distinctBy { it.seasonNumber to it.episodeNumber }
                     .sortedWith(compareBy({ it.airDate }, { it.seasonNumber }, { it.episodeNumber })),
             )
         } catch (e: CancellationException) {

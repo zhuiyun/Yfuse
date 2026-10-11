@@ -80,11 +80,15 @@ fun <T : Any> OfficialNavDisplay(
     val launchers = backStack.filter(isLauncher)
     val shownStack = backStack.filterNot(isLauncher).ifEmpty { backStack }
     val currentTop by rememberUpdatedState(shownStack.last())
+    val latestBack by rememberUpdatedState(onBack)
+    // Keep the activity dispatcher connected to the visible stack as well as the
+    // NavigationEvent dispatcher used by predictive transitions. A private scene dispatcher
+    // can otherwise leave Android treating a detail page as the activity's root.
+    PlatformBackHandler(enabled = parentRouteVisible && shownStack.size > 1) { latestBack() }
     val sharedMediaController = remember { SharedMediaTransitionController() }
     // 跟手返回 for pushed routes. Before NavDisplay, so its stand-in back handler registers where
     // NavDisplay's own used to: after the shell's, before every page's.
     val zoom = rememberZoomBackNavHost(enabled = motion == OfficialNavMotion.Stack)
-    val latestBack by rememberUpdatedState(onBack)
     val liftMenu = LocalLiftMenu.current
     val screenReader = rememberScreenReaderActive()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion

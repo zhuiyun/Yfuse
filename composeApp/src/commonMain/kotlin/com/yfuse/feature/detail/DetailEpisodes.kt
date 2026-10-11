@@ -143,6 +143,7 @@ private fun EpisodeHeader(
     onTogglePicker: () -> Unit,
     onPickerAnchor: (Rect) -> Unit,
     onManageProgress: () -> Unit,
+    onOpenCalendar: (() -> Unit)?,
     onSeeAll: () -> Unit,
     /** The listed season is long enough for the 选集 grid, which is on show; see [EpisodeHeaderActions]. */
     showingGrid: Boolean,
@@ -193,17 +194,32 @@ private fun EpisodeHeader(
         }
         // Both open the episodes on show, which are the last season's until the new ones land.
         // With none on show there is nothing to list or to mark.
-        if (availableEpisodeCount > 0) {
-            EpisodeHeaderActions(
-                accent = accent,
-                availableEpisodeCount = availableEpisodeCount,
-                seasonLoading = seasonLoading,
-                staleAlpha = staleAlpha,
-                onManageProgress = onManageProgress,
-                onSeeAll = onSeeAll,
-                showingGrid = showingGrid,
-                onToggleGrid = onToggleGrid,
-            )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (onOpenCalendar != null) {
+                Box(
+                    Modifier.touchTarget().pressable(onClickLabel = "查看追剧日历", onClick = onOpenCalendar),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        AppIcons.WatchCalendar,
+                        contentDescription = "追剧日历",
+                        tint = palette.text,
+                        modifier = Modifier.size(23.dp),
+                    )
+                }
+            }
+            if (availableEpisodeCount > 0) {
+                EpisodeHeaderActions(
+                    accent = accent,
+                    availableEpisodeCount = availableEpisodeCount,
+                    seasonLoading = seasonLoading,
+                    staleAlpha = staleAlpha,
+                    onManageProgress = onManageProgress,
+                    onSeeAll = onSeeAll,
+                    showingGrid = showingGrid,
+                    onToggleGrid = onToggleGrid,
+                )
+            }
         }
     }
 }
@@ -520,6 +536,7 @@ internal fun EpisodeSection(
     onManageProgress: () -> Unit,
     onPlayEpisode: (Episode) -> Unit,
     onSeeAll: () -> Unit,
+    onOpenCalendar: (() -> Unit)? = null,
     /** The 浮起菜单's actions and each episode's download; null leaves the cards with their tap alone. */
     rowActions: EpisodeRowActions? = null,
 ) {
@@ -568,6 +585,7 @@ internal fun EpisodeSection(
             onTogglePicker = onTogglePicker,
             onPickerAnchor = onPickerAnchor,
             onManageProgress = onManageProgress,
+            onOpenCalendar = onOpenCalendar,
             showingGrid = showGrid,
             onToggleGrid = if (gridFits) ({ showGrid = !showGrid }) else null,
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),

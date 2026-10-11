@@ -1012,7 +1012,7 @@ private class CalendarIngestionRuntime(
         val compiled = CalendarEvidenceGate.compile(show, identity, sources, revision, generatedAt)
         if (compiled == null) logCalendarRejection(show, "evidence-gate")
         val retained = fallbackSchedules.firstOrNull { it.tmdbId == identity.tmdbId }?.copy(revision = revision)
-        return (compiled ?: retained).also {
+        return (compiled?.let { mergeCollectedCalendarSchedule(retained, it) } ?: retained).also {
             CalendarIngestionHealth.completed(
                 show,
                 when {
