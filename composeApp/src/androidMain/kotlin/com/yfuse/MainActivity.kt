@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var serverSyncManager: ServerSyncManager
     private var playerVisibilityJob: Job? = null
     private var rootComponent: RootComponent? = null
+    private var rootBackFallback: RootBackFallback? = null
     private var jankMonitor: AppJankMonitor? = null
     private var calendarNotificationPermissionRequested = false
     private var downloadNotificationPermissionRequested = false
@@ -207,6 +208,7 @@ class MainActivity : ComponentActivity() {
             }
 
         rootComponent = root
+        if (rootBackFallback == null) rootBackFallback = RootBackFallback(this, root)
         observeCalendarNotificationPermission(koin.get())
         observeDownloadNotificationPermission(koin.get())
 

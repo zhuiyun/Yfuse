@@ -283,6 +283,66 @@ class RootComponent(
         }
     }
 
+    /** Model values that can change whether the visible tab has somewhere to return. */
+    internal fun backNavigationSources(): List<Value<*>> =
+        listOfNotNull(
+            activeTab,
+            home.stack,
+            browse.stack,
+            search.stack,
+            profile.stack,
+            (profile.stack.value.active.instance as? ProfileTabComponent.Child.Home)?.component?.pages,
+        )
+
+    /** Read synchronously, before Compose has installed the new route's gesture handler. */
+    internal fun backNavigationState(): RootBackNavigation {
+        val tab = activeTab.value
+        val depth =
+            when (tab) {
+                Tab.Home -> home.stack.value.items.size
+                Tab.Browse -> browse.stack.value.items.size
+                Tab.Search -> search.stack.value.items.size
+                Tab.Profile ->
+                    profile.stack.value.items.size +
+                        (
+                            (profile.stack.value.active.instance as? ProfileTabComponent.Child.Home)
+                                ?.component
+                                ?.pages
+                                ?.value
+                                ?.items
+                                ?.size ?: 1
+                        ) - 1
+                // Server forms and file browsing keep their own UI handlers.
+                Tab.Servers -> 1
+            }
+        return RootBackNavigation(tab, depth, depth > 1 || tab != startTab)
+    }
+
+    /** The activity's lowest-priority back fallback, when no visible UI handler is installed. */
+    internal fun navigateBackFromModel(): Boolean {
+        val state = backNavigationState()
+        if (!state.enabled) return false
+        if (state.depth > 1) {
+            when (state.tab) {
+                Tab.Home -> home.navigateBack()
+                Tab.Browse -> browse.navigateBack()
+                Tab.Search -> search.navigateBack()
+                Tab.Profile -> {
+                    val settings = (profile.stack.value.active.instance as? ProfileTabComponent.Child.Home)?.component
+                    if (settings != null && settings.pages.value.items.size > 1) {
+                        settings.closePage()
+                    } else {
+                        profile.navigateBack()
+                    }
+                }
+                Tab.Servers -> Unit
+            }
+        } else {
+            selectTab(startTab)
+        }
+        return true
+    }
+
     fun openDownloads() {
         selectTab(Tab.Profile)
         profile.openDownloads()
@@ -419,6 +479,13 @@ class RootComponent(
         openSearch()
     }
 }
+
+/** No media IDs or titles: suitable for recording which navigation scope used the fallback. */
+internal data class RootBackNavigation(
+    val tab: RootComponent.Tab,
+    val depth: Int,
+    val enabled: Boolean,
+)
 
 private const val ACTIVE_TAB_STATE_KEY = "root.activeTab"
 

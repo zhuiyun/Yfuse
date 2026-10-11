@@ -410,7 +410,9 @@ fun App(root: RootComponent) {
                             ToastFloor(dockShown, activityCapsuleHeight) {
                                 OfficialNavDisplay(
                                     backStack = topLevelBackStack(active, root.startTab),
-                                    onBack = { root.selectTab(root.startTab) },
+                                    // A child route can be pushed before its Compose handler is
+                                    // ready. Re-read the model before returning between tabs.
+                                    onBack = { root.navigateBackFromModel() },
                                     contentKey = { "tab:${it.name}" },
                                     modifier = Modifier.fillMaxSize(),
                                     motion = rootMotion,

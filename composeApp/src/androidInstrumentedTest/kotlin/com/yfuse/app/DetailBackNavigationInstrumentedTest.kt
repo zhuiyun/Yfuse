@@ -30,6 +30,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yfuse.MainActivity
+import com.yfuse.app.RootComponent.Tab
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftExit
 import com.yfuse.core.designsystem.LiftMenu
@@ -46,6 +47,7 @@ import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.sharedMediaOnClick
+import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.launchMainActivityForInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -210,6 +212,154 @@ class DetailBackNavigationInstrumentedTest {
             assertStack(scenario, probe, listOf("library"), pops = 2)
             predictiveGesture(scenario, cancel = false)
             assertStack(scenario, probe, listOf("library"), pops = 2, rootBacks = 1)
+        }
+    }
+
+    @Test(timeout = 60_000L)
+    fun real_model_handles_system_back_without_a_route_ui_and_releases_the_root() {
+        withGestureNavigation {
+            launchMainActivityForInput().use { scenario ->
+                val root = AtomicReference<RootComponent>()
+                val emptyHostComposed = AtomicBoolean()
+                scenario.onActivity { activity ->
+                    val field = MainActivity::class.java.getDeclaredField("rootComponent").apply { isAccessible = true }
+                    val model = field.get(activity) as RootComponent
+                    assertTrue(
+                        "The isolated validation app must have no saved media servers",
+                        model.dependencies.serverRegistry.data.value.servers
+                            .isEmpty(),
+                    )
+                    model.resetPersonalRoutes()
+                    model.selectTab(model.startTab)
+                    root.set(model)
+                    // Deliberately remove every Compose route/menu handler. MainActivity's
+                    // production model fallback is the only callback this test can rely on.
+                    activity.setContent {
+                        Box(Modifier.fillMaxSize())
+                        SideEffect { emptyHostComposed.set(true) }
+                    }
+                }
+                awaitCondition("The minimal host did not dispose the original route UI") { emptyHostComposed.get() }
+                val model = root.get()
+                scenario.onActivity { activity ->
+                    assertFalse(
+                        "The start tab's root must leave system back available",
+                        model.backNavigationState().enabled,
+                    )
+                    assertFalse(
+                        "A UI callback survived the minimal host",
+                        activity.onBackPressedDispatcher.hasEnabledCallbacks(),
+                    )
+                    model.browse.openDetail(null, "gesture-model-detail-a")
+                    model.browse.openDetail(null, "gesture-model-detail-b")
+                    model.selectTab(Tab.Browse)
+                    assertEquals(3, model.browse.stack.value.items.size)
+                    assertTrue(
+                        "The model did not synchronously enable its fallback",
+                        model.backNavigationState().enabled,
+                    )
+                    assertTrue(
+                        "Model navigation waited for a Compose frame before registering back",
+                        activity.onBackPressedDispatcher.hasEnabledCallbacks(),
+                    )
+                }
+
+                // Android keeps the callback selected at gesture start. A link or another
+                // model action can replace that route before the platform sends completion.
+                scenario.onActivity { activity ->
+                    val dispatcher = activity.onBackPressedDispatcher
+                    dispatcher.dispatchOnBackStarted(BackEventCompat(1f, 300f, 0f, BackEventCompat.EDGE_LEFT))
+                    dispatcher.dispatchOnBackProgressed(BackEventCompat(160f, 300f, 0.4f, BackEventCompat.EDGE_LEFT))
+                    model.browse.openDetail(null, "gesture-model-new-detail")
+                    dispatcher.onBackPressed()
+                    assertEquals(
+                        "An old predictive gesture popped the newly opened detail",
+                        4,
+                        model.browse.stack.value.items.size,
+                    )
+                    val detail = model.browse.stack.value.active.configuration as LibraryComponent.Config.Detail
+                    assertEquals("gesture-model-new-detail", detail.itemId)
+                    model.browse.navigateBack()
+                    assertEquals(3, model.browse.stack.value.items.size)
+
+                    dispatcher.dispatchOnBackStarted(BackEventCompat(1f, 300f, 0f, BackEventCompat.EDGE_LEFT))
+                    dispatcher.dispatchOnBackProgressed(BackEventCompat(160f, 300f, 0.4f, BackEventCompat.EDGE_LEFT))
+                    dispatcher.dispatchOnBackCancelled()
+                    assertEquals("Cancelling left a stale model gesture active", 3, model.browse.stack.value.items.size)
+                    val returned = model.browse.stack.value.active.configuration as LibraryComponent.Config.Detail
+                    assertEquals("gesture-model-detail-b", returned.itemId)
+                }
+                assertForeground(scenario)
+
+                injectEdgeSwipe(scenario, fromRight = false, cancel = true)
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                assertForeground(scenario)
+                scenario.onActivity {
+                    assertEquals(Tab.Browse, model.activeTab.value)
+                    assertEquals(
+                        "Cancelling system back changed the real detail stack",
+                        3,
+                        model.browse.stack.value.items.size,
+                    )
+                }
+
+                injectEdgeSwipe(scenario, fromRight = false, cancel = false)
+                awaitCondition("Model fallback did not pop the second detail") {
+                    model.browse.stack.value.items.size ==
+                        2
+                }
+                assertForeground(scenario)
+                scenario.onActivity {
+                    assertEquals(Tab.Browse, model.activeTab.value)
+                    val detail = model.browse.stack.value.active.configuration as LibraryComponent.Config.Detail
+                    assertEquals("The fallback popped more than one detail", "gesture-model-detail-a", detail.itemId)
+                }
+                injectEdgeSwipe(scenario, fromRight = true, cancel = false)
+                awaitCondition(
+                    "Model fallback did not pop the first detail",
+                ) { model.browse.stack.value.items.size == 1 }
+                assertForeground(scenario)
+                scenario.onActivity { assertEquals(Tab.Browse, model.activeTab.value) }
+
+                if (model.startTab != Tab.Browse) {
+                    injectEdgeSwipe(scenario, fromRight = false, cancel = false)
+                    awaitCondition("Model fallback did not return to the session's start tab") {
+                        model.activeTab.value ==
+                            model.startTab
+                    }
+                    assertForeground(scenario)
+                }
+                scenario.onActivity {
+                    assertFalse(
+                        "The actual start-tab root still enabled the model fallback",
+                        model.backNavigationState().enabled,
+                    )
+                    assertFalse(
+                        "A callback at the actual root would swallow Android's exit gesture",
+                        it.onBackPressedDispatcher.hasEnabledCallbacks(),
+                    )
+                }
+                injectEdgeSwipe(scenario, fromRight = true, cancel = false)
+                awaitCondition("The root did not return system back to Android's background behavior") {
+                    scenario.state != Lifecycle.State.RESUMED &&
+                        InstrumentationRegistry
+                            .getInstrumentation()
+                            .uiAutomation.rootInActiveWindow
+                            ?.packageName
+                            ?.toString() !=
+                        InstrumentationRegistry.getInstrumentation().targetContext.packageName
+                }
+                assertFalse(
+                    "Android should background the launcher task without destroying it",
+                    scenario.state == Lifecycle.State.DESTROYED,
+                )
+                scenario.onActivity {
+                    assertFalse(
+                        "The root gesture finished rather than backgrounded the launcher",
+                        it.isFinishing,
+                    )
+                }
+            }
         }
     }
 
@@ -428,6 +578,17 @@ class DetailBackNavigationInstrumentedTest {
         pops: Int,
         rootBacks: Int = 0,
     ) {
+        assertForeground(scenario)
+        scenario.onActivity {
+            assertFalse("Back finished the Activity instead of handling its visible stack", it.isFinishing)
+            assertEquals(expected, probe.routes.toList())
+            assertEquals("A back gesture must pop exactly once", pops, probe.pops.get())
+            assertEquals("A detail back reached the root NavDisplay", 0, probe.rootPops.get())
+            assertEquals("Back reached the root consumer at the wrong depth", rootBacks, probe.rootBacks.get())
+        }
+    }
+
+    private fun assertForeground(scenario: ActivityScenario<MainActivity>) {
         awaitCondition("Back left the app's foreground window") {
             var focused = false
             scenario.onActivity { focused = it.hasWindowFocus() }
@@ -440,13 +601,6 @@ class DetailBackNavigationInstrumentedTest {
             focused &&
                 scenario.state == Lifecycle.State.RESUMED &&
                 topPackage == InstrumentationRegistry.getInstrumentation().targetContext.packageName
-        }
-        scenario.onActivity {
-            assertFalse("Back finished the Activity instead of handling its visible stack", it.isFinishing)
-            assertEquals(expected, probe.routes.toList())
-            assertEquals("A back gesture must pop exactly once", pops, probe.pops.get())
-            assertEquals("A detail back reached the root NavDisplay", 0, probe.rootPops.get())
-            assertEquals("Back reached the root consumer at the wrong depth", rootBacks, probe.rootBacks.get())
         }
     }
 
