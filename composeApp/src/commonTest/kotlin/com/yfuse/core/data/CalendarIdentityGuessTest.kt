@@ -96,32 +96,34 @@ class CalendarIdentityGuessTest {
     @Test
     fun an_exact_unpublished_title_can_be_resolved_by_search() =
         runTest {
+            assertTrue(schedules.identityCandidates(UNPUBLISHED_TITLE).isEmpty())
             val searched =
                 CalendarIdentityResolver(schedules, settings, search = { title, year ->
-                    assertEquals("美人余", title)
+                    assertEquals(UNPUBLISHED_TITLE, title)
                     assertEquals(2026, year)
-                    Result.success(listOf(TmdbSeriesIdentityCandidate(4242, title, year, null)))
+                    Result.success(listOf(TmdbSeriesIdentityCandidate(SEARCH_FIRST_ID, title, year, null)))
                 })
-            val result = searched.resolve(series("outside", year = 2026).copy(title = "美人余"), SERVER)
-            assertEquals(4242, result.getOrThrow())
-            assertFalse(searched.chosenByViewer(SERVER, "outside", 4242))
+            val result = searched.resolve(series("outside", year = 2026).copy(title = UNPUBLISHED_TITLE), SERVER)
+            assertEquals(SEARCH_FIRST_ID, result.getOrThrow())
+            assertFalse(searched.chosenByViewer(SERVER, "outside", SEARCH_FIRST_ID))
         }
 
     @Test
     fun an_ambiguous_search_does_not_silently_choose_the_first_show() =
         runTest {
+            assertTrue(schedules.identityCandidates(UNPUBLISHED_TITLE).isEmpty())
             val searched =
                 CalendarIdentityResolver(schedules, settings, search = { title, year ->
                     Result.success(
                         listOf(
-                            TmdbSeriesIdentityCandidate(4242, title, year, null),
-                            TmdbSeriesIdentityCandidate(5252, title, year, null),
+                            TmdbSeriesIdentityCandidate(SEARCH_FIRST_ID, title, year, null),
+                            TmdbSeriesIdentityCandidate(SEARCH_SECOND_ID, title, year, null),
                         ),
                     )
                 })
-            val result = searched.resolve(series("outside", year = 2026).copy(title = "美人余"), SERVER)
+            val result = searched.resolve(series("outside", year = 2026).copy(title = UNPUBLISHED_TITLE), SERVER)
             val ambiguous = assertIs<CalendarIdentityAmbiguousException>(result.exceptionOrNull())
-            assertEquals(listOf(4242, 5252), ambiguous.candidates.map { it.tmdbId })
+            assertEquals(listOf(SEARCH_FIRST_ID, SEARCH_SECOND_ID), ambiguous.candidates.map { it.tmdbId })
         }
 
     @Test
@@ -139,5 +141,8 @@ class CalendarIdentityGuessTest {
 
     private companion object {
         const val SERVER = "server"
+        const val UNPUBLISHED_TITLE = "虚构的日历搜索剧集"
+        const val SEARCH_FIRST_ID = 9_000_001
+        const val SEARCH_SECOND_ID = 9_000_002
     }
 }
