@@ -326,8 +326,18 @@ jobs:
   # master push, beside `verify` rather than after it: with the native dependency cache warm it
   # costs the Kotlin build, one emulator boot and the tests, and it never delays the other gates.
   instrumented:
-    name: Instrumented tests on an Android 15 emulator
+    name: Instrumented tests on Android API ${{ matrix.api }}
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 35
+            sdk: "35"
+            test_args: ""
+          - api: 37
+            sdk: "37.0"
+            test_args: "-Pandroid.testInstrumentationRunnerArguments.class=com.yfuse.app.DetailBackNavigationInstrumentedTest"
     # A cold native dependency cache is bootstrapped here too, as in `verify`.
     timeout-minutes: 300
     steps:
@@ -383,10 +393,18 @@ jobs:
       # The phone APK is arm64-v8a only. x86_64 google_apis images translate arm64 and list it in
       # ro.product.cpu.abilist, so the APK installs as it does in android-cloud-ui.yml, whose
       # emulator settings these are. Animations stay on: several tests measure motion curves.
+      - name: Let the Android 17 emulator use current command-line tools
+        if: matrix.api == 37
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The runner image's older avdmanager misreads android-37.0 as android-0. The
+          # emulator runner installs its current tools when this directory is absent.
+          sudo rm -rf "${ANDROID_HOME:?}/cmdline-tools"
       - name: Run the instrumented tests
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
-          api-level: 35
+          api-level: ${{ matrix.sdk }}
           target: google_apis
           arch: x86_64
           profile: pixel_2
@@ -402,9 +420,10 @@ jobs:
           # as five did on one run. The first line has the system end such an app instead of asking;
           # the second closes a dialog that came up before it.
           script: |
+            test "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" = "${{ matrix.api }}"
             adb shell settings put global hide_error_dialogs 1
             adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS
-            ./gradlew :composeApp:connectedDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation --no-daemon
+            ./gradlew :composeApp:connectedDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation ${{ matrix.test_args }} --no-daemon
       # A run in which the device was skipped or no test executed must not read as a pass.
       - name: Summarise instrumented test results
         if: always()
@@ -434,7 +453,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: instrumented-tests-${{ github.sha }}-${{ github.run_attempt }}
+          name: instrumented-tests-api${{ matrix.api }}-${{ github.sha }}-${{ github.run_attempt }}
           path: |
             composeApp/build/reports/androidTests/
             composeApp/build/outputs/androidTest-results/

@@ -1,10 +1,10 @@
 {
-  "versionName": "1.2.4",
-  "versionCode": 276,
+  "versionName": "1.2.5",
+  "versionCode": 277,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-11T06:16:18.242151+00:00",
+  "confirmedAt": "2026-10-11T11:00:28.652036+00:00",
   "confirmedBy": "release owner",
-  "confirmationBasis": "User standing instruction on 2026-10-09 to include MDK and the ongoing 2026-10-10/11 request to fix playback, detail navigation and airing calendars and package everything apply to this 1.2.4/276 package-only delivery with the same pinned MDK artifact and distribution scope. Prior authorized cloud push, merge and production signing remain in force; no update publication is requested."
+  "confirmationBasis": "User standing instruction on 2026-10-09 to include MDK and ongoing 2026-10-11 requests to fix detail system gestures, redesign personal content and package the completed changes apply to this 1.2.5/277 package-only delivery with the same pinned MDK artifact and distribution scope. Prior authorized cloud push, merge and production signing remain in force; no update publication is requested."
 }

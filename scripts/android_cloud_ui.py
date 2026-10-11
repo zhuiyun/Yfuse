@@ -233,6 +233,40 @@ class Session:
         time.sleep(2)
         self.wait_label("我的")
 
+    def personal_lists(self):
+        # Find the real profile entry even when the settings header fills a small viewport.
+        for _ in range(8):
+            root, _ = self.tree()
+            if nodes_for(root, "我的片单"):
+                break
+            width, height = map(int, re.search(r"(\d+)x(\d+)", self.adb("shell", "wm", "size")).groups())
+            self.adb("shell", "input", "swipe", str(width // 2), str(height * 3 // 4),
+                     str(width // 2), str(height // 3), "400")
+            time.sleep(1)
+        self.tap("我的片单")
+        self.wait_label("搜索片单")
+        captures = [self.capture("03a-personal-watch-later")]
+        # A clean signed-out install has no personal records; each tab must show its own
+        # honest empty state rather than filling it with example media or another collection.
+        for label, marker, name in (
+            ("收藏", "还没有收藏。在作品详情中加入收藏，喜欢的作品会留在这里。", "03b-personal-favorites"),
+            ("观看历史", "还没有观看记录。播放后，可以在这里查看已看的作品。", "03c-personal-history"),
+        ):
+            self.tap(label)
+            self.wait_label(marker)
+            captures.append(self.capture(name))
+        self.tap("搜索片单")
+        self.wait_label("收起搜索")
+        captures.append(self.capture("03d-personal-search"))
+        self.tap("收起搜索")
+        root, _ = self.tree()
+        if nodes_for(root, "导入片单"):
+            raise RuntimeError("A clean install without servers offers an unavailable personal import")
+        self.back()
+        self.wait_label("服务器")
+        captures.append(self.capture("03e-personal-back"))
+        return {"captures": captures, "limit": "clean-install empty lists; existing records are not seeded"}
+
     def configuration(self, name, *settings):
         for args in settings:
             self.adb("shell", *args)
@@ -384,6 +418,7 @@ def run_cases(session, args):
     session.case("Profile page reachable", lambda: session.navigate("我的", "账号与同步", "02-profile"))
     session.case("Account signed-out page reachable", lambda: session.navigate("账号与同步", "登录账号", "03-account-signed-out"))
     session.back()
+    session.case("Personal lists, search and one-level back", session.personal_lists)
     session.case("Servers tab reachable", lambda: session.navigate("服务器", "服务器", "04-servers"))
     session.case("Home tab reachable", lambda: session.navigate("首页", "首页", "05-home"))
     session.case("Large-font foreground capture", lambda: session.configuration("06-font-130",

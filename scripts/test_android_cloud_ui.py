@@ -12,6 +12,7 @@ import android_cloud_ui as cloud
 SMOKE_CASES = [
     "Profile page reachable",
     "Account signed-out page reachable",
+    "Personal lists, search and one-level back",
     "Servers tab reachable",
     "Home tab reachable",
     "Large-font foreground capture",

@@ -171,8 +171,8 @@ private val SettingsSearchDestinations =
             tint = SettingTint.account,
         ),
         SettingsSearchDestination(
-            "我的内容",
-            "收藏、想看与观看历史",
+            "我的片单",
+            "想看、收藏与观看历史",
             "个人清单 最近观看 历史 收藏 想看",
             ProfilePage.Personal,
             icon = AppIcons.Bookmark,

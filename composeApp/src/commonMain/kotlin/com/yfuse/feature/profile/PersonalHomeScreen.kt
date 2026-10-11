@@ -26,8 +26,8 @@ internal fun PersonalSettingsSection(
     Section(title = "个人与设备") {
         SettingsCard {
             SettingRow(
-                "我的内容",
-                "收藏 · 想看 · 观看历史",
+                "我的片单",
+                "想看 · 收藏 · 观看历史",
                 embedded = true,
                 onClick = onOpenContent,
                 icon = AppIcons.Bookmark,

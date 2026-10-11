@@ -12,13 +12,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,13 +37,11 @@ import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingsCard
 import com.yfuse.core.designsystem.SettingsDivider
-import com.yfuse.core.designsystem.SwipeActionsRow
 import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.ToastAction
@@ -56,14 +52,12 @@ import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE
 import com.yfuse.core.personal.PersonalCollection
-import com.yfuse.core.personal.PersonalEntry
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.personal.PersonalMediaRef
 import com.yfuse.core.personal.PersonalProfile
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.SyncMutationKind
 import com.yfuse.core.sync.playback.PlaybackSyncManager
-import com.yfuse.feature.profile.SettingSegmentRow
 import com.yfuse.feature.profile.SettingsPage
 import com.yfuse.feature.profile.rememberComposedPageStore
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -98,15 +92,25 @@ fun PersonalCenterScreen(
         onDispose { store.accept(PersonalCenterIntent.SettleRemoval) }
     }
     Box(Modifier.fillMaxSize()) {
-        PersonalCenterPage(
-            state = state,
-            onIntent = store::accept,
-            servers = servers,
-            onBack = onBack,
-            onOpenMedia = onOpenMedia,
-            initialTab = initialTab,
-            onSwipeable = { swipeable = it },
-        )
+        if (initialTab in PersonalContentTabs) {
+            PersonalContentScreen(
+                state = state,
+                onIntent = store::accept,
+                servers = servers,
+                onBack = onBack,
+                onOpenMedia = onOpenMedia,
+                initialTab = initialTab,
+                onSwipeable = { swipeable = it },
+            )
+        } else {
+            PersonalCenterPage(
+                state = state,
+                onIntent = store::accept,
+                servers = servers,
+                onBack = onBack,
+                initialTab = initialTab,
+            )
+        }
         // Once a list has records to swipe; the first swipe retires it.
         ContextualTip(
             id = Tips.SWIPE_ROW_HISTORY,
@@ -169,49 +173,16 @@ private fun PersonalCenterPage(
     onIntent: (PersonalCenterIntent) -> Unit,
     servers: List<SavedServer>,
     onBack: () -> Unit,
-    onOpenMedia: (PersonalMediaRef) -> Unit,
     initialTab: PersonalCenterTab,
-    onSwipeable: (Boolean) -> Unit,
 ) {
     val library = state.library
     val playbackState = state.playbackSync
     val serverState = state.serverSync
-    var tab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }
-    var query by rememberSaveable { mutableStateOf("") }
-
-    val contentTabs = listOf(PersonalCenterTab.WatchLater, PersonalCenterTab.Favorites, PersonalCenterTab.History)
-    val contentPage = initialTab in contentTabs
-    val entries =
-        when (tab) {
-            PersonalCenterTab.Favorites -> library.favorites
-            PersonalCenterTab.History -> library.history
-            else -> library.watchLater
-        }
-    // The record waiting on its 撤销 is already gone from the list.
-    val pendingIdentity = state.pendingRemoval?.identity
-    val visible =
-        entries.filter { it.media.title.contains(query.trim(), ignoreCase = true) && it.identity != pendingIdentity }
-    val swipeable = contentPage && tab in contentTabs && visible.isNotEmpty()
-    SideEffect { onSwipeable(swipeable) }
     SettingsPage(
-        title = if (contentPage) "我的内容" else initialTab.label,
+        title = initialTab.label,
         subtitle = library.activeProfile.name,
         onBack = onBack,
     ) {
-        if (contentPage) {
-            item {
-                Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
-                    SettingsCard {
-                        SettingSegmentRow(
-                            title = "内容分类",
-                            options = listOf("想看", "收藏", "观看历史"),
-                            selectedIndex = contentTabs.indexOf(tab).coerceAtLeast(0),
-                            onSelect = { tab = contentTabs[it] },
-                        )
-                    }
-                }
-            }
-        }
         state.message?.let { notice -> item { PersonalNotice(notice) } }
         state.failure?.let { failed ->
             item {
@@ -224,7 +195,7 @@ private fun PersonalCenterPage(
         }
         // A failed 立即同步 also leaves its reason here; the card above already says it.
         library.error?.takeIf { it != state.failure }?.let { notice -> item { PersonalNotice(notice, error = true) } }
-        when (tab) {
+        when (initialTab) {
             PersonalCenterTab.Profiles -> {
                 item { PersonalNotice("每份资料分别保存想看、收藏、观看历史和追剧。") }
                 item { PersonalNotice("需要服务器观看记录也独立时，请为家庭成员关联不同的服务器用户。") }
@@ -465,59 +436,7 @@ private fun PersonalCenterPage(
                     }
                 }
             }
-            else -> {
-                item {
-                    YfFormField(value = query, onValueChange = {
-                        query = it
-                    }, label = "搜索当前资料", modifier = Modifier.padding(horizontal = Dimens.pageHorizontal))
-                }
-                if (tab != PersonalCenterTab.History && state.canImport) {
-                    item {
-                        Section(title = "导入清单") {
-                            SettingsCard {
-                                SettingRow(
-                                    "从媒体服务器导入",
-                                    if (state.busy) "正在导入…" else "合并 Emby / Jellyfin 清单",
-                                    embedded = true,
-                                    icon = AppIcons.Server,
-                                    onClick =
-                                        if (state.busy) {
-                                            null
-                                        } else {
-                                            (
-                                                {
-                                                    onIntent(PersonalCenterIntent.ImportFromServers(servers))
-                                                }
-                                            )
-                                        },
-                                )
-                            }
-                        }
-                    }
-                }
-                if (visible.isEmpty()) {
-                    item {
-                        PersonalNotice(
-                            if (query.isNotBlank()) {
-                                "没有匹配的记录"
-                            } else if (tab ==
-                                PersonalCenterTab.History
-                            ) {
-                                "还没有观看记录，播放后会显示在这里。"
-                            } else {
-                                "还没有记录，可从作品详情加入想看或收藏。"
-                            },
-                        )
-                    }
-                }
-                items(visible, key = { it.identity }) { entry ->
-                    PersonalEntryCard(
-                        entry,
-                        onOpen = { onOpenMedia(entry.media) },
-                        onRemove = { onIntent(PersonalCenterIntent.RemoveEntry(entry)) },
-                    )
-                }
-            }
+            else -> Unit
         }
     }
     // These close once the change has gone through; held in a presence they leave the way they
@@ -607,49 +526,6 @@ private fun PersonalNotice(
         color = if (error) LocalPalette.current.error else LocalPalette.current.sub2,
         modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
     )
-}
-
-/** A record swipes left for 移除, the same undoable removal as its 移除记录 row. */
-@Composable
-private fun PersonalEntryCard(
-    entry: PersonalEntry,
-    onOpen: () -> Unit,
-    onRemove: () -> Unit,
-) {
-    SwipeActionsRow(
-        modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-        tipId = Tips.SWIPE_ROW_HISTORY,
-        trailing =
-            ItemAction(
-                label = "移除",
-                icon = AppIcons.Close,
-                destructive = true,
-                undoable = true,
-                id = "personal.remove",
-                onSelect = onRemove,
-            ),
-    ) { actions ->
-        SettingsCard {
-            SettingRow(
-                modifier = actions,
-                title = entry.media.title,
-                value =
-                    listOfNotNull(
-                        entry.media.year?.toString(),
-                        if (entry.collection == PersonalCollection.History) {
-                            if (entry.completed) "已看完" else "看到 " + entry.positionMs / 60_000 + " 分钟"
-                        } else {
-                            null
-                        },
-                    ).joinToString(" · ").ifBlank { "查看作品" },
-                embedded = true,
-                icon = if (entry.collection == PersonalCollection.History) AppIcons.Play else AppIcons.Bookmark,
-                onClick = onOpen,
-            )
-            SettingsDivider()
-            SettingRow("移除记录", "从当前资料中移除", embedded = true, onClick = onRemove)
-        }
-    }
 }
 
 @Composable
