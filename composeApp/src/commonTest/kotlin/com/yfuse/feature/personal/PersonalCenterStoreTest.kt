@@ -204,6 +204,137 @@ class PersonalCenterStoreTest {
         }
 
     @Test
+    fun switching_profiles_discards_the_old_toast_without_removing_either_profiles_copy() =
+        runTest(scheduler) {
+            val personal = PersonalLibraryRepository(MapSettings())
+            personal.setFavorite(MEDIA, true)
+            val first = personal.activeProfileId
+            val other = personal.newProfile("客厅")
+            personal.switchProfile(other.id).getOrThrow()
+            personal.setFavorite(MEDIA, true)
+            personal.switchProfile(first).getOrThrow()
+            val store = store(personal)
+            runCurrent()
+            store.accept(PersonalCenterIntent.RemoveEntry(personal.favorites.single()))
+
+            personal.switchProfile(other.id).getOrThrow()
+            val switched = store.await { it.library.activeProfile.id == other.id }
+
+            assertNull(switched.pendingRemoval)
+            assertEquals(personal.scopeToken, switched.scopeToken)
+            store.accept(PersonalCenterIntent.SettleRemoval)
+            store.dispose()
+            assertEquals(MEDIA, personal.favorites.single().media)
+            personal.switchProfile(first).getOrThrow()
+            assertEquals(MEDIA, personal.favorites.single().media)
+        }
+
+    @Test
+    fun an_account_change_discards_a_toast_even_when_both_profiles_are_default() =
+        runTest(scheduler) {
+            val personal = personalWithTwoAccounts()
+            val sync = FakePersonalSync().apply { account.value = signedIn("first") }
+            val store = store(personal, sync)
+            runCurrent()
+            val oldScope = store.state.scopeToken
+            val oldProfile = store.state.library.activeProfile.id
+            val oldLibrary = personal.state.value
+            store.accept(PersonalCenterIntent.RemoveEntry(personal.favorites.single()))
+
+            personal.bindAccount("other")
+            assertEquals(oldLibrary, personal.state.value)
+            sync.account.value = signedIn("other")
+            val switched = store.await { it.scopeToken != oldScope }
+
+            assertEquals(oldProfile, switched.library.activeProfile.id)
+            assertEquals(personal.scopeToken, switched.scopeToken)
+            assertNull(switched.pendingRemoval)
+            store.accept(PersonalCenterIntent.SettleRemoval)
+            store.dispose()
+            assertEquals(MEDIA, personal.favorites.single().media)
+            personal.bindAccount("first")
+            assertEquals(MEDIA, personal.favorites.single().media)
+        }
+
+    @Test
+    fun settling_before_the_account_change_reaches_the_store_cannot_remove_the_new_owners_copy() =
+        runTest(scheduler) {
+            val personal = personalWithTwoAccounts()
+            val store = store(personal)
+            runCurrent()
+            store.accept(PersonalCenterIntent.RemoveEntry(personal.favorites.single()))
+
+            personal.bindAccount("other")
+            // Do not drain Main: the old toast can dismiss before the flow's owner update arrives.
+            store.accept(PersonalCenterIntent.SettleRemoval)
+
+            assertEquals(MEDIA, personal.favorites.single().media)
+            store.dispose()
+            personal.bindAccount("first")
+            assertEquals(MEDIA, personal.favorites.single().media)
+        }
+
+    @Test
+    fun closing_before_the_account_change_reaches_the_store_cannot_commit_an_old_toast() =
+        runTest(scheduler) {
+            val personal = personalWithTwoAccounts()
+            val store = store(personal)
+            runCurrent()
+            store.accept(PersonalCenterIntent.RemoveEntry(personal.favorites.single()))
+
+            personal.bindAccount("other")
+            store.dispose()
+
+            assertEquals(MEDIA, personal.favorites.single().media)
+            personal.bindAccount("first")
+            assertEquals(MEDIA, personal.favorites.single().media)
+        }
+
+    @Test
+    fun an_old_account_row_cannot_start_a_removal_before_its_owner_update_arrives() =
+        runTest(scheduler) {
+            val personal = personalWithTwoAccounts()
+            val entry = personal.favorites.single()
+            val store = store(personal)
+            runCurrent()
+
+            personal.bindAccount("other")
+            store.accept(PersonalCenterIntent.RemoveEntry(entry))
+
+            assertEquals(personal.scopeToken, store.state.scopeToken)
+            assertNull(store.state.pendingRemoval)
+            store.dispose()
+            assertEquals(MEDIA, personal.favorites.single().media)
+        }
+
+    @Test
+    fun same_scope_library_updates_preserve_the_toast_and_commit_only_its_record() =
+        runTest(scheduler) {
+            val personal = PersonalLibraryRepository(MapSettings())
+            personal.setFavorite(MEDIA, true)
+            val entry = personal.favorites.single()
+            val store = store(personal)
+            runCurrent()
+            val originalScope = store.state.scopeToken
+            store.accept(PersonalCenterIntent.RemoveEntry(entry))
+
+            personal.setWatchLater(MEDIA, true)
+            store.await { it.library.watchLater.size == 1 }
+
+            assertEquals(originalScope, store.state.scopeToken)
+            assertEquals(entry, store.state.pendingRemoval)
+            store.accept(PersonalCenterIntent.SettleRemoval)
+            assertTrue(personal.favorites.isEmpty())
+            assertEquals(
+                MEDIA,
+                personal.state.value.watchLater
+                    .single()
+                    .media,
+            )
+            store.dispose()
+        }
+
+    @Test
     fun the_sync_rows_follow_the_account_and_start_each_sync_again() =
         runTest(scheduler) {
             val sync = FakePersonalSync()
@@ -301,6 +432,21 @@ class PersonalCenterStoreTest {
     private val PersonalLibraryRepository.profiles get() = state.value.profiles
 
     private val PersonalLibraryRepository.favorites get() = state.value.favorites
+
+    private fun personalWithTwoAccounts(): PersonalLibraryRepository =
+        PersonalLibraryRepository(MapSettings()).apply {
+            bindAccount("first")
+            setFavorite(MEDIA, true)
+            val firstLibrary = snapshot()
+            finishSync(firstLibrary, 1L)
+            bindAccount("other")
+            mergeRemote(firstLibrary)
+            finishSync(snapshot(), 1L)
+            bindAccount("first")
+        }
+
+    private fun signedIn(userId: String): AccountState.SignedIn =
+        SIGNED_IN.copy(session = SIGNED_IN.session.copy(user = SIGNED_IN.session.user.copy(id = userId)))
 
     private fun conflict(serverId: String) =
         SyncConflict(

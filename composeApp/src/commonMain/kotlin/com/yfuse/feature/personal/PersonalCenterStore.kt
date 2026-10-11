@@ -80,6 +80,8 @@ data class ProfileEditorTarget(
 /** What 我的内容, 家庭资料 and 同步状态与恢复 show. */
 data class PersonalCenterState(
     val library: PersonalLibraryState = PersonalLibraryState(),
+    /** Identifies the account/profile that owns this frame, including permission changes. */
+    val scopeToken: String = "",
     /** 立即同步 and 刷新与重试 need a signed-in Yfuse account. */
     val signedIn: Boolean = false,
     val playbackSync: PlaybackCloudSyncState = PlaybackCloudSyncState(),
@@ -219,9 +221,7 @@ private sealed interface Attempt {
 }
 
 private sealed interface Action {
-    data class Library(
-        val state: PersonalLibraryState,
-    ) : Action
+    data object Library : Action
 
     data class Account(
         val signedIn: Boolean,
@@ -241,6 +241,7 @@ private sealed interface Action {
 private sealed interface Msg {
     data class Library(
         val state: PersonalLibraryState,
+        val scopeToken: String,
     ) : Msg
 
     data class Account(
@@ -307,6 +308,11 @@ private sealed interface Msg {
     data object EntryReleased : Msg
 }
 
+private data class ScopedRemoval(
+    val entry: PersonalEntry,
+    val scopeToken: String,
+)
+
 /**
  * 我的内容, 家庭资料 and 同步状态与恢复: one store for the three, as they were one page. [repo] is where
  * 从媒体服务器导入 reads the servers' own lists; without one the row is not offered.
@@ -321,17 +327,11 @@ class PersonalCenterStoreFactory(
         storeFactory.create(
             name = "PersonalCenterStore",
             // What the sources hold now, so the first frame is the page and not an empty one.
-            initialState =
-                PersonalCenterState(
-                    library = personal.state.value,
-                    signedIn = sync.account.value is AccountState.SignedIn,
-                    playbackSync = sync.playback.value,
-                    canImport = repo != null,
-                ).withServers(visibleServers(sync.servers.value)),
+            initialState = initialState(),
             bootstrapper =
                 coroutineBootstrapper<Action> {
                     personal.state
-                        .onEach { dispatch(Action.Library(it)) }
+                        .onEach { dispatch(Action.Library) }
                         .launchIn(this)
                     sync.account
                         .onEach { dispatch(Action.Account(it is AccountState.SignedIn)) }
@@ -348,6 +348,17 @@ class PersonalCenterStoreFactory(
             reducer = ReducerImpl,
         )
 
+    private fun initialState(): PersonalCenterState =
+        synchronized(personal.coordinationLock) {
+            PersonalCenterState(
+                library = personal.state.value,
+                scopeToken = personal.scopeToken,
+                signedIn = sync.account.value is AccountState.SignedIn,
+                playbackSync = sync.playback.value,
+                canImport = repo != null,
+            ).withServers(visibleServers(sync.servers.value))
+        }
+
     private fun visibleServers(state: ServerSyncState): Action.Servers =
         Action.Servers(
             state = state,
@@ -361,15 +372,20 @@ class PersonalCenterStoreFactory(
     private inner class ExecutorImpl :
         CoroutineExecutor<PersonalCenterIntent, Action, PersonalCenterState, Msg, Nothing>() {
         /** 移除记录 waiting out its 撤销; see [UndoWindow]. */
-        private val removals = UndoWindow<PersonalEntry> { personal.removeEntry(it) }
+        private val removals = UndoWindow<ScopedRemoval> { personal.removeEntry(it) }
 
         /** What 重试 runs again: the action behind the failure the page shows. */
         private var failed: Attempt? = null
 
         override fun executeAction(action: Action) =
             when (action) {
-                is Action.Library -> dispatch(Msg.Library(action.state))
-                is Action.Account -> dispatch(Msg.Account(action.signedIn))
+                Action.Library -> refreshLibrary()
+                is Action.Account -> {
+                    // AccountRepository binds the owner before publishing its account state. This
+                    // also refreshes the scope when identical default libraries conflate in the flow.
+                    refreshLibrary()
+                    dispatch(Msg.Account(action.signedIn))
+                }
                 is Action.Playback -> dispatch(Msg.Playback(action.state))
                 is Action.Servers -> dispatch(Msg.Servers(action.state, action.statuses, action.conflicts))
             }
@@ -405,12 +421,13 @@ class PersonalCenterStoreFactory(
                     dispatch(Msg.FailureCleared)
                     failed?.let(::attempt)
                 }
-                is PersonalCenterIntent.RemoveEntry -> {
-                    removals.hold(intent.entry)
-                    dispatch(Msg.EntryHeld(intent.entry))
-                }
+                is PersonalCenterIntent.RemoveEntry -> holdRemoval(intent.entry)
                 is PersonalCenterIntent.UndoRemoval ->
-                    if (removals.undo { it.identity == intent.entry.identity } != null) dispatch(Msg.EntryReleased)
+                    if (removals.undo { it.entry.identity == intent.entry.identity } !=
+                        null
+                    ) {
+                        dispatch(Msg.EntryReleased)
+                    }
                 PersonalCenterIntent.SettleRemoval -> {
                     removals.settle()
                     dispatch(Msg.EntryReleased)
@@ -422,6 +439,27 @@ class PersonalCenterStoreFactory(
         override fun dispose() {
             removals.settle()
             super.dispose()
+        }
+
+        private fun refreshLibrary() {
+            val current =
+                synchronized(personal.coordinationLock) {
+                    Msg.Library(personal.state.value, personal.scopeToken)
+                }
+            if (current.scopeToken != state().scopeToken) removals.release()
+            dispatch(current)
+        }
+
+        private fun holdRemoval(entry: PersonalEntry) {
+            synchronized(personal.coordinationLock) {
+                val token = personal.scopeToken
+                if (token != state().scopeToken || entry.profileId != personal.activeProfileId) {
+                    refreshLibrary()
+                    return@synchronized
+                }
+                removals.hold(ScopedRemoval(entry, token))
+                dispatch(Msg.EntryHeld(entry))
+            }
         }
 
         private fun attempt(action: Attempt) {
@@ -500,7 +538,12 @@ class PersonalCenterStoreFactory(
     private object ReducerImpl : Reducer<PersonalCenterState, Msg> {
         override fun PersonalCenterState.reduce(msg: Msg): PersonalCenterState =
             when (msg) {
-                is Msg.Library -> copy(library = msg.state)
+                is Msg.Library ->
+                    copy(
+                        library = msg.state,
+                        scopeToken = msg.scopeToken,
+                        pendingRemoval = pendingRemoval.takeIf { scopeToken == msg.scopeToken },
+                    )
                 is Msg.Account -> copy(signedIn = msg.signedIn)
                 is Msg.Playback -> copy(playbackSync = msg.state)
                 is Msg.Servers ->
@@ -525,12 +568,16 @@ class PersonalCenterStoreFactory(
     }
 }
 
-/** The one call that takes [entry] out of the active profile; a failure lands in the repository's error. */
-private fun PersonalLibraryRepository.removeEntry(entry: PersonalEntry) {
-    when (entry.collection) {
-        PersonalCollection.Favorite -> setFavorite(entry.media, false)
-        PersonalCollection.WatchLater -> setWatchLater(entry.media, false)
-        PersonalCollection.History -> removeHistory(entry.media)
+/** A toast may outlive its owner. The guard and write share the repository's scope-switch lock. */
+private fun PersonalLibraryRepository.removeEntry(removal: ScopedRemoval) {
+    synchronized(coordinationLock) {
+        val entry = removal.entry
+        if (scopeToken != removal.scopeToken || activeProfileId != entry.profileId) return@synchronized
+        when (entry.collection) {
+            PersonalCollection.Favorite -> setFavorite(entry.media, false)
+            PersonalCollection.WatchLater -> setWatchLater(entry.media, false)
+            PersonalCollection.History -> removeHistory(entry.media)
+        }
     }
 }
 

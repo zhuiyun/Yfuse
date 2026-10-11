@@ -77,12 +77,12 @@ internal fun PersonalContentScreen(
     onSwipeable: (Boolean) -> Unit,
 ) {
     val library = state.library
-    val profileId = library.activeProfile.id
-    var tab by rememberSaveable(profileId, initialTab) { mutableStateOf(initialTab) }
-    var query by rememberSaveable(profileId) { mutableStateOf("") }
-    var searching by rememberSaveable(profileId) { mutableStateOf(false) }
-    var tools by remember(profileId) { mutableStateOf(false) }
-    var selectedEntry by remember(profileId) { mutableStateOf<PersonalEntry?>(null) }
+    val contentScope = state.scopeToken
+    var tab by rememberSaveable(contentScope, initialTab) { mutableStateOf(initialTab) }
+    var query by rememberSaveable(contentScope) { mutableStateOf("") }
+    var searching by rememberSaveable(contentScope) { mutableStateOf(false) }
+    var tools by remember(contentScope) { mutableStateOf(false) }
+    var selectedEntry by remember(contentScope) { mutableStateOf<PersonalEntry?>(null) }
     val collections = listOf(library.watchLater, library.favorites, library.history)
     val activeEntries = collections[PersonalContentTabs.indexOf(tab).coerceAtLeast(0)]
     val visible =
@@ -105,7 +105,7 @@ internal fun PersonalContentScreen(
                     searching = !searching
                     if (!searching) query = ""
                 },
-                canImport = state.canImport && servers.isNotEmpty(),
+                canImport = state.canImport && servers.any { it.kind != MediaServerKind.Plex },
                 onTools = { tools = true },
             )
         }
@@ -422,7 +422,7 @@ private fun PersonalContentTools(
                     YfButton(
                         label = "从媒体服务器导入",
                         loading = state.busy,
-                        enabled = state.canImport && servers.isNotEmpty(),
+                        enabled = state.canImport && servers.any { it.kind != MediaServerKind.Plex },
                         onClick = {
                             onIntent(PersonalCenterIntent.ImportFromServers(servers))
                             onDismiss()
