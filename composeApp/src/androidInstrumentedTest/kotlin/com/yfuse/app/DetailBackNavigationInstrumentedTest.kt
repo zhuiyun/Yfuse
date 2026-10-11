@@ -1,11 +1,13 @@
 package com.yfuse.app
 
+import android.content.Intent
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
 import androidx.activity.BackEventCompat
 import androidx.activity.compose.setContent
+import androidx.compose.animation.EnterExitState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -23,11 +25,13 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
+import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yfuse.MainActivity
 import com.yfuse.core.designsystem.ItemAction
+import com.yfuse.core.designsystem.LiftExit
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LiftMenuHost
 import com.yfuse.core.designsystem.LiftMenuState
@@ -45,6 +49,7 @@ import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.launchMainActivityForInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -101,6 +106,57 @@ class DetailBackNavigationInstrumentedTest {
                 awaitComposedRoute("library", probe)
                 assertStack(scenario, probe, listOf("library"), pops = 2)
                 assertTrue("The committed right edge swipe bypassed the poster return host", probe.previewSeen.get())
+
+                // History/search can open a detail with no poster origin. That uses the host's
+                // forward-to-NavDisplay branch rather than its poster-return controller.
+                scenario.onActivity { probe.routes.add("plain-detail") }
+                awaitComposedRoute("plain-detail", probe)
+                awaitCondition("The plain detail did not finish its entry transition") { probe.routeSettled.get() }
+                probe.previewSeen.set(false)
+                injectEdgeSwipe(scenario, fromRight = false, cancel = false)
+                awaitComposedRoute("library", probe)
+                assertStack(scenario, probe, listOf("library"), pops = 3)
+                assertFalse("The plain detail unexpectedly reused a poster origin", probe.previewSeen.get())
+
+                scenario.onActivity { probe.routes.add("resumed-detail") }
+                awaitComposedRoute("resumed-detail", probe)
+                awaitCondition("The detail did not settle before leaving the app") { probe.routeSettled.get() }
+                var originalActivity: MainActivity? = null
+                var originalTask = -1
+                scenario.onActivity {
+                    originalActivity = it
+                    originalTask = it.taskId
+                }
+                shell("input keyevent KEYCODE_HOME")
+                awaitCondition("The real Home key did not background the app") {
+                    scenario.state != Lifecycle.State.RESUMED &&
+                        InstrumentationRegistry
+                            .getInstrumentation()
+                            .uiAutomation.rootInActiveWindow
+                            ?.packageName
+                            ?.toString() !=
+                        InstrumentationRegistry.getInstrumentation().targetContext.packageName
+                }
+                val context = InstrumentationRegistry.getInstrumentation().targetContext
+                context.startActivity(
+                    Intent(context, MainActivity::class.java).addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                    ),
+                )
+                assertStack(scenario, probe, listOf("library", "resumed-detail"), pops = 3)
+                scenario.onActivity {
+                    assertSame("Returning from Home replaced the original Activity", originalActivity, it)
+                    assertEquals("Returning from Home created a different task", originalTask, it.taskId)
+                }
+                assertEquals(
+                    "Resuming the task replaced the test's visible route",
+                    "resumed-detail",
+                    probe.composedTop.get(),
+                )
+                injectEdgeSwipe(scenario, fromRight = true, cancel = false)
+                awaitComposedRoute("library", probe)
+                assertStack(scenario, probe, listOf("library"), pops = 4)
             }
         }
     }
@@ -124,8 +180,18 @@ class DetailBackNavigationInstrumentedTest {
                     onSettled = {},
                 )
             }
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            // waitForIdleSync can return before Compose's next frame. The actual menu host
+            // must have committed its BackHandler before the predictive session chooses one.
+            awaitCondition("The actual detail menu host did not finish composing") { probe.menuComposed.get() }
+            predictiveGesture(scenario, cancel = true)
+            scenario.onActivity { assertTrue("Cancelling back dismissed the detail menu", probe.menu.isOpen) }
+            assertStack(scenario, probe, listOf("library", "detail-a", "detail-b"), pops = 0)
             predictiveGesture(scenario, cancel = false)
+            awaitCondition("The detail menu handler did not start dismissal") {
+                var leaving = false
+                scenario.onActivity { leaving = probe.menu.session?.exit != LiftExit.None }
+                leaving
+            }
             awaitCondition("The detail's menu did not consume the predictive back") {
                 var closed = false
                 scenario.onActivity { closed = !probe.menu.isOpen }
@@ -179,11 +245,16 @@ class DetailBackNavigationInstrumentedTest {
                                     val transitionActive =
                                         LocalSharedMediaTransitionController.current?.activeKey != null
                                     val previewActive = LocalZoomBackSources.current?.wanted != null
+                                    val transition = LocalNavAnimatedContentScope.current.transition
+                                    val routeSettled =
+                                        transition.currentState == EnterExitState.Visible &&
+                                            transition.targetState == EnterExitState.Visible
                                     SideEffect {
                                         if (visible) {
                                             probe.composedTop.set(route)
                                             probe.transitionActive.set(transitionActive)
                                             probe.previewActive.set(previewActive)
+                                            probe.routeSettled.set(routeSettled)
                                             if (previewActive) probe.previewSeen.set(true)
                                         }
                                     }
@@ -199,6 +270,8 @@ class DetailBackNavigationInstrumentedTest {
                                 }
                             }
                             LiftMenuHost(probe.menu)
+                            val menuVisible = probe.menu.isOpen
+                            SideEffect { probe.menuComposed.set(menuVisible) }
                         }
                     }
                 }
@@ -423,6 +496,8 @@ class DetailBackNavigationInstrumentedTest {
         val transitionActive = AtomicBoolean()
         val previewActive = AtomicBoolean()
         val previewSeen = AtomicBoolean()
+        val routeSettled = AtomicBoolean()
+        val menuComposed = AtomicBoolean()
         val menu = LiftMenuState()
     }
 }
