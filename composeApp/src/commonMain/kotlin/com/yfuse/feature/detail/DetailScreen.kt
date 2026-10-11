@@ -41,7 +41,6 @@ import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.data.rankServerSources
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AnimatedColorContent
-import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.ArtworkAccent
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.ConfirmDialog
@@ -53,7 +52,6 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.OverlayPage
-import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.WindowWidthTier
@@ -462,8 +460,10 @@ fun DetailScreen(component: DetailComponent) {
         airingCalendarLoading = true
         airingCalendarError = null
         component
-            .loadSeriesAiringCalendar(target) { preview -> airingCalendarDays = preview }
-            .onSuccess { airingCalendarDays = it }
+            .loadSeriesAiringCalendar(target, forceRefresh = airingCalendarReload > 0) { preview ->
+                airingCalendarDays =
+                    preview
+            }.onSuccess { airingCalendarDays = it }
             .onFailure { error ->
                 if (error is CalendarIdentityAmbiguousException) {
                     airingCalendarCandidates = error.candidates
@@ -732,17 +732,6 @@ fun DetailScreen(component: DetailComponent) {
                                 // of keys there carries 收藏 / 稍后看 / 已看 / 下载 instead, and the title block
                                 // still says which lists hold the title.
                                 val overview = detail.overview
-                                if (detail.type.equals("Series", ignoreCase = true)) {
-                                    motionItem(key = "airing-calendar") {
-                                        SettingRow(
-                                            title = "追更日历",
-                                            value = if (detailFollow != null) "已加入追更" else "查看播出日期 · 加入追更",
-                                            icon = AppIcons.WatchCalendar,
-                                            onClick = { airingCalendarOpen = true },
-                                            modifier = Modifier.sectionPadding(),
-                                        )
-                                    }
-                                }
                                 if (!overview.isNullOrBlank()) {
                                     motionItem(key = "overview") {
                                         OverviewSection(
@@ -779,7 +768,10 @@ fun DetailScreen(component: DetailComponent) {
                                 // rail here avoids making a series viewer cross file metadata, artwork and
                                 // external links before they can choose what to watch. A season with none
                                 // keeps the section while there are other seasons to pick.
-                                if (state.episodes.isNotEmpty() || state.seasons.size > 1) {
+                                if (detail.type.equals("Series", ignoreCase = true) ||
+                                    state.episodes.isNotEmpty() ||
+                                    state.seasons.size > 1
+                                ) {
                                     motionItem(key = "episodes") {
                                         Box(Modifier.zoomBackAnchor(allEpisodesSource)) {
                                             EpisodeSection(
@@ -804,6 +796,7 @@ fun DetailScreen(component: DetailComponent) {
                                                 onManageProgress = {
                                                     component.store.accept(DetailIntent.OpenProgressManager)
                                                 },
+                                                onOpenCalendar = { airingCalendarOpen = true },
                                                 onPlayEpisode = { episode ->
                                                     com.yfuse.core.designsystem.PlayerArtworkOrigins.begin(
                                                         sharedHeroKey,

@@ -5,6 +5,9 @@ import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.CalendarIdentityResolver
 import com.yfuse.core.data.CalendarLocalStore
 import com.yfuse.core.data.OfficialAiringScheduleCatalog
+import com.yfuse.core.data.SeriesAiringScheduleFallback
+import com.yfuse.core.data.TmdbRepository
+import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
@@ -17,7 +20,20 @@ internal fun calendarModule(calendarLocalStore: CalendarLocalStore): Module =
         single<CalendarLocalStore> { calendarLocalStore }
         single { CalendarFollowStore(get(), personal = get()) }
         single { OfficialAiringScheduleCatalog(get<com.yfuse.backend.CalendarBackendApi>(), get()) }
-        single { CalendarIdentityResolver(get(), get()) }
+        single {
+            val tmdb = get<TmdbRepository>()
+            CalendarIdentityResolver(get(), get(), search = { title, year ->
+                tmdb.searchTitles(title, mediaType = "tv", year = year).map { hits ->
+                    hits.map { hit ->
+                        TmdbSeriesIdentityCandidate(hit.id, hit.title, hit.year, hit.posterPath, hit.popularity)
+                    }
+                }
+            })
+        }
+        single {
+            val tmdb = get<TmdbRepository>()
+            SeriesAiringScheduleFallback(fetch = { id, title -> tmdb.seriesAiringCalendar(id, title) })
+        }
         single {
             AiringCalendarRepository(
                 emby = get(),
@@ -28,6 +44,7 @@ internal fun calendarModule(calendarLocalStore: CalendarLocalStore): Module =
                 localStore = get(),
                 // Skips servers the monitor has marked as needing re-login or backing off.
                 serverHealth = get(),
+                supplementalSchedules = get(),
             )
         }
     }

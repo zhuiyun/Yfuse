@@ -355,6 +355,7 @@ class DetailComponent(
 
     suspend fun loadSeriesAiringCalendar(
         detail: MediaDetail,
+        forceRefresh: Boolean = false,
         onPreview: (List<CalendarDay>) -> Unit = {},
     ): Result<List<CalendarDay>> =
         loadCalendarWithDeadline {
@@ -401,6 +402,7 @@ class DetailComponent(
                 fallbackTitle = detail.title,
                 onPreview = onPreview,
                 libraryHint = libraryHint,
+                forceRefresh = forceRefresh,
             )
         }
 

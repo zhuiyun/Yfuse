@@ -732,7 +732,9 @@ internal class AndroidTransportMediaDataSource(
             progress?.beginAttempt(startedNs)
             val blockStart = blockIndex.saturatedMultiply(blockSize.toLong()).saturatedAdd(rangeOffset.toLong())
             val position = blockStart.saturatedAdd(partial.total.toLong())
-            val end = blockStart.saturatedAdd(partial.bytes.size.toLong() - 1L)
+            val requestedEnd = blockStart.saturatedAdd(partial.bytes.size.toLong() - 1L)
+            val validatedLength = partial.contentLength ?: knownSizeSnapshot.takeIf { it >= 0L }
+            val end = validatedLength?.let { minOf(requestedEnd, it - 1L) } ?: requestedEnd
             val attemptOffset = partial.total
             var transferredBytes = 0L
             val diagnostics =
@@ -837,10 +839,22 @@ internal class AndroidTransportMediaDataSource(
                 }
                 val effectiveKnownSize = responseContentLength ?: knownSizeSnapshot
                 val output = partial.bytes
+                val expectedBytes =
+                    response.acceptedRange
+                        ?.endInclusive
+                        ?.let { servedEnd -> servedEnd - position + 1L }
+                        ?.coerceAtMost((output.size - attemptOffset).toLong())
+                        ?: effectiveKnownSize.takeIf { it >= 0L }?.let {
+                            (it - position).coerceIn(0L, (output.size - attemptOffset).toLong())
+                        }
+                val expectedTotal = expectedBytes?.let { attemptOffset + it.toInt() } ?: output.size
                 var total = partial.total
                 var emptyReads = 0
-                while (total < output.size) {
-                    val count = blockTransport.read(output, total, output.size - total)
+                // Content-Range defines the exchange boundary. Waiting for a further EOF after
+                // receiving its last byte can time out on a keep-alive connection and resume at
+                // the file length, turning a complete tail/index read into an HTTP 416 failure.
+                while (total < expectedTotal) {
+                    val count = blockTransport.read(output, total, expectedTotal - total)
                     if (count < 0) break
                     if (count == 0) {
                         // A transport that keeps returning 0 without ever reaching end-of-stream
@@ -878,14 +892,6 @@ internal class AndroidTransportMediaDataSource(
                         .onBytesTransferred(count.toLong(), nowNs)
                         ?.let { sample -> onNetworkSample?.invoke(sample.bytes, sample.durationMs) }
                 }
-                val expectedBytes =
-                    response.acceptedRange
-                        ?.endInclusive
-                        ?.let { servedEnd -> servedEnd - position + 1L }
-                        ?.coerceAtMost((output.size - attemptOffset).toLong())
-                        ?: effectiveKnownSize.takeIf { it >= 0L }?.let {
-                            (it - position).coerceIn(0L, (output.size - attemptOffset).toLong())
-                        }
                 if (
                     expectedBytes != null &&
                     total.toLong() - attemptOffset != expectedBytes &&

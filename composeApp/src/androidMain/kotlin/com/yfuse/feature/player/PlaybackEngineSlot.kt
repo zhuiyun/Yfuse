@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core2.android.AndroidSerializedPlayerRelease
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
@@ -25,11 +26,17 @@ internal class PlaybackEngineRetirements(
     private val release: suspend (VideoEngine) -> Unit,
     private val completed: (VideoEngine) -> Boolean? = { null },
 ) {
-    private class Retirement {
+    private class ReleaseAttempt(
+        val number: Int = 1,
+    ) {
         val result = CompletableDeferred<Unit>()
-        val callbacks = mutableListOf<() -> Unit>()
 
         @Volatile var started = false
+    }
+
+    private class Retirement {
+        var attempt = ReleaseAttempt()
+        val callbacks = mutableListOf<() -> Unit>()
     }
 
     private val pending = linkedMapOf<VideoEngine, Retirement>()
@@ -47,15 +54,34 @@ internal class PlaybackEngineRetirements(
         }
         val retirement = Retirement().also { it.callbacks += onComplete }
         pending[engine] = retirement
+        startRelease(engine, retirement, retirement.attempt)
+    }
+
+    private fun startRelease(
+        engine: VideoEngine,
+        retirement: Retirement,
+        attempt: ReleaseAttempt,
+    ) {
         scope.launch {
             try {
-                retirement.started = true
+                attempt.started = true
                 release(engine)
                 check(completed(engine) != false) { "Previous playback resources are still releasing" }
                 notifyReleased(retirement)
-                retirement.result.complete(Unit)
+                attempt.result.complete(Unit)
             } catch (error: Throwable) {
-                retirement.result.completeExceptionally(error)
+                AppLog.error(
+                    category = "player",
+                    event = "engine_release_failed",
+                    message = "Playback resource cleanup failed; the decoder lease remains reserved",
+                    throwable = error,
+                    attributes =
+                        mapOf(
+                            "implementation" to engine.javaClass.simpleName,
+                            "attempt" to attempt.number.toString(),
+                        ),
+                )
+                attempt.result.completeExceptionally(error)
             }
         }
     }
@@ -69,7 +95,33 @@ internal class PlaybackEngineRetirements(
                 continue
             }
             val entry = synchronized(this) { pending.entries.firstOrNull()?.let { it.key to it.value } } ?: return
-            if (!entry.second.started || completed(entry.first) != true) entry.second.result.await()
+            val attempt =
+                synchronized(this) {
+                    val previous = entry.second.attempt
+                    // A failed join is only an observation of cleanup at that moment. Serialized
+                    // engines can resume their idempotent release/join on the next playback request.
+                    // Keep the engine and its callbacks reserved, and share one retry among waiters.
+                    // Without a real completion signal, a failed release still blocks construction.
+                    if (previous.result.isCancelled && completed(entry.first) == false) {
+                        val retry = ReleaseAttempt(previous.number + 1)
+                        entry.second.attempt = retry
+                        AppLog.warning(
+                            category = "player",
+                            event = "engine_release_retried",
+                            message = "Resuming serialized playback resource cleanup",
+                            attributes =
+                                mapOf(
+                                    "implementation" to entry.first.javaClass.simpleName,
+                                    "attempt" to retry.number.toString(),
+                                ),
+                        )
+                        startRelease(entry.first, entry.second, retry)
+                        retry
+                    } else {
+                        previous
+                    }
+                }
+            if (!attempt.started || completed(entry.first) != true) attempt.result.await()
             check(completed(entry.first) != false) { "Previous playback resources are still releasing" }
             notifyReleased(entry.second)
             synchronized(this) { pending.remove(entry.first) }
@@ -178,11 +230,13 @@ internal class PlaybackEngineSlot(
                 var published = false
                 var owner: String? = null
                 var construction: CompletableDeferred<Unit>? = null
+                var failureStage = "retirement"
                 try {
                     withTimeout(waitTimeoutMs) { construction = retirements.reserveConstruction() }
                     launchStage("engine_retirement_done", input)
                     coroutineContext.ensureActive()
                     if (closed || generation != token) return@launch
+                    failureStage = "construction"
                     val snapshot = preparing.snapshot()
                     val allocatedOwner = newOwner().also { owner = it }
                     launchStage("engine_construct_started", snapshot)
@@ -190,6 +244,7 @@ internal class PlaybackEngineSlot(
                     launchStage("engine_constructed", snapshot)
                     coroutineContext.ensureActive()
                     if (closed || generation != token) return@launch
+                    failureStage = "handover"
                     // A suspending factory may have yielded while controls remained usable.
                     val latest = preparing.snapshot()
                     if (latest != snapshot) {
@@ -209,9 +264,17 @@ internal class PlaybackEngineSlot(
                     published = true
                 } catch (cancelled: CancellationException) {
                     if (closed || generation != token || !coroutineContext[Job]!!.isActive) throw cancelled
+                    logFailure(cancelled, failureStage, input)
                     preparing.failed("上一个播放器仍在释放资源，请稍后重试")
                 } catch (error: Throwable) {
-                    preparing.failed(error.message ?: "播放器切换未完成，请重试")
+                    logFailure(error, failureStage, input)
+                    preparing.failed(
+                        if (failureStage == "retirement") {
+                            "上一个播放器资源清理未完成，请重试"
+                        } else {
+                            error.message ?: "播放器切换未完成，请重试"
+                        },
+                    )
                 } finally {
                     try {
                         if (!published) {
@@ -231,6 +294,27 @@ internal class PlaybackEngineSlot(
                     }
                 }
             }
+    }
+
+    private fun logFailure(
+        error: Throwable,
+        stage: String,
+        input: PlaybackEngineInput,
+    ) {
+        val item = input.items.getOrNull(input.handover.itemIndex)
+        AppLog.error(
+            category = "player",
+            event = "engine_slot_failed",
+            message = "Playback engine replacement failed",
+            throwable = error,
+            attributes =
+                mapOf(
+                    "stage" to stage,
+                    "itemId" to item?.id.orEmpty(),
+                    "serverId" to item?.serverId.orEmpty(),
+                    "sessionId" to item?.playSessionId.orEmpty(),
+                ),
+        )
     }
 
     fun close() {

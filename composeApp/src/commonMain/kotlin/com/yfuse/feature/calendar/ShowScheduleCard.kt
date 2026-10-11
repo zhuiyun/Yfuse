@@ -2,6 +2,7 @@ package com.yfuse.feature.calendar
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,13 +43,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
@@ -83,7 +78,6 @@ import com.yfuse.core.designsystem.LocalDialogPaneTitle
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
-import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.Palette
 import com.yfuse.core.designsystem.TOAST_UNDO_WINDOW_MS
 import com.yfuse.core.designsystem.artworkPageSurface
@@ -837,22 +831,13 @@ private fun ScheduleDayCell(
     // Match the season summary: a dated episode still explicitly marked Unaired stays upcoming.
     val updated = entries.orEmpty().any { it.status != LibraryStatus.Unaired && it.episode.airDate <= today }
     val status = if (updated) "已更新" else "待更新"
-    val fill =
-        selectionColor(
-            if (selected) {
-                accent.accent
-            } else if (updated) {
-                accent.container
-            } else {
-                Color.Transparent
-            },
-        )
+    val fill = selectionColor(if (selected) palette.success.copy(alpha = 0.16f) else Color.Transparent)
     val dateColor =
         selectionColor(
             if (selected) {
-                accent.onAccent
+                palette.success
             } else if (updated) {
-                accent.accent
+                palette.text
             } else {
                 palette.text
             },
@@ -900,22 +885,13 @@ private fun ScheduleDayCell(
                 }
             }.clip(ScheduleDayShape)
             .background(fill)
-            .then(
-                if (span != null &&
-                    !updated &&
-                    !selected
-                ) {
-                    Modifier.scheduleUpcomingBorder(palette.border)
-                } else {
-                    Modifier
-                },
-            ).padding(vertical = 2.dp),
+            .padding(vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             Modifier
-                .fillMaxWidth()
-                .height(ScheduleDateBand),
+                .size(ScheduleDateBand)
+                .then(if (span != null) Modifier.border(2.dp, palette.success, CircleShape) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -955,25 +931,6 @@ private fun ScheduleDayCell(
         }
     }
 }
-
-/** A quiet dashed outline keeps a published future date distinct from an aired date. */
-private fun Modifier.scheduleUpcomingBorder(color: Color): Modifier =
-    drawWithCache {
-        val width = 1.dp.toPx()
-        val inset = width / 2f
-        val radius = (ScheduleDayRadius.toPx() - inset).coerceAtLeast(0f)
-        val stroke =
-            Stroke(width = width, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx())))
-        onDrawBehind {
-            drawRoundRect(
-                color = color,
-                topLeft = Offset(inset, inset),
-                size = Size((size.width - width).coerceAtLeast(0f), (size.height - width).coerceAtLeast(0f)),
-                cornerRadius = CornerRadius(radius, radius),
-                style = stroke,
-            )
-        }
-    }
 
 /** The broadcasts of the date picked in the month: each episode, when and where, and its state. */
 @Composable
@@ -1409,71 +1366,87 @@ private fun ScheduleActionBar(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val reminder = resolveAccentColors(DecorativeTints.coral, palette.isDark)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(Dimens.space.md),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (onShare != null || onReminder != null || onRefresh != null || onFollow != null) {
-            val visuals = resolveGlassButtonVisuals(GlassButtonEmphasis.Neutral, palette, accent)
+    Column(Modifier.fillMaxWidth().padding(Dimens.space.md)) {
+        if (onShare != null || onReminder != null || onRefresh != null) {
             Row(
-                Modifier
-                    .liquidGlass(
-                        shape = AppShapes.pill,
-                        fill = visuals.fill,
-                        border = visuals.border,
-                        over = palette.background,
-                        sheen = visuals.sheen,
-                    ).padding(horizontal = Dimens.space.xs),
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (onShare != null) ScheduleTool(AppIcons.Share, "分享播出日历", palette.text, onShare)
+                if (onShare != null) ScheduleTool(AppIcons.Share, "分享播出日历", palette.sub, onShare)
                 if (onReminder != null) {
                     ScheduleTool(
-                        icon = AppIcons.Bell,
-                        description = if (reminding) "更新提醒，已开启" else "更新提醒",
-                        tint = if (reminding || reminderOpen) reminder.accent else palette.text,
-                        onClick = onReminder,
-                        haptic = HapticSignal.Select,
-                    )
-                }
-                if (onRefresh != null) {
-                    ScheduleTool(
-                        icon = AppIcons.Refresh,
-                        description = if (refreshing) "正在刷新排期" else "刷新排期",
-                        tint = palette.text,
-                        onClick = onRefresh,
-                        enabled = !refreshing,
-                    )
-                }
-                if (onFollow != null) {
-                    if (followed) {
-                        ScheduleTool(AppIcons.Remove, "取消追更", palette.error, onFollow, haptic = HapticSignal.Tap)
-                    } else {
-                        Row(
-                            Modifier
-                                .pressable(haptic = HapticSignal.Confirm, onClick = onFollow)
-                                .heightIn(min = 48.dp)
-                                .padding(start = Dimens.space.sm, end = Dimens.space.md),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(Dimens.space.xs),
+                        AppIcons.Bell,
+                        "更新提醒",
+                        if (reminding ||
+                            reminderOpen
                         ) {
-                            Icon(
-                                AppIcons.Add,
-                                contentDescription = null,
-                                tint = accent.accent,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Text("加入追更", style = AppTypography.body.strong, color = accent.accent, maxLines = 1)
-                        }
-                    }
+                            palette.success
+                        } else {
+                            palette.sub
+                        },
+                        onReminder,
+                    )
+                }
+                if (onRefresh !=
+                    null
+                ) {
+                    ScheduleTool(AppIcons.Refresh, "刷新排期", palette.sub, onRefresh, enabled = !refreshing)
                 }
             }
         }
-        Spacer(Modifier.weight(1f))
-        OverlayButton("完成", onClick = overlayDismiss(onDone))
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (onFollow != null) {
+                val visuals = resolveGlassButtonVisuals(GlassButtonEmphasis.Neutral, palette, accent)
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .liquidGlass(
+                            AppShapes.pill,
+                            visuals.fill,
+                            visuals.border,
+                            over = palette.background,
+                            sheen = visuals.sheen,
+                        ).pressable(
+                            onClickLabel = if (followed) "取消追更" else "加入追更",
+                            haptic = HapticSignal.Confirm,
+                            onClick = onFollow,
+                        ).heightIn(min = 48.dp)
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        if (followed) AppIcons.Check else AppIcons.Add,
+                        contentDescription = null,
+                        tint = if (followed) palette.success else palette.text,
+                        modifier = Modifier.size(21.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (followed) "已加入追更" else "加入追更", style = AppTypography.body.strong, color = palette.text)
+                }
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .flatGlass(CircleShape, palette.card2, palette.border)
+                    .pressable(onClickLabel = "关闭播出日历", onClick = overlayDismiss(onDone)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    AppIcons.Close,
+                    contentDescription = "关闭播出日历",
+                    tint = palette.text,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
     }
 }
 

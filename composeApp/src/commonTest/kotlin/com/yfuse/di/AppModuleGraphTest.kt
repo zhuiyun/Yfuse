@@ -336,6 +336,7 @@ class AppModuleGraphTest {
                 "Singleton io.ktor.client.HttpClient named(tmdb-http) onClose",
                 "Singleton com.yfuse.core.data.TmdbRepository",
                 "Singleton com.yfuse.core.data.CalendarIdentityResolver",
+                "Singleton com.yfuse.core.data.SeriesAiringScheduleFallback",
                 "Singleton com.arkivanov.mvikotlin.core.store.StoreFactory",
             )
     }

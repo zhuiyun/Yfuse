@@ -554,7 +554,6 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             serverId = state.currentServer?.id,
                                             items = state.content.resume,
                                             openedCopy = component.openedCopy,
-                                            onResume = { component.onResumeItem(it, false) },
                                             onOpen = openCopy,
                                             liftMenu = historyLiftMenu,
                                         )
@@ -1321,8 +1320,6 @@ private fun PlaybackHistory(
     items: List<MediaItem>,
     /** The copy of a title last opened from this page; see [libraryHomeSharedKey]. */
     openedCopy: String?,
-    /** A tap: play from where it was left. */
-    onResume: (MediaItem) -> Unit,
     /** Letting go on the lifted card: the title's page, opened from the copy at that place. */
     onOpen: (place: String, item: MediaItem) -> Unit,
     liftMenu: (MediaItem) -> LiftMenu,
@@ -1348,7 +1345,6 @@ private fun PlaybackHistory(
                     item = item,
                     sharedKey = libraryHomeSharedKey(serverId, place, item.id, openedCopy),
                     detailKey = MediaSharedElementKey(serverId, item.id),
-                    onResume = { onResume(item) },
                     onOpen = { onOpen(place, item) },
                     liftMenu = { liftMenu(item) },
                 )
@@ -1358,9 +1354,8 @@ private fun PlaybackHistory(
 }
 
 /**
- * One 播放记录 card. A tap picks the title up where it was left, the player coming out of the card's
- * still (I-04); its page is reached from the lift. It is [CaptionedPoster]'s tile with the tap on the
- * tile rather than in the poster, whose own click would start the morph into 详情.
+ * One 播放记录 card. Both a tap and the lifted card open its detail page; the page's play
+ * action retains the server's resume position. Explicit playback stays in the lifted menu.
  */
 @Composable
 private fun PlaybackHistoryCard(
@@ -1371,7 +1366,6 @@ private fun PlaybackHistoryCard(
     sharedKey: MediaSharedElementKey,
     /** The detail page's key, noted for 跟手返回 before [onOpen] makes this the opened copy. */
     detailKey: MediaSharedElementKey,
-    onResume: () -> Unit,
     onOpen: () -> Unit,
     liftMenu: () -> LiftMenu,
 ) {
@@ -1386,17 +1380,15 @@ private fun PlaybackHistoryCard(
     // Keyed by its place (see [libraryHomeSharedKey]): a film that was just watched is also a film
     // that was just added, so the same id is on screen twice — and the player, or 跟手返回, must
     // come back to this copy.
-    val resume = playerArtworkOnClick(sharedKey, onResume)
     val open = liftedCardOpen(detailKey, onOpen)
     val artwork = remember { LiftAnchor() }
-    val resumable = (item.resumePositionTicks ?: 0L) > 0L && !item.played
     Column(
         // The press lands on the whole tile, caption included, as on [CaptionedPoster]; the
         // artwork is what lifts.
         Modifier
             .width(MediaSizing.landscapeCardWidth)
             .liftable(menu = { liftMenu().withArtwork(artworkUrls) }, anchor = artwork, onOpen = open)
-            .pressable(onClickLabel = if (resumable) "继续播放" else "播放", onClick = resume),
+            .pressable(onClickLabel = "查看 ${item.title} 详情", onClick = open),
     ) {
         Poster(
             url = backdropUrl,

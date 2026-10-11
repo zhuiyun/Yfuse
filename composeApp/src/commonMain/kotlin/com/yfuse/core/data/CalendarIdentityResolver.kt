@@ -13,11 +13,12 @@ data class TmdbSeriesIdentityCandidate(
 
 class CalendarIdentityAmbiguousException(
     val candidates: List<TmdbSeriesIdentityCandidate>,
-) : Exception("请从服务器排期中选择正确剧集")
+) : Exception("请选择正确剧集")
 
 class CalendarIdentityResolver(
     private val schedules: OfficialAiringScheduleCatalog,
     private val settings: Settings,
+    private val search: (suspend (String, Int?) -> Result<List<TmdbSeriesIdentityCandidate>>)? = null,
 ) {
     suspend fun resolve(
         detail: MediaDetail,
@@ -48,7 +49,7 @@ class CalendarIdentityResolver(
 
     /**
      * The viewer's own choice stands; after it, the server's TMDB id; after that, a unique
-     * exact title in the publication.
+     * exact title in the publication or a bounded title search.
      *
      * A title is only a guess — a 短剧 without a TMDB entry often shares its name with another
      * show — so a guessed identity, and one taken from a TMDB id the server has since changed,
@@ -73,7 +74,7 @@ class CalendarIdentityResolver(
 
         // Checking an earlier guess again uses the publication already held.
         if (saved == null) schedules.refreshIfDue()
-        val candidates = schedules.identityCandidates(title)
+        val candidates = identityCandidates(title, year)
         val normalizedTitle = normalizeIdentityTitle(title)
         val exact =
             candidates.filter { candidate ->
@@ -102,7 +103,22 @@ class CalendarIdentityResolver(
     suspend fun candidates(detail: MediaDetail): Result<List<TmdbSeriesIdentityCandidate>> {
         require(detail.type.equals("Series", ignoreCase = true)) { "只有剧集支持播出日历" }
         schedules.refreshIfDue()
-        return Result.success(schedules.identityCandidates(detail.title))
+        return Result.success(identityCandidates(detail.title, detail.year))
+    }
+
+    private suspend fun identityCandidates(
+        title: String,
+        year: Int?,
+    ): List<TmdbSeriesIdentityCandidate> {
+        val published = schedules.identityCandidates(title)
+        if (published.any {
+                normalizeIdentityTitle(it.title) == normalizeIdentityTitle(title) && identityYearsAgree(year, it.year)
+            }
+        ) {
+            return published
+        }
+        val extra = search?.invoke(title, year)?.getOrDefault(emptyList()).orEmpty()
+        return (published + extra).distinctBy(TmdbSeriesIdentityCandidate::tmdbId)
     }
 
     /** The viewer's own choice, made on the detail page. */

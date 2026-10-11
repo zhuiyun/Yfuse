@@ -343,12 +343,15 @@ internal class AndroidNativeDirectYPlayer(
         if (released) return
         releasedAtMs = System.nanoTime() / 1_000_000L
         released = true
-        activeSession?.cancelPendingRead()
-        commands.close()
-        wakeSignal.trySend(Unit)
-        worker.invokeOnCompletion { playbackDispatcher.close() }
-        worker.cancel()
-        scope.cancel()
+        try {
+            activeSession?.cancelPendingRead()
+        } finally {
+            commands.close()
+            wakeSignal.trySend(Unit)
+            worker.invokeOnCompletion { playbackDispatcher.close() }
+            worker.cancel()
+            scope.cancel()
+        }
         mutableState.update { current ->
             current.copy(
                 phase = YPlaybackPhase.Idle,

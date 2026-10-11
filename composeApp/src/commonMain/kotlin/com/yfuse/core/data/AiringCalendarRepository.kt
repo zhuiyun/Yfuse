@@ -44,8 +44,8 @@ private inline fun <T> calendarAttempt(block: () -> T): Result<T> =
 /**
  * 追剧日历 — what is broadcasting, and what this library can do about it.
  *
- * The Yfuse server collects and publishes schedules. The app reads that signed publication
- * and checks the user's media servers for playable copies and watch progress.
+ * The signed server publication takes priority. Exact series lookups fill gaps in its coverage;
+ * the user's media servers supply playable copies and watch progress.
  */
 class AiringCalendarRepository(
     private val emby: EmbyRepository,
@@ -56,6 +56,7 @@ class AiringCalendarRepository(
     private val localStore: CalendarLocalStore = NoOpCalendarLocalStore,
     /** Null contacts every server, as hosts without a running monitor always did. */
     private val serverHealth: ServerHealthMonitor? = null,
+    private val supplementalSchedules: SeriesAiringScheduleFallback? = null,
 ) {
     private data class IdentityCatalogSnapshot(
         val fetchedAtEpochMs: Long,
@@ -161,6 +162,9 @@ class AiringCalendarRepository(
      * series bypass that cap and are queried by their exact TMDB id.
      */
     private suspend fun activeLibrarySeries(forceRefresh: Boolean): List<FollowedSeries> {
+        if (!forceRefresh && !followStore.automaticFollowRefreshDue(currentEpochMillis(), 15 * 60_000L)) {
+            return followStore.followed.value.filter { it.trackingOrigin == CalendarTrackingOrigin.LibraryAuto }
+        }
         val scopeToken = followStore.scopeToken
         val servers = registry.data.value.servers
         val unavailable = unavailableServerIds(servers, fanOut = "active_library_series")
@@ -434,8 +438,23 @@ class AiringCalendarRepository(
         // A slow publication refresh must not postpone availability for an already verified schedule.
         return coroutineScope {
             val availability = async { if (cached.isEmpty()) null else resolve(cached) }
+            val tracking =
+                async {
+                    if (supplementalSchedules != null) {
+                        withTimeoutOrNull(6_000L) { activeLibrarySeries(forceRefresh) }
+                    } else {
+                        null
+                    }
+                }
             val refresh = officialSchedules.refreshIfDue(force = forceRefresh)
-            val episodes = officialSchedules.between(from, to)
+            tracking.await()
+            val episodes =
+                supplementTrackedSchedules(
+                    officialSchedules.between(from, to),
+                    followStore.followed.value,
+                    forceRefresh,
+                    today,
+                ).filter { it.airDate in from..to }
             val initial = availability.await()
             when {
                 episodes == cached && initial != null -> initial
@@ -522,7 +541,7 @@ class AiringCalendarRepository(
         val cached = rows()
         if (cached.isNotEmpty()) onPreview(unresolvedCalendarDays(cached, today))
         val refresh = officialSchedules.refreshIfDue(force = forceRefresh)
-        val episodes = rows()
+        val episodes = supplementTrackedSchedules(rows(), series, forceRefresh, today).filter { it.airDate in from..to }
         if (episodes.isEmpty() && refresh.isFailure) return Result.failure(refresh.exceptionOrNull()!!)
         return calendarDays(
             episodes = episodes,
@@ -534,6 +553,33 @@ class AiringCalendarRepository(
             seriesScope = ids,
             onPreview = onPreview,
         )
+    }
+
+    /** Fill gaps for exact followed identities; published corrections always win. */
+    private suspend fun supplementTrackedSchedules(
+        published: List<AiringEpisode>,
+        series: List<FollowedSeries>,
+        forceRefresh: Boolean,
+        today: String,
+    ): List<AiringEpisode> {
+        val lookup = supplementalSchedules ?: return published
+        val covered = published.filter { it.airDate > today }.mapTo(hashSetOf(), AiringEpisode::showTmdbId)
+        val extra = mutableListOf<AiringEpisode>()
+        val extraMutex = Mutex()
+        withTimeoutOrNull(8_000L) {
+            coroutineScope {
+                series
+                    .distinctBy(FollowedSeries::tmdbId)
+                    .filter { it.tmdbId !in covered }
+                    .map { show ->
+                        async {
+                            val rows = lookup.series(show.tmdbId, show.title, forceRefresh).getOrDefault(emptyList())
+                            extraMutex.withLock { extra.addAll(rows) }
+                        }
+                    }.awaitAll()
+            }
+        }
+        return mergeAiringSchedules(extra, published)
     }
 
     /** Force-refreshes one tracked series without reopening global discovery. */
@@ -759,14 +805,21 @@ class AiringCalendarRepository(
             // Cached broadcast dates are enough to check files. Refreshing the server's
             // publication must not sit in front of the availability lookup.
             val availability = async { if (initial.isEmpty()) null else resolve(initial) }
+            val exact = async { supplementalSchedules?.series(showTmdbId, fallbackTitle, forceRefresh) }
             val refresh = officialSchedules.refreshIfDue(force = forceRefresh)
             val initialResult = availability.await()
-            official = officialSchedules.series(showTmdbId, fallbackTitle).orEmpty()
+            val exactResult = exact.await()
+            official =
+                mergeAiringSchedules(
+                    exactResult?.getOrDefault(emptyList()).orEmpty(),
+                    officialSchedules.series(showTmdbId, fallbackTitle).orEmpty(),
+                )
             val merged = mergedSchedule()
             when {
                 merged == initial && initialResult != null -> initialResult
                 merged.isEmpty() && localDays.isNotEmpty() -> Result.success(localDays)
                 merged.isEmpty() && refresh.isFailure -> Result.failure(refresh.exceptionOrNull()!!)
+                merged.isEmpty() && exactResult?.isFailure == true -> Result.failure(exactResult.exceptionOrNull()!!)
                 else -> resolve(merged)
             }
         }

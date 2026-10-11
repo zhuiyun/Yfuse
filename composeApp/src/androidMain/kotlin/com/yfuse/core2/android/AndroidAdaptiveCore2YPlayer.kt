@@ -460,12 +460,17 @@ internal class AndroidAdaptiveCore2YPlayer(
     override fun release() {
         if (released) return
         released = true
-        invalidateProbe("released")
-        audioManager?.unregisterAudioDeviceCallback(audioDeviceCallback)
-        spatialAudioStateMonitor?.release()
-        commands.close()
-        worker.cancel()
-        scope.cancel()
+        try {
+            invalidateProbe("released")
+            audioManager?.unregisterAudioDeviceCallback(audioDeviceCallback)
+        } finally {
+            // The released flag must never strand a live worker when a framework callback
+            // throws: a subsequent releaseAndJoin still has to be able to finish cleanup.
+            commands.close()
+            worker.cancel()
+            scope.cancel()
+            runCatching { spatialAudioStateMonitor?.release() }
+        }
         runCatching(onRelease)
         mutableState.update { current ->
             current.copy(
@@ -714,7 +719,14 @@ internal class AndroidAdaptiveCore2YPlayer(
             chapterLoader = null
             nextItemPreloadJob?.cancel()
             nextItemPreloadJob = null
-            finalizeChildLearning?.invoke()
+            runCatching { finalizeChildLearning?.invoke() }.onFailure { failure ->
+                AppLog.warning(
+                    "player.core2",
+                    "route_learning_failed",
+                    "Route learning could not be saved",
+                    throwable = failure,
+                )
+            }
             finalizeChildLearning = null
             childCollector?.cancel()
             childCollector = null
@@ -722,8 +734,8 @@ internal class AndroidAdaptiveCore2YPlayer(
             child = null
             secondarySubtitleSupported = false
             activeChild = null
-            previous?.release()
             if (previous is AndroidSerializedPlayerRelease) releaseBarrier.retire(previous)
+            previous?.release()
             // A timed-out release remains a barrier for every later Retry. Clearing the visible
             // child cannot grant another codec while its old owner is still tearing down.
             if (waitForRelease) releaseBarrier.await()
