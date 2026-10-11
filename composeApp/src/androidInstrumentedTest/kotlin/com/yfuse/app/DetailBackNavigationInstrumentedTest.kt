@@ -3,6 +3,7 @@ package com.yfuse.app
 import android.content.Intent
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.util.Log
 import android.view.InputDevice
 import android.view.MotionEvent
 import androidx.activity.BackEventCompat
@@ -516,13 +517,105 @@ class DetailBackNavigationInstrumentedTest {
         val distance = width * if (cancel) 0.32f else 0.72f
         val end = start + if (fromRight) -distance else distance
         val y = height * 0.5f
+        // UiAutomation waits for WM animations before injecting DOWN. Sampling downTime first
+        // would count that wait as a long press and make System UI reject the first MOVE.
+        awaitSystemTransitionsIdle()
         val down = SystemClock.uptimeMillis()
         injectPointer(MotionEvent.ACTION_DOWN, start, y, down)
         for (step in 1..16) {
             SystemClock.sleep(20L)
-            injectPointer(MotionEvent.ACTION_MOVE, start + (end - start) * step / 16f, y, down)
+            val eventTime = SystemClock.uptimeMillis()
+            if (step == 1) {
+                Log.i("DetailBackInput", "First MOVE eventTime=$eventTime downTime=$down deltaMs=${eventTime - down}")
+            }
+            injectPointer(MotionEvent.ACTION_MOVE, start + (end - start) * step / 16f, y, down, eventTime)
         }
         injectPointer(if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP, end, y, down)
+    }
+
+    private fun awaitSystemTransitionsIdle() {
+        val started = SystemClock.uptimeMillis()
+        var observed = ""
+        try {
+            awaitCondition("System UI's window transitions did not become idle before input") {
+                observed = shell("dumpsys activity service com.android.systemui/.SystemUIService WMShell")
+                shellTransitionsIdle(observed)
+            }
+        } catch (failure: AssertionError) {
+            val section =
+                observed
+                    .lineSequence()
+                    .dropWhile { it.trim() != "ShellTransitions" }
+                    .takeWhile { it.isNotBlank() }
+                    .joinToString("\n")
+            throw AssertionError(
+                "${failure.message}; last WMShell snapshot: ${section.ifEmpty { observed }.take(4_000)}",
+                failure,
+            )
+        }
+        Log.i("DetailBackInput", "System transition barrier elapsedUptimeMs=${SystemClock.uptimeMillis() - started}")
+    }
+
+    private fun shellTransitionsIdle(dump: String): Boolean {
+        val allLines = dump.lines()
+        val headers = allLines.indices.filter { allLines[it].trim() == "ShellTransitions" }
+        assertEquals("The WMShell dump must contain exactly one ShellTransitions section", 1, headers.size)
+        val start = headers.single()
+        // ShellCommandHandler separates dump callbacks with a blank line. Neither version's
+        // Transitions/RemoteTransitionHandler emits internal blank lines, so labels stay local.
+        val sectionEnd = (start + 1 until allLines.size).firstOrNull { allLines[it].isBlank() } ?: allLines.size
+        val lines = allLines.subList(start, sectionEnd)
+        val indentation = lines.first().indexOfFirst { !it.isWhitespace() }
+
+        fun label(name: String): Int {
+            val matches = (1 until lines.size).filter { lines[it].trim() == name }
+            assertEquals("Missing or repeated $name in the ShellTransitions dump", 1, matches.size)
+            val index = matches.single()
+            assertEquals(
+                "Unexpected indentation for $name",
+                indentation,
+                lines[index].indexOfFirst { !it.isWhitespace() },
+            )
+            return index
+        }
+        val pending = label("Pending Transitions:")
+        val ready = label("Ready-during-sync Transitions:")
+        val tracks = label("Tracks:")
+        assertTrue(
+            "ShellTransitions dump labels are out of order",
+            0 < pending && pending < ready && ready < tracks,
+        )
+        assertTrue("The pending/ready transition sections are empty", ready > pending + 1 && tracks > ready + 1)
+        val end =
+            (tracks + 1 until lines.size).firstOrNull {
+                lines[it].indexOfFirst { char -> !char.isWhitespace() } <=
+                    indentation
+            }
+                ?: lines.size
+        var index = tracks + 1
+        var trackCount = 0
+        var tracksIdle = true
+        while (index < end) {
+            assertTrue(
+                "Unexpected ShellTransitions track header: ${lines[index]}",
+                lines[index].trim().matches(Regex("Track #[0-9]+")),
+            )
+            assertTrue(
+                "Missing active state for ${lines[index].trim()}",
+                index + 1 < end && lines[index + 1].trim().startsWith("active="),
+            )
+            tracksIdle = tracksIdle && lines[index + 1].trim() == "active=null"
+            trackCount++
+            index += 2
+            // This spelling is emitted by both Android 15 and Android 17's Transitions.dump.
+            if (index < end && lines[index].trim().startsWith("hander=")) index++
+        }
+        assertTrue("The ShellTransitions dump has no transition tracks", trackCount > 0)
+        return ready == pending + 2 &&
+            lines[pending + 1].trim() == "none" &&
+            tracks == ready + 2 &&
+            lines[ready + 1].trim() == "none" &&
+            tracksIdle
     }
 
     private fun injectPointer(
@@ -530,15 +623,21 @@ class DetailBackNavigationInstrumentedTest {
         x: Float,
         y: Float,
         down: Long,
+        eventTime: Long = SystemClock.uptimeMillis(),
     ) {
-        val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0)
+        val event = MotionEvent.obtain(down, eventTime, action, x, y, 0)
         event.source = InputDevice.SOURCE_TOUCHSCREEN
+        val before = SystemClock.uptimeMillis()
         try {
             assertTrue(
                 "System input injection rejected action $action",
                 InstrumentationRegistry.getInstrumentation().uiAutomation.injectInputEvent(event, true),
             )
         } finally {
+            if (action == MotionEvent.ACTION_DOWN) {
+                val after = SystemClock.uptimeMillis()
+                Log.i("DetailBackInput", "DOWN downTime=$down before=$before after=$after elapsedMs=${after - before}")
+            }
             event.recycle()
         }
     }
