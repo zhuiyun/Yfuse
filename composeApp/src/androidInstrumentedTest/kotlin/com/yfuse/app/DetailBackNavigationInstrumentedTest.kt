@@ -31,6 +31,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yfuse.MainActivity
 import com.yfuse.app.RootComponent.Tab
+import com.yfuse.awaitWindowFocus
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftExit
 import com.yfuse.core.designsystem.LiftMenu
@@ -149,6 +150,7 @@ class DetailBackNavigationInstrumentedTest {
                                 Intent.FLAG_ACTIVITY_SINGLE_TOP,
                         ),
                 )
+                awaitWindowFocus(scenario)
                 assertStack(scenario, probe, listOf("library", "resumed-detail"), pops = 3)
                 scenario.onActivity {
                     assertSame("Returning from Home replaced the original Activity", originalActivity, it)
@@ -584,18 +586,32 @@ class DetailBackNavigationInstrumentedTest {
     }
 
     private fun assertForeground(scenario: ActivityScenario<MainActivity>) {
-        awaitCondition("Back left the app's foreground window") {
-            var focused = false
-            scenario.onActivity { focused = it.hasWindowFocus() }
-            val topPackage =
-                InstrumentationRegistry
-                    .getInstrumentation()
-                    .uiAutomation.rootInActiveWindow
-                    ?.packageName
-                    ?.toString()
-            focused &&
-                scenario.state == Lifecycle.State.RESUMED &&
-                topPackage == InstrumentationRegistry.getInstrumentation().targetContext.packageName
+        var focused = false
+        var lifecycle: Lifecycle.State? = null
+        var topPackage: String? = null
+        val started = SystemClock.uptimeMillis()
+        try {
+            awaitCondition("Back left the app's foreground window") {
+                scenario.onActivity {
+                    focused = it.hasWindowFocus()
+                    lifecycle = it.lifecycle.currentState
+                }
+                topPackage =
+                    InstrumentationRegistry
+                        .getInstrumentation()
+                        .uiAutomation.rootInActiveWindow
+                        ?.packageName
+                        ?.toString()
+                focused &&
+                    lifecycle == Lifecycle.State.RESUMED &&
+                    topPackage == InstrumentationRegistry.getInstrumentation().targetContext.packageName
+            }
+        } catch (failure: AssertionError) {
+            throw AssertionError(
+                "${failure.message}; focused=$focused lifecycle=$lifecycle foreground=$topPackage " +
+                    "elapsedUptimeMs=${SystemClock.uptimeMillis() - started}",
+                failure,
+            )
         }
     }
 
