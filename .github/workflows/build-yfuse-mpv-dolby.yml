@@ -199,7 +199,7 @@ jobs:
           } > .native-build/artifacts/BUILD-MANIFEST.txt
 
       - name: Upload standalone YCore AAR
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ycore-native-arm64
           path: |
@@ -214,7 +214,7 @@ jobs:
           retention-days: 30
 
       - name: Upload hash-bound physical-device test APKs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ycore-device-test-apks
           path: .native-build/artifacts/device-tests/
@@ -222,7 +222,7 @@ jobs:
           retention-days: 30
 
       - name: Upload compatibility carrier
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ycore-build-carrier-arm64
           path: |

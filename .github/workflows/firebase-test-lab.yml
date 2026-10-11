@@ -145,7 +145,7 @@ jobs:
             --summary "$GITHUB_STEP_SUMMARY"
       - name: Save the Test Lab log, logcat, video and screenshots
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: test-lab-robo-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/test-lab/
@@ -231,7 +231,7 @@ jobs:
             --summary "$GITHUB_STEP_SUMMARY"
       - name: Save the Test Lab log, logcat, video and test results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: test-lab-instrumentation-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/test-lab/
