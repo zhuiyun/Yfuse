@@ -77,13 +77,13 @@ jobs:
           ref: ${{ inputs.source_sha || github.sha }}
       - name: Download the signed APK under release
         if: inputs.apk_artifact != ''
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: ${{ inputs.apk_artifact }}
           path: artifacts/cloud-input
       - name: Download pinned production-signed test APK
         if: inputs.apk_artifact == ''
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: Yfuse-*
           merge-multiple: true
