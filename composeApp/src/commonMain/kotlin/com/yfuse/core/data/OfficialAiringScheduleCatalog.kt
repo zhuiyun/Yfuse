@@ -421,7 +421,7 @@ class OfficialAiringScheduleCatalog(
 
     private companion object {
         const val SCHEMA_VERSION = 1
-        const val BUNDLED_REVISION = "2026-08-23-r2"
+        const val BUNDLED_REVISION = "2026-10-09-r1"
         const val KEY_ENVELOPE = "calendar.official.envelope"
         const val KEY_REVISION = "calendar.official.revision"
         const val KEY_LAST_ATTEMPT_EPOCH_MS = "calendar.official.lastAttemptEpochMs"
@@ -457,13 +457,10 @@ class OfficialAiringScheduleCatalog(
         const val CALENDAR_PUBLIC_KEY =
             "MCowBQYDK2VwAyEALedMp5RHVd/Cw9v26cP50e0F8hFqKQ/SXm9J9T3oU/4="
 
-        /**
-         * 《师兄太稳健》会员追剧日历, revised by the official series account on 2026-08-23.
-         * Beijing time 12:00, simulcast on Youku and iQIYI. Episodes beyond 21 are omitted
-         * until an official calendar publishes their dates.
-         */
+        /** Official member calendars reviewed at release time; unpublished dates stay unknown. */
         val FALLBACK_SCHEDULES =
             listOf(
+                // 《师兄太稳健》 revised on 2026-08-23; dates beyond episode 21 remain unknown.
                 OfficialSeriesSchedule(
                     tmdbId = 272938,
                     title = "师兄太稳健",
@@ -504,6 +501,51 @@ class OfficialAiringScheduleCatalog(
                             addEpisodes("2026-08-30", 21..21)
                         },
                 ),
+                // The official image separates Tencent VIP, SVIP and satellite TV schedules.
+                // Only its VIP row, explicitly published through 2026-10-16, is included here.
+                OfficialSeriesSchedule(
+                    tmdbId = 294446,
+                    title = "美人余",
+                    seasonNumber = 1,
+                    posterPath = "/m3r695bVVi5y4UjbqIdkSkz060f.jpg",
+                    airTime = "18:00",
+                    timeZoneId = "Asia/Shanghai",
+                    platforms = listOf("腾讯视频"),
+                    accessTier = AiringAccessTier.Member,
+                    sourceUrl = "https://www.sina.cn/news/detail/5352063342217226.html",
+                    revision = "2026-10-09-r1",
+                    updatedAt = "2026-10-09T11:00:00+08:00",
+                    evidence =
+                        listOf(
+                            OfficialScheduleEvidence(
+                                type = "VerifiedAccount",
+                                publisher = "美人余官微",
+                                sourceUrl = "https://www.sina.cn/news/detail/5352063342217226.html",
+                                capturedAt = "2026-10-11",
+                                contentHash = "d76ae7f1f9f41e1c75715585e4e54407ba5dd504e5bc0e6a72e345a6aa3254f0",
+                                extractionMethod = "reviewed-official-calendar",
+                            ),
+                            OfficialScheduleEvidence(
+                                type = "TmdbIdentity",
+                                publisher = "TMDB",
+                                sourceUrl = "https://www.themoviedb.org/tv/294446",
+                                capturedAt = "2026-10-11",
+                                contentHash = "3dba6288f5ce04b1f1a94092d8f218c1b6f0f46c68a306989e94eff872e06217",
+                                extractionMethod = "reviewed-exact-title-year-cast",
+                            ),
+                        ),
+                    episodes =
+                        buildList {
+                            addTencentMemberEpisodes("2026-10-09", 1..3)
+                            addTencentMemberEpisodes("2026-10-10", 4..5)
+                            addTencentMemberEpisodes("2026-10-11", 6..7)
+                            addTencentMemberEpisodes("2026-10-12", 8..9)
+                            addTencentMemberEpisodes("2026-10-13", 10..11)
+                            addTencentMemberEpisodes("2026-10-14", 12..13)
+                            addTencentMemberEpisodes("2026-10-15", 14..15)
+                            addTencentMemberEpisodes("2026-10-16", 16..17)
+                        },
+                ),
             ).associateBy { it.tmdbId }
 
         fun MutableList<OfficialEpisodeSlot>.addEpisodes(
@@ -511,6 +553,15 @@ class OfficialAiringScheduleCatalog(
             episodeNumbers: IntRange,
         ) {
             episodeNumbers.forEach { add(OfficialEpisodeSlot(it, date)) }
+        }
+
+        fun MutableList<OfficialEpisodeSlot>.addTencentMemberEpisodes(
+            date: String,
+            episodeNumbers: IntRange,
+        ) {
+            episodeNumbers.forEach {
+                add(OfficialEpisodeSlot(it, date, "${date}T10:00:00Z", "${date}T18:00:00+08:00"))
+            }
         }
     }
 }

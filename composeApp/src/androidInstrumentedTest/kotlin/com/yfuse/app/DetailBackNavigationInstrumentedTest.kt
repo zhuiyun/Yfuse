@@ -130,15 +130,23 @@ class DetailBackNavigationInstrumentedTest {
                     originalActivity = it
                     originalTask = it.taskId
                 }
+                val activityBeforeHome = checkNotNull(originalActivity)
+                val instrumentation = InstrumentationRegistry.getInstrumentation()
                 shell("input keyevent KEYCODE_HOME")
-                awaitCondition("The real Home key did not background the app") {
-                    scenario.state != Lifecycle.State.RESUMED &&
-                        InstrumentationRegistry
-                            .getInstrumentation()
-                            .uiAutomation.rootInActiveWindow
+                // PAUSED and launcher focus can precede completion of Home's system transition.
+                // Let the original task actually stop before asking Android to bring it back.
+                awaitCondition("The real Home key did not stop the original activity behind a foreground task") {
+                    var stopped = false
+                    instrumentation.runOnMainSync {
+                        stopped =
+                            activityBeforeHome.lifecycle.currentState == Lifecycle.State.CREATED &&
+                            !activityBeforeHome.hasWindowFocus()
+                    }
+                    val topPackage =
+                        instrumentation.uiAutomation.rootInActiveWindow
                             ?.packageName
-                            ?.toString() !=
-                        InstrumentationRegistry.getInstrumentation().targetContext.packageName
+                            ?.toString()
+                    stopped && topPackage != null && topPackage != instrumentation.targetContext.packageName
                 }
                 val context = InstrumentationRegistry.getInstrumentation().targetContext
                 context.startActivity(
@@ -633,7 +641,7 @@ class DetailBackNavigationInstrumentedTest {
         while (!condition() && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(20L)
         if (!condition()) {
             val window =
-                shell("dumpsys window windows")
+                shell("dumpsys window")
                     .lineSequence()
                     .filter { "mCurrentFocus=" in it || "mFocusedApp=" in it || "mOnBackInvokedCallbackInfo=" in it }
                     .joinToString("; ")
