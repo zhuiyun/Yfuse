@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Modifier
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OfficialNavMotion
 import com.yfuse.core.designsystem.YfuseTheme
@@ -48,16 +49,18 @@ class DetailBackNavigationInstrumentedTest {
                                     pops.incrementAndGet()
                                     if (routes.size > 1) routes.removeAt(routes.lastIndex)
                                 },
-                            ) { Box(Modifier.fillMaxSize()) }
+                            ) { route ->
+                                val visible = LocalRouteVisible.current
+                                SideEffect { if (visible) composedTop.set(route) }
+                                Box(Modifier.fillMaxSize())
+                            }
                         }
-                        SideEffect { composedTop.set(routes.last()) }
                     }
                 }
             }
             awaitComposedRoute("detail-b", composedTop)
             instrumentation.waitForIdleSync()
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-            awaitComposedRoute("detail-a", composedTop)
             instrumentation.waitForIdleSync()
             scenario.onActivity {
                 assertFalse(it.isFinishing)
@@ -65,8 +68,8 @@ class DetailBackNavigationInstrumentedTest {
                 assertEquals(1, pops.get())
                 assertEquals(0, rootPops.get())
             }
+            awaitComposedRoute("detail-a", composedTop)
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-            awaitComposedRoute("library", composedTop)
             instrumentation.waitForIdleSync()
             scenario.onActivity {
                 assertFalse(it.isFinishing)
@@ -74,6 +77,7 @@ class DetailBackNavigationInstrumentedTest {
                 assertEquals(2, pops.get())
                 assertEquals(0, rootPops.get())
             }
+            awaitComposedRoute("library", composedTop)
         }
     }
 
