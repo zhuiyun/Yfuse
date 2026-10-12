@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.PlayerPredictiveBackTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-12T10:34:43.415Z" hostname="DESKTOP-HM2J0FM" time="0.025">
+  <properties/>
+  <testcase name="cancellationRestoresChromeAtTheSameSpeedAcrossFrameRates" classname="com.yfuse.feature.player.PlayerPredictiveBackTest" time="0.011"/>
+  <testcase name="aLateSnapshotFromACancelledGestureCannotReplaceTheNewFrame" classname="com.yfuse.feature.player.PlayerPredictiveBackTest" time="0.003"/>
+  <testcase name="aCancellationAfterCommitCannotCancelThePendingExit" classname="com.yfuse.feature.player.PlayerPredictiveBackTest" time="0.002"/>
+  <testcase name="buttonExitAfterCancellingBackCapturesTheCurrentVideoFrame" classname="com.yfuse.feature.player.PlayerPredictiveBackTest" time="0.004"/>
+  <testcase name="cancellingAndStartingAgainCapturesTheCurrentVideoFrame" classname="com.yfuse.feature.player.PlayerPredictiveBackTest" time="0.002"/>
+  <testcase name="restartingBackKeepsTheReturningFrameUntilTheCurrentCaptureArrives" classname="com.yfuse.feature.player.PlayerPredictiveBackTest" time="0.001"/>
+  <testcase name="disablingMotionDuringCommittedExitStillFinishesOnce" classname="com.yfuse.feature.player.PlayerPredictiveBackTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

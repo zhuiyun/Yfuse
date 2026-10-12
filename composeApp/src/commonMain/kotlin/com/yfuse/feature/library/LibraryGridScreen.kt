@@ -993,7 +993,7 @@ private fun GridTile(
     sharedTransitionKey: MediaSharedElementKey? = null,
 ) {
     val palette = LocalPalette.current
-    val open = sharedMediaOnClick(sharedTransitionKey, onClick)
+    val open = sharedMediaOnClick(sharedTransitionKey, onClick = onClick)
     val lift = liftMenu?.let { build -> { build().withArtwork(listOfNotNull(url)) } }
     val artwork = remember { LiftAnchor() }
     Column(

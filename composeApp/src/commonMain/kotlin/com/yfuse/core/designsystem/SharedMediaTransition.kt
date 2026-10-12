@@ -1,10 +1,13 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -14,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Shape
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
@@ -47,12 +51,31 @@ internal class SharedMediaTransitionController {
     var activeKey by mutableStateOf<MediaSharedElementKey?>(null)
         private set
 
+    var artworkShape by mutableStateOf<Shape>(AppShapes.card)
+        private set
+
+    private val artworkShapes = LinkedHashMap<MediaSharedElementKey, Shape>()
+
+    fun registerArtworkShape(
+        key: MediaSharedElementKey,
+        shape: Shape,
+    ) {
+        artworkShapes[key] = shape
+        if (artworkShapes.size > 512) artworkShapes.remove(artworkShapes.keys.first())
+        if (activeKey == key) artworkShape = shape
+    }
+
     // State, not a plain field: artwork that reads it has to hear when a pop starts, or a back
     // within the morph's window ran the morph in reverse before cutting to the route.
     var popSuppressed by mutableStateOf(false)
         private set
 
-    fun begin(key: MediaSharedElementKey) {
+    fun begin(
+        key: MediaSharedElementKey,
+        shape: Shape? = null,
+    ) {
+        if (shape != null) registerArtworkShape(key, shape)
+        artworkShape = artworkShapes[key] ?: AppShapes.card
         popSuppressed = false
         activeKey = key
         noteOrigin(key)
@@ -97,6 +120,7 @@ internal class SharedMediaTransitionController {
             return
         }
         popSuppressed = false
+        artworkShape = artworkShapes[returnTo] ?: AppShapes.card
         activeKey = returnTo
     }
 
@@ -149,13 +173,14 @@ internal fun isSharedMediaArtworkActive(key: MediaSharedElementKey?): Boolean {
 @Composable
 internal fun sharedMediaOnClick(
     key: MediaSharedElementKey?,
+    sourceShape: Shape? = null,
     onClick: () -> Unit,
 ): () -> Unit {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val controller = LocalSharedMediaTransitionController.current
     return {
         if (key != null) {
-            if (reduceMotion) controller?.noteOrigin(key) else controller?.begin(key)
+            if (reduceMotion) controller?.noteOrigin(key) else controller?.begin(key, sourceShape)
         }
         onClick()
     }
@@ -167,25 +192,49 @@ internal fun sharedMediaOnClick(
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-internal fun Modifier.sharedMediaArtwork(key: MediaSharedElementKey?): Modifier {
+internal fun Modifier.sharedMediaArtwork(
+    key: MediaSharedElementKey?,
+    sourceShape: Shape? = null,
+): Modifier {
+    val controller = LocalSharedMediaTransitionController.current
+    if (key != null && sourceShape != null) {
+        SideEffect { controller?.registerArtworkShape(key, sourceShape) }
+    }
     val base = zoomBackSource(key)
     if (!isSharedMediaArtworkActive(key)) return base
     val activeKey = checkNotNull(key)
     val sharedScope = LocalSharedTransitionScope.current ?: return base
     val visibilityScope = LocalNavAnimatedContentScope.current
+    val shape = controller?.artworkShape ?: AppShapes.card
+    val overlayShape =
+        sourceShape ?: run {
+            val rounding =
+                visibilityScope.transition.animateFloat(
+                    transitionSpec = { Motion.oneTakeFade() },
+                    label = "sharedArtworkCorners",
+                ) { state ->
+                    if (state == EnterExitState.Visible) 0f else 1f
+                }
+            // Read progress while drawing the overlay, so rounding never recomposes the page each frame.
+            remember(shape, rounding) { SharedArtworkClipShape(shape) { rounding.value } }
+        }
     return with(sharedScope) {
-        base.sharedBounds(
-            sharedContentState = rememberSharedContentState(activeKey),
-            animatedVisibilityScope = visibilityScope,
-            // The poster's picture gives way to the page's on the bounds' own clock, so the two
-            // arrive together; the default fades ran on a softer spring of their own.
-            enter = fadeIn(Motion.oneTakeFade()),
-            exit = fadeOut(Motion.oneTakeFade()),
-            // 一镜到底's spring, not the route's 280 ms tween: a back pressed mid-morph turns it
-            // round from where it is, at the speed it has, where a tween restarted from the far end.
-            boundsTransform = { _, _ -> Motion.oneTake(MorphLandingThreshold) },
-            resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
-        )
+        base
+            .sharedBounds(
+                sharedContentState = rememberSharedContentState(activeKey),
+                animatedVisibilityScope = visibilityScope,
+                // The poster's picture gives way to the page's on the bounds' own clock, so the two
+                // arrive together; the default fades ran on a softer spring of their own.
+                enter = fadeIn(Motion.oneTakeFade()),
+                exit = fadeOut(Motion.oneTakeFade()),
+                // 一镜到底's spring, not the route's 280 ms tween: a back pressed mid-morph turns it
+                // round from where it is, at the speed it has, where a tween restarted from the far end.
+                boundsTransform = { _, _ -> Motion.oneTake(MorphLandingThreshold) },
+                resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
+                // The incoming poster keeps its exact corners from its first overlay frame. The hero
+                // rounds towards them, without baking a second mask into its scaled image texture.
+                clipInOverlayDuringTransition = OverlayClip(overlayShape),
+            )
     }
 }
 

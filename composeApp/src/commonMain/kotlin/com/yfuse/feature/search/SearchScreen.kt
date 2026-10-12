@@ -1362,7 +1362,7 @@ private fun ResultRow(
     val sharedKey = MediaSharedElementKey(serverId, item.id)
     // The poster below carries the shared-element key, but the row's click never registered it,
     // so the artwork was the one poster in the app that did not grow into 详情.
-    val open = sharedMediaOnClick(sharedKey, onClick)
+    val open = sharedMediaOnClick(sharedKey, onClick = onClick)
     val artwork = remember { LiftAnchor() }
     val posterUrl = EmbyImages.poster(baseUrl, item, maxHeight = 360, accessToken = accessToken)
     Row(

@@ -1451,7 +1451,7 @@ private fun CalendarTrackingList(
             val seriesItemId = series.seriesItemId
             val sharedKey = seriesItemId?.let { MediaSharedElementKey(series.serverId, it) }
             val openSeriesDetail =
-                sharedMediaOnClick(sharedKey) {
+                sharedMediaOnClick(sharedKey, sourceShape = AppShapes.thumb) {
                     seriesItemId?.let { component.onOpenItem(series.serverId, it) }
                 }
             Row(
@@ -1479,7 +1479,7 @@ private fun CalendarTrackingList(
                     contentDescription = null,
                     modifier =
                         Modifier
-                            .sharedMediaArtwork(sharedKey)
+                            .sharedMediaArtwork(sharedKey, sourceShape = AppShapes.thumb)
                             .width(48.dp)
                             .height(68.dp)
                             .clip(AppShapes.thumb)

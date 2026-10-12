@@ -8,6 +8,46 @@ import kotlin.test.assertTrue
 
 class SharedMediaTransitionTest {
     @Test
+    fun returning_to_an_earlier_poster_restores_its_own_shape() {
+        val controller = SharedMediaTransitionController()
+        val first = MediaSharedElementKey("server-a", "movie-1")
+        val second = MediaSharedElementKey("server-a", "movie-2")
+        controller.begin(first, AppShapes.thumb)
+        controller.finish(first)
+        controller.begin(second, AppShapes.sheet)
+        controller.finish(second)
+
+        controller.onPop(first)
+
+        assertEquals(AppShapes.thumb, controller.artworkShape)
+        assertEquals(first, controller.activeKey)
+    }
+
+    @Test
+    fun an_artwork_registration_keeps_the_destination_contour_before_return_begins() {
+        val controller = SharedMediaTransitionController()
+        val poster = MediaSharedElementKey("server-a", "movie-1")
+        controller.registerArtworkShape(poster, AppShapes.sheet)
+
+        controller.onPop(poster)
+
+        assertEquals(AppShapes.sheet, controller.artworkShape)
+    }
+
+    @Test
+    fun an_explicit_source_shape_replaces_an_earlier_copy_of_the_same_media() {
+        val controller = SharedMediaTransitionController()
+        val poster = MediaSharedElementKey("server-a", "movie-1")
+        controller.registerArtworkShape(poster, AppShapes.thumb)
+
+        controller.begin(poster, AppShapes.card)
+        controller.finish(poster)
+        controller.onPop(poster)
+
+        assertEquals(AppShapes.card, controller.artworkShape)
+    }
+
+    @Test
     fun only_the_matching_forward_transition_can_clear_the_active_artwork() {
         val controller = SharedMediaTransitionController()
         val first = MediaSharedElementKey(serverId = "server-a", itemId = "movie-1")

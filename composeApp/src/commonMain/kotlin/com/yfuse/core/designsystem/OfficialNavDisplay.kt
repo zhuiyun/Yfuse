@@ -131,7 +131,9 @@ fun <T : Any> OfficialNavDisplay(
     // Only a stacked route rounds its corners on the way out. The root tabs and 搜索 never
     // did — the amount was pinned at 0 — yet every entry still paid for the transition
     // animation and a clipping layer.
-    val roundsCorners = motion == OfficialNavMotion.Stack && !reduceMotion && !calm
+    // The artwork already rounds in its overlay; clipping the entire departing page as well
+    // adds a full-screen mask and a second corner animation to the same return.
+    val roundsCorners = motion == OfficialNavMotion.Stack && !reduceMotion && !calm && activeSharedKey == null
     SharedTransitionLayout(modifier.windowSizeHandoff()) {
         // The key is cleared once the morph has actually run, not after a fixed 420ms: a slow
         // first frame on a low-end phone used to pull the key out from under a morph in flight.

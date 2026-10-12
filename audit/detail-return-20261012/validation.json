@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-12",
+  "baseCommit": "0204c386558642b14a2e7d08e328ee6583b30d81",
+  "delivery": false,
+  "artifactKind": "debug-instrumentation-validation-only",
+  "applicationId": "com.yfuse.validation.returnmotion",
+  "apkVersionName": "1.2.6",
+  "apkVersionCode": 278,
+  "apkBytes": 61530271,
+  "apkSha256": "e7f23b53cca577dc573092539fc3b7d246c86195b21e99564c5fd92402489789",
+  "mdkLibrariesPresent": [
+    "lib/arm64-v8a/libmdk.so",
+    "lib/arm64-v8a/libyfuse-mdk-jni.so"
+  ],
+  "includeMdk": true,
+  "nativeOnlyRuntime": false,
+  "phoneApkPredictiveBackEnabled": false,
+  "tvMergedManifestPredictiveBackEnabled": false,
+  "hostTests": {
+    "passed": 72,
+    "failed": 0,
+    "skipped": 0
+  },
+  "instrumentation": {
+    "api": 35,
+    "androidVersion": "15",
+    "passed": 5,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 29.488
+  },
+  "sourceSha256": {
+    "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/app/DetailBackNavigationInstrumentedTest.kt": "4d74bce96c30d06d484f657ddcc4c992208b5394a598447e192598ba520715a1",
+    "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/core/designsystem/SharedArtworkClipInstrumentedTest.kt": "341cd3cf1f619699bb9c1e297f49eb1dfccde12271f884850821e40956610fcd",
+    "composeApp/src/androidMain/AndroidManifest.xml": "ea9f97557d28d761f6e09babff9831d452f52843b304a6c414c18995d624dcbe",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/OfficialNavDisplay.kt": "ee78477fe934ec12ab13e7cdd8ef924919766128849d8fe92eebe3fb146a84c4",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Poster.kt": "2b28ff0e3aef042eb36398b7231c6e8f09d8a610966592073641d14fe7cd2cca",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SharedArtworkClipShape.kt": "8199105adb27330cd3406f9da217ec902fbc86aaf47c945d01adc2831d7e6dbe",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SharedMediaTransition.kt": "fdca0aa3103d91255a8ba181fe1e92b509af5e40237b755c1d3f8cf1b09a683b",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarScreen.kt": "46b08ecc825c222d4f545bb64ca3c0d59814c723644ee4d1ee24d2adebb53f0e",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailScreen.kt": "9f57b3ecd3d8855d02df0cc8e09e79784df4b8c5b3fc0a7735a3614e89e89d86",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryGridScreen.kt": "d490f9dfe6e854d6cdb7fe78aa259ce7e83d839f1ec2ce08cc832df62905ad15",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryHomeScreen.kt": "03f6d3680c3358619e2c8b80332994b8077db2706143010c9e3a4362c7341b60",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/search/SearchScreen.kt": "2aefea623a7adf0db4da8e3a37a558e2041d1eb662a2dfb6f94214f26bc3641c",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/SharedMediaTransitionTest.kt": "bd5ebdad006158a06b42a1a2fa5a95027db807de2acc03f4457a56b69dc94c8f",
+    "config/lint/tvApp-baseline.xml": "b3553bbf1cd4164b329a6942443949a8c0f742930a69760875c4e43f220c27bc",
+    "tvApp/src/androidMain/AndroidManifest.xml": "0de60a3f958789118ecd730c724d023d94a7a58ac86c0ff0d1bf6a3d89bed6d1"
+  }
+}

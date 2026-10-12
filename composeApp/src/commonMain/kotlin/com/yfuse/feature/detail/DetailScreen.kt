@@ -744,30 +744,8 @@ fun DetailScreen(component: DetailComponent) {
                                     }
                                 }
 
-                                if (state.server != null) {
-                                    motionItem(key = "sources") {
-                                        SourceSection(
-                                            sources = comparableSources,
-                                            presentation = sourcePresentation,
-                                            loading = state.sourcesLoading,
-                                            error = state.sourcesError,
-                                            onRetry = { component.store.accept(DetailIntent.RetrySources) },
-                                            selectedServerId = state.selectedSourceServerId,
-                                            selectedItemId = state.selectedSourceItemId,
-                                            accent = detailAccent,
-                                            onSelect = { serverId, itemId ->
-                                                component.store.accept(DetailIntent.SelectSource(serverId, itemId))
-                                            },
-                                            onSeeAll = { sourceListOpen = true },
-                                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                                        )
-                                    }
-                                }
-
-                                // Episodes are the next decision after reading the synopsis. Keeping the
-                                // rail here avoids making a series viewer cross file metadata, artwork and
-                                // external links before they can choose what to watch. A season with none
-                                // keeps the section while there are other seasons to pick.
+                                // Choose an episode directly after the synopsis, before comparing sources.
+                                // A season with none keeps the section while other seasons can be picked.
                                 if (detail.type.equals("Series", ignoreCase = true) ||
                                     state.episodes.isNotEmpty() ||
                                     state.seasons.size > 1
@@ -812,6 +790,26 @@ fun DetailScreen(component: DetailComponent) {
                                                 rowActions = episodeRowActions,
                                             )
                                         }
+                                    }
+                                }
+
+                                if (state.server != null) {
+                                    motionItem(key = "sources") {
+                                        SourceSection(
+                                            sources = comparableSources,
+                                            presentation = sourcePresentation,
+                                            loading = state.sourcesLoading,
+                                            error = state.sourcesError,
+                                            onRetry = { component.store.accept(DetailIntent.RetrySources) },
+                                            selectedServerId = state.selectedSourceServerId,
+                                            selectedItemId = state.selectedSourceItemId,
+                                            accent = detailAccent,
+                                            onSelect = { serverId, itemId ->
+                                                component.store.accept(DetailIntent.SelectSource(serverId, itemId))
+                                            },
+                                            onSeeAll = { sourceListOpen = true },
+                                            modifier = Modifier.padding(top = Dimens.sectionGap),
+                                        )
                                     }
                                 }
 

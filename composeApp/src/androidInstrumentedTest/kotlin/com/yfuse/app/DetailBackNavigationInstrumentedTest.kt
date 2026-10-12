@@ -20,6 +20,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInWindow
@@ -33,6 +34,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.yfuse.MainActivity
 import com.yfuse.app.RootComponent.Tab
 import com.yfuse.awaitWindowFocus
+import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftExit
 import com.yfuse.core.designsystem.LiftMenu
@@ -79,6 +81,30 @@ class DetailBackNavigationInstrumentedTest {
     }
 
     @Test(timeout = 60_000L)
+    fun ordinary_back_restores_nested_posters_without_a_predictive_preview() {
+        val probe = NavigationProbe(initialRoutes = listOf("library"), posterPath = true)
+        launchMainActivityForInput().use { scenario ->
+            installNavigation(scenario, probe)
+            awaitComposedRoute("library", probe)
+            tapPoster(probe)
+            awaitComposedRoute("detail-a", probe)
+            awaitCondition("The first poster's forward morph did not settle") { !probe.transitionActive.get() }
+            tapPoster(probe)
+            awaitComposedRoute("detail-b", probe)
+            awaitCondition("The nested poster's forward morph did not settle") { !probe.transitionActive.get() }
+            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+            awaitComposedRoute("detail-a", probe)
+            awaitCondition("The nested poster return did not settle") { !probe.transitionActive.get() }
+            assertStack(scenario, probe, listOf("library", "detail-a"), pops = 1)
+            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+            awaitComposedRoute("library", probe)
+            awaitCondition("The library poster return did not settle") { !probe.transitionActive.get() }
+            assertStack(scenario, probe, listOf("library"), pops = 2)
+            assertFalse("Ordinary back showed a predictive preview", probe.previewSeen.get())
+        }
+    }
+
+    @Test(timeout = 60_000L)
     fun system_edge_swipes_cancel_and_pop_nested_details_without_exiting() {
         // Calling onBackPressedDispatcher directly cannot prove that the callback is registered
         // with WindowManager. This goes through System UI's actual edge gesture recognizer.
@@ -98,18 +124,21 @@ class DetailBackNavigationInstrumentedTest {
                 awaitCondition("The cancelled poster return did not settle") { !probe.previewActive.get() }
                 assertStack(scenario, probe, listOf("library", "detail-a", "detail-b"), pops = 0)
                 assertEquals("A cancelled system gesture hid the detail", "detail-b", probe.composedTop.get())
-                assertTrue("The system swipe never reached the poster return host", probe.previewSeen.get())
+                assertFalse("A cancelled swipe showed a predictive poster preview", probe.previewSeen.get())
 
                 probe.previewSeen.set(false)
                 injectEdgeSwipe(scenario, fromRight = false, cancel = false)
                 awaitComposedRoute("detail-a", probe)
                 assertStack(scenario, probe, listOf("library", "detail-a"), pops = 1)
-                assertTrue("The committed left edge swipe bypassed the poster return host", probe.previewSeen.get())
+                assertFalse("The committed left edge swipe showed a predictive poster preview", probe.previewSeen.get())
                 probe.previewSeen.set(false)
                 injectEdgeSwipe(scenario, fromRight = true, cancel = false)
                 awaitComposedRoute("library", probe)
                 assertStack(scenario, probe, listOf("library"), pops = 2)
-                assertTrue("The committed right edge swipe bypassed the poster return host", probe.previewSeen.get())
+                assertFalse(
+                    "The committed right edge swipe showed a predictive poster preview",
+                    probe.previewSeen.get(),
+                )
 
                 // History/search can open a detail with no poster origin. That uses the host's
                 // forward-to-NavDisplay branch rather than its poster-return controller.
@@ -449,14 +478,20 @@ class DetailBackNavigationInstrumentedTest {
                 else -> null
             }
         val posterKey = next?.let { MediaSharedElementKey("test", it) }
-        val open = sharedMediaOnClick(posterKey) { if (next != null) probe.routes.add(next) }
+        val open =
+            sharedMediaOnClick(posterKey, sourceShape = AppShapes.card) {
+                if (next != null) {
+                    probe.routes.add(next)
+                }
+            }
         Box(Modifier.fillMaxSize().sharedMediaArtwork(heroKey).background(Color(0xFF334455))) {
             if (posterKey != null) {
                 Box(
                     Modifier
                         .align(Alignment.Center)
                         .size(140.dp, 200.dp)
-                        .sharedMediaArtwork(posterKey)
+                        .clip(AppShapes.card)
+                        .sharedMediaArtwork(posterKey, sourceShape = AppShapes.card)
                         .background(Color(0xFFCC8866))
                         .onGloballyPositioned { if (visible) probe.posterBounds.set(it.boundsInWindow()) }
                         .clickable(onClick = open),

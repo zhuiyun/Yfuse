@@ -402,7 +402,7 @@ fun Poster(
         onClick?.let { click ->
             {
                 if (!reduceMotion && sharedTransitionKey != null) {
-                    sharedController?.begin(sharedTransitionKey)
+                    sharedController?.begin(sharedTransitionKey, shape)
                 }
                 // No morph under 减弱动态效果, but 跟手返回 still goes back into this poster.
                 if (reduceMotion && sharedTransitionKey != null) sharedController?.noteOrigin(sharedTransitionKey)
@@ -462,7 +462,7 @@ fun Poster(
             modifier =
                 Modifier
                     .launchWaveImage()
-                    .sharedMediaArtwork(sharedTransitionKey)
+                    .sharedMediaArtwork(sharedTransitionKey, sourceShape = shape)
                     .playerArtworkSource(sharedTransitionKey, candidates)
                     .fillMaxSize(),
             alphaOnly = true,

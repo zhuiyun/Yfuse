@@ -1,0 +1,80 @@
+INSTRUMENTATION_STATUS: class=com.yfuse.core.designsystem.SharedArtworkClipInstrumentedTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=5
+INSTRUMENTATION_STATUS: stream=
+com.yfuse.core.designsystem.SharedArtworkClipInstrumentedTest:
+INSTRUMENTATION_STATUS: test=the_same_frame_reuses_its_outline_and_a_new_frame_updates_it
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.yfuse.core.designsystem.SharedArtworkClipInstrumentedTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=5
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=the_same_frame_reuses_its_outline_and_a_new_frame_updates_it
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.yfuse.core.designsystem.SharedArtworkClipInstrumentedTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=5
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=return_clip_rounds_continuously_and_lands_on_the_exact_source_pixels
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.yfuse.core.designsystem.SharedArtworkClipInstrumentedTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=5
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=return_clip_rounds_continuously_and_lands_on_the_exact_source_pixels
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.yfuse.app.DetailBackNavigationInstrumentedTest
+INSTRUMENTATION_STATUS: current=3
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=5
+INSTRUMENTATION_STATUS: stream=
+com.yfuse.app.DetailBackNavigationInstrumentedTest:
+INSTRUMENTATION_STATUS: test=activity_back_returns_through_nested_details_without_finishing_the_app
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.yfuse.app.DetailBackNavigationInstrumentedTest
+INSTRUMENTATION_STATUS: current=3
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=5
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=activity_back_returns_through_nested_details_without_finishing_the_app
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.yfuse.app.DetailBackNavigationInstrumentedTest
+INSTRUMENTATION_STATUS: current=4
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=5
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=system_edge_swipes_cancel_and_pop_nested_details_without_exiting
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.yfuse.app.DetailBackNavigationInstrumentedTest
+INSTRUMENTATION_STATUS: current=4
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=5
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=system_edge_swipes_cancel_and_pop_nested_details_without_exiting
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.yfuse.app.DetailBackNavigationInstrumentedTest
+INSTRUMENTATION_STATUS: current=5
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=5
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=ordinary_back_restores_nested_posters_without_a_predictive_preview
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.yfuse.app.DetailBackNavigationInstrumentedTest
+INSTRUMENTATION_STATUS: current=5
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=5
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=ordinary_back_restores_nested_posters_without_a_predictive_preview
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 29.488
+
+OK (5 tests)
+
+
+INSTRUMENTATION_CODE: -1

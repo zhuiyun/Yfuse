@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.ZoomBackNavigationTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-10-12T10:34:43.329Z" hostname="DESKTOP-HM2J0FM" time="0.08">
+  <properties/>
+  <testcase name="replacingThePageDuringTheGestureDoesNotPopItsReplacement" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.059"/>
+  <testcase name="aDetailOpenedFromAPosterStillGoesBackIntoItAfterATabRoundTrip" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.004"/>
+  <testcase name="disposingTheHostCancelsItsPreviewBeforeRemovingTheDispatcher" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.002"/>
+  <testcase name="aHiddenThenReopenedHandlerCannotCommitTheOldGesture" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.002"/>
+  <testcase name="aStaleEnabledHandlerRejectsBothPreviewAndOrdinaryBack" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.001"/>
+  <testcase name="progressAfterThePageStopsAcceptingBackCancelsOnlyOnce" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.001"/>
+  <testcase name="aRetainedHiddenStackLeavesBackToTheVisibleRoot" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.001"/>
+  <testcase name="aTitleWithNoServerAndAnUnmeasuredPageKeepsItsOrigin" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.0"/>
+  <testcase name="changingThePreviewDestinationAlsoInvalidatesTheOldGesture" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.002"/>
+  <testcase name="aPageLetGoPastThePointOfNoReturnIsLeaving" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.0"/>
+  <testcase name="cancellationKeepsThePageAndTheNextGestureCanCommit" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.001"/>
+  <testcase name="completionWithoutMoreProgressCancelsAnInactivePage" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.001"/>
+  <testcase name="hidingTheHostCancelsItsPreviewAndIgnoresTheOldCommit" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.002"/>
+  <testcase name="aPageSpringingHomeIsNotLeaving" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.0"/>
+  <testcase name="aVisiblePageReceivesTheGestureAndCommitsOnce" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.001"/>
+  <testcase name="aBackWithoutPreviewUsesTheOrdinaryNavigationCallbackOnce" classname="com.yfuse.core.designsystem.ZoomBackNavigationTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

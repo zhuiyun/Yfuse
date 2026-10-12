@@ -4,7 +4,7 @@
     <issue
         id="UnusedAttribute"
         message="Attribute `enableOnBackInvokedCallback` is only used in API level 33 and higher (current min is 31)"
-        errorLine1="        android:enableOnBackInvokedCallback=&quot;true&quot;"
+        errorLine1="        android:enableOnBackInvokedCallback=&quot;false&quot;"
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/androidMain/AndroidManifest.xml"

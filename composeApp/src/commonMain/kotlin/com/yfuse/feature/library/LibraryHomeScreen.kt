@@ -802,7 +802,8 @@ private fun HeroCarousel(
     onToggleFavorite: () -> Unit,
     onToggleServerMenu: () -> Unit,
 ) {
-    val openDetail = sharedMediaOnClick(detailKey, onClick)
+    val artworkShape = if (framed) AppShapes.sheet else androidx.compose.ui.graphics.RectangleShape
+    val openDetail = sharedMediaOnClick(detailKey, sourceShape = artworkShape, onClick = onClick)
     val captionProgress = rememberCarouselCaptionProgress(settled)
     var resolvedArtworkUrl by remember(item.id) { mutableStateOf<String?>(null) }
     val artworkPageColor =
@@ -830,7 +831,7 @@ private fun HeroCarousel(
                 blurHash = if (urls.firstOrNull() != null) item.backdropBlurHash else item.posterBlurHash,
                 modifier =
                     Modifier
-                        .sharedMediaArtwork(sharedKey)
+                        .sharedMediaArtwork(sharedKey, sourceShape = artworkShape)
                         .playerArtworkSource(sharedKey, urls)
                         .fillMaxSize()
                         .carouselArtworkMotion(pageOffset, LocalAccessibilityOptions.current.reduceMotion)
