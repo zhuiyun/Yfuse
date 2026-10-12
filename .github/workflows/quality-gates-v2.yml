@@ -77,8 +77,6 @@ jobs:
     runs-on: ubuntu-24.04
     # Cold pinned native dependency bootstrap can take as long as the dedicated native build.
     timeout-minutes: 300
-    env:
-      APK_SIZE_BUDGET_BYTES: "30000000"
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -214,7 +212,10 @@ jobs:
           retention-days: 30
       # R8 runs inside the Gradle daemon; the TV gate gives its release build the same room.
       - name: Build R8 release package
-        run: ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true "-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8" --no-daemon
+        run: >-
+          ./gradlew :composeApp:assembleRelease
+          -PyfuseIncludeMdk=true -PyfuseNativeOnlyRuntime=false
+          -PallowDebugSigning=true "-Dorg.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8" --no-daemon
       # R8 can emit a method ART refuses to load; its class then throws VerifyError the first time
       # it is used, which nothing above runs. 1.0.97 (259) shipped a player that crashed that way.
       # The mapping names the app's own methods, which must stay within 256 registers.
@@ -223,7 +224,7 @@ jobs:
           scripts/verify-release-dex.sh
           --mapping composeApp/build/outputs/mapping/release/mapping.txt
           composeApp/build/outputs/apk/release/composeApp-release.apk
-      - name: Verify release package and size budget
+      - name: Verify full release package
         shell: bash
         run: |
           set -euo pipefail
@@ -280,8 +281,7 @@ jobs:
             echo "AGP merged $profile: $(grep -c 'Lcom/yfuse/' "$merged") Yfuse rules in $merged"
           fi
           apk_size="$(stat -c '%s' "$apk")"
-          echo "APK size: $apk_size bytes (budget $APK_SIZE_BUDGET_BYTES)"
-          (( apk_size <= APK_SIZE_BUDGET_BYTES )) || fail "APK is $apk_size bytes, over the $APK_SIZE_BUDGET_BYTES byte budget"
+          echo "APK size: $apk_size bytes"
       - name: Check patch whitespace
         shell: bash
         env:

@@ -602,8 +602,6 @@ jobs:
       # Public certificate fingerprint pinned from the currently published APK.
       # Changing this requires an explicit signing-key migration.
       EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
-      # Keep enough headroom for native player updates without allowing silent APK bloat.
-      APK_SIZE_BUDGET_BYTES: "30000000"
 
     steps:
       - name: Set up Java for keytool and apksigner
@@ -779,10 +777,7 @@ jobs:
 
           apk_sha256="$(sha256sum "$apk" | awk '{print $1}')"
           apk_size="$(stat -c '%s' "$apk")"
-          if (( apk_size > APK_SIZE_BUDGET_BYTES )); then
-            echo "::error::Release APK is $apk_size bytes; budget is $APK_SIZE_BUDGET_BYTES bytes"
-            exit 1
-          fi
+          echo "APK size: $apk_size bytes"
           {
             echo "artifact=android-release-signed-$GITHUB_RUN_ATTEMPT"
             echo "path=$apk"

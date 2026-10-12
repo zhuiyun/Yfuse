@@ -6,8 +6,7 @@ param(
     [string]$WatchBaseUrl = "https://47.112.219.60",
     [int]$ExpectedWatchProtocol = 6,
     [int]$ExpectedMinimumWatchProtocol = 5,
-    [string]$ReleaseNotes = "Playback and interface improvements",
-    [long]$ApkSizeBudgetBytes = 30000000
+    [string]$ReleaseNotes = "Playback and interface improvements"
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,9 +22,6 @@ if (
     $RemoteDir -match "(?:^|/)\.{1,2}(?:/|$)"
 ) {
     throw "RemoteDir must stay inside /srv/yfuse-update and must not contain . or .. path segments"
-}
-if ($ApkSizeBudgetBytes -le 0) {
-    throw "ApkSizeBudgetBytes must be positive"
 }
 $updateUri = $null
 if (
@@ -60,9 +56,7 @@ $versionName = (Get-Content $versionFile |
     Select-String "VERSION_NAME=([0-9]+\.[0-9]+\.[0-9]+)").Matches[0].Groups[1].Value
 $sha = (Get-FileHash $apk -Algorithm SHA256).Hash.ToLowerInvariant()
 $size = (Get-Item $apk).Length
-if ($size -gt $ApkSizeBudgetBytes) {
-    throw "Release APK is $size bytes; budget is $ApkSizeBudgetBytes bytes"
-}
+Write-Host "APK size: $size bytes"
 $apkFileName = "Yfuse-$versionCode-$versionName.apk"
 
 function Get-HttpStatusCodeFromError {

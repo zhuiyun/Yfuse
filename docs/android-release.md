@@ -7,6 +7,17 @@ which builds and retains the signed APK without publishing. A manual dispatch re
 available as a fallback. Both
 paths run in the `production` environment.
 
+## Package contents and size
+
+Standard deliveries use the full package with `yfuseIncludeMdk=true` and
+`yfuseNativeOnlyRuntime=false`. The final signed APK must contain both
+`libmdk.so` and `libyfuse-mdk-jni.so`.
+
+As of 2026-10-12, CI and the cloud and local publishing scripts impose no APK
+size ceiling. They still record the actual size, and update manifests and
+download checks continue to verify that size and the SHA-256 hash. Version,
+signing-certificate, MDK-runtime, DEX and signed-APK smoke checks remain required.
+
 ## Jobs, and which secret each one sees
 
 A run is six jobs: `request` → `gates` ‖ `build` → `sign` → `smoke` → `deploy`. Each secret

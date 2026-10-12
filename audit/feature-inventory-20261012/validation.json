@@ -1,0 +1,105 @@
+{
+  "summary": {
+    "sourceCommit": "b172c7e9b1dad94871166b7545a94f9b9bf08f38",
+    "featureCount": 142,
+    "groupCount": 14,
+    "priorities": {
+      "P0": 21,
+      "P1": 76,
+      "P2": 40,
+      "P3": 5
+    },
+    "necessity": {
+      "必须": 42,
+      "场景必要": 71,
+      "可选": 26,
+      "暂缓": 3
+    },
+    "byGroup": {
+      "连接媒体来源": 16,
+      "找片和浏览": 12,
+      "详情和媒体整理": 9,
+      "基础播放和控制": 14,
+      "高级播放能力": 16,
+      "弹幕": 6,
+      "下载和离线": 8,
+      "追剧日历和提醒": 9,
+      "个人内容和账号": 9,
+      "一起看": 8,
+      "跨设备和第三方记录": 7,
+      "外观和系统使用体验": 12,
+      "服务端和工程保障": 12,
+      "平台和当前不交付的范围": 4
+    },
+    "validatedLocalReferences": 59,
+    "calendarRegressionTests": 55,
+    "calendarRegressionSuites": 7,
+    "calendarExportBeforeFix": {
+      "tests": 8,
+      "failures": 8
+    },
+    "calendarExportAfterFix": {
+      "tests": 8,
+      "failures": 0
+    },
+    "kotlinStyleChecksPassed": true,
+    "artifactSha256": {
+      "docs\\FEATURE_INVENTORY_20261012.md": "459a2eb85ebfa41d27ae52616938f9e81540237a2a1e7d785fe93dbf181186f6",
+      "composeApp\\src\\commonMain\\kotlin\\com\\yfuse\\feature\\calendar\\CalendarIcs.kt": "34ccc7462028e96ce29629fb22256d1038add6264d9bdad5d53ee55c695b90ec",
+      "composeApp\\src\\commonTest\\kotlin\\com\\yfuse\\feature\\calendar\\CalendarIcsTest.kt": "2b237d011b9063b3736f89bfb094fc9d126e42f960c83e34e9d585f5097d1acc"
+    },
+    "apkRebuilt": false,
+    "serverChanged": false
+  },
+  "testSuites": [
+    {
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "com.yfuse.feature.calendar.AiringLocalTimeTest"
+    },
+    {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "com.yfuse.feature.calendar.AiringShowCalendarDialogTest"
+    },
+    {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "com.yfuse.feature.calendar.CalendarFilterTest"
+    },
+    {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "com.yfuse.feature.calendar.CalendarIcsTest"
+    },
+    {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "com.yfuse.feature.calendar.CalendarLoadDeadlineTest"
+    },
+    {
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "com.yfuse.feature.calendar.CalendarStateTest"
+    },
+    {
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "com.yfuse.feature.calendar.ShowScheduleTest"
+    }
+  ]
+}

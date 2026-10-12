@@ -1,0 +1,41 @@
+{
+  "sourceCommit": "b172c7e9b1dad94871166b7545a94f9b9bf08f38",
+  "target": "root@47.112.219.60",
+  "service": "yfuse-update.service",
+  "rendererProject": "yfuse-calendar-renderer",
+  "archives": [
+    {
+      "file": "yfuse-watch-b172c7e9b.tar.gz",
+      "bytes": 26163985,
+      "sha256": "492d578ea21a02fe5eb1d6612eb21ca19c5f104f41afde9e127ab15c988f8fb1"
+    },
+    {
+      "file": "yfuse-calendar-renderer-b172c7e9b.tar.gz",
+      "bytes": 9094,
+      "sha256": "adb581f5fce32003c486d3ba0a134b17bdf1dbc87b516dbb85f3efc1e26ecac1"
+    }
+  ],
+  "tests": [
+    {
+      "module": "protocol",
+      "suites": 3,
+      "tests": 25,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "server",
+      "suites": 36,
+      "tests": 260,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "rendererTests": {
+    "tests": 12,
+    "failures": 0
+  },
+  "apkPublished": false
+}

@@ -1,0 +1,35 @@
+{
+  "sourceCommit": "b172c7e9b1dad94871166b7545a94f9b9bf08f38",
+  "verifiedAtUtc": "2026-10-12T02:05:21Z",
+  "publicHealth": "ok",
+  "watchVersion": {
+    "protocolVersion": 6,
+    "minProtocolVersion": 5,
+    "capabilities": [
+      "reactions",
+      "authenticatedResume",
+      "hostCapability",
+      "strictWireValidation",
+      "accountAuth",
+      "protocolVersionRange",
+      "roomPlaylist",
+      "remoteControl",
+      "remotePairing",
+      "remoteSignIn"
+    ],
+    "gitSha": "b172c7e9b1dad94871166b7545a94f9b9bf08f38"
+  },
+  "rendererHealth": {
+    "status": "ok",
+    "activePages": 0,
+    "queuedPages": 0,
+    "cachedPages": 0
+  },
+  "rendererBrowserSmoke": {
+    "chromiumVersion": "153.0.8010.12",
+    "offlinePageRendered": true
+  },
+  "rendererRestarts": 0,
+  "rendererOomKilled": false,
+  "serverRestarts": 0
+}

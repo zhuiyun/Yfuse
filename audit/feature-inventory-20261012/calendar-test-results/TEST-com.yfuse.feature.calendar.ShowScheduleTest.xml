@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.calendar.ShowScheduleTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-10-12T02:38:08.882Z" hostname="DESKTOP-HM2J0FM" time="0.018">
+  <properties/>
+  <testcase name="sharing_starts_at_the_latest_broadcast_and_keeps_to_public_facts" classname="com.yfuse.feature.calendar.ShowScheduleTest" time="0.006"/>
+  <testcase name="episode_small_print_carries_time_platform_and_tier" classname="com.yfuse.feature.calendar.ShowScheduleTest" time="0.001"/>
+  <testcase name="the_season_line_says_what_has_aired_and_what_is_still_dated" classname="com.yfuse.feature.calendar.ShowScheduleTest" time="0.0"/>
+  <testcase name="a_month_is_laid_out_in_weeks_that_start_on_sunday" classname="com.yfuse.feature.calendar.ShowScheduleTest" time="0.001"/>
+  <testcase name="provenance_names_the_strongest_source_the_schedule_has" classname="com.yfuse.feature.calendar.ShowScheduleTest" time="0.001"/>
+  <testcase name="the_footer_names_the_servers_and_what_they_hold" classname="com.yfuse.feature.calendar.ShowScheduleTest" time="0.001"/>
+  <testcase name="the_card_opens_on_the_broadcast_closest_to_today" classname="com.yfuse.feature.calendar.ShowScheduleTest" time="0.0"/>
+  <testcase name="neighbouring_broadcast_days_share_one_stroke" classname="com.yfuse.feature.calendar.ShowScheduleTest" time="0.0"/>
+  <testcase name="allPublishedDatesIncludeTodayAndHaveNoFutureCutoff" classname="com.yfuse.feature.calendar.ShowScheduleTest" time="0.0"/>
+  <testcase name="dates_are_written_in_chinese_and_relative_to_today" classname="com.yfuse.feature.calendar.ShowScheduleTest" time="0.0"/>
+  <testcase name="a_day_names_the_specific_episodes_including_gaps_and_season_changes" classname="com.yfuse.feature.calendar.ShowScheduleTest" time="0.005"/>
+  <testcase name="months_skip_the_empty_ones_between_broadcasts" classname="com.yfuse.feature.calendar.ShowScheduleTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

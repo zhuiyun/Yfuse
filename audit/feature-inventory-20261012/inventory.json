@@ -1,0 +1,1334 @@
+{
+  "summary": {
+    "sourceCommit": "b172c7e9b1dad94871166b7545a94f9b9bf08f38",
+    "featureCount": 142,
+    "groupCount": 14,
+    "priorities": {
+      "P0": 21,
+      "P1": 76,
+      "P2": 40,
+      "P3": 5
+    },
+    "necessity": {
+      "必须": 42,
+      "场景必要": 71,
+      "可选": 26,
+      "暂缓": 3
+    },
+    "byGroup": {
+      "连接媒体来源": 16,
+      "找片和浏览": 12,
+      "详情和媒体整理": 9,
+      "基础播放和控制": 14,
+      "高级播放能力": 16,
+      "弹幕": 6,
+      "下载和离线": 8,
+      "追剧日历和提醒": 9,
+      "个人内容和账号": 9,
+      "一起看": 8,
+      "跨设备和第三方记录": 7,
+      "外观和系统使用体验": 12,
+      "服务端和工程保障": 12,
+      "平台和当前不交付的范围": 4
+    },
+    "validatedLocalReferences": 59,
+    "calendarRegressionTests": 55,
+    "calendarRegressionSuites": 7,
+    "calendarExportBeforeFix": {
+      "tests": 8,
+      "failures": 8
+    },
+    "calendarExportAfterFix": {
+      "tests": 8,
+      "failures": 0
+    },
+    "kotlinStyleChecksPassed": true,
+    "artifactSha256": {
+      "docs\\FEATURE_INVENTORY_20261012.md": "459a2eb85ebfa41d27ae52616938f9e81540237a2a1e7d785fe93dbf181186f6",
+      "composeApp\\src\\commonMain\\kotlin\\com\\yfuse\\feature\\calendar\\CalendarIcs.kt": "34ccc7462028e96ce29629fb22256d1038add6264d9bdad5d53ee55c695b90ec",
+      "composeApp\\src\\commonTest\\kotlin\\com\\yfuse\\feature\\calendar\\CalendarIcsTest.kt": "2b237d011b9063b3736f89bfb094fc9d126e42f960c83e34e9d585f5097d1acc"
+    },
+    "apkRebuilt": false,
+    "serverChanged": false
+  },
+  "features": [
+    {
+      "id": "A01",
+      "group": "连接媒体来源",
+      "feature": "Emby 登录、鉴权、媒体和播放接口",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "主要媒体入口，应优先保持兼容。"
+    },
+    {
+      "id": "A02",
+      "group": "连接媒体来源",
+      "feature": "Jellyfin 登录、鉴权及专属能力适配",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "主要开源媒体入口，不能只按 Emby 接口假定兼容。"
+    },
+    {
+      "id": "A03",
+      "group": "连接媒体来源",
+      "feature": "Plex 连接、令牌及 PIN 授权",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "对 Plex 用户必要；三个服务端的差异需单独维护。"
+    },
+    {
+      "id": "A04",
+      "group": "连接媒体来源",
+      "feature": "多服务器、多账户、默认服务器、重命名和移除",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "支撑个人 NAS、家庭和多来源观看。"
+    },
+    {
+      "id": "A05",
+      "group": "连接媒体来源",
+      "feature": "Quick Connect 等免键盘登录流程",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "依服务端支持",
+      "rationale": "TV 输入困难时价值较高。"
+    },
+    {
+      "id": "A06",
+      "group": "连接媒体来源",
+      "feature": "局域网服务器发现",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "减少首次配置步骤；手动输入地址仍应完整可用。"
+    },
+    {
+      "id": "A07",
+      "group": "连接媒体来源",
+      "feature": "内外网多线路、线路切换和失败恢复",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "常在家庭 Wi-Fi 与外网之间切换的用户需要。"
+    },
+    {
+      "id": "A08",
+      "group": "连接媒体来源",
+      "feature": "服务器在线状态、延迟、数量统计和排序筛选",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "状态与错误提示有用；复杂统计展示可简化。"
+    },
+    {
+      "id": "A09",
+      "group": "连接媒体来源",
+      "feature": "服务器配置加密备份、恢复和换机迁移",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "多账户配置成本高，凭据必须安全保存。"
+    },
+    {
+      "id": "A10",
+      "group": "连接媒体来源",
+      "feature": "SMB 文件共享",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "手机有文件来源入口",
+      "rationale": "直接访问 NAS，适合没有媒体服务的用户。"
+    },
+    {
+      "id": "A11",
+      "group": "连接媒体来源",
+      "feature": "WebDAV 文件来源",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "手机有文件来源入口",
+      "rationale": "扩大 NAS 和远程文件覆盖。"
+    },
+    {
+      "id": "A12",
+      "group": "连接媒体来源",
+      "feature": "Alist 或 OpenList 文件来源",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "通过 WebDAV 接入",
+      "rationale": "复用 `/dav`，不是直接集成每家网盘 API。"
+    },
+    {
+      "id": "A13",
+      "group": "连接媒体来源",
+      "feature": "文件夹浏览、按文件夹连播、同名外挂字幕配对",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "文件来源已接入",
+      "rationale": "直接文件观看的基础闭环。"
+    },
+    {
+      "id": "A14",
+      "group": "连接媒体来源",
+      "feature": "文件来源扫描、片名识别和 TMDB 刮削片库",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "让文件更易浏览，错误匹配应允许纠正；依赖外部元数据。"
+    },
+    {
+      "id": "A15",
+      "group": "连接媒体来源",
+      "feature": "刷新媒体库、运行服务器任务、切换 Plex 家庭用户",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "按服务端能力和权限开放",
+      "rationale": "属于管理员工具，不应占普通观看的主要入口。"
+    },
+    {
+      "id": "A16",
+      "group": "连接媒体来源",
+      "feature": "自定义 User-Agent 和 HTTPS 连接诊断",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "解决特定反代和媒体服务兼容问题，保留在高级设置。"
+    },
+    {
+      "id": "B01",
+      "group": "找片和浏览",
+      "feature": "首页继续观看、下一集和最近入库",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "最短观看路径，应比装饰性推荐更突出。"
+    },
+    {
+      "id": "B02",
+      "group": "找片和浏览",
+      "feature": "按媒体库浏览影片、剧集和其他视频",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "核心找片流程。"
+    },
+    {
+      "id": "B03",
+      "group": "找片和浏览",
+      "feature": "分页、排序、年份、风格、标签和已看筛选",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入；条件依页面和服务端不同",
+      "rationale": "大型媒体库需要可控检索。"
+    },
+    {
+      "id": "B04",
+      "group": "找片和浏览",
+      "feature": "收藏夹、服务端合集和播放列表",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "依服务端能力开放",
+      "rationale": "保留已有整理成果，不必为所有服务端伪造一致权限。"
+    },
+    {
+      "id": "B05",
+      "group": "找片和浏览",
+      "feature": "统一媒体库和跨服务器内容聚合",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "多来源用户收益明显，单服务器用户可不展示。"
+    },
+    {
+      "id": "B06",
+      "group": "找片和浏览",
+      "feature": "全局搜索、多服务器并行查询及失败提示",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "找片入口，部分服务器失败不能掩盖成功结果。"
+    },
+    {
+      "id": "B07",
+      "group": "找片和浏览",
+      "feature": "搜索按服务器、媒体库、类型、年份、风格和观看状态筛选",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "提升定位效率，筛选项目无需重复到每个页面。"
+    },
+    {
+      "id": "B08",
+      "group": "找片和浏览",
+      "feature": "演员搜索和按人物找作品",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "发现用途明确，但不影响基本播放。"
+    },
+    {
+      "id": "B09",
+      "group": "找片和浏览",
+      "feature": "搜索历史、搜索结果密度和简介显示",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "历史便利，显示开关宜保持少而清楚。"
+    },
+    {
+      "id": "B10",
+      "group": "找片和浏览",
+      "feature": "保存智能片单并固定到首页或库首页",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入；上限 40 条",
+      "rationale": "经常重复筛选的用户需要；复杂规则扩展可延后。"
+    },
+    {
+      "id": "B11",
+      "group": "找片和浏览",
+      "feature": "TMDB 热门推荐、国内外内容发现和短剧发现",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "私人媒体客户端应优先展示可播放内容，控制外部请求成本。"
+    },
+    {
+      "id": "B12",
+      "group": "找片和浏览",
+      "feature": "首页栏目排序隐藏、卡片密度、网格缩放和快速索引",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "大库用户有收益，复杂手势应保留直观替代入口。"
+    },
+    {
+      "id": "C01",
+      "group": "详情和媒体整理",
+      "feature": "海报、简介、评分、年份、时长和媒体技术信息",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "为是否观看及选版本提供信息。"
+    },
+    {
+      "id": "C02",
+      "group": "详情和媒体整理",
+      "feature": "季和集浏览、百集网格、当前集定位和 TV 数字跳集",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "长剧和短剧共同需要。"
+    },
+    {
+      "id": "C03",
+      "group": "详情和媒体整理",
+      "feature": "多服务器片源比较、版本选择和质量优先策略",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "内容有多个副本时价值高，匹配需用可靠身份。"
+    },
+    {
+      "id": "C04",
+      "group": "详情和媒体整理",
+      "feature": "单片、整季或此前剧集标记已看及撤销",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "维护观看状态；批量操作必须避免误操作。"
+    },
+    {
+      "id": "C05",
+      "group": "详情和媒体整理",
+      "feature": "元数据刷新和媒体分析",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "按权限开放",
+      "rationale": "管理员辅助，可放到更多菜单。"
+    },
+    {
+      "id": "C06",
+      "group": "详情和媒体整理",
+      "feature": "编辑标题、简介、TMDB 标识及更换图片",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "三类服务端能力不同",
+      "rationale": "修正媒体库很有用，但不必扩展为完整管理后台。"
+    },
+    {
+      "id": "C07",
+      "group": "详情和媒体整理",
+      "feature": "演员资料、库内作品和 TMDB 其他作品",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "完善浏览，不属于观看闭环。"
+    },
+    {
+      "id": "C08",
+      "group": "详情和媒体整理",
+      "feature": "本地或外部预告片、电视静音预览",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入；接收端和外部应用另需验证",
+      "rationale": "消耗带宽与焦点时间，应允许关闭自动预览。"
+    },
+    {
+      "id": "C09",
+      "group": "详情和媒体整理",
+      "feature": "主题曲和海报卡片分享",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入；主题曲默认关闭",
+      "rationale": "保留轻量入口，优先控制后台音频和外部请求。"
+    },
+    {
+      "id": "D01",
+      "group": "基础播放和控制",
+      "feature": "播放暂停、定位、重播和加载失败重试",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "观看基本操作。"
+    },
+    {
+      "id": "D02",
+      "group": "基础播放和控制",
+      "feature": "本机续播、服务端进度回写和进度冲突处理",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "数据可靠性与用户信任直接相关。"
+    },
+    {
+      "id": "D03",
+      "group": "基础播放和控制",
+      "feature": "音轨与字幕选择、关闭字幕及轨道记忆",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入；内核能力不同",
+      "rationale": "多音轨与外语媒体的基本可用性。"
+    },
+    {
+      "id": "D04",
+      "group": "基础播放和控制",
+      "feature": "双字幕、字幕样式位置、延迟和简繁转换",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入；按内核支持",
+      "rationale": "字幕需求高，但能力必须如实显示。"
+    },
+    {
+      "id": "D05",
+      "group": "基础播放和控制",
+      "feature": "倍速、全局默认速度和按剧记忆",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入；最高 3 倍",
+      "rationale": "剧集和短剧用户常用。"
+    },
+    {
+      "id": "D06",
+      "group": "基础播放和控制",
+      "feature": "连播、下一集预热、取消连播和还在看吗",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "提升连续观看；必须正确尊重停止意图。"
+    },
+    {
+      "id": "D07",
+      "group": "基础播放和控制",
+      "feature": "片头片尾、前情提要、自动跳过及撤销",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入；读取 Jellyfin 片段",
+      "rationale": "剧集高价值，标记不准时要允许关闭或调整。"
+    },
+    {
+      "id": "D08",
+      "group": "基础播放和控制",
+      "feature": "竖屏识别、短剧手动覆盖、滑动切集和旋转适配",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入；部分内核显示边界待设备验证",
+      "rationale": "手机短剧观看需要，平板电视的布局需分别处理。"
+    },
+    {
+      "id": "D09",
+      "group": "基础播放和控制",
+      "feature": "音量亮度、双击定位、长按变速、缩放和锁屏",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "常用操作便利；过多可调手势宜收进高级设置。"
+    },
+    {
+      "id": "D10",
+      "group": "基础播放和控制",
+      "feature": "键盘快捷键、逐帧和遥控器播放控制",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "TV 控制必须保留；逐帧属高级用途。"
+    },
+    {
+      "id": "D11",
+      "group": "基础播放和控制",
+      "feature": "画中画、后台媒体会话和播放通知",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "Android 已接入",
+      "rationale": "手机多任务需要，后台播放应遵循系统能力。"
+    },
+    {
+      "id": "D12",
+      "group": "基础播放和控制",
+      "feature": "睡眠定时、本集结束停止和时间书签",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "明确但相对专门的需求，放在更多菜单。"
+    },
+    {
+      "id": "D13",
+      "group": "基础播放和控制",
+      "feature": "外部视频打开、流媒体链接和外部播放器交接",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "Android 已接入",
+      "rationale": "可拓展片源并为兼容问题提供出口。"
+    },
+    {
+      "id": "D14",
+      "group": "基础播放和控制",
+      "feature": "搜索和下载服务器远端字幕",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "Android 已接入；按服务端能力",
+      "rationale": "字幕缺失时提供直接补救，不代表应用自带字幕内容。"
+    },
+    {
+      "id": "E01",
+      "group": "高级播放能力",
+      "feature": "自动播放路由、设备能力探测和安全降级",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "格式差异应由系统处理，避免普通用户反复换内核。"
+    },
+    {
+      "id": "E02",
+      "group": "高级播放能力",
+      "feature": "Media3、MPV 和 MDK 兼容播放栈",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入；MDK 固定包含于标准 full 包",
+      "rationale": "MDK 是已明确的交付要求，不建议因精简功能移除。"
+    },
+    {
+      "id": "E03",
+      "group": "高级播放能力",
+      "feature": "YCore 原生播放、自有解封装和渲染链路",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "有生产接入；完整矩阵依设备和媒体验证",
+      "rationale": "是较高维护成本的能力，重点放在稳定性和兼容证据。"
+    },
+    {
+      "id": "E04",
+      "group": "高级播放能力",
+      "feature": "内核锁定、硬软解码、均衡省电画质策略",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "支持排障和特殊机型；日常默认自动即可。"
+    },
+    {
+      "id": "E05",
+      "group": "高级播放能力",
+      "feature": "直放、重封装、服务端转码及权限感知",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入；转码由媒体服务器承担",
+      "rationale": "不能把未授权转码当成可靠降级。"
+    },
+    {
+      "id": "E06",
+      "group": "高级播放能力",
+      "feature": "HLS 和 DASH 自适应、分片恢复",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入；依内核和片源",
+      "rationale": "弱网流媒体必要，不能保证所有清单和编码都兼容。"
+    },
+    {
+      "id": "E07",
+      "group": "高级播放能力",
+      "feature": "前向缓冲、视频缓存、预读取和断网恢复",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "直接影响起播、卡顿和定位，应优先压低复杂度。"
+    },
+    {
+      "id": "E08",
+      "group": "高级播放能力",
+      "feature": "HDR10、HDR10+、HLG、杜比视界及 SDR 回退",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "有路由实现；输出依设备链路",
+      "rationale": "高端媒体用户需要，不能用片源标签代替实际输出。"
+    },
+    {
+      "id": "E09",
+      "group": "高级播放能力",
+      "feature": "音频直通、Atmos 等输出证据和刷新率匹配",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "按内核和设备能力；MDK 直通设置受限",
+      "rationale": "对 TV 与影院设备价值高，实际链路验收不可省略。"
+    },
+    {
+      "id": "E10",
+      "group": "高级播放能力",
+      "feature": "音量增强、响度均衡和夜间人声",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "按音频处理能力开放",
+      "rationale": "夜间观看有用；增强与直通的互斥需要清楚说明。"
+    },
+    {
+      "id": "E11",
+      "group": "高级播放能力",
+      "feature": "ISO、BDMV 和 DVD 正片、标题章节和 HDMV 导航",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "有实现；依内核和原盘能力",
+      "rationale": "面向原盘用户，验收成本高；不等于所有交互菜单可用。"
+    },
+    {
+      "id": "E12",
+      "group": "高级播放能力",
+      "feature": "BD-J Java 菜单运行时",
+      "priority": "P3",
+      "necessity": "暂缓",
+      "status": "有契约和后端边界，完整 Android 运行时未交付",
+      "rationale": "不是已完成的菜单功能，避免继续堆入口。"
+    },
+    {
+      "id": "E13",
+      "group": "高级播放能力",
+      "feature": "Anime4K 动漫增强",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "限支持的 SDR 动漫路线",
+      "rationale": "适合特定片源，优先验证收益和功耗，不作默认增强。"
+    },
+    {
+      "id": "E14",
+      "group": "高级播放能力",
+      "feature": "画面边缘氛围光",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入；依画面采样路线",
+      "rationale": "展示性辅助，低性能设备应允许关闭。"
+    },
+    {
+      "id": "E15",
+      "group": "高级播放能力",
+      "feature": "实验纯原生播放模式",
+      "priority": "P3",
+      "necessity": "暂缓",
+      "status": "有受限模式和校验门禁",
+      "rationale": "需完整设备与长稳证据，不得替代标准 MDK full 交付。"
+    },
+    {
+      "id": "E16",
+      "group": "高级播放能力",
+      "feature": "DRM 受保护内容路由和离线许可证生命周期",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "有实现；商业服务和硬件验证未完成",
+      "rationale": "仅在确有授权媒体需求时维护，不能声称通用 DRM 兼容。"
+    },
+    {
+      "id": "F01",
+      "group": "弹幕",
+      "feature": "添加弹幕服务或模板来源",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入；应用不自带来源",
+      "rationale": "弹幕用户必要，普通用户不用先配置。"
+    },
+    {
+      "id": "F02",
+      "group": "弹幕",
+      "feature": "影片集数匹配、手动搜索、绑定和时间偏移",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "错集错时间会破坏体验，优先于装饰性弹幕效果。"
+    },
+    {
+      "id": "F03",
+      "group": "弹幕",
+      "feature": "开关、字体、透明度、密度、速度和区域",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "基础可读性需要；细参数宜合并成少量预设。"
+    },
+    {
+      "id": "F04",
+      "group": "弹幕",
+      "feature": "屏蔽词、合并重复、复制和单条屏蔽",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "避免刷屏与干扰。"
+    },
+    {
+      "id": "F05",
+      "group": "弹幕",
+      "feature": "发送弹幕、失败反馈和保留输入",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "按来源支持",
+      "rationale": "播放弹幕的读取与互动发送可分别开关。"
+    },
+    {
+      "id": "F06",
+      "group": "弹幕",
+      "feature": "弹幕来源和绑定随账号同步",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "在加密同步范围内",
+      "rationale": "换机便利，但基础播放不能依赖云端。"
+    },
+    {
+      "id": "G01",
+      "group": "下载和离线",
+      "feature": "单片、单集和整季下载",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "通勤、旅行和不稳定网络需要。"
+    },
+    {
+      "id": "G02",
+      "group": "下载和离线",
+      "feature": "队列、暂停、继续、重试、取消及批量操作",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "只要提供下载，这些操作就属于基本闭环。"
+    },
+    {
+      "id": "G03",
+      "group": "下载和离线",
+      "feature": "断点续传、Range 校验和下载完成检查",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "防止损坏文件被当作完成。"
+    },
+    {
+      "id": "G04",
+      "group": "下载和离线",
+      "feature": "离线媒体库、轨道保存和本地续播",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "下载必须能真正离线观看。"
+    },
+    {
+      "id": "G05",
+      "group": "下载和离线",
+      "feature": "容量上限、存储目录、下载时段和网络条件",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "Android 已接入",
+      "rationale": "防止占满设备和无意消耗流量。"
+    },
+    {
+      "id": "G06",
+      "group": "下载和离线",
+      "feature": "追更新集自动下载和已看文件腾挪",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "已接入；跨季覆盖有限",
+      "rationale": "对固定追剧用户有用，其他用户默认关闭。"
+    },
+    {
+      "id": "G07",
+      "group": "下载和离线",
+      "feature": "后台工作、通知控制和实况进度",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "Android 已接入",
+      "rationale": "App 离开前台后应保持可理解、可控制。"
+    },
+    {
+      "id": "G08",
+      "group": "下载和离线",
+      "feature": "下载索引恢复、旧记录迁移和安全删除",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "保住已有下载，不能因索引异常误删文件。"
+    },
+    {
+      "id": "H01",
+      "group": "追剧日历和提醒",
+      "feature": "月历、按天排期、国内外与电影剧集区分",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "追剧用户需要；电影上映是发现，不代表库内可播。"
+    },
+    {
+      "id": "H02",
+      "group": "追剧日历和提醒",
+      "feature": "已播未入库、已入库、未看、观看中和已看区分",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "日历的实际价值来自与私人媒体库连接。"
+    },
+    {
+      "id": "H03",
+      "group": "追剧日历和提醒",
+      "feature": "关注取消、排期卡片、刷新和撤销",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "应优先展示用户关注内容。"
+    },
+    {
+      "id": "H04",
+      "group": "追剧日历和提醒",
+      "feature": "详情绑定正确剧集及严格媒体身份匹配",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "防止同名剧和没有 TMDB 的短剧被认错。"
+    },
+    {
+      "id": "H05",
+      "group": "追剧日历和提醒",
+      "feature": "官方签名排期、TMDB 补充和冲突合并",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "客户端和服务端已接入",
+      "rationale": "提高可信度，缺失排期不能靠生成假日期补齐。"
+    },
+    {
+      "id": "H06",
+      "group": "追剧日历和提醒",
+      "feature": "播出提醒、入库提醒和时区转换",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "Android 已接入",
+      "rationale": "时间准确与避免重复通知比提醒形式更重要。"
+    },
+    {
+      "id": "H07",
+      "group": "追剧日历和提醒",
+      "feature": "本地缓存、后台刷新和可用性重新核对",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "防止每次打开都慢，也应标明旧数据。"
+    },
+    {
+      "id": "H08",
+      "group": "追剧日历和提醒",
+      "feature": "分享排期和导出 ICS 到系统日历",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入；本次修复导出缺陷",
+      "rationale": "用系统日历管理的用户需要，但可作为次级入口。"
+    },
+    {
+      "id": "H09",
+      "group": "追剧日历和提醒",
+      "feature": "后端抓取、OCR、浏览器渲染和排期发布",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "已部署；来源覆盖不等于完整",
+      "rationale": "维护成本高，应按实际追剧覆盖收益限制采集范围。"
+    },
+    {
+      "id": "I01",
+      "group": "个人内容和账号",
+      "feature": "本地想看、收藏、历史和追剧列表",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入；不要求媒体服务器提供同一能力",
+      "rationale": "保留个人选择，跨服务器时尤其有用。"
+    },
+    {
+      "id": "I02",
+      "group": "个人内容和账号",
+      "feature": "Yfuse 账号注册邀请、登录、刷新和退出",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "云功能使用；本地播放可独立工作",
+      "rationale": "不应让查看私人媒体必须先注册项目账号。"
+    },
+    {
+      "id": "I03",
+      "group": "个人内容和账号",
+      "feature": "修改资料密码、会话列表和撤销设备访问",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "使用账号时已接入",
+      "rationale": "账号体系的基本安全闭环。"
+    },
+    {
+      "id": "I04",
+      "group": "个人内容和账号",
+      "feature": "端到端加密云同步、压缩、冲突处理和手动恢复",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "多设备用户需要，维护与故障排查成本较高。"
+    },
+    {
+      "id": "I05",
+      "group": "个人内容和账号",
+      "feature": "个人内容自动合并、进度带入同步",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入；首次云数据和配置有不同流程",
+      "rationale": "减少忘记同步，服务器和设置并非全部自动上传。"
+    },
+    {
+      "id": "I06",
+      "group": "个人内容和账号",
+      "feature": "家庭资料、按资料隔离和服务器访问范围",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "共用设备用户需要，不应做成复杂社交账户系统。"
+    },
+    {
+      "id": "I07",
+      "group": "个人内容和账号",
+      "feature": "儿童资料、家长 PIN 和管理边界",
+      "priority": "P0",
+      "necessity": "场景必要",
+      "status": "已接入；不等于完整内容分级服务",
+      "rationale": "开启儿童模式后访问边界必须可靠。"
+    },
+    {
+      "id": "I08",
+      "group": "个人内容和账号",
+      "feature": "观看时长、月历、趋势和回顾",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "本机统计；不属于同步文档",
+      "rationale": "提升留存的辅助功能，可减少展示与统计细项。"
+    },
+    {
+      "id": "I09",
+      "group": "个人内容和账号",
+      "feature": "数据安全导出、清空云端和删除账号",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "使用账号时已接入",
+      "rationale": "提供可控退出路径，不能只有注册和上传。"
+    },
+    {
+      "id": "J01",
+      "group": "一起看",
+      "feature": "建房、房间码、邀请分享、加入与退出",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入；官方安全账号服务",
+      "rationale": "若保留一起看，这是必要闭环。"
+    },
+    {
+      "id": "J02",
+      "group": "一起看",
+      "feature": "同步播放暂停定位、漂移校正和重连",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入；仅同步控制与状态",
+      "rationale": "不传输影片本体，各参与者需有可用片源。"
+    },
+    {
+      "id": "J03",
+      "group": "一起看",
+      "feature": "跨服务器媒体匹配和版本时长差异提示",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "不同剪辑版本不能盲目同步。"
+    },
+    {
+      "id": "J04",
+      "group": "一起看",
+      "feature": "房主、管理员、控制申请和移出成员",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "防止多人争抢控制或绕过权限。"
+    },
+    {
+      "id": "J05",
+      "group": "一起看",
+      "feature": "房间播放列表、添加删除排序和选片",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "连续一起看需要，单片场景可不用。"
+    },
+    {
+      "id": "J06",
+      "group": "一起看",
+      "feature": "文本聊天、确认重试和聊天浮层或弹幕",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "一起看交流便利，显示层可简化。"
+    },
+    {
+      "id": "J07",
+      "group": "一起看",
+      "feature": "表情反应、贴纸及昵称头像",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "互动装饰，建议停止不断增加效果与素材。"
+    },
+    {
+      "id": "J08",
+      "group": "一起看",
+      "feature": "成员就绪缓冲、网络状态、房主接续和房间回收",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "保障失败恢复和后台资源边界。"
+    },
+    {
+      "id": "K01",
+      "group": "跨设备和第三方记录",
+      "feature": "在线设备列表、播放状态和接收确认后继续观看",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入；完整设备联调另需验收",
+      "rationale": "手机电视协同有明显价值，不能未经确认打断当前设备。"
+    },
+    {
+      "id": "K02",
+      "group": "跨设备和第三方记录",
+      "feature": "手机遥控 TV、配对确认、按键和文本输入",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "手机电视和中继已接入",
+      "rationale": "提升 TV 搜索与控制体验；敏感输入边界必须保留。"
+    },
+    {
+      "id": "K03",
+      "group": "跨设备和第三方记录",
+      "feature": "手机向 TV 传递 Emby 或 Jellyfin 登录",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入；Plex 走自身 PIN",
+      "rationale": "显著降低电视配置成本，凭据不应持久留在中继。"
+    },
+    {
+      "id": "K04",
+      "group": "跨设备和第三方记录",
+      "feature": "DLNA 发现、投屏和手机转发片源",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "Android 已接入；依接收设备",
+      "rationale": "广泛兼容的目标，HTTPS 和外网来源需要本机转发。"
+    },
+    {
+      "id": "K05",
+      "group": "跨设备和第三方记录",
+      "feature": "Google Cast、队列、轨道和音量控制",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "有发送与接收实现；真实设备与发布状态需验证",
+      "rationale": "面向相应设备，不能用网页可访问代替接收端验收。"
+    },
+    {
+      "id": "K06",
+      "group": "跨设备和第三方记录",
+      "feature": "投屏失败恢复、停止后本机接力和 Dolby 输出确认",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "按接收端反馈实现",
+      "rationale": "只要支持投屏，就需要可靠控制与恢复。"
+    },
+    {
+      "id": "K07",
+      "group": "跨设备和第三方记录",
+      "feature": "Trakt 授权、观影上报、想看历史导入和待发重试",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "已接入；依 OAuth 服务配置",
+      "rationale": "特定用户需要，普通用户保持关闭。"
+    },
+    {
+      "id": "L01",
+      "group": "外观和系统使用体验",
+      "feature": "手机导航、返回栈、页面状态恢复和 TV 焦点",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "不能用动画效果掩盖返回错误或焦点丢失。"
+    },
+    {
+      "id": "L02",
+      "group": "外观和系统使用体验",
+      "feature": "手机平板折叠布局、竖屏和窗口系统适配",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "Android 已接入；需对应设备验收",
+      "rationale": "保证文字控件可见可操作。"
+    },
+    {
+      "id": "L03",
+      "group": "外观和系统使用体验",
+      "feature": "明暗主题、基础颜色和文字可读性",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "基本阅读和观看体验。"
+    },
+    {
+      "id": "L04",
+      "group": "外观和系统使用体验",
+      "feature": "减少动态效果、辅助显示、触觉和语义可访问性",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "必须提供舒适且可访问的操作方式。"
+    },
+    {
+      "id": "L05",
+      "group": "外观和系统使用体验",
+      "feature": "动效主题和性能预算自动降级",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "保留少量风格和低成本默认值即可。"
+    },
+    {
+      "id": "L06",
+      "group": "外观和系统使用体验",
+      "feature": "玻璃材质、背景图和细粒度参数",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "设置与调试面很大，建议保留预设、收起细项。"
+    },
+    {
+      "id": "L07",
+      "group": "外观和系统使用体验",
+      "feature": "多种弹窗、加载和播放器进出动画",
+      "priority": "P3",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "边际价值有限，组合数量会放大回归成本。"
+    },
+    {
+      "id": "L08",
+      "group": "外观和系统使用体验",
+      "feature": "粒子光、扫光、轮播和海报特效",
+      "priority": "P3",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "建议暂停增加效果，避免与播放资源竞争。"
+    },
+    {
+      "id": "L09",
+      "group": "外观和系统使用体验",
+      "feature": "多套 App 图标、开屏动画及图标同步",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "Android 已接入",
+      "rationale": "维持现有兼容即可，新增套数优先级低。"
+    },
+    {
+      "id": "L10",
+      "group": "外观和系统使用体验",
+      "feature": "桌面续播追剧组件、快捷方式和深链",
+      "priority": "P2",
+      "necessity": "场景必要",
+      "status": "Android 已接入",
+      "rationale": "常用用户便利，TV 无需机械复制手机组件。"
+    },
+    {
+      "id": "L11",
+      "group": "外观和系统使用体验",
+      "feature": "下载投屏房间状态胶囊、使用提示和设置搜索",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "汇总操作有用，应控制信息量和提示频率。"
+    },
+    {
+      "id": "L12",
+      "group": "外观和系统使用体验",
+      "feature": "启动页选择和滚动时收起导航栏",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "已接入",
+      "rationale": "个人使用习惯有差异，保留简单开关即可。"
+    },
+    {
+      "id": "M01",
+      "group": "服务端和工程保障",
+      "feature": "账号、同步、房间、设备遥控和接力的后端服务",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已部署",
+      "rationale": "对开启云功能的用户必要；不能影响本地功能独立性。"
+    },
+    {
+      "id": "M02",
+      "group": "服务端和工程保障",
+      "feature": "TMDB 代理、鉴权、缓存和上游凭据隔离",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已部署并接入",
+      "rationale": "减少客户端分发凭据与直接连接问题，仍依赖上游可用性。"
+    },
+    {
+      "id": "M03",
+      "group": "服务端和工程保障",
+      "feature": "可关闭项目自有后端的构建边界",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "已接入",
+      "rationale": "降低云服务故障影响，保留媒体服务和本地播放。"
+    },
+    {
+      "id": "M04",
+      "group": "服务端和工程保障",
+      "feature": "TLS、同源凭据、安全存储、限速和请求大小边界",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "客户端和服务端已接入",
+      "rationale": "所有联网和账户能力的基础，不能按低使用率删除。"
+    },
+    {
+      "id": "M05",
+      "group": "服务端和工程保障",
+      "feature": "应用更新、哈希包名版本签名校验和安装",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "Android 已接入",
+      "rationale": "更新必须可信，旧新客户端清单需保持兼容。"
+    },
+    {
+      "id": "M06",
+      "group": "服务端和工程保障",
+      "feature": "正式签名、递增版本、更新说明、MDK 和 DEX 产物校验",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "有构建和检查脚本",
+      "rationale": "用户明确要求；功能精简不改变标准 full 包要求。"
+    },
+    {
+      "id": "M07",
+      "group": "服务端和工程保障",
+      "feature": "结构化播放错误、本地日志和诊断导出",
+      "priority": "P1",
+      "necessity": "必须",
+      "status": "已接入",
+      "rationale": "能否快速定位不能播，决定维护效率。"
+    },
+    {
+      "id": "M08",
+      "group": "服务端和工程保障",
+      "feature": "用户选择的匿名播放质量聚合",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "有客户端和服务器实现",
+      "rationale": "没有用户同意不能自动上报；本地诊断优先。"
+    },
+    {
+      "id": "M09",
+      "group": "服务端和工程保障",
+      "feature": "单元测试、设计检查、基准测试和设备长稳门禁",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "有工程设施；各门禁证据需分别满足",
+      "rationale": "保障复杂播放链路，不代表已有全格式全设备通过。"
+    },
+    {
+      "id": "M10",
+      "group": "服务端和工程保障",
+      "feature": "后端健康检查、数据库备份、保留旧版本和回滚",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "本次部署已执行",
+      "rationale": "有生产后端就必须能恢复，不能只会更新。"
+    },
+    {
+      "id": "M11",
+      "group": "服务端和工程保障",
+      "feature": "远端播放策略获取、缓存和路由辅助",
+      "priority": "P2",
+      "necessity": "可选",
+      "status": "Android 有调用和功能边界",
+      "rationale": "只有可验证的兼容收益才值得持续运营；本地默认策略必须可用。"
+    },
+    {
+      "id": "M12",
+      "group": "服务端和工程保障",
+      "feature": "清理图片视频缓存及权限后台能力诊断",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "Android 已接入",
+      "rationale": "节省空间和解决系统限制，清缓存不能删离线下载。"
+    },
+    {
+      "id": "N01",
+      "group": "平台和当前不交付的范围",
+      "feature": "Android 手机应用",
+      "priority": "P0",
+      "necessity": "必须",
+      "status": "主交付平台；目前标准 APK 为 ARM64",
+      "rationale": "保持稳定播放和基础闭环。"
+    },
+    {
+      "id": "N02",
+      "group": "平台和当前不交付的范围",
+      "feature": "Android TV 独立壳、遥控器导航和播放",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "有独立模块和实际界面",
+      "rationale": "家庭影音方向的重要平台，应专门验收焦点与输出。"
+    },
+    {
+      "id": "N03",
+      "group": "平台和当前不交付的范围",
+      "feature": "HarmonyOS Cangjie 移植",
+      "priority": "P3",
+      "necessity": "暂缓",
+      "status": "基础流程有源码接线；没有完整 HAP 发布和设备证据",
+      "rationale": "下载、DLNA、后台、原生渲染等适配缺口仍在。"
+    },
+    {
+      "id": "N04",
+      "group": "平台和当前不交付的范围",
+      "feature": "原生宿主验证、媒体测试资产和性能测试 App",
+      "priority": "P1",
+      "necessity": "场景必要",
+      "status": "工程工具",
+      "rationale": "支撑播放器验收，不应列作普通用户产品功能。"
+    }
+  ]
+}

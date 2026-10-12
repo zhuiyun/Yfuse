@@ -250,8 +250,20 @@ class PublishJobSplitTest(unittest.TestCase):
         return apk, {
             "ANDROID_HOME": str(work / "sdk"), "SIGNATURE": str(work / "signature.txt"),
             "VERSION_CODE": "254", "VERSION_NAME": "1.0.92", "EXPECTED_ANDROID_CERT_SHA256": CERT,
-            "APK_SIZE_BUDGET_BYTES": "30000000", "GITHUB_RUN_ATTEMPT": "2",
+            "GITHUB_RUN_ATTEMPT": "2",
         }
+
+    def test_the_signed_full_apk_can_exceed_the_former_size_limit(self):
+        signature = next(iter(PUBLISHED_SIGNATURES)).read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory(prefix="yfuse-large-apk-") as directory:
+            work = Path(directory)
+            apk, env = self.verification_fixture(work, signature)
+            with zipfile.ZipFile(apk, "a") as archive:
+                archive.writestr("assets/size-test.bin", b"\0" * 30_000_001)
+            result, handed = self.run_step("Verify APK metadata and signing certificate", work, env)
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(str(apk.stat().st_size), handed["size"])
+            self.assertIn(f"APK size: {apk.stat().st_size} bytes", result.stdout)
 
     def test_the_signed_apk_must_carry_exactly_the_published_signature(self):
         for fixture, other_signer in PUBLISHED_SIGNATURES.items():

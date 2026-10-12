@@ -1,6 +1,14 @@
 package com.yfuse.feature.calendar
 
+import com.yfuse.core.model.AiringEpisode
 import com.yfuse.core.model.CalendarDay
+import com.yfuse.core.model.ShowOrigin
+import com.yfuse.core.util.currentEpochMillis
+import com.yfuse.core.util.scheduledEpochMillis
+import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 internal fun buildCalendarIcs(days: List<CalendarDay>): String {
     fun escape(value: String): String =
@@ -8,53 +16,89 @@ internal fun buildCalendarIcs(days: List<CalendarDay>): String {
             .replace("\\", "\\\\")
             .replace(";", "\\;")
             .replace(",", "\\,")
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
             .replace("\n", "\\n")
 
-    return buildString {
-        appendLine("BEGIN:VCALENDAR")
-        appendLine("VERSION:2.0")
-        appendLine("PRODID:-//Yfuse//Airing Calendar//ZH-CN")
-        appendLine("CALSCALE:GREGORIAN")
-        appendLine("METHOD:PUBLISH")
-        appendLine("X-WR-CALNAME:Yfuse 追剧日历")
-        days
-            .flatMap(CalendarDay::entries)
-            .distinctBy { it.episode.mediaKey }
-            .forEach { entry ->
-                val episode = entry.episode
-                val compactDate = episode.airDate.replace("-", "")
-                appendLine("BEGIN:VEVENT")
-                appendLine(
-                    "UID:${episode.showTmdbId}-${episode.seasonNumber}-" +
-                        "${episode.episodeNumber}-$compactDate@yfuse",
-                )
-                appendLine("DTSTAMP:19700101T000000Z")
-                if (episode.airTime != null) {
-                    val compactTime = episode.airTime.replace(":", "") + "00"
-                    val zone = episode.timeZoneId?.takeIf(String::isNotBlank)
-                    appendLine(
-                        if (zone == null) {
-                            "DTSTART:${compactDate}T$compactTime"
+    val timestamp = icsUtcTime.format(Instant.ofEpochMilli(currentEpochMillis()))
+    val lines =
+        buildList {
+            add("BEGIN:VCALENDAR")
+            add("VERSION:2.0")
+            add("PRODID:-//Yfuse//Airing Calendar//ZH-CN")
+            add("CALSCALE:GREGORIAN")
+            add("METHOD:PUBLISH")
+            add("X-WR-CALNAME:Yfuse 追剧日历")
+            days
+                .flatMap(CalendarDay::entries)
+                .distinctBy { it.episode.mediaKey }
+                .forEach { entry ->
+                    val episode = entry.episode
+                    val compactDate = episode.airDate.replace("-", "")
+                    add("BEGIN:VEVENT")
+                    // A corrected date updates this event, and distinct title-only shows never share a zero id.
+                    add("UID:${escape(episode.mediaKey)}@yfuse")
+                    add("DTSTAMP:$timestamp")
+                    val instant = episode.calendarExportInstant()
+                    add(
+                        if (instant != null) {
+                            "DTSTART:${icsUtcTime.format(instant)}"
                         } else {
-                            "DTSTART;TZID=$zone:${compactDate}T$compactTime"
+                            "DTSTART;VALUE=DATE:$compactDate"
                         },
                     )
-                } else {
-                    appendLine("DTSTART;VALUE=DATE:$compactDate")
+                    add("SUMMARY:${escape(episode.showTitle + " " + episode.episodeLabel)}")
+                    add(
+                        "DESCRIPTION:${escape(
+                            buildList {
+                                add(entry.status.name)
+                                addAll(episode.platforms)
+                                episode.scheduleRevision?.let { add("排期版本 $it") }
+                            }.joinToString(" · "),
+                        )}",
+                    )
+                    // URL is a URI property, not TEXT: its commas and semicolons are not backslash-escaped.
+                    episode.sourceUrl?.takeIf { it.isNotBlank() && '\r' !in it && '\n' !in it }?.let { add("URL:$it") }
+                    add("END:VEVENT")
                 }
-                appendLine("SUMMARY:${escape(episode.showTitle + " " + episode.episodeLabel)}")
-                appendLine(
-                    "DESCRIPTION:${escape(
-                        buildList {
-                            add(entry.status.name)
-                            addAll(episode.platforms)
-                            episode.scheduleRevision?.let { add("排期版本 $it") }
-                        }.joinToString(" · "),
-                    )}",
-                )
-                episode.sourceUrl?.let { appendLine("URL:${escape(it)}") }
-                appendLine("END:VEVENT")
-            }
-        appendLine("END:VCALENDAR")
-    }
+            add("END:VCALENDAR")
+        }
+    return buildString { lines.forEach { appendCalendarLine(it) } }
 }
+
+/** UTC avoids exporting a TZID without the VTIMEZONE definition required by RFC 5545. */
+private fun AiringEpisode.calendarExportInstant(): Instant? {
+    if (origin == ShowOrigin.Foreign) {
+        releaseAtUtc?.let { runCatching { OffsetDateTime.parse(it).toInstant() }.getOrNull() }?.let { return it }
+    }
+    val time = airTime ?: return null
+    val zone = timeZoneId ?: return null
+    return scheduledEpochMillis(airDate, time, zone)?.let(Instant::ofEpochMilli)
+}
+
+/** Fold at 75 UTF-8 octets while keeping each code point whole; continuation space counts too. */
+private fun StringBuilder.appendCalendarLine(value: String) {
+    var index = 0
+    var octets = 0
+    while (index < value.length) {
+        val codePoint = Character.codePointAt(value, index)
+        val bytes =
+            when {
+                codePoint <= 0x7F -> 1
+                codePoint <= 0x7FF -> 2
+                codePoint <= 0xFFFF -> 3
+                else -> 4
+            }
+        if (octets + bytes > 75) {
+            append("\r\n ")
+            octets = 1
+        }
+        val next = index + Character.charCount(codePoint)
+        append(value, index, next)
+        octets += bytes
+        index = next
+    }
+    append("\r\n")
+}
+
+private val icsUtcTime = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC)

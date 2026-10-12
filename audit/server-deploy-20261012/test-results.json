@@ -1,0 +1,18 @@
+[
+  {
+    "module": "protocol",
+    "suites": 3,
+    "tests": 25,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "module": "server",
+    "suites": 36,
+    "tests": 260,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+]

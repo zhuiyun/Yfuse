@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.calendar.CalendarIcsTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-12T02:38:08.640Z" hostname="DESKTOP-HM2J0FM" time="0.1">
+  <properties/>
+  <testcase name="an_exact_foreign_release_time_is_exported_without_guessing_a_clock" classname="com.yfuse.feature.calendar.CalendarIcsTest" time="0.059"/>
+  <testcase name="timezone_conversion_keeps_the_published_instant_across_dst" classname="com.yfuse.feature.calendar.CalendarIcsTest" time="0.008"/>
+  <testcase name="an_unknown_timezone_falls_back_to_the_published_date" classname="com.yfuse.feature.calendar.CalendarIcsTest" time="0.001"/>
+  <testcase name="lines_use_crlf_and_fold_utf8_without_corrupting_titles" classname="com.yfuse.feature.calendar.CalendarIcsTest" time="0.002"/>
+  <testcase name="source_urls_preserve_uri_punctuation" classname="com.yfuse.feature.calendar.CalendarIcsTest" time="0.003"/>
+  <testcase name="titles_without_tmdb_ids_and_movies_have_distinct_identities" classname="com.yfuse.feature.calendar.CalendarIcsTest" time="0.021"/>
+  <testcase name="export_contains_stable_uid_timezone_and_escaped_text" classname="com.yfuse.feature.calendar.CalendarIcsTest" time="0.001"/>
+  <testcase name="rescheduling_an_episode_keeps_its_calendar_identity" classname="com.yfuse.feature.calendar.CalendarIcsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

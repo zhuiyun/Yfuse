@@ -1,0 +1,50 @@
+{
+  "versionName": "1.2.6",
+  "versionCode": 278,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "b172c7e9b1dad94871166b7545a94f9b9bf08f38",
+  "treeDirtyAtBuild": true,
+  "diffHash": "c63fd6bfbd26",
+  "file": "Yfuse-1.2.6-full-arm64.apk",
+  "bytes": 29910487,
+  "sha256": "70cd55115c2ddf8f7ca7eae1b614bb97f9e52f2dc21f598cb36440365896cb57",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "numberOfSigners": 1,
+  "zipAlignment16K": true,
+  "dexVerified": true,
+  "dexClasses": 14133,
+  "dexMethodsWithCode": 62083,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "dexFiles": {
+    "classes.dex": "9bf7c2288239736be697a82b501a3894acaf92b114e807c4a6ed8a5133ac1de9",
+    "classes2.dex": "394bed58351cc583e1c32323d86e61947c55624e4f8f910626747bdd5772ebe4"
+  },
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1191008,
+      "sha256": "8c3fdfef2629af11a999325b21864ad2d262879d61065e282abab73a5f3dd7a5"
+    }
+  },
+  "mdkEngineMatchesPinnedSdk": true,
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "previousActualVersionName": "1.2.3",
+  "previousActualVersionCode": 275,
+  "previousArtifactSha256": "5d7bc46b93793170ef9a4bfb0c2c48825387b33c57f952e95ad2ce440ac02539",
+  "previousConfiguredVersionName": "1.2.5",
+  "previousConfiguredVersionCode": 277,
+  "releaseNotesFirstLine": "1.2.6",
+  "sourceArchiveRecheckedAfterBuild": true,
+  "deviceTestPerformed": false,
+  "published": false,
+  "uploaded": false,
+  "verifiedAtUtc": "2026-10-12T01:17:18.965466+00:00"
+}

@@ -1,0 +1,73 @@
+{
+  "sourceCommit": "b172c7e9b1dad94871166b7545a94f9b9bf08f38",
+  "serverRelease": "/opt/yfuse-watch/releases/20261012-013420-b172c7e9b-backend",
+  "rendererRelease": "/opt/yfuse-calendar-renderer/releases/20261012-013420-b172c7e9b",
+  "previousServer": "/opt/yfuse-watch/releases/20260918-011144-2eff8485-handoff",
+  "previousRenderer": "/opt/yfuse-calendar-renderer/releases/20260827-084122",
+  "previousRendererImageId": "sha256:200bea2696632124754016dc069527014ed879d0f1afb6265b148a6fffb1bd54",
+  "previousRendererImageTag": "yfuse-calendar-renderer-calendar-renderer",
+  "serverArchiveSha256": "492d578ea21a02fe5eb1d6612eb21ca19c5f104f41afde9e127ab15c988f8fb1",
+  "rendererArchiveSha256": "adb581f5fce32003c486d3ba0a134b17bdf1dbc87b516dbb85f3efc1e26ecac1",
+  "deployed": true,
+  "rendererUpdated": true,
+  "verifiedAtUtc": "2026-10-12T02:03:44Z",
+  "routeChecks": [
+    {
+      "url": "http://127.0.0.1:8080/api/v1/tmdb/movie/603",
+      "status": 401
+    },
+    {
+      "url": "http://127.0.0.1:8080/api/v1/account/handoff",
+      "status": 401
+    },
+    {
+      "url": "http://127.0.0.1:8080/api/v1/account/handoff/heartbeat",
+      "status": 401
+    },
+    {
+      "url": "http://127.0.0.1:8080/api/v1/account/profile",
+      "status": 401
+    },
+    {
+      "url": "http://127.0.0.1:8080/api/v1/calendar/schedules",
+      "status": 200,
+      "revision": "2026-10-12-r2"
+    },
+    {
+      "url": "https://47.112.219.60/api/v1/tmdb/movie/603",
+      "status": 401
+    },
+    {
+      "url": "https://47.112.219.60/api/v1/account/handoff",
+      "status": 401
+    },
+    {
+      "url": "https://47.112.219.60/api/v1/account/handoff/heartbeat",
+      "status": 401
+    },
+    {
+      "url": "https://47.112.219.60/api/v1/account/profile",
+      "status": 401
+    },
+    {
+      "url": "https://47.112.219.60/api/v1/calendar/schedules",
+      "status": 200,
+      "revision": "2026-10-12-r2"
+    }
+  ],
+  "plaintextAccountApiStatus": 426,
+  "rendererPlaywright": "1.63.0",
+  "rendererImageId": "sha256:656787e565714369ab022ca44ba2ec67911c2af7d99d2043cb1e6299b0eb22ba",
+  "serviceRestarts": 0,
+  "apkUpdateManifestsUnchanged": true,
+  "apkPublished": false,
+  "databaseBackups": [
+    "account.db",
+    "calendar.db",
+    "migration-relay.db",
+    "calendar-ocr-cache.db",
+    "qoe.db"
+  ],
+  "databaseBackupPath": "/var/lib/yfuse/backups/deploy-20261012-013420-b172c7e9b/database-backups/20261012-014346",
+  "backupPath": "/var/lib/yfuse/backups/deploy-20261012-013420-b172c7e9b"
+}

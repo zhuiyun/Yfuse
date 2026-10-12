@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.calendar.AiringShowCalendarDialogTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-12T02:38:08.759Z" hostname="DESKTOP-HM2J0FM" time="0.005">
+  <properties/>
+  <testcase name="calendar_entry_builds_a_real_follow_record_and_preserves_existing_reminder" classname="com.yfuse.feature.calendar.AiringShowCalendarDialogTest" time="0.002"/>
+  <testcase name="dialog_groups_only_the_selected_show_and_keeps_date_order" classname="com.yfuse.feature.calendar.AiringShowCalendarDialogTest" time="0.001"/>
+  <testcase name="a_mode_change_carries_the_series_own_lead_time" classname="com.yfuse.feature.calendar.AiringShowCalendarDialogTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
