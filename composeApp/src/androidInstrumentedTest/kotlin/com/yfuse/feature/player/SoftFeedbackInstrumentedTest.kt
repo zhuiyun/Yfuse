@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +48,72 @@ import java.util.concurrent.atomic.AtomicReference
 @RunWith(AndroidJUnit4::class)
 class SoftFeedbackInstrumentedTest {
     private lateinit var currentActivity: MainActivity
+
+    @Test(timeout = 45_000L)
+    fun buffered_rail_is_visible_and_updates_while_the_playhead_is_stationary() {
+        var fraction by mutableStateOf<State<Float>>(mutableFloatStateOf(0.2f))
+        var buffered by mutableStateOf<State<Float>>(mutableFloatStateOf(0.4f))
+        var reduced by mutableStateOf(false)
+        var accent by mutableStateOf(Color.Black)
+        val bounds = AtomicReference<Rect>()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                currentActivity = activity
+                activity.setContent {
+                    YfuseTheme(dark = true, accessibility = AccessibilityOptions(reduceMotion = reduced)) {
+                        Box(
+                            Modifier.fillMaxSize().background(Color(0xFF151725)).safeDrawingPadding(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            StandardSeekBar(
+                                fraction = fraction,
+                                bufferedFraction = buffered,
+                                positionMs = { (fraction.value * 120_000).toLong() },
+                                durationMs = 120_000,
+                                progressMarkers = emptyList(),
+                                accent = { accent },
+                                onScrubTo = {},
+                                onCommit = {},
+                                onCancel = {},
+                                modifier =
+                                    Modifier.width(300.dp).onGloballyPositioned {
+                                        bounds.set(it.boundsInWindow())
+                                    },
+                            )
+                        }
+                    }
+                }
+            }
+            repeat(3) { frame() }
+            val track = requireNotNull(bounds.get())
+            for (reduceMotion in listOf(false, true)) {
+                for (color in listOf(Color.Black, Color.White)) {
+                    onMain {
+                        reduced = reduceMotion
+                        accent = color
+                        fraction = mutableFloatStateOf(0.2f)
+                        buffered = mutableFloatStateOf(0.4f)
+                    }
+                    repeat(3) { frame() }
+                    assertBufferContrast(track, bufferedAt = 0.3f, emptyAt = 0.8f)
+                    // No position tick: paused playback must still show newly downloaded data.
+                    onMain { buffered = mutableFloatStateOf(0.75f) }
+                    repeat(3) { frame() }
+                    assertBufferContrast(track, bufferedAt = 0.6f, emptyAt = 0.85f)
+                    // A seek/new engine discards its old buffer, even with unchanged duration.
+                    onMain {
+                        fraction = mutableFloatStateOf(0.05f)
+                        buffered = mutableFloatStateOf(0.3f)
+                    }
+                    repeat(3) { frame() }
+                    assertBufferContrast(track, bufferedAt = 0.15f, emptyAt = 0.6f)
+                    val pixels = railBrightness(track, 0.6f, 0.85f)
+                    assertEquals("A cleared buffer remained painted", pixels[0], pixels[1], 5f)
+                }
+            }
+            capture("seek-buffered.png")
+        }
+    }
 
     @Test(timeout = 45_000L)
     fun seek_cancel_never_commits_and_release_commits_once_with_or_without_motion() {
@@ -303,6 +370,40 @@ class SoftFeedbackInstrumentedTest {
         val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
         try {
             File(output, name).outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun assertBufferContrast(
+        bounds: Rect,
+        bufferedAt: Float,
+        emptyAt: Float,
+    ) {
+        val pixels = railBrightness(bounds, bufferedAt, emptyAt)
+        assertTrue("Buffered and empty track are indistinguishable: ${pixels.toList()}", pixels[0] - pixels[1] > 60f)
+    }
+
+    private fun railBrightness(
+        bounds: Rect,
+        vararg fractions: Float,
+    ): FloatArray {
+        val bitmap = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+        try {
+            return fractions
+                .map { fraction ->
+                    val x = (bounds.left + bounds.width * fraction).toInt()
+                    val y = bounds.center.y.toInt()
+                    (-2..2)
+                        .map { offset ->
+                            val pixel = bitmap.getPixel(x + offset, y)
+                            val red = android.graphics.Color.red(pixel)
+                            val green = android.graphics.Color.green(pixel)
+                            val blue = android.graphics.Color.blue(pixel)
+                            (red + green + blue) / 3f
+                        }.average()
+                        .toFloat()
+                }.toFloatArray()
         } finally {
             bitmap.recycle()
         }

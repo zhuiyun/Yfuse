@@ -1069,7 +1069,7 @@ private fun ambientScrim(
 /**
  * Artwork-aware scrubber. The current still/poster supplies one restrained accent that is reused
  * for the played rail, thumb halo and semantic chapter markers. The unplayed rail stays neutral and
- * the buffer is a low-saturation tint, keeping time and control readability stable across artwork.
+ * the buffer is a brighter neutral rail, keeping it visible even with a dark artwork accent.
  */
 @Composable
 internal fun StandardSeekBar(
@@ -1160,6 +1160,7 @@ internal fun StandardSeekBar(
     val latestOnCommit by rememberUpdatedState(onCommit)
     val latestOnCancel by rememberUpdatedState(onCancel)
     val latestPositionMs by rememberUpdatedState(positionMs)
+    val latestBufferedFraction by rememberUpdatedState(bufferedFraction)
     // Disabled mid-drag — the seek locked, the duration lost — the gesture goes with the modifier
     // that ran it and reports neither end. Say it here, or the bar stays "scrubbing" and the
     // chrome never hides again until the next tap.
@@ -1177,7 +1178,7 @@ internal fun StandardSeekBar(
     // one of them, to move three boxes that only ever needed placing again. The played fraction
     // now arrives as a state for the same reason: off a finger it still changes twice a second.
     val shownFraction =
-        remember {
+        remember(fraction) {
             derivedStateOf { if (dragging) dragFraction else fraction.value.coerceIn(0f, 1f) }
         }
     val interaction =
@@ -1257,7 +1258,14 @@ internal fun StandardSeekBar(
                     if (focused) drawOutline(outline, accent().copy(alpha = 0.72f), style = stroke)
                 }
             }.semantics {
-                stateDescription = "播放进度 ${formatTime(latestPositionMs())} / ${formatTime(durationMs)}"
+                stateDescription =
+                    buildString {
+                        append("播放进度 ${formatTime(latestPositionMs())} / ${formatTime(durationMs)}")
+                        if (durationMs > 0L && latestBufferedFraction.value > 0f) {
+                            val bufferedPosition = scrubPositionMs(latestBufferedFraction.value, durationMs)
+                            append(" · 已缓冲至 ${formatTime(bufferedPosition)}")
+                        }
+                    }
                 progressBarRangeInfo = ProgressBarRangeInfo(shownFraction.value, 0f..1f)
                 if (enabled) setProgress { commit(it) } else disabled()
             }.onKeyEvent { event ->
@@ -1359,22 +1367,7 @@ internal fun StandardSeekBar(
                 .danmakuHeatCurve(heat = heat, durationMs = durationMs, emphasis = { interaction.value }),
         )
         // Both rails keep fixed geometry; progress invalidates paint, not child measurement.
-        val buffered = remember(durationMs) { Animatable(0f) }
         val moving = !reduceMotion && LocalRouteVisible.current
-        // Collected rather than read in composition: the buffer advances on the same clock as
-        // the playhead, and the rail is the only thing that has anything to do with it. The
-        // first sample is where the buffer already is, so raising the chrome never replays it.
-        LaunchedEffect(durationMs, moving) {
-            var arrived = false
-            snapshotFlow { bufferedFraction.value.coerceIn(0f, 1f) }.collect { target ->
-                if (!arrived || !moving || target < buffered.value) {
-                    arrived = true
-                    buffered.snapTo(target)
-                } else {
-                    buffered.animateTo(target, tween(Motion.STANDARD, easing = Motion.Curve))
-                }
-            }
-        }
         // The rail is laid out at its pressed height and scaled down to its resting one, so the
         // press spring repaints a layer instead of re-measuring the row sixty times a second.
         // The pill's radius follows the scale, which is what keeps the ends round at both sizes.
@@ -1389,8 +1382,10 @@ internal fun StandardSeekBar(
                     val color = accent()
                     val played = shownFraction.value
                     val playedWidth = size.width * played
-                    val bufferedWidth = size.width * buffered.value.coerceIn(played, 1f)
-                    val bufferColor = lerp(color, Color.Gray, 0.62f).copy(alpha = 0.50f)
+                    // Read the engine's latest sample while drawing. Paused playback still buffers;
+                    // a seek or engine change can also clear it without waiting for an animation.
+                    val bufferedWidth = size.width * latestBufferedFraction.value.coerceIn(0f, 1f)
+                    val bufferColor = Color.White.copy(alpha = 0.60f)
                     // One brush across every part, so the played gradient runs on through the cuts.
                     val playedBrush =
                         Brush.horizontalGradient(

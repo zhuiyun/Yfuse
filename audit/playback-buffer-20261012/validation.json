@@ -1,0 +1,31 @@
+{
+  "hostTestsPassed": 32,
+  "android15TestsPassed": 2,
+  "device": "Yfuse35 ephemeral read-only Android 15/API 35 emulator",
+  "physicalDeviceTestPerformed": false,
+  "debugApplicationId": "com.yfuse.validation.buffertimeline",
+  "debugVersionName": "1.2.8",
+  "debugVersionCode": 280,
+  "debugApkSha256": "eec61974d018573153fb44c79c0930cd34d481a3f10bc9c9a0872d74913edc7b",
+  "files": [
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt",
+      "sha256": "b5514568279ebdbcc505578bc96c04d79439c763dcc1e6e225b8c82a0f153f1f"
+    },
+    {
+      "path": "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/feature/player/SoftFeedbackInstrumentedTest.kt",
+      "sha256": "b8a6172a5ccf5730e5c2952ba99e2a053c27639d4e3769a8be441aa66ffe5a21"
+    }
+  ],
+  "scenarios": [
+    "Buffer contrast with black and white artwork accents",
+    "Buffer-only updates with stationary playhead",
+    "Replaced position and buffer state, unchanged duration",
+    "Immediate old buffer removal",
+    "Normal and reduced motion",
+    "Drag cancellation never commits",
+    "Release commits once"
+  ],
+  "uiFixtureUsesEngineStateSamples": true,
+  "liveNetworkEnginePlaybackTestPerformed": false
+}

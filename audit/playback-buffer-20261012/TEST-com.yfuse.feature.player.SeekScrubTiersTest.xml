@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.player.SeekScrubTiersTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-10-12T11:23:52.904Z" hostname="DESKTOP-HM2J0FM" time="0.012">
+  <properties/>
+  <testcase name="movingUpEntersEachTierAtItsLine" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.003"/>
+  <testcase name="finerIsAThresholdAndCoarserItsRelease" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.0"/>
+  <testcase name="theFilmstripStaysWithinItsSlackAndLeavesBelowIt" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.001"/>
+  <testcase name="theStripSaysHowFarApartItsFramesAre" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.005"/>
+  <testcase name="theFilmstripStepsAFramePerStepAndLandsOnTheFramesTime" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.002"/>
+  <testcase name="withoutTrickplayTheDragStopsAtFine" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.0"/>
+  <testcase name="theStripShowsAnOddNumberOfFramesThatFit" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.0"/>
+  <testcase name="shiftArrowsWalkTheStoryboardFrameByFrame" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.0"/>
+  <testcase name="framesPastTheEndOfTheFileAreNotOffered" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.001"/>
+  <testcase name="comingBackDownLeavesEachTierSixBelowItsLine" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.0"/>
+  <testcase name="theFineTierMovesAQuarterAsFarAndPicksUpWhereTheThumbIs" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.0"/>
+  <testcase name="withoutFramesAHighFingerIsOnlyFine" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.0"/>
+  <testcase name="backAtNormalTheThumbCarriesOnAndMeetsTheFingerAtTheEnds" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.0"/>
+  <testcase name="convergingFractionIsTheFingersOwnWhenItIsTheAnchor" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.0"/>
+  <testcase name="aNormalDragKeepsTheThumbUnderTheFinger" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.0"/>
+  <testcase name="theNearestFrameIsChosenOnEitherSide" classname="com.yfuse.feature.player.SeekScrubTiersTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

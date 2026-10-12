@@ -1,0 +1,37 @@
+INSTRUMENTATION_STATUS: class=com.yfuse.feature.player.SoftFeedbackInstrumentedTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=2
+INSTRUMENTATION_STATUS: stream=
+com.yfuse.feature.player.SoftFeedbackInstrumentedTest:
+INSTRUMENTATION_STATUS: test=buffered_rail_is_visible_and_updates_while_the_playhead_is_stationary
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.yfuse.feature.player.SoftFeedbackInstrumentedTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=2
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=buffered_rail_is_visible_and_updates_while_the_playhead_is_stationary
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.yfuse.feature.player.SoftFeedbackInstrumentedTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=2
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=seek_cancel_never_commits_and_release_commits_once_with_or_without_motion
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.yfuse.feature.player.SoftFeedbackInstrumentedTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=2
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=seek_cancel_never_commits_and_release_commits_once_with_or_without_motion
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 13.363
+
+OK (2 tests)
+
+
+INSTRUMENTATION_CODE: -1

@@ -1,10 +1,10 @@
 {
-  "versionName": "1.2.7",
-  "versionCode": 279,
+  "versionName": "1.2.8",
+  "versionCode": 280,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-12T10:46:05.275895+00:00",
+  "confirmedAt": "2026-10-12T11:19:14.4656985Z",
   "confirmedBy": "release owner",
-  "confirmationBasis": "User request on 2026-10-12 to package the completed detail-page changes, together with the standing instruction on 2026-10-09 to include MDK, applies to this 1.2.7/279 local package-only delivery using the same pinned MDK artifact and distribution scope. This request authorizes local production signing; the package-only scope remains unchanged."
+  "confirmationBasis": "User request on 2026-10-12 to show playback buffering progress, continuing the instruction to package completed changes, together with the standing instruction on 2026-10-09 to include MDK, applies to this 1.2.8/280 local package-only delivery using the same pinned MDK artifact and distribution scope. Local production signing is authorized; the package-only scope remains unchanged."
 }
