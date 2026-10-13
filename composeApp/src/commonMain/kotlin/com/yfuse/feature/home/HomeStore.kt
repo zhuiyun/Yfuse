@@ -68,6 +68,9 @@ data class HomeState(
      * and only needs the indicator it dragged into view.
      */
     val refreshing: Boolean = false,
+    val libraryLoading: Boolean = false,
+    val libraryRefreshing: Boolean = false,
+    val libraryError: String? = null,
     val content: TmdbHome = TmdbHome(),
     /**
      * Recomputed on every load: the app can outlive midnight, and 今日精选 that is still
@@ -358,6 +361,11 @@ private sealed interface Msg {
 
     data class LibraryLoaded(
         val content: List<HomeLibraryContent>,
+        val error: String? = null,
+    ) : Msg
+
+    data class LibraryLoading(
+        val refresh: Boolean,
     ) : Msg
 
     data class Server(
@@ -611,7 +619,7 @@ class HomeStoreFactory(
                 HomeIntent.Refresh -> {
                     if (recommendationsEnabled) loadRecommendations(refresh = true)
                     if (libraryEnabled) {
-                        loadResume(registry.data.value.servers, force = true)
+                        loadResume(registry.data.value.servers, force = true, refresh = true)
                         loadNextUp(registry.data.value.servers)
                     }
                 }
@@ -915,12 +923,14 @@ class HomeStoreFactory(
         private fun loadResume(
             servers: List<SavedServer>,
             force: Boolean = false,
+            refresh: Boolean = false,
         ) {
             val availableServers = servers.filter { it.knownUnavailableEndpointReason() == null }
             val connection = availableServers.map(SavedServer::homeConnection)
             if (!force && connection == resumeConnection) return
             resumeConnection = connection
             val request = resumeLoad.next()
+            dispatch(Msg.LibraryLoading(refresh))
             if (availableServers.isEmpty()) {
                 dispatch(Msg.ResumeLoaded(emptyList()))
                 dispatch(Msg.LibraryLoaded(emptyList()))
@@ -961,7 +971,12 @@ class HomeStoreFactory(
                             },
                         ),
                     )
-                    dispatch(Msg.LibraryLoaded(snapshots))
+                    dispatch(
+                        Msg.LibraryLoaded(
+                            snapshots,
+                            error = if (snapshots.isEmpty()) "暂时无法连接来源服务器，请检查连接后重试" else null,
+                        ),
+                    )
                 }
             }
         }
@@ -1133,7 +1148,19 @@ class HomeStoreFactory(
                 is Msg.ResumeLoaded ->
                     copy(resume = deduplicatePlaybackHistory(msg.items, { it.item }, { it.server.id }))
                 is Msg.NextUpLoaded -> copy(nextUp = msg.items)
-                is Msg.LibraryLoaded -> copy(libraryContent = msg.content)
+                is Msg.LibraryLoading ->
+                    copy(
+                        libraryLoading = true,
+                        libraryRefreshing = msg.refresh,
+                        libraryError = null,
+                    )
+                is Msg.LibraryLoaded ->
+                    copy(
+                        libraryContent = msg.content,
+                        libraryLoading = false,
+                        libraryRefreshing = false,
+                        libraryError = msg.error,
+                    )
                 // Resume entries carry their own server, so changing the default only changes
                 // recommendation resolution and the server opened from the library tab.
                 is Msg.Server -> copy(server = msg.value)

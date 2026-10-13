@@ -52,4 +52,12 @@ class TopLevelBackStackTest {
     fun discovery_returns_to_library_even_when_servers_is_the_start_page() {
         assertEquals(listOf(Tab.Browse, Tab.Home), topLevelBackStack(Tab.Home, start = Tab.Servers))
     }
+
+    @Test
+    fun discovery_opened_from_watching_returns_to_the_watching_tab() {
+        assertEquals(
+            listOf(Tab.Watching, Tab.Home),
+            topLevelBackStack(Tab.Home, start = Tab.Browse, discoveryOrigin = Tab.Watching),
+        )
+    }
 }

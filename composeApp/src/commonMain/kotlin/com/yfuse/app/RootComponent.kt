@@ -48,7 +48,7 @@ class RootComponent(
     private val syncManager: ServerSyncManager,
     val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
-    enum class Tab { Home, Browse, Servers, Search, Profile }
+    enum class Tab { Home, Browse, Watching, Servers, Search, Profile }
 
     // Where a cold start lands. [StartupTab.Automatic]: someone who has already connected a
     // server opens the app to watch what is on it, and someone who has not opens it on 服务器,
@@ -96,7 +96,18 @@ class RootComponent(
         dependencies.serverHealthMonitor.start(scope)
     }
 
-    /** 首页: TMDB recommendations. */
+    private var discoveryOrigin: Tab =
+        stateKeeper.consume("discovery.origin", String.serializer())?.let { name ->
+            Tab.entries.firstOrNull { it.name == name && it != Tab.Home }
+        } ?: Tab.Browse
+
+    init {
+        stateKeeper.register("discovery.origin", String.serializer()) { discoveryOrigin.name }
+    }
+
+    val discoveryReturnTab: Tab get() = discoveryOrigin
+
+    /** 发现: TMDB recommendations. */
     val home =
         HomeTabComponent(
             componentContext = childContext(key = "home"),
@@ -107,7 +118,7 @@ class RootComponent(
             calendarRepository = dependencies.calendarRepository,
             dependencies = dependencies,
             onOpenSearch = ::openSearch,
-            onOpenLibrary = { selectTab(Tab.Browse) },
+            onOpenLibrary = ::returnFromDiscovery,
             onOpenProfile = { selectTab(Tab.Profile) },
         )
 
@@ -125,6 +136,7 @@ class RootComponent(
             onOpenDiscovery = ::openDiscovery,
             onOpenCalendar = ::openCalendar,
             onOpenDiscoveryTitle = { item, target ->
+                discoveryOrigin = Tab.Browse
                 home.openDiscoveryTitle(item, target)
                 selectTab(Tab.Home)
             },
@@ -183,11 +195,34 @@ class RootComponent(
                         .get<com.yfuse.core.personal.PersonalLibraryRepository>()
                         .policy.value.child
                 ) {
+                    discoveryOrigin = Tab.Profile
                     home.openPersonalTitle(media)
                     selectTab(Tab.Home)
                 } else {
                     openSearch(media.title)
                 }
+            },
+        )
+
+    /** Playback history is the root, with additional watching services on secondary routes. */
+    val watching =
+        LibraryComponent(
+            componentContext = childContext(key = "watching"),
+            storeFactory = storeFactory,
+            repo = repo,
+            registry = registry,
+            dependencies = dependencies,
+            tmdb = tmdb,
+            initialConfiguration = LibraryComponent.Config.History,
+            onExit = { selectTab(startTab) },
+            onAddServer = ::openAddServer,
+            onReauthenticate = ::signInAgain,
+            onOpenDiscovery = ::openDiscovery,
+            onOpenCalendar = ::openCalendar,
+            onOpenDiscoveryTitle = { item, target ->
+                discoveryOrigin = Tab.Watching
+                home.openDiscoveryTitle(item, target)
+                selectTab(Tab.Home)
             },
         )
 
@@ -283,6 +318,7 @@ class RootComponent(
         when (tab) {
             Tab.Home -> home.popToRoot()
             Tab.Browse -> browse.popToRoot()
+            Tab.Watching -> watching.popToRoot()
             // 服务器 has no pushed routes — its add/edit surfaces are modals over the grid.
             Tab.Servers -> Unit
             Tab.Search -> search.popToRoot()
@@ -296,6 +332,7 @@ class RootComponent(
             activeTab,
             home.stack,
             browse.stack,
+            watching.stack,
             search.stack,
             profile.stack,
             (profile.stack.value.active.instance as? ProfileTabComponent.Child.Home)?.component?.pages,
@@ -308,6 +345,7 @@ class RootComponent(
             when (tab) {
                 Tab.Home -> home.stack.value.items.size
                 Tab.Browse -> browse.stack.value.items.size
+                Tab.Watching -> watching.stack.value.items.size
                 Tab.Search -> search.stack.value.items.size
                 Tab.Profile ->
                     profile.stack.value.items.size +
@@ -333,6 +371,7 @@ class RootComponent(
             when (state.tab) {
                 Tab.Home -> home.navigateBack()
                 Tab.Browse -> browse.navigateBack()
+                Tab.Watching -> watching.navigateBack()
                 Tab.Search -> search.navigateBack()
                 Tab.Profile -> {
                     val settings = (profile.stack.value.active.instance as? ProfileTabComponent.Child.Home)?.component
@@ -345,7 +384,7 @@ class RootComponent(
                 Tab.Servers -> Unit
             }
         } else {
-            selectTab(if (state.tab == Tab.Home) Tab.Browse else startTab)
+            if (state.tab == Tab.Home) returnFromDiscovery() else selectTab(startTab)
         }
         return true
     }
@@ -355,13 +394,19 @@ class RootComponent(
         profile.openDownloads()
     }
 
-    /** Discovery is a secondary destination of the library, with no bottom tab of its own. */
+    fun returnFromDiscovery() {
+        selectTab(discoveryOrigin)
+    }
+
+    /** Discovery returns to the content page that opened it. */
     private fun openDiscovery() {
+        discoveryOrigin = activeTab.value.takeUnless { it == Tab.Home } ?: discoveryOrigin
         home.openDiscovery()
         selectTab(Tab.Home)
     }
 
     private fun openCalendar() {
+        discoveryOrigin = activeTab.value.takeUnless { it == Tab.Home } ?: discoveryOrigin
         home.openCalendar()
         selectTab(Tab.Home)
     }
@@ -395,6 +440,7 @@ class RootComponent(
         serverId: String?,
         itemId: String,
     ) {
+        discoveryOrigin = Tab.Browse
         selectTab(Tab.Home)
         home.openCalendarItem(serverId, itemId)
     }
@@ -406,6 +452,7 @@ class RootComponent(
         positionMs: Long,
         startPlaybackRequested: Boolean = true,
     ) {
+        discoveryOrigin = Tab.Browse
         selectTab(Tab.Home)
         home.resumePlayback(
             serverId = serverId,

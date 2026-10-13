@@ -127,7 +127,7 @@ internal fun rememberMergedLibraryShelves(component: HomeComponent?): MergedLibr
 @Composable
 internal fun MergedLibraryEditAction(hub: MergedLibraryShelves) {
     if (hub.component.shelves != null) {
-        SectionHeader("库栏目", actionLabel = "调整", onAction = { hub.editingLayout = true })
+        SectionHeader("观看栏目", actionLabel = "调整", onAction = { hub.editingLayout = true })
     }
 }
 
@@ -201,7 +201,7 @@ internal fun BoxScope.MergedLibraryOverlays(hub: MergedLibraryShelves) {
             title = shelf.title,
             caption =
                 libraryRowPageCaption(
-                    source = "媒体库",
+                    source = "观看中心",
                     shown = entries.size,
                     total = if (shelf == MergedLibraryShelf.Favorites) state.favoritesTotal else entries.size,
                 ),
@@ -234,7 +234,7 @@ internal fun BoxScope.MergedLibraryOverlays(hub: MergedLibraryShelves) {
         val ids = MergedLibraryShelf.entries.map { it.id }
         val layout = hub.layout.value
         HomeShelfEditorSheet(
-            title = "调整库栏目",
+            title = "调整观看栏目",
             options =
                 layout.arranged(ids).map { id ->
                     HomeShelfOption(id, MergedLibraryShelf.entries.first { it.id == id }.title)

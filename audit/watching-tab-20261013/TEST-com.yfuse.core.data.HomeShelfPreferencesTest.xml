@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.data.HomeShelfPreferencesTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-13T06:28:34.115Z" hostname="DESKTOP-HM2J0FM" time="0.019">
+  <properties/>
+  <testcase name="aMovedShelfStaysPutAndANewShelfJoinsAtTheEnd" classname="com.yfuse.core.data.HomeShelfPreferencesTest" time="0.005"/>
+  <testcase name="theLayoutSurvivesARestartAndResetForgetsIt" classname="com.yfuse.core.data.HomeShelfPreferencesTest" time="0.013"/>
+  <testcase name="aShelfNotOfferedTodayKeepsItsSavedEntry" classname="com.yfuse.core.data.HomeShelfPreferencesTest" time="0.001"/>
+  <testcase name="movingDownCountsPositionsWithoutTheShelfBeingMoved" classname="com.yfuse.core.data.HomeShelfPreferencesTest" time="0.0"/>
+  <testcase name="withNothingSavedThePageKeepsItsOwnOrder" classname="com.yfuse.core.data.HomeShelfPreferencesTest" time="0.0"/>
+  <testcase name="hiddenShelvesLeaveThePageButNotTheEditor" classname="com.yfuse.core.data.HomeShelfPreferencesTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

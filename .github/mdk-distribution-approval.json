@@ -1,10 +1,10 @@
 {
-  "versionName": "1.3.1",
-  "versionCode": 283,
+  "versionName": "1.3.2",
+  "versionCode": 284,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-13T04:23:45.0072969Z",
+  "confirmedAt": "2026-10-13T06:25:10.343720+00:00",
   "confirmedBy": "release owner",
-  "confirmationBasis": "The user requested the playback-history page with per-series deduplication and detailed cards. The prior instruction to package completed app changes and the standing 2026-10-09 instruction to include MDK continue to authorize this local production-signed 1.3.1/283 package-only delivery using the same pinned MDK component and distribution scope."
+  "confirmationBasis": "The user requested restoration of the 1.2.9 library layout and a new tab primarily displaying playback history with the added watching features. The earlier instruction to package completed app changes and the standing 2026-10-09 full-MDK instruction authorize this local production-signed 1.3.2/284 package-only delivery using the same pinned component and distribution scope."
 }

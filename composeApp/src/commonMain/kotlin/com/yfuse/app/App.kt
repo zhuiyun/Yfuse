@@ -189,12 +189,13 @@ internal fun navigationGlassVisuals(
     )
 
 /**
- * The three persistent destinations. Discovery opens from the library;
+ * The four persistent destinations. Discovery opens from the watching tab;
  * [SearchButton] remains a separate control beside the capsule.
  */
 private val tabs =
     listOf(
         TabItem(Tab.Browse, "媒体库", AppIcons.TabLibrary),
+        TabItem(Tab.Watching, "观看", AppIcons.Play),
         TabItem(Tab.Servers, "服务器", AppIcons.TabServers),
         TabItem(Tab.Profile, "我的", AppIcons.TabProfile),
     )
@@ -223,6 +224,7 @@ fun App(root: RootComponent) {
         val active by root.activeTab.subscribeAsState()
         val homeStack by root.home.stack.subscribeAsState()
         val browseStack by root.browse.stack.subscribeAsState()
+        val watchingStack by root.watching.stack.subscribeAsState()
         val searchStack by root.search.stack.subscribeAsState()
         val profileStack by root.profile.stack.subscribeAsState()
         // `ActivePlayback.state` ticks with every playback position update while a mini
@@ -298,6 +300,7 @@ fun App(root: RootComponent) {
             when (active) {
                 Tab.Home -> homeStack.active.instance is HomeTabComponent.Child.Home
                 Tab.Browse -> browseStack.active.instance is LibraryComponent.Child.Home
+                Tab.Watching -> watchingStack.items.size == 1
                 // 服务器 is a single screen: it has no stack that could be anywhere but its root.
                 Tab.Servers -> true
                 Tab.Search -> searchStack.active.instance is SearchComponent.Child.Home
@@ -403,7 +406,7 @@ fun App(root: RootComponent) {
                             // equal-level root motion; nested stacks own their push/pop gestures.
                             ToastFloor(dockShown, activityCapsuleHeight) {
                                 OfficialNavDisplay(
-                                    backStack = topLevelBackStack(active, root.startTab),
+                                    backStack = topLevelBackStack(active, root.startTab, root.discoveryReturnTab),
                                     // A child route can be pushed before its Compose handler is
                                     // ready. Re-read the model before returning between tabs.
                                     onBack = { root.navigateBackFromModel() },
@@ -417,9 +420,10 @@ fun App(root: RootComponent) {
                                             when (tab) {
                                                 Tab.Home ->
                                                     com.yfuse.feature.personal.PersonalDiscoveryGuard(
-                                                        onOpenLibrary = { root.selectTab(Tab.Browse) },
+                                                        onOpenLibrary = root::returnFromDiscovery,
                                                     ) { HomeTabScreen(root.home) }
                                                 Tab.Browse -> LibraryScreen(root.browse)
+                                                Tab.Watching -> LibraryScreen(root.watching)
                                                 Tab.Servers -> ServersTabScreen(root.servers)
                                                 Tab.Search -> SearchScreen(root.search)
                                                 Tab.Profile -> ProfileTabScreen(root.profile)
@@ -712,9 +716,10 @@ private val LocalInAppTheme = staticCompositionLocalOf { false }
 internal fun topLevelBackStack(
     active: Tab,
     start: Tab,
+    discoveryOrigin: Tab = Tab.Browse,
 ): List<Tab> =
     when {
-        active == Tab.Home -> listOf(Tab.Browse, Tab.Home)
+        active == Tab.Home -> listOf(discoveryOrigin.takeUnless { it == Tab.Home } ?: Tab.Browse, Tab.Home)
         active == start -> listOf(start)
         else -> listOf(start, active)
     }

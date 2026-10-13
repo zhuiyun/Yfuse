@@ -44,6 +44,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.mvikotlin.extensions.coroutines.states
@@ -1277,16 +1278,25 @@ internal fun SettingsPage(
     subtitle: String? = null,
     onBack: () -> Unit,
     state: LazyListState = rememberLazyListState(),
+    showBackButton: Boolean = true,
+    bottomContentInset: Dp? = null,
     content: LazyListScope.() -> Unit,
 ) {
-    val bottomContentInset = systemNavigationContentInset()
+    val effectiveBottomInset = bottomContentInset ?: systemNavigationContentInset()
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding(),
         state = state,
-        contentPadding = PaddingValues(top = SettingsHeaderTop, bottom = bottomContentInset),
+        contentPadding = PaddingValues(top = SettingsHeaderTop, bottom = effectiveBottomInset),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        motionItem { SettingsPageHeader(title = title, subtitle = subtitle, onBack = onBack) }
+        motionItem {
+            SettingsPageHeader(
+                title = title,
+                subtitle = subtitle,
+                onBack = onBack,
+                showBackButton = showBackButton,
+            )
+        }
         content()
     }
 }
@@ -1296,14 +1306,18 @@ private fun SettingsPageHeader(
     title: String,
     subtitle: String?,
     onBack: () -> Unit,
+    showBackButton: Boolean,
 ) {
     val palette = LocalPalette.current
     Row(
-        Modifier.fillMaxWidth().padding(start = SettingsBackInset, end = Dimens.pageHorizontal),
+        Modifier.fillMaxWidth().padding(
+            start = if (showBackButton) SettingsBackInset else Dimens.pageHorizontal,
+            end = Dimens.pageHorizontal,
+        ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SettingsBackButton(onBack)
-        Column(Modifier.padding(start = 10.dp)) {
+        if (showBackButton) SettingsBackButton(onBack)
+        Column(Modifier.padding(start = if (showBackButton) 10.dp else 0.dp)) {
             Text(title, style = AppTypography.section.strong, color = palette.text)
             subtitle?.let { Text(it, style = AppTypography.caption.regular, color = palette.sub2) }
         }

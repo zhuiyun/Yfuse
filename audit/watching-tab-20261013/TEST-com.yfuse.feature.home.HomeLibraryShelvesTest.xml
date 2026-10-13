@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.home.HomeLibraryShelvesTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-13T06:28:34.496Z" hostname="DESKTOP-HM2J0FM" time="0.274">
+  <properties/>
+  <testcase name="across_servers_a_show_is_known_by_its_name_and_a_film_is_never_a_show" classname="com.yfuse.feature.home.HomeLibraryShelvesTest" time="0.024"/>
+  <testcase name="removing_several_cards_forgets_none_of_them_until_the_undo_has_gone" classname="com.yfuse.feature.home.HomeLibraryShelvesTest" time="0.131"/>
+  <testcase name="a_watched_mark_from_the_lift_waits_out_its_undo_before_anything_is_written" classname="com.yfuse.feature.home.HomeLibraryShelvesTest" time="0.037"/>
+  <testcase name="next_up_keeps_one_card_per_show" classname="com.yfuse.feature.home.HomeLibraryShelvesTest" time="0.0"/>
+  <testcase name="a_shelf_page_says_what_the_home_page_leaves_out" classname="com.yfuse.feature.home.HomeLibraryShelvesTest" time="0.003"/>
+  <testcase name="next_up_leaves_out_a_show_continue_watching_already_holds" classname="com.yfuse.feature.home.HomeLibraryShelvesTest" time="0.0"/>
+  <testcase name="marking_a_card_watched_writes_it_to_the_server_and_takes_it_off_both_shelves" classname="com.yfuse.feature.home.HomeLibraryShelvesTest" time="0.037"/>
+  <testcase name="marking_several_cards_watched_holds_them_under_one_undo_that_brings_them_all_back" classname="com.yfuse.feature.home.HomeLibraryShelvesTest" time="0.042"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

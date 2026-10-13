@@ -19,8 +19,6 @@ import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
-import com.yfuse.feature.home.HomeComponent
-import com.yfuse.feature.home.HomeIntent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.koin.core.context.GlobalContext
@@ -45,10 +43,6 @@ class LibraryHomeComponent(
     val onReauthenticate: (SavedServer) -> Unit = {},
     /** Per-server reachability — what tells a lapsed sign-in apart from any other failure. */
     val serverHealth: StateFlow<Map<String, ServerHealth>> = MutableStateFlow(emptyMap()),
-    val homeShelves: HomeComponent? = null,
-    val onOpenDiscovery: () -> Unit = {},
-    val onOpenCalendar: () -> Unit = {},
-    val onOpenHistory: () -> Unit = {},
 ) : ComponentContext by componentContext {
     /** The library route stays in the Decompose back stack while detail covers it. */
     internal val listState = LazyListState()
@@ -97,15 +91,7 @@ class LibraryHomeComponent(
     init {
         lifecycle.doOnResume {
             if (store.state.contentSource != LibraryContentSource.None) store.accept(LibraryIntent.Retry)
-            homeShelves?.store?.accept(HomeIntent.RefreshLibrary)
-            homeShelves?.refreshCalendar()
         }
         lifecycle.doOnDestroy(store::dispose)
-    }
-
-    fun refresh() {
-        store.accept(LibraryIntent.Retry)
-        homeShelves?.store?.accept(HomeIntent.Refresh)
-        homeShelves?.refreshCalendar(forceRefresh = true)
     }
 }

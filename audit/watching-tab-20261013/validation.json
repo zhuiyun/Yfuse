@@ -1,0 +1,30 @@
+{
+  "verifiedAtUtc": "2026-10-13T06:29:35.632847+00:00",
+  "hostTests": 94,
+  "suites": 14,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "compilePassed": true,
+  "mainFormattingPassed": true,
+  "testFormattingPassed": true,
+  "phoneTestingPerformed": false,
+  "libraryLayoutBaseline": "1.2.9",
+  "librarySourceMatchesBaseline": true,
+  "testClasses": [
+    "com.yfuse.app.RootTabMotionTest",
+    "com.yfuse.app.TopLevelBackStackTest",
+    "com.yfuse.core.data.HomeShelfPreferencesTest",
+    "com.yfuse.feature.history.PlaybackHistoryComponentTest",
+    "com.yfuse.feature.history.PlaybackHistoryRowsTest",
+    "com.yfuse.feature.home.HomeCalendarOpenTargetTest",
+    "com.yfuse.feature.home.HomeLibraryShelvesTest",
+    "com.yfuse.feature.home.HomeLiftMenuTest",
+    "com.yfuse.feature.home.HomeResumeRemovalTest",
+    "com.yfuse.feature.home.HomeShelfEditorTest",
+    "com.yfuse.feature.home.HomeShelfRevisionTest",
+    "com.yfuse.feature.home.HomeStoreTest",
+    "com.yfuse.feature.library.LibraryHeroUiContractTest",
+    "com.yfuse.feature.library.LibraryHomeSharedKeyTest"
+  ]
+}

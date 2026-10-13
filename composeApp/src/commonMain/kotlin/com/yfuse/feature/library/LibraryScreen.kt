@@ -8,6 +8,8 @@ import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.feature.detail.DetailScreen
 import com.yfuse.feature.history.PlaybackHistoryScreen
+import com.yfuse.feature.history.WatchingEntrySection
+import com.yfuse.feature.home.WatchingCenterScreen
 import com.yfuse.feature.player.PlayerScreen
 
 /** Renders the media-library navigation stack: Home -> Grid -> Detail. */
@@ -31,7 +33,30 @@ fun LibraryScreen(component: LibraryComponent) {
                     onOpenItem = { serverId, itemId -> component.openDetail(serverId, itemId) },
                 )
             is LibraryComponent.Child.Home -> LibraryHomeScreen(instance.component)
-            is LibraryComponent.Child.History -> PlaybackHistoryScreen(instance.component)
+            is LibraryComponent.Child.History ->
+                PlaybackHistoryScreen(
+                    instance.component,
+                    rootTab = component.historyIsRoot,
+                    contentEntries =
+                        if (component.historyIsRoot) {
+                            {
+                                WatchingEntrySection(
+                                    onOpenWatchingCenter = component::openWatchingCenter,
+                                    onOpenDiscovery = component::openDiscovery,
+                                    onOpenCalendar = component::openCalendar,
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                )
+            is LibraryComponent.Child.WatchingCenter ->
+                WatchingCenterScreen(
+                    component = instance.component,
+                    onBack = instance.onBack,
+                    onOpenHistory = instance.onOpenHistory,
+                    onOpenDiscovery = instance.onOpenDiscovery,
+                )
             is LibraryComponent.Child.Grid -> LibraryGridScreen(instance.component)
             is LibraryComponent.Child.Detail -> DetailScreen(instance.component)
             is LibraryComponent.Child.Player -> PlayerScreen(instance.component)

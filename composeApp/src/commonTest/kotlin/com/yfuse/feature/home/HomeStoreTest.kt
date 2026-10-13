@@ -32,6 +32,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -57,6 +58,47 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class HomeStoreTest {
+    @Test
+    fun watching_center_refresh_reports_progress_until_server_content_finishes() =
+        runTest(scheduler) {
+            var gate: CompletableDeferred<Unit>? = null
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("one", "http://one", "One", "u", "User", "token"))
+                }
+            val store =
+                HomeStoreFactory(
+                    storeFactory = DefaultStoreFactory(),
+                    tmdb = mockTmdb { error("Watching-center refresh must not request recommendations") },
+                    emby =
+                        testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) {
+                            gate?.await()
+                            homeRoutes(it)
+                        },
+                    registry = registry,
+                    cache = TmdbHomeCache(MapSettings()),
+                    cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
+                    recommendationsEnabled = false,
+                ).create()
+            try {
+                advanceUntilIdle()
+                assertFalse(store.state.libraryLoading)
+                gate = CompletableDeferred()
+                store.accept(HomeIntent.Refresh)
+                assertTrue(store.state.libraryLoading)
+                assertTrue(store.state.libraryRefreshing)
+                gate.complete(Unit)
+                advanceUntilIdle()
+                assertFalse(store.state.libraryLoading)
+                assertFalse(store.state.libraryRefreshing)
+                assertNull(store.state.libraryError)
+                assertTrue(store.state.libraryContent.isNotEmpty())
+            } finally {
+                gate?.complete(Unit)
+                store.dispose()
+            }
+        }
+
     @Test
     fun merged_library_refreshes_server_content_without_contacting_recommendations() =
         runTest(scheduler) {

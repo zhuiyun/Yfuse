@@ -2,7 +2,6 @@ package com.yfuse.feature.library
 
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.decompose.DelicateDecomposeApi
-import com.arkivanov.decompose.childContext
 import com.arkivanov.decompose.router.stack.ChildStack
 import com.arkivanov.decompose.router.stack.StackNavigation
 import com.arkivanov.decompose.router.stack.childStack
@@ -47,7 +46,10 @@ class LibraryComponent(
     private val onOpenDiscovery: () -> Unit = {},
     private val onOpenCalendar: () -> Unit = {},
     private val onOpenDiscoveryTitle: (TmdbItem, String?) -> Unit = { _, _ -> },
+    initialConfiguration: Config = Config.Home,
+    private val onExit: () -> Unit = {},
 ) : ComponentContext by componentContext {
+    val historyIsRoot: Boolean = initialConfiguration == Config.History
     private val navigation = StackNavigation<Config>()
     private val playerRouteLaunchGate = PlayerRouteLaunchGate()
 
@@ -55,7 +57,7 @@ class LibraryComponent(
         childStack(
             source = navigation,
             serializer = Config.serializer(),
-            initialConfiguration = Config.Home,
+            initialConfiguration = initialConfiguration,
             // A new state key deliberately drops a duplicate Player stack persisted by older
             // builds. Such a stack is invalid in Decompose and otherwise crashes during restore
             // before the launch gate below can run.
@@ -72,6 +74,8 @@ class LibraryComponent(
         @Serializable data object Unified : Config
 
         @Serializable data object History : Config
+
+        @Serializable data object WatchingCenter : Config
 
         @Serializable data class Grid(
             val libraryId: String,
@@ -103,6 +107,13 @@ class LibraryComponent(
             val component: PlaybackHistoryComponent,
         ) : Child
 
+        class WatchingCenter(
+            val component: HomeComponent,
+            val onBack: () -> Unit,
+            val onOpenHistory: () -> Unit,
+            val onOpenDiscovery: () -> Unit,
+        ) : Child
+
         class Home(
             val component: LibraryHomeComponent,
         ) : Child
@@ -122,7 +133,19 @@ class LibraryComponent(
 
     fun navigateBack() {
         playerRouteLaunchGate.release()
-        navigation.pop()
+        navigation.pop { popped -> if (!popped) onExit() }
+    }
+
+    fun openWatchingCenter() {
+        navigation.pushToFront(Config.WatchingCenter)
+    }
+
+    fun openDiscovery() = onOpenDiscovery()
+
+    fun openCalendar() = onOpenCalendar()
+
+    private fun openHistory() {
+        if (historyIsRoot) popToRoot() else navigation.pushToFront(Config.History)
     }
 
     /**
@@ -206,6 +229,33 @@ class LibraryComponent(
                         onOpenMetadata = { onOpenDiscoveryTitle(it, null) },
                     ),
                 )
+            Config.WatchingCenter ->
+                Child.WatchingCenter(
+                    component =
+                        HomeComponent(
+                            componentContext = context,
+                            storeFactory = storeFactory,
+                            tmdb = tmdb,
+                            emby = repo,
+                            registry = registry,
+                            cache = dependencies.tmdbHomeCache,
+                            syncManager = dependencies.serverSyncManager,
+                            calendarRepository = dependencies.calendarRepository,
+                            recommendationsEnabled = false,
+                            onOpenEmbyItem = { serverId, itemId -> openDetail(serverId, itemId) },
+                            onPlayEmbyItem = { serverId, itemId, _, ticks ->
+                                openPlayer(Config.Player(serverId, itemId, ticks))
+                            },
+                            onOpenTmdbItem = onOpenDiscoveryTitle,
+                            onOpenSearch = {},
+                            onOpenLibrary = ::popToRoot,
+                            onOpenProfile = onExit,
+                            onOpenCalendar = onOpenCalendar,
+                        ),
+                    onBack = ::navigateBack,
+                    onOpenHistory = ::openHistory,
+                    onOpenDiscovery = onOpenDiscovery,
+                )
             Config.Home ->
                 Child.Home(
                     LibraryHomeComponent(
@@ -233,30 +283,6 @@ class LibraryComponent(
                             )
                         },
                         onResumeItem = ::resumeHistoryItem,
-                        onOpenDiscovery = onOpenDiscovery,
-                        onOpenCalendar = onOpenCalendar,
-                        onOpenHistory = { navigation.pushToFront(Config.History) },
-                        homeShelves =
-                            HomeComponent(
-                                componentContext = context.childContext("merged-home-shelves"),
-                                storeFactory = storeFactory,
-                                tmdb = tmdb,
-                                emby = repo,
-                                registry = registry,
-                                cache = dependencies.tmdbHomeCache,
-                                syncManager = dependencies.serverSyncManager,
-                                calendarRepository = dependencies.calendarRepository,
-                                recommendationsEnabled = false,
-                                onOpenEmbyItem = { serverId, itemId -> openDetail(serverId, itemId) },
-                                onPlayEmbyItem = { serverId, itemId, _, ticks ->
-                                    openPlayer(Config.Player(serverId, itemId, ticks))
-                                },
-                                onOpenTmdbItem = onOpenDiscoveryTitle,
-                                onOpenSearch = {},
-                                onOpenLibrary = ::popToRoot,
-                                onOpenProfile = {},
-                                onOpenCalendar = onOpenCalendar,
-                            ),
                     ),
                 )
             is Config.Grid -> {

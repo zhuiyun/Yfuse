@@ -23,6 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yfuse.app.floatingNavigationContentInset
+import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -32,6 +34,7 @@ import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.PageHint
+import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
@@ -46,7 +49,11 @@ import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
 @Composable
-fun PlaybackHistoryScreen(component: PlaybackHistoryComponent) {
+fun PlaybackHistoryScreen(
+    component: PlaybackHistoryComponent,
+    rootTab: Boolean = false,
+    contentEntries: (@Composable () -> Unit)? = null,
+) {
     val personal by component.personal.state.collectAsState()
     val policy by component.personal.policy.collectAsState()
     val sessions by component.viewing.sessions.collectAsState()
@@ -63,13 +70,17 @@ fun PlaybackHistoryScreen(component: PlaybackHistoryComponent) {
         }
     var notice by remember { mutableStateOf<String?>(null) }
     StatusBarIconStyle(darkIcons = !LocalPalette.current.isDark)
+    if (rootTab) ScrollToTopOnReselect(component.listState)
     Box(Modifier.fillMaxSize()) {
         SettingsPage(
             title = "播放记录",
             subtitle = "${personal.activeProfile.name} · ${rows.size} 部作品 · 最近观看优先",
             onBack = component.onBack,
             state = component.listState,
+            showBackButton = !rootTab,
+            bottomContentInset = if (rootTab) floatingNavigationContentInset() else systemNavigationContentInset(),
         ) {
+            if (contentEntries != null) item(key = "watching-entries") { contentEntries() }
             if (rows.isEmpty()) {
                 item(key = "history-empty") {
                     Box(Modifier.fillMaxWidth().padding(vertical = 72.dp), contentAlignment = Alignment.Center) {
