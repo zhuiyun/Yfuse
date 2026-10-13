@@ -1,0 +1,64 @@
+{
+  "versionName": "1.3.1",
+  "versionCode": 283,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "1b76e32517ec342f7942ade7e243b8bf824702f9",
+  "treeDirtyAtBuild": false,
+  "diffHash": "",
+  "file": "Yfuse-1.3.1-full-arm64.apk",
+  "bytes": 29933627,
+  "sha256": "92501327af2d9f6f6afe9a706ed151bad6dcde47b0668e1f8e45e7c5a55479ca",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "numberOfSigners": 1,
+  "zipAlignment16K": true,
+  "dexVerified": true,
+  "dexClasses": 14151,
+  "dexMethodsWithCode": 62170,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "dexFiles": {
+    "classes.dex": "16ad0b181f6fc4b9823c6730b89a21f08a332e7caa79ea5f425e6cde3d9a5e91",
+    "classes2.dex": "c920c6cb3e82db770f2fc4eecc8e8fcd6373c384318519fb3124c2a93f263faa"
+  },
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1191008,
+      "sha256": "8c3fdfef2629af11a999325b21864ad2d262879d61065e282abab73a5f3dd7a5"
+    }
+  },
+  "mdkEngineMatchesPinnedSdk": true,
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "predictiveBackEnabled": false,
+  "previousActualVersionName": "1.3.0",
+  "previousActualVersionCode": 282,
+  "previousArtifactSha256": "4b83334ee9b056b9f97dab310c1b4f03b7d2519f91ee8aa500d82b8d6ec767ae",
+  "releaseNotesFirstLine": "1.3.1",
+  "sourceArchiveRecheckedAfterBuild": true,
+  "sourceHostTestsPassed": 52,
+  "playbackHistoryPage": true,
+  "historyLayout": "vertical cards",
+  "seriesHistoryDeduplicated": true,
+  "cardFields": [
+    "poster",
+    "synopsis",
+    "season",
+    "episode",
+    "progress",
+    "watchedAt",
+    "server"
+  ],
+  "deviceTestOfReleasePerformed": false,
+  "published": false,
+  "uploaded": false,
+  "verifiedAtUtc": "2026-10-13T04:32:10.773185+00:00",
+  "defaultIconUnchanged": true,
+  "compiledResourceFilesUnchanged": 373
+}
