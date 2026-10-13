@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.personal.LocalViewingTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-10-13T07:04:06.722Z" hostname="DESKTOP-HM2J0FM" time="0.139">
+  <properties/>
+  <testcase name="profileAndAccountSwitchRejectLatePlayerWritesWithoutSharingLocalStatistics" classname="com.yfuse.core.personal.LocalViewingTest" time="0.116"/>
+  <testcase name="actualElapsedTimeExcludesPauseBufferingSeeksAndFrozenPlayback" classname="com.yfuse.core.personal.LocalViewingTest" time="0.001"/>
+  <testcase name="failedPersistenceDoesNotPublishUnsavedViewingOrThrowIntoThePlayer" classname="com.yfuse.core.personal.LocalViewingTest" time="0.001"/>
+  <testcase name="aCorruptRecordCannotDiscardOtherLocalHistoryDuringRestart" classname="com.yfuse.core.personal.LocalViewingTest" time="0.002"/>
+  <testcase name="speedChangesCountWallTimeRatherThanDoubleMediaTime" classname="com.yfuse.core.personal.LocalViewingTest" time="0.0"/>
+  <testcase name="framePositionRoundingDoesNotLoseTimeAcrossConsecutiveSamples" classname="com.yfuse.core.personal.LocalViewingTest" time="0.0"/>
+  <testcase name="cumulativePersistenceIsIdempotentAndRejectsRegressionsAndInvalidDates" classname="com.yfuse.core.personal.LocalViewingTest" time="0.005"/>
+  <testcase name="summariesDeduplicateReplaysAndShowsButRetainEpisodeAndDayCounts" classname="com.yfuse.core.personal.LocalViewingTest" time="0.002"/>
+  <testcase name="removedServerPermissionsHideEarlierViewingWithoutDestroyingItsRecords" classname="com.yfuse.core.personal.LocalViewingTest" time="0.003"/>
+  <testcase name="mondayFirstCalendarsCoverLeapDaysAndMonthBoundaries" classname="com.yfuse.core.personal.LocalViewingTest" time="0.002"/>
+  <testcase name="midnightAndDstAllocateTimeToTheActualCivilDays" classname="com.yfuse.core.personal.LocalViewingTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

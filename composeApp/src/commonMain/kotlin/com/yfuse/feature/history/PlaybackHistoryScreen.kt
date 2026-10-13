@@ -12,12 +12,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,9 +33,9 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
-import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.StatusBarIconStyle
@@ -42,6 +45,11 @@ import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.feature.profile.SettingsPage
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -58,7 +66,18 @@ fun PlaybackHistoryScreen(
     val policy by component.personal.policy.collectAsState()
     val sessions by component.viewing.sessions.collectAsState()
     val servers by component.registry.data.collectAsState()
-    val metadata by component.metadata.collectAsState()
+    // Metadata enriches one card at a time. Reconcile deduplication only after the list settles,
+    // so new provider aliases cannot remove or reshape rows halfway through a fling.
+    val metadata by produceState(component.metadata.value, component) {
+        combine(component.metadata, snapshotFlow { component.listState.isScrollInProgress }) { cache, scrolling ->
+            cache to scrolling
+        }.collectLatest { (cache, scrolling) ->
+            if (!scrolling) {
+                delay(120L)
+                value = cache
+            }
+        }
+    }
     val scopeToken = component.personal.scopeToken
     val rows =
         remember(personal.history, sessions, servers, policy, metadata, scopeToken) {
@@ -68,6 +87,21 @@ fun PlaybackHistoryScreen(
                     .mapKeys { it.key.serverId to it.key.itemId }
             playbackHistoryRows(personal.history, sessions, servers.servers, policy, currentMetadata)
         }
+    val visible = LocalRouteVisible.current
+    LaunchedEffect(component, scopeToken, rows, visible) {
+        if (!visible) {
+            component.updateVisibleRows(emptyList())
+        } else {
+            snapshotFlow {
+                component.listState.layoutInfo.visibleItemsInfo
+                    .mapNotNull { it.key as? String }
+            }.distinctUntilChanged()
+                .collect { keys -> component.updateVisibleRows(playbackHistoryLoadWindow(rows, keys)) }
+        }
+    }
+    DisposableEffect(component) {
+        onDispose { component.updateVisibleRows(emptyList()) }
+    }
     var notice by remember { mutableStateOf<String?>(null) }
     StatusBarIconStyle(darkIcons = !LocalPalette.current.isDark)
     if (rootTab) ScrollToTopOnReselect(component.listState)
@@ -89,12 +123,24 @@ fun PlaybackHistoryScreen(
                 }
             }
             items(rows, key = { it.entry.identity }, contentType = { "history-card" }) { row ->
-                LaunchedEffect(component, scopeToken, row.entry.media.serverId, row.entry.media.serverItemId) {
-                    component.loadMetadata(row)
-                }
-                PlaybackHistoryCard(row) {
-                    if (!component.open(row)) notice = "暂时无法打开详情，请先连接这条记录的来源服务器"
-                }
+                val key = component.metadataKey(row)
+                val rowMetadata =
+                    remember(component, key) {
+                        component.metadata.map { cache -> cache[key] to cache.containsKey(key) }.distinctUntilChanged()
+                    }
+                val loaded by rowMetadata.collectAsState(
+                    component.metadata.value.let { it[key] to it.containsKey(key) },
+                )
+                val enriched =
+                    remember(row, loaded) { row.copy(metadata = loaded.first, metadataLoaded = loaded.second) }
+                PlaybackHistoryCard(
+                    row = enriched,
+                    posterState = component.posterState(row),
+                    onRetry = { component.retryMetadata(row) },
+                    onOpen = {
+                        if (!component.open(row)) notice = "暂时无法打开详情，请先连接这条记录的来源服务器"
+                    },
+                )
             }
         }
         ActionToast(message = notice, onDismiss = { notice = null })
@@ -104,6 +150,8 @@ fun PlaybackHistoryScreen(
 @Composable
 private fun PlaybackHistoryCard(
     row: PlaybackHistoryRow,
+    posterState: PlaybackHistoryPosterState,
+    onRetry: () -> Unit,
     onOpen: () -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -125,7 +173,7 @@ private fun PlaybackHistoryCard(
             contentAlignment = Alignment.Center,
         ) {
             Icon(AppIcons.Play, null, tint = palette.sub2, modifier = Modifier.size(24.dp))
-            FallbackImage(urls, null, Modifier.fillMaxSize())
+            PlaybackHistoryPoster(urls, posterState)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
@@ -133,6 +181,7 @@ private fun PlaybackHistoryCard(
                 style = AppTypography.body.strong,
                 color = palette.text,
                 maxLines = 2,
+                minLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             val metadata =
@@ -141,18 +190,20 @@ private fun PlaybackHistoryCard(
                     entry.media.year?.toString(),
                     row.server?.serverName,
                 ).joinToString(" · ")
-            if (metadata.isNotBlank()) {
-                Text(
-                    metadata,
-                    style = AppTypography.caption.regular,
-                    color = palette.sub2,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            Text(
+                metadata.ifBlank { " " },
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                minLines = 2,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val failed = row.metadataLoaded && row.metadata?.complete != true
             Text(
                 row.overview
-                    ?: if (!row.metadataLoaded && row.server != null && !entry.media.serverItemId.isNullOrBlank()) {
+                    ?: if (failed) {
+                        "简介暂时无法加载，点此重试"
+                    } else if (!row.metadataLoaded && row.server != null && !entry.media.serverItemId.isNullOrBlank()) {
                         "简介加载中…"
                     } else {
                         "暂无简介"
@@ -160,7 +211,9 @@ private fun PlaybackHistoryCard(
                 style = AppTypography.caption.regular,
                 color = palette.sub2,
                 maxLines = 2,
+                minLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                modifier = if (failed) Modifier.pressable(onClickLabel = "重新加载简介和海报", onClick = onRetry) else Modifier,
             )
             Text(
                 if (entry.completed) {
@@ -171,17 +224,17 @@ private fun PlaybackHistoryCard(
                 },
                 style = AppTypography.caption.regular,
                 color = palette.sub,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            if (row.durationMs > 0 || entry.completed) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .clip(AppShapes.track)
-                        .background(palette.card3),
-                ) {
-                    Box(Modifier.fillMaxWidth(row.progress).height(3.dp).background(LocalAccentColors.current.accent))
-                }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(AppShapes.track)
+                    .background(palette.card3),
+            ) {
+                Box(Modifier.fillMaxWidth(row.progress).height(3.dp).background(LocalAccentColors.current.accent))
             }
             Text(
                 remember(entry.watchedAtEpochMs) { historyWatchedAtLabel(entry.watchedAtEpochMs) },
@@ -197,16 +250,29 @@ internal fun playbackHistoryPosterUrls(row: PlaybackHistoryRow): List<String?> {
     val server = row.server
     val artwork = row.metadata?.series ?: row.metadata?.item
     val tag = artwork?.posterTag ?: row.session?.posterTag
+    val posterId =
+        (artwork?.posterItemId ?: row.session?.posterItemId ?: media.serverItemId)?.takeIf(
+            String::isNotBlank,
+        )
     val poster =
-        server?.takeIf { it.kind != MediaServerKind.Plex || tag?.startsWith("plex:") == true }?.let {
-            EmbyImages.primary(
-                it.baseUrl,
-                artwork?.posterItemId ?: row.session?.posterItemId ?: media.serverItemId.orEmpty(),
-                tag,
-                240,
-                it.accessToken,
-            )
-        }
+        server
+            ?.takeIf {
+                posterId != null &&
+                    (
+                        it.kind != MediaServerKind.Plex ||
+                            tag?.startsWith(
+                                "plex:",
+                            ) == true
+                    )
+            }?.let {
+                EmbyImages.primary(
+                    it.baseUrl,
+                    posterId.orEmpty(),
+                    tag,
+                    240,
+                    it.accessToken,
+                )
+            }
     return listOf(poster, TmdbImages.poster(media.posterPath, "w185"), TmdbImages.media(media.posterPath, "w185"))
 }
 
@@ -220,12 +286,23 @@ internal fun historyPositionLabel(positionMs: Long): String {
     }
 }
 
+private val HistoryDateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+
 private fun historyWatchedAtLabel(epochMs: Long): String =
     if (epochMs <= 0) {
         "观看时间未知"
     } else {
-        DateTimeFormatter
-            .ofPattern(
-                "yyyy-MM-dd HH:mm",
-            ).format(Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()))
+        HistoryDateFormat.format(Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()))
     }
+
+/** Visible cards first, followed by just one neighbour on each side for prefetch. */
+internal fun playbackHistoryLoadWindow(
+    rows: List<PlaybackHistoryRow>,
+    visibleKeys: List<String>,
+): List<PlaybackHistoryRow> {
+    val indices = rows.withIndex().associate { it.value.entry.identity to it.index }
+    val visible = visibleKeys.mapNotNull(indices::get).distinct()
+    if (visible.isEmpty()) return emptyList()
+    val neighbours = listOf(visible.min() - 1, visible.max() + 1).filter { it in rows.indices && it !in visible }
+    return (visible + neighbours).map(rows::get)
+}

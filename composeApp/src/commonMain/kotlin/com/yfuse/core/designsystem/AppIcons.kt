@@ -777,6 +777,26 @@ object AppIcons {
                 roundRect(3f, 6.6f, 11.6f, 14.4f, 3.2f)
             }.build()
 
+    /** 观看 — a rounded replay ring surrounding a solid play mark, matching the dock family. */
+    val TabWatching =
+        solidParts("tab-watching")
+            .andPath(width = TAB_SOLID_LINE) {
+                moveTo(6.4f, 6.1f)
+                curveTo(7.9f, 4.6f, 9.9f, 3.8f, 12f, 3.8f)
+                curveTo(16.5f, 3.8f, 20.2f, 7.5f, 20.2f, 12f)
+                curveTo(20.2f, 16.5f, 16.5f, 20.2f, 12f, 20.2f)
+                curveTo(7.5f, 20.2f, 3.8f, 16.5f, 3.8f, 12f)
+            }.andPath(width = TAB_SOLID_LINE) {
+                moveTo(6.4f, 3.6f)
+                verticalLineTo(7.4f)
+                horizontalLineTo(2.9f)
+            }.andSolidShape {
+                moveTo(10.5f, 8.3f)
+                lineTo(16f, 12f)
+                lineTo(10.5f, 15.7f)
+                close()
+            }.build()
+
     /** 服务器 — one unit with two lamps cut through it, an antenna arc and a grounding line. */
     val TabServers =
         solidParts("tab-servers")

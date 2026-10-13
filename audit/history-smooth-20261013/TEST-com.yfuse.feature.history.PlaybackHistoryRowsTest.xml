@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.history.PlaybackHistoryRowsTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-10-13T07:04:07.857Z" hostname="DESKTOP-HM2J0FM" time="0.02">
+  <properties/>
+  <testcase name="renamedServersResolveByAliasAndPlexArtworkNeverUsesAnEmbyEndpoint" classname="com.yfuse.feature.history.PlaybackHistoryRowsTest" time="0.005"/>
+  <testcase name="differentSeasonsAndServersCollapseToTheLatestExactEpisodeAndProgress" classname="com.yfuse.feature.history.PlaybackHistoryRowsTest" time="0.0"/>
+  <testcase name="completedAndInvalidPositionsKeepProgressAndTimeLabelsWithinBounds" classname="com.yfuse.feature.history.PlaybackHistoryRowsTest" time="0.006"/>
+  <testcase name="loadingWindowPrioritizesVisibleCardsAndAddsOnlyAdjacentPrefetch" classname="com.yfuse.feature.history.PlaybackHistoryRowsTest" time="0.003"/>
+  <testcase name="sameTitlesWithDifferentSeriesIdsAndMoviesRemainSeparate" classname="com.yfuse.feature.history.PlaybackHistoryRowsTest" time="0.001"/>
+  <testcase name="synopsisArtworkAndEpisodeCoordinatesComeFromTheRecordedSource" classname="com.yfuse.feature.history.PlaybackHistoryRowsTest" time="0.003"/>
+  <testcase name="olderMetadataCanBridgeProviderAliasesWithoutReplacingTheNewestTarget" classname="com.yfuse.feature.history.PlaybackHistoryRowsTest" time="0.001"/>
+  <testcase name="localSeriesIdsDeduplicateEpisodesWithoutProviderIdsButNeverOtherServers" classname="com.yfuse.feature.history.PlaybackHistoryRowsTest" time="0.0"/>
+  <testcase name="profilePermissionsAndTombstonesAreAppliedBeforeSeriesDeduplication" classname="com.yfuse.feature.history.PlaybackHistoryRowsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

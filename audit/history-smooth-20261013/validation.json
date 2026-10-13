@@ -1,0 +1,36 @@
+{
+  "verifiedAtUtc": "2026-10-13T07:05:27.389641+00:00",
+  "hostTests": 68,
+  "suites": 10,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "compilePassed": true,
+  "mainFormattingPassed": true,
+  "testFormattingPassed": true,
+  "phoneTestingPerformed": false,
+  "libraryLayoutBaseline": "1.2.9",
+  "librarySourceMatchesBaseline": true,
+  "testClasses": [
+    "com.yfuse.app.RootTabMotionTest",
+    "com.yfuse.app.TopLevelBackStackTest",
+    "com.yfuse.core.personal.LocalViewingTest",
+    "com.yfuse.core.personal.PersonalLibraryRepositoryTest",
+    "com.yfuse.feature.history.PlaybackHistoryComponentTest",
+    "com.yfuse.feature.history.PlaybackHistoryLoadingTest",
+    "com.yfuse.feature.history.PlaybackHistoryPosterStateTest",
+    "com.yfuse.feature.history.PlaybackHistoryRowsTest",
+    "com.yfuse.feature.library.LibraryHeroUiContractTest",
+    "com.yfuse.feature.library.LibraryHomeSharedKeyTest"
+  ],
+  "tabCaptionsVisible": false,
+  "watchingGlyph": "replay ring with play mark",
+  "loadingChecks": [
+    "cancel offscreen and queued requests",
+    "visible-first prefetch window",
+    "retry after failure",
+    "share parent-series requests",
+    "retain decoded poster during series enrichment",
+    "avoid recycled image retry storms"
+  ]
+}

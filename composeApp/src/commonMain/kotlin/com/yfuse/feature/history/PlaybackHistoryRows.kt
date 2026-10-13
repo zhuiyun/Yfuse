@@ -1,5 +1,6 @@
 package com.yfuse.feature.history
 
+import androidx.compose.runtime.Immutable
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.personal.LocalViewingSession
@@ -15,11 +16,14 @@ internal data class PlaybackHistoryMetadataKey(
     val itemId: String,
 )
 
+@Immutable
 internal data class PlaybackHistoryMetadata(
     val item: MediaDetail,
     val series: MediaDetail?,
+    val complete: Boolean = true,
 )
 
+@Immutable
 internal data class PlaybackHistoryRow(
     val entry: PersonalEntry,
     val session: LocalViewingSession?,

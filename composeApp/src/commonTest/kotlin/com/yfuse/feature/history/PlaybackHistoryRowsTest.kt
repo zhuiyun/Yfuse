@@ -16,6 +16,22 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlaybackHistoryRowsTest {
+    @Test
+    fun loadingWindowPrioritizesVisibleCardsAndAddsOnlyAdjacentPrefetch() {
+        val rows =
+            playbackHistoryRows(
+                (1..10).map { episode("tmdb:$it/s1e1", "$it", it.toLong()) },
+                emptyList(),
+                listOf(first),
+                policy,
+            )
+        assertEquals(
+            listOf(rows[4], rows[5], rows[3], rows[6]),
+            playbackHistoryLoadWindow(rows, listOf("watching-entries", rows[4].entry.identity, rows[5].entry.identity)),
+        )
+        assertTrue(playbackHistoryLoadWindow(rows, emptyList()).isEmpty())
+    }
+
     private val first = SavedServer("first", "https://first", "一号服务器", "u", "User", "token")
     private val second = first.copy(id = "second", baseUrl = "https://second")
     private val policy = PersonalAccessPolicy()

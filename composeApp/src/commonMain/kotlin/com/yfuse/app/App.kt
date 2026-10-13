@@ -78,6 +78,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
@@ -161,7 +162,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeIcon as Icon
-import com.yfuse.core.designsystem.ThemeText as Text
 
 private data class TabItem(
     val tab: Tab,
@@ -195,7 +195,7 @@ internal fun navigationGlassVisuals(
 private val tabs =
     listOf(
         TabItem(Tab.Browse, "媒体库", AppIcons.TabLibrary),
-        TabItem(Tab.Watching, "观看", AppIcons.Play),
+        TabItem(Tab.Watching, "观看", AppIcons.TabWatching),
         TabItem(Tab.Servers, "服务器", AppIcons.TabServers),
         TabItem(Tab.Profile, "我的", AppIcons.TabProfile),
     )
@@ -1424,7 +1424,7 @@ internal fun GlassTabBar(
     }
 }
 
-/** Each labeled tab owns its complete touch target and one accessibility node. */
+/** Each icon tab owns its complete touch target and an accessible name. */
 @Composable
 private fun RowScope.TabButton(
     item: TabItem,
@@ -1460,14 +1460,14 @@ private fun RowScope.TabButton(
                     // Without this every tab was announced as an unlabelled clickable region.
                     role = Role.Tab,
                     onClick = onClick,
-                )
-                // The visible caption labels the merged tab; its selected state is announced once.
-                .semantics(mergeDescendants = true) { this.selected = selected },
+                ).semantics(mergeDescendants = true) {
+                    this.selected = selected
+                    contentDescription = item.label
+                },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         LiquidGlassTabIcon(item = item, tint = tint, selected = selected)
-        Text(item.label, style = AppTypography.caption.regular, color = tint, maxLines = 1)
     }
 }
 
@@ -1503,7 +1503,7 @@ private fun LiquidGlassTabIcon(
     ) {
         Icon(
             item.icon,
-            // The visible caption labels the merged tab; the glyph would only repeat it.
+            // The parent tab supplies its accessible name.
             contentDescription = description,
             tint = tint,
             modifier = Modifier.size(DockIconGlyph),
