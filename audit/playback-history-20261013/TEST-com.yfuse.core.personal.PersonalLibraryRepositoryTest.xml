@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.personal.PersonalLibraryRepositoryTest" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-10-13T04:27:09.832Z" hostname="DESKTOP-HM2J0FM" time="0.524">
+  <properties/>
+  <testcase name="anotherProfileDoesNotInheritSharedMediaServerProgress" classname="com.yfuse.core.personal.PersonalLibraryRepositoryTest" time="0.017"/>
+  <testcase name="childAccessIsClosedUntilLinkedAndPinCannotBeBypassedBySignOutOrBadAttempts" classname="com.yfuse.core.personal.PersonalLibraryRepositoryTest" time="0.246"/>
+  <testcase name="favoritesReconcileProviderKeysAndOlderDuplicatesRespectTheLatestDeletion" classname="com.yfuse.core.personal.PersonalLibraryRepositoryTest" time="0.009"/>
+  <testcase name="changesDuringUploadRemainPendingAndTraktImportPreservesLocalHistory" classname="com.yfuse.core.personal.PersonalLibraryRepositoryTest" time="0.002"/>
+  <testcase name="fullLibraryRejectsNewWritesWithoutCrashingOrDiscardingItsSnapshot" classname="com.yfuse.core.personal.PersonalLibraryRepositoryTest" time="0.201"/>
+  <testcase name="delayedOldProfileResultCannotAddHistoryFollowsOrNotifyNewProfile" classname="com.yfuse.core.personal.PersonalLibraryRepositoryTest" time="0.008"/>
+  <testcase name="playbackKeysAndAcknowledgementsRemainAttachedToTheirOriginalProfile" classname="com.yfuse.core.personal.PersonalLibraryRepositoryTest" time="0.012"/>
+  <testcase name="serverFanOutWaitsForItsOwningProfileWithoutBlockingAnotherProfile" classname="com.yfuse.core.personal.PersonalLibraryRepositoryTest" time="0.004"/>
+  <testcase name="favoriteIdentityKeepsRemakesEpisodesAndServerOnlyItemsSeparate" classname="com.yfuse.core.personal.PersonalLibraryRepositoryTest" time="0.002"/>
+  <testcase name="concurrentAdditionsMergeAndOfflineCopiesCannotResurrectDeletedItems" classname="com.yfuse.core.personal.PersonalLibraryRepositoryTest" time="0.017"/>
+  <testcase name="serverLocalIdsRemainDistinctAndMalformedVersionsCannotPoisonMerge" classname="com.yfuse.core.personal.PersonalLibraryRepositoryTest" time="0.0"/>
+  <testcase name="playbackMovingAnEntryAlongIsPendingWithoutCountingAsNewsForOtherDevices" classname="com.yfuse.core.personal.PersonalLibraryRepositoryTest" time="0.001"/>
+  <testcase name="accountsAndProfilesRetainSeparateListsAndCalendarAcrossRestart" classname="com.yfuse.core.personal.PersonalLibraryRepositoryTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -48,6 +48,7 @@ class LibraryHomeComponent(
     val homeShelves: HomeComponent? = null,
     val onOpenDiscovery: () -> Unit = {},
     val onOpenCalendar: () -> Unit = {},
+    val onOpenHistory: () -> Unit = {},
 ) : ComponentContext by componentContext {
     /** The library route stays in the Decompose back stack while detail covers it. */
     internal val listState = LazyListState()

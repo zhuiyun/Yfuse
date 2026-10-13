@@ -1,10 +1,10 @@
 {
-  "versionName": "1.3.0",
-  "versionCode": 282,
+  "versionName": "1.3.1",
+  "versionCode": 283,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-13T03:25:44.4978018Z",
+  "confirmedAt": "2026-10-13T04:23:45.0072969Z",
   "confirmedBy": "release owner",
-  "confirmationBasis": "The user's explicit request on 2026-10-13 to merge home into the library, move recommendations to discovery and package the result, together with the standing instruction on 2026-10-09 to include MDK, authorizes this 1.3.0/282 local production-signed package-only delivery using the same pinned MDK artifact and distribution scope."
+  "confirmationBasis": "The user requested the playback-history page with per-series deduplication and detailed cards. The prior instruction to package completed app changes and the standing 2026-10-09 instruction to include MDK continue to authorize this local production-signed 1.3.1/283 package-only delivery using the same pinned MDK component and distribution scope."
 }

@@ -19,6 +19,7 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.feature.detail.DetailComponent
+import com.yfuse.feature.history.PlaybackHistoryComponent
 import com.yfuse.feature.home.HomeComponent
 import com.yfuse.feature.player.PlayerComponent
 import kotlinx.coroutines.CancellationException
@@ -70,6 +71,8 @@ class LibraryComponent(
 
         @Serializable data object Unified : Config
 
+        @Serializable data object History : Config
+
         @Serializable data class Grid(
             val libraryId: String,
             val title: String,
@@ -95,6 +98,10 @@ class LibraryComponent(
 
     sealed interface Child {
         data object Unified : Child
+
+        class History(
+            val component: PlaybackHistoryComponent,
+        ) : Child
 
         class Home(
             val component: LibraryHomeComponent,
@@ -188,6 +195,17 @@ class LibraryComponent(
     ): Child =
         when (config) {
             Config.Unified -> Child.Unified
+            Config.History ->
+                Child.History(
+                    PlaybackHistoryComponent(
+                        componentContext = context,
+                        registry = registry,
+                        repo = repo,
+                        onBack = ::navigateBack,
+                        onOpenItem = { serverId, itemId -> openDetail(serverId, itemId) },
+                        onOpenMetadata = { onOpenDiscoveryTitle(it, null) },
+                    ),
+                )
             Config.Home ->
                 Child.Home(
                     LibraryHomeComponent(
@@ -217,6 +235,7 @@ class LibraryComponent(
                         onResumeItem = ::resumeHistoryItem,
                         onOpenDiscovery = onOpenDiscovery,
                         onOpenCalendar = onOpenCalendar,
+                        onOpenHistory = { navigation.pushToFront(Config.History) },
                         homeShelves =
                             HomeComponent(
                                 componentContext = context.childContext("merged-home-shelves"),

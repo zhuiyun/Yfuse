@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -382,7 +383,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                 state.currentServer == null -> {
                     Column(Modifier.fillMaxSize().statusBarsPadding()) {
                         Column(Modifier.padding(horizontal = Dimens.pageHorizontal, vertical = 12.dp)) {
-                            SectionHeader("媒体库")
+                            SectionHeader("媒体库", actionLabel = "播放记录", onAction = component.onOpenHistory)
                             LibraryHomeActions(
                                 onDiscover = component.onOpenDiscovery,
                                 onCalendar = component.onOpenCalendar,
@@ -441,17 +442,26 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 vertical = 12.dp,
                                             ),
                                         ) {
-                                            SettingRow(
-                                                title = "媒体库",
-                                                value = state.currentServer?.serverName.orEmpty(),
-                                                icon = AppIcons.Server,
-                                                onClick = { serverMenuOpen = true },
-                                                // The same refresh is available to someone who cannot pull.
-                                                modifier =
-                                                    Modifier.refreshAction(enabled = !state.refreshing) {
-                                                        component.refresh()
-                                                    },
-                                            )
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                SettingRow(
+                                                    title = "媒体库",
+                                                    value = state.currentServer?.serverName.orEmpty(),
+                                                    icon = AppIcons.Server,
+                                                    onClick = { serverMenuOpen = true },
+                                                    // The same refresh is available to someone who cannot pull.
+                                                    modifier =
+                                                        Modifier.weight(1f).refreshAction(enabled = !state.refreshing) {
+                                                            component.refresh()
+                                                        },
+                                                )
+                                                TextButton(onClick = component.onOpenHistory) {
+                                                    Text(
+                                                        "播放记录",
+                                                        style = AppTypography.caption.medium,
+                                                        color = palette.sub,
+                                                    )
+                                                }
+                                            }
                                             LibraryHomeActions(
                                                 onDiscover = component.onOpenDiscovery,
                                                 onCalendar = component.onOpenCalendar,

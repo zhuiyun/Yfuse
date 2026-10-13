@@ -1,0 +1,22 @@
+{
+  "verifiedAtUtc": "2026-10-13T04:28:03.356769+00:00",
+  "hostTests": 52,
+  "suites": 8,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "compilePassed": true,
+  "mainFormattingPassed": true,
+  "testFormattingPassed": true,
+  "phoneTestingPerformed": false,
+  "testClasses": [
+    "com.yfuse.app.TopLevelBackStackTest",
+    "com.yfuse.core.personal.LocalViewingTest",
+    "com.yfuse.core.personal.PersonalLibraryRepositoryTest",
+    "com.yfuse.feature.history.PlaybackHistoryComponentTest",
+    "com.yfuse.feature.history.PlaybackHistoryRowsTest",
+    "com.yfuse.feature.library.LibraryContainerRouteTest",
+    "com.yfuse.feature.library.LibraryHomeSharedKeyTest",
+    "com.yfuse.feature.player.LocalViewingMetadataTest"
+  ]
+}
