@@ -9,7 +9,8 @@ enum class AppIconVariant(
     val label: String,
     val description: String,
 ) {
-    Default("默认 Logo", "当前水火标志，浅色底"),
+    Default("默认 Logo · 水火既济", "浪线分开上水下火的播放键，浅色底"),
+    Classic("原版 Logo", "原版水火折带标志，浅色底"),
     Graphite("当前 Logo · 石墨", "当前水火标志，深灰底，适合深色主屏"),
 
     /** The previous mark, paired with its own cloud splash. */
@@ -17,7 +18,9 @@ enum class AppIconVariant(
     AuroraDark("极光 · 深色", "青蓝紫渐变折带，深色底"),
     AuroraLight("极光 · 浅色", "青蓝紫渐变折带，浅色底"),
     Prism("汇光", "三束彩光射进播放键，汇成一束白光，深色底"),
-    WaterOverFire("水火即济 Logo", "浪线分开上水下火的播放键，浅色底"),
+
+    /** Retained so an installed water-over-fire alias can migrate to the same default artwork. */
+    WaterOverFire("水火既济 Logo", "浪线分开上水下火的播放键，浅色底"),
     Overprint("叠印", "青与品红两笔叠印成 Y，白底"),
     Danmaku("弹幕", "弹幕横条拼成的 Y，深色底"),
     LiquidGlass("液态", "两滴水汇成的磨砂玻璃 Y，极光渐变底"),
@@ -29,13 +32,13 @@ enum class AppIconVariant(
         get() =
             when (normalized) {
                 CloudPlayer -> SplashMark.CloudPlayer
-                WaterOverFire -> SplashMark.WaterOverFire
+                Default -> SplashMark.WaterOverFire
                 else -> SplashMark.WaterFire
             }
 
     companion object {
         // Retired enum entries remain only to disable previously enabled Android aliases safely.
-        val selectable: List<AppIconVariant> = listOf(Default, CloudPlayer, WaterOverFire)
+        val selectable: List<AppIconVariant> = listOf(Default, Classic, CloudPlayer)
     }
 }
 

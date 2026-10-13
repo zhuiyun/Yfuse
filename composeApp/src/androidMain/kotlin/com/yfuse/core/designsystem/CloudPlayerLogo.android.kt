@@ -15,9 +15,9 @@ actual fun CloudPlayerLogo(modifier: Modifier) {
     val variant = currentAppIconVariant()
     val mark =
         when (variant) {
-            AppIconVariant.Default, AppIconVariant.Graphite -> R.drawable.yfuse_mark
+            AppIconVariant.Classic, AppIconVariant.Graphite -> R.drawable.yfuse_mark
             AppIconVariant.CloudPlayer -> R.drawable.cloud_player_logo
-            AppIconVariant.WaterOverFire -> R.drawable.water_fire_logo
+            AppIconVariant.Default, AppIconVariant.WaterOverFire -> R.drawable.water_fire_logo
             // Aurora and the vector icons: each mark is made for its own ground, so the whole tile.
             else -> null
         }

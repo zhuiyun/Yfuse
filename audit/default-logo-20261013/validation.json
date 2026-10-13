@@ -1,0 +1,34 @@
+{
+  "hostTestsPassed": 16,
+  "suites": [
+    {
+      "suite": "com.yfuse.core.data.SplashSelectionTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.yfuse.core.data.ThemePreferencesTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "launcherContractChecksPassed": 4,
+  "ktlintCommonMainPassed": true,
+  "ktlintCommonTestPassed": true,
+  "ktlintAndroidMainPassed": true,
+  "defaultLogo": "WaterOverFire",
+  "selectableLogos": [
+    "Default",
+    "Classic",
+    "CloudPlayer"
+  ],
+  "existingWaterAliasNormalizesToDefault": true,
+  "savedAnimationPreferencesPreserved": true,
+  "deviceUiTestPerformed": false,
+  "versionPreparedForLocalDelivery": "1.2.9",
+  "versionCode": 281
+}

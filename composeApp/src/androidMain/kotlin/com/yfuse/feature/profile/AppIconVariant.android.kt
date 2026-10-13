@@ -29,6 +29,7 @@ import java.util.WeakHashMap
 private fun AppIconVariant.componentClass(): String =
     when (this) {
         AppIconVariant.Default -> "com.yfuse.MainActivity"
+        AppIconVariant.Classic -> "com.yfuse.LauncherClassic"
         AppIconVariant.Graphite -> "com.yfuse.LauncherGraphite"
         AppIconVariant.CloudPlayer -> "com.yfuse.LauncherCloud"
         AppIconVariant.AuroraDark -> "com.yfuse.LauncherAuroraDark"
@@ -47,6 +48,7 @@ private fun AppIconVariant.componentClass(): String =
 fun AppIconVariant.launcherIcon(): Int =
     when (this) {
         AppIconVariant.Default -> R.mipmap.ic_launcher
+        AppIconVariant.Classic -> R.mipmap.ic_launcher_classic
         AppIconVariant.Graphite -> R.mipmap.ic_launcher_graphite
         AppIconVariant.CloudPlayer -> R.mipmap.ic_launcher_cloud
         AppIconVariant.AuroraDark -> R.mipmap.ic_launcher_aurora_dark
@@ -61,11 +63,11 @@ fun AppIconVariant.launcherIcon(): Int =
 /** The variant's mark as a one-colour stencil, for the small icon of a notification. */
 fun AppIconVariant.notificationIcon(): Int =
     when (this) {
-        AppIconVariant.Default, AppIconVariant.Graphite -> R.drawable.ic_notification_yfuse
+        AppIconVariant.Default, AppIconVariant.WaterOverFire -> R.drawable.ic_notification_water_over_fire
+        AppIconVariant.Classic, AppIconVariant.Graphite -> R.drawable.ic_notification_yfuse
         AppIconVariant.CloudPlayer -> R.drawable.ic_notification_cloud_player
         AppIconVariant.AuroraDark, AppIconVariant.AuroraLight -> R.drawable.ic_notification_aurora
         AppIconVariant.Prism -> R.drawable.ic_notification_prism
-        AppIconVariant.WaterOverFire -> R.drawable.ic_notification_water_over_fire
         AppIconVariant.Overprint -> R.drawable.ic_notification_overprint
         AppIconVariant.Danmaku -> R.drawable.ic_notification_danmaku
         AppIconVariant.LiquidGlass -> R.drawable.ic_notification_liquid_glass

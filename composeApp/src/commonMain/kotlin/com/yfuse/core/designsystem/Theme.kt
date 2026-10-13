@@ -53,12 +53,12 @@ enum class ThemeMode(
 enum class SplashMark(
     val label: String,
 ) {
-    /** The current mark. */
-    WaterFire("默认 Logo"),
+    /** The original folded-ribbon mark, still selectable. */
+    WaterFire("原版 Logo"),
 
     /** The mark the app carried before it. */
     CloudPlayer("云朵播放器 Logo"),
-    WaterOverFire("水火即济 Logo"),
+    WaterOverFire("水火既济 Logo"),
 }
 
 /** Saved choreography choice. Reduced motion holds the selected logo's resolved frame. */
@@ -67,7 +67,7 @@ enum class SplashAnimation(
     val description: String,
     val mark: SplashMark,
 ) {
-    /** The default: 速度线冲入 → 折带绕轴展开 → 渐变线拉出. */
+    /** The original folded-ribbon choreography: 速度线冲入 → 折带绕轴展开 → 渐变线拉出. */
     One("折带展开", "速度线冲入 → 折带绕轴展开 → 渐变线拉出", SplashMark.WaterFire),
     Cloud("云朵浮现", "云朵轻轻浮起，播放键渐渐清晰", SplashMark.CloudPlayer),
     Magnet("磁粉成型", "彩色微粒从四周聚拢，吸附成标志", SplashMark.WaterOverFire),

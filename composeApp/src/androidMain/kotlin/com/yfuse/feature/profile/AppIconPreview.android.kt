@@ -24,7 +24,7 @@ import kotlin.math.roundToInt
 private fun AppIconVariant.vectorLayers(): Pair<Int, Int>? =
     when (this) {
         AppIconVariant.Prism -> R.drawable.ic_prism_background to R.drawable.ic_prism_foreground
-        AppIconVariant.WaterOverFire ->
+        AppIconVariant.Default, AppIconVariant.WaterOverFire ->
             R.drawable.ic_water_over_fire_background to R.drawable.ic_water_over_fire_foreground
         AppIconVariant.Overprint -> R.drawable.ic_overprint_background to R.drawable.ic_overprint_foreground
         AppIconVariant.Danmaku -> R.drawable.ic_danmaku_background to R.drawable.ic_danmaku_foreground

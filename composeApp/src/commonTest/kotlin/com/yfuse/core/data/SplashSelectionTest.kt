@@ -38,8 +38,12 @@ class SplashSelectionTest {
         val prefs = ThemePreferences(settings)
         prefs.setSplashVariant(SplashAnimation.Crayon)
         assertEquals(
-            SplashAnimation.One,
+            SplashAnimation.Crayon,
             SplashAnimation.forMark(AppIconVariant.Default.splashMark, prefs.splashVariant.value),
+        )
+        assertEquals(
+            SplashAnimation.One,
+            SplashAnimation.forMark(AppIconVariant.Classic.splashMark, prefs.splashVariant.value),
         )
         assertEquals(
             SplashAnimation.Cloud,
@@ -55,7 +59,7 @@ class SplashSelectionTest {
     @Test
     fun picker_has_three_logos_and_sixteen_water_fire_designs_including_mechanisms() {
         assertEquals(
-            listOf(AppIconVariant.Default, AppIconVariant.CloudPlayer, AppIconVariant.WaterOverFire),
+            listOf(AppIconVariant.Default, AppIconVariant.Classic, AppIconVariant.CloudPlayer),
             AppIconVariant.selectable,
         )
         assertEquals(16, SplashAnimation.selectable.count { it.mark == SplashMark.WaterOverFire })
