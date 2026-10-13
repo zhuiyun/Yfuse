@@ -1,0 +1,77 @@
+{
+  "versionName": "1.3.3",
+  "versionCode": 285,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "a9d23c11db742f839583a14636deab5edeee481b",
+  "treeDirtyAtBuild": false,
+  "diffHash": "",
+  "file": "Yfuse-1.3.3-full-arm64.apk",
+  "bytes": 29948003,
+  "sha256": "29a77d964db4aa59f56876d9a354c361e08029d223d281f356a337eac5d73f0e",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "numberOfSigners": 1,
+  "zipAlignment16K": true,
+  "dexVerified": true,
+  "dexClasses": 14182,
+  "dexMethodsWithCode": 62261,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "dexFiles": {
+    "classes.dex": "f1c8cd279e3473e45de55a6fba6e87c6b43e9bd371257f42f07c7d26e4addaf0",
+    "classes2.dex": "c190789caae6e10cd1027548ddcf8dc393f23602fc6b6bc46fa006d6798f1043"
+  },
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1191008,
+      "sha256": "8c3fdfef2629af11a999325b21864ad2d262879d61065e282abab73a5f3dd7a5"
+    }
+  },
+  "mdkEngineMatchesPinnedSdk": true,
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "predictiveBackEnabled": false,
+  "previousActualVersionName": "1.3.2",
+  "previousActualVersionCode": 284,
+  "previousArtifactSha256": "8dcff52c4727402fae4f5299e587f76dec6929e83dea7f78b77a3a654063d300",
+  "releaseNotesFirstLine": "1.3.3",
+  "sourceArchiveRecheckedAfterBuild": true,
+  "sourceHostTestsPassed": 68,
+  "playbackHistoryPage": true,
+  "bottomDestinations": [
+    "library",
+    "watching",
+    "servers",
+    "profile"
+  ],
+  "libraryLayoutBaseline": "1.2.9",
+  "libraryBaselineSourceVerified": true,
+  "compiledResourcesUnchanged": true,
+  "compiledResourceCount": 373,
+  "historyLayout": "stable vertical cards",
+  "tabCaptionsVisible": false,
+  "watchingGlyph": "replay ring with play mark",
+  "viewportRequestsCancelled": true,
+  "sharedParentRequests": true,
+  "metadataRetrySupported": true,
+  "seriesHistoryDeduplicated": true,
+  "cardFields": [
+    "poster",
+    "synopsis",
+    "season",
+    "episode",
+    "progress",
+    "watchedAt",
+    "server"
+  ],
+  "deviceTestOfReleasePerformed": false,
+  "published": false,
+  "uploaded": false,
+  "verifiedAtUtc": "2026-10-13T07:08:59.321525+00:00"
+}
