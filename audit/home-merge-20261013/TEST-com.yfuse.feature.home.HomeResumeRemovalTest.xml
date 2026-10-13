@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.home.HomeResumeRemovalTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-13T03:44:05.437Z" hostname="DESKTOP-HM2J0FM" time="0.001">
+  <properties/>
+  <testcase name="twoBatchesInARowNeverReadAlike" classname="com.yfuse.feature.home.HomeResumeRemovalTest" time="0.0"/>
+  <testcase name="oneUndoPutsSeveralCardsBackEachWhereItWas" classname="com.yfuse.feature.home.HomeResumeRemovalTest" time="0.0"/>
+  <testcase name="aShelfAReloadHasChangedStillTakesEachCardBackOnce" classname="com.yfuse.feature.home.HomeResumeRemovalTest" time="0.0"/>
+  <testcase name="aShelfThatShrankMeanwhileTakesItLast" classname="com.yfuse.feature.home.HomeResumeRemovalTest" time="0.0"/>
+  <testcase name="theToastNamesOneCardAndCountsSeveral" classname="com.yfuse.feature.home.HomeResumeRemovalTest" time="0.0"/>
+  <testcase name="aReloadThatAlreadyBroughtItBackDoesNotListItTwice" classname="com.yfuse.feature.home.HomeResumeRemovalTest" time="0.0"/>
+  <testcase name="undoPutsTheCardBackWhereItWas" classname="com.yfuse.feature.home.HomeResumeRemovalTest" time="0.0"/>
+  <testcase name="theSameTitleOnTwoServersIsTwoCards" classname="com.yfuse.feature.home.HomeResumeRemovalTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

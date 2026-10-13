@@ -22,8 +22,9 @@ import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.serializer
 
-/** 首页 tab。 */
+/** 发现及外部追剧入口的子页面；保留历史路由配置以恢复已有导航状态。 */
 @OptIn(DelicateDecomposeApi::class)
 class HomeTabComponent(
     componentContext: ComponentContext,
@@ -43,6 +44,12 @@ class HomeTabComponent(
     // reminder while it is still in this stack, or a second tap during the push would build one.
     private val navigation = StackNavigation<Config>()
     private val playerNavigation = SingleFlightNavigationGuard<Config.Player>()
+    private var returnToLibraryOnRoot =
+        stateKeeper.consume("discovery.returnToLibrary", Boolean.serializer()) ?: false
+
+    init {
+        stateKeeper.register("discovery.returnToLibrary", Boolean.serializer()) { returnToLibraryOnRoot }
+    }
 
     val stack: Value<ChildStack<Config, Child>> =
         childStack(
@@ -108,11 +115,38 @@ class HomeTabComponent(
 
     fun navigateBack() {
         (stack.value.active.configuration as? Config.Player)?.let(playerNavigation::complete)
-        navigation.pop()
+        navigation.pop { popped ->
+            if (popped && stack.value.active.configuration == Config.Home && returnToLibraryOnRoot) {
+                returnToLibraryOnRoot = false
+                onOpenLibrary()
+            }
+        }
+    }
+
+    fun openDiscovery() {
+        returnToLibraryOnRoot = false
+        popToRoot()
+    }
+
+    fun openCalendar() {
+        returnToLibraryOnRoot = true
+        popToRoot()
+        navigation.pushToFront(Config.Calendar)
+    }
+
+    fun openDiscoveryTitle(
+        item: TmdbItem,
+        embyItemId: String?,
+    ) {
+        returnToLibraryOnRoot = true
+        popToRoot()
+        navigation.pushToFront(Config.Info(item, embyItemId))
     }
 
     fun openPersonalTitle(media: com.yfuse.core.personal.PersonalMediaRef) {
         val tmdbId = media.tmdbId ?: return
+        returnToLibraryOnRoot = true
+        popToRoot()
         navigation.pushToFront(
             Config.Info(
                 TmdbItem(
@@ -134,6 +168,8 @@ class HomeTabComponent(
         serverId: String?,
         itemId: String,
     ) {
+        returnToLibraryOnRoot = true
+        popToRoot()
         navigation.pushToFront(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
     }
 
@@ -147,6 +183,8 @@ class HomeTabComponent(
         positionMs: Long,
         startPlaybackRequested: Boolean = true,
     ) {
+        returnToLibraryOnRoot = true
+        popToRoot()
         openPlayer(
             Config.Player(
                 serverId = serverId,
@@ -196,7 +234,9 @@ class HomeTabComponent(
                         cache = dependencies.tmdbHomeCache,
                         syncManager = dependencies.serverSyncManager,
                         calendarRepository = calendarRepository,
-                        initialCalendarLoad = true,
+                        initialCalendarLoad = false,
+                        libraryEnabled = false,
+                        initialRecommendationsLoad = false,
                         onOpenEmbyItem = { serverId, itemId ->
                             navigation.pushToFront(Config.Detail(serverId, itemId))
                         },
@@ -222,7 +262,7 @@ class HomeTabComponent(
                         itemId = config.itemId,
                         serverId = config.serverId,
                         dependencies = dependencies,
-                        onBack = { navigation.pop() },
+                        onBack = ::navigateBack,
                         onOpenRelated = { serverId, itemId ->
                             navigation.pushToFront(Config.Detail(serverId, itemId))
                         },
@@ -247,7 +287,7 @@ class HomeTabComponent(
                         isSeriesLaunch = config.isSeriesLaunch,
                         onBack = {
                             playerNavigation.complete(config)
-                            navigation.pop()
+                            navigateBack()
                         },
                     ),
                 )
@@ -260,7 +300,7 @@ class HomeTabComponent(
                         repository = calendarRepository,
                         followStore = dependencies.calendarFollowStore,
                         registry = registry,
-                        onBack = { navigation.pop() },
+                        onBack = ::navigateBack,
                         onOpenItem = { serverId, itemId ->
                             navigation.pushToFront(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
                         },
@@ -276,7 +316,7 @@ class HomeTabComponent(
                         item = config.item,
                         followStore = dependencies.calendarFollowStore,
                         embyItemId = config.embyItemId,
-                        onBack = { navigation.pop() },
+                        onBack = ::navigateBack,
                         onPlayTarget = { serverId, id, ticks ->
                             openPlayer(Config.Player(serverId, id, ticks))
                         },

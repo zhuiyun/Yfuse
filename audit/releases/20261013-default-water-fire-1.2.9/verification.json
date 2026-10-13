@@ -1,0 +1,55 @@
+{
+  "versionName": "1.2.9",
+  "versionCode": 281,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "9d5dd5297e328c0f85ea6f89183a915582b27470",
+  "treeDirtyAtBuild": false,
+  "diffHash": "",
+  "file": "Yfuse-1.2.9-full-arm64.apk",
+  "bytes": 29910003,
+  "sha256": "9af091a1f475142fcaff7b405f521fad70134fabcb9820ff616c962f400b30bc",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "numberOfSigners": 1,
+  "zipAlignment16K": true,
+  "dexVerified": true,
+  "dexClasses": 14136,
+  "dexMethodsWithCode": 62086,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "dexFiles": {
+    "classes.dex": "7059c12f1849f01c98eb59b32bc52b02009eb0bdbd505ccdcebe39e25b7c1c25",
+    "classes2.dex": "64753fa5584752cd7e9938a3c8b65811ff11aa1972fd7c771ef91895368372f4"
+  },
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1191008,
+      "sha256": "8c3fdfef2629af11a999325b21864ad2d262879d61065e282abab73a5f3dd7a5"
+    }
+  },
+  "mdkEngineMatchesPinnedSdk": true,
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "predictiveBackEnabled": false,
+  "previousActualVersionName": "1.2.8",
+  "previousActualVersionCode": 280,
+  "previousArtifactSha256": "90999f5ca6635d20bdb1e4f6261ecdfb62ec92562bdb62c833c08e72682ffd40",
+  "releaseNotesFirstLine": "1.2.9",
+  "sourceArchiveRecheckedAfterBuild": true,
+  "sourceHostTestsPassed": 16,
+  "sourceLauncherContractChecksPassed": 4,
+  "defaultLogo": "WaterOverFire",
+  "compiledDefaultIconLayersVerified": true,
+  "classicAndCloudLogoChoicesPreserved": true,
+  "legacyWaterAliasKeptForMigration": true,
+  "deviceTestOfReleasePerformed": false,
+  "published": false,
+  "uploaded": false,
+  "verifiedAtUtc": "2026-10-13T01:21:12.864476+00:00"
+}

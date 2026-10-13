@@ -121,6 +121,13 @@ class RootComponent(
             dependencies = dependencies,
             onAddServer = ::openAddServer,
             onReauthenticate = ::signInAgain,
+            tmdb = tmdb,
+            onOpenDiscovery = ::openDiscovery,
+            onOpenCalendar = ::openCalendar,
+            onOpenDiscoveryTitle = { item, target ->
+                home.openDiscoveryTitle(item, target)
+                selectTab(Tab.Home)
+            },
         )
 
     /** 服务器: the saved servers as a grid. */
@@ -338,7 +345,7 @@ class RootComponent(
                 Tab.Servers -> Unit
             }
         } else {
-            selectTab(startTab)
+            selectTab(if (state.tab == Tab.Home) Tab.Browse else startTab)
         }
         return true
     }
@@ -346,6 +353,17 @@ class RootComponent(
     fun openDownloads() {
         selectTab(Tab.Profile)
         profile.openDownloads()
+    }
+
+    /** Discovery is a secondary destination of the library, with no bottom tab of its own. */
+    private fun openDiscovery() {
+        home.openDiscovery()
+        selectTab(Tab.Home)
+    }
+
+    private fun openCalendar() {
+        home.openCalendar()
+        selectTab(Tab.Home)
     }
 
     /** 库 with nothing to show: over to 服务器, with its add form already open. */
@@ -502,7 +520,7 @@ internal fun startupTab(
     hasServers: Boolean,
 ): RootComponent.Tab =
     when (preference) {
-        StartupTab.Home -> RootComponent.Tab.Home
+        StartupTab.Home -> RootComponent.Tab.Browse
         StartupTab.Library -> RootComponent.Tab.Browse
         StartupTab.Servers -> RootComponent.Tab.Servers
         StartupTab.Automatic ->

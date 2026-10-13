@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.home.HomeLiftMenuTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-13T03:44:05.396Z" hostname="DESKTOP-HM2J0FM" time="0.013">
+  <properties/>
+  <testcase name="edit_dims_what_has_nothing_to_act_on" classname="com.yfuse.feature.home.HomeLiftMenuTest" time="0.002"/>
+  <testcase name="an_unstarted_next_episode_has_nothing_to_start_over" classname="com.yfuse.feature.home.HomeLiftMenuTest" time="0.006"/>
+  <testcase name="a_card_that_resumes_on_a_tap_leads_its_menu_with_the_title_page" classname="com.yfuse.feature.home.HomeLiftMenuTest" time="0.004"/>
+  <testcase name="a_card_whose_tap_opens_the_title_still_offers_play_first" classname="com.yfuse.feature.home.HomeLiftMenuTest" time="0.001"/>
+  <testcase name="edit_does_to_every_ticked_card_what_the_lift_does_to_one" classname="com.yfuse.feature.home.HomeLiftMenuTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -14,7 +14,14 @@ enum class StartupTab(
     val description: String,
 ) {
     Automatic("自动", "有服务器时进入「库」，否则进入「服务器」"),
-    Home("首页", "每次都从推荐开始"),
+
+    /** Kept for persisted preferences from releases with a separate home tab. */
+    Home("首页（已合并到库）", "原首页启动偏好现在进入媒体库"),
     Library("库", "直接进入媒体库"),
     Servers("服务器", "先挑一台服务器"),
+    ;
+
+    companion object {
+        val selectable: List<StartupTab> = listOf(Automatic, Library, Servers)
+    }
 }

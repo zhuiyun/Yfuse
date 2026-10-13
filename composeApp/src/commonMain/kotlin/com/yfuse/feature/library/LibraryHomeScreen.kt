@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -93,7 +94,6 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SectionHeader
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SkeletonArrivalScope
-import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.ToastAction
@@ -133,7 +133,6 @@ import com.yfuse.core.designsystem.rememberLaunchWave
 import com.yfuse.core.designsystem.rememberLivingPosterHeroState
 import com.yfuse.core.designsystem.rememberRefreshReveal
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
-import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.scrim
 import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.serverBadgeColor
@@ -149,6 +148,12 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.util.rememberPosterCardSharer
+import com.yfuse.feature.home.MergedLibraryEditAction
+import com.yfuse.feature.home.MergedLibraryOverlays
+import com.yfuse.feature.home.MergedLibraryRail
+import com.yfuse.feature.home.MergedLibraryShelf
+import com.yfuse.feature.home.SmartPlaylistLibraryShelf
+import com.yfuse.feature.home.rememberMergedLibraryShelves
 import kotlinx.coroutines.delay
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -174,7 +179,37 @@ internal val libraryHeroPresentation =
 internal fun libraryHeroHeight(
     viewportHeight: androidx.compose.ui.unit.Dp,
     wideLayout: Boolean,
-): androidx.compose.ui.unit.Dp = livingPosterHeroHeight(viewportHeight, wideLayout)
+): androidx.compose.ui.unit.Dp = minOf(livingPosterHeroHeight(viewportHeight, wideLayout), 340.dp)
+
+@Composable
+private fun LibraryHomeActions(
+    onDiscover: () -> Unit,
+    onCalendar: () -> Unit,
+    onFavorites: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(
+            Triple("发现", AppIcons.TabHome, onDiscover),
+            Triple("追剧", AppIcons.WatchCalendar, onCalendar),
+            Triple("收藏", AppIcons.Heart, onFavorites),
+        ).forEach { (title, icon, action) ->
+            Row(
+                Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .glass(shape = AppShapes.chip, fill = palette.card2, border = palette.border)
+                    .pressable(onClickLabel = if (title == "追剧") "打开追剧日历" else "打开$title", onClick = action)
+                    .padding(horizontal = 8.dp, vertical = 13.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(icon, null, tint = palette.text, modifier = Modifier.size(17.dp))
+                Text(title, style = AppTypography.caption.strong, color = palette.text, maxLines = 1)
+            }
+        }
+    }
+}
 
 /** Poster rail column width, shared by the real rails and the loading skeleton. */
 private val PosterWidth = MediaSizing.posterRailWidth
@@ -227,11 +262,12 @@ private fun utcDate(epochMs: Long): String {
     }
 }
 
-/** 媒体库 — a viewport-aware hero carousel above the library rows. */
+/** 媒体库 — personal viewing shelves first, then categories and a compact carousel. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val sharer = rememberPosterCardSharer()
+    val mergedHome = rememberMergedLibraryShelves(component.homeShelves)
     val state by component.store.states.collectAsState(component.store.state)
     val access by component.access.collectAsState()
     val serverHealth = component.serverHealth.collectAsState()
@@ -282,6 +318,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val showSmartPlaylists =
         com.yfuse.feature.search
             .hasPinnedSmartPlaylists()
+    val smartShelves =
+        com.yfuse.feature.search
+            .pinnedLibraryShelves()
     val palette = rememberArtworkPagePalette(retainedPageColor.value)
     val accent =
         rememberArtworkAccentTarget(
@@ -322,7 +361,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
         }
     }
     val carouselVisible by remember(listState) {
-        derivedStateOf { listState.firstVisibleItemIndex == 0 && !listState.isScrollInProgress }
+        derivedStateOf {
+            listState.layoutInfo.visibleItemsInfo.any { it.key == "library-hero" } && !listState.isScrollInProgress
+        }
     }
     ScrollToTopOnReselect(listState)
 
@@ -333,44 +374,39 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val heroHeight = libraryHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
-            // The reel is switched on, but the first load has not brought anything to show in it.
-            val heroPending = libraryCarousel && state.loading && state.content.isEmpty
             Box(Modifier.fillMaxSize().drawBehind { drawRect(sampledPageColor.value) })
-            val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
             val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
             val artwork = livingPosterArtwork(maxWidth, heroHeight, showSidePreview)
-            StatusBarIconStyle(darkIcons = (!libraryCarousel || slide == null || lightPageReached) && !palette.isDark)
+            StatusBarIconStyle(darkIcons = !palette.isDark)
             when {
-                state.currentServer == null && access.canManageServers ->
-                    PageHint(
-                        "还没有可用的服务器，添加一台就能在这里浏览媒体库",
-                        Modifier.align(Alignment.Center),
-                        actionLabel = "添加服务器",
-                        onAction = component.onAddServer,
-                    )
-
-                state.currentServer == null ->
-                    PageHint(
-                        "当前资料没有可用服务器，请由家长关联",
-                        Modifier.align(Alignment.Center),
-                        // A child profile cannot add one itself; a refresh picks up a server a
-                        // parent has linked since, without a restart.
-                        actionLabel = "重试",
-                        onAction = { store.accept(LibraryIntent.Retry) },
-                    )
-
-                state.error != null && state.content.isEmpty ->
-                    ErrorState(
-                        message = state.error!!,
-                        onRetry = recover,
-                        modifier = Modifier.align(Alignment.Center),
-                        retryLabel = if (signInServer != null) "重新登录" else "重试",
-                    )
+                state.currentServer == null -> {
+                    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                        Column(Modifier.padding(horizontal = Dimens.pageHorizontal, vertical = 12.dp)) {
+                            SectionHeader("媒体库")
+                            LibraryHomeActions(
+                                onDiscover = component.onOpenDiscovery,
+                                onCalendar = component.onOpenCalendar,
+                                onFavorites = { mergedHome?.open(MergedLibraryShelf.Favorites) },
+                            )
+                        }
+                        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                            PageHint(
+                                if (access.canManageServers) {
+                                    "还没有可用的服务器，添加一台就能在这里浏览媒体库"
+                                } else {
+                                    "当前资料没有可用服务器，请由家长关联"
+                                },
+                                actionLabel = if (access.canManageServers) "添加服务器" else "重试",
+                                onAction = if (access.canManageServers) component.onAddServer else component::refresh,
+                            )
+                        }
+                    }
+                }
 
                 else ->
                     PullToRefreshBox(
                         isRefreshing = state.refreshing,
-                        onRefresh = { store.accept(LibraryIntent.Retry) },
+                        onRefresh = component::refresh,
                         state = pullState,
                         indicator = {
                             RefreshIndicator(
@@ -394,52 +430,165 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                 verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
                                 contentPadding = PaddingValues(bottom = bottomContentInset),
                             ) {
-                                if (!libraryCarousel || slide == null) {
-                                    waveItem(key = "library-header") {
-                                        // While the first load runs with the reel switched on, the
-                                        // header holds the reel's height: the rows under it start
-                                        // where they will stay, instead of being pushed down a whole
-                                        // hero when the reel lands on top of them.
-                                        Box(
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .then(if (heroPending) Modifier.height(heroHeight) else Modifier),
+                                waveItem(key = "library-header") {
+                                    Box(
+                                        Modifier
+                                            .fillMaxWidth(),
+                                    ) {
+                                        Column(
+                                            Modifier.fillMaxWidth().statusBarsPadding().padding(
+                                                horizontal = Dimens.pageHorizontal,
+                                                vertical = 12.dp,
+                                            ),
                                         ) {
-                                            if (heroPending) {
-                                                SkeletonBlock(
-                                                    Modifier.matchParentSize().fadeIntoPage(),
-                                                    shape = RectangleShape,
-                                                )
-                                            }
-                                            Column(
-                                                Modifier.fillMaxWidth().statusBarsPadding().padding(
-                                                    horizontal = Dimens.pageHorizontal,
-                                                    vertical = 12.dp,
+                                            SettingRow(
+                                                title = "媒体库",
+                                                value = state.currentServer?.serverName.orEmpty(),
+                                                icon = AppIcons.Server,
+                                                onClick = { serverMenuOpen = true },
+                                                // The same refresh is available to someone who cannot pull.
+                                                modifier =
+                                                    Modifier.refreshAction(enabled = !state.refreshing) {
+                                                        component.refresh()
+                                                    },
+                                            )
+                                            LibraryHomeActions(
+                                                onDiscover = component.onOpenDiscovery,
+                                                onCalendar = component.onOpenCalendar,
+                                                onFavorites = { mergedHome?.open(MergedLibraryShelf.Favorites) },
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Older previews without the merged component retain their history row.
+                                val historyLiftMenu: (MediaItem) -> LiftMenu = { item ->
+                                    libraryHistoryLiftMenu(
+                                        item = item,
+                                        backdropUrl = EmbyImages.backdrop(baseUrl, item, accessToken = accessToken),
+                                        onOpen = { component.onOpenItem(item.id) },
+                                        onPlayFromStart = { component.onResumeItem(item, true) },
+                                        onMarkWatched = {
+                                            store.accept(LibraryIntent.HideFromHistory(item, watched = true))
+                                        },
+                                        onRemove = {
+                                            store.accept(LibraryIntent.HideFromHistory(item, watched = false))
+                                        },
+                                        onFavorite = { favorite ->
+                                            store.accept(LibraryIntent.ToggleFavorite(item.id, item.title, favorite))
+                                        },
+                                        onShare = {
+                                            sharer.sharePosterCard(
+                                                item.posterShareCard(
+                                                    EmbyImages.poster(baseUrl, item, accessToken = accessToken),
                                                 ),
-                                            ) {
-                                                SettingRow(
-                                                    title = "媒体库",
-                                                    value = state.currentServer?.serverName.orEmpty(),
-                                                    icon = AppIcons.Server,
-                                                    onClick = { serverMenuOpen = true },
-                                                    // Without the reel this row is the page's title:
-                                                    // 下拉刷新 lives here for someone who cannot pull.
-                                                    modifier =
-                                                        Modifier.refreshAction(enabled = !state.refreshing) {
-                                                            store.accept(LibraryIntent.Retry)
-                                                        },
-                                                )
-                                            }
+                                            )
+                                        },
+                                    )
+                                }
+                                if (mergedHome == null && state.content.resume.isNotEmpty()) {
+                                    waveItem(key = "library-resume") {
+                                        PlaybackHistory(
+                                            baseUrl = baseUrl,
+                                            accessToken = accessToken,
+                                            serverId = state.currentServer?.id,
+                                            items = state.content.resume,
+                                            openedCopy = component.openedCopy,
+                                            onOpen = openCopy,
+                                            liftMenu = historyLiftMenu,
+                                        )
+                                    }
+                                }
+
+                                if (mergedHome != null) {
+                                    mergedHome.visibleShelves.forEach { shelf ->
+                                        if (mergedHome.hasContent(shelf)) {
+                                            waveItem(
+                                                key = "merged-home:$shelf",
+                                            ) { MergedLibraryRail(mergedHome, shelf) }
+                                        }
+                                    }
+                                }
+
+                                if (state.error != null && state.content.isEmpty) {
+                                    waveItem(key = "library-error") {
+                                        ErrorState(
+                                            message = state.error!!,
+                                            onRetry = recover,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            retryLabel = if (signInServer != null) "重新登录" else "重试",
+                                        )
+                                    }
+                                }
+                                if (state.contentSource == LibraryContentSource.Cached && !state.content.isEmpty) {
+                                    waveItem(key = "library-freshness") {
+                                        LibraryFreshnessBanner(
+                                            updatedAtEpochMs = state.updatedAtEpochMs,
+                                            nowEpochMs = freshnessNowEpochMs,
+                                            error = state.error,
+                                            loading = state.loading,
+                                            signIn = signInServer != null,
+                                            onRetry = recover,
+                                        )
+                                    }
+                                }
+                                if (state.content.rows.isNotEmpty() || state.currentServer != null) {
+                                    if (showSmartPlaylists) {
+                                        waveItem(key = "smart-playlists") {
+                                            com.yfuse.feature.search
+                                                .SmartPlaylistShelf()
+                                        }
+                                    }
+                                    waveItem(key = "library-categories") {
+                                        CategoryCards(
+                                            baseUrl = baseUrl,
+                                            accessToken = accessToken,
+                                            rows = state.content.rows,
+                                            playlists = state.content.playlists,
+                                            onOpen = { component.onSeeAll(it.libraryId, it.title) },
+                                            onRetry = { store.accept(LibraryIntent.Retry) },
+                                            onOpenPlaylists = {
+                                                state.currentServer?.id?.let { serverId ->
+                                                    component.onSeeAll(
+                                                        LibraryContainerDirectoryRoute(
+                                                            serverId,
+                                                            MediaContainerKind.Playlist,
+                                                        ).encode(),
+                                                        "播放列表",
+                                                    )
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                                // Where the shelves will land: under the category cards, not above
+                                // them, so the page does not reshuffle on arrival.
+                                if (state.loading && state.content.isEmpty) {
+                                    motionItem(key = "library-loading") { SkeletonRow() }
+                                }
+                                if (mergedHome != null) {
+                                    smartShelves.forEach { (rule, query) ->
+                                        waveItem(key = "smart-shelf:${rule.name}") {
+                                            SmartPlaylistLibraryShelf(
+                                                rule = rule,
+                                                query = query,
+                                                onClick = mergedHome::detail,
+                                                liftMenu = { mergedHome.menu(it, MergedLibraryShelf.Recent) },
+                                            )
                                         }
                                     }
                                 }
                                 if (libraryCarousel && slide != null) {
-                                    motionItem {
+                                    motionItem(key = "library-hero") {
                                         LivingPosterHeroCarousel(
                                             state = hero,
                                             pageCount = slides.size,
                                             showSidePreview = showSidePreview,
-                                            held = !carouselVisible || serverMenuOpen,
+                                            held =
+                                                !carouselVisible ||
+                                                    serverMenuOpen ||
+                                                    mergedHome?.opened != null ||
+                                                    mergedHome?.editingLayout == true,
                                             ambientUrls = slideUrls,
                                             modifier =
                                                 Modifier
@@ -493,11 +642,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 artworkFadeFraction = artwork.fadeFraction,
                                                 onPageColor = retainedPageColor::update,
                                                 framed = showSidePreview,
-                                                // The first stop TalkBack makes on this page, so 下拉刷新 lives
-                                                // here for someone who cannot pull.
+                                                // Expose the page refresh on artwork as well.
                                                 modifier =
                                                     page.modifier.refreshAction(enabled = !state.refreshing) {
-                                                        store.accept(LibraryIntent.Retry)
+                                                        component.refresh()
                                                     },
                                                 onClick = { openCopy(heroPlace, animatedItem) },
                                                 onPlay = { component.onPlayItem(animatedItem.id) },
@@ -516,95 +664,6 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             )
                                         }
                                     }
-                                }
-
-                                // 播放记录 comes straight after the hero (I-04): picking up where one left
-                                // off is the first thing this page is for, and the banner, the smart
-                                // playlists and the categories above it had pushed it to the third, fourth
-                                // or fifth block, depending on which of them were showing.
-                                val historyLiftMenu: (MediaItem) -> LiftMenu = { item ->
-                                    libraryHistoryLiftMenu(
-                                        item = item,
-                                        backdropUrl = EmbyImages.backdrop(baseUrl, item, accessToken = accessToken),
-                                        onOpen = { component.onOpenItem(item.id) },
-                                        onPlayFromStart = { component.onResumeItem(item, true) },
-                                        onMarkWatched = {
-                                            store.accept(LibraryIntent.HideFromHistory(item, watched = true))
-                                        },
-                                        onRemove = {
-                                            store.accept(LibraryIntent.HideFromHistory(item, watched = false))
-                                        },
-                                        onFavorite = { favorite ->
-                                            store.accept(LibraryIntent.ToggleFavorite(item.id, item.title, favorite))
-                                        },
-                                        onShare = {
-                                            sharer.sharePosterCard(
-                                                item.posterShareCard(
-                                                    EmbyImages.poster(baseUrl, item, accessToken = accessToken),
-                                                ),
-                                            )
-                                        },
-                                    )
-                                }
-                                if (state.content.resume.isNotEmpty()) {
-                                    waveItem(key = "library-resume") {
-                                        PlaybackHistory(
-                                            baseUrl = baseUrl,
-                                            accessToken = accessToken,
-                                            serverId = state.currentServer?.id,
-                                            items = state.content.resume,
-                                            openedCopy = component.openedCopy,
-                                            onOpen = openCopy,
-                                            liftMenu = historyLiftMenu,
-                                        )
-                                    }
-                                }
-
-                                if (state.contentSource == LibraryContentSource.Cached && !state.content.isEmpty) {
-                                    waveItem(key = "library-freshness") {
-                                        LibraryFreshnessBanner(
-                                            updatedAtEpochMs = state.updatedAtEpochMs,
-                                            nowEpochMs = freshnessNowEpochMs,
-                                            error = state.error,
-                                            loading = state.loading,
-                                            signIn = signInServer != null,
-                                            onRetry = recover,
-                                        )
-                                    }
-                                }
-                                if (state.content.rows.isNotEmpty() || state.currentServer != null) {
-                                    if (showSmartPlaylists) {
-                                        waveItem(key = "smart-playlists") {
-                                            com.yfuse.feature.search
-                                                .SmartPlaylistShelf()
-                                        }
-                                    }
-                                    waveItem(key = "library-categories") {
-                                        CategoryCards(
-                                            baseUrl = baseUrl,
-                                            accessToken = accessToken,
-                                            rows = state.content.rows,
-                                            playlists = state.content.playlists,
-                                            onOpen = { component.onSeeAll(it.libraryId, it.title) },
-                                            onRetry = { store.accept(LibraryIntent.Retry) },
-                                            onOpenPlaylists = {
-                                                state.currentServer?.id?.let { serverId ->
-                                                    component.onSeeAll(
-                                                        LibraryContainerDirectoryRoute(
-                                                            serverId,
-                                                            MediaContainerKind.Playlist,
-                                                        ).encode(),
-                                                        "播放列表",
-                                                    )
-                                                }
-                                            },
-                                        )
-                                    }
-                                }
-                                // Where the shelves will land: under the category cards, not above
-                                // them, so the page does not reshuffle on arrival.
-                                if (state.loading && state.content.isEmpty) {
-                                    motionItem(key = "library-loading") { SkeletonRow() }
                                 }
                                 // The same 浮起菜单 as 首页's shelves: play, and the favourite this
                                 // store can write.
@@ -643,6 +702,13 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         )
                                     }
                                 }
+                                if (mergedHome != null) {
+                                    waveItem(key = "merged-home-edit") {
+                                        Box(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
+                                            MergedLibraryEditAction(mergedHome)
+                                        }
+                                    }
+                                }
                                 state.content.counts?.let { counts ->
                                     waveItem(key = "library-counts") {
                                         LibraryCountFooter(counts.movieCount, counts.seriesCount)
@@ -653,17 +719,15 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                     }
             }
 
-            // Once the hero has scrolled away, content must stop at the safe edge instead of
-            // continuing underneath the clock and status icons. A page-coloured guard keeps
-            // the full-bleed artwork at launch, then becomes the clipped top edge for shelves.
-            if (!libraryCarousel || lightPageReached) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .windowInsetsTopHeight(WindowInsets.statusBars)
-                        .drawBehind { drawRect(sampledPageColor.value) },
-                )
-            }
+            if (mergedHome != null) MergedLibraryOverlays(mergedHome)
+
+            // Scrolled shelves stop at a page-coloured safe edge under the status icons.
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .windowInsetsTopHeight(WindowInsets.statusBars)
+                    .drawBehind { drawRect(sampledPageColor.value) },
+            )
 
             // 播放记录's 标记为已看 and 移除 wait here for their 撤销; the card is already off the row.
             ActionToast(
@@ -850,7 +914,7 @@ private fun HeroCarousel(
         ) {
             // 正在流行 — `500 10.5px Manrope`, white, `{accent}45%`, `padding:4px 10px`.
             Text(
-                "正在流行",
+                "库内精选",
                 style = AppTypography.caption.medium,
                 color = Color.White,
                 modifier =

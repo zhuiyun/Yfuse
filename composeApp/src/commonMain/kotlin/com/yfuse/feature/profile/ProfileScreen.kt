@@ -964,10 +964,10 @@ fun ProfileScreen(component: ProfileComponent) {
                 OptionSheet(
                     title = "启动进入",
                     subtitle = "下次冷启动时打开的页面",
-                    options = StartupTab.entries.map { it.label to (it == startupTab) },
-                    descriptions = StartupTab.entries.map { it.description },
+                    options = StartupTab.selectable.map { it.label to (it == startupTab) },
+                    descriptions = StartupTab.selectable.map { it.description },
                     onSelect = { index ->
-                        prefs.setStartupTab(StartupTab.entries[index])
+                        prefs.setStartupTab(StartupTab.selectable[index])
                         sheet = null
                     },
                     onDismiss = { sheet = null },

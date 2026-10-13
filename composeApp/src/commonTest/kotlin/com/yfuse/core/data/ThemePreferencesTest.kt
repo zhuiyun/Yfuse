@@ -12,6 +12,7 @@ import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.ServerLayout
+import com.yfuse.core.model.StartupTab
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -19,6 +20,13 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ThemePreferencesTest {
+    @Test
+    fun legacy_home_startup_preference_migrates_to_library() {
+        val settings = MapSettings().apply { putString("appearance.startupTab", "Home") }
+        assertEquals(StartupTab.Library, ThemePreferences(settings).startupTab.value)
+        assertFalse(StartupTab.Home in StartupTab.selectable)
+    }
+
     @Test
     fun all_custom_material_parameters_survive_restart_and_do_not_modify_the_other_theme() {
         val settings = MapSettings()

@@ -2,6 +2,7 @@ package com.yfuse.feature.library
 
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.decompose.DelicateDecomposeApi
+import com.arkivanov.decompose.childContext
 import com.arkivanov.decompose.router.stack.ChildStack
 import com.arkivanov.decompose.router.stack.StackNavigation
 import com.arkivanov.decompose.router.stack.childStack
@@ -13,9 +14,12 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.TmdbItem
 import com.yfuse.feature.detail.DetailComponent
+import com.yfuse.feature.home.HomeComponent
 import com.yfuse.feature.player.PlayerComponent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +39,13 @@ class LibraryComponent(
     private val onAddServer: () -> Unit = {},
     /** The way out of a server that refused its session: to 服务器, on that server's sign-in form. */
     private val onReauthenticate: (SavedServer) -> Unit = {},
+    private val tmdb: TmdbRepository =
+        org.koin.core.context.GlobalContext
+            .get()
+            .get(),
+    private val onOpenDiscovery: () -> Unit = {},
+    private val onOpenCalendar: () -> Unit = {},
+    private val onOpenDiscoveryTitle: (TmdbItem, String?) -> Unit = { _, _ -> },
 ) : ComponentContext by componentContext {
     private val navigation = StackNavigation<Config>()
     private val playerRouteLaunchGate = PlayerRouteLaunchGate()
@@ -204,6 +215,29 @@ class LibraryComponent(
                             )
                         },
                         onResumeItem = ::resumeHistoryItem,
+                        onOpenDiscovery = onOpenDiscovery,
+                        onOpenCalendar = onOpenCalendar,
+                        homeShelves =
+                            HomeComponent(
+                                componentContext = context.childContext("merged-home-shelves"),
+                                storeFactory = storeFactory,
+                                tmdb = tmdb,
+                                emby = repo,
+                                registry = registry,
+                                cache = dependencies.tmdbHomeCache,
+                                syncManager = dependencies.serverSyncManager,
+                                calendarRepository = dependencies.calendarRepository,
+                                recommendationsEnabled = false,
+                                onOpenEmbyItem = { serverId, itemId -> openDetail(serverId, itemId) },
+                                onPlayEmbyItem = { serverId, itemId, _, ticks ->
+                                    openPlayer(Config.Player(serverId, itemId, ticks))
+                                },
+                                onOpenTmdbItem = onOpenDiscoveryTitle,
+                                onOpenSearch = {},
+                                onOpenLibrary = ::popToRoot,
+                                onOpenProfile = {},
+                                onOpenCalendar = onOpenCalendar,
+                            ),
                     ),
                 )
             is Config.Grid -> {

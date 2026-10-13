@@ -231,20 +231,10 @@ private fun HomeContent(
     // The shelf opened out into a grid, or null. Held here rather than in the store: it is
     // which page is on screen, not anything about the data.
     val routeVisible = LocalRouteVisible.current
-    var hiddenSinceLastRefresh by remember { mutableStateOf(false) }
-    var hasBeenVisible by remember { mutableStateOf(false) }
-
-    LaunchedEffect(routeVisible) {
-        if (routeVisible && hiddenSinceLastRefresh) {
-            hiddenSinceLastRefresh = false
-            component.store.accept(HomeIntent.RefreshLibrary)
-            // Episodes can arrive while detail/player covers the tab. Refresh the compact
-            // calendar too so its 入库/下一集 state is correct on the first frame back home.
-            component.refreshCalendar()
-        } else if (!routeVisible && hasBeenVisible) {
-            hiddenSinceLastRefresh = true
+    LaunchedEffect(component, routeVisible) {
+        if (routeVisible && component.recommendationsEnabled && state.content.isEmpty && !state.loading) {
+            component.store.accept(HomeIntent.Retry)
         }
-        if (routeVisible) hasBeenVisible = true
     }
 
     val shelves = component.shelves
@@ -269,16 +259,26 @@ private fun HomeContent(
             shelfLayout = shelfLayout,
             onEditShelves = editShelves.takeIf { shelves != null },
             editingShelves = editingShelves && shelves != null,
+            discoveryOnly = true,
+            onBack = component.onOpenLibrary,
         )
     }
     if (editingShelves && shelves != null) {
-        val ids = homeShelfLayoutIds(state)
+        val ids = discoveryShelfLayoutIds(state)
         HomeShelfEditorSheet(
             options = shelfLayout.arranged(ids).map { HomeShelfOption(it, homeShelfTitle(it)) },
             hidden = shelfLayout.hidden,
             onMove = { id, to -> shelves.update(shelfLayout.moved(ids, id, to)) },
             onToggle = { id, visible -> shelves.update(shelfLayout.withVisible(id, visible)) },
-            onReset = shelves::reset,
+            onReset = {
+                shelves.update(
+                    shelfLayout.copy(
+                        order = shelfLayout.order.filterNot { it in ids },
+                        hidden =
+                            shelfLayout.hidden - ids.toSet(),
+                    ),
+                )
+            },
             onDismiss = { editingShelves = false },
         )
     }
@@ -310,8 +310,11 @@ internal fun HomeContentBody(
      * re-tinted the accent, and with it every switch in the sheet.
      */
     editingShelves: Boolean = false,
+    discoveryOnly: Boolean = false,
+    onBack: (() -> Unit)? = null,
 ) {
     val calendarItems = remember(calendarState.days, state) { homeCalendarPreviews(calendarState.days, state) }
+    val visibleShelfIds = if (discoveryOnly) discoveryShelfLayoutIds(state) else homeShelfLayoutIds(state)
     val showSmartPlaylists =
         com.yfuse.feature.search
             .hasPinnedSmartPlaylists()
@@ -447,7 +450,7 @@ internal fun HomeContentBody(
         val refreshArrival = rememberRefreshReveal(state.refreshing, revision = shelfRevision)
         val refreshPage = {
             onIntent(HomeIntent.Refresh)
-            onRefreshCalendar()
+            if (!discoveryOnly) onRefreshCalendar()
         }
         PullToRefreshBox(
             isRefreshing = state.refreshing,
@@ -482,6 +485,7 @@ internal fun HomeContentBody(
                                 onOpenProfile = onOpenProfile,
                                 onOpenCalendar = onOpenCalendar,
                                 onArtwork = false,
+                                onBack = onBack,
                             )
                         } else {
                             Box(Modifier.heroScrollCollapse(listState, heroHeight)) {
@@ -501,12 +505,13 @@ internal fun HomeContentBody(
                                     onFavorite = { onIntent(HomeIntent.Favorite(it)) },
                                     onAccent = onHeroAccent,
                                     onPageColor = onHeroPageColor,
+                                    onBack = onBack,
                                 )
                             }
                         }
                     }
 
-                    if (showSmartPlaylists) {
+                    if (showSmartPlaylists && !discoveryOnly) {
                         motionItem(key = "smart-playlists") {
                             com.yfuse.feature.search
                                 .SmartPlaylistShelf()
@@ -514,7 +519,7 @@ internal fun HomeContentBody(
                     }
                     // A pinned 智能片单 that is one library under a genre — 短剧 · 甜宠 — is a shelf of
                     // posters, as the library's own rows are, rather than a name to tap.
-                    smartShelves.forEach { (rule, query) ->
+                    smartShelves.takeUnless { discoveryOnly }.orEmpty().forEach { (rule, query) ->
                         motionItem(key = "smart-shelf:${rule.name}") {
                             SmartPlaylistLibraryShelf(
                                 rule = rule,
@@ -600,7 +605,7 @@ internal fun HomeContentBody(
                     }
 
                     // In the order 编辑首页 left them, without the ones it hid.
-                    homeShelfLayoutIds(state).let(shelfLayout::visible).forEach { shelf ->
+                    visibleShelfIds.let(shelfLayout::visible).forEach { shelf ->
                         when (shelf) {
                             HOME_SHELF_CONTINUE -> {
                                 if (state.resume.isNotEmpty()) {
@@ -610,7 +615,11 @@ internal fun HomeContentBody(
                                                 items = state.resume,
                                                 onSeeAll = { openShelf(HomeLibraryShelf.ContinueWatching, shelf) },
                                                 onEdit = {
-                                                    openShelf(HomeLibraryShelf.ContinueWatching, shelf, editing = true)
+                                                    openShelf(
+                                                        HomeLibraryShelf.ContinueWatching,
+                                                        shelf,
+                                                        editing = true,
+                                                    )
                                                 },
                                                 onPlay = playEntry,
                                                 onOpen = openEntry,
@@ -945,6 +954,7 @@ private fun HomeHeroCarousel(
     onFavorite: (TmdbItem) -> Unit,
     onAccent: (Color) -> Unit,
     onPageColor: (Color) -> Unit,
+    onBack: (() -> Unit)? = null,
 ) {
     val hero = rememberLivingPosterHeroState(items.map { it.id.toString() })
     val ambientItem = items.getOrNull(hero.settledIndex(items.size))
@@ -994,6 +1004,7 @@ private fun HomeHeroCarousel(
                     onOpenProfile = onOpenProfile,
                     onOpenCalendar = onOpenCalendar,
                     modifier = Modifier.align(Alignment.TopStart),
+                    onBack = onBack,
                 )
             },
         ) { page ->
@@ -1138,6 +1149,7 @@ private fun HeroHeader(
     modifier: Modifier = Modifier,
     /** False when there is no artwork under it: white on the bare page is unreadable in light. */
     onArtwork: Boolean = true,
+    onBack: (() -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
     val shadow = HeroTextShadow.takeIf { onArtwork }
@@ -1150,6 +1162,11 @@ private fun HeroHeader(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (onBack != null) {
+            Box(Modifier.size(48.dp).pressable(onClickLabel = "返回媒体库", onClick = onBack), Alignment.Center) {
+                Icon(AppIcons.ChevronLeft, "返回媒体库", tint = ink, modifier = Modifier.size(22.dp))
+            }
+        }
         Row(
             Modifier.weight(1f),
             horizontalArrangement = Arrangement.spacedBy(9.dp),
@@ -1158,12 +1175,12 @@ private fun HeroHeader(
             AppMark(Modifier.size(30.dp))
             Column {
                 Text(
-                    homeGreeting(currentHourOfDay()),
+                    if (onBack != null) "影视推荐" else homeGreeting(currentHourOfDay()),
                     style = AppTypography.caption.regular.copy(shadow = shadow),
                     color = if (onArtwork) Color.White.copy(alpha = 0.82f) else palette.sub2,
                 )
                 Text(
-                    "继续你的旅程",
+                    if (onBack != null) "发现" else "继续你的旅程",
                     style = AppTypography.section.strong.copy(shadow = shadow),
                     color = ink,
                     maxLines = 1,
@@ -1174,49 +1191,53 @@ private fun HeroHeader(
                 )
             }
         }
-        Box(
-            Modifier.size(48.dp).pressable(onClick = onOpenCalendar),
-            contentAlignment = Alignment.Center,
-        ) {
+        if (onBack == null) {
             Box(
-                Modifier
-                    .size(36.dp)
-                    .glass(
-                        shape = CircleShape,
-                        fill = if (onArtwork) Color.White.copy(alpha = 0.14f) else palette.card2,
-                        border = if (onArtwork) Color.White.copy(alpha = 0.34f) else palette.border,
-                    ),
+                Modifier.size(48.dp).pressable(onClick = onOpenCalendar),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    AppIcons.WatchCalendar,
-                    "追剧日历",
-                    tint = ink,
-                    modifier = Modifier.size(17.dp),
-                )
+                Box(
+                    Modifier
+                        .size(36.dp)
+                        .glass(
+                            shape = CircleShape,
+                            fill = if (onArtwork) Color.White.copy(alpha = 0.14f) else palette.card2,
+                            border = if (onArtwork) Color.White.copy(alpha = 0.34f) else palette.border,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        AppIcons.WatchCalendar,
+                        "追剧日历",
+                        tint = ink,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
             }
         }
-        Box(
-            Modifier
-                .size(48.dp)
-                .pressable(onClickLabel = "打开个人中心", onClick = onOpenProfile)
-                .semantics {
-                    contentDescription = userName
-                        ?.takeIf(String::isNotBlank)
-                        ?.let { "个人中心，$it" }
-                        ?: "个人中心"
-                },
-            contentAlignment = Alignment.Center,
-        ) {
+        if (onBack == null) {
             Box(
-                Modifier.size(38.dp).clip(CircleShape).background(PrimaryGradient),
+                Modifier
+                    .size(48.dp)
+                    .pressable(onClickLabel = "打开个人中心", onClick = onOpenProfile)
+                    .semantics {
+                        contentDescription = userName
+                            ?.takeIf(String::isNotBlank)
+                            ?.let { "个人中心，$it" }
+                            ?: "个人中心"
+                    },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    homeUserInitial(userName),
-                    style = AppTypography.body.strong,
-                    color = Color.White,
-                )
+                Box(
+                    Modifier.size(38.dp).clip(CircleShape).background(PrimaryGradient),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        homeUserInitial(userName),
+                        style = AppTypography.body.strong,
+                        color = Color.White,
+                    )
+                }
             }
         }
     }
@@ -1370,7 +1391,7 @@ private fun HomeSourceBadge(source: String) {
 
 /** 继续观看 — Forward-style still, exact resume position and progress at first glance. */
 @Composable
-private fun ContinueWatching(
+internal fun ContinueWatching(
     items: List<HomeResumeEntry>,
     onSeeAll: () -> Unit,
     /** A tap: play from where it was left. */
@@ -1519,7 +1540,7 @@ internal fun compactLastPlayedDate(value: String?): String? {
 
 /** A pinned 智能片单 that is one library listing, as posters; its 全部 opens the rule in 搜索. */
 @Composable
-private fun SmartPlaylistLibraryShelf(
+internal fun SmartPlaylistLibraryShelf(
     rule: SmartPlaylist,
     query: SmartShelfQuery,
     onClick: (HomeResumeEntry) -> Unit,
@@ -1557,7 +1578,7 @@ private fun SmartPlaylistLibraryShelf(
 private const val SMART_SHELF_LIMIT = 12
 
 @Composable
-private fun LibraryMediaShelf(
+internal fun LibraryMediaShelf(
     title: String,
     items: List<HomeResumeEntry>,
     onSeeAll: () -> Unit,
@@ -1694,6 +1715,8 @@ internal fun homeShelfLayoutIds(state: HomeState): List<String> =
     listOf(HOME_SHELF_CONTINUE, HOME_SHELF_NEXT_UP, HOME_SHELF_FAVORITES, HOME_SHELF_CALENDAR) +
         state.content.rows.map(::homeShelfId)
 
+internal fun discoveryShelfLayoutIds(state: HomeState): List<String> = state.content.rows.map(::homeShelfId)
+
 /** What 编辑首页 calls a shelf. */
 internal fun homeShelfTitle(id: String): String =
     when (id) {
@@ -1709,7 +1732,7 @@ internal fun homeShelfTitle(id: String): String =
 private fun EditShelvesFooter(onClick: () -> Unit) {
     Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
         Text(
-            "编辑首页",
+            "调整推荐栏目",
             style = AppTypography.caption.strong,
             color = LocalPalette.current.sub2,
             modifier =
@@ -1721,14 +1744,14 @@ private fun EditShelvesFooter(onClick: () -> Unit) {
     }
 }
 
-private data class HomeCalendarPreview(
+internal data class HomeCalendarPreview(
     val entry: CalendarEntry,
     val episodeLabel: String,
     val priorityLabel: String,
 )
 
 /** 浮起菜单 on a 追剧日历 card: the show, or the calendar it was picked from. */
-private fun HomeCalendarPreview.homeLiftMenu(
+internal fun HomeCalendarPreview.homeLiftMenu(
     onOpen: () -> Unit,
     onOpenCalendar: () -> Unit,
 ): LiftMenu =
@@ -1751,7 +1774,7 @@ private fun HomeCalendarPreview.homeLiftMenu(
     )
 
 /** User-owned calendar rows, ordered ahead of discovery: watching, favourites, then next-up. */
-private fun homeCalendarPreviews(
+internal fun homeCalendarPreviews(
     days: List<com.yfuse.core.model.CalendarDay>,
     home: HomeState,
 ): List<HomeCalendarPreview> {
@@ -1854,7 +1877,7 @@ private fun String.homeCalendarIdentityTitle(): String = lowercase().filter(Char
 
 /** Same card geometry and spacing as 热门; only the data/status line comes from the calendar. */
 @Composable
-private fun HomeCalendarShelf(
+internal fun HomeCalendarShelf(
     items: List<HomeCalendarPreview>,
     onSeeAll: () -> Unit,
     onClick: (HomeCalendarPreview) -> Unit,

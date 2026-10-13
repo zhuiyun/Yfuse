@@ -148,7 +148,12 @@ class ThemePreferences(
     private val _splashAnimation = MutableStateFlow(settings.getBoolean(KEY_SPLASH_ANIMATION, true))
     val splashAnimation: StateFlow<Boolean> = _splashAnimation.asStateFlow()
 
-    private val _startupTab = MutableStateFlow(load(KEY_STARTUP_TAB, StartupTab.entries, StartupTab.Automatic))
+    private val _startupTab =
+        MutableStateFlow(
+            load(KEY_STARTUP_TAB, StartupTab.entries, StartupTab.Automatic).let {
+                if (it == StartupTab.Home) StartupTab.Library else it
+            },
+        )
     val startupTab: StateFlow<StartupTab> = _startupTab.asStateFlow()
 
     // A name from a retired style falls back to Lift inside [load]; nothing here can throw.

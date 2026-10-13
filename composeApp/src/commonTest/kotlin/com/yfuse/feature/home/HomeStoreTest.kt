@@ -58,6 +58,97 @@ import kotlin.test.assertTrue
 
 class HomeStoreTest {
     @Test
+    fun merged_library_refreshes_server_content_without_contacting_recommendations() =
+        runTest(scheduler) {
+            var recommendations = 0
+            var serverRequests = 0
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("one", "http://one", "One", "u", "User", "token"))
+                }
+            val store =
+                HomeStoreFactory(
+                    storeFactory = DefaultStoreFactory(),
+                    tmdb =
+                        mockTmdb {
+                            recommendations++
+                            popularRecommendations(42)
+                        },
+                    emby =
+                        testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) {
+                            serverRequests++
+                            homeRoutes(it)
+                        },
+                    registry = registry,
+                    cache = TmdbHomeCache(MapSettings()),
+                    cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
+                    recommendationsEnabled = false,
+                ).create()
+            try {
+                advanceUntilIdle()
+                assertTrue(serverRequests > 0)
+                assertEquals(0, recommendations)
+                assertFalse(store.state.loading)
+                val before = serverRequests
+                store.accept(HomeIntent.Refresh)
+                advanceUntilIdle()
+                assertTrue(serverRequests > before)
+                assertEquals(0, recommendations)
+                assertNull(store.state.error)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun discovery_loads_on_entry_without_duplicate_server_home_requests() =
+        runTest(scheduler) {
+            var recommendations = 0
+            var serverRequests = 0
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("one", "http://one", "One", "u", "User", "token"))
+                }
+            val store =
+                HomeStoreFactory(
+                    storeFactory = DefaultStoreFactory(),
+                    tmdb =
+                        mockTmdb {
+                            recommendations++
+                            popularRecommendations(42)
+                        },
+                    emby =
+                        testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) {
+                            serverRequests++
+                            homeRoutes(it)
+                        },
+                    registry = registry,
+                    cache = TmdbHomeCache(MapSettings()),
+                    cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
+                    libraryEnabled = false,
+                    initialRecommendationsLoad = false,
+                ).create()
+            try {
+                advanceUntilIdle()
+                assertEquals(0, recommendations)
+                assertEquals(0, serverRequests)
+                store.accept(HomeIntent.Retry)
+                advanceUntilIdle()
+                assertTrue(recommendations > 0)
+                assertTrue(
+                    store.state.content.rows
+                        .isNotEmpty(),
+                )
+                store.accept(HomeIntent.RefreshLibrary)
+                registry.addOrUpdate(SavedServer("two", "http://two", "Two", "u", "User", "token"))
+                advanceUntilIdle()
+                assertEquals(0, serverRequests)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
     fun quick_home_revisits_reuse_refresh_but_explicit_refresh_still_fetches() =
         runTest(scheduler) {
             var requests = 0

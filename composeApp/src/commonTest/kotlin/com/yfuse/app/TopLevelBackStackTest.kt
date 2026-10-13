@@ -9,7 +9,9 @@ import kotlin.test.assertNull
 class TopLevelBackStackTest {
     @Test
     fun the_start_tab_is_the_only_system_exit_root() {
-        Tab.entries.forEach { start -> assertEquals(listOf(start), topLevelBackStack(start, start)) }
+        Tab.entries.filterNot { it == Tab.Home }.forEach { start ->
+            assertEquals(listOf(start), topLevelBackStack(start, start))
+        }
     }
 
     @Test
@@ -40,9 +42,14 @@ class TopLevelBackStackTest {
     @Test
     fun a_chosen_start_tab_holds_with_or_without_servers() {
         listOf(false, true).forEach { hasServers ->
-            assertEquals(Tab.Home, startupTab(StartupTab.Home, hasServers))
+            assertEquals(Tab.Browse, startupTab(StartupTab.Home, hasServers))
             assertEquals(Tab.Browse, startupTab(StartupTab.Library, hasServers))
             assertEquals(Tab.Servers, startupTab(StartupTab.Servers, hasServers))
         }
+    }
+
+    @Test
+    fun discovery_returns_to_library_even_when_servers_is_the_start_page() {
+        assertEquals(listOf(Tab.Browse, Tab.Home), topLevelBackStack(Tab.Home, start = Tab.Servers))
     }
 }

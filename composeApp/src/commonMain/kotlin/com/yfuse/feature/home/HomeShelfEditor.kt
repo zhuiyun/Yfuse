@@ -111,6 +111,7 @@ internal fun HomeShelfEditorSheet(
     onToggle: (id: String, visible: Boolean) -> Unit,
     onReset: () -> Unit,
     onDismiss: () -> Unit,
+    title: String = "调整推荐栏目",
 ) {
     val haptics = LocalHaptics.current
     val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
@@ -134,7 +135,7 @@ internal fun HomeShelfEditorSheet(
     }
 
     GlassDialog(onDismiss = onDismiss) {
-        OverlayHeader(title = "编辑首页", subtitle = "拖动右侧把手排序，轻点显示或隐藏", onClose = onDismiss)
+        OverlayHeader(title = title, subtitle = "拖动右侧把手排序，轻点显示或隐藏", onClose = onDismiss)
         Column {
             val from = dragging?.let { id -> options.indexOfFirst { it.id == id } } ?: -1
             options.forEachIndexed { index, option ->

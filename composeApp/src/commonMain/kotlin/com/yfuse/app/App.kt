@@ -189,18 +189,12 @@ internal fun navigationGlassVisuals(
     )
 
 /**
- * The four destinations in the bar.
- *
- * 搜索 left the row and became [SearchButton], a control of its own beside it. It was the odd
- * one out: the other four are places the app can be in — each keeps a back stack, each is
- * where you end up and stay — while search is a thing you do to get somewhere and leave. As a
- * fifth equal cell it also cost the other four a fifth of the bar, and made the row a set of
- * five narrow targets rather than four comfortable ones.
+ * The three persistent destinations. Discovery opens from the library;
+ * [SearchButton] remains a separate control beside the capsule.
  */
 private val tabs =
     listOf(
-        TabItem(Tab.Home, "首页", AppIcons.TabHome),
-        TabItem(Tab.Browse, "库", AppIcons.TabLibrary),
+        TabItem(Tab.Browse, "媒体库", AppIcons.TabLibrary),
         TabItem(Tab.Servers, "服务器", AppIcons.TabServers),
         TabItem(Tab.Profile, "我的", AppIcons.TabProfile),
     )
@@ -298,7 +292,7 @@ fun App(root: RootComponent) {
             if (root.followWatchRoom()) followed = roomCode to mediaKey
         }
 
-        // The bar belongs to the four roots; any pushed page (detail, grid, add
+        // The bar belongs to the three roots; any pushed page (detail, grid, add
         // server, player) owns the whole screen.
         val atRoot =
             when (active) {
@@ -313,7 +307,7 @@ fun App(root: RootComponent) {
         // library's grid. Under a scroll it no longer slides away either — with 滚动时收起导航栏
         // on it collapses to the one key below, so "is the bar there?" never depends on where the
         // user has scrolled to; with it off, it simply stays up.
-        val showBottomBar = atRoot
+        val showBottomBar = atRoot && active != Tab.Home
 
         // Reading gets the screen; navigating gets it back. Not saveable on purpose: a collapsed
         // bar is a transient consequence of where the finger just went, and restoring one after
@@ -718,7 +712,12 @@ private val LocalInAppTheme = staticCompositionLocalOf { false }
 internal fun topLevelBackStack(
     active: Tab,
     start: Tab,
-): List<Tab> = if (active == start) listOf(start) else listOf(start, active)
+): List<Tab> =
+    when {
+        active == Tab.Home -> listOf(Tab.Browse, Tab.Home)
+        active == start -> listOf(start)
+        else -> listOf(start, active)
+    }
 
 /**
  * 服务器's notices — a save, an edit the registry refused — shown by the shell rather than by
@@ -883,7 +882,7 @@ internal class NavigationCollapseConnection(
 }
 
 /**
- * The bottom furniture: the four destinations in a capsule, and 搜索 as its own round key at
+ * The bottom furniture: the three destinations in a capsule, and 搜索 as its own round key at
  * the end of the row — one tap away wherever the row is open.
  *
  * Two shapes for one row. Expanded, the tabs fill a capsule and search is a circle at its end.
@@ -1290,7 +1289,7 @@ internal fun GlassTabBar(
     height: Dp = dockHeight(),
     /** False inside the dock, whose viewport or liquid draws the pane instead. */
     drawShell: Boolean = true,
-    /** While the dock shows as liquid, the four cells follow the capsule's right edge. */
+    /** While the dock shows as liquid, the destination cells follow the capsule's right edge. */
     dockLiquid: DockLiquid? = null,
 ) {
     val palette = LocalPalette.current
@@ -1334,8 +1333,7 @@ internal fun GlassTabBar(
     Row(
         modifier
             .fillMaxWidth()
-            // One group of four, so a screen reader announces "第 2 项，共 4 项" rather than
-            // reading four unrelated controls.
+            // One selectable group lets screen readers announce each cell's position.
             .selectableGroup()
             .then(liquidMotion?.gestures ?: Modifier)
             .height(height)

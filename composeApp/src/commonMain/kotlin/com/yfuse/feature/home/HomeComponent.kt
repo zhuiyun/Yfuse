@@ -56,6 +56,9 @@ class HomeComponent(
     val onOpenProfile: () -> Unit,
     val onOpenCalendar: () -> Unit,
     private val initialCalendarLoad: Boolean = true,
+    val recommendationsEnabled: Boolean = true,
+    private val libraryEnabled: Boolean = true,
+    private val initialRecommendationsLoad: Boolean = true,
 ) : ComponentContext by componentContext {
     private val scope = componentScope(lifecycle)
     private val calendarLoad = LatestWins(scope)
@@ -88,16 +91,21 @@ class HomeComponent(
                     { serverId, itemId -> playbackSync.forgetResume(serverId, itemId) }
                 },
             playbackSync = playbackSync,
+            recommendationsEnabled = recommendationsEnabled,
+            libraryEnabled = libraryEnabled,
+            initialRecommendationsLoad = initialRecommendationsLoad,
         ).create()
 
     init {
         if (initialCalendarLoad) refreshCalendar()
-        registry.data
-            .map { data -> data.servers.map { it.id } }
-            .distinctUntilChanged()
-            .drop(1)
-            .onEach { refreshCalendar(forceRefresh = true) }
-            .launchIn(scope)
+        if (libraryEnabled) {
+            registry.data
+                .map { data -> data.servers.map { it.id } }
+                .distinctUntilChanged()
+                .drop(1)
+                .onEach { refreshCalendar(forceRefresh = true) }
+                .launchIn(scope)
+        }
         store.labels
             .onEach { label ->
                 when (label) {

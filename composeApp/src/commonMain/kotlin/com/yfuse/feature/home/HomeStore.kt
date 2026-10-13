@@ -545,22 +545,28 @@ class HomeStoreFactory(
     private val forgetResume: ((serverId: String, itemId: String) -> Unit)? = null,
     /** The device-local progress 继续观看 and 下一集 are built from; see [HomeIntent.SetPlayed]. */
     private val playbackSync: PlaybackSyncManager? = null,
+    /** Library hub and discovery have independent loading and failure boundaries. */
+    private val recommendationsEnabled: Boolean = true,
+    private val libraryEnabled: Boolean = true,
+    private val initialRecommendationsLoad: Boolean = true,
 ) {
     fun create(): Store<HomeIntent, HomeState, HomeLabel> =
         storeFactory.create(
             name = "HomeStore",
-            initialState = HomeState(),
+            initialState = HomeState(loading = recommendationsEnabled && initialRecommendationsLoad),
             bootstrapper =
                 coroutineBootstrapper<Action> {
-                    dispatch(Action.Load)
+                    if (recommendationsEnabled && initialRecommendationsLoad) dispatch(Action.Load)
                     // 继续观看 belongs to one server, and which server that is changes under
                     // this store's feet: 媒体库's 切换服务器 writes straight to the registry.
                     // Read once at startup, this row outlived the server it came from.
-                    registry.data
-                        .map { it.defaultServer to it.servers }
-                        .distinctUntilChanged()
-                        .onEach { (default, servers) -> dispatch(Action.Servers(default, servers)) }
-                        .launchIn(this)
+                    if (libraryEnabled) {
+                        registry.data
+                            .map { it.defaultServer to it.servers }
+                            .distinctUntilChanged()
+                            .onEach { (default, servers) -> dispatch(Action.Servers(default, servers)) }
+                            .launchIn(this)
+                    }
                 },
             executorFactory = ::ExecutorImpl,
             reducer = ReducerImpl,
@@ -596,16 +602,21 @@ class HomeStoreFactory(
         override fun executeIntent(intent: HomeIntent) {
             when (intent) {
                 HomeIntent.Retry -> {
-                    loadRecommendations()
-                    loadResume(registry.data.value.servers, force = true)
-                    loadNextUp(registry.data.value.servers)
+                    if (recommendationsEnabled) loadRecommendations()
+                    if (libraryEnabled) {
+                        loadResume(registry.data.value.servers, force = true)
+                        loadNextUp(registry.data.value.servers)
+                    }
                 }
                 HomeIntent.Refresh -> {
-                    loadRecommendations(refresh = true)
-                    loadResume(registry.data.value.servers, force = true)
-                    loadNextUp(registry.data.value.servers)
+                    if (recommendationsEnabled) loadRecommendations(refresh = true)
+                    if (libraryEnabled) {
+                        loadResume(registry.data.value.servers, force = true)
+                        loadNextUp(registry.data.value.servers)
+                    }
                 }
                 HomeIntent.RefreshLibrary -> {
+                    if (!libraryEnabled) return
                     if (resumeLoad.isActive || nextUpLoad.isActive) return
                     if (lastLibraryRevisit?.elapsedNow()?.inWholeMilliseconds?.let { it < 15_000L } == true) return
                     lastLibraryRevisit =
