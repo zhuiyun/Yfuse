@@ -1,0 +1,1286 @@
+[
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectYPlayer.kt",
+    "lines": 3424,
+    "functions": [
+      {
+        "name": "prepareVideoHandoff",
+        "line": 99,
+        "length": 3
+      },
+      {
+        "name": "prepare",
+        "line": 144,
+        "length": 12
+      },
+      {
+        "name": "setVideoOutput",
+        "line": 157,
+        "length": 6
+      },
+      {
+        "name": "play",
+        "line": 164,
+        "length": 11
+      },
+      {
+        "name": "pause",
+        "line": 176,
+        "length": 12
+      },
+      {
+        "name": "seekTo",
+        "line": 189,
+        "length": 16
+      },
+      {
+        "name": "setSpeed",
+        "line": 206,
+        "length": 5
+      },
+      {
+        "name": "setAudioDelayMs",
+        "line": 214,
+        "length": 5
+      },
+      {
+        "name": "setAudioEffect",
+        "line": 222,
+        "length": 5
+      },
+      {
+        "name": "selectTrack",
+        "line": 228,
+        "length": 36
+      },
+      {
+        "name": "setSecondarySubtitleOffsetMs",
+        "line": 267,
+        "length": 5
+      },
+      {
+        "name": "selectSecondarySubtitleTrack",
+        "line": 275,
+        "length": 14
+      },
+      {
+        "name": "selectItem",
+        "line": 290,
+        "length": 15
+      },
+      {
+        "name": "retry",
+        "line": 308,
+        "length": 11
+      },
+      {
+        "name": "releaseAndJoin",
+        "line": 322,
+        "length": 13
+      },
+      {
+        "name": "release",
+        "line": 336,
+        "length": 22
+      },
+      {
+        "name": "runLoop",
+        "line": 359,
+        "length": 56
+      },
+      {
+        "name": "submit",
+        "line": 416,
+        "length": 4
+      },
+      {
+        "name": "fail",
+        "line": 421,
+        "length": 86
+      },
+      {
+        "name": "handle",
+        "line": 704,
+        "length": 32
+      },
+      {
+        "name": "pump",
+        "line": 737,
+        "length": 94
+      },
+      {
+        "name": "prepareCurrent",
+        "line": 832,
+        "length": 136
+      },
+      {
+        "name": "prepareInitialTracks",
+        "line": 970,
+        "length": 118
+      },
+      {
+        "name": "publishPreparedState",
+        "line": 1089,
+        "length": 74
+      },
+      {
+        "name": "setSurface",
+        "line": 1164,
+        "length": 85
+      },
+      {
+        "name": "startPlayback",
+        "line": 1250,
+        "length": 45
+      },
+      {
+        "name": "pausePlayback",
+        "line": 1296,
+        "length": 5
+      },
+      {
+        "name": "pausePlaybackInternal",
+        "line": 1302,
+        "length": 17
+      },
+      {
+        "name": "seekTo",
+        "line": 1320,
+        "length": 103
+      },
+      {
+        "name": "updateSpeed",
+        "line": 1424,
+        "length": 16
+      },
+      {
+        "name": "updateAudioDelay",
+        "line": 1443,
+        "length": 11
+      },
+      {
+        "name": "updateAudioEffect",
+        "line": 1458,
+        "length": 11
+      },
+      {
+        "name": "restorePassthroughIfAvailable",
+        "line": 1471,
+        "length": 37
+      },
+      {
+        "name": "selectAudioTrack",
+        "line": 1509,
+        "length": 63
+      },
+      {
+        "name": "apply",
+        "line": 1518,
+        "length": 17
+      },
+      {
+        "name": "selectSubtitleTrack",
+        "line": 1573,
+        "length": 60
+      },
+      {
+        "name": "recoverVideoIfNoSyncSampleArrives",
+        "line": 1640,
+        "length": 6
+      },
+      {
+        "name": "feedInput",
+        "line": 1647,
+        "length": 72
+      },
+      {
+        "name": "queueDemuxSample",
+        "line": 1739,
+        "length": 64
+      },
+      {
+        "name": "applyHdr10PlusMetadata",
+        "line": 1805,
+        "length": 6
+      },
+      {
+        "name": "drainAudio",
+        "line": 1812,
+        "length": 77
+      },
+      {
+        "name": "releaseAudioOutput",
+        "line": 1890,
+        "length": 9
+      },
+      {
+        "name": "writePendingAudioOutput",
+        "line": 1900,
+        "length": 31
+      },
+      {
+        "name": "verifyPcmAudioOutput",
+        "line": 1932,
+        "length": 40
+      },
+      {
+        "name": "releaseVideoOutput",
+        "line": 1973,
+        "length": 13
+      },
+      {
+        "name": "decodedShownSize",
+        "line": 2000,
+        "length": 5
+      },
+      {
+        "name": "drainVideo",
+        "line": 2006,
+        "length": 122
+      },
+      {
+        "name": "renderSeekPrerollAtEnd",
+        "line": 2129,
+        "length": 12
+      },
+      {
+        "name": "recordSeekVideoSubmission",
+        "line": 2142,
+        "length": 21
+      },
+      {
+        "name": "retryEmptyTailSeek",
+        "line": 2164,
+        "length": 20
+      },
+      {
+        "name": "refreshAdaptiveBufferPlan",
+        "line": 2191,
+        "length": 7
+      },
+      {
+        "name": "applyBufferPlan",
+        "line": 2199,
+        "length": 23
+      },
+      {
+        "name": "refreshOutputGate",
+        "line": 2224,
+        "length": 38
+      },
+      {
+        "name": "publishClockPosition",
+        "line": 2263,
+        "length": 111
+      },
+      {
+        "name": "publishQoeSnapshot",
+        "line": 2375,
+        "length": 73
+      },
+      {
+        "name": "currentPositionUs",
+        "line": 2449,
+        "length": 15
+      },
+      {
+        "name": "finishIfEnded",
+        "line": 2465,
+        "length": 42
+      },
+      {
+        "name": "resetEndState",
+        "line": 2515,
+        "length": 16
+      },
+      {
+        "name": "configureAudioPath",
+        "line": 2532,
+        "length": 63
+      },
+      {
+        "name": "releaseAudioPath",
+        "line": 2596,
+        "length": 11
+      },
+      {
+        "name": "queueAudioSample",
+        "line": 2608,
+        "length": 48
+      },
+      {
+        "name": "drainPendingEncodedAudioInput",
+        "line": 2657,
+        "length": 29
+      },
+      {
+        "name": "verifyEncodedAudioOutput",
+        "line": 2687,
+        "length": 19
+      },
+      {
+        "name": "logPassthroughFallback",
+        "line": 2711,
+        "length": 19
+      },
+      {
+        "name": "switchPassthroughToPcm",
+        "line": 2731,
+        "length": 35
+      },
+      {
+        "name": "handleAudioRoutingChange",
+        "line": 2767,
+        "length": 62
+      },
+      {
+        "name": "refreshActiveAudioEvidence",
+        "line": 2830,
+        "length": 8
+      },
+      {
+        "name": "captureAudioRoutingGeneration",
+        "line": 2839,
+        "length": 8
+      },
+      {
+        "name": "configureVideoDecoder",
+        "line": 2861,
+        "length": 69
+      },
+      {
+        "name": "resetVideoRenderEvidence",
+        "line": 2931,
+        "length": 6
+      },
+      {
+        "name": "attachVideoRenderEvidence",
+        "line": 2938,
+        "length": 69
+      },
+      {
+        "name": "markFirstVideoFrameRendered",
+        "line": 3008,
+        "length": 31
+      },
+      {
+        "name": "onTransportBlockingReadStateChanged",
+        "line": 3040,
+        "length": 5
+      },
+      {
+        "name": "abortIfReleased",
+        "line": 3046,
+        "length": 5
+      },
+      {
+        "name": "playAudio",
+        "line": 3062,
+        "length": 8
+      },
+      {
+        "name": "pauseAudio",
+        "line": 3071,
+        "length": 3
+      },
+      {
+        "name": "flushAudio",
+        "line": 3075,
+        "length": 3
+      },
+      {
+        "name": "subtitleTracks",
+        "line": 3135,
+        "length": 22
+      },
+      {
+        "name": "queueSubtitleSample",
+        "line": 3175,
+        "length": 19
+      },
+      {
+        "name": "releaseMediaAfterFailure",
+        "line": 3203,
+        "length": 6
+      },
+      {
+        "name": "releaseMedia",
+        "line": 3210,
+        "length": 100
+      },
+      {
+        "name": "releaseAll",
+        "line": 3311,
+        "length": 5
+      },
+      {
+        "name": "releasePendingAudioOutput",
+        "line": 3319,
+        "length": 5
+      },
+      {
+        "name": "updateState",
+        "line": 3395,
+        "length": 3
+      }
+    ]
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/NativeDirectMediaFormats.kt",
+    "lines": 188,
+    "functions": [
+      {
+        "name": "toCore2AudioTrackFormat",
+        "line": 41,
+        "length": 28
+      },
+      {
+        "name": "dynamicRangeLabel",
+        "line": 146,
+        "length": 16
+      },
+      {
+        "name": "extractNativeDirectHdr10PlusPayload",
+        "line": 163,
+        "length": 10
+      }
+    ]
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/NativeDirectPlaybackPolicy.kt",
+    "lines": 206,
+    "functions": [
+      {
+        "name": "invalidateNativeDirectAudioRoute",
+        "line": 12,
+        "length": 17
+      },
+      {
+        "name": "decodedAudioDrainProgress",
+        "line": 36,
+        "length": 12
+      },
+      {
+        "name": "validateNativeDirectDolbyIdentity",
+        "line": 49,
+        "length": 11
+      },
+      {
+        "name": "nativeDirectFailureKeepsSource",
+        "line": 130,
+        "length": 5
+      }
+    ]
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineMedia.android.kt",
+    "lines": 1465,
+    "functions": [
+      {
+        "name": "deferReason",
+        "line": 85,
+        "length": 14
+      },
+      {
+        "name": "clearOperationError",
+        "line": 139,
+        "length": 3
+      },
+      {
+        "name": "retryIndex",
+        "line": 143,
+        "length": 6
+      },
+      {
+        "name": "command",
+        "line": 150,
+        "length": 6
+      },
+      {
+        "name": "commandEach",
+        "line": 157,
+        "length": 12
+      },
+      {
+        "name": "applyNotificationAction",
+        "line": 170,
+        "length": 12
+      },
+      {
+        "name": "awaitCommands",
+        "line": 183,
+        "length": 4
+      },
+      {
+        "name": "initialize",
+        "line": 188,
+        "length": 52
+      },
+      {
+        "name": "enqueueAll",
+        "line": 243,
+        "length": 6
+      },
+      {
+        "name": "enqueueBatch",
+        "line": 250,
+        "length": 40
+      },
+      {
+        "name": "pauseMany",
+        "line": 293,
+        "length": 4
+      },
+      {
+        "name": "pauseNow",
+        "line": 298,
+        "length": 25
+      },
+      {
+        "name": "pauseAll",
+        "line": 324,
+        "length": 4
+      },
+      {
+        "name": "pauseAllNow",
+        "line": 329,
+        "length": 30
+      },
+      {
+        "name": "resumeMany",
+        "line": 362,
+        "length": 4
+      },
+      {
+        "name": "resumeNow",
+        "line": 367,
+        "length": 19
+      },
+      {
+        "name": "resumeAll",
+        "line": 387,
+        "length": 4
+      },
+      {
+        "name": "resumeAllNow",
+        "line": 392,
+        "length": 26
+      },
+      {
+        "name": "removeMany",
+        "line": 421,
+        "length": 4
+      },
+      {
+        "name": "removeNow",
+        "line": 426,
+        "length": 36
+      },
+      {
+        "name": "setWifiOnlyNow",
+        "line": 465,
+        "length": 29
+      },
+      {
+        "name": "refreshAutoDownloads",
+        "line": 623,
+        "length": 110
+      },
+      {
+        "name": "kick",
+        "line": 1073,
+        "length": 3
+      },
+      {
+        "name": "refreshShownAttention",
+        "line": 1083,
+        "length": 3
+      },
+      {
+        "name": "refreshShownAttentionNow",
+        "line": 1087,
+        "length": 11
+      },
+      {
+        "name": "rebuildWakeSchedule",
+        "line": 1099,
+        "length": 22
+      },
+      {
+        "name": "onUnmeteredNetwork",
+        "line": 1122,
+        "length": 6
+      },
+      {
+        "name": "publishCompletedDownload",
+        "line": 1241,
+        "length": 67
+      },
+      {
+        "name": "logSubtitleFailure",
+        "line": 1309,
+        "length": 12
+      },
+      {
+        "name": "update",
+        "line": 1322,
+        "length": 9
+      },
+      {
+        "name": "commitLocked",
+        "line": 1332,
+        "length": 9
+      },
+      {
+        "name": "cleanupOrphanedArtifacts",
+        "line": 1359,
+        "length": 5
+      },
+      {
+        "name": "registerAutoDownloadRules",
+        "line": 1365,
+        "length": 29
+      },
+      {
+        "name": "persistAutoRules",
+        "line": 1411,
+        "length": 6
+      },
+      {
+        "name": "updateAutoRule",
+        "line": 1418,
+        "length": 6
+      },
+      {
+        "name": "rebuildAutoDownloadSchedule",
+        "line": 1425,
+        "length": 12
+      },
+      {
+        "name": "persistPolicy",
+        "line": 1438,
+        "length": 5
+      },
+      {
+        "name": "ensureStorageAvailable",
+        "line": 1444,
+        "length": 16
+      }
+    ]
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineDownloadScheduling.android.kt",
+    "lines": 48,
+    "functions": []
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineDownloadPlan.android.kt",
+    "lines": 109,
+    "functions": [
+      {
+        "name": "planOfflineEnqueue",
+        "line": 26,
+        "length": 58
+      }
+    ]
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineSourceResolution.android.kt",
+    "lines": 165,
+    "functions": [
+      {
+        "name": "resolveOfflineSourceUrl",
+        "line": 12,
+        "length": 32
+      },
+      {
+        "name": "resolvePlexOfflineSourceUrl",
+        "line": 45,
+        "length": 23
+      },
+      {
+        "name": "resolvePlexOfflineSubtitleUrl",
+        "line": 69,
+        "length": 24
+      },
+      {
+        "name": "resolveOfflineSubtitleUrl",
+        "line": 94,
+        "length": 18
+      },
+      {
+        "name": "queryParameter",
+        "line": 113,
+        "length": 18
+      },
+      {
+        "name": "offlineResumeValidator",
+        "line": 132,
+        "length": 11
+      },
+      {
+        "name": "requireAllowedOfflineTransferUrl",
+        "line": 152,
+        "length": 14
+      }
+    ]
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineArtifacts.android.kt",
+    "lines": 344,
+    "functions": [
+      {
+        "name": "hasSufficientOfflineStorage",
+        "line": 18,
+        "length": 10
+      },
+      {
+        "name": "missingOfflineStorageBytes",
+        "line": 29,
+        "length": 12
+      },
+      {
+        "name": "validateOfflineSubtitleContentLength",
+        "line": 47,
+        "length": 9
+      },
+      {
+        "name": "copyOfflineSubtitleBounded",
+        "line": 58,
+        "length": 21
+      },
+      {
+        "name": "retainedOfflineArtifactNames",
+        "line": 86,
+        "length": 23
+      },
+      {
+        "name": "cleanupOrphanedOfflineArtifacts",
+        "line": 110,
+        "length": 11
+      },
+      {
+        "name": "publishOfflineCompletionLocked",
+        "line": 145,
+        "length": 66
+      },
+      {
+        "name": "publishOfflineFileToTree",
+        "line": 235,
+        "length": 41
+      },
+      {
+        "name": "delete",
+        "line": 285,
+        "length": 33
+      },
+      {
+        "name": "deleteSubtitlePartFiles",
+        "line": 334,
+        "length": 8
+      }
+    ]
+  },
+  {
+    "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarIngestion.kt",
+    "lines": 1276,
+    "functions": [
+      {
+        "name": "discoverTmdbDomesticCandidates",
+        "line": 233,
+        "length": 20
+      },
+      {
+        "name": "discoverPlatformDomesticCandidates",
+        "line": 254,
+        "length": 29
+      },
+      {
+        "name": "collectShowSchedule",
+        "line": 284,
+        "length": 48
+      },
+      {
+        "name": "fetchTmdbSeason",
+        "line": 351,
+        "length": 10
+      },
+      {
+        "name": "fetchTvmazeEpisodes",
+        "line": 362,
+        "length": 15
+      },
+      {
+        "name": "lookupTvmazeId",
+        "line": 378,
+        "length": 5
+      },
+      {
+        "name": "captureSource",
+        "line": 384,
+        "length": 124
+      },
+      {
+        "name": "resolveIdentity",
+        "line": 509,
+        "length": 49
+      },
+      {
+        "name": "resolveTmdbIdentityByImdb",
+        "line": 559,
+        "length": 23
+      },
+      {
+        "name": "fetchBearerJson",
+        "line": 583,
+        "length": 17
+      },
+      {
+        "name": "logCalendarRejection",
+        "line": 601,
+        "length": 8
+      },
+      {
+        "name": "ocr",
+        "line": 610,
+        "length": 19
+      },
+      {
+        "name": "ocrReading",
+        "line": 630,
+        "length": 43
+      },
+      {
+        "name": "bridgeOcr",
+        "line": 697,
+        "length": 26
+      },
+      {
+        "name": "paddleOcr",
+        "line": 724,
+        "length": 75
+      },
+      {
+        "name": "ocrSpace",
+        "line": 800,
+        "length": 57
+      },
+      {
+        "name": "downloadPaddleResult",
+        "line": 867,
+        "length": 14
+      },
+      {
+        "name": "fetchText",
+        "line": 882,
+        "length": 34
+      },
+      {
+        "name": "fetchRenderedText",
+        "line": 917,
+        "length": 28
+      },
+      {
+        "name": "validateConfig",
+        "line": 946,
+        "length": 103
+      },
+      {
+        "name": "validateShowDefaults",
+        "line": 1050,
+        "length": 18
+      },
+      {
+        "name": "validateSource",
+        "line": 1069,
+        "length": 18
+      },
+      {
+        "name": "writeAtomically",
+        "line": 1096,
+        "length": 16
+      },
+      {
+        "name": "launchCalendarIngestionFromEnvironment",
+        "line": 1114,
+        "length": 61
+      },
+      {
+        "name": "nextRevision",
+        "line": 1194,
+        "length": 14
+      },
+      {
+        "name": "validateOcrProviders",
+        "line": 1225,
+        "length": 34
+      }
+    ]
+  },
+  {
+    "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarIngestionModels.kt",
+    "lines": 146,
+    "functions": []
+  },
+  {
+    "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarOcrResponses.kt",
+    "lines": 143,
+    "functions": []
+  },
+  {
+    "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarEvidenceGate.kt",
+    "lines": 138,
+    "functions": [
+      {
+        "name": "compile",
+        "line": 9,
+        "length": 106
+      },
+      {
+        "name": "mergeWithoutConflict",
+        "line": 119,
+        "length": 10
+      }
+    ]
+  },
+  {
+    "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarOcrConsensus.kt",
+    "lines": 301,
+    "functions": [
+      {
+        "name": "resolve",
+        "line": 14,
+        "length": 31
+      },
+      {
+        "name": "resolvePair",
+        "line": 46,
+        "length": 64
+      },
+      {
+        "name": "semanticallyCorroborated",
+        "line": 111,
+        "length": 18
+      },
+      {
+        "name": "fullReleaseDate",
+        "line": 130,
+        "length": 19
+      },
+      {
+        "name": "scheduleCadence",
+        "line": 158,
+        "length": 30
+      },
+      {
+        "name": "candidateMatchesCadence",
+        "line": 189,
+        "length": 23
+      },
+      {
+        "name": "dailyGridCoordinates",
+        "line": 216,
+        "length": 52
+      }
+    ]
+  },
+  {
+    "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarSourceDiscovery.kt",
+    "lines": 617,
+    "functions": [
+      {
+        "name": "discoverCalendarShowsFromHtml",
+        "line": 51,
+        "length": 74
+      },
+      {
+        "name": "discoverCandidateCalendarShowsFromHtml",
+        "line": 131,
+        "length": 105
+      },
+      {
+        "name": "addEvidence",
+        "line": 141,
+        "length": 11
+      },
+      {
+        "name": "visit",
+        "line": 172,
+        "length": 30
+      },
+      {
+        "name": "matchDomesticCandidate",
+        "line": 237,
+        "length": 22
+      },
+      {
+        "name": "extractCalendarArchiveTitle",
+        "line": 284,
+        "length": 28
+      },
+      {
+        "name": "isUsableCalendarSource",
+        "line": 324,
+        "length": 21
+      },
+      {
+        "name": "discoverCalendarArchiveJson",
+        "line": 363,
+        "length": 52
+      },
+      {
+        "name": "visit",
+        "line": 372,
+        "length": 40
+      },
+      {
+        "name": "collectJsonImageUrls",
+        "line": 416,
+        "length": 66
+      },
+      {
+        "name": "visit",
+        "line": 429,
+        "length": 39
+      },
+      {
+        "name": "resolveHttpsUrl",
+        "line": 483,
+        "length": 10
+      },
+      {
+        "name": "isLikelyCalendarMediaUrl",
+        "line": 494,
+        "length": 6
+      },
+      {
+        "name": "extractCalendarImages",
+        "line": 554,
+        "length": 22
+      }
+    ]
+  },
+  {
+    "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarIngestionPolicy.kt",
+    "lines": 61,
+    "functions": []
+  },
+  {
+    "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/Application.kt",
+    "lines": 1432,
+    "functions": [
+      {
+        "name": "main",
+        "line": 133,
+        "length": 26
+      },
+      {
+        "name": "resolveServerHost",
+        "line": 160,
+        "length": 8
+      },
+      {
+        "name": "watchTogetherModule",
+        "line": 169,
+        "length": 1264
+      }
+    ]
+  },
+  {
+    "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchConnectionGate.kt",
+    "lines": 116,
+    "functions": [
+      {
+        "name": "promote",
+        "line": 77,
+        "length": 6
+      },
+      {
+        "name": "promoteLocked",
+        "line": 84,
+        "length": 8
+      },
+      {
+        "name": "close",
+        "line": 93,
+        "length": 14
+      },
+      {
+        "name": "decrement",
+        "line": 109,
+        "length": 7
+      }
+    ]
+  },
+  {
+    "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchAccountAuthentication.kt",
+    "lines": 221,
+    "functions": [
+      {
+        "name": "watchAuthTransientRetryDelayMs",
+        "line": 69,
+        "length": 9
+      },
+      {
+        "name": "authenticateWatchConnection",
+        "line": 80,
+        "length": 54
+      }
+    ]
+  },
+  {
+    "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchRoomMessaging.kt",
+    "lines": 367,
+    "functions": [
+      {
+        "name": "sendMessage",
+        "line": 117,
+        "length": 11
+      },
+      {
+        "name": "deliverBroadcast",
+        "line": 144,
+        "length": 13
+      },
+      {
+        "name": "broadcastTo",
+        "line": 159,
+        "length": 11
+      },
+      {
+        "name": "schedulePresenceBroadcast",
+        "line": 175,
+        "length": 24
+      },
+      {
+        "name": "sendError",
+        "line": 200,
+        "length": 14
+      },
+      {
+        "name": "finishPlaylistMutation",
+        "line": 215,
+        "length": 34
+      },
+      {
+        "name": "broadcastRoomUpdate",
+        "line": 251,
+        "length": 38
+      },
+      {
+        "name": "broadcastChat",
+        "line": 320,
+        "length": 8
+      },
+      {
+        "name": "broadcastReaction",
+        "line": 333,
+        "length": 16
+      },
+      {
+        "name": "broadcastSync",
+        "line": 350,
+        "length": 18
+      }
+    ]
+  },
+  {
+    "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchConnectionLifecycle.kt",
+    "lines": 100,
+    "functions": [
+      {
+        "name": "cleanupSocket",
+        "line": 12,
+        "length": 46
+      },
+      {
+        "name": "scheduleHostHandover",
+        "line": 64,
+        "length": 37
+      }
+    ]
+  },
+  {
+    "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchMessageValidation.kt",
+    "lines": 58,
+    "functions": [
+      {
+        "name": "rememberRemovedAccountUserId",
+        "line": 31,
+        "length": 11
+      },
+      {
+        "name": "takeGraphemesWithinUtf8Bytes",
+        "line": 48,
+        "length": 11
+      }
+    ]
+  },
+  {
+    "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/NativeDirectPacingMetrics.kt",
+    "lines": 88,
+    "functions": [
+      {
+        "name": "recordPump",
+        "line": 36,
+        "length": 4
+      },
+      {
+        "name": "recordAudioBackpressure",
+        "line": 41,
+        "length": 3
+      },
+      {
+        "name": "recordRenderedFrame",
+        "line": 45,
+        "length": 15
+      },
+      {
+        "name": "resetRenderAnchor",
+        "line": 61,
+        "length": 3
+      },
+      {
+        "name": "beginPublication",
+        "line": 65,
+        "length": 5
+      },
+      {
+        "name": "finishPublication",
+        "line": 71,
+        "length": 3
+      },
+      {
+        "name": "resetMedia",
+        "line": 75,
+        "length": 9
+      }
+    ]
+  },
+  {
+    "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/NativeDirectPacingMetricsTest.kt",
+    "lines": 77,
+    "functions": [
+      {
+        "name": "untrustedRenderBreaksGapMeasurementButStillCountsFrame",
+        "line": 10,
+        "length": 11
+      },
+      {
+        "name": "seekResetsAnchorWithoutErasingSessionCounters",
+        "line": 23,
+        "length": 11
+      },
+      {
+        "name": "runtimeRecoveryRetainsPumpStallEvidenceAndResetsMediaCounters",
+        "line": 36,
+        "length": 22
+      },
+      {
+        "name": "publicationThrottlesAtBoundaryAndOnlyClearsWindowMaximum",
+        "line": 60,
+        "length": 17
+      }
+    ]
+  }
+]

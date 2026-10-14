@@ -23,6 +23,7 @@ struct RuntimeState {
     std::string lastErrorCategory;
     std::string lastErrorDetail;
     bool firstVideoFrameRendered = false;
+    bool surfaceAttached = false;
     std::string videoDecoder;
     std::string audioDecoder;
     jobject listener = nullptr;
@@ -131,6 +132,12 @@ void clearSurface(JNIEnv* env, PlayerRef* value) {
         return;
     }
     value->player->updateNativeSurface(nullptr, 0, 0);
+    {
+        std::lock_guard<std::mutex> lock(value->runtime->mutex);
+        value->runtime->surfaceAttached = false;
+        value->runtime->firstVideoFrameRendered = false;
+        ++value->runtime->eventRevision;
+    }
     env->DeleteGlobalRef(value->surface);
     value->surface = nullptr;
 }
@@ -195,7 +202,7 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeCreate(JNIEnv*, jclass) {
             std::lock_guard<std::mutex> lock(runtime->mutex);
             if (runtime->closed) return false;
             if (event.category == "render.video" && event.detail == "1st_frame") {
-                runtime->firstVideoFrameRendered = true;
+                runtime->firstVideoFrameRendered = runtime->surfaceAttached;
             } else if (event.category == "decoder.video" && event.error == 0 &&
                        event.detail != "open" && event.detail != "size") {
                 runtime->videoDecoder = event.detail;
@@ -329,6 +336,23 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeMediaStatus(JNIEnv*, jclass, jlong ptr)
     auto* value = player(ptr);
     return value == nullptr ? static_cast<jint>(MediaStatus::Invalid)
                             : static_cast<jint>(value->mediaStatus());
+}
+
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_mediadevkit_sdk_MDKPlayer_nativePlaybackSnapshot(JNIEnv* env, jclass, jlong ptr) {
+    auto* value = player(ptr);
+    if (value == nullptr) return env->NewDoubleArray(0);
+    const jdouble fields[] = {
+        static_cast<jdouble>(static_cast<jint>(value->mediaStatus())),
+        static_cast<jdouble>(value->position()),
+        static_cast<jdouble>(value->mediaInfo().duration),
+        static_cast<jdouble>(value->buffered()),
+        static_cast<jdouble>(value->state()),
+        static_cast<jdouble>(value->playbackRate()),
+    };
+    auto result = env->NewDoubleArray(6);
+    if (result != nullptr) env->SetDoubleArrayRegion(result, 0, 6, fields);
+    return result;
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -609,6 +633,7 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeSetSurface(
     }
     if (surface == nullptr) {
         clearSurface(env, value);
+        notifyRuntimeEvent(value->runtime);
         return;
     }
     if (value->surface != nullptr && env->IsSameObject(value->surface, surface)) {
@@ -617,5 +642,12 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeSetSurface(
     }
     clearSurface(env, value);
     value->surface = env->NewGlobalRef(surface);
+    {
+        std::lock_guard<std::mutex> lock(value->runtime->mutex);
+        value->runtime->surfaceAttached = value->surface != nullptr;
+        value->runtime->firstVideoFrameRendered = false;
+        ++value->runtime->eventRevision;
+    }
     value->player->updateNativeSurface(value->surface, width, height);
+    notifyRuntimeEvent(value->runtime);
 }

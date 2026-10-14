@@ -1,0 +1,182 @@
+{
+  "date": "2026-10-14",
+  "scope": "Split NativeDirect playback, offline downloads, calendar ingestion, and watch-server responsibilities",
+  "new_production_files": 18,
+  "new_test_files": 1,
+  "files": [
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectYPlayer.kt",
+      "lines_before": 3824,
+      "lines_after": 3424,
+      "sha256": "c722b593079844adadd68e07504b786ebc2996dd0c1e5a6c648776eb28c6ae39"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/NativeDirectMediaFormats.kt",
+      "lines_before": null,
+      "lines_after": 188,
+      "sha256": "2dfedacd9c0550441330d8a5315f7c3bfeb5718e13f3bceac561853dd70c1cc6"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/NativeDirectPlaybackPolicy.kt",
+      "lines_before": null,
+      "lines_after": 206,
+      "sha256": "b6cae1f3e154fa39669df20ff09069b25cb84eed758a38d6c9b0211c7e8caafa"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineMedia.android.kt",
+      "lines_before": 2099,
+      "lines_after": 1465,
+      "sha256": "1676b8b49a87d8e8daffbbfa1573a20dea8c912e70e4df980e7d6eb7e1183e69"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineDownloadScheduling.android.kt",
+      "lines_before": null,
+      "lines_after": 48,
+      "sha256": "1616ce1381c046abdbf178499fd2147f60d30159d9f8f2e7cb923b4b7ddd6421"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineDownloadPlan.android.kt",
+      "lines_before": null,
+      "lines_after": 109,
+      "sha256": "b4bceb55de9c7b12b572ebd76ac7260a4299b2098a57949b45fdddab6621dbfd"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineSourceResolution.android.kt",
+      "lines_before": null,
+      "lines_after": 165,
+      "sha256": "a9f399af0f96a8277b21cbb5d2739685c1140c410db4bd703c4661124fa27a51"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineArtifacts.android.kt",
+      "lines_before": null,
+      "lines_after": 344,
+      "sha256": "33079281f267f60432e9204b6df86bfab78aaeff3d1df04a5c3f96f952360b74"
+    },
+    {
+      "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarIngestion.kt",
+      "lines_before": 2660,
+      "lines_after": 1276,
+      "sha256": "dcc57ba4eca431ab509f84565a7c6f6a3edfc93c4352284a9320b0112599438d"
+    },
+    {
+      "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarIngestionModels.kt",
+      "lines_before": null,
+      "lines_after": 146,
+      "sha256": "9f1caa9ad3dc5af12e07e0d4d543526be6457ae6da74b99138de00ee01b9c765"
+    },
+    {
+      "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarOcrResponses.kt",
+      "lines_before": null,
+      "lines_after": 143,
+      "sha256": "e3e2c8aee2bd40fec58c7a349523db9377b1dbc987cc594b570e86f0eaf77fd3"
+    },
+    {
+      "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarEvidenceGate.kt",
+      "lines_before": null,
+      "lines_after": 138,
+      "sha256": "a40d66b08dee177b90c7ec6c014eb3a8514e795814efecaaf2386885dea11ebd"
+    },
+    {
+      "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarOcrConsensus.kt",
+      "lines_before": null,
+      "lines_after": 301,
+      "sha256": "6d9ff76d5fe1c31a78b663d11b1469b9b8f9b9fe5abf0a1f324e3f013730fe0a"
+    },
+    {
+      "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarSourceDiscovery.kt",
+      "lines_before": null,
+      "lines_after": 617,
+      "sha256": "2014007ad7704d2312814db5553902070e568e72943bb80b356202f099af4db0"
+    },
+    {
+      "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarIngestionPolicy.kt",
+      "lines_before": null,
+      "lines_after": 61,
+      "sha256": "c0ef110e01d828c201631e19e61bb6e8cb89188f37c2d66d50ea7c9d4e4be36d"
+    },
+    {
+      "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/Application.kt",
+      "lines_before": 2231,
+      "lines_after": 1432,
+      "sha256": "1a7c60e9808568ab42bf9772c4c3e3673478b56809cad7d3f0260dd9e5a3653a"
+    },
+    {
+      "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchConnectionGate.kt",
+      "lines_before": null,
+      "lines_after": 116,
+      "sha256": "e45489f3372b238699b936c72abde7ebf404dcf1452643ae62accf1579c0d00e"
+    },
+    {
+      "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchAccountAuthentication.kt",
+      "lines_before": null,
+      "lines_after": 221,
+      "sha256": "8c9f07663a0ec9a1dab59a0a6bece89563bba8e33c843d7b6991ccc9f01be4c6"
+    },
+    {
+      "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchRoomMessaging.kt",
+      "lines_before": null,
+      "lines_after": 367,
+      "sha256": "b8e2b809ae79d8d457b7431389729c78f24f89e5cbe00f9b27cac9d3a33ede3b"
+    },
+    {
+      "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchConnectionLifecycle.kt",
+      "lines_before": null,
+      "lines_after": 100,
+      "sha256": "50ea42e765656074f5b1b8572ad01eab78035d3a20ecbd0bc6b7ced2f510faa5"
+    },
+    {
+      "path": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchMessageValidation.kt",
+      "lines_before": null,
+      "lines_after": 58,
+      "sha256": "9d82ec18066991093ee7643d19c2247aaf59362b8ac71df75802d843fd44ca67"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/NativeDirectPacingMetrics.kt",
+      "lines_before": null,
+      "lines_after": 88,
+      "sha256": "443ca3aabde93b57d72f0ddfa19c769e98e75069b31d19a3abc539d35ff9a65d"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/NativeDirectPacingMetricsTest.kt",
+      "lines_before": null,
+      "lines_after": 77,
+      "sha256": "d96f1ca65ee3a91dc3b78af4f767a644aa8a8d555ecb2cdb2b1ebfe267be845d"
+    }
+  ],
+  "prepareCurrent_lines": {
+    "before": 319,
+    "after": 136,
+    "baseline_updated": true
+  },
+  "validation": {
+    "android": {
+      "tests": 773,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 137
+    },
+    "server": {
+      "tests": 260,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 36
+    }
+  },
+  "android_compilation": "passed",
+  "tv_compilation": "passed",
+  "scoped_ktlint": "passed after forced rerun",
+  "function_size_gate": "passed, including 18 untracked production files",
+  "physical_device_validation": "not performed",
+  "attempt_notes": [
+    "Initial parallel compilation exhausted the 4 GB Kotlin compiler heap; serial retry with a 6 GB heap passed both Android compilation tasks.",
+    "The serial run passed all tests before lint surfaced stale Exo/MPV findings; a forced scoped lint rerun completed successfully."
+  ],
+  "logs": {
+    "parallel_attempt": "../module-split-regression.log",
+    "serial_compilation_and_tests": "../module-split-regression-serial.log",
+    "scoped_lint": "../module-split-lint-final.log",
+    "function_sizes": "function-size-check.log"
+  }
+}

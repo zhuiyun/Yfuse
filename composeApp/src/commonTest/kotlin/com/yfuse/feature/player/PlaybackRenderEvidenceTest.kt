@@ -117,11 +117,18 @@ class PlaybackRenderEvidenceTest {
                 videoOutput = "视频 Surface 已释放",
                 videoReadiness = PlaybackOutputReadiness.Released,
                 dolbyVisionOutput = false,
+                dolbyVisionRpuApplied = false,
+                dolbyVisionEnhancementLayerComposed = false,
                 outputEvidence =
                     playing.outputEvidence.copy(
                         videoReadiness = PlaybackOutputReadiness.Released,
                         videoConfidence = PlaybackEvidenceConfidence.Confirmed,
                         outputDynamicRange = "",
+                        dynamicRangeOutputMode = PlaybackDynamicRangeOutputMode.Unknown,
+                        dolbyVisionRpuRendered = false,
+                        dolbyVisionFelComposed = false,
+                        tunneledPlayback = false,
+                        secureDecoder = false,
                     ),
             ),
             playing.withVideoOutputReleased("视频 Surface 已释放"),
@@ -136,6 +143,7 @@ class PlaybackRenderEvidenceTest {
                 audioReadiness = PlaybackOutputReadiness.Released,
                 immersiveAudioCarrierOutput = false,
                 dolbyAtmosOutput = false,
+                dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
                 spatialAudioOutput = false,
                 headTrackingAvailable = false,
                 outputEvidence =

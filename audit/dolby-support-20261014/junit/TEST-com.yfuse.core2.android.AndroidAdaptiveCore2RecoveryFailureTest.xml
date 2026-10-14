@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryFailureTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-10-14T04:36:11.969Z" hostname="DESKTOP-HM2J0FM" time="0.019">
+  <properties/>
+  <testcase name="Dolby Vision has no software recovery unless another executor can carry it" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryFailureTest" time="0.019"/>
+  <testcase name="the Dolby guard blocks software video decode only" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryFailureTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

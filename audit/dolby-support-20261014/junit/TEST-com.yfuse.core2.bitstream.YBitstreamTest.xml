@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.bitstream.YBitstreamTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-10-14T04:36:12.316Z" hostname="DESKTOP-HM2J0FM" time="0.002">
+  <properties/>
+  <testcase name="HEVC AnnexB scan exposes parameter sets and Dolby evidence" classname="com.yfuse.core2.bitstream.YBitstreamTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

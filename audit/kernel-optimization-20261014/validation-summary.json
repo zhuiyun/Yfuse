@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-14",
+  "gradle": {
+    "status": "passed",
+    "log": "regression-tests.log",
+    "modules": {
+      "phoneShared": {
+        "suites": 56,
+        "tests": 276,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tvShared": {
+        "suites": 22,
+        "tests": 118,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "mdk_arm64_jni": "passed",
+    "include_mdk": true,
+    "native_only_runtime": false
+  },
+  "portable_ycore_abi": {
+    "status": "passed",
+    "cases": 20,
+    "compiler": "Android NDK 29 clang++",
+    "target": "aarch64-linux-android28",
+    "execution_device": "Samsung SM-G973U / Android 9",
+    "exit_code": 0,
+    "temporary_remote_binary_removed": true,
+    "log": "portable-tests.log"
+  },
+  "startup_baseline_script": {
+    "status": "passed",
+    "tests": 2,
+    "log": "baseline-tool-tests.log"
+  },
+  "function_size_gate": {
+    "status": "passed",
+    "log": "function-size.log"
+  },
+  "git_diff_check": "passed",
+  "apk_built": false,
+  "version_changed": false,
+  "real_media_benchmark_run": false,
+  "limitations": [
+    "No measured playback speed, power or long-duration stability improvement.",
+    "Portable ABI tests do not validate Harmony OS integration.",
+    "No new complete P7 FEL reconstruction, TrueHD Atmos receiver verification or MDK Dolby display certification."
+  ]
+}

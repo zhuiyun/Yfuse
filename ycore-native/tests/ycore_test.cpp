@@ -459,6 +459,35 @@ void test_new_media_clears_tracks_and_output_evidence() {
     ycore_session_destroy(session);
 }
 
+void test_detached_output_cannot_reuse_cached_render_evidence() {
+    auto *session = ycore_session_create();
+    FakeEngine engine;
+    const auto value = registration("Engine", YCORE_ROUTE_SYSTEM, 1, YCORE_CAP_REMOTE_URL, &engine);
+    assert(ycore_session_register_engine(session, &value) == YCORE_OK);
+    int output = 1;
+    assert(ycore_session_set_video_output(session, &output) == YCORE_OK);
+    auto media = request();
+    assert(ycore_session_open(session, &media) == YCORE_OK);
+    engine.state.video_output_verified = 1;
+    engine.state.dolby_vision_output_verified = 1;
+    engine.state.audio_output_verified = 1;
+    engine.state.av_sync_offset_ms = 12;
+    assert(ycore_session_tick(session) == YCORE_OK);
+    assert(ycore_session_set_video_output(session, nullptr) == YCORE_OK);
+    assert(ycore_session_tick(session) == YCORE_OK);
+    ycore_state_t state{};
+    state.struct_size = sizeof(state);
+    state.abi_version = YCORE_ABI_VERSION;
+    assert(ycore_session_get_state(session, &state) == YCORE_OK);
+    assert(state.video_output_verified == 0 && state.dolby_vision_output_verified == 0);
+    assert(state.audio_output_verified == 1 && state.av_sync_offset_ms == INT64_MIN);
+    assert(ycore_session_set_video_output(session, &output) == YCORE_OK);
+    assert(ycore_session_tick(session) == YCORE_OK);
+    assert(ycore_session_get_state(session, &state) == YCORE_OK);
+    assert(state.video_output_verified == 1);
+    ycore_session_destroy(session);
+}
+
 void test_rejected_speed_does_not_replace_the_last_accepted_value() {
     auto *session = ycore_session_create();
     FakeEngine engine;
@@ -584,6 +613,7 @@ int main() {
     test_initialization_failure_tries_the_next_backend();
     test_track_restore_failure_is_reported();
     test_new_media_clears_tracks_and_output_evidence();
+    test_detached_output_cannot_reuse_cached_render_evidence();
     test_rejected_speed_does_not_replace_the_last_accepted_value();
     test_rejected_output_does_not_replace_the_surface_restored_on_handover();
     test_retry_does_not_reopen_the_backend_it_just_retried();

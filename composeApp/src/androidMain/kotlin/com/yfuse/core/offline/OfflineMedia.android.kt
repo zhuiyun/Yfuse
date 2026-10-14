@@ -3,27 +3,16 @@ package com.yfuse.core.offline
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.net.Uri
-import android.provider.DocumentsContract
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequest
-import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
-import androidx.work.WorkRequest
 import com.russhwolf.settings.Settings
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.runCatchingCancellable
 import com.yfuse.core.logging.AppLog
-import com.yfuse.core.logging.redactDiagnosticText
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.DEFAULT_EMBY_USER_AGENT
-import com.yfuse.core.network.EmbyStream
-import com.yfuse.core.network.validateEmbyServerEndpoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,509 +32,11 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
-import java.io.OutputStream
 import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLDecoder
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import java.util.concurrent.TimeUnit
 
 internal lateinit var offlineApplicationContext: Context
 
-internal const val OFFLINE_STORAGE_RESERVE_BYTES = 256L * 1024L * 1024L
-internal const val OFFLINE_WAKE_WORK_NAME = "yfuse.offline.download.wake.v1"
-internal const val OFFLINE_AUTO_SYNC_WORK_NAME = "yfuse.offline.auto-sync.v1"
-internal const val MAX_OFFLINE_SUBTITLE_BYTES = 16L * 1024L * 1024L
-internal const val OFFLINE_PROGRESS_CHECKPOINT_BYTES = 8L * 1024L * 1024L
-
-private const val AUTO_SYNC_INTERVAL_HOURS = 6L
 private const val MAX_KNOWN_AUTO_EPISODES = 2_000
-
-internal fun offlineWakeRequest(
-    wifiOnly: Boolean,
-    initialDelayMs: Long = 0L,
-): OneTimeWorkRequest =
-    OneTimeWorkRequest
-        .Builder(OfflineDownloadWorker::class.java)
-        .setConstraints(
-            Constraints
-                .Builder()
-                .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
-                .build(),
-        ).setInitialDelay(initialDelayMs.coerceAtLeast(0L), TimeUnit.MILLISECONDS)
-        .setBackoffCriteria(
-            BackoffPolicy.EXPONENTIAL,
-            WorkRequest.MIN_BACKOFF_MILLIS,
-            TimeUnit.MILLISECONDS,
-        ).addTag(OFFLINE_WAKE_WORK_NAME)
-        .build()
-
-internal fun offlineAutoSyncRequest(
-    wifiOnly: Boolean,
-    chargingOnly: Boolean = false,
-): PeriodicWorkRequest =
-    PeriodicWorkRequest
-        .Builder(OfflineDownloadWorker::class.java, AUTO_SYNC_INTERVAL_HOURS, TimeUnit.HOURS)
-        .setConstraints(
-            Constraints
-                .Builder()
-                .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
-                .setRequiresCharging(chargingOnly)
-                .build(),
-        ).addTag(OFFLINE_AUTO_SYNC_WORK_NAME)
-        .build()
-
-internal fun hasSufficientOfflineStorage(
-    usableSpace: Long,
-    requiredBytes: Long,
-    reserveBytes: Long = OFFLINE_STORAGE_RESERVE_BYTES,
-): Boolean {
-    val usable = usableSpace.coerceAtLeast(0L)
-    val reserve = reserveBytes.coerceAtLeast(0L)
-    val required = requiredBytes.coerceAtLeast(0L)
-    return usable >= reserve && required <= usable - reserve
-}
-
-internal fun missingOfflineStorageBytes(
-    usableSpace: Long,
-    requiredBytes: Long,
-    reserveBytes: Long = OFFLINE_STORAGE_RESERVE_BYTES,
-): Long {
-    val usable = usableSpace.coerceAtLeast(0L)
-    val reserve = reserveBytes.coerceAtLeast(0L)
-    val required = requiredBytes.coerceAtLeast(0L)
-    if (required > Long.MAX_VALUE - reserve) return Long.MAX_VALUE
-    val totalRequired = required + reserve
-    return (totalRequired - usable).coerceAtLeast(0L)
-}
-
-internal fun shouldPersistOfflineProgress(
-    lastCheckpointBytes: Long,
-    downloadedBytes: Long,
-): Boolean = downloadedBytes - lastCheckpointBytes >= OFFLINE_PROGRESS_CHECKPOINT_BYTES
-
-internal fun sameOfflineMediaSource(
-    itemId: String,
-    first: String?,
-    second: String?,
-): Boolean = (first ?: itemId) == (second ?: itemId)
-
-internal fun isOfflineArtifactName(name: String): Boolean =
-    name.endsWith(".media") ||
-        name.endsWith(".part") ||
-        name.endsWith(".srt")
-
-internal fun validateOfflineSubtitleContentLength(
-    contentLength: Long,
-    maxBytes: Long = MAX_OFFLINE_SUBTITLE_BYTES,
-) {
-    require(maxBytes >= 0L) { "字幕大小上限无效" }
-    if (contentLength >= 0L && contentLength > maxBytes) {
-        throw OfflineSubtitleTooLargeException(maxBytes)
-    }
-}
-
-/** Copies an untrusted subtitle response without allowing an unknown-length body to fill storage. */
-internal suspend fun copyOfflineSubtitleBounded(
-    input: InputStream,
-    output: OutputStream,
-    maxBytes: Long = MAX_OFFLINE_SUBTITLE_BYTES,
-    isCurrent: () -> Boolean = { true },
-): Long? {
-    require(maxBytes >= 0L) { "字幕大小上限无效" }
-    var writtenBytes = 0L
-    val buffer = ByteArray(32 * 1024)
-    while (true) {
-        if (!isCurrent()) return null
-        val read = readOfflineChunk(input, buffer)
-        if (read < 0) return writtenBytes
-        if (!isCurrent()) return null
-        if (read.toLong() > maxBytes - writtenBytes) {
-            throw OfflineSubtitleTooLargeException(maxBytes)
-        }
-        offlineStorageWrite { output.write(buffer, 0, read) }
-        writtenBytes += read
-    }
-}
-
-internal fun offlineArtifactPrefix(value: String) =
-    value.encodeToByteArray().joinToString("") { byte ->
-        "%02x".format(byte.toInt() and 0xff)
-    }
-
-/** Exact artifact names that may still be referenced after process-death recovery. */
-internal fun retainedOfflineArtifactNames(
-    directory: File,
-    items: List<OfflineMedia>,
-): Set<String> {
-    val root = directory.absoluteFile
-    return buildSet {
-        items.forEach { item ->
-            val prefix = offlineArtifactPrefix(item.id)
-            add("$prefix.part")
-            add("$prefix.media")
-            add("$prefix.srt")
-            add("$prefix.${item.downloadRevision}.media")
-            add("$prefix.${item.downloadRevision}.subtitle.part")
-
-            // Re-enqueueing an already-completed variant advances the generation while retaining
-            // the verified file. Preserve that exact indexed path as well as the current target.
-            listOfNotNull(item.localPath, item.subtitlePath).forEach { path ->
-                val indexed = File(path).absoluteFile
-                if (indexed.parentFile == root) add(indexed.name)
-            }
-        }
-    }
-}
-
-internal fun cleanupOrphanedOfflineArtifacts(
-    directory: File,
-    items: List<OfflineMedia>,
-) {
-    val retainedNames = retainedOfflineArtifactNames(directory, items)
-    directory
-        .listFiles()
-        ?.filter(File::isFile)
-        ?.filter { it.name !in retainedNames && isOfflineArtifactName(it.name) }
-        ?.forEach(File::delete)
-}
-
-internal data class OfflineEnqueuePlan(
-    val item: OfflineMedia,
-    val sourceChanged: Boolean,
-)
-
-internal fun planOfflineEnqueue(
-    old: OfflineMedia?,
-    request: OfflineDownloadRequest,
-    nowMs: Long,
-): OfflineEnqueuePlan {
-    val sourceChanged =
-        old != null &&
-            !sameOfflineDownloadVariant(
-                itemId = request.itemId,
-                oldSourceId = old.mediaSourceId,
-                newSourceId = request.mediaSourceId,
-                oldQuality = old.quality,
-                newQuality = request.quality,
-                oldSubtitleIndex = old.subtitleStreamIndex,
-                newSubtitleIndex = request.subtitleStreamIndex,
-            )
-    val nextRevision =
-        old?.downloadRevision?.let {
-            if (it == Long.MAX_VALUE) 0L else it + 1L
-        } ?: 1L
-    return OfflineEnqueuePlan(
-        item =
-            OfflineMedia(
-                id = "${request.serverId}#${request.itemId}",
-                serverId = request.serverId,
-                itemId = request.itemId,
-                title = request.title,
-                mediaSourceId = request.mediaSourceId,
-                quality = request.quality,
-                subtitleStreamIndex = request.subtitleStreamIndex,
-                subtitleCodec = request.subtitleCodec,
-                subtitleLanguage = request.subtitleLanguage,
-                seriesId = request.seriesId,
-                seasonId = request.seasonId,
-                automaticallyDownloaded = request.automaticallyDownloaded,
-                legacySourceUrl = null,
-                posterUrl = null,
-                localPath = old?.localPath.takeUnless { sourceChanged },
-                subtitlePath = old?.subtitlePath.takeUnless { sourceChanged },
-                downloadedBytes = old?.downloadedBytes?.takeUnless { sourceChanged } ?: 0L,
-                totalBytes =
-                    old?.totalBytes?.takeUnless { sourceChanged }
-                        ?: request.estimatedBytes?.coerceAtLeast(0L)
-                        ?: 0L,
-                downloadRevision = nextRevision,
-                resumeValidator = old?.resumeValidator.takeUnless { sourceChanged },
-                status =
-                    if (!sourceChanged && old?.playable == true) {
-                        DownloadStatus.Completed
-                    } else {
-                        DownloadStatus.Queued
-                    },
-                updatedAtEpochMs = nowMs,
-                addedOrder = old?.addedOrder ?: 0L,
-            ),
-        sourceChanged = sourceChanged,
-    )
-}
-
-actual fun createOfflineMediaManager(
-    settings: Settings,
-    registry: ServerRegistry,
-    repository: EmbyRepository,
-    userAgent: () -> String,
-): OfflineMediaManager =
-    AndroidOfflineMediaManager(
-        context = offlineApplicationContext,
-        settings = settings,
-        registry = registry,
-        repository = repository,
-        userAgent = userAgent,
-    )
-
-internal fun sanitizeLegacyOfflineItem(item: OfflineMedia): OfflineMedia =
-    item.copy(
-        mediaSourceId = item.mediaSourceId ?: item.legacySourceUrl.queryParameter("MediaSourceId"),
-        legacySourceUrl = null,
-        // The download UI never consumes this field. Dropping it also removes legacy api_key
-        // query parameters from the persisted index.
-        posterUrl = null,
-        error = item.error?.let(::redactDiagnosticText),
-    )
-
-internal fun resolveOfflineSourceUrl(
-    item: OfflineMedia,
-    registry: ServerRegistry,
-): String {
-    val server =
-        registry.serverById(item.serverId)
-            ?: error("服务器已移除，无法继续下载")
-    require(server.kind != MediaServerKind.Plex) {
-        "Plex 离线源必须先通过服务器协商解析"
-    }
-    // The user rides along as it does for playback, so the transfer can present the same Emby
-    // identity (see [openOfflineTransfer]); a server that serves the player serves the download.
-    return if (item.quality == OfflineDownloadQuality.Original) {
-        EmbyStream.directPlay(
-            baseUrl = server.baseUrl,
-            itemId = item.itemId,
-            token = server.accessToken,
-            mediaSourceId = item.mediaSourceId,
-            userId = server.userId,
-        )
-    } else {
-        EmbyStream.progressiveTranscode(
-            baseUrl = server.baseUrl,
-            itemId = item.itemId,
-            token = server.accessToken,
-            maxWidth = requireNotNull(item.quality.maxWidth),
-            videoBitrate = requireNotNull(item.quality.videoBitrateBps),
-            mediaSourceId = item.mediaSourceId,
-            userId = server.userId,
-        )
-    }
-}
-
-private suspend fun resolvePlexOfflineSourceUrl(
-    item: OfflineMedia,
-    server: com.yfuse.core.model.SavedServer,
-    repository: EmbyRepository,
-): String {
-    require(item.quality == OfflineDownloadQuality.Original) {
-        "Plex 离线下载当前仅支持原画；转码下载需要 Plex Downloads 转换任务"
-    }
-    val playback =
-        repository
-            .playbackInfo(
-                server = server,
-                itemId = item.itemId,
-                mediaSourceId = item.mediaSourceId,
-                playSessionId = "offline-${item.id}",
-            ).getOrElse { throw it }
-    val source =
-        playback.MediaSources.firstOrNull { candidate ->
-            item.mediaSourceId == null || candidate.Id == item.mediaSourceId
-        } ?: error("Plex 中找不到所选媒体版本")
-    return source.DirectStreamUrl?.takeIf(String::isNotBlank)
-        ?: error("Plex 未返回可下载的原始文件地址")
-}
-
-private suspend fun resolvePlexOfflineSubtitleUrl(
-    item: OfflineMedia,
-    server: com.yfuse.core.model.SavedServer,
-    repository: EmbyRepository,
-): String? {
-    val index = item.subtitleStreamIndex ?: return null
-    val playback =
-        repository
-            .playbackInfo(
-                server = server,
-                itemId = item.itemId,
-                mediaSourceId = item.mediaSourceId,
-                playSessionId = "offline-subtitle-${item.id}",
-            ).getOrElse { throw it }
-    val source =
-        playback.MediaSources.firstOrNull { candidate ->
-            item.mediaSourceId == null || candidate.Id == item.mediaSourceId
-        } ?: error("Plex 中找不到所选媒体版本")
-    return source.MediaStreams
-        .orEmpty()
-        .firstOrNull { it.Index == index && it.Type.equals("Subtitle", ignoreCase = true) }
-        ?.DeliveryUrl
-        ?.takeIf(String::isNotBlank)
-}
-
-internal fun resolveOfflineSubtitleUrl(
-    item: OfflineMedia,
-    registry: ServerRegistry,
-): String? {
-    val index = item.subtitleStreamIndex ?: return null
-    val server =
-        registry.serverById(item.serverId)
-            ?: error("服务器已移除，无法继续下载字幕")
-    return EmbyStream.subtitle(
-        baseUrl = server.baseUrl,
-        itemId = item.itemId,
-        mediaSourceId = item.mediaSourceId ?: item.itemId,
-        streamIndex = index,
-        token = server.accessToken,
-        // SRT is broadly readable and asks Emby to convert embedded text subtitles.
-        format = "srt",
-    )
-}
-
-private fun String?.queryParameter(name: String): String? {
-    val query =
-        this
-            ?.substringAfter('?', missingDelimiterValue = "")
-            ?.substringBefore('#')
-            .orEmpty()
-    return query
-        .split('&')
-        .asSequence()
-        .mapNotNull { part ->
-            val key = part.substringBefore('=', missingDelimiterValue = part)
-            if (key.equals(name, ignoreCase = true)) part.substringAfter('=', "") else null
-        }.firstOrNull()
-        ?.takeIf { it.isNotBlank() }
-        ?.let { encoded ->
-            runCatching { URLDecoder.decode(encoded, Charsets.UTF_8.name()) }.getOrNull()
-        }
-}
-
-private fun HttpURLConnection.offlineResumeValidator(): String? {
-    val strongEtag =
-        getHeaderField("ETag")
-            ?.trim()
-            ?.takeIf { it.isNotBlank() && !it.startsWith("W/", ignoreCase = true) }
-    if (strongEtag != null) return "etag:$strongEtag"
-    return getHeaderField("Last-Modified")
-        ?.trim()
-        ?.takeIf { it.isNotBlank() }
-        ?.let { "last-modified:$it" }
-}
-
-private fun String.resumeValidatorHeaderValue(): String = substringAfter(':')
-
-/**
- * Raw offline transfers bypass Ktor, so they validate the user-configured HTTP/HTTPS endpoint
- * before opening a socket. Redirects are followed by hand in [openOfflineTransfer]: the api_key
- * stays in this first URL's query and identity headers stay on its origin, so a hop to another
- * authority never carries the token.
- */
-internal fun requireAllowedOfflineTransferUrl(
-    value: String,
-    localCleartextConfirmed: Boolean,
-): URL {
-    val url = URL(value)
-    require(url.userInfo == null && url.ref == null) { "下载地址不安全" }
-    val validation =
-        validateEmbyServerEndpoint(
-            "${url.protocol}://${url.authority}",
-            localCleartextConfirmed,
-        )
-    require(validation.allowed) { validation.message ?: "下载地址不安全" }
-    return url
-}
-
-private fun Long.nextOfflineRevision(): Long = if (this == Long.MAX_VALUE) 0L else this + 1L
-
-/**
- * Publishes the selected subtitle and creates the completed index value while the manager's
- * index lock is held by the caller. The revision-specific subtitle part means a superseded request
- * can never overwrite the sidecar prepared by its replacement.
- */
-internal fun publishOfflineCompletionLocked(
-    current: OfflineMedia?,
-    snapshot: OfflineMedia,
-    videoTarget: File,
-    subtitlePart: File?,
-    subtitleTarget: File,
-    nowMs: Long,
-): OfflineMedia? =
-    publishOfflineCompletionLocked(
-        current = current,
-        snapshot = snapshot,
-        videoPath = videoTarget.absolutePath,
-        videoBytes = videoTarget.takeIf(File::isFile)?.length() ?: 0L,
-        subtitlePart = subtitlePart,
-        subtitleTarget = subtitleTarget,
-        nowMs = nowMs,
-    )
-
-internal fun publishOfflineCompletionLocked(
-    current: OfflineMedia?,
-    snapshot: OfflineMedia,
-    videoPath: String,
-    videoBytes: Long,
-    subtitlePart: File?,
-    subtitleTarget: File,
-    nowMs: Long,
-): OfflineMedia? {
-    if (
-        current == null ||
-        current.downloadRevision != snapshot.downloadRevision ||
-        current.status != DownloadStatus.Downloading
-    ) {
-        subtitlePart?.delete()
-        return null
-    }
-    if (videoPath.isBlank() || videoBytes <= 0L) throw OfflineStorageException("离线视频文件不存在")
-
-    val publishedSubtitle =
-        subtitlePart
-            ?.takeIf(File::isFile)
-            ?.let { prepared ->
-                runCatching {
-                    offlineStorageWrite {
-                        Files.move(
-                            prepared.toPath(),
-                            subtitleTarget.toPath(),
-                            StandardCopyOption.ATOMIC_MOVE,
-                            StandardCopyOption.REPLACE_EXISTING,
-                        )
-                    }
-                    subtitleTarget.takeIf(File::isFile)
-                }.onFailure { error ->
-                    prepared.delete()
-                    subtitleTarget.delete()
-                    AppLog.warning(
-                        category = "offline",
-                        event = "subtitle_publish_failed",
-                        message = "Video completed but the selected subtitle could not be published",
-                        throwable = error,
-                        attributes = mapOf("itemId" to snapshot.itemId),
-                    )
-                }.getOrNull()
-            }
-    if (publishedSubtitle == null) subtitleTarget.delete()
-
-    return current.copy(
-        status = DownloadStatus.Completed,
-        localPath = videoPath,
-        subtitlePath = publishedSubtitle?.absolutePath,
-        downloadedBytes = videoBytes,
-        totalBytes = videoBytes,
-        resumeValidator = null,
-        error =
-            if (snapshot.subtitleStreamIndex != null && publishedSubtitle == null) {
-                "视频已完成，但所选字幕未能保存"
-            } else {
-                null
-            },
-        retryCount = 0,
-        nextRetryAt = 0L,
-        lastFailureKind = null,
-        updatedAtEpochMs = nowMs,
-    )
-}
 
 internal class AndroidOfflineMediaManager(
     private val context: Context,
@@ -571,6 +62,7 @@ internal class AndroidOfflineMediaManager(
     private val serializer = ListSerializer(OfflineMedia.serializer())
     private val autoRuleSerializer = ListSerializer(OfflineAutoDownloadRule.serializer())
     private val directory by lazy { File(context.filesDir, "offline-media").apply { mkdirs() } }
+    private val artifacts by lazy { OfflineArtifactStore(context, directory) }
     private val indexStore = OfflineMediaIndexStore(context, json)
     private val indexLock = Any()
     private val _wifiOnly = MutableStateFlow(settings.getBoolean(WIFI_KEY, true))
@@ -775,14 +267,14 @@ internal class AndroidOfflineMediaManager(
                         target.deletePartial()
                         target.published()?.path?.let(::deleteOfflinePath)
                     }
-                    completedFile(old).delete()
-                    legacyCompletedFile(old.id).delete()
-                    subtitleFile(old.id).delete()
-                    deleteSubtitlePartFiles(old.id)
+                    artifacts.completedFile(old).delete()
+                    artifacts.legacyCompletedFile(old.id).delete()
+                    artifacts.subtitleFile(old.id).delete()
+                    artifacts.deleteSubtitlePartFiles(old.id)
                 } else if (!change.item.playable) {
                     // Re-queuing the same variant intentionally preserves its verified range and
                     // partial video. Only subtitle staging is revision-bound and cannot be resumed.
-                    deleteSubtitlePartFiles(old.id)
+                    artifacts.deleteSubtitlePartFiles(old.id)
                 }
             }
         }
@@ -946,7 +438,7 @@ internal class AndroidOfflineMediaManager(
                 // Persist the new revision before deletion so a blocked download cannot create
                 // a fresh artifact after this method has removed the index entry.
                 commitLocked(_items.value.map { if (it.id == id) deleting else it })
-                if (deleteArtifactsLocked(deleting)) {
+                if (artifacts.delete(deleting)) {
                     commitLocked(_items.value.filterNot { it.id == id })
                 } else {
                     commitLocked(
@@ -961,8 +453,8 @@ internal class AndroidOfflineMediaManager(
                 }
             }
             // Cleanup by deterministic id even when a prior crash already removed the index row.
-            subtitleFile(id).delete()
-            deleteSubtitlePartFiles(id)
+            artifacts.subtitleFile(id).delete()
+            artifacts.deleteSubtitlePartFiles(id)
         }
         rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
         AppLog.info("offline", "download_removed", "Offline download removed")
@@ -1701,7 +1193,7 @@ internal class AndroidOfflineMediaManager(
                 }.onFailure { error -> logSubtitleFailure(snapshot, error) }
                     .getOrNull()
                     ?: return@withContext null
-            val part = subtitlePartFile(snapshot)
+            val part = artifacts.subtitlePartFile(snapshot)
             part.delete()
             var connection: HttpURLConnection? = null
             try {
@@ -1760,7 +1252,7 @@ internal class AndroidOfflineMediaManager(
                     videoPath = videoTarget.path,
                     videoBytes = videoTarget.size,
                     subtitlePart = subtitlePart,
-                    subtitleTarget = subtitleFile(snapshot.id),
+                    subtitleTarget = artifacts.subtitleFile(snapshot.id),
                     nowMs = now(),
                 )
             } ?: return false
@@ -1776,7 +1268,7 @@ internal class AndroidOfflineMediaManager(
                                     context = context,
                                     treeUri = treeUri,
                                     source = subtitle,
-                                    displayName = subtitleFile(snapshot.id).name,
+                                    displayName = artifacts.subtitleFile(snapshot.id).name,
                                     mimeType = "application/x-subrip",
                                 )
                             }.onFailure { error -> logSubtitleFailure(snapshot, error) }
@@ -1867,65 +1359,6 @@ internal class AndroidOfflineMediaManager(
     private fun cleanupOrphanedArtifacts(items: List<OfflineMedia>) {
         synchronized(indexLock) {
             cleanupOrphanedOfflineArtifacts(directory, items)
-        }
-    }
-
-    private fun deleteArtifactsLocked(item: OfflineMedia): Boolean {
-        val indexedPaths = listOfNotNull(item.localPath, item.subtitlePath)
-        indexedPaths.forEach(::deleteOfflinePath)
-        val videoTarget = offlineVideoTarget(context, directory, item)
-        videoTarget.deletePartial()
-        videoTarget.published()?.path?.let(::deleteOfflinePath)
-        val artifacts =
-            listOfNotNull(
-                completedFile(item),
-                legacyCompletedFile(item.id),
-                partFile(item),
-                subtitleFile(item.id),
-            ).distinct()
-        artifacts.forEach { artifact ->
-            if (artifact.exists() && !artifact.delete()) {
-                AppLog.warning(
-                    category = "offline",
-                    event = "offline_artifact_delete_failed",
-                    message = "Offline artifact could not be deleted; retaining its index entry",
-                    attributes = mapOf("itemId" to item.itemId),
-                )
-            }
-        }
-        deleteSubtitlePartFiles(item.id)
-        return indexedPaths.none(::offlinePathExists) &&
-            videoTarget.partialSize() == 0L &&
-            videoTarget.published() == null &&
-            artifacts.none(File::exists) &&
-            directory.listFiles()?.none { candidate ->
-                candidate.name.startsWith(safeFileName(item.id) + ".") &&
-                    candidate.name.endsWith(".subtitle.part")
-            } != false
-    }
-
-    private fun partFile(item: OfflineMedia) = File(directory, safeFileName(item.id) + ".part")
-
-    // Video publication has a revision-specific name. A cancelled or superseded finalization
-    // therefore cannot be mistaken for the replacement's source on a later recovery.
-    private fun completedFile(item: OfflineMedia) =
-        File(directory, "${safeFileName(item.id)}.${item.downloadRevision}.media")
-
-    // v1/v2 used an id-only target. It is never selected for a new download, but removal still
-    // clears it so upgraded installs cannot retain an old artifact indefinitely.
-    private fun legacyCompletedFile(id: String) = File(directory, safeFileName(id) + ".media")
-
-    private fun subtitleFile(id: String) = File(directory, safeFileName(id) + ".srt")
-
-    private fun subtitlePartFile(item: OfflineMedia) =
-        File(directory, "${safeFileName(item.id)}.${item.downloadRevision}.subtitle.part")
-
-    private fun deleteSubtitlePartFiles(id: String) {
-        val prefix = safeFileName(id) + "."
-        directory.listFiles()?.forEach { candidate ->
-            if (candidate.name.startsWith(prefix) && candidate.name.endsWith(".subtitle.part")) {
-                candidate.delete()
-            }
         }
     }
 
@@ -2025,75 +1458,8 @@ internal class AndroidOfflineMediaManager(
         }
     }
 
-    private fun safeFileName(value: String) = offlineArtifactPrefix(value)
-
     private fun now() = System.currentTimeMillis()
 }
 
 private fun Iterable<String>.takeLastBounded(limit: Int): Set<String> =
     toList().takeLast(limit.coerceAtLeast(1)).toCollection(linkedSetOf())
-
-private fun offlinePathExists(path: String): Boolean =
-    if (path.startsWith("content://")) {
-        runCatching {
-            offlineApplicationContext.contentResolver
-                .openAssetFileDescriptor(Uri.parse(path), "r")
-                ?.use { it.length != 0L } == true
-        }.getOrDefault(false)
-    } else {
-        File(path).isFile
-    }
-
-private fun deleteOfflinePath(path: String): Boolean =
-    if (path.startsWith("content://")) {
-        runCatching {
-            DocumentsContract.deleteDocument(
-                offlineApplicationContext.contentResolver,
-                Uri.parse(path),
-            )
-        }.getOrDefault(false)
-    } else {
-        !File(path).exists() || File(path).delete()
-    }
-
-private fun publishOfflineFileToTree(
-    context: Context,
-    treeUri: String,
-    source: File,
-    displayName: String,
-    mimeType: String,
-): String {
-    if (!source.isFile) throw OfflineStorageException("待保存的离线文件不存在")
-    val resolver = context.contentResolver
-    val tree = Uri.parse(treeUri)
-    val root = offlineTreeRoot(tree)
-    val temporaryName = "$displayName.${System.currentTimeMillis()}.downloading"
-    findOfflineTreeDocument(context, tree, temporaryName)?.let {
-        runCatching { DocumentsContract.deleteDocument(resolver, it) }
-    }
-    val temporary =
-        runCatching {
-            DocumentsContract.createDocument(resolver, root, mimeType, temporaryName)
-        }.getOrNull() ?: throw OfflineStorageException("无法在所选目录创建离线文件")
-    try {
-        val output =
-            resolver.openOutputStream(temporary, "wt")
-                ?: throw OfflineStorageException("无法写入所选下载目录")
-        source.inputStream().use { input ->
-            output.use { destination -> input.copyTo(destination, 128 * 1024) }
-        }
-        findOfflineTreeDocument(context, tree, displayName)?.let {
-            runCatching { DocumentsContract.deleteDocument(resolver, it) }
-                .getOrElse { error -> throw OfflineStorageException("无法替换所选目录中的旧文件", error) }
-        }
-        val published =
-            DocumentsContract.renameDocument(resolver, temporary, displayName)
-                ?: temporary
-        return published.toString()
-    } catch (error: Throwable) {
-        if (error is CancellationException) throw error
-        runCatching { DocumentsContract.deleteDocument(resolver, temporary) }
-        if (error is OfflineStorageException) throw error
-        throw OfflineStorageException("无法保存到所选下载目录", error)
-    }
-}

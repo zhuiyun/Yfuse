@@ -1,0 +1,103 @@
+{
+  "versionName": "1.3.4",
+  "versionCode": 286,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "cb9e444ffd5f36184c40a2c2ed127cf580b9295c",
+  "treeDirtyAtBuild": true,
+  "diffHash": "d1c309100112",
+  "sourceArchiveRecheckedAfterBuild": true,
+  "file": "Yfuse-1.3.4-full-arm64.apk",
+  "bytes": 29953339,
+  "sha256": "f037d3326613825170d855fbef0a940853420da839a55813c9c693f6054cd095",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "numberOfSigners": 1,
+  "zipAlignment16K": true,
+  "dexVerified": true,
+  "dexClasses": 14190,
+  "dexMethodsWithCode": 62364,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "dexFiles": {
+    "classes.dex": "e541fe6c187aa5f1722cab95bfa9cfbcce63e16a47db156c3be933f0f33b680b",
+    "classes2.dex": "9dc0bd53fd48bdafe1476a45b628c7e81023a13c909bdcf1a4e2190a92d73827"
+  },
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1195544,
+      "sha256": "c889a8704465ce7cbfc48d302da7e2482b4d59afe1eaacbd9c49eee150197203"
+    }
+  },
+  "mdkEngineMatchesPinnedSdk": true,
+  "mdkPlaybackSnapshotJniIncluded": true,
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "previousActualVersionName": "1.3.3",
+  "previousActualVersionCode": 285,
+  "previousArtifactSha256": "29a77d964db4aa59f56876d9a354c361e08029d223d281f356a337eac5d73f0e",
+  "releaseNotesFirstLine": "1.3.4",
+  "sourceRegression": {
+    "date": "2026-10-14",
+    "gradle": {
+      "status": "passed",
+      "log": "regression-tests.log",
+      "modules": {
+        "phoneShared": {
+          "suites": 56,
+          "tests": 276,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "tvShared": {
+          "suites": 22,
+          "tests": 118,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      },
+      "mdk_arm64_jni": "passed",
+      "include_mdk": true,
+      "native_only_runtime": false
+    },
+    "portable_ycore_abi": {
+      "status": "passed",
+      "cases": 20,
+      "compiler": "Android NDK 29 clang++",
+      "target": "aarch64-linux-android28",
+      "execution_device": "Samsung SM-G973U / Android 9",
+      "exit_code": 0,
+      "temporary_remote_binary_removed": true,
+      "log": "portable-tests.log"
+    },
+    "startup_baseline_script": {
+      "status": "passed",
+      "tests": 2,
+      "log": "baseline-tool-tests.log"
+    },
+    "function_size_gate": {
+      "status": "passed",
+      "log": "function-size.log"
+    },
+    "git_diff_check": "passed",
+    "apk_built": false,
+    "version_changed": false,
+    "real_media_benchmark_run": false,
+    "limitations": [
+      "No measured playback speed, power or long-duration stability improvement.",
+      "Portable ABI tests do not validate Harmony OS integration.",
+      "No new complete P7 FEL reconstruction, TrueHD Atmos receiver verification or MDK Dolby display certification."
+    ]
+  },
+  "deviceTestOfReleasePerformed": false,
+  "published": false,
+  "uploaded": false,
+  "verifiedAtUtc": "2026-10-14T07:01:14.012368+00:00"
+}

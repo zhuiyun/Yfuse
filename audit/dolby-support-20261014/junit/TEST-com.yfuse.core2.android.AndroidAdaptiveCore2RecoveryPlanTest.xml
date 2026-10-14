@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-10-14T04:36:11.991Z" hostname="DESKTOP-HM2J0FM" time="0.01">
+  <properties/>
+  <testcase name="native direct never treats an unresolved Dolby source as ordinary HEVC" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" time="0.008"/>
+  <testcase name="Dolby Vision never crosses into ordinary software decode" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" time="0.001"/>
+  <testcase name="native direct accepts the Dolby identity exposed by the platform extractor" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" time="0.0"/>
+  <testcase name="explicit software refuses missing probe Dolby Vision and either protection signal" classname="com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryPlanTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

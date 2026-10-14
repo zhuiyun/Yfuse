@@ -6,6 +6,22 @@ import kotlin.test.assertNull
 
 class AndroidAudioClockProgressGuardTest {
     @Test
+    fun `counter oscillation cannot keep a stalled clock alive`() {
+        val guard = AndroidAudioClockProgressGuard(staleAfterNs = 500L)
+        guard.select(1_000L, true, 100L, 900L, 100L)
+        guard.select(1_400L, true, 99L, 1_300L, 99L)
+        assertNull(guard.select(1_600L, true, 100L, 1_500L, 100L))
+    }
+
+    @Test
+    fun `old or future hardware timestamps fall back to the playback head`() {
+        val guard = AndroidAudioClockProgressGuard(staleAfterNs = 500L)
+        guard.select(1_000L, true, 100L, 900L, 100L)
+        assertEquals(YAudioClockFrameSource.PlaybackHead, guard.select(2_000L, true, 200L, 900L, 210L)?.source)
+        assertEquals(YAudioClockFrameSource.PlaybackHead, guard.select(2_100L, true, 220L, 5_000L, 230L)?.source)
+    }
+
+    @Test
     fun `hardware timestamp wraps without jumping behind the playback head`() {
         val guard = AndroidAudioClockProgressGuard()
         guard.select(1_000L, true, 0xffff_fff0L, 900L, 0xffff_fff8L)

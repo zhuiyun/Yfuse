@@ -1,0 +1,78 @@
+Yfuse 全内核杜比支持审计
+日期：2026-10-14（Asia/Shanghai）
+源码 HEAD：cb9e444ffd5f36184c40a2c2ed127cf580b9295c
+范围：当前工作区源码、composeApp/libs 固定产物、现有单元测试、Android 手机/TV 与 Harmony 移植代码。不是已交付 APK 的杜比播放认证。
+
+结论
+项目有较完整但有条件的杜比支持，不能笼统称“所有内核完整支持双杜比”。必须分别判断片源识别、解码/色调映射、原生 Dolby Vision 输出、编码音频透传和接收端 Atmos/FEL 实际效果。播放成功、杜比标签、编译能力标记均不能代替后两者。
+
+1. ExoPlayer（Media3 1.9.0）
+- 已接入 Android MediaCodec + Surface 原生 Dolby Vision 路径。自动路由在设备声明支持时优先让 P8.1 及其他非 P7 增强层源走 Exo；具体 Profile、容器、分辨率仍依赖系统解码器与显示链路。
+- 项目没有为 Exo 接入 FFmpeg 音频扩展。AC-3、E-AC-3、TrueHD 解码依赖系统解码器；透传走 Media3 route-aware AudioSink，失败时能否换到其他内核受锁定/回退策略限制。
+- E-AC-3 JOC 编码 AudioTrack 可被识别为 Atmos 输出；普通 TrueHD 仅被当作载体，不能据此认定 Atmos。
+- 没有 P7 FEL 独立合成实现或证明。
+- 待补强：ExoVideoEngine.kt:493 的 nativeDolbyVisionOutput 只联合首帧、输入 MIME 和显示能力，没有验证实际选中解码器及协商后的显示输出。Media3 1.9.0 支持 DV 基础层的 HEVC/AVC/AV1 替代解码，所以该标志有把兼容基础层输出误判为原生 DV 的风险；本次没有复现该真机场景。
+
+2. MPV（固定自定义 libmpv + FFmpeg + libplacebo）
+- 实际 AAR SHA-256 与已批准的 Dolby installed pin 一致；DOLBY_VISION_RPU/FEL=true、版本常量、JNI 证据入口及 RPU/FEL 渲染标记均存在。
+- Kotlin 的 vo=gpu 不是缺陷。scripts/native/patch_yfuse_gpu_next.py 同时修改 setOptionString 与 setPropertyString，将该值映射为 gpu-next；当前 libplayer.so 也有 gpu-next 标记。
+- 已接入杜比动态元数据处理和 P7 FEL 增强层合成路径；逐帧成功渲染后由 JNI 返回 RPU/FEL 证据。构建支持不等于本次影片合成已经成功。
+- P7 完整路径有设备门槛：API>=29、非低内存、无资源压力，并要求媒体性能等级>=31，或至少 6 GiB 内存且 GLES>=3。未通过时会剥离 RPU/增强层，播放 HDR10 基础层或映射到 SDR。
+- GPU 处理结果输出为 HDR10/SDR，不等于原生 Dolby Vision 信号输出；不应保证电视亮 Dolby Vision 标志。
+- 已有 AC-3/E-AC-3/TrueHD 解码及 audio-spdif 透传配置；透传按当前设备支持格式生成白名单。音频滤镜需要 PCM 时会关闭透传。Atmos 判断依赖真实 SPDIF 状态及音轨 codec/profile，不证明功放已确认接收 Atmos 对象。
+
+3. Android YCore（com.yfuse.core2，含 direct/enhanced/tunnel/GPU 路径）
+- 入口允许 P5/P7/P8/P10；原生 DV 要求匹配的 Profile 解码器与 DV 显示能力。P7 可回退 HDR10 基础层，P8/P10 按 compatibility id 回退 HDR10、SDR 或 HLG。
+- GPU 路径可对已解码帧做 HDR/SDR 处理，不应把 MPV 的 gpu-next/FEL 能力移植成 YCore 自身能力。P5 没有匹配的 Dolby 解码器时，不能把普通 HEVC 解码视为正确替代；full 配置可按策略交给 MPV。
+- 已有平台/FFmpeg PCM 解码及编码 AudioTrack 透传。E-AC-3 JOC 的确认要求音频时钟前进、真实活动路由、JOC 格式及精确传输证据。
+- TrueHD 载体可透传，但 AndroidTrueHdAtmosEvidenceProvider 当前生产默认实现始终 false，不能声称独立验证过 TrueHD Atmos。
+- P7 RPU/EL 可检测和送达平台解码器；YDolbyVisionFelEvidenceProvider 当前生产默认实现始终 false，没有可用的独立 FEL 合成证明。“EL 已送达”不等于“FEL 已合成”。
+- 支持区分 AtmosSourceSpatializedPcm 与编码 Atmos 透传；系统空间化的 PCM 不等于保留 Atmos 对象流。
+
+4. MDK（实际固定 SDK 0.37.0）
+- 固定 SDK 自带文档确认 P5 元数据处理和 SDR/HDR10 渲染能力；Android 桥接使用 AMediaCodec/FFmpeg/dav1d 视频解码，并请求 videoout.hdr=1。
+- SDK 当前线上文档提及 P7 FEL，但不能把最新上游文档直接作为本项目固定 0.37.0 的已验证能力；本次没有固定版本的 FEL 输出证据。
+- 项目实际只读取源色彩、DV Profile、解码器和首帧。MdkVideoEngine.kt:175 明确保持 dolbyVisionOutput=false；输出色域、RPU/FEL 应用和音频输出链路未验证。
+- 没有把全局源码音频透传设置接入 MDK；音频输出模式为 Unknown，不能标为 Atmos 透传已支持。
+- Dolby Vision 源默认被 PlaybackPlanner 从 MDK 自动/回退候选中排除，只有显式锁定时保留（专用平台路径仍可能覆盖锁定）。规划器关于偏色的注释是策略说明，本次没有用它当作真机偏色复现证据。
+
+平台差异
+- 手机端显示的三个内核不等于实际只有三条路径：自动模式及 WebDAV/SMB 队列会进入 YCore。原生 DV 专用平台路径可能覆盖 MPV/MDK 锁定。
+- TV 当前固定 YFUSE_NATIVE_ONLY_RUNTIME=true、YFUSE_MDK_INCLUDED=false；主播放不能直接复用手机 MPV 的 FEL 兼容路径，也没有 MDK 主播放能力。此配置与用户要求完整版包含 MDK 的方向存在差异，本次仅记录，不修改打包配置。
+- Harmony 的 SystemYPlayer/NativeYPlayer 仍属于移植代码；PORT_STATUS 明确没有 HAP/真机验证，不能记为杜比已支持。
+- AC-4：公共探测及 Exo 编码标签已有支持，仍依赖平台；MPV audio-spdif 白名单和 YCore 音频枚举未提供同等明确的 AC-4 端到端路径，MDK 也没有验证记录。
+
+本次验证边界
+- 核验实际 AAR 的 SHA-256、能力常量和二进制标记，记录在 artifact-checks.json、mpv-capabilities.txt。
+- 连接设备为 SM-G973U、API 28；只读取设备信息，没有安装/替换应用或播放私人媒体。按现有 API 门槛，这台设备不会进入 MPV 完整 P7 FEL 路由。
+- 仓库有 Dolby/Atmos 真机矩阵定义，但本次没有执行 P5/P7 MEL/P7 FEL/P8、DD+ Atmos、TrueHD Atmos 的样片与 HDMI 接收端实播；单元测试不能替代它。
+- 未修改项目实现、版本或 release-notes，未打包/上传。
+- 本次现有单元测试已通过：31 个套件、128 项，失败 0、错误 0、跳过 0；BUILD SUCCESSFUL in 5m 4s。详见 test-summary.json、junit 与 host-tests.log。
+
+主要源码依据
+composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerEngineFactory.kt
+composeApp/src/commonMain/kotlin/com/yfuse/core/playback/PlaybackDolbyVisionRouting.kt
+composeApp/src/commonMain/kotlin/com/yfuse/core/playback/PlaybackPlanner.kt:223
+composeApp/src/androidMain/kotlin/com/yfuse/feature/player/ExoVideoEngine.kt:414,493
+composeApp/src/androidMain/kotlin/com/yfuse/feature/player/AndroidPlaybackOutput.kt:75,259
+composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvVideoEngine.kt:1644,1712
+composeApp/src/androidMain/kotlin/com/yfuse/feature/player/AndroidDolbyVisionRuntime.android.kt:24
+scripts/native/patch_yfuse_gpu_next.py:26
+scripts/native/patch_yfuse_dolby_fel.py:90
+composeApp/src/commonMain/kotlin/com/yfuse/core2/dolby/YDolbyVisionRouter.kt:83
+composeApp/src/commonMain/kotlin/com/yfuse/core2/dolby/YDolbyVisionFelEvidenceProvider.kt:20
+composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAudioRouteEvidence.kt:26
+composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MdkVideoEngine.kt:167
+mdkAndroid/src/main/cpp/MDKPlayerJNI.cpp:176
+composeApp/libs/mdk-sdk/doc/Changelog.md:424
+composeApp/src/commonMain/kotlin/com/yfuse/core/data/PlaybackPreferences.kt:99
+tvApp/build.gradle.kts:158
+harmonyApp/PORT_STATUS.md
+media-tests/README.md
+
+官方资料（用于区分库能力与本项目实际接入）
+https://developer.android.com/media/media3/exoplayer/supported-formats
+https://raw.githubusercontent.com/androidx/media/1.9.0/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/mediacodec/MediaCodecUtil.java
+https://mpv.io/manual/stable/
+https://github.com/wang-bin/mdk-sdk/wiki/HDR
+https://github.com/wang-bin/mdk-sdk/releases/tag/v0.37.0

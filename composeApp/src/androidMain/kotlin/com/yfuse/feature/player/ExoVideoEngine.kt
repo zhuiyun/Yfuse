@@ -8,7 +8,6 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -174,6 +173,10 @@ class ExoVideoEngine(
     private val cacheHandle = VideoCachePool.acquire(context.applicationContext, videoCacheBytes)
     private val trackSelector = DefaultTrackSelector(context)
     private val startupTransferEvidence = StartupTransferEvidence()
+    private val outputProbe = ExoOutputProbe()
+    private val audioProgress = PlaybackAudioProgress()
+    private var observedAudioGeneration = 0L
+    private var audioClockAdvancing = false
 
     val player: ExoPlayer =
         run {
@@ -195,6 +198,7 @@ class ExoVideoEngine(
                     context = context,
                     audioPassthroughMode = audioPassthroughMode,
                     dualSubtitleCueMerger = dualSubtitleCueMerger,
+                    outputProbe = outputProbe,
                 ).setMediaCodecSelector(selector)
                     .setEnableDecoderFallback(decoderMode != DecoderMode.Hardware)
 
@@ -351,6 +355,8 @@ class ExoVideoEngine(
         }
 
     private fun clearActiveOutputEvidence() {
+        audioProgress.reset()
+        audioClockAdvancing = false
         renderedFrameRateSampler.reset()
         sampledVideoCounters = null
         currentVideoDecoder = decoderMode.label
@@ -427,27 +433,34 @@ class ExoVideoEngine(
                 diagnostics =
                     it.diagnostics.copy(
                         audioOutput =
-                            exoAudioOutputDiagnosticLabel(
-                                status = status,
-                                encoding = config.encoding,
-                                decoderName = currentAudioDecoder,
-                            ),
-                        audioReadiness = PlaybackOutputReadiness.Rendering,
+                            if (!audioClockAdvancing) {
+                                "AudioTrack 已配置 · 等待音频播放时钟推进"
+                            } else {
+                                exoAudioOutputDiagnosticLabel(
+                                    status = status,
+                                    encoding = config.encoding,
+                                    decoderName = currentAudioDecoder,
+                                )
+                            },
+                        audioReadiness = PlaybackRenderEvidence.readiness(audioClockAdvancing),
                         immersiveAudioCarrierOutput =
-                            status is PlaybackOutputStatus.Active &&
+                            audioClockAdvancing &&
+                                status is PlaybackOutputStatus.Active &&
                                 config.encoding in IMMERSIVE_AUDIO_CARRIER_ENCODINGS,
                         dolbyAtmosOutput =
-                            status is PlaybackOutputStatus.Active &&
+                            audioClockAdvancing &&
+                                status is PlaybackOutputStatus.Active &&
                                 config.encoding in DOLBY_OBJECT_ENCODINGS,
-                        spatialAudioOutput = spatialAudioState?.active == true,
-                        headTrackingAvailable = spatialAudioState?.headTrackerAvailable == true,
+                        spatialAudioOutput = audioClockAdvancing && spatialAudioState?.active == true,
+                        headTrackingAvailable = audioClockAdvancing && spatialAudioState?.headTrackerAvailable == true,
                         outputEvidence =
                             it.diagnostics.outputEvidence.copy(
-                                audioReadiness = PlaybackOutputReadiness.Rendering,
-                                audioConfidence = PlaybackEvidenceConfidence.Confirmed,
+                                audioReadiness = PlaybackRenderEvidence.readiness(audioClockAdvancing),
+                                audioConfidence = PlaybackRenderEvidence.confidence(audioClockAdvancing),
                                 audioDecoder = currentAudioDecoder,
                                 audioMode =
                                     when {
+                                        !audioClockAdvancing -> PlaybackAudioOutputMode.Unknown
                                         status is PlaybackOutputStatus.Active ->
                                             PlaybackAudioOutputMode.Passthrough
                                         config.offload -> PlaybackAudioOutputMode.Offload
@@ -490,17 +503,21 @@ class ExoVideoEngine(
                 else -> null
             }
         val displayReady = hdrFormat == null || hdrFormat in capabilities.hdrFormats
+        val codecEvidence = outputProbe.videoCodec.get()?.takeIf { it.decoderName == currentVideoDecoder }
         val nativeDolbyVisionOutput =
-            renderedFirstFrame &&
-                format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION &&
-                hdrFormat == PlaybackHdrFormat.DolbyVision &&
-                displayReady
+            codecEvidence?.confirmsDolbyVision(
+                format.sampleMimeType,
+                renderedFirstFrame,
+                PlaybackHdrFormat.DolbyVision in capabilities.hdrFormats,
+            ) == true
+        val unverifiedDolbyOutput = hdrFormat == PlaybackHdrFormat.DolbyVision && !nativeDolbyVisionOutput
         val secureDecoder = format.exoSecureDecoderActive(currentVideoDecoder)
         val decoderKind =
             if (currentVideoDecoder.isSoftwareVideoDecoder()) "软件解码" else "硬件解码"
         val label =
             when {
                 !renderedFirstFrame -> "$range · $decoderKind · 等待首帧"
+                unverifiedDolbyOutput -> "$range 输入 · $decoderKind · 首帧已输出，原生杜比输出未确认"
                 hdrFormat == null -> "SDR · $decoderKind · 首帧已输出"
                 displayReady -> "$range · $decoderKind · HDR 首帧已输出"
                 else -> "$range · $decoderKind · 当前显示链路未声明支持"
@@ -511,9 +528,6 @@ class ExoVideoEngine(
                     state.diagnostics.copy(
                         videoOutput = label,
                         videoReadiness = PlaybackRenderEvidence.readiness(renderedFirstFrame),
-                        // The same three facts the label was spelling out: a frame is on
-                        // screen, its range is Dolby Vision, and the display chain declared
-                        // that format.
                         dolbyVisionOutput = nativeDolbyVisionOutput,
                         outputEvidence =
                             state.diagnostics.outputEvidence.copy(
@@ -522,7 +536,9 @@ class ExoVideoEngine(
                                 videoDecoder = currentVideoDecoder,
                                 inputDynamicRange = range,
                                 outputDynamicRange =
-                                    range.takeIf { renderedFirstFrame && displayReady }.orEmpty(),
+                                    range
+                                        .takeIf { renderedFirstFrame && displayReady && !unverifiedDolbyOutput }
+                                        .orEmpty(),
                                 dynamicRangeOutputMode =
                                     if (nativeDolbyVisionOutput) {
                                         PlaybackDynamicRangeOutputMode.DolbyVisionMediaCodec
@@ -531,7 +547,7 @@ class ExoVideoEngine(
                                     },
                                 renderApi = PlaybackVideoRenderApi.MediaCodecSurface,
                                 secureDecoder = secureDecoder,
-                                tunneledPlayback = false,
+                                tunneledPlayback = renderedFirstFrame && codecEvidence?.tunneled == true,
                                 bitDepth =
                                     items
                                         .getOrNull(player.currentMediaItemIndex)
@@ -773,6 +789,8 @@ class ExoVideoEngine(
                 audioTrackConfig: AudioSink.AudioTrackConfig,
             ) {
                 currentAudioTrackConfig = audioTrackConfig
+                audioProgress.reset()
+                audioClockAdvancing = false
                 updateAudioOutput()
             }
 
@@ -780,9 +798,10 @@ class ExoVideoEngine(
                 eventTime: AnalyticsListener.EventTime,
                 audioTrackConfig: AudioSink.AudioTrackConfig,
             ) {
-                if (currentAudioTrackConfig == audioTrackConfig) {
-                    currentAudioTrackConfig = null
-                }
+                if (currentAudioTrackConfig != audioTrackConfig) return
+                currentAudioTrackConfig = null
+                audioProgress.reset()
+                audioClockAdvancing = false
                 _state.update { it.copy(diagnostics = it.diagnostics.withAudioOutputReleased("音频输出已释放")) }
             }
 
@@ -1213,6 +1232,24 @@ class ExoVideoEngine(
         ticker =
             scope.launch {
                 while (isActive) {
+                    val audioGeneration = outputProbe.audioGeneration
+                    if (audioGeneration != observedAudioGeneration) {
+                        audioProgress.reset()
+                        observedAudioGeneration = audioGeneration
+                    }
+                    val advancing =
+                        audioProgress.observe(
+                            positionUs =
+                                outputProbe.audioPositionUs.takeUnless {
+                                    it == AudioSink.CURRENT_POSITION_NOT_SET
+                                },
+                            nowMs = SystemClock.elapsedRealtime(),
+                            playing = player.isPlaying && currentAudioTrackConfig != null,
+                        )
+                    if (advancing != audioClockAdvancing) {
+                        audioClockAdvancing = advancing
+                        updateAudioOutput()
+                    }
                     val counters = player.videoDecoderCounters
                     if (counters !== sampledVideoCounters) {
                         renderedFrameRateSampler.reset()

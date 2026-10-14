@@ -64,6 +64,8 @@ internal class AndroidAudioClockProgressGuard(
             extendedTimestampFrames != null &&
             extendedTimestampFrames > 0L &&
             timestampRealtimeNs != null &&
+            timestampRealtimeNs <= nowNs &&
+            nowNs - timestampRealtimeNs <= staleAfterNs &&
             nowNs - lastTimestampProgressNs <= staleAfterNs
         ) {
             return YAudioClockFrameSelection(
@@ -99,7 +101,9 @@ internal class AndroidAudioClockProgressGuard(
         nowNs: Long,
     ) {
         if (frames == null) return
-        if (lastTimestampFrames == null || lastTimestampFrames != frames) {
+        // Small counter corrections/oscillation are not progress. Keep a high-water mark until
+        // flush/reset, so a broken OEM timestamp cannot continually refresh the master clock.
+        if (lastTimestampFrames == null || frames > lastTimestampFrames!!) {
             lastTimestampFrames = frames
             lastTimestampProgressNs = nowNs
         }
@@ -109,7 +113,7 @@ internal class AndroidAudioClockProgressGuard(
         frames: Long,
         nowNs: Long,
     ) {
-        if (lastPlaybackHeadFrames == null || lastPlaybackHeadFrames != frames) {
+        if (lastPlaybackHeadFrames == null || frames > lastPlaybackHeadFrames!!) {
             lastPlaybackHeadFrames = frames
             lastPlaybackHeadProgressNs = nowNs
         }

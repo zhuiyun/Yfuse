@@ -14,7 +14,6 @@ import com.yfuse.core.logging.diagnosticTypeName
 import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YMediaItem
-import com.yfuse.core2.api.YMediaSourceHints
 import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
@@ -31,9 +30,6 @@ import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.api.invalidateOutputEvidence
 import com.yfuse.core2.api.matchingPreference
 import com.yfuse.core2.api.yPlaybackStage
-import com.yfuse.core2.bitstream.YBitstream
-import com.yfuse.core2.bitstream.YSamplePacking
-import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.demux.YAudioTrackFormat
@@ -45,9 +41,7 @@ import com.yfuse.core2.recovery.passthroughRestorable
 import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.render.YRenderedFrameRateSampler
-import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.subtitle.YSubtitleCue
-import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.core2.subtitle.appendUntimedTextSubtitlePacket
 import com.yfuse.core2.sync.YAvSync
 import com.yfuse.core2.sync.YClockSnapshot
@@ -658,22 +652,7 @@ internal class AndroidNativeDirectYPlayer(
         private var droppedFrames = 0
         private var runtimeRenderRecorded = false
         private var lastStatePublishNs = 0L
-        private var lastQoePublishNs = 0L
-        private var audioBackpressureCount = 0
-        private var slowPumpCount = 0
-        private var maximumPumpDurationNs = 0L
-
-        @Volatile
-        private var renderedFrameCount = 0L
-
-        @Volatile
-        private var longRenderGapCount = 0
-
-        @Volatile
-        private var maximumRenderGapNs = 0L
-
-        @Volatile
-        private var lastRenderedRealtimeNs = 0L
+        private val pacingMetrics = NativeDirectPacingMetrics()
 
         private val hasVideoTrack: Boolean get() = videoTrackIndex != null
 
@@ -846,8 +825,7 @@ internal class AndroidNativeDirectYPlayer(
                 return true
             } finally {
                 val durationNs = (System.nanoTime() - pumpStartedNs).coerceAtLeast(0L)
-                maximumPumpDurationNs = maxOf(maximumPumpDurationNs, durationNs)
-                if (durationNs >= SLOW_PUMP_THRESHOLD_NS) slowPumpCount++
+                pacingMetrics.recordPump(durationNs)
             }
         }
 
@@ -901,6 +879,95 @@ internal class AndroidNativeDirectYPlayer(
                 subtitleTrackIndex = initialSubtitle.id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull()
                 selectedExternalSubtitleId = initialSubtitle.id.takeIf { subtitleTrackIndex == null }
             }
+            prepareInitialTracks(item)
+            val sourceBitRateBitsPerSecond =
+                maxOf(
+                    item.sourceHints?.bitrateBitsPerSecond ?: 0L,
+                    listOfNotNull(videoFormat, audioInputFormat)
+                        .sumOf { it.longOrZero(MediaFormat.KEY_BIT_RATE) },
+                )
+            this.sourceBitRateBitsPerSecond = sourceBitRateBitsPerSecond
+            demux.setMediaBitRateBitsPerSecond(sourceBitRateBitsPerSecond)
+            applyBufferPlan(measuredThroughputBitsPerSecond = null, force = true)
+            bufferGate =
+                com.yfuse.core2.network
+                    .YPlaybackBufferGate(
+                        remote = sourceRemote,
+                        resumePlaybackUs = bufferPlan.resumePlaybackUs,
+                        startupPlaybackUs = bufferPlan.startupPlaybackUs,
+                    ).also { it.updateThresholds(bufferPlan) }
+            item.drmConfiguration?.let { configuration ->
+                val initializationData =
+                    checkNotNull(demux.drmInitializationData(configuration.scheme.yCorePlatformUuid())) {
+                        "NativeDirect DRM initialization data is unavailable"
+                    }
+                val videoMime =
+                    checkNotNull(videoFormat?.getString(MediaFormat.KEY_MIME)) {
+                        "NativeDirect DRM video MIME type is unavailable"
+                    }
+                val session = AndroidYCoreDrmSession(configuration)
+                drmSession = session
+                drmBinding =
+                    yPlaybackStage(
+                        category = YPlaybackFailureCategory.Drm,
+                        stage = YPlaybackFailureStage.SourceOpen,
+                        safeDetail = "NativeDirect DRM session open",
+                    ) {
+                        session.open(initializationData, videoMime)
+                    }
+            }
+            configureAudioPath(audioInputFormat)
+
+            // The same floor that protects MediaCodec also sizes the extractor's staging buffer;
+            // otherwise a large 4K IDR can fail before it ever reaches the codec input guard.
+            videoFormat?.applyVideoMaxInputSizeFloor()
+            audioInputFormat?.applyAudioMaxInputSizeFloor()
+            val sampleCapacity =
+                listOfNotNull(videoFormat, audioInputFormat)
+                    .maxOfOrNull { format -> format.maxInputSizeOr(DEFAULT_SAMPLE_BUFFER_BYTES) }
+                    ?.coerceIn(MIN_SAMPLE_BUFFER_BYTES, MAX_SAMPLE_BUFFER_BYTES)
+                    ?: DEFAULT_SAMPLE_BUFFER_BYTES
+            demux.configureSampleCapacity(sampleCapacity)
+            // Keep the owner free for track metadata and the initial resume seek. Eager filling
+            // here downloads samples at 0, then makes those commands wait behind that download.
+            demux.selectTracks(
+                selectedDemuxTrackIndices(),
+                startReadAhead = false,
+                bufferingTrackIndices = setOfNotNull(videoTrackIndex, audioTrackIndex),
+            )
+
+            if (videoFormat != null) {
+                surfaceOutput?.surface?.takeIf { it.isValid }?.let { surface ->
+                    configureVideoDecoder(surface)
+                }
+            }
+            abortIfReleased()
+
+            prepared = true
+            resetEndState()
+            publishPreparedState(item, sourceBitRateBitsPerSecond)
+
+            val targetUs = positionUs.coerceAtLeast(0L)
+            // A freshly opened source stands at its start; a reused one wherever the failed attempt
+            // left it, so it is always positioned explicitly.
+            sourcePositionedAtUs = 0L
+            inputConsumedSinceReposition = false
+            if (targetUs > 0L || reuseSource) {
+                seekTo(targetUs)
+            } else {
+                // Nothing from the previous item may gate or position this one.
+                seekTargetVideoUs = 0L
+                seekTargetAudioUs = 0L
+                lastVideoPresentationUs = 0L
+                lastQueuedPresentationUs = 0L
+                wallClock.seek(0L, System.nanoTime())
+            }
+            demux.startReadAhead()
+            if (requestedPlay) startPlayback()
+        }
+
+        /** Selects initial tracks and their formats before opening codecs or starting read-ahead. */
+        private fun prepareInitialTracks(item: YMediaItem) {
             // Audio-only media is a first-class source here: music, audiobooks and audio-only
             // versions have no video track and must not be rejected at the container stage.
             videoTrackIndex = demux.findFirstTrack(VIDEO_MIME_PREFIX)
@@ -1017,71 +1084,12 @@ internal class AndroidNativeDirectYPlayer(
                 extractedMime = videoFormat?.getString(MediaFormat.KEY_MIME),
             )
             audioInputFormat = initialAudioTrack?.second
-            val sourceBitRateBitsPerSecond =
-                maxOf(
-                    item.sourceHints?.bitrateBitsPerSecond ?: 0L,
-                    listOfNotNull(videoFormat, audioInputFormat)
-                        .sumOf { it.longOrZero(MediaFormat.KEY_BIT_RATE) },
-                )
-            this.sourceBitRateBitsPerSecond = sourceBitRateBitsPerSecond
-            demux.setMediaBitRateBitsPerSecond(sourceBitRateBitsPerSecond)
-            applyBufferPlan(measuredThroughputBitsPerSecond = null, force = true)
-            bufferGate =
-                com.yfuse.core2.network
-                    .YPlaybackBufferGate(
-                        remote = sourceRemote,
-                        resumePlaybackUs = bufferPlan.resumePlaybackUs,
-                        startupPlaybackUs = bufferPlan.startupPlaybackUs,
-                    ).also { it.updateThresholds(bufferPlan) }
-            item.drmConfiguration?.let { configuration ->
-                val initializationData =
-                    checkNotNull(demux.drmInitializationData(configuration.scheme.yCorePlatformUuid())) {
-                        "NativeDirect DRM initialization data is unavailable"
-                    }
-                val videoMime =
-                    checkNotNull(videoFormat?.getString(MediaFormat.KEY_MIME)) {
-                        "NativeDirect DRM video MIME type is unavailable"
-                    }
-                val session = AndroidYCoreDrmSession(configuration)
-                drmSession = session
-                drmBinding =
-                    yPlaybackStage(
-                        category = YPlaybackFailureCategory.Drm,
-                        stage = YPlaybackFailureStage.SourceOpen,
-                        safeDetail = "NativeDirect DRM session open",
-                    ) {
-                        session.open(initializationData, videoMime)
-                    }
-            }
-            configureAudioPath(audioInputFormat)
+        }
 
-            // The same floor that protects MediaCodec also sizes the extractor's staging buffer;
-            // otherwise a large 4K IDR can fail before it ever reaches the codec input guard.
-            videoFormat?.applyVideoMaxInputSizeFloor()
-            audioInputFormat?.applyAudioMaxInputSizeFloor()
-            val sampleCapacity =
-                listOfNotNull(videoFormat, audioInputFormat)
-                    .maxOfOrNull { format -> format.maxInputSizeOr(DEFAULT_SAMPLE_BUFFER_BYTES) }
-                    ?.coerceIn(MIN_SAMPLE_BUFFER_BYTES, MAX_SAMPLE_BUFFER_BYTES)
-                    ?: DEFAULT_SAMPLE_BUFFER_BYTES
-            demux.configureSampleCapacity(sampleCapacity)
-            // Keep the owner free for track metadata and the initial resume seek. Eager filling
-            // here downloads samples at 0, then makes those commands wait behind that download.
-            demux.selectTracks(
-                selectedDemuxTrackIndices(),
-                startReadAhead = false,
-                bufferingTrackIndices = setOfNotNull(videoTrackIndex, audioTrackIndex),
-            )
-
-            if (videoFormat != null) {
-                surfaceOutput?.surface?.takeIf { it.isValid }?.let { surface ->
-                    configureVideoDecoder(surface)
-                }
-            }
-            abortIfReleased()
-
-            prepared = true
-            resetEndState()
+        private fun publishPreparedState(
+            item: YMediaItem,
+            sourceBitRateBitsPerSecond: Long,
+        ) {
             val durationUs =
                 listOfNotNull(videoFormat, audioInputFormat)
                     .mapNotNull { format -> format.durationUsOrNull() }
@@ -1151,24 +1159,6 @@ internal class AndroidNativeDirectYPlayer(
                         ),
                 )
             }
-
-            val targetUs = positionUs.coerceAtLeast(0L)
-            // A freshly opened source stands at its start; a reused one wherever the failed attempt
-            // left it, so it is always positioned explicitly.
-            sourcePositionedAtUs = 0L
-            inputConsumedSinceReposition = false
-            if (targetUs > 0L || reuseSource) {
-                seekTo(targetUs)
-            } else {
-                // Nothing from the previous item may gate or position this one.
-                seekTargetVideoUs = 0L
-                seekTargetAudioUs = 0L
-                lastVideoPresentationUs = 0L
-                lastQueuedPresentationUs = 0L
-                wallClock.seek(0L, System.nanoTime())
-            }
-            demux.startReadAhead()
-            if (requestedPlay) startPlayback()
         }
 
         private fun setSurface(output: AndroidSurfaceVideoOutput?) {
@@ -1921,7 +1911,7 @@ internal class AndroidNativeDirectYPlayer(
                 }
             return when (decodedAudioDrainProgress(writtenBytes, pending.data.remaining())) {
                 YDecodedAudioDrainProgress.Backpressured -> {
-                    audioBackpressureCount++
+                    pacingMetrics.recordAudioBackpressure()
                     false
                 }
                 YDecodedAudioDrainProgress.Pending -> {
@@ -2166,7 +2156,7 @@ internal class AndroidNativeDirectYPlayer(
                         "playbackRequested" to requestedPlay.toString(),
                         "inputEnded" to inputEnded.toString(),
                         "outputEndOfStream" to output.endOfStream.toString(),
-                        "renderedFrames" to renderedFrameCount.toString(),
+                        "renderedFrames" to pacingMetrics.renderedFrameCount.toString(),
                     ),
             )
         }
@@ -2387,8 +2377,7 @@ internal class AndroidNativeDirectYPlayer(
             positionUs: Long,
         ) {
             if (released) return
-            if (nowNs - lastQoePublishNs < QOE_PUBLISH_INTERVAL_NS) return
-            lastQoePublishNs = nowNs
+            if (!pacingMetrics.beginPublication(nowNs)) return
             val transportQoe = demux.transportQoeSnapshot()
             val readAhead = demux.snapshot()
             AppLog.info(
@@ -2399,13 +2388,13 @@ internal class AndroidNativeDirectYPlayer(
                     mapOf(
                         "decoder" to videoDecoder.decoderName.orEmpty(),
                         "positionMs" to (positionUs / MICROS_PER_MILLISECOND).toString(),
-                        "renderedFrames" to renderedFrameCount.toString(),
+                        "renderedFrames" to pacingMetrics.renderedFrameCount.toString(),
                         "droppedFrames" to droppedFrames.toString(),
-                        "longRenderGaps" to longRenderGapCount.toString(),
+                        "longRenderGaps" to pacingMetrics.longRenderGapCount.toString(),
                         "maximumRenderGapMs" to
-                            (maximumRenderGapNs / NANOS_PER_MILLISECOND).toString(),
+                            (pacingMetrics.maximumRenderGapNs / NANOS_PER_MILLISECOND).toString(),
                         "audioUnderruns" to audioRenderer.underrunCount.toString(),
-                        "audioBackpressure" to audioBackpressureCount.toString(),
+                        "audioBackpressure" to pacingMetrics.audioBackpressureCount.toString(),
                         "pendingAudioBytes" to (pendingAudioOutput?.data?.remaining() ?: 0).toString(),
                         "audioClockSource" to
                             if (isAudioPassthrough()) {
@@ -2415,8 +2404,8 @@ internal class AndroidNativeDirectYPlayer(
                             },
                         "audioClockStalled" to
                             (!isAudioPassthrough() && audioRenderer.clockStalled).toString(),
-                        "slowPumps" to slowPumpCount.toString(),
-                        "maximumPumpMs" to (maximumPumpDurationNs / NANOS_PER_MILLISECOND).toString(),
+                        "slowPumps" to pacingMetrics.slowPumpCount.toString(),
+                        "maximumPumpMs" to (pacingMetrics.maximumPumpDurationNs / NANOS_PER_MILLISECOND).toString(),
                         "sourcePrefetchDepth" to (transportQoe?.depthBlocks?.toString() ?: ""),
                         "sourcePrefetchHits" to (transportQoe?.hitCount?.toString() ?: ""),
                         "sourceSynchronousLoads" to
@@ -2454,7 +2443,7 @@ internal class AndroidNativeDirectYPlayer(
                         "avMeasurement" to avSyncMeasurementStatus,
                     ),
             )
-            maximumPumpDurationNs = 0L
+            pacingMetrics.finishPublication()
         }
 
         private fun currentPositionUs(): Long {
@@ -2537,7 +2526,7 @@ internal class AndroidNativeDirectYPlayer(
             seekPrerollVideoOutput = null
             lastAvSyncOffsetUs = null
             avSyncMeasurementStatus = "等待音视频时钟样本"
-            lastRenderedRealtimeNs = 0L
+            pacingMetrics.resetRenderAnchor()
         }
 
         private fun configureAudioPath(format: MediaFormat?) {
@@ -2648,7 +2637,7 @@ internal class AndroidNativeDirectYPlayer(
                                 data = copy,
                                 presentationTimeUs = presentationTimeUs,
                             )
-                        if (written == 0) audioBackpressureCount++
+                        if (written == 0) pacingMetrics.recordAudioBackpressure()
                         return YCodecQueueResult.TryAgain
                     }
                 } catch (failure: Exception) {
@@ -2673,7 +2662,7 @@ internal class AndroidNativeDirectYPlayer(
                         pending.data,
                         pending.presentationTimeUs,
                     )
-                if (written == 0) audioBackpressureCount++
+                if (written == 0) pacingMetrics.recordAudioBackpressure()
                 if (pending.data.hasRemaining()) {
                     written > 0
                 } else {
@@ -2983,16 +2972,7 @@ internal class AndroidNativeDirectYPlayer(
                     return@setOnFrameRenderedListener
                 }
                 val renderTimeTrusted = videoOutputEpoch.recordRenderTime(generation, realtimeNs)
-                if (renderTimeTrusted) {
-                    val previousRealtimeNs = lastRenderedRealtimeNs
-                    if (previousRealtimeNs > 0L && realtimeNs > previousRealtimeNs) {
-                        val gapNs = realtimeNs - previousRealtimeNs
-                        maximumRenderGapNs = maxOf(maximumRenderGapNs, gapNs)
-                        if (gapNs >= LONG_RENDER_GAP_NS) longRenderGapCount++
-                    }
-                }
-                lastRenderedRealtimeNs = if (renderTimeTrusted) realtimeNs else 0L
-                renderedFrameCount++
+                pacingMetrics.recordRenderedFrame(realtimeNs, renderTimeTrusted)
                 if (pausedPreview.resumePending) {
                     AppLog.info(
                         category = "player.core2",
@@ -3313,15 +3293,7 @@ internal class AndroidNativeDirectYPlayer(
             transportBlockGeneration++
             droppedFrames = 0
             runtimeRenderRecorded = false
-            renderedFrameCount = 0L
-            longRenderGapCount = 0
-            maximumRenderGapNs = 0L
-            lastRenderedRealtimeNs = 0L
-            audioBackpressureCount = 0
-            // slowPumpCount and maximumPumpDurationNs deliberately survive releaseMedia(). A
-            // runtime recovery restarts the pipeline precisely because the pump stalled, and
-            // resetting them here erased the measurement that explains the restart.
-            lastQoePublishNs = 0L
+            pacingMetrics.resetMedia()
             resetEndState()
             mutableState.update { current ->
                 current.copy(
@@ -3398,43 +3370,6 @@ internal class AndroidNativeDirectYPlayer(
     }
 }
 
-internal fun invalidateNativeDirectAudioRoute(
-    diagnostics: YPlayerDiagnostics,
-    preservePausedVideo: Boolean,
-): YPlayerDiagnostics {
-    val reset = diagnostics.invalidateOutputEvidence(YOutputEvidenceResetReason.AudioRouteChanged)
-    return if (preservePausedVideo) {
-        reset.copy(
-            videoOutputVerified = diagnostics.videoOutputVerified,
-            dolbyVisionOutput = diagnostics.dolbyVisionOutput,
-            dolbyVisionRpuApplied = diagnostics.dolbyVisionRpuApplied,
-            dolbyVisionEnhancementLayerDelivered = diagnostics.dolbyVisionEnhancementLayerDelivered,
-            dolbyVisionFelComposed = diagnostics.dolbyVisionFelComposed,
-        )
-    } else {
-        reset
-    }
-}
-
-internal enum class YDecodedAudioDrainProgress {
-    Backpressured,
-    Pending,
-    Complete,
-}
-
-internal fun decodedAudioDrainProgress(
-    writtenBytes: Int,
-    remainingBytes: Int,
-): YDecodedAudioDrainProgress {
-    require(writtenBytes >= 0)
-    require(remainingBytes >= 0)
-    return when {
-        remainingBytes == 0 -> YDecodedAudioDrainProgress.Complete
-        writtenBytes == 0 -> YDecodedAudioDrainProgress.Backpressured
-        else -> YDecodedAudioDrainProgress.Pending
-    }
-}
-
 private data class YPendingDecodedAudioOutput(
     val output: YAudioCodecOutputResult.Buffer,
     val data: ByteBuffer,
@@ -3457,337 +3392,16 @@ private fun createNativeDirectPlaybackDispatcher(): ExecutorCoroutineDispatcher 
             )
         }.asCoroutineDispatcher()
 
-internal fun validateNativeDirectDolbyIdentity(
-    required: Boolean,
-    extractedMime: String?,
-) {
-    if (!required || extractedMime.equals(DOLBY_VISION_MIME, ignoreCase = true)) return
-    throw YPlaybackException(
-        category = YPlaybackFailureCategory.Container,
-        stage = YPlaybackFailureStage.Bitstream,
-        safeDetail = "NativeDirect source did not expose a Dolby Vision track identity",
-    )
-}
-
-internal fun yCoreNativeDirectFailureMessage(failure: YPlaybackException?): String =
-    when (failure?.category) {
-        YPlaybackFailureCategory.Authorization -> "YCore 2.0 片源授权已失效，请刷新播放地址后重试"
-        YPlaybackFailureCategory.Drm -> "YCore 2.0 无法建立当前片源的 DRM 会话"
-        YPlaybackFailureCategory.Network -> "YCore 2.0 无法连接片源，请检查服务器或网络"
-        YPlaybackFailureCategory.Container ->
-            when {
-                failure.stage == YPlaybackFailureStage.Bitstream ->
-                    "YCore 2.0 无法验证当前片源的杜比视界配置"
-                failure.isHiddenServerAudioTrackFailure() -> YCORE_HIDDEN_AUDIO_TRACK_MESSAGE
-                else -> "YCore 2.0 原生解封装无法识别当前片源"
-            }
-        YPlaybackFailureCategory.Decoder -> "YCore 2.0 无法启动当前视频解码器"
-        YPlaybackFailureCategory.Renderer -> "YCore 2.0 无法建立视频输出"
-        YPlaybackFailureCategory.AudioSink -> "YCore 2.0 无法建立音频输出"
-        YPlaybackFailureCategory.Unknown,
-        null,
-        -> "YCore 2.0 原生播放失败，请导出诊断日志"
-    }
-
-/**
- * [yPlaybackStage] for NativeDirect's codec and sink calls, except that the timestamp-identity
- * signal passes through untouched: the pump catches it by type to retry the decoder with original
- * timestamps, and a wrapped one would fail playback instead.
- */
-private inline fun <T> nativeDirectStage(
-    category: YPlaybackFailureCategory,
-    stage: YPlaybackFailureStage,
-    safeDetail: String,
-    block: () -> T,
-): T =
-    try {
-        block()
-    } catch (failure: YPlaybackException) {
-        throw failure
-    } catch (failure: CodecTimestampIdentityException) {
-        throw failure
-    } catch (failure: Throwable) {
-        if (failure is CancellationException) throw failure
-        throw YPlaybackException(
-            category = category,
-            stage = stage,
-            safeDetail = safeDetail,
-            cause = failure,
-        )
-    }
-
-/**
- * Whether attaching a Surface to a prepared NativeDirect session has to seek the source.
- *
- * The Surface usually arrives just after prepare(), before anything was read. 1.0.83 still flushed
- * both never-fed decoders, re-seeked the extractor to where it already stood and cancelled its
- * reads; 14 ms later the tablet in incident E failed startup with an IllegalStateException, the
- * same sequence 1.0.81 logged three times. A seek is needed only once a sample was consumed after
- * the source was last positioned, or when the position to resume from has moved.
- */
-internal fun nativeDirectSurfaceAttachNeedsSeek(
-    inputConsumedSinceReposition: Boolean,
-    sourcePositionedAtUs: Long,
-    resumeUs: Long,
-): Boolean = inputConsumedSinceReposition || sourcePositionedAtUs != resumeUs
-
-/**
- * Whether a failed NativeDirect session may keep its extractor and transport for a same-item retry.
- *
- * Only a failure typed to the decode or output side qualifies: the source demonstrably worked. An
- * untyped failure, a source, demux, bitstream or seek stage, and a network, container or DRM
- * category all rebuild the source as before.
- */
-internal fun nativeDirectFailureKeepsSource(failure: Throwable): Boolean {
-    val typed = failure as? YPlaybackException ?: return false
-    if (typed.stage in NATIVE_DIRECT_SOURCE_STAGES) return false
-    return typed.category in NATIVE_DIRECT_DECODE_SIDE_CATEGORIES
-}
-
-private val NATIVE_DIRECT_SOURCE_STAGES =
-    setOf(
-        YPlaybackFailureStage.SourceOpen,
-        YPlaybackFailureStage.Demux,
-        YPlaybackFailureStage.Bitstream,
-        YPlaybackFailureStage.Seek,
-        YPlaybackFailureStage.Unknown,
-    )
-
-private val NATIVE_DIRECT_DECODE_SIDE_CATEGORIES =
-    setOf(
-        YPlaybackFailureCategory.Decoder,
-        YPlaybackFailureCategory.Renderer,
-        YPlaybackFailureCategory.AudioSink,
-    )
-
-internal fun secureSurfaceRequirementSatisfied(
-    protectedContent: Boolean,
-    outputSecure: Boolean,
-): Boolean = !protectedContent || outputSecure
-
-/**
- * Drops superseded control work before it reaches MediaExtractor/MediaCodec. This turns a scrub
- * gesture into one seek/flush operation while preserving barriers such as pause, item switch and
- * track selection.
- */
-internal fun coalesceNativeDirectCommands(
-    commands: List<AndroidNativeDirectYPlayer.Command>,
-): List<AndroidNativeDirectYPlayer.Command> =
-    commands.fold(mutableListOf()) { result, command ->
-        val previous = result.lastOrNull()
-        if (previous != null && previous.canBeReplacedBy(command)) {
-            result[result.lastIndex] = command
-        } else {
-            result += command
-        }
-        result
-    }
-
-private fun AndroidNativeDirectYPlayer.Command.canBeReplacedBy(next: AndroidNativeDirectYPlayer.Command): Boolean =
-    when (this) {
-        is AndroidNativeDirectYPlayer.Command.ExternalSubtitleReady -> false
-        is AndroidNativeDirectYPlayer.Command.Seek -> next is AndroidNativeDirectYPlayer.Command.Seek
-        is AndroidNativeDirectYPlayer.Command.SetSpeed -> next is AndroidNativeDirectYPlayer.Command.SetSpeed
-        is AndroidNativeDirectYPlayer.Command.SetAudioDelay -> next is AndroidNativeDirectYPlayer.Command.SetAudioDelay
-        is AndroidNativeDirectYPlayer.Command.SetAudioEffect ->
-            next is AndroidNativeDirectYPlayer.Command.SetAudioEffect
-        is AndroidNativeDirectYPlayer.Command.SetVideoOutput ->
-            next is AndroidNativeDirectYPlayer.Command.SetVideoOutput
-        is AndroidNativeDirectYPlayer.Command.SelectAudioTrack ->
-            next is AndroidNativeDirectYPlayer.Command.SelectAudioTrack
-        is AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack ->
-            next is AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack && secondary == next.secondary
-        is AndroidNativeDirectYPlayer.Command.SelectItem -> next is AndroidNativeDirectYPlayer.Command.SelectItem
-        AndroidNativeDirectYPlayer.Command.Prepare -> next == AndroidNativeDirectYPlayer.Command.Prepare
-        AndroidNativeDirectYPlayer.Command.Play -> next == AndroidNativeDirectYPlayer.Command.Play
-        AndroidNativeDirectYPlayer.Command.Pause -> next == AndroidNativeDirectYPlayer.Command.Pause
-    }
-
-private fun YMediaItem.toAndroidSource(): YAndroidMediaSource =
-    YAndroidMediaSource(
-        uri = uri,
-        headers = headers,
-        credentials = transportCredentials,
-        bitrateBitsPerSecond = sourceHints?.bitrateBitsPerSecond ?: 0L,
-        cacheIdentity = cacheIdentity,
-        cacheMaximumBytes = cacheMaximumBytes,
-    )
-
-/**
- * Describes an audio track without throwing.
- *
- * Every failure here used to be swallowed by the caller's `runCatching { … }.getOrNull()`, which
- * dropped the track and left the session reporting that the media simply had no audio. An
- * unrecognised MIME therefore has to reach the capability layer as [YAudioCodec.Unknown] — the
- * convention `AndroidCore2MediaProbe` already follows — so the device probe decides there is no
- * output path and the caller's fail-closed guard reports a real reason. `toYAudioCodec` itself
- * keeps returning null for unmapped types because [AndroidYCapabilityProvider] uses it to build the
- * decoder capability set, where an Unknown entry would claim support for everything. An AAC label
- * with no AudioSpecificConfig is Unknown too: it is DTS or another codec in an `mp4a` entry, and the
- * AAC decoder would play it as silence ([aacLabelWithoutConfig]).
- *
- * Channel count and sample rate are read defensively for the same reason: `MediaFormat.getInteger`
- * throws when a container omits the key. Server probe metadata fills those gaps; a codec-aware,
- * valid AudioTrack geometry is the final fallback instead of the old 1 Hz/mono placeholder.
- */
-internal fun MediaFormat.toCore2AudioTrackFormat(sourceHints: YMediaSourceHints? = null): YAudioTrackFormat {
-    val mime = requireNotNull(getString(MediaFormat.KEY_MIME)).normalizedAudioMimeType()
-    val profile = intOrZero(MediaFormat.KEY_PROFILE)
-    val baseCodec = platformAudioCodec()
-    val codec =
-        when {
-            baseCodec == YAudioCodec.Eac3 && profile == ATMOS_PROFILE -> YAudioCodec.Eac3Joc
-            baseCodec == YAudioCodec.TrueHd && profile == ATMOS_PROFILE -> YAudioCodec.TrueHdAtmos
-            else -> baseCodec
-        }
-    return YAudioTrackFormat(
-        codec = codec,
-        mimeType = mime,
-        channelCount =
-            resolveNativeDirectAudioChannelCount(
-                codec = codec,
-                extractedChannelCount = intOrZero(MediaFormat.KEY_CHANNEL_COUNT),
-                sourceHintChannelCount = sourceHints?.audioChannelCount ?: 0,
-                sourceAudioTrackCount = sourceHints?.audioTrackCount ?: 0,
-            ),
-        sampleRate =
-            resolveNativeDirectAudioSampleRate(
-                extractedSampleRateHz = intOrZero(MediaFormat.KEY_SAMPLE_RATE),
-                sourceHintSampleRateHz = sourceHints?.audioSampleRateHz ?: 0,
-                sourceAudioTrackCount = sourceHints?.audioTrackCount ?: 0,
-            ),
-    )
-}
-
-internal fun resolveNativeDirectAudioChannelCount(
-    codec: YAudioCodec,
-    extractedChannelCount: Int,
-    sourceHintChannelCount: Int,
-    sourceAudioTrackCount: Int = 1,
-): Int =
-    extractedChannelCount.takeIf { it > 0 }
-        ?: sourceHintChannelCount.takeIf { it > 0 && sourceAudioTrackCount == 1 }
-        ?: when (codec) {
-            YAudioCodec.Ac3, YAudioCodec.Eac3, YAudioCodec.Eac3Joc, YAudioCodec.Dts -> 6
-            YAudioCodec.TrueHd, YAudioCodec.TrueHdAtmos, YAudioCodec.DtsHd, YAudioCodec.DtsX -> 8
-            else -> 2
-        }
-
-internal fun resolveNativeDirectAudioSampleRate(
-    extractedSampleRateHz: Int,
-    sourceHintSampleRateHz: Int,
-    sourceAudioTrackCount: Int = 1,
-): Int =
-    extractedSampleRateHz.takeIf { it > 0 }
-        ?: sourceHintSampleRateHz.takeIf { it > 0 && sourceAudioTrackCount == 1 }
-        ?: DEFAULT_AUDIO_SAMPLE_RATE_HZ
-
-private fun MediaFormat.durationUsOrNull(): Long? =
-    if (containsKey(MediaFormat.KEY_DURATION)) getLong(MediaFormat.KEY_DURATION).coerceAtLeast(0L) else null
-
-private fun MediaFormat.intOrZero(key: String): Int =
-    if (containsKey(key)) {
-        runCatching {
-            getInteger(key)
-        }.getOrDefault(0)
-    } else {
-        0
-    }
-
-private fun MediaFormat.longOrZero(key: String): Long =
-    if (containsKey(key)) {
-        runCatching { getLong(key) }
-            .recoverCatching { getInteger(key).toLong() }
-            .getOrDefault(0L)
-    } else {
-        0L
-    }
-
-private fun MediaFormat.floatOrZero(key: String): Float =
-    if (containsKey(key)) {
-        runCatching { getFloat(key) }
-            .recoverCatching { getInteger(key).toFloat() }
-            .getOrDefault(0f)
-    } else {
-        0f
-    }
-
-private fun MediaFormat.directFrameRateHint() =
-    if (containsKey(MediaFormat.KEY_FRAME_RATE)) {
-        val frameRate =
-            runCatching { getFloat(MediaFormat.KEY_FRAME_RATE) }.getOrNull()
-                ?: runCatching { getInteger(MediaFormat.KEY_FRAME_RATE).toFloat() }.getOrNull()
-        frameRate?.let(::videoFrameRateHint)
-    } else {
-        null
-    }
-
-internal fun MediaFormat.subtitleFormatOrNull(): YSubtitleFormat? = mediaSubtitleFormat(getString(MediaFormat.KEY_MIME))
-
-internal fun mediaSubtitleFormat(mimeType: String?): YSubtitleFormat? =
-    when (mimeType?.lowercase()) {
-        "application/x-subrip" -> YSubtitleFormat.Srt
-        "text/vtt" -> YSubtitleFormat.WebVtt
-        "text/x-ssa", "text/x-ass" -> YSubtitleFormat.Ass
-        "application/pgs" -> YSubtitleFormat.Pgs
-        "application/vobsub" -> YSubtitleFormat.VobSub
-        "application/x-quicktime-tx3g" -> YSubtitleFormat.Tx3g
-        else -> null
-    }
-
-private fun MediaFormat?.dynamicRangeLabel(): String {
-    val format = this ?: return "Unknown"
-    val mime = format.getString(MediaFormat.KEY_MIME)?.lowercase()
-    if (mime == DOLBY_VISION_MIME) return "Dolby Vision"
-    val transfer =
-        if (format.containsKey(MediaFormat.KEY_COLOR_TRANSFER)) {
-            format.getInteger(MediaFormat.KEY_COLOR_TRANSFER)
-        } else {
-            null
-        }
-    return when (transfer) {
-        COLOR_TRANSFER_ST2084 -> "HDR10/PQ"
-        COLOR_TRANSFER_HLG -> "HLG"
-        else -> "SDR/Unknown"
-    }
-}
-
-internal fun extractNativeDirectHdr10PlusPayload(data: ByteBuffer): ByteArray? {
-    if (!data.hasRemaining()) return null
-    val bytes = ByteArray(data.remaining())
-    data.duplicate().get(bytes)
-    return HDR10_PLUS_SAMPLE_PACKINGS
-        .asSequence()
-        .mapNotNull { packing ->
-            runCatching { YBitstream.hdr10PlusItuT35Payload(bytes, packing) }.getOrNull()
-        }.firstOrNull()
-}
-
 private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
     update(transform)
 }
-
-private fun YVideoDecoderAttemptFailure.safeDiagnosticLabel(): String =
-    buildString {
-        append(decoderName)
-        append(':')
-        append(diagnosticInfo ?: errorType)
-        errorCode?.let { code ->
-            append(':')
-            append(code)
-        }
-        if (recoverable) append(":recoverable")
-        if (transient) append(":transient")
-    }
 
 private const val VIDEO_MIME_PREFIX = "video/"
 private const val AUDIO_MIME_PREFIX = "audio/"
 private const val AUDIO_TRACK_PREFIX = "audio:"
 private const val SUBTITLE_TRACK_PREFIX = "subtitle:"
 private const val SUBTITLE_OFF = "off"
-private const val DOLBY_VISION_MIME = "video/dolby-vision"
 private const val MICROS_PER_MILLISECOND = 1_000L
-private const val DEFAULT_AUDIO_SAMPLE_RATE_HZ = 48_000
 private const val DEFAULT_SAMPLE_BUFFER_BYTES = 8 * 1024 * 1024
 private const val MIN_SAMPLE_BUFFER_BYTES = 256 * 1024
 private const val MAX_SAMPLE_BUFFER_BYTES = 32 * 1024 * 1024
@@ -3802,23 +3416,9 @@ private const val MAX_VIDEO_SYNC_SAMPLE_DROPS = 600
 private const val MAX_DEMUX_QUEUE_BYTES = 24L * 1024L * 1024L
 private const val LATE_FRAME_DROP_NS = 100_000_000L
 private const val LATE_FRAME_IMMEDIATE_NS = 50_000_000L
-private const val SLOW_PUMP_THRESHOLD_NS = 20_000_000L
-private const val LONG_RENDER_GAP_NS = 100_000_000L
-private const val QOE_PUBLISH_INTERVAL_NS = 5_000_000_000L
 private const val NANOS_PER_MILLISECOND = 1_000_000L
 private const val SUBTITLE_HISTORY_US = 60_000_000L
 private const val PUMP_IDLE_DELAY_MS = 2L
 private const val PUMP_PAUSED_IDLE_DELAY_MS = 20L
 private const val TRANSPORT_BUFFERING_DEBOUNCE_MS = 300L
 private const val NATIVE_DIRECT_THREAD_NAME = "YCore-NativeDirect"
-private const val COLOR_TRANSFER_ST2084 = 6
-private const val COLOR_TRANSFER_HLG = 7
-private const val ATMOS_PROFILE = 30
-
-private val HDR10_PLUS_SAMPLE_PACKINGS =
-    listOf(
-        YSamplePacking.AnnexB,
-        YSamplePacking.LengthPrefixed(4),
-        YSamplePacking.LengthPrefixed(2),
-        YSamplePacking.LengthPrefixed(1),
-    )

@@ -1,0 +1,20 @@
+Compiled from "YfuseMpvCapabilities.java"
+public final class dev.yfuse.mpv.YfuseMpvCapabilities {
+  public static final boolean LIBBLURAY = true;
+  public static final boolean BDJ = false;
+  public static final boolean REMOTE_RAW_BLURAY = true;
+  public static final boolean BDMV_VFS = true;
+  public static final boolean HDMV_MENU = true;
+  public static final boolean MULTI_ANGLE = true;
+  public static final boolean DOLBY_VISION_RPU = true;
+  public static final boolean DOLBY_VISION_FEL = true;
+  public static final java.lang.String LIBMPV_ANDROID_REVISION = "fcf6745703dc1265bca88f12fee8fc355ddf251e";
+  public static final java.lang.String LIBBLURAY_REVISION = "7d94f2660af5bfc16015291a03539329135c18f1";
+  public static final java.lang.String LIBUDFREAD_REVISION = "139a2194525f2745b98a98e4d8fa627d07440176";
+  public static final java.lang.String MPV_CORE_REVISION = "b955aa28f3dc93dc6b21485a0d5b7feb8e6dc10f";
+  public static final java.lang.String FFMPEG_REVISION = "b79d4c4c0a160fc46988e98505af6039a53ad53e";
+  public static final java.lang.String LIBPLACEBO_REVISION = "22ee762e8e0890fc54068beb670310f0edce7263";
+  public static long dolbyVisionRuntimeGeneration();
+  public static int dolbyVisionRuntimeEvidence();
+  static {};
+}

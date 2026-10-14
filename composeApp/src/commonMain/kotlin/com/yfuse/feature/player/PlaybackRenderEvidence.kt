@@ -1,5 +1,7 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core2.api.YDolbyAtmosOutputMode
+
 /**
  * How an engine turns what it saw of its own output (a first frame drawn, an AudioTrack opened, a
  * sink released, frames dropped) into the readiness and evidence it reports. Exo, mpv and MDK each
@@ -59,11 +61,18 @@ internal fun PlaybackDiagnostics.withVideoOutputReleased(videoOutput: String): P
         videoOutput = videoOutput,
         videoReadiness = PlaybackOutputReadiness.Released,
         dolbyVisionOutput = false,
+        dolbyVisionRpuApplied = false,
+        dolbyVisionEnhancementLayerComposed = false,
         outputEvidence =
             outputEvidence.copy(
                 videoReadiness = PlaybackOutputReadiness.Released,
                 videoConfidence = PlaybackEvidenceConfidence.Confirmed,
                 outputDynamicRange = "",
+                dynamicRangeOutputMode = PlaybackDynamicRangeOutputMode.Unknown,
+                dolbyVisionRpuRendered = false,
+                dolbyVisionFelComposed = false,
+                tunneledPlayback = false,
+                secureDecoder = false,
             ),
     )
 
@@ -76,11 +85,26 @@ internal fun PlaybackDiagnostics.withAudioOutputReleased(audioOutput: String): P
         // 源码输出. A flag has to be told.
         immersiveAudioCarrierOutput = false,
         dolbyAtmosOutput = false,
+        dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+        audioOutputRouteVerified = false,
         spatialAudioOutput = false,
         headTrackingAvailable = false,
         outputEvidence =
             outputEvidence.copy(
                 audioReadiness = PlaybackOutputReadiness.Released,
+                audioConfidence = PlaybackEvidenceConfidence.Confirmed,
+                audioMode = PlaybackAudioOutputMode.Unknown,
+            ),
+    )
+
+/** A configured or paused sink must prove progress again after a discontinuity. */
+internal fun PlaybackDiagnostics.withAudioOutputWaiting(audioOutput: String): PlaybackDiagnostics =
+    withAudioOutputReleased(audioOutput).copy(
+        audioReadiness = PlaybackOutputReadiness.Waiting,
+        outputEvidence =
+            outputEvidence.copy(
+                audioReadiness = PlaybackOutputReadiness.Waiting,
+                audioConfidence = PlaybackEvidenceConfidence.Requested,
                 audioMode = PlaybackAudioOutputMode.Unknown,
             ),
     )

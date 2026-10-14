@@ -89,3 +89,4 @@ audit/**/*.zip
 # Local diagnostic exports and compiled render probes are not source files.
 audit/diagnostics-*/
 audit/**/*.jar
+audit/**/ycore_portable_test

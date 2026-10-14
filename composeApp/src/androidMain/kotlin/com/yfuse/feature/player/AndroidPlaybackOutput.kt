@@ -14,6 +14,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter
 import androidx.media3.exoplayer.text.TextOutput
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.playback.PlaybackFailureKind
@@ -50,6 +51,7 @@ internal class ExoOutputRenderersFactory(
     context: Context,
     private val audioPassthroughMode: AudioPassthroughMode,
     private val dualSubtitleCueMerger: ExoDualSubtitleCueMerger? = null,
+    private val outputProbe: ExoOutputProbe? = null,
 ) : DefaultRenderersFactory(context) {
     init {
         val frameRateMode =
@@ -71,19 +73,21 @@ internal class ExoOutputRenderersFactory(
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean,
     ): AudioSink? {
-        if (audioPassthroughMode == AudioPassthroughMode.Compatible) {
-            return super.buildAudioSink(
-                context,
-                enableFloatOutput,
-                enableAudioTrackPlaybackParams,
-            )
-        }
-        return DefaultAudioSink
-            .Builder()
-            .setEnableFloatOutput(enableFloatOutput)
-            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-            .build()
+        val sink =
+            if (audioPassthroughMode == AudioPassthroughMode.Compatible) {
+                super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams)
+            } else {
+                DefaultAudioSink
+                    .Builder()
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .build()
+            }
+        return sink?.let { outputProbe?.audioSink(it) ?: it }
     }
+
+    override fun getCodecAdapterFactory(): MediaCodecAdapter.Factory =
+        super.getCodecAdapterFactory().let { outputProbe?.codecFactory(it) ?: it }
 
     override fun buildTextRenderers(
         context: Context,

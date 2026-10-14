@@ -24,19 +24,23 @@ class MpvOutputStateTest {
     fun audio_is_rendering_only_after_android_output_is_established() {
         assertEquals(
             PlaybackOutputReadiness.Waiting,
-            mpvAudioOutputReadiness(outputDriver = null, outputFormat = null),
+            mpvAudioOutputReadiness(outputDriver = null, outputFormat = null, clockAdvancing = true),
         )
         assertEquals(
             PlaybackOutputReadiness.Waiting,
-            mpvAudioOutputReadiness(outputDriver = "audiotrack", outputFormat = null),
+            mpvAudioOutputReadiness(outputDriver = "audiotrack", outputFormat = null, clockAdvancing = true),
         )
         assertEquals(
             PlaybackOutputReadiness.Waiting,
-            mpvAudioOutputReadiness(outputDriver = "null", outputFormat = "s16"),
+            mpvAudioOutputReadiness(outputDriver = "null", outputFormat = "s16", clockAdvancing = true),
         )
         assertEquals(
             PlaybackOutputReadiness.Rendering,
-            mpvAudioOutputReadiness(outputDriver = "audiotrack", outputFormat = "s16"),
+            mpvAudioOutputReadiness(outputDriver = "audiotrack", outputFormat = "s16", clockAdvancing = true),
+        )
+        assertEquals(
+            PlaybackOutputReadiness.Waiting,
+            mpvAudioOutputReadiness(outputDriver = "audiotrack", outputFormat = "spdif-eac3", clockAdvancing = false),
         )
     }
 

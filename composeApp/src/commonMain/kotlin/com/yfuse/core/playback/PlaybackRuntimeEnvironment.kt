@@ -63,7 +63,7 @@ fun resolvePlaybackOptimization(
         environment.pressure == PlaybackResourcePressure.Thermal ->
             ResolvedPlaybackOptimization(
                 mode = PlaybackOptimizationMode.PowerSaver,
-                reason = "设备温度过高，YCore 临时启用省电管线",
+                reason = "设备温度过高，播放器临时启用省电管线",
             )
         environment.pressure in
             setOf(
@@ -73,7 +73,7 @@ fun resolvePlaybackOptimization(
             requested != PlaybackOptimizationMode.Compatibility ->
             ResolvedPlaybackOptimization(
                 mode = PlaybackOptimizationMode.PowerSaver,
-                reason = "${environment.pressure.label}，YCore 临时启用省电管线",
+                reason = "${environment.pressure.label}，播放器临时启用省电管线",
             )
         else -> ResolvedPlaybackOptimization(requested)
     }

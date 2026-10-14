@@ -1,0 +1,39 @@
+// Scope formatting to this refactor; existing worktree changes are not reformatted.
+def refactorFiles = [
+    'D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectYPlayer.kt',
+    'D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core2/android/NativeDirectMediaFormats.kt',
+    'D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core2/android/NativeDirectPlaybackPolicy.kt',
+    'D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineMedia.android.kt',
+    'D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineDownloadScheduling.android.kt',
+    'D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineDownloadPlan.android.kt',
+    'D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineSourceResolution.android.kt',
+    'D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core/offline/OfflineArtifacts.android.kt',
+    'D:/Demo/Yfuse/watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarIngestion.kt',
+    'D:/Demo/Yfuse/watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarIngestionModels.kt',
+    'D:/Demo/Yfuse/watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarOcrResponses.kt',
+    'D:/Demo/Yfuse/watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarEvidenceGate.kt',
+    'D:/Demo/Yfuse/watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarOcrConsensus.kt',
+    'D:/Demo/Yfuse/watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarSourceDiscovery.kt',
+    'D:/Demo/Yfuse/watchTogetherServer/src/main/kotlin/com/yfuse/watch/CalendarIngestionPolicy.kt',
+    'D:/Demo/Yfuse/watchTogetherServer/src/main/kotlin/com/yfuse/watch/Application.kt',
+    'D:/Demo/Yfuse/watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchConnectionGate.kt',
+    'D:/Demo/Yfuse/watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchAccountAuthentication.kt',
+    'D:/Demo/Yfuse/watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchRoomMessaging.kt',
+    'D:/Demo/Yfuse/watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchConnectionLifecycle.kt',
+    'D:/Demo/Yfuse/watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchMessageValidation.kt',
+    'D:/Demo/Yfuse/composeApp/src/androidMain/kotlin/com/yfuse/core2/android/NativeDirectPacingMetrics.kt',
+    'D:/Demo/Yfuse/composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/NativeDirectPacingMetricsTest.kt'
+] as Set
+
+gradle.projectsEvaluated {
+    allprojects {
+        def lint = extensions.findByName('ktlint')
+        if (lint != null) {
+            lint.filter {
+                exclude { element ->
+                    !element.directory && !refactorFiles.contains(element.file.canonicalPath.replace('\\', '/'))
+                }
+            }
+        }
+    }
+}

@@ -15,12 +15,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -332,19 +330,13 @@ class MdkVideoEngine(
     private val loadStateGate = MdkLoadStateGate(FALLBACK_SETTLE_MS)
     private val nativeEventSignals = Channel<Unit>(Channel.CONFLATED)
 
-    private val nativeEventJob: Job =
-        scope.launch(Dispatchers.Default) {
-            for (ignored in nativeEventSignals) {
-                if (!released) poll()
-            }
-        }
-
     private val pollJob: Job =
         scope.launch(Dispatchers.Default) {
-            while (isActive && !released) {
-                poll()
-                val current = _state.value
-                delay(
+            samplePlaybackUntilCancelled(
+                signals = nativeEventSignals,
+                sample = { if (!released) poll() },
+                intervalMs = {
+                    val current = _state.value
                     mdkRuntimeCadence.intervalMs(
                         playing = current.playing,
                         buffering = current.buffering,
@@ -352,9 +344,9 @@ class MdkVideoEngine(
                             pendingSeekMs >= 0L ||
                                 fallbackJob?.isActive == true ||
                                 (playRequested && !current.ended),
-                    ),
-                )
-            }
+                    )
+                },
+            )
         }
 
     fun attach(view: SurfaceView) {
@@ -627,7 +619,6 @@ class MdkVideoEngine(
                         fallbackJob?.cancel()
                         fallbackJob = null
                         pollJob.cancel()
-                        nativeEventJob.cancel()
                         nativeEventSignals.close()
                     }
                 }
@@ -757,7 +748,8 @@ class MdkVideoEngine(
         if (released || _state.value.fallbacksExhausted) return
         val epoch = loadStateGate.currentEpoch
         runCatching {
-            val status = instance.mediaStatus()
+            val snapshot = decodeMdkPlaybackSnapshot(instance.playbackSnapshot()) ?: return
+            val status = snapshot.status
             val loadStatus = loadStateGate.observe(epoch, status and MDKPlayer.STATUS_INVALID != 0)
             if (loadStatus == MdkLoadStatus.Stale) return
             if (loadStatus == MdkLoadStatus.Waiting) {
@@ -787,6 +779,7 @@ class MdkVideoEngine(
                 val target = pendingSeekMs
                 pendingSeekMs = -1L
                 instance.seek(target)
+                return
             } else if (loaded && pendingSeekMs == 0L) {
                 pendingSeekMs = -1L
             }
@@ -816,9 +809,9 @@ class MdkVideoEngine(
                 endHandled = false
             }
 
-            val positionMs = instance.position().coerceAtLeast(0L)
-            val reportedDurationMs = instance.duration().coerceAtLeast(0L)
-            val bufferedDurationMs = instance.bufferedDuration().coerceAtLeast(0L)
+            val positionMs = snapshot.positionMs
+            val reportedDurationMs = snapshot.durationMs
+            val bufferedDurationMs = snapshot.bufferedDurationMs
             val playbackEvidence = decodeMdkPlaybackEvidence(instance.playbackEvidence())
             items.getOrNull(_state.value.currentIndex)?.let { item ->
                 if (playbackEvidence.firstVideoFrameRendered ||
@@ -829,12 +822,13 @@ class MdkVideoEngine(
                 }
             }
             _state.update { current ->
+                if (epoch != loadStateGate.currentEpoch) return@update current
                 val durationMs =
                     reportedDurationMs.takeIf { it > 0L }
                         ?: current.durationMs.coerceAtLeast(0L)
                 current.copy(
                     playing =
-                        instance.state() == MDKPlayer.STATE_PLAYING && !ended && !invalid,
+                        snapshot.state == MDKPlayer.STATE_PLAYING && !ended && !invalid,
                     buffering = buffering,
                     positionMs = positionMs,
                     durationMs = durationMs,
@@ -844,10 +838,10 @@ class MdkVideoEngine(
                             durationMs = durationMs,
                             bufferedDurationMs = bufferedDurationMs,
                         ),
-                    speed = instance.playbackRate(),
+                    speed = snapshot.speed,
                     videoHeight =
                         playbackEvidence.videoHeight.takeIf { it > 0 }
-                            ?: instance.videoHeight().coerceAtLeast(0),
+                            ?: current.videoHeight,
                     error =
                         if (invalid) {
                             "MDK 无法播放此媒体，服务器也没有可用的转码流"

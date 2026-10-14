@@ -56,7 +56,6 @@ import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackPerformanceMemory
 import com.yfuse.core.playback.PlaybackResourcePressure
 import com.yfuse.core.playback.planPlayback
-import com.yfuse.core.playback.resolvePlaybackOptimization
 import com.yfuse.core.sync.WatchStickers
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core2.android.canUseCore2Trial
@@ -221,7 +220,7 @@ internal fun PlayerRoot(
             runCatching { dolbyVisionRuntimeCapabilities(context, runtimeEnvironment) }
                 .getOrElse { PlaybackDolbyVisionRuntimeCapabilities.conservative() }
         }
-    val resolvedOptimization = resolvePlaybackOptimization(optimizationMode, runtimeEnvironment)
+    val resolvedOptimization = rememberPlaybackOptimization(optimizationMode, runtimeEnvironment)
     val effectiveOptimizationMode = resolvedOptimization.mode
     val failureMemory =
         remember(playbackPreferences) {

@@ -119,13 +119,13 @@ class PlaybackOutputReadinessTest {
     @Test
     fun mpv_audio_requires_output_driver_and_output_format() {
         assertTrue(
-            mpvAudioOutputReadiness("aaudio", "s16") == PlaybackOutputReadiness.Rendering,
+            mpvAudioOutputReadiness("aaudio", "s16", clockAdvancing = true) == PlaybackOutputReadiness.Rendering,
         )
         assertFalse(
-            mpvAudioOutputReadiness("", "s16") == PlaybackOutputReadiness.Rendering,
+            mpvAudioOutputReadiness("", "s16", clockAdvancing = true) == PlaybackOutputReadiness.Rendering,
         )
         assertFalse(
-            mpvAudioOutputReadiness("aaudio", "") == PlaybackOutputReadiness.Rendering,
+            mpvAudioOutputReadiness("aaudio", "", clockAdvancing = true) == PlaybackOutputReadiness.Rendering,
         )
     }
 

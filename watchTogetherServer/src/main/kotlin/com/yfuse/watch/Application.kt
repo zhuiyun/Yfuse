@@ -2,11 +2,8 @@ package com.yfuse.watch
 
 import com.yfuse.watch.account.AccountBackend
 import com.yfuse.watch.account.AccountExecutionPolicy
-import com.yfuse.watch.account.AccountProblem
 import com.yfuse.watch.account.AccountRateLimiter
-import com.yfuse.watch.account.AccountServiceException
 import com.yfuse.watch.account.AccountWorkExecutor
-import com.yfuse.watch.account.AccountWorkRejectedException
 import com.yfuse.watch.account.AuthenticatedAccount
 import com.yfuse.watch.account.PlaybackRelayStoreProvider
 import com.yfuse.watch.account.accountRoutes
@@ -16,8 +13,6 @@ import com.yfuse.watch.migration.migrationRelayRoutes
 import com.yfuse.watch.protocol.WatchProtocol
 import com.yfuse.watch.protocol.WatchWireChatMessage
 import com.yfuse.watch.protocol.WatchWireMessage
-import com.yfuse.watch.protocol.WatchWireParticipant
-import com.yfuse.watch.protocol.WatchWirePlaylistEntry
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -37,7 +32,6 @@ import io.ktor.server.response.header
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
-import io.ktor.server.websocket.DefaultWebSocketServerSession
 import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.CloseReason
@@ -45,56 +39,14 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.WebSocketSession
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
-import io.ktor.websocket.send
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.consumeEach
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.job
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import java.io.File
-import java.sql.SQLTransientException
-import java.util.concurrent.ThreadLocalRandom
-
-/**
- * Wire protocol v6, wire-compatible with authenticated v5 for a rolling server-first upgrade.
- * The DTO and its validation limits live in `:watchTogetherProtocol`, so client and relay cannot
- * silently drift. Version 5 requires an authenticated Yfuse account for
- * every room connection and binds membership to its immutable account id. Room-scoped resume and
- * host capabilities continue to protect reconnection and host authority; public client ids never
- * authenticate either operation.
- *
- * The core change from v1 is that the server is the **timeline authority**: instead of the
- * host broadcasting its position once a second and guests correcting toward a moving
- * target, the host tells the room "here is the new anchor" only when something actually
- * changes (play/pause/seek/rate/media), and everyone else extrapolates
- * `anchorPositionMs + (serverNow - anchorAtMs) * rate` locally between anchors. This is both
- * cheaper (near-zero traffic while steady-state playing) and more precise (no 1-second
- * quantization) — see [Timeline].
- *
- * [serverAtMs] is stamped on every outgoing message for diagnostics and future extensions.
- * Clock samples use `pong` specifically, because only it echoes the correlation id needed
- * to measure round-trip latency with the client's monotonic clock.
- */
-
-private val json =
-    Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = false
-    }
 
 /**
  * How long an emptied room is kept around for its last occupants to reconnect into before
@@ -119,13 +71,7 @@ private const val HOST_GRACE_MS = 20_000L
  * every second on every guest, and a full snapshot per change made steady-state traffic
  * grow with the square of the room size.
  */
-private const val PRESENCE_BROADCAST_INTERVAL_MS = 5_000L
-
-/**
- * A member whose socket cannot take a broadcast within this window is dropped. Broadcasts
- * run on the sender's read loop, so a stalled receiver used to freeze the whole room.
- */
-private const val BROADCAST_SEND_TIMEOUT_MS = 2_000L
+internal const val PRESENCE_BROADCAST_INTERVAL_MS = 5_000L
 
 /**
  * Caps, so one client can't exhaust a small shared box. All three are far above anything a
@@ -137,12 +83,9 @@ private const val DEFAULT_MAX_ACTIVE_ROOMS_PER_IP = 8
 private const val DEFAULT_MAX_WATCH_CONNECTIONS = 256
 private const val DEFAULT_MAX_WATCH_CONNECTIONS_PER_IP = 32
 private const val DEFAULT_MAX_WATCH_CONNECTIONS_PER_ACCOUNT = 8
-private const val DEFAULT_PENDING_FLOOR = 8
-private const val DEFAULT_PENDING_PER_IP = 4
 private const val MAX_CONFIGURED_WATCH_CONNECTIONS = 10_000
 private const val MAX_PARTICIPANTS_PER_ROOM = 12
 private const val MAX_MEMBERSHIPS_PER_ROOM = 64
-private const val MAX_REMOVED_ACCOUNT_IDS_PER_ROOM = 256
 private const val MAX_MESSAGES_PER_WINDOW = 240
 private const val RATE_WINDOW_MS = 10_000L
 private const val MAX_CHAT_HISTORY = 50
@@ -167,178 +110,6 @@ private const val MAX_REACTIONS_PER_WINDOW = 6
 private const val REACTION_RATE_WINDOW_MS = 3_000L
 private const val PROFILE_UPDATE_COOLDOWN_MS = 1_000L
 private const val ACCOUNT_REVALIDATION_MS = 10_000L
-private const val ACCOUNT_AUTH_RETRY_BASE_MS = 100L
-private const val ACCOUNT_AUTH_RETRY_MAX_MS = 5_000L
-private const val ACCOUNT_AUTH_RETRY_MAX_EXPONENT = 6
-private const val ACCOUNT_AUTH_ATTEMPT_TIMEOUT_MS = 10_000L
-private const val ACCOUNT_INITIAL_AUTH_MAX_TRANSIENT_FAILURES = 8
-private val graphemeRegex = Regex("\\X")
-
-/**
- * Bounds both handshakes and established sockets. A lease first consumes the global and network
- * identity budgets, then binds the authenticated account before any per-socket watchdog starts.
- * Every mutation is under one small lock and [Lease.close] is idempotent, so normal cleanup and the
- * WebSocket coroutine's completion callback can safely converge on the same release path.
- */
-internal class WatchConnectionGate(
-    private val globalLimit: Int,
-    private val perIpLimit: Int,
-    private val perAccountLimit: Int,
-    /**
-     * Sockets that have not authenticated yet get their own, smaller pool: without one, a few
-     * addresses holding unauthenticated connections open could fill the whole global quota.
-     */
-    private val pendingLimit: Int = maxOf(globalLimit / 4, minOf(globalLimit, DEFAULT_PENDING_FLOOR)),
-    private val pendingPerIpLimit: Int = minOf(perIpLimit, DEFAULT_PENDING_PER_IP),
-) {
-    private val lock = Any()
-    private var active = 0
-    private var pending = 0
-    private val activeByIp = mutableMapOf<String, Int>()
-    private val pendingByIp = mutableMapOf<String, Int>()
-    private val activeByAccount = mutableMapOf<String, Int>()
-
-    init {
-        require(globalLimit > 0)
-        require(perIpLimit in 1..globalLimit)
-        require(perAccountLimit in 1..globalLimit)
-        require(pendingLimit in 1..globalLimit)
-        require(pendingPerIpLimit in 1..perIpLimit)
-    }
-
-    fun tryAcquire(clientIp: String): Lease? =
-        synchronized(lock) {
-            val ipActive = activeByIp[clientIp] ?: 0
-            val ipPending = pendingByIp[clientIp] ?: 0
-            if (
-                active + pending >= globalLimit ||
-                ipActive + ipPending >= perIpLimit ||
-                pending >= pendingLimit ||
-                ipPending >= pendingPerIpLimit
-            ) {
-                return@synchronized null
-            }
-            pending++
-            pendingByIp[clientIp] = ipPending + 1
-            Lease(clientIp)
-        }
-
-    internal inner class Lease internal constructor(
-        private val clientIp: String,
-    ) : AutoCloseable {
-        private var accountUserId: String? = null
-        private var promoted = false
-        private var released = false
-
-        /** Moves the socket from the pending pool to the active pool once its account is known. */
-        fun tryBindAccount(userId: String): Boolean =
-            synchronized(lock) {
-                check(!released) { "connection lease is already released" }
-                val current = accountUserId
-                if (current != null) return@synchronized current == userId
-                val accountCount = activeByAccount[userId] ?: 0
-                if (accountCount >= perAccountLimit) return@synchronized false
-                activeByAccount[userId] = accountCount + 1
-                accountUserId = userId
-                promoteLocked()
-                true
-            }
-
-        /** Test-only unauthenticated mode: the socket is admitted without an account. */
-        fun promote() {
-            synchronized(lock) {
-                check(!released) { "connection lease is already released" }
-                promoteLocked()
-            }
-        }
-
-        private fun promoteLocked() {
-            if (promoted) return
-            promoted = true
-            pending--
-            decrement(pendingByIp, clientIp)
-            active++
-            activeByIp[clientIp] = (activeByIp[clientIp] ?: 0) + 1
-        }
-
-        override fun close() {
-            synchronized(lock) {
-                if (released) return
-                released = true
-                if (promoted) {
-                    active--
-                    decrement(activeByIp, clientIp)
-                } else {
-                    pending--
-                    decrement(pendingByIp, clientIp)
-                }
-                accountUserId?.let { decrement(activeByAccount, it) }
-            }
-        }
-    }
-
-    private fun decrement(
-        counts: MutableMap<String, Int>,
-        key: String,
-    ) {
-        val remaining = checkNotNull(counts[key]) - 1
-        if (remaining == 0) counts.remove(key) else counts[key] = remaining
-    }
-}
-
-private sealed interface WatchAccountAuthentication {
-    data class Accepted(
-        val account: AuthenticatedAccount,
-    ) : WatchAccountAuthentication
-
-    data object Rejected : WatchAccountAuthentication
-
-    data object TemporarilyUnavailable : WatchAccountAuthentication
-
-    data object Failed : WatchAccountAuthentication
-}
-
-private suspend fun authenticateWatchAccount(
-    authenticator: suspend (String) -> AuthenticatedAccount,
-    accessToken: String,
-): WatchAccountAuthentication =
-    try {
-        WatchAccountAuthentication.Accepted(
-            withTimeout(ACCOUNT_AUTH_ATTEMPT_TIMEOUT_MS) {
-                authenticator(accessToken)
-            },
-        )
-    } catch (failure: AccountServiceException) {
-        if (failure.problem == AccountProblem.Unauthorized) {
-            WatchAccountAuthentication.Rejected
-        } else {
-            WatchAccountAuthentication.Failed
-        }
-    } catch (_: AccountWorkRejectedException) {
-        WatchAccountAuthentication.TemporarilyUnavailable
-    } catch (_: TimeoutCancellationException) {
-        WatchAccountAuthentication.TemporarilyUnavailable
-    } catch (_: SQLTransientException) {
-        WatchAccountAuthentication.TemporarilyUnavailable
-    } catch (failure: CancellationException) {
-        throw failure
-    } catch (_: Exception) {
-        WatchAccountAuthentication.Failed
-    }
-
-private fun nextWatchAuthFailureCount(current: Int): Int =
-    (current + 1).coerceAtMost(ACCOUNT_AUTH_RETRY_MAX_EXPONENT + 1)
-
-/** Full-jitter exponential retry, bounded so an account outage cannot create a retry storm. */
-internal fun watchAuthTransientRetryDelayMs(failureCount: Int): Long {
-    require(failureCount > 0) { "failureCount must be positive" }
-    val exponent = (failureCount - 1).coerceAtMost(ACCOUNT_AUTH_RETRY_MAX_EXPONENT)
-    val ceiling =
-        (ACCOUNT_AUTH_RETRY_BASE_MS shl exponent)
-            .coerceAtMost(ACCOUNT_AUTH_RETRY_MAX_MS)
-    val floor = (ceiling / 2L).coerceAtLeast(1L)
-    return ThreadLocalRandom.current().nextLong(floor, ceiling + 1L)
-}
 
 private val AUTHENTICATED_MESSAGE_TYPES =
     setOf(
@@ -358,39 +129,6 @@ private val AUTHENTICATED_MESSAGE_TYPES =
         "playlistRemove",
         "playlistReorder",
     )
-
-private enum class PlaylistMutationResult {
-    Changed,
-    Forbidden,
-    Stale,
-    Full,
-    Duplicate,
-    NotFound,
-    IndexInvalid,
-    Unchanged,
-    RevisionExhausted,
-}
-
-private fun Room.mutatePlaylist(
-    clientId: String,
-    session: WebSocketSession,
-    expectedRevision: Long,
-    mutation: (MutableList<WatchWirePlaylistEntry>) -> PlaylistMutationResult,
-): PlaylistMutationResult =
-    synchronized(this) {
-        val actor =
-            participants[clientId]
-                ?.takeIf { it.session === session }
-                ?: return@synchronized PlaylistMutationResult.Forbidden
-        if (!canEditPlaylist(actor)) return@synchronized PlaylistMutationResult.Forbidden
-        if (playlistRevision != expectedRevision) return@synchronized PlaylistMutationResult.Stale
-        if (playlistRevision == Long.MAX_VALUE) {
-            return@synchronized PlaylistMutationResult.RevisionExhausted
-        }
-        mutation(playlist).also { result ->
-            if (result == PlaylistMutationResult.Changed) playlistRevision++
-        }
-    }
 
 fun main() {
     val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
@@ -673,54 +411,11 @@ internal fun Application.watchTogetherModule(
             }
             val authenticatedAccount =
                 if (requireWatchAuthentication) {
-                    var transientFailures = 0
-                    var acceptedAccount: AuthenticatedAccount? = null
-                    while (acceptedAccount == null) {
-                        when (
-                            val authentication =
-                                authenticateWatchAccount(
-                                    watchAccountAuthenticator,
-                                    checkNotNull(accessToken),
-                                )
-                        ) {
-                            is WatchAccountAuthentication.Accepted -> {
-                                acceptedAccount = authentication.account
-                            }
-                            WatchAccountAuthentication.Rejected -> {
-                                WatchMetrics.authFailures.incrementAndGet()
-                                close(
-                                    CloseReason(
-                                        CloseReason.Codes.VIOLATED_POLICY,
-                                        "account_auth_expired",
-                                    ),
-                                )
-                                return@webSocket
-                            }
-                            WatchAccountAuthentication.TemporarilyUnavailable -> {
-                                transientFailures++
-                                if (transientFailures >= ACCOUNT_INITIAL_AUTH_MAX_TRANSIENT_FAILURES) {
-                                    close(
-                                        CloseReason(
-                                            CloseReason.Codes.TRY_AGAIN_LATER,
-                                            "account_auth_temporarily_unavailable",
-                                        ),
-                                    )
-                                    return@webSocket
-                                }
-                                delay(watchAuthRetryDelayMs(transientFailures).coerceAtLeast(1L))
-                            }
-                            WatchAccountAuthentication.Failed -> {
-                                close(
-                                    CloseReason(
-                                        CloseReason.Codes.INTERNAL_ERROR,
-                                        "account_auth_unavailable",
-                                    ),
-                                )
-                                return@webSocket
-                            }
-                        }
-                    }
-                    checkNotNull(acceptedAccount)
+                    authenticateWatchConnection(
+                        accessToken = checkNotNull(accessToken),
+                        authenticator = watchAccountAuthenticator,
+                        retryDelayMs = watchAuthRetryDelayMs,
+                    ) ?: return@webSocket
                 } else {
                     AuthenticatedAccount(
                         userId = "watch-test-account",
@@ -742,84 +437,14 @@ internal fun Application.watchTogetherModule(
             if (!requireWatchAuthentication) connectionLease.promote()
             val authWatchdog =
                 if (requireWatchAuthentication) {
-                    launch {
-                        var transientFailures = 0
-                        while (true) {
-                            val untilExpiry =
-                                authenticatedAccount.accessExpiresAtEpochMs -
-                                    watchAuthClock()
-                            if (untilExpiry <= 0L) {
-                                close(
-                                    CloseReason(
-                                        CloseReason.Codes.VIOLATED_POLICY,
-                                        "account_auth_expired",
-                                    ),
-                                )
-                                break
-                            }
-                            val delayMs =
-                                if (transientFailures == 0) {
-                                    watchAuthRevalidationMs
-                                } else {
-                                    watchAuthRetryDelayMs(transientFailures).coerceAtLeast(1L)
-                                }
-                            delay(minOf(delayMs, untilExpiry))
-                            if (watchAuthClock() >= authenticatedAccount.accessExpiresAtEpochMs) {
-                                close(
-                                    CloseReason(
-                                        CloseReason.Codes.VIOLATED_POLICY,
-                                        "account_auth_expired",
-                                    ),
-                                )
-                                break
-                            }
-                            when (
-                                val authentication =
-                                    authenticateWatchAccount(
-                                        watchAccountRevalidator,
-                                        checkNotNull(accessToken),
-                                    )
-                            ) {
-                                is WatchAccountAuthentication.Accepted -> {
-                                    if (
-                                        authentication.account.sessionId !=
-                                        authenticatedAccount.sessionId ||
-                                        authentication.account.userId != authenticatedAccount.userId
-                                    ) {
-                                        close(
-                                            CloseReason(
-                                                CloseReason.Codes.VIOLATED_POLICY,
-                                                "account_auth_expired",
-                                            ),
-                                        )
-                                        break
-                                    }
-                                    transientFailures = 0
-                                }
-                                WatchAccountAuthentication.Rejected -> {
-                                    close(
-                                        CloseReason(
-                                            CloseReason.Codes.VIOLATED_POLICY,
-                                            "account_auth_expired",
-                                        ),
-                                    )
-                                    break
-                                }
-                                WatchAccountAuthentication.TemporarilyUnavailable -> {
-                                    transientFailures = nextWatchAuthFailureCount(transientFailures)
-                                }
-                                WatchAccountAuthentication.Failed -> {
-                                    close(
-                                        CloseReason(
-                                            CloseReason.Codes.INTERNAL_ERROR,
-                                            "account_auth_unavailable",
-                                        ),
-                                    )
-                                    break
-                                }
-                            }
-                        }
-                    }
+                    launchWatchAccountRevalidation(
+                        account = authenticatedAccount,
+                        accessToken = checkNotNull(accessToken),
+                        revalidator = watchAccountRevalidator,
+                        revalidationMs = watchAuthRevalidationMs,
+                        retryDelayMs = watchAuthRetryDelayMs,
+                        clock = watchAuthClock,
+                    )
                 } else {
                     null
                 }
@@ -859,7 +484,7 @@ internal fun Application.watchTogetherModule(
 
                     val message =
                         runCatching {
-                            json.decodeFromString(WatchWireMessage.serializer(), textFrame.readText())
+                            watchWireJson.decodeFromString(WatchWireMessage.serializer(), textFrame.readText())
                         }.getOrNull() ?: return@consumeEach sendError(
                             "消息格式无效",
                             "message_invalid",
@@ -1804,428 +1429,4 @@ internal fun Application.watchTogetherModule(
             }
         }
     }
-}
-
-private suspend fun cleanupSocket(
-    authWatchdog: Job?,
-    joinedRoom: Room?,
-    joinedClientId: String?,
-    session: DefaultWebSocketServerSession,
-    connectionLease: AutoCloseable,
-    broadcastRoomUpdate: suspend (Room) -> Unit,
-    scheduleHostHandover: (Room) -> Unit,
-) {
-    try {
-        authWatchdog?.cancelAndJoin()
-        val room = joinedRoom
-        val clientId = joinedClientId
-        if (room != null && clientId != null) {
-            // Guard against a stale connection's own cleanup evicting a client that
-            // has already reconnected on a new session: only the session currently
-            // on record for `clientId` is allowed to remove it.
-            var hostWentAbsent = false
-            val removedNow =
-                synchronized(room) {
-                    val isActiveSession = room.participants[clientId]?.session === session
-                    if (isActiveSession) {
-                        room.participants.remove(clientId)
-                        if (room.hostId == clientId) {
-                            // The host keeps the room while it is away. Handing over the
-                            // instant the socket dropped turned a few seconds of no
-                            // signal into a permanent loss of control; a delayed
-                            // handover still covers a host that genuinely doesn't return.
-                            room.hostAbsentSinceMs = System.currentTimeMillis()
-                            hostWentAbsent = true
-                        }
-                        if (room.participants.isEmpty()) {
-                            room.emptySinceMs = System.currentTimeMillis()
-                        }
-                    }
-                    isActiveSession
-                }
-            if (hostWentAbsent) {
-                scheduleHostHandover(room)
-            }
-            if (removedNow && room.participants.isNotEmpty()) broadcastRoomUpdate(room)
-        }
-    } finally {
-        connectionLease.close()
-    }
-}
-
-/**
- * Promotes the first remaining participant once a disconnected host's reconnect window
- * expires. The room is checked again after the delay because the host may have reconnected,
- * or a newer disconnect may have started a fresh grace window, while this coroutine slept.
- */
-private fun CoroutineScope.scheduleHostHandover(
-    room: Room,
-    graceMs: Long,
-) {
-    launch {
-        delay(graceMs)
-        var grantedCapability: String? = null
-        val newHost =
-            synchronized(room) {
-                if (
-                    room.participants.containsKey(room.hostId) ||
-                    !room.hostGraceExpired(graceMs)
-                ) {
-                    null
-                } else {
-                    val nextHost = room.participants.values.firstOrNull()
-                    if (nextHost == null) {
-                        null
-                    } else {
-                        grantedCapability = room.transferHostTo(nextHost)
-                        nextHost
-                    }
-                }
-            }
-        if (newHost != null) {
-            runCatching {
-                newHost.session.sendMessage(
-                    WatchWireMessage(
-                        type = "hostCapabilityGranted",
-                        hostCapability = grantedCapability,
-                    ),
-                )
-            }
-            broadcastRoomUpdate(room)
-        }
-    }
-}
-
-private fun Room.welcomeMessage(
-    clientId: String,
-    resumeCapability: String?,
-    hostCapability: String?,
-    protocolVersion: Int,
-): WatchWireMessage =
-    synchronized(this) {
-        WatchWireMessage(
-            type = "welcome",
-            protocolVersion = protocolVersion,
-            capabilities = WatchProtocol.SERVER_CAPABILITIES,
-            roomCode = code,
-            resumeCapability = resumeCapability,
-            hostCapability = hostCapability,
-            isHost = hostId == clientId,
-            canControl = participants[clientId]?.let(::canControl) ?: false,
-            controlMode = controlMode.wireValue,
-            participantCount = participants.size,
-            participants = wireParticipants(),
-            chatHistory = chatHistory.toList(),
-            playlist = playlist.toList(),
-            playlistRevision = playlistRevision,
-            mediaKey = timeline.mediaKey,
-            positionMs = timeline.anchorPositionMs,
-            paused = timeline.paused,
-            rate = timeline.rate,
-            seq = timeline.seq,
-            anchorAtMs = timeline.anchorAtServerMs,
-        )
-    }
-
-private suspend fun WebSocketSession.sendMessage(message: WatchWireMessage) {
-    send(
-        json.encodeToString(
-            WatchWireMessage.serializer(),
-            message.copy(
-                protocolVersion = message.protocolVersion ?: WatchProtocol.VERSION,
-                serverAtMs = System.currentTimeMillis(),
-            ),
-        ),
-    )
-}
-
-/** Which part of a `playbackStatus` report changed, and therefore how urgently it is fanned out. */
-private enum class PlaybackStatusChange {
-    /** Ready, buffering, media or duration changed: the room's start gate depends on it. */
-    Readiness,
-
-    /** Only latency or drift changed: informational, coalesced per [PRESENCE_BROADCAST_INTERVAL_MS]. */
-    Presence,
-    None,
-}
-
-/**
- * Sends [message] to one member for a broadcast, dropping the member instead of waiting on
- * a socket that will not take it. The broadcaster's read loop is what runs this, so a slow
- * receiver otherwise stalls every other member's commands behind it.
- */
-private suspend fun Participant.deliverBroadcast(message: WatchWireMessage): Boolean {
-    val delivered =
-        withTimeoutOrNull(BROADCAST_SEND_TIMEOUT_MS) {
-            runCatching { session.sendMessage(message) }.isSuccess
-        } ?: false
-    if (!delivered) {
-        WatchMetrics.broadcastDrops.incrementAndGet()
-        ServerLog.warn("broadcast_member_dropped", "reason" to "send_timeout")
-        // Cancelling the session job runs the handler's cleanup, which removes the member.
-        runCatching { session.cancel(CancellationException("broadcast timed out")) }
-    }
-    return delivered
-}
-
-/** Fans one payload per member out concurrently, bounded by [BROADCAST_SEND_TIMEOUT_MS] overall. */
-private suspend fun broadcastTo(
-    members: List<Participant>,
-    payloadFor: (Participant) -> WatchWireMessage,
-) {
-    if (members.isEmpty()) return
-    coroutineScope {
-        members
-            .map { member -> async { member.deliverBroadcast(payloadFor(member)) } }
-            .awaitAll()
-    }
-}
-
-/**
- * Coalesces latency/drift-only updates: the first report arms one delayed room update, and
- * every further report inside the window rides on it.
- */
-private fun CoroutineScope.schedulePresenceBroadcast(
-    room: Room,
-    intervalMs: Long,
-) {
-    val armed =
-        synchronized(room) {
-            if (room.presenceBroadcastPending) {
-                false
-            } else {
-                room.presenceBroadcastPending = true
-                true
-            }
-        }
-    if (!armed) return
-    launch {
-        try {
-            delay(intervalMs)
-        } finally {
-            synchronized(room) { room.presenceBroadcastPending = false }
-        }
-        val stillPopulated = synchronized(room) { room.participants.isNotEmpty() }
-        if (stillPopulated) broadcastRoomUpdate(room)
-    }
-}
-
-private suspend fun WebSocketSession.sendError(
-    message: String,
-    errorCode: String? = null,
-    clientMessageId: String? = null,
-) {
-    sendMessage(
-        WatchWireMessage(
-            type = "error",
-            message = message,
-            errorCode = errorCode,
-            clientMessageId = clientMessageId,
-        ),
-    )
-}
-
-private suspend fun WebSocketSession.finishPlaylistMutation(
-    room: Room,
-    result: PlaylistMutationResult,
-) {
-    if (result == PlaylistMutationResult.Changed) {
-        broadcastRoomUpdate(room)
-        return
-    }
-    val (message, errorCode) =
-        when (result) {
-            PlaylistMutationResult.Forbidden ->
-                "仅主持人和管理员可以编辑播放列表" to "playlist_forbidden"
-            PlaylistMutationResult.Stale ->
-                "播放列表已更新，请基于最新版本重试" to "playlist_stale"
-            PlaylistMutationResult.Full -> "播放列表已满" to "playlist_full"
-            PlaylistMutationResult.Duplicate -> "播放列表项目已存在" to "playlist_duplicate"
-            PlaylistMutationResult.NotFound -> "播放列表项目不存在" to "playlist_not_found"
-            PlaylistMutationResult.IndexInvalid -> "播放列表位置无效" to "playlist_index_invalid"
-            PlaylistMutationResult.Unchanged -> "播放列表没有变化" to "playlist_unchanged"
-            PlaylistMutationResult.RevisionExhausted ->
-                "播放列表版本已耗尽" to "playlist_revision_exhausted"
-            PlaylistMutationResult.Changed -> error("handled above")
-        }
-    val snapshot = synchronized(room) { room.playlist.toList() to room.playlistRevision }
-    sendMessage(
-        WatchWireMessage(
-            type = "error",
-            message = message,
-            errorCode = errorCode,
-            playlist = snapshot.first,
-            playlistRevision = snapshot.second,
-        ),
-    )
-}
-
-/** Membership or host changed; every member gets the current timeline too so a client that missed a `sync` can resync from this alone. */
-private suspend fun broadcastRoomUpdate(room: Room) {
-    val snapshot =
-        synchronized(room) {
-            RoomBroadcastSnapshot(
-                members = room.participants.values.toList(),
-                participants = room.wireParticipants(),
-                timeline = room.timeline,
-                hostId = room.hostId,
-                controlMode = room.controlMode,
-                playlist = room.playlist.toList(),
-                playlistRevision = room.playlistRevision,
-                canControlIds =
-                    room.participants.keys
-                        .filterTo(linkedSetOf()) { id ->
-                            room.participants[id]?.let(room::canControl) == true
-                        },
-            )
-        }
-    broadcastTo(snapshot.members) { member ->
-        WatchWireMessage(
-            type = "roomUpdate",
-            roomCode = room.code,
-            isHost = member.id == snapshot.hostId,
-            canControl = member.id in snapshot.canControlIds,
-            controlMode = snapshot.controlMode.wireValue,
-            participantCount = snapshot.members.size,
-            participants = snapshot.participants,
-            playlist = snapshot.playlist,
-            playlistRevision = snapshot.playlistRevision,
-            mediaKey = snapshot.timeline.mediaKey,
-            positionMs = snapshot.timeline.anchorPositionMs,
-            paused = snapshot.timeline.paused,
-            rate = snapshot.timeline.rate,
-            seq = snapshot.timeline.seq,
-            anchorAtMs = snapshot.timeline.anchorAtServerMs,
-        )
-    }
-}
-
-private data class RoomBroadcastSnapshot(
-    val members: List<Participant>,
-    val participants: List<WatchWireParticipant>,
-    val timeline: Timeline,
-    val hostId: String,
-    val controlMode: ControlMode,
-    val playlist: List<WatchWirePlaylistEntry>,
-    val playlistRevision: Long,
-    val canControlIds: Set<String>,
-)
-
-private fun Room.wireParticipants(): List<WatchWireParticipant> =
-    participants.values.map { participant ->
-        WatchWireParticipant(
-            clientId = participant.id,
-            name = participant.name,
-            avatarId = participant.avatarId,
-            isHost = participant.id == hostId,
-            statusKnown = participant.statusKnown,
-            ready = participant.ready,
-            buffering = participant.buffering,
-            mediaAvailable = participant.mediaAvailable,
-            latencyMs = participant.latencyMs,
-            syncDriftMs = participant.syncDriftMs,
-            durationMs = participant.durationMs,
-            canControl = canControl(participant),
-            isModerator = participant.id in moderatorIds,
-        )
-    }
-
-private suspend fun broadcastChat(
-    room: Room,
-    chat: WatchWireChatMessage,
-) {
-    val members = synchronized(room) { room.participants.values.toList() }
-    val payload = WatchWireMessage(type = "chat", chat = chat)
-    broadcastTo(members) { payload }
-}
-
-/**
- * Reactions are not kept anywhere: no history, no replay on join. Someone who was not in
- * the room when it happened has missed it, which is the whole idea.
- */
-private suspend fun broadcastReaction(
-    room: Room,
-    clientId: String,
-    name: String,
-    reaction: String,
-) {
-    val members = synchronized(room) { room.participants.values.toList() }
-    val payload =
-        WatchWireMessage(
-            type = "reaction",
-            clientId = clientId,
-            name = name,
-            reaction = reaction,
-        )
-    broadcastTo(members) { payload }
-}
-
-private fun normalizeName(raw: String?): String =
-    raw
-        .orEmpty()
-        .replace('\r', ' ')
-        .replace('\n', ' ')
-        .filterNot { it.code in 0x00..0x1F || it.code in 0x7F..0x9F }
-        .trim()
-        .takeGraphemes(WatchProtocol.MAX_NAME_GRAPHEMES)
-        .takeGraphemesWithinUtf8Bytes(WatchProtocol.MAX_NAME_BYTES)
-        .ifBlank { "影友" }
-
-private fun normalizeAvatarId(
-    raw: Int?,
-    clientId: String,
-): Int =
-    raw?.takeIf { it in 0 until WatchProtocol.AVATAR_COUNT }
-        ?: ((clientId.hashCode() and Int.MAX_VALUE) % WatchProtocol.AVATAR_COUNT)
-
-private fun normalizeChat(raw: String?): String? = raw?.takeIf(WatchProtocol::isValidChat)
-
-internal fun normalizeClientId(raw: String?): String? = raw?.takeIf(WatchProtocol::isValidClientId)
-
-internal fun rememberRemovedAccountUserId(
-    removedAccountUserIds: MutableSet<String>,
-    accountUserId: String,
-    limit: Int = MAX_REMOVED_ACCOUNT_IDS_PER_ROOM,
-): Boolean {
-    require(limit > 0) { "limit must be positive" }
-    if (accountUserId in removedAccountUserIds) return true
-    if (removedAccountUserIds.size >= limit) return false
-    removedAccountUserIds.add(accountUserId)
-    return true
-}
-
-private fun normalizeClientMessageId(raw: String?): String? = raw?.takeIf(WatchProtocol::isValidClientMessageId)
-
-private fun String.takeGraphemes(limit: Int): String =
-    graphemeRegex.findAll(this).take(limit).joinToString(separator = "") { it.value }
-
-private fun String.takeGraphemesWithinUtf8Bytes(limit: Int): String {
-    var usedBytes = 0
-    return buildString {
-        for (match in graphemeRegex.findAll(this@takeGraphemesWithinUtf8Bytes)) {
-            val bytes = match.value.toByteArray(Charsets.UTF_8).size
-            if (usedBytes + bytes > limit) break
-            append(match.value)
-            usedBytes += bytes
-        }
-    }
-}
-
-private suspend fun broadcastSync(
-    room: Room,
-    timeline: Timeline,
-) {
-    val members = synchronized(room) { room.participants.values.toList() }
-    val payload =
-        WatchWireMessage(
-            type = "sync",
-            roomCode = room.code,
-            mediaKey = timeline.mediaKey,
-            positionMs = timeline.anchorPositionMs,
-            paused = timeline.paused,
-            rate = timeline.rate,
-            seq = timeline.seq,
-            anchorAtMs = timeline.anchorAtServerMs,
-        )
-    broadcastTo(members) { payload }
 }

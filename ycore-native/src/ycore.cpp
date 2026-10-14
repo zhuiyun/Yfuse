@@ -88,6 +88,7 @@ struct ycore_session {
     OwnedRequest request;
     bool has_request = false;
     void *video_output = nullptr;
+    bool video_output_detached = false;
     std::string audio_track_id;
     std::string subtitle_track_id;
     ycore_state_t state{};
@@ -396,13 +397,21 @@ int32_t ycore_session_set_video_output(ycore_session_t *session, void *native_ou
     std::lock_guard<std::recursive_mutex> lock(session->mutex);
     if (session->active_index < 0) {
         session->video_output = native_output;
+        session->video_output_detached = native_output == nullptr;
         return YCORE_OK;
     }
     Engine &engine = session->engines[static_cast<size_t>(session->active_index)];
     const int result = engine.vtable.set_video_output == nullptr
         ? YCORE_ERROR_UNSUPPORTED
         : engine.vtable.set_video_output(engine.context, native_output);
-    if (result == YCORE_OK) session->video_output = native_output;
+    if (result == YCORE_OK) {
+        session->video_output = native_output;
+        session->video_output_detached = native_output == nullptr;
+        session->state.video_output_verified = 0;
+        session->state.dolby_vision_output_verified = 0;
+        session->state.av_sync_offset_ms = INT64_MIN;
+        session->publish();
+    }
     return result;
 }
 
@@ -438,6 +447,13 @@ int32_t ycore_session_tick(ycore_session_t *session) {
     const int32_t result = engine.vtable.poll_state(engine.context, &observed);
     if (result != YCORE_OK) return result;
     observed.route = engine.route;
+    // A backend may return its last frame after the host has removed the window. Do not let
+    // that cached snapshot re-establish video/Dolby evidence while no output is attached.
+    if (session->video_output_detached) {
+        observed.video_output_verified = 0;
+        observed.dolby_vision_output_verified = 0;
+        observed.av_sync_offset_ms = INT64_MIN;
+    }
     copy_text(observed.engine, engine.name.c_str());
     session->state = observed;
     session->publish();

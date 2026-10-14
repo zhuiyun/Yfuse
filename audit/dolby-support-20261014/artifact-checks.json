@@ -1,0 +1,52 @@
+{
+  "libmpv-release.aar": {
+    "sha256": "db5f9f2f81d42457e2c6dfa84c6645ee4e140473c8a862a85699aaa02522c75a",
+    "size": 13361465,
+    "sidecar_match": true,
+    "pinned_match": true,
+    "native_libraries": [
+      "jni/arm64-v8a/libavcodec.so",
+      "jni/arm64-v8a/libavdevice.so",
+      "jni/arm64-v8a/libavfilter.so",
+      "jni/arm64-v8a/libavformat.so",
+      "jni/arm64-v8a/libavutil.so",
+      "jni/arm64-v8a/libc++_shared.so",
+      "jni/arm64-v8a/libmpv.so",
+      "jni/arm64-v8a/libplayer.so",
+      "jni/arm64-v8a/libswresample.so",
+      "jni/arm64-v8a/libswscale.so",
+      "jni/arm64-v8a/libycore_demux.so"
+    ],
+    "rpu_render_marker": true,
+    "fel_render_marker": true,
+    "jni_gpu_next_marker": true
+  },
+  "ycore-native.aar": {
+    "sha256": "10873c704ecd5f9d7ddd555492e2e78661cc4548d59bc8dac374984249a41575",
+    "size": 10490195,
+    "sidecar_match": true,
+    "native_libraries": [
+      "jni/arm64-v8a/libavcodec.so",
+      "jni/arm64-v8a/libavformat.so",
+      "jni/arm64-v8a/libavutil.so",
+      "jni/arm64-v8a/libc++_shared.so",
+      "jni/arm64-v8a/libswresample.so",
+      "jni/arm64-v8a/libswscale.so",
+      "jni/arm64-v8a/libycore_demux.so",
+      "jni/arm64-v8a/libycore_gpu.so"
+    ]
+  },
+  "ycore-gpu.aar": {
+    "sha256": "072d429e654fb5d539355f4fae8964c850d90d8d44e75248c1d9366996869c82",
+    "size": 53438,
+    "sidecar_match": true,
+    "native_libraries": [
+      "jni/arm64-v8a/libycore_gpu.so"
+    ]
+  },
+  "mdk-sdk-android.7z": {
+    "sha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+    "size": 20027444,
+    "pinned_match": true
+  }
+}

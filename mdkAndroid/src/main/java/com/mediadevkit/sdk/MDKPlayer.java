@@ -66,6 +66,11 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
         return nativePtr == 0 ? 0 : nativeBufferedDuration(nativePtr);
     }
 
+    /** One JNI call for volatile progress fields; metadata remains separate output evidence. */
+    public synchronized double[] playbackSnapshot() {
+        return nativePtr == 0 ? new double[0] : nativePlaybackSnapshot(nativePtr);
+    }
+
     public synchronized int mediaStatus() {
         return nativePtr == 0 ? STATUS_INVALID : nativeMediaStatus(nativePtr);
     }
@@ -150,6 +155,7 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
     }
 
     public synchronized void setSurfaceView(SurfaceView view) {
+        if (nativePtr == 0) return;
         SurfaceHolder next = view == null ? null : view.getHolder();
         if (surfaceHolder == next) return;
         if (surfaceHolder != null) surfaceHolder.removeCallback(this);
@@ -166,7 +172,7 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
 
     @Override
     public synchronized void surfaceCreated(SurfaceHolder holder) {
-        if (nativePtr != 0) nativeSetSurface(nativePtr, holder.getSurface(), -1, -1);
+        if (nativePtr != 0 && holder == surfaceHolder) nativeSetSurface(nativePtr, holder.getSurface(), -1, -1);
     }
 
     @Override
@@ -176,12 +182,12 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
             int width,
             int height
     ) {
-        if (nativePtr != 0) nativeSetSurface(nativePtr, holder.getSurface(), width, height);
+        if (nativePtr != 0 && holder == surfaceHolder) nativeSetSurface(nativePtr, holder.getSurface(), width, height);
     }
 
     @Override
     public synchronized void surfaceDestroyed(SurfaceHolder holder) {
-        detachSurface();
+        if (holder == surfaceHolder) detachSurface();
     }
 
     private void detachSurface() {
@@ -209,6 +215,7 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
     private static native long nativePosition(long ptr);
     private static native long nativeDuration(long ptr);
     private static native long nativeBufferedDuration(long ptr);
+    private static native double[] nativePlaybackSnapshot(long ptr);
     private static native int nativeMediaStatus(long ptr);
     private static native String nativeLastError(long ptr);
     private static native int nativeVideoHeight(long ptr);

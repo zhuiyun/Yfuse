@@ -81,10 +81,12 @@ internal fun externalSubtitleMpvCommands(item: PlayerMediaItem): List<Array<Stri
 internal fun mpvAudioOutputReadiness(
     outputDriver: String?,
     outputFormat: String?,
+    clockAdvancing: Boolean,
 ): PlaybackOutputReadiness {
     val driver = outputDriver?.trim().orEmpty()
     val format = outputFormat?.trim().orEmpty()
     return if (
+        clockAdvancing &&
         driver.isNotEmpty() &&
         !driver.equals("null", ignoreCase = true) &&
         format.isNotEmpty()
@@ -199,6 +201,7 @@ class MpvVideoEngine(
     private var activeDolbyVisionPath = PlaybackDolbyVisionPath.None
 
     private fun resetFrameEvidence() {
+        resetAudioOutputProgress(clearConfiguration = true)
         decoderDroppedFrames = 0
         rendererDroppedFrames = 0
     }
@@ -313,6 +316,10 @@ class MpvVideoEngine(
         }
     }
 
+    private val audioProgress = PlaybackAudioProgress()
+    private var audioClockAdvancing = false
+    private var audioOutputConfig: List<String?>? = null
+
     private val observer =
         object : MPVLib.EventObserver {
             override fun eventProperty(property: String) {
@@ -400,6 +407,7 @@ class MpvVideoEngine(
                         val ms = (value * 1000).toLong().coerceAtLeast(0L)
                         if (kotlin.math.abs(ms - lastPositionMs) < PLAYBACK_PROGRESS_STEP_MS) return
                         lastPositionMs = ms
+                        sampleAudioOutputProgress()
                         _state.update {
                             it.copy(
                                 positionMs = ms,
@@ -510,11 +518,13 @@ class MpvVideoEngine(
                 when (property) {
                     "pause" -> {
                         playRequested = !value
+                        if (value) resetAudioOutputProgress()
                         _state.update { it.copy(playing = !value) }
                     }
                     "paused-for-cache" -> {
                         val bufferEvent = value && !wasBuffering
                         wasBuffering = value
+                        if (value) resetAudioOutputProgress()
                         _state.update {
                             it.copy(
                                 buffering = value,
@@ -605,6 +615,7 @@ class MpvVideoEngine(
             override fun event(eventId: Int) {
                 when (eventId) {
                     MPVLib.MpvEvent.MPV_EVENT_START_FILE -> {
+                        resetAudioOutputProgress(clearConfiguration = true)
                         mutableSubtitleText.update { it.copy(primary = "", secondary = "") }
                         videoReadinessGate.onStartFile()
                         surfaceRecoveryAttempts.set(0L)
@@ -1011,6 +1022,7 @@ class MpvVideoEngine(
     }
 
     override fun seekTo(positionMs: Long) {
+        resetAudioOutputProgress()
         lastPositionMs = positionMs
         _state.update {
             it.copy(
@@ -1026,7 +1038,10 @@ class MpvVideoEngine(
         withMpv { it.setPropertyDouble("speed", speed.toDouble()) }
     }
 
-    override fun selectAudioTrack(id: String) = selectTrack("aid", id)
+    override fun selectAudioTrack(id: String) {
+        resetAudioOutputProgress(clearConfiguration = true)
+        selectTrack("aid", id)
+    }
 
     override val supportsAudioDelay: Boolean = true
 
@@ -1709,103 +1724,108 @@ class MpvVideoEngine(
         }
     }
 
+    @Synchronized
     private fun logAudioOutput() {
         val instance = mpv ?: return
         runCatching {
-            val outputDriver = instance.getPropertyString("current-ao")
-            val outputFormat = instance.getPropertyString("audio-out-params/format")
-            val decoder = instance.getPropertyString("audio-codec-name")
-            // FFmpeg names the codec "eac3" whether or not the stream carries Atmos objects; the
-            // profile ("Dolby Digital Plus + Dolby Atmos") is where JOC shows up. Older mpv builds
-            // have no codec-profile property, and a null there keeps the previous behaviour.
-            val codecProfile =
-                runCatching { instance.getPropertyString("current-tracks/audio/codec-profile") }.getOrNull()
-            val codecIdentity = listOfNotNull(decoder, codecProfile).joinToString(" ").ifBlank { null }
-            val readiness = mpvAudioOutputReadiness(outputDriver, outputFormat)
-            val passthroughStatus =
-                mpvAudioPassthroughStatus(
-                    mode = audioPassthroughMode,
-                    audioOutputFormat = outputFormat,
-                    audioDecoder = decoder,
+            audioOutputConfig =
+                listOf(
+                    instance.getPropertyString("current-ao"),
+                    instance.getPropertyString("audio-out-params/format"),
+                    instance.getPropertyString("audio-codec-name"),
+                    runCatching { instance.getPropertyString("current-tracks/audio/codec-profile") }.getOrNull(),
                 )
-            _state.update { state ->
-                state.copy(
-                    diagnostics =
-                        state.diagnostics.copy(
-                            audioOutput =
-                                if (readiness == PlaybackOutputReadiness.Rendering) {
-                                    playbackOutputDiagnosticLabel(
-                                        status = passthroughStatus,
-                                        activeLabel = "源码输出 · ${decoder ?: outputFormat ?: "未知编码"}",
-                                    )
-                                } else {
-                                    "等待音频输出"
-                                },
-                            audioReadiness = readiness,
-                            // mpv names the codec rather than exposing an encoding constant,
-                            // so the identifier is matched — a backend codec name, not a
-                            // sentence written for the diagnostics panel.
-                            immersiveAudioCarrierOutput =
-                                readiness == PlaybackOutputReadiness.Rendering &&
-                                    passthroughStatus is PlaybackOutputStatus.Active &&
-                                    isImmersiveAudioCarrierCodec(codecIdentity ?: outputFormat),
-                            dolbyAtmosOutput =
-                                readiness == PlaybackOutputReadiness.Rendering &&
-                                    passthroughStatus is PlaybackOutputStatus.Active &&
-                                    isDolbyObjectAudioCodec(codecIdentity ?: outputFormat),
-                            spatialAudioOutput = false,
-                            headTrackingAvailable = false,
-                            outputEvidence =
-                                state.diagnostics.outputEvidence.copy(
-                                    audioReadiness = readiness,
-                                    audioConfidence =
-                                        PlaybackRenderEvidence.confidence(
-                                            verified = readiness == PlaybackOutputReadiness.Rendering,
-                                        ),
-                                    audioDecoder = decoder.orEmpty(),
-                                    audioMode =
-                                        if (passthroughStatus is PlaybackOutputStatus.Active) {
-                                            PlaybackAudioOutputMode.Passthrough
-                                        } else if (readiness == PlaybackOutputReadiness.Rendering) {
-                                            PlaybackAudioOutputMode.Pcm
-                                        } else {
-                                            PlaybackAudioOutputMode.Unknown
-                                        },
-                                ),
-                        ),
-                )
-            }
-            AppLog.info(
-                category = "player.mpv",
-                event =
-                    if (readiness == PlaybackOutputReadiness.Rendering) {
-                        "audio_output_configured"
-                    } else {
-                        "audio_output_pending"
-                    },
-                message =
-                    if (readiness == PlaybackOutputReadiness.Rendering) {
-                        "mpv audio output was configured"
-                    } else {
-                        "mpv audio output is not established yet"
-                    },
-                attributes =
-                    mapOf(
-                        "output" to (outputDriver ?: "unknown"),
-                        "format" to (outputFormat ?: "unknown"),
-                        "codec" to (decoder ?: "unknown"),
-                        "codecProfile" to (codecProfile ?: "unknown"),
-                        "track" to (instance.getPropertyString("aid") ?: "unknown"),
-                        "passthrough" to passthroughStatus.toString(),
-                        "readiness" to readiness.name,
-                    ),
-            )
+            resetAudioOutputProgress()
         }.onFailure {
+            resetAudioOutputProgress(clearConfiguration = true)
             AppLog.warning(
                 category = "player.mpv",
                 event = "audio_output_probe_failed",
                 message = "Could not read mpv audio output diagnostics",
                 throwable = it,
+            )
+        }
+    }
+
+    @Synchronized
+    private fun resetAudioOutputProgress(clearConfiguration: Boolean = false) {
+        audioProgress.reset()
+        audioClockAdvancing = false
+        if (clearConfiguration) audioOutputConfig = null
+        _state.update { it.copy(diagnostics = it.diagnostics.withAudioOutputWaiting("等待音频播放时钟推进")) }
+    }
+
+    @Synchronized
+    private fun sampleAudioOutputProgress() {
+        if (audioOutputConfig == null) return
+        val seconds = runCatching { mpv?.getPropertyDouble("audio-pts") }.getOrNull()
+        val current = _state.value
+        val advancing =
+            audioProgress.observe(
+                positionUs = seconds?.takeIf { it.isFinite() && it >= 0.0 }?.let { (it * 1_000_000.0).toLong() },
+                nowMs = SystemClock.elapsedRealtime(),
+                playing = playRequested && !current.buffering && !current.ended,
+            )
+        if (advancing == audioClockAdvancing) return
+        audioClockAdvancing = advancing
+        publishAudioOutput()
+    }
+
+    private fun publishAudioOutput() {
+        val (outputDriver, outputFormat, decoder, codecProfile) = audioOutputConfig ?: return
+        val codecIdentity = listOfNotNull(decoder, codecProfile).joinToString(" ").ifBlank { null }
+        val readiness = mpvAudioOutputReadiness(outputDriver, outputFormat, audioClockAdvancing)
+        val passthroughStatus =
+            mpvAudioPassthroughStatus(
+                mode = audioPassthroughMode,
+                audioOutputFormat = outputFormat,
+                audioDecoder = decoder,
+            )
+        _state.update { state ->
+            state.copy(
+                diagnostics =
+                    state.diagnostics.copy(
+                        audioOutput =
+                            if (readiness == PlaybackOutputReadiness.Rendering) {
+                                playbackOutputDiagnosticLabel(
+                                    status = passthroughStatus,
+                                    activeLabel = "源码输出 · ${decoder ?: outputFormat ?: "未知编码"}",
+                                )
+                            } else {
+                                "等待音频输出"
+                            },
+                        audioReadiness = readiness,
+                        // mpv names the codec rather than exposing an encoding constant,
+                        // so the identifier is matched — a backend codec name, not a
+                        // sentence written for the diagnostics panel.
+                        immersiveAudioCarrierOutput =
+                            readiness == PlaybackOutputReadiness.Rendering &&
+                                passthroughStatus is PlaybackOutputStatus.Active &&
+                                isImmersiveAudioCarrierCodec(codecIdentity ?: outputFormat),
+                        dolbyAtmosOutput =
+                            readiness == PlaybackOutputReadiness.Rendering &&
+                                passthroughStatus is PlaybackOutputStatus.Active &&
+                                isDolbyObjectAudioCodec(codecIdentity ?: outputFormat),
+                        spatialAudioOutput = false,
+                        headTrackingAvailable = false,
+                        outputEvidence =
+                            state.diagnostics.outputEvidence.copy(
+                                audioReadiness = readiness,
+                                audioConfidence =
+                                    PlaybackRenderEvidence.confidence(
+                                        verified = readiness == PlaybackOutputReadiness.Rendering,
+                                    ),
+                                audioDecoder = decoder.orEmpty(),
+                                audioMode =
+                                    if (readiness != PlaybackOutputReadiness.Rendering) {
+                                        PlaybackAudioOutputMode.Unknown
+                                    } else if (passthroughStatus is PlaybackOutputStatus.Active) {
+                                        PlaybackAudioOutputMode.Passthrough
+                                    } else {
+                                        PlaybackAudioOutputMode.Pcm
+                                    },
+                            ),
+                    ),
             )
         }
     }
@@ -1822,11 +1842,13 @@ class MpvVideoEngine(
         audioRouteJob =
             scope.launch {
                 provider.revisions().drop(1).collect {
+                    resetAudioOutputProgress()
                     val codecs = mpvAudioSpdifOption(audioPassthroughMode, currentDirectAudioFormats())
                     val applied =
                         withMpvResult { instance ->
                             instance.setPropertyString("audio-spdif", codecs.orEmpty())
                         }
+                    logAudioOutput()
                     AppLog.info(
                         category = "player.mpv",
                         event = "audio_route_reconfigured",

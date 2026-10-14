@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core2.strategy.YPlaybackStrategyTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-14T04:36:12.410Z" hostname="DESKTOP-HM2J0FM" time="0.004">
+  <properties/>
+  <testcase name="Dolby Vision profile 8 can fall back to HDR10 base layer" classname="com.yfuse.core2.strategy.YPlaybackStrategyTest" time="0.002"/>
+  <testcase name="wrong Dolby profile never qualifies the native decoder" classname="com.yfuse.core2.strategy.YPlaybackStrategyTest" time="0.001"/>
+  <testcase name="Matroska Dolby Vision keeps hardware decode through enhanced demux" classname="com.yfuse.core2.strategy.YPlaybackStrategyTest" time="0.0"/>
+  <testcase name="platform Dolby Vision uses tunnel when video display and audio clock are supported" classname="com.yfuse.core2.strategy.YPlaybackStrategyTest" time="0.0"/>
+  <testcase name="Profile 7 prefers its compatible base for GPU presentation without native Dolby output" classname="com.yfuse.core2.strategy.YPlaybackStrategyTest" time="0.0"/>
+  <testcase name="a missing platform audio decoder keeps Dolby Vision video on the hardware decoder" classname="com.yfuse.core2.strategy.YPlaybackStrategyTest" time="0.0"/>
+  <testcase name="quality preference preserves original Dolby stream for GPU processing" classname="com.yfuse.core2.strategy.YPlaybackStrategyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
