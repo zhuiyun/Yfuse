@@ -1,0 +1,21 @@
+{
+  "bytes": 29553638,
+  "sha256": "70dffabd5219a5def411f35db1bdef46328e39d25ca37fe611b73860dd56c0be",
+  "fileName": "Yfuse-267-1.1.5.apk",
+  "sourceCommit": "335530f494ec30a22e66d21ac70d6a1e5750b861",
+  "workflowRun": 37599783432,
+  "artifactId": 11473866731,
+  "signatureGate": "passed",
+  "startupSmoke": {
+    "android35": "passed attempt 1",
+    "android36": "passed attempt 1",
+    "android37": "passed attempt 1"
+  },
+  "package": "com.yfuse",
+  "versionName": "1.1.5",
+  "versionCode": 267,
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "metadataEvidence": "publish-android sign job: aapt dump badging and apksigner verify on the signed APK",
+  "packageWorkflow": "success",
+  "publish": false
+}
