@@ -237,23 +237,19 @@ internal class AndroidMediaCodecVideoNode(
                     .orEmpty()
                     .ifBlank { requestedDecoderName.orEmpty().ifBlank { mime } }
             runCatching { decoder?.release() }
-            if (animeOutput != null) {
+            val retry = nextVideoDecoderRetry(realtimeHints = hinted, anime4K = animeOutput != null)
+            if (retry != null) {
                 animeOutput?.close()
                 animeOutput = null
-                // Some codecs reject texture output although direct Surface output works.
-                configure(format, surface, decoderName, mediaCrypto, isolateFrameTimestamps, anime4KContext = null)
-                return
-            }
-            if (hinted) {
-                // Some vendor decoders refuse a priority or operating rate they consider out of range.
+                // Try without optional performance hints before giving up the requested filter.
                 configure(
                     format,
                     surface,
                     decoderName,
                     mediaCrypto,
                     isolateFrameTimestamps,
-                    null,
-                    realtimeHints = false,
+                    anime4KContext = anime4KContext.takeIf { retry.anime4K },
+                    realtimeHints = retry.realtimeHints,
                 )
                 return
             }
@@ -770,8 +766,24 @@ internal fun realtimeOperatingRate(
     speed: Float,
 ): Float? {
     if (!frameRate.isFinite() || frameRate <= 0f || !speed.isFinite() || speed <= 0f) return null
-    return frameRate * speed
+    return (frameRate * speed).takeIf { it.isFinite() && it > 0f }
 }
+
+internal data class VideoDecoderRetry(
+    val realtimeHints: Boolean,
+    val anime4K: Boolean,
+)
+
+/** Optional hints may be rejected even when the decoder supports Anime4K's texture output. */
+internal fun nextVideoDecoderRetry(
+    realtimeHints: Boolean,
+    anime4K: Boolean,
+): VideoDecoderRetry? =
+    when {
+        realtimeHints -> VideoDecoderRetry(realtimeHints = false, anime4K = anime4K)
+        anime4K -> VideoDecoderRetry(realtimeHints = false, anime4K = false)
+        else -> null
+    }
 
 /** MediaFormat.KEY_PRIORITY: 0 is real-time, 1 best effort. */
 private const val REALTIME_CODEC_PRIORITY = 0

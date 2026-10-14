@@ -18,5 +18,20 @@ class RealtimeOperatingRateTest {
         assertNull(realtimeOperatingRate(Float.NaN, 1f))
         assertNull(realtimeOperatingRate(24f, 0f))
         assertNull(realtimeOperatingRate(24f, Float.POSITIVE_INFINITY))
+        assertNull(realtimeOperatingRate(Float.MAX_VALUE, 2f))
+    }
+
+    @Test
+    fun rejected_performance_hints_preserve_the_requested_filter() {
+        assertEquals(VideoDecoderRetry(false, true), nextVideoDecoderRetry(realtimeHints = true, anime4K = true))
+        assertEquals(VideoDecoderRetry(false, false), nextVideoDecoderRetry(realtimeHints = true, anime4K = false))
+    }
+
+    @Test
+    fun texture_fallback_does_not_reenable_rejected_hints_and_eventually_stops() {
+        val withoutHints = nextVideoDecoderRetry(realtimeHints = true, anime4K = true)!!
+        val withoutTexture = nextVideoDecoderRetry(withoutHints.realtimeHints, withoutHints.anime4K)!!
+        assertEquals(VideoDecoderRetry(false, false), withoutTexture)
+        assertNull(nextVideoDecoderRetry(withoutTexture.realtimeHints, withoutTexture.anime4K))
     }
 }
