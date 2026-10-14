@@ -99,7 +99,7 @@ jobs:
           fi
           python3 scripts/android_performance.py --mode "$PERFORMANCE_MODE" --serial "$PERFORMANCE_SERIAL" --output artifacts/android-performance/${{ github.run_id }} "${comparison[@]}"
         shell: bash
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: android-performance-${{ inputs.mode }}-${{ github.run_id }}-${{ github.run_attempt }}

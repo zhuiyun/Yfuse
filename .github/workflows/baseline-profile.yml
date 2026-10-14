@@ -132,7 +132,7 @@ jobs:
             echo "BASELINE-PROFILE $(basename "$file") $(gzip -9c "$file" | base64 -w 0)"
           done
       - name: Upload the baseline profile
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: baseline-profile-${{ github.sha }}-${{ github.run_attempt }}
           path: build/baseline-profile/
@@ -140,7 +140,7 @@ jobs:
           retention-days: 30
       - name: Upload the generator's raw output and test reports
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: profile-generator-output-${{ github.sha }}-${{ github.run_attempt }}
           path: |
