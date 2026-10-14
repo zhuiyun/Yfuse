@@ -28,7 +28,7 @@ At 2026-10-07 16:52:58 (Asia/Shanghai), the release owner explicitly confirmed t
 
 Packaging must also pass exact-commit quality gates, production certificate and APK metadata checks, and signed APK startup smoke on Android 35–37.
 
-## Verified delivery
+## Verified delivery (historical record, 2026-10-07)
 
 - PR #224 passed every check on `f850196445bf0781ec99ec08f5f76c1527fd4f5f`: [Android quality gates](https://github.com/zhuiyun/Yfuse/actions/runs/37596792123) (compile, unit tests, Android 15 instrumented tests, lint, ktlint, design contracts), [TV](https://github.com/zhuiyun/Yfuse/actions/runs/37596792062), [CodeQL](https://github.com/zhuiyun/Yfuse/actions/runs/37596792140), release scripts and source boundaries, protocol and server tests, and the dependency gate. It was merged as `335530f494ec30a22e66d21ac70d6a1e5750b861` with `[artifact only]`.
 - Package-only run [37599783432](https://github.com/zhuiyun/Yfuse/actions/runs/37599783432) completed successfully on attempt 1: request validation with the recorded MDK confirmation, the exact merge commit's Android quality gates, the build, production signing and signed-APK startup smoke on Android 35, 36 and 37 (each passed on attempt 1).
@@ -37,4 +37,4 @@ Packaging must also pass exact-commit quality gates, production certificate and 
 - Final package artifact: [Yfuse-1.1.5](https://github.com/zhuiyun/Yfuse/actions/runs/37599783432/artifacts/11473866731) (artifact ID 11473866731, archive digest `sha256:7eabc1a1ca48bd5925f3110e459a5e0e8090d266c79fe977f12f57fb469e74bb`), containing the APK and both update manifests; retained seven days.
 - `PUBLISH_UPDATE=false`: the SSH, publication, server verification and release steps were skipped. No app update was published.
 
-1.1.5 (267) is now the verified delivery. A new future delivery must increment both version fields; retries of this delivery retain them. These emulator checks cover unauthenticated startup and UI only; account-backed sync against the live account service is not exercised by the package smoke.
+At the time of this record, 1.1.5 (267) was the verified delivery. This is historical evidence, not the current release baseline; the newer release records and actual delivered APK metadata determine future version increments. These emulator checks cover unauthenticated startup and UI only; account-backed sync against the live account service is not exercised by the package smoke.

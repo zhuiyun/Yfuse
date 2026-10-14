@@ -1,0 +1,70 @@
+{
+  "baseline": "7192c010b8ef81085b6a4f0706707fa1c290efdf",
+  "tested_source_commit": "f61d37a0511e7778a9c116ff466ef4589f646768",
+  "verified_at_utc": "2026-10-14T09:38:46.094047+00:00",
+  "gradle": "9.8.1",
+  "kotlin": "2.4.21",
+  "profile": {
+    "yfuseIncludeMdk": true,
+    "yfuseNativeOnlyRuntime": false
+  },
+  "gradle_modules": {
+    "yfuseBackendClient": {
+      "tests": 43,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "watchTogetherProtocol": {
+      "tests": 25,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "watchTogetherServer": {
+      "tests": 265,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "phoneShared": {
+      "tests": 4883,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "tvShared": {
+      "tests": 118,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "gradle_total": 5334,
+  "python_script_tests": 112,
+  "javascript_tests": 17,
+  "checks": [
+    "phone/TV debug Kotlin compilation",
+    "changed Kotlin ktlintCheck (35 files)",
+    "Gradle dependency resolution and lock update",
+    "function-size gate",
+    "phone/TV presentation boundaries",
+    "backend module boundaries",
+    "TV manifest and banner",
+    "npm ci integrity",
+    "renderer syntax",
+    "CodeQL pin consistency",
+    "official Gradle wrapper SHA256"
+  ],
+  "device_tests_run": false,
+  "limitations": [
+    "No new signed APK delivery or production service deployment",
+    "Android 9/10 package archive verification and decoder behavior were not exercised on physical devices",
+    "Remote CI status is recorded separately after push"
+  ],
+  "local_java_configuration": {
+    "java_home": "C:/Users/app-inkbird/.jdks/corretto-17.0.15",
+    "gradle_user_home": "D:/Demo/Yfuse/.gradle-tmp",
+    "JAVA_TOOL_OPTIONS": "-Djdk.net.unixdomain.tmpdir=D:/Demo/Yfuse/tmp/nonexistent-java-socket-dir"
+  }
+}
