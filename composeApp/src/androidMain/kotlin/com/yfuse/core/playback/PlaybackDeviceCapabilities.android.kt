@@ -21,6 +21,7 @@ import com.yfuse.core.util.androidAppContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 internal actual fun createPlaybackDeviceCapabilitiesProvider(): PlaybackDeviceCapabilitiesProvider {
     val context =
@@ -109,7 +110,7 @@ private class AndroidPlaybackDeviceCapabilitiesProvider(
         cached = null
         cachedAtMs = Long.MIN_VALUE
         videoSupportCache.clear()
-        revision.value = revision.value + 1L
+        revision.update { it + 1L }
         AppLog.info(
             category = "player.capabilities",
             event = "output_changed",

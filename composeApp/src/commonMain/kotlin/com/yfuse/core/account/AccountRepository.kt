@@ -595,7 +595,7 @@ class AccountRepository(
 
     suspend fun revokeSession(sessionId: String): Result<Unit> =
         guarded {
-            val current = requireSignedIn()
+            requireSignedIn()
             personal?.requireServerManagement()
             val target =
                 authorized(api::sessions).firstOrNull { it.id == sessionId }
@@ -605,7 +605,7 @@ class AccountRepository(
                 secureStore.clear()
                 setSignedOut()
             } else {
-                _state.value = current.copy(message = "设备已退出")
+                _state.value = requireSignedIn().copy(message = "设备已退出")
             }
         }
 

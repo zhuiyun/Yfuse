@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -106,7 +107,7 @@ class PersonalLibraryRepository(
         }
 
     fun beginSync() {
-        _state.value = _state.value.copy(syncing = true, error = null)
+        _state.update { it.copy(syncing = true, error = null) }
     }
 
     fun finishSync(
@@ -116,12 +117,11 @@ class PersonalLibraryRepository(
         val pending = snapshot != sent
         settings.putBoolean(pendingKey(), pending)
         settings.putLong(lastSyncKey(), epochMs)
-        _state.value =
-            _state.value.copy(syncing = false, pendingSync = pending, lastSyncedAtEpochMs = epochMs, error = null)
+        _state.update { it.copy(syncing = false, pendingSync = pending, lastSyncedAtEpochMs = epochMs, error = null) }
     }
 
     fun failSync(message: String) {
-        _state.value = _state.value.copy(syncing = false, error = message)
+        _state.update { it.copy(syncing = false, error = message) }
     }
 
     suspend fun setGuardianPin(
@@ -446,7 +446,7 @@ class PersonalLibraryRepository(
         validatePersonalSnapshot(value)
         persist(value)
         snapshot = value
-        _state.value = _state.value.copy(error = null)
+        _state.update { it.copy(error = null) }
         publish(pending = true)
         if (!progressOnly) _contentRevision.value++
     }
@@ -458,7 +458,7 @@ class PersonalLibraryRepository(
             true
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            _state.value = _state.value.copy(error = error.message ?: "个人数据保存失败，原有记录已保留")
+            _state.update { it.copy(error = error.message ?: "个人数据保存失败，原有记录已保留") }
             false
         }
 
@@ -481,8 +481,8 @@ class PersonalLibraryRepository(
         if (_policy.value != nextPolicy || publishedPin != snapshot.guardianPin) generation++
         publishedPin = snapshot.guardianPin
         _policy.value = nextPolicy
-        _state.value =
-            _state.value.copy(
+        _state.update {
+            it.copy(
                 activeProfile = active,
                 profiles = profiles,
                 favorites =
@@ -504,6 +504,7 @@ class PersonalLibraryRepository(
                 pendingSync = pending,
                 lastSyncedAtEpochMs = settings.getLongOrNull(lastSyncKey()),
             )
+        }
         observers.toList().forEach { it() }
     }
 

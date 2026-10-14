@@ -11,6 +11,7 @@ import com.yfuse.core.util.androidAppContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
@@ -40,7 +41,7 @@ private class AndroidPlaybackRuntimeEnvironmentProvider(
                 context: Context?,
                 intent: Intent?,
             ) {
-                revision.value = revision.value + 1L
+                revision.update { it + 1L }
             }
         }
 
@@ -64,7 +65,7 @@ private class AndroidPlaybackRuntimeEnvironmentProvider(
             Api29Thermal.addListener(powerManager) { status ->
                 if (thermalStatus != status) {
                     thermalStatus = status
-                    revision.value = revision.value + 1L
+                    revision.update { it + 1L }
                 }
             }
         }

@@ -13,6 +13,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -126,7 +127,7 @@ class UnifiedLibraryPager(
                     hasMore = cursors.isNotEmpty(),
                 )
         } finally {
-            if (request == generation) mutableState.value = mutableState.value.copy(loading = false)
+            if (request == generation) mutableState.update { it.copy(loading = false) }
         }
     }
 
@@ -140,7 +141,7 @@ class UnifiedLibraryPager(
             if (selected.isEmpty()) return@withLock
             val requested = selected.map { cursors[it] }
             val requestedQuery = query
-            mutableState.value = mutableState.value.copy(loading = true)
+            mutableState.update { it.copy(loading = true) }
             try {
                 val results =
                     coroutineScope {
@@ -212,7 +213,7 @@ class UnifiedLibraryPager(
                         hasMore = cursors.any { !it.complete && !it.failed },
                     )
             } finally {
-                if (generation == request) mutableState.value = mutableState.value.copy(loading = false)
+                if (generation == request) mutableState.update { it.copy(loading = false) }
             }
         }
 
@@ -227,7 +228,7 @@ class UnifiedLibraryPager(
             val extras = extraHits(query)
             if (request != generation) return@withLock
             putExtras(extras)
-            mutableState.value = mutableState.value.copy(groups = groups())
+            mutableState.update { it.copy(groups = groups()) }
         }
 
     private fun putExtras(extras: List<CrossServerMediaHit>) {
