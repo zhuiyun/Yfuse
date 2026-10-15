@@ -15,9 +15,7 @@ import com.yfuse.core.data.recommendedServerSource
 import com.yfuse.core.data.serverSourcePlayable
 import com.yfuse.core.data.smartFailoverServerIds
 import com.yfuse.core.logging.AppLog
-import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
-import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.toUserMessage
@@ -27,18 +25,10 @@ import com.yfuse.core.util.LatestWins
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.TimeSource
-
-private const val BATCH_PROGRESS_CONCURRENCY = 4
 
 internal class DetailExecutor(
     private val repo: EmbyRepository,
@@ -101,7 +91,8 @@ internal class DetailExecutor(
     private val watchLaterLoad = LatestWins(scope)
     private val organizationLoad = LatestWins(scope)
     private val sourceCoordinator = SourceSelectionCoordinator(repo)
-    private val seriesCatalogLoader = SeriesCatalogLoader(repo)
+    private val playbackResolver = DetailPlaybackResolver(repo)
+    private val progressBatch = DetailProgressBatch()
 
     /**
      * Whether the app may pick a server on the user's behalf.
@@ -243,7 +234,7 @@ internal class DetailExecutor(
                 if (
                     current.playServer?.id == syncedServerId &&
                     current.playTarget?.id != syncedItemId &&
-                    current.playSourceDetail?.let(::seriesIdOf) != null
+                    current.playSourceDetail?.let(playbackResolver::seriesIdOf) != null
                 ) {
                     selectEpisode(
                         episodeId = syncedItemId,
@@ -267,14 +258,6 @@ internal class DetailExecutor(
                 dispatch(DetailMsg.PlayPositionSynced(intent.serverId, intent.itemId, intent.positionTicks))
         }
     }
-
-    /** The series this detail belongs to, if any. */
-    private fun seriesIdOf(detail: MediaDetail): String? =
-        when (detail.type) {
-            "Series" -> detail.id
-            "Episode" -> detail.seriesId
-            else -> null
-        }
 
     private fun load(forceRefresh: Boolean = false) {
         val page = detailLoad.next()
@@ -404,7 +387,7 @@ internal class DetailExecutor(
         val resolution =
             scope.async {
                 withTimeoutOrNull(playbackResolutionTimeoutMs.coerceAtMost(5_000L) * 3L) {
-                    resolveInitialPlaybackSelection(server, detail)
+                    playbackResolver.resolveInitialPlaybackSelection(server, detail)
                 } ?: Result.failure(PlaybackResolutionTimeoutException())
             }
         initialPlaybackResolution = resolution
@@ -456,64 +439,6 @@ internal class DetailExecutor(
         }
     }
 
-    /**
-     * Resolves only the concrete item required to start playback. Season and episode
-     * lists are useful detail-page enrichment, but a slow catalog endpoint must not
-     * keep the play button spinning after its target is already known.
-     */
-    private suspend fun resolveInitialPlaybackSelection(
-        server: SavedServer,
-        sourceDetail: MediaDetail,
-    ): Result<ResolvedPlaybackSelection> =
-        cancellableResult {
-            if (sourceDetail.type != "Series") {
-                val targetDetail =
-                    if (server.kind == MediaServerKind.Emby) {
-                        repo.playbackItemDetail(server, sourceDetail.id).getOrThrow()
-                    } else {
-                        // Plex ignores the lightweight-field flag and already returned its
-                        // playback metadata with the first request.
-                        sourceDetail
-                    }
-                return@cancellableResult ResolvedPlaybackSelection(
-                    server = server,
-                    sourceDetail = sourceDetail,
-                    target = targetDetail,
-                    positionTicks =
-                        targetDetail.resumePositionTicks
-                            ?: sourceDetail.resumePositionTicks
-                            ?: 0L,
-                )
-            }
-
-            repo.cachedResumeEpisode(server, sourceDetail.id)?.let { target ->
-                val playableTarget =
-                    if (target.versions.isNotEmpty()) {
-                        target
-                    } else {
-                        repo.playbackItemDetail(server, target.id).getOrThrow()
-                    }
-                return@cancellableResult ResolvedPlaybackSelection(
-                    server,
-                    sourceDetail,
-                    playableTarget,
-                    target.resumePositionTicks ?: playableTarget.resumePositionTicks ?: 0L,
-                )
-            }
-            val resolution = repo.resolveDetailPlayTarget(server, sourceDetail).getOrThrow()
-            val targetDetail =
-                repo
-                    .playbackItemDetail(server, resolution.target.itemId)
-                    .getOrThrow()
-            ResolvedPlaybackSelection(
-                server = server,
-                sourceDetail = sourceDetail,
-                target = targetDetail,
-                positionTicks = resolution.target.startPositionTicks,
-                catalogEpisodes = resolution.episodes,
-            )
-        }
-
     /** Loads the series picker after the play target has already made the button usable. */
     private fun loadInitialSeriesCatalogAfterPriority(
         selection: ResolvedPlaybackSelection,
@@ -531,14 +456,14 @@ internal class DetailExecutor(
 
     /** Loads the series picker after the play target has already made the button usable. */
     private fun loadInitialSeriesCatalog(selection: ResolvedPlaybackSelection) {
-        val seriesId = seriesIdOf(selection.sourceDetail) ?: return
+        val seriesId = playbackResolver.seriesIdOf(selection.sourceDetail) ?: return
         cancelInitialCatalogLoad()
         val request = initialCatalog.next()
         dispatch(DetailMsg.EpisodesLoading)
         initialCatalog.launch(request) {
             try {
                 cancellableResult {
-                    loadSeriesCatalog(
+                    playbackResolver.loadSeriesCatalog(
                         server = selection.server,
                         seriesId = seriesId,
                         target = selection.target,
@@ -704,124 +629,6 @@ internal class DetailExecutor(
         }
     }
 
-    private suspend fun resolvePlaybackSelection(
-        server: SavedServer,
-        sourceDetail: MediaDetail,
-        preferredEpisode: EpisodeCoordinate?,
-        preferredPlaybackItemId: String? = null,
-    ): Result<ResolvedPlaybackSelection> =
-        cancellableResult {
-            if (sourceDetail.type != "Series") {
-                val catalog =
-                    seriesIdOf(sourceDetail)?.let { seriesId ->
-                        loadSeriesCatalog(server, seriesId, sourceDetail, allEpisodes = null)
-                    }
-                return@cancellableResult ResolvedPlaybackSelection(
-                    server = server,
-                    sourceDetail = sourceDetail,
-                    target = sourceDetail,
-                    positionTicks = sourceDetail.resumePositionTicks ?: 0L,
-                    seasons = catalog?.seasons.orEmpty(),
-                    selectedSeasonId = catalog?.selectedSeasonId,
-                    episodes = catalog?.episodes.orEmpty(),
-                )
-            }
-
-            if (preferredPlaybackItemId != null) {
-                val targetDetail =
-                    repo
-                        .itemDetail(
-                            server,
-                            preferredPlaybackItemId,
-                            includeInheritedPeople = false,
-                        ).getOrThrow()
-                if (targetDetail.type != "Episode" || targetDetail.seriesId != sourceDetail.id) {
-                    throw EpisodeUnavailableException(
-                        seasonNumber = targetDetail.seasonNumber,
-                        episodeNumber = targetDetail.episodeNumber,
-                    )
-                }
-                val catalog =
-                    loadSeriesCatalog(
-                        server = server,
-                        seriesId = sourceDetail.id,
-                        target = targetDetail,
-                        allEpisodes = null,
-                    )
-                return@cancellableResult ResolvedPlaybackSelection(
-                    server = server,
-                    sourceDetail = sourceDetail,
-                    target = targetDetail,
-                    positionTicks = targetDetail.resumePositionTicks ?: 0L,
-                    seasons = catalog.seasons,
-                    selectedSeasonId = catalog.selectedSeasonId,
-                    episodes = catalog.episodes,
-                )
-            }
-
-            var allEpisodes =
-                preferredEpisode?.let {
-                    // Failure is not the same as "this server lacks the episode". Treating both
-                    // as an empty list silently selected NextUp and bypassed the retry policy.
-                    repo
-                        .episodes(
-                            server = server,
-                            seriesId = sourceDetail.id,
-                            seasonId = null,
-                            includeMediaSources = true,
-                        ).getOrThrow()
-                }
-            val resolvedTarget =
-                if (preferredEpisode != null) {
-                    val matchedEpisode =
-                        allEpisodes?.firstOrNull { episode ->
-                            episode.seasonNumber == preferredEpisode.seasonNumber &&
-                                episode.indexNumber == preferredEpisode.episodeNumber
-                        } ?: throw EpisodeUnavailableException(
-                            seasonNumber = preferredEpisode.seasonNumber,
-                            episodeNumber = preferredEpisode.episodeNumber,
-                        )
-                    com.yfuse.core.model.PlayTarget(
-                        matchedEpisode.id,
-                        matchedEpisode.resumePositionTicks ?: 0L,
-                    )
-                } else {
-                    val resolution = repo.resolvePlayTargetWithEpisodes(server, sourceDetail).getOrThrow()
-                    allEpisodes = resolution.episodes
-                    resolution.target
-                }
-            val targetDetail =
-                repo
-                    .itemDetail(
-                        server,
-                        resolvedTarget.itemId,
-                        includeInheritedPeople = false,
-                    ).getOrThrow()
-            val catalog =
-                loadSeriesCatalog(
-                    server = server,
-                    seriesId = sourceDetail.id,
-                    target = targetDetail,
-                    allEpisodes = allEpisodes,
-                )
-            ResolvedPlaybackSelection(
-                server = server,
-                sourceDetail = sourceDetail,
-                target = targetDetail,
-                positionTicks = resolvedTarget.startPositionTicks,
-                seasons = catalog.seasons,
-                selectedSeasonId = catalog.selectedSeasonId,
-                episodes = catalog.episodes,
-            )
-        }
-
-    private suspend fun loadSeriesCatalog(
-        server: SavedServer,
-        seriesId: String,
-        target: MediaDetail,
-        allEpisodes: List<Episode>?,
-    ): SeriesCatalog = seriesCatalogLoader.load(server, seriesId, target, allEpisodes)
-
     /**
      * Publishes a resolved selection, and by default refreshes the 资源 comparison behind it.
      *
@@ -985,7 +792,7 @@ internal class DetailExecutor(
             sourceItemId = sourceItemId,
             stillCurrent = { request.isCurrent },
         ) { sourceDetail ->
-            resolvePlaybackSelection(
+            playbackResolver.resolvePlaybackSelection(
                 server = server,
                 sourceDetail = sourceDetail,
                 preferredEpisode = coordinate,
@@ -1042,8 +849,8 @@ internal class DetailExecutor(
                                                 target.type == "Episode" &&
                                                 target.seasonNumber != listedSeasonNumber
                                             ) {
-                                                seriesIdOf(sourceDetail)?.let { seriesId ->
-                                                    loadSeriesCatalog(
+                                                playbackResolver.seriesIdOf(sourceDetail)?.let { seriesId ->
+                                                    playbackResolver.loadSeriesCatalog(
                                                         server,
                                                         seriesId,
                                                         target,
@@ -1114,7 +921,7 @@ internal class DetailExecutor(
         val current = state()
         val sourceDetail = current.playSourceDetail ?: return
         val server = current.playServer ?: return
-        val seriesId = seriesIdOf(sourceDetail) ?: return
+        val seriesId = playbackResolver.seriesIdOf(sourceDetail) ?: return
         cancelInitialCatalogLoad()
         val playServerId = server.id
         val playSourceItemId = sourceDetail.id
@@ -1181,51 +988,6 @@ internal class DetailExecutor(
         }
     }
 
-    private suspend fun <T> retryTransientDetailRequest(
-        event: String,
-        attributes: Map<String, String>,
-        stillCurrent: () -> Boolean,
-        request: suspend () -> Result<T>,
-    ): Result<T> {
-        var attempt = 1
-        while (true) {
-            val result =
-                try {
-                    request()
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (failure: Throwable) {
-                    Result.failure(failure)
-                }
-            val failure = result.exceptionOrNull()
-            if (failure is CancellationException) throw failure
-            if (
-                result.isSuccess ||
-                attempt >= SOURCE_SELECTION_MAX_ATTEMPTS ||
-                failure?.isTransientSourceFailure() != true
-            ) {
-                return result
-            }
-
-            val retryDelayMs = SOURCE_SELECTION_RETRY_BASE_DELAY_MS shl (attempt - 1)
-            AppLog.info(
-                category = "feature.detail",
-                event = event,
-                message = "Retrying a transient detail request",
-                attributes =
-                    attributes +
-                        mapOf(
-                            "attempt" to attempt.toString(),
-                            "nextAttempt" to (attempt + 1).toString(),
-                            "delayMs" to retryDelayMs.toString(),
-                        ),
-            )
-            delay(retryDelayMs)
-            if (!stillCurrent()) return result
-            attempt++
-        }
-    }
-
     private fun play(fromStart: Boolean) {
         val current = state()
         val server = current.playServer ?: return
@@ -1258,7 +1020,7 @@ internal class DetailExecutor(
                                 initialPlaybackResolutionPage.isCurrent
                             }?.await()
                             ?.takeIf { it.isSuccess }
-                            ?: resolveInitialPlaybackSelection(server, sourceDetail)
+                            ?: playbackResolver.resolveInitialPlaybackSelection(server, sourceDetail)
                     } ?: Result.failure(PlaybackResolutionTimeoutException())
                 result
                     .onSuccess { selection ->
@@ -1544,26 +1306,13 @@ internal class DetailExecutor(
         scope.launch {
             // A season is one decision, not twenty-four serial round trips: a few requests
             // in flight at once, and the counter in the sheet moves as each one lands.
-            val permits = Semaphore(BATCH_PROGRESS_CONCURRENCY)
-            val counters = Mutex()
-            var queued = 0
-            var completed = 0
-            coroutineScope {
-                targets.forEach { episode ->
-                    launch {
-                        val failed =
-                            permits.withPermit {
-                                syncManager.setPlayed(server, episode.id, episode.name, played).isFailure
-                            }
-                        val done =
-                            counters.withLock {
-                                if (failed) queued++
-                                ++completed
-                            }
+            val queued =
+                progressBatch.write(
+                    targets = targets,
+                    onProgress = { done ->
                         dispatch(DetailMsg.ProgressSaving(true, completed = done, total = targets.size))
-                    }
-                }
-            }
+                    },
+                ) { episode -> syncManager.setPlayed(server, episode.id, episode.name, played) }
             val actionLabel =
                 when (action) {
                     EpisodeProgressAction.MarkWatched -> "标记已看"
@@ -1601,20 +1350,10 @@ internal class DetailExecutor(
         if (targets.isEmpty()) return
         dispatch(DetailMsg.EpisodesPlayedChanged(targets.mapTo(linkedSetOf()) { it.id }, played))
         scope.launch {
-            val permits = Semaphore(BATCH_PROGRESS_CONCURRENCY)
-            val counters = Mutex()
-            var queued = 0
-            coroutineScope {
-                targets.forEach { episode ->
-                    launch {
-                        val failed =
-                            permits.withPermit {
-                                syncManager.setPlayed(server, episode.id, episode.name, played).isFailure
-                            }
-                        if (failed) counters.withLock { queued++ }
-                    }
+            val queued =
+                progressBatch.write(targets) { episode ->
+                    syncManager.setPlayed(server, episode.id, episode.name, played)
                 }
-            }
             episodesMarkedMessage(targets.size, played, queued)?.let { dispatch(DetailMsg.ActionMessage(it)) }
             if (queued == 0) refreshPlayTarget()
         }
@@ -1650,7 +1389,7 @@ internal class DetailExecutor(
         playTargetRefresh.launch {
             val selection =
                 withTimeoutOrNull(playbackResolutionTimeoutMs) {
-                    resolveInitialPlaybackSelection(server, source)
+                    playbackResolver.resolveInitialPlaybackSelection(server, source)
                 }?.getOrNull() ?: return@launch
             val current = state()
             if (
