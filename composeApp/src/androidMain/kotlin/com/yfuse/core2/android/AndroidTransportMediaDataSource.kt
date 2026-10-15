@@ -1026,7 +1026,7 @@ internal class AndroidTransportMediaDataSource(
         if (prefetchSuppressed) return
         if (!allowsSpeculativeWork()) {
             prefetchDepthBlocks = 0
-            cancelPrefetchOutside(emptySet())
+            cancelPrefetchOutside(emptySet(), "memory_pressure")
             forwardCache?.updateWindow(0L, 0L)
             return
         }
@@ -1276,6 +1276,17 @@ internal class AndroidTransportMediaDataSource(
         while (iterator.hasNext()) {
             val entry = iterator.next()
             if (entry.key !in retained) {
+                // A window change retires speculative ownership, not validated bytes. Dropping
+                // completed futures here made alternating extractor runs download the same
+                // ranges again, even when a persistent cache was configured.
+                if (!closed && reason == "window_changed") {
+                    completedPrefetchBlock(entry.key)?.takeIf { isCompleteBlock(entry.key, it) }?.let { loaded ->
+                        cache(entry.key, loaded.bytes)
+                        if (loaded.bytes.isNotEmpty() && !loaded.fromDiskCache) {
+                            diskCache?.enqueueWriteBlock(entry.key, loaded.bytes, knownSize.takeIf { it >= 0L })
+                        }
+                    }
+                }
                 entry.value.cancel(reason)
                 iterator.remove()
             }
@@ -1296,7 +1307,7 @@ internal class AndroidTransportMediaDataSource(
             )
         while (scannedBlocks < scanLimit) {
             val length =
-                blocks[blockIndex]?.size ?: completedPrefetchBytes(blockIndex)?.size
+                blocks[blockIndex]?.size ?: completedPrefetchBlock(blockIndex)?.bytes?.size
                     ?: diskCache?.cachedBlockLength(blockIndex) ?: break
             val blockStart = blockIndex.saturatedMultiply(blockSize.toLong())
             val blockEnd = blockStart.saturatedAdd(length.toLong())
@@ -1311,11 +1322,11 @@ internal class AndroidTransportMediaDataSource(
         return (cursor - start).coerceAtLeast(0L)
     }
 
-    private fun completedPrefetchBytes(blockIndex: Long): ByteArray? {
+    private fun completedPrefetchBlock(blockIndex: Long): YLoadedTransportBlock? {
         val prefetch = prefetchedBlocks[blockIndex] ?: return null
         if (!prefetch.future.isDone || prefetch.future.isCancelled) return null
         return try {
-            prefetch.future.get().bytes
+            prefetch.future.get()
         } catch (_: CancellationException) {
             null
         } catch (_: ExecutionException) {

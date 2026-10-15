@@ -179,13 +179,11 @@ internal fun playbackStartupTimeoutMs(probe: PlaybackMediaProbe): Long =
         else -> 15_000L
     }
 
-/** Hard ceiling for a slow stream. Confirmed empty-transport stalls use a separate progress window. */
+/** Once playback started, file size does not justify minutes without output. */
 internal fun playbackRebufferTimeoutMs(probe: PlaybackMediaProbe): Long =
     when {
-        probe.discSource || probe.discKind != PlaybackDiscKind.None -> 180_000L
-        probe.isHugeRemoteMov -> 180_000L
-        !probe.localSource && (probe.sourceSizeBytes ?: 0L) >= LARGE_REMOTE_SOURCE_BYTES -> 120_000L
-        !probe.localSource -> 60_000L
+        probe.discSource || probe.discKind != PlaybackDiscKind.None -> 60_000L
+        probe.isHugeRemoteMov -> 60_000L
         else -> 30_000L
     }
 

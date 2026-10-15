@@ -684,15 +684,6 @@ internal fun PlayerRoot(
             } else {
                 localCastItem?.playMethod?.label ?: PlaybackMethod.DirectPlay.label
             }
-        BindPlaybackNetworkRecovery(
-            networkRecovery,
-            playbackNetworkClass,
-            engine,
-            player,
-            liveLocalState,
-            castAuthoritative,
-            attachedEngineLabel,
-        )
         val deviceCapabilityLabel =
             remember(deviceCapabilities) { deviceCapabilities.diagnosticLabel() }
         val activeProbeResult =
@@ -706,6 +697,16 @@ internal fun PlayerRoot(
                 engine = engine,
             )
         val activeProbe = activeProbeResult.probe
+        BindPlaybackNetworkRecovery(
+            networkRecovery,
+            playbackNetworkClass,
+            engine,
+            player,
+            liveLocalState,
+            castAuthoritative,
+            attachedEngineLabel,
+            activeProbe,
+        )
         val activePlan =
             planPlayback(
                 probe = activeProbe,

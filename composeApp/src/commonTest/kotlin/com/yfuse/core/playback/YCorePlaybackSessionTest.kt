@@ -9,6 +9,30 @@ import kotlin.test.assertTrue
 
 class YCorePlaybackSessionTest {
     @Test
+    fun large_remote_media_does_not_wait_two_minutes_on_incomplete_buffered_packets() {
+        val large = probe().copy(sourceSizeBytes = 10_570_430_243L)
+        assertEquals(30_000L, playbackRebufferTimeoutMs(large))
+        val detector = PlaybackRuntimeFaultDetector(0L, 0L, rebufferTimeoutMs = playbackRebufferTimeoutMs(large))
+        detector.observe(observation(now = 1_000L, droppedFrames = 0))
+        val frozen =
+            observation(now = 2_000L, droppedFrames = 0).copy(
+                positionMs = 1_000L,
+                buffering = true,
+                playing = false,
+                sourceRemote = true,
+                sourceStarvationCount = 1L,
+                sourceQueueBytes = 122_178L,
+                sourceBufferedMs = 21L,
+            )
+        assertEquals(null, detector.observe(frozen))
+        assertEquals(null, detector.observe(frozen.copy(nowEpochMs = 31_999L, sourceQueueBytes = 500_831L)))
+        assertEquals(
+            PlaybackRuntimeFaultKind.RebufferTimeout,
+            detector.observe(frozen.copy(nowEpochMs = 32_000L, sourceQueueBytes = 828_051L))?.kind,
+        )
+    }
+
+    @Test
     fun session_records_sustained_renderer_loss_once() {
         val memory = PlaybackFailureMemory(failureThreshold = 1)
         val session = session(memory)

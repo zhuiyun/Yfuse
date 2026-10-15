@@ -274,7 +274,9 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
                 version?.dolbyVision != true ||
                     version?.dolbyProfile == null ||
                     version?.dolbyProfile in CORE2_DOLBY_TRIAL_PROFILES,
-            probedBeforeRouting = item.isFileSourcePlayback,
+            // PlaybackInfo may fail while the authenticated media URL still works. Missing
+            // server metadata must reach the same bounded local truth probes as a file source.
+            probedBeforeRouting = item.isFileSourcePlayback || version == null,
         )
     return evaluateCore2NativeBaseline(source)?.userMessage()
 }

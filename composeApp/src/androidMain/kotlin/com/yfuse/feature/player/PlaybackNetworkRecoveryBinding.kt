@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import com.yfuse.core.data.PlaybackNetworkClass
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.playback.PlaybackMediaProbe
 import com.yfuse.core.playback.PlaybackNetworkRecoveryController
 import com.yfuse.core2.api.YPlayer
 
@@ -41,9 +42,11 @@ internal fun BindPlaybackNetworkRecovery(
     localPlayback: State<PlaybackState>,
     castAuthoritative: Boolean,
     attachedEngineLabel: String,
+    probe: PlaybackMediaProbe,
 ) {
     val currentNetworkClass by rememberUpdatedState(playbackNetworkClass)
     val currentEngineLabel by rememberUpdatedState(attachedEngineLabel)
+    val currentProbe by rememberUpdatedState(probe)
     // Both effects follow the live position, which ticks twice a second. Keyed on it, each effect was
     // cancelled and relaunched on every tick; these collectors stay put and re-read their inputs, and
     // this binding no longer recomposes with the position either.
@@ -86,17 +89,13 @@ internal fun BindPlaybackNetworkRecovery(
         }
     }
     LaunchedEffect(recovery, localPlayback) {
-        // Null while nothing is pending or undecided; true once playback moved past the resume
-        // point (or ended), false when the resumed backend failed.
+        // Keep pending through synthetic seek ticks and short-lived output that re-buffers.
         snapshotFlow {
-            val live = localPlayback.value
-            val movedPastResume =
-                live.ended || (live.playing && live.positionMs > (recovery.resumePositionMs ?: Long.MAX_VALUE))
-            when {
-                !recovery.pending -> null
-                live.error != null -> false
-                !live.buffering && movedPastResume -> true
-                else -> null
+            val resumePosition = recovery.resumePositionMs
+            if (recovery.pending && resumePosition != null) {
+                localPlayback.value.networkRecoveryOutcome(resumePosition, currentProbe)
+            } else {
+                null
             }
         }.collect { resumed ->
             if (resumed == null) return@collect

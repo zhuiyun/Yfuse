@@ -662,6 +662,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         val loggedTrackSkips = mutableSetOf<String>()
         var forceEnhancedFallback = false
         var forceSoftwareFallback = false
+        var lastRouteDecision: Pair<YMediaItem, YCore2RouteDecision>? = null
         var bypassLearnedRouteMemoryOnce = false
         var pendingFailureKey: YCore2FailureKey? = null
 
@@ -1199,6 +1200,21 @@ internal class AndroidAdaptiveCore2YPlayer(
                     forceSoftwareDecode = forceSoftwareFallback || preferSoftwareDecode,
                 )
             }
+            if (forceEnhancedFallback) {
+                // The failed platform route already spent its probe budget. A forced recovery
+                // opens the enhanced demuxer directly; probing the platform again here and in
+                // the child used 16 of its 20 seconds before FFmpeg could even open the source.
+                val decision = lastRouteDecision?.takeIf { it.first == item }?.second
+                decision?.let {
+                    pendingInputHdrType = it.probe.playbackRequest.video.hdrType
+                    pendingChapters = it.probe.chapters
+                }
+                videoHandoff.close()
+                routeEvaluator.closePreparedExtractor()
+                return createInternalEnhancedRoute(item, singleRequest, decision)
+                    ?: createInternalSoftwareRoute(item, singleRequest, decision)
+            }
+
             val warmedRoute =
                 preloadedNextRoute?.takeIf { warmed ->
                     target == null &&
@@ -1262,6 +1278,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             currentCoroutineContext().ensureActive()
             budget.ensureActive()
             decision?.let {
+                lastRouteDecision = item to it
                 pendingInputHdrType = it.probe.playbackRequest.video.hdrType
                 pendingChapters = it.probe.chapters
             }
@@ -1275,12 +1292,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                         yCoreInconclusiveSourceCompatibilityPlan(item),
                         speed,
                     )
-            }
-            if (forceEnhancedFallback) {
-                videoHandoff.close()
-                routeEvaluator.closePreparedExtractor()
-                return createInternalEnhancedRoute(item, singleRequest, decision)
-                    ?: createInternalSoftwareRoute(item, singleRequest, decision)
             }
             if (decision == null) return createInconclusiveSourceRoute(item, singleRequest)
             if (

@@ -270,9 +270,8 @@ class AndroidCore2TrialTest {
             assertNull(mapped.sourceHints)
             assertTrue(mapped.headers.isEmpty())
         }
-        // A remote stream whose MediaSource was never fetched is still refused, not guessed at.
-        assertEquals(
-            "YCore Native 缺少片源格式元数据",
+        // Failed PlaybackInfo must still allow the authenticated stream through local truth probing.
+        assertNull(
             listOf(mediaItem("https://media.example.test/Videos/1/stream")).core2NativeBaselineBlockReason(0),
         )
     }

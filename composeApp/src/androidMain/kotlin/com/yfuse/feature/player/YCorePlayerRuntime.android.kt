@@ -297,40 +297,6 @@ internal fun PlaybackState.runtimeObservation(
         )
     }
 
-private data class PlaybackOutputExpectation(
-    val video: Boolean,
-    val audio: Boolean,
-)
-
-/** Prefer reported track/output facts; when everything is unknown, treat a player item as video. */
-private fun PlaybackDiagnostics.outputExpectation(
-    probe: PlaybackMediaProbe,
-    videoHeight: Int,
-    hasAudioTracks: Boolean,
-): PlaybackOutputExpectation {
-    val evidence = outputEvidence
-    val videoKnown =
-        probe.source.videoCodec != null ||
-            probe.source.width != null ||
-            probe.source.height != null ||
-            videoHeight > 0 ||
-            videoWidth > 0 ||
-            evidence.videoDecoder.isNotBlank() ||
-            evidence.videoCodecProfile.isNotBlank() ||
-            effectiveVideoReadiness == PlaybackOutputReadiness.Rendering
-    val audioKnown =
-        probe.audioCodec != null ||
-            hasAudioTracks ||
-            audioFormat.isNotBlank() ||
-            evidence.audioDecoder.isNotBlank() ||
-            evidence.audioMode != PlaybackAudioOutputMode.Unknown ||
-            effectiveAudioReadiness == PlaybackOutputReadiness.Rendering
-    return PlaybackOutputExpectation(
-        video = videoKnown || !audioKnown,
-        audio = audioKnown,
-    )
-}
-
 private const val RUNTIME_OBSERVATION_INTERVAL_MS = 2_000L
 
 /** Explicit Android return type avoids a false Unit inference in Compose's KMP lint model. */

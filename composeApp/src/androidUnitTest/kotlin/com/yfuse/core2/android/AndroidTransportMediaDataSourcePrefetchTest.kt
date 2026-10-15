@@ -23,6 +23,51 @@ import kotlin.test.assertTrue
 
 class AndroidTransportMediaDataSourcePrefetchTest {
     @Test
+    fun `completed speculative ranges survive a distant extractor window and are reused`() {
+        val media = ByteArray(TEST_BLOCK_BYTES * 32) { it.toByte() }
+        val openedRanges = CopyOnWriteArrayList<Long>()
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mp4",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                blockSizeOverride = TEST_BLOCK_BYTES,
+                createTransport = {
+                    MemoryRangeTransport(media) { start, completed ->
+                        if (!completed) openedRanges += start
+                    }
+                },
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            worker.submit<Int> { source.readAt(0L, ByteArray(1), 0, 1) }.get(2, TimeUnit.SECONDS)
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (source.qoeSnapshot().bufferedAheadBytes < TEST_BLOCK_BYTES * 3L - 1L &&
+                System.nanoTime() < deadline
+            ) {
+                Thread.yield()
+            }
+            assertTrue(source.qoeSnapshot().bufferedAheadBytes >= TEST_BLOCK_BYTES * 3L - 1L)
+            // An index/other-track read moves the prefetch window without consuming blocks 1 and 2.
+            worker
+                .submit<Int> { source.readAt(TEST_BLOCK_BYTES * 20L, ByteArray(1), 0, 1) }
+                .get(2, TimeUnit.SECONDS)
+            val bytes = ByteArray(16)
+            assertEquals(
+                bytes.size,
+                worker
+                    .submit<Int> { source.readAt(TEST_BLOCK_BYTES.toLong(), bytes, 0, bytes.size) }
+                    .get(2, TimeUnit.SECONDS),
+            )
+            assertContentEquals(media.copyOfRange(TEST_BLOCK_BYTES, TEST_BLOCK_BYTES + bytes.size), bytes)
+            assertEquals(1, openedRanges.count { it == TEST_BLOCK_BYTES.toLong() })
+        } finally {
+            source.close()
+            worker.shutdownNow()
+        }
+    }
+
+    @Test
     fun `extractor receives a prefetched prefix before the slow block tail arrives`() {
         verifyProgressivePrefetch(tailFails = false)
     }

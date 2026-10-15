@@ -27,9 +27,8 @@ data class Core2NativeBaselineSource(
     val dolbyVision: Boolean,
     val dolbyVisionSupported: Boolean = false,
     /**
-     * A 文件来源 file: an SMB or WebDAV share has no server MediaSource to name its codecs, and
-     * the extension is only a hint. YCore reads such files with its own transports and probes
-     * them before routing, failing closed there, exactly as it does for files on this device.
+     * The caller guarantees YCore will probe the bytes before routing. This also covers server
+     * media whose PlaybackInfo is unavailable; neither a URL nor its extension proves a codec.
      */
     val probedBeforeRouting: Boolean = false,
 )
@@ -42,8 +41,8 @@ data class Core2NativeBaselineSource(
  *
  * A file already on this device, such as a finished download, has no server MediaSource to
  * describe it. YCore's platform and FFmpeg probes read its container and codecs from the local
- * bytes before routing, and fail closed there. Only a remote source without metadata is refused
- * here, before any of it has been read.
+ * bytes before routing, and fail closed there. A remote source without metadata requires the
+ * caller to opt into the same bounded truth-probing path.
  */
 fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeBaselineBlock? {
     val probedOnDevice = !source.hasMetadata && source.scheme.lowercase() in CORE2_NATIVE_LOCAL_SCHEMES

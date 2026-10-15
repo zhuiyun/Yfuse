@@ -459,11 +459,18 @@ internal class AndroidNativeEnhancedYPlayer(
                 val decision =
                     pendingInitialDecision
                         .takeIf { currentIndex == request.startIndex }
-                        .also { pendingInitialDecision = null } ?: routeEvaluator.evaluate(
-                        item,
-                        allowAudioPassthrough = allowAudioPassthrough,
-                        budget = budget,
-                    )
+                        .also { pendingInitialDecision = null }
+                        ?: if (forcedPlan?.route == YPlaybackRoute.NativeEnhanced && !forceSoftwareDecode) {
+                            // session.open validates the demuxed formats and Dolby identity.
+                            // A forced enhanced recovery must not repeat the failed platform probe.
+                            null
+                        } else {
+                            routeEvaluator.evaluate(
+                                item,
+                                allowAudioPassthrough = allowAudioPassthrough,
+                                budget = budget,
+                            )
+                        }
                 budget.ensureActive()
                 currentCoroutineContext().ensureActive()
                 val playbackPlan =
