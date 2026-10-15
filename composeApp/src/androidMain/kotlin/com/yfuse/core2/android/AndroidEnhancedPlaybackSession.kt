@@ -158,12 +158,11 @@ internal class AndroidEnhancedPlaybackSession(
     private val secondarySubtitleCues = YSubtitleCueBuffer()
     private var audioOutputPath = YAudioOutputPath.None
     private var surface: Surface? = null
-    private val pendingSamples = linkedMapOf<YTrackId, YQueuedDemuxResult.Sample>()
-    private val blockedInputTracks = mutableSetOf<YTrackId>()
-    private var inputGeneration = 0L
+    private val inputQueue = AndroidDemuxInputQueue()
     private val videoAccessUnits = AndroidAccessUnitCache<YCompressedSample, PreparedVideoAccessUnit>()
     private var pendingVideoOutput: YCodecOutputResult.Buffer? = null
-    private var pendingAudioOutput: YEnhancedPendingAudioOutput? = null
+    private val pendingAudioOutput =
+        AndroidPendingAudioOutput<YAudioCodecOutputResult.Buffer>(audioDecoder::releaseOutput)
     private var pendingEncodedAudioData: java.nio.ByteBuffer? = null
     private var pendingSoftwareVideoOutput: YSoftwareVideoDecodeResult.Frame? = null
     private var pendingSoftwareAudioOutput: YSoftwareAudioDecodeResult.Frame? = null
@@ -611,7 +610,7 @@ internal class AndroidEnhancedPlaybackSession(
             videoDecoderConfigureFailure?.let { failure ->
                 runtimeCapabilityKey?.let { key -> runtimeCapabilities?.recordConfigureFailure(key, failure) }
             }
-            pendingSamples.clear()
+            inputQueue.clear()
             videoInBandParameterSets = null
             videoParameterSetsPending = false
             frameRateManager.clear()
@@ -704,7 +703,7 @@ internal class AndroidEnhancedPlaybackSession(
             while (true) {
                 when (val next = demuxReadAhead.pollSample(otherTracks)) {
                     is YQueuedDemuxResult.Sample -> {
-                        pendingSamples[videoTrackId] = next
+                        inputQueue.retain(next)
                         parameterSets = inBandParameterSets(next.value.data, source)
                         break
                     }
@@ -1001,7 +1000,7 @@ internal class AndroidEnhancedPlaybackSession(
                 secondarySubtitleCues.clear()
             }
         }
-        pendingSamples.clear()
+        inputQueue.clear()
         videoAccessUnits.clear()
         if (nextTrack != null || previousTrack != null) {
             seekToInternal(
@@ -1124,7 +1123,7 @@ internal class AndroidEnhancedPlaybackSession(
             }
         }
         if (audioRendererConfigured) flushAudio()
-        pendingSamples.clear()
+        inputQueue.clear()
         videoAccessUnits.clear()
         pendingVideoOutput = null
         pendingSoftwareVideoOutput = null
@@ -1393,7 +1392,7 @@ internal class AndroidEnhancedPlaybackSession(
         releasePendingAudioOutput()
         pendingEncodedAudioData = null
         pendingSoftwareAudioOutput = null
-        pendingSamples.clear()
+        inputQueue.clear()
         videoAccessUnits.clear()
         runCatching(audioRenderer::release)
         runCatching(encodedAudioRenderer::release)
@@ -1447,63 +1446,31 @@ internal class AndroidEnhancedPlaybackSession(
 
     private fun feedInput(): Boolean {
         if (inputEnded) return queueEndOfStream()
-        val generation = inputGeneration
-        var didWork = false
-        val blockedTracks = blockedInputTracks.also { it.clear() }
-        // Each track may retain at most one unaccepted access unit. Keep per-track ordering while
-        // letting audio advance when video is full (and vice versa), including partial passthrough.
-        for ((track, queued) in pendingSamples.toMap()) {
-            val accepted = queueSample(queued)
-            if (generation != inputGeneration) return true
-            if (accepted) {
-                pendingSamples.remove(track)
-                didWork = true
-            } else {
-                blockedTracks += track
-            }
-        }
-        repeat(4) {
-            val queued =
-                when (val next = demuxReadAhead.pollSample(blockedTracks)) {
-                    is YQueuedDemuxResult.Sample -> next
-                    is YQueuedDemuxResult.Failed ->
-                        yPlaybackStage(
-                            category = sourceFailureCategory(),
-                            stage = YPlaybackFailureStage.Demux,
-                            safeDetail = "Enhanced compressed sample read-ahead",
-                        ) {
-                            throw next.cause
-                        }
-                    YQueuedDemuxResult.Empty -> {
-                        if (
-                            pendingSamples.isEmpty() &&
-                            outputActive &&
-                            lastQueuedUs - currentPositionUs() <= REBUFFER_OUTPUT_MARGIN_US
-                        ) {
-                            bufferGate.markStarved()
-                            suspendOutputForBuffering()
-                        }
-                        return didWork
+        val result =
+            inputQueue.pump(
+                poll = { blockedTracks ->
+                    when (val next = demuxReadAhead.pollSample(blockedTracks)) {
+                        is YQueuedDemuxResult.Failed ->
+                            yPlaybackStage(
+                                category = sourceFailureCategory(),
+                                stage = YPlaybackFailureStage.Demux,
+                                safeDetail = "Enhanced compressed sample read-ahead",
+                            ) { throw next.cause }
+                        else -> next
                     }
-                    YQueuedDemuxResult.EndOfInput -> {
-                        if (pendingSamples.isEmpty()) inputEnded = true
-                        return didWork || inputEnded
-                    }
-                }
-            val accepted = queueSample(queued)
-            if (generation != inputGeneration) return true
-            if (accepted) {
-                didWork = true
-            } else {
-                pendingSamples[queued.value.trackId] = queued
-                blockedTracks += queued.value.trackId
-            }
+                },
+                queue = ::queueSample,
+            )
+        if (result.starved && outputActive && lastQueuedUs - currentPositionUs() <= REBUFFER_OUTPUT_MARGIN_US) {
+            bufferGate.markStarved()
+            suspendOutputForBuffering()
         }
-        return didWork
+        if (result.ended) inputEnded = true
+        return result.didWork
     }
 
     private fun queueSample(queuedSample: YQueuedDemuxResult.Sample): Boolean {
-        val generation = inputGeneration
+        val generation = inputQueue.generation
         val sample = queuedSample.value
         if (YSampleFlag.Encrypted in sample.flags) {
             error("Encrypted enhanced-demux samples require the dedicated DRM route")
@@ -1552,7 +1519,7 @@ internal class AndroidEnhancedPlaybackSession(
                 }
                 else -> YCodecQueueResult.Queued
             }
-        if (generation != inputGeneration) return true
+        if (generation != inputQueue.generation) return true
         if (queued != YCodecQueueResult.Queued) {
             return false
         }
@@ -1664,7 +1631,7 @@ internal class AndroidEnhancedPlaybackSession(
         if (audioTrack == null || audioOutputEnded) return false
         if (isAudioPassthrough()) return false
         if (softwareAudioActive) return drainSoftwareAudio()
-        pendingAudioOutput?.let { return writePendingAudioOutput(it) }
+        pendingAudioOutput.current?.let { return writePendingAudioOutput(it) }
         val dequeued =
             yPlaybackStage(
                 category = YPlaybackFailureCategory.Decoder,
@@ -1705,19 +1672,18 @@ internal class AndroidEnhancedPlaybackSession(
                             safeDetail = "Enhanced audio decoder output",
                         ) {
                             check(audioRendererConfigured) { "PCM output arrived before AudioTrack format" }
-                            YEnhancedPendingAudioOutput(
+                            pendingAudioOutput.hold(
                                 output = output,
                                 data = audioDecoder.outputData(output),
                             )
                         }
-                    pendingAudioOutput = pending
                     writePendingAudioOutput(pending)
                 }
             }
         }
     }
 
-    private fun writePendingAudioOutput(pending: YEnhancedPendingAudioOutput): Boolean {
+    private fun writePendingAudioOutput(pending: PendingAudioBuffer<YAudioCodecOutputResult.Buffer>): Boolean {
         val written =
             yPlaybackStage(
                 category = YPlaybackFailureCategory.AudioSink,
@@ -1730,8 +1696,7 @@ internal class AndroidEnhancedPlaybackSession(
             YDecodedAudioDrainProgress.Backpressured -> false
             YDecodedAudioDrainProgress.Pending -> true
             YDecodedAudioDrainProgress.Complete -> {
-                pendingAudioOutput = null
-                audioDecoder.releaseOutput(pending.output)
+                pendingAudioOutput.complete(pending)
                 seekAudioTargetUs = 0L
                 if (pending.output.endOfStream) audioOutputEnded = true
                 true
@@ -2185,7 +2150,7 @@ internal class AndroidEnhancedPlaybackSession(
                         "packetsRead" to readAhead.packetsRead.toString(),
                         "demuxThroughputBps" to readAhead.throughputBitsPerSecond.toString(),
                         "trackBufferedUs" to detailed.trackBufferedUs.toString(),
-                        "pendingTrackCount" to pendingSamples.size.toString(),
+                        "pendingTrackCount" to inputQueue.pendingCount.toString(),
                         "endOfInput" to readAhead.endOfInput.toString(),
                         "atCapacity" to readAhead.atCapacity.toString(),
                         "generation" to readAhead.generation.toString(),
@@ -2312,7 +2277,7 @@ internal class AndroidEnhancedPlaybackSession(
         audioDrainStartedNs = null
         videoEosGate.reset()
         surfaceCompletion.reset()
-        inputGeneration++
+        inputQueue.advanceGeneration()
         inputEnded = false
         videoInputEnded = false
         audioInputEnded = audioTrack == null
@@ -2374,9 +2339,7 @@ internal class AndroidEnhancedPlaybackSession(
     }
 
     private fun releasePendingAudioOutput() {
-        val pending = pendingAudioOutput ?: return
-        pendingAudioOutput = null
-        runCatching { audioDecoder.releaseOutput(pending.output) }
+        pendingAudioOutput.discard()
     }
 
     private fun queueSubtitleSample(
@@ -2657,11 +2620,6 @@ private fun Context.yCoreDisplayPeakNits(): Float? =
             ?.desiredMaxLuminance
             ?.takeIf { it.isFinite() && it > 0f }
     }.getOrNull()
-
-private data class YEnhancedPendingAudioOutput(
-    val output: YAudioCodecOutputResult.Buffer,
-    val data: java.nio.ByteBuffer,
-)
 
 private const val DEFAULT_INPUT_AHEAD_US = 1_500_000L
 private const val REBUFFER_OUTPUT_MARGIN_US = 750_000L
