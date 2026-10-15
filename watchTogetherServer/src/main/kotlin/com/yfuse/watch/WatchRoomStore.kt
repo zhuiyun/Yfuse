@@ -110,7 +110,7 @@ internal class RoomStore(
         rooms.values.forEach { room ->
             synchronized(room) {
                 val since = room.emptySinceMs
-                if (since != null && nowMs - since >= roomGraceMs) {
+                if (room.participants.isEmpty() && since != null && nowMs - since >= roomGraceMs) {
                     rooms.remove(room.code, room)
                 }
             }

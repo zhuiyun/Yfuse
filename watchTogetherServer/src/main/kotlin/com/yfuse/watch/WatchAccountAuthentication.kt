@@ -9,10 +9,9 @@ import io.ktor.websocket.CloseReason
 import io.ktor.websocket.close
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.sql.SQLTransientException
 import java.util.concurrent.ThreadLocalRandom
 
@@ -21,6 +20,7 @@ private const val ACCOUNT_AUTH_RETRY_MAX_MS = 5_000L
 private const val ACCOUNT_AUTH_RETRY_MAX_EXPONENT = 6
 private const val ACCOUNT_AUTH_ATTEMPT_TIMEOUT_MS = 10_000L
 private const val ACCOUNT_INITIAL_AUTH_MAX_TRANSIENT_FAILURES = 8
+internal const val WATCH_INITIAL_AUTH_TIMEOUT_MS = 15_000L
 
 private sealed interface WatchAccountAuthentication {
     data class Accepted(
@@ -39,11 +39,9 @@ private suspend fun authenticateWatchAccount(
     accessToken: String,
 ): WatchAccountAuthentication =
     try {
-        WatchAccountAuthentication.Accepted(
-            withTimeout(ACCOUNT_AUTH_ATTEMPT_TIMEOUT_MS) {
-                authenticator(accessToken)
-            },
-        )
+        withTimeoutOrNull(ACCOUNT_AUTH_ATTEMPT_TIMEOUT_MS) {
+            WatchAccountAuthentication.Accepted(authenticator(accessToken))
+        } ?: WatchAccountAuthentication.TemporarilyUnavailable
     } catch (failure: AccountServiceException) {
         if (failure.problem == AccountProblem.Unauthorized) {
             WatchAccountAuthentication.Rejected
@@ -51,8 +49,6 @@ private suspend fun authenticateWatchAccount(
             WatchAccountAuthentication.Failed
         }
     } catch (_: AccountWorkRejectedException) {
-        WatchAccountAuthentication.TemporarilyUnavailable
-    } catch (_: TimeoutCancellationException) {
         WatchAccountAuthentication.TemporarilyUnavailable
     } catch (_: SQLTransientException) {
         WatchAccountAuthentication.TemporarilyUnavailable
@@ -78,6 +74,27 @@ internal fun watchAuthTransientRetryDelayMs(failureCount: Int): Long {
 
 /** Authenticates this socket before it can bind room membership or start revocation checks. */
 internal suspend fun DefaultWebSocketServerSession.authenticateWatchConnection(
+    accessToken: String,
+    authenticator: suspend (String) -> AuthenticatedAccount,
+    retryDelayMs: (Int) -> Long,
+    totalTimeoutMs: Long = WATCH_INITIAL_AUTH_TIMEOUT_MS,
+): AuthenticatedAccount? {
+    require(totalTimeoutMs > 0L)
+    var account: AuthenticatedAccount? = null
+    val completed =
+        withTimeoutOrNull(totalTimeoutMs) {
+            account = authenticateWatchConnectionWithRetries(accessToken, authenticator, retryDelayMs)
+            true
+        } ?: false
+    if (!completed) {
+        close(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "account_auth_timeout"))
+        // Timeout can win while the block is returning an already resolved account.
+        return null
+    }
+    return account
+}
+
+private suspend fun DefaultWebSocketServerSession.authenticateWatchConnectionWithRetries(
     accessToken: String,
     authenticator: suspend (String) -> AuthenticatedAccount,
     retryDelayMs: (Int) -> Long,

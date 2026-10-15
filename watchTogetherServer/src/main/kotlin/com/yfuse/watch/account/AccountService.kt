@@ -37,8 +37,8 @@ class AccountBackend private constructor(
     internal suspend fun <T> execute(block: AccountService.() -> T): T = workExecutor.execute { service.block() }
 
     suspend fun authenticateAccessToken(accessToken: String): AuthenticatedAccount =
-        execute {
-            authenticateAccessToken(accessToken).let {
+        workExecutor.executeCancellable {
+            service.authenticateAccessToken(accessToken).let {
                 AuthenticatedAccount(
                     userId = it.user.id,
                     sessionId = it.sessionId,
@@ -52,8 +52,8 @@ class AccountBackend private constructor(
 
     /** Validates revocation and expiry without turning a socket heartbeat into a SQLite write. */
     suspend fun validateAccessToken(accessToken: String): AuthenticatedAccount =
-        execute {
-            validateAccessToken(accessToken).let {
+        workExecutor.executeCancellable {
+            service.validateAccessToken(accessToken).let {
                 AuthenticatedAccount(
                     userId = it.user.id,
                     sessionId = it.sessionId,

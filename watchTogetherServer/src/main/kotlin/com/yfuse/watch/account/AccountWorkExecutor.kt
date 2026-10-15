@@ -2,11 +2,13 @@ package com.yfuse.watch.account
 
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.Semaphore
 import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -27,11 +29,11 @@ class AccountWorkExecutor(
     policy: AccountExecutionPolicy = AccountExecutionPolicy(),
 ) : AutoCloseable {
     private val permits = Semaphore(policy.maxConcurrentOperations, true)
-    private val executorService =
+    private val executorService: ThreadPoolExecutor =
         Executors.newFixedThreadPool(
             policy.workerThreads,
             AccountThreadFactory,
-        )
+        ) as ThreadPoolExecutor
     private val dispatcher: ExecutorCoroutineDispatcher = executorService.asCoroutineDispatcher()
 
     internal suspend fun <T> execute(block: () -> T): T {
@@ -48,6 +50,41 @@ class AccountWorkExecutor(
     }
 
     internal fun availablePermits(): Int = permits.availablePermits()
+
+    /**
+     * Authentication may stop waiting without waiting for a blocking database call to finish.
+     * Running work keeps its permit until completion; cancelled queued work never executes.
+     * The existing execute path retains structured completion for general account mutations.
+     */
+    internal suspend fun <T> executeCancellable(block: () -> T): T {
+        if (!permits.tryAcquire()) throw AccountWorkRejectedException()
+        return suspendCancellableCoroutine { continuation ->
+            val state = AtomicInteger(WORK_PENDING)
+            val work =
+                Runnable {
+                    if (!state.compareAndSet(WORK_PENDING, WORK_RUNNING)) return@Runnable
+                    val result = runCatching(block)
+                    state.set(WORK_FINISHED)
+                    permits.release()
+                    continuation.resumeWith(result)
+                }
+            continuation.invokeOnCancellation {
+                if (state.compareAndSet(WORK_PENDING, WORK_FINISHED)) {
+                    executorService.remove(work)
+                    permits.release()
+                }
+            }
+            if (state.get() != WORK_PENDING) return@suspendCancellableCoroutine
+            try {
+                executorService.execute(work)
+                // Cancellation may have run before execute enqueued the task.
+                if (state.get() == WORK_FINISHED) executorService.remove(work)
+            } catch (_: RejectedExecutionException) {
+                if (state.compareAndSet(WORK_PENDING, WORK_FINISHED)) permits.release()
+                continuation.resumeWith(Result.failure(AccountWorkRejectedException()))
+            }
+        }
+    }
 
     override fun close() {
         dispatcher.close()
@@ -66,6 +103,9 @@ class AccountWorkExecutor(
 
     companion object {
         private const val SHUTDOWN_WAIT_SECONDS = 5L
+        private const val WORK_PENDING = 0
+        private const val WORK_RUNNING = 1
+        private const val WORK_FINISHED = 2
     }
 }
 

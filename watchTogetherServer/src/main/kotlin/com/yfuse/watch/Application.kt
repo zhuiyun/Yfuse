@@ -10,7 +10,6 @@ import com.yfuse.watch.account.accountRoutes
 import com.yfuse.watch.migration.MigrationRelayBackend
 import com.yfuse.watch.migration.migrationRelayRoutes
 import com.yfuse.watch.protocol.WatchProtocol
-import com.yfuse.watch.protocol.WatchWireChatMessage
 import com.yfuse.watch.protocol.WatchWireMessage
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -19,6 +18,7 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.ApplicationStopped
+import io.ktor.server.application.ApplicationStopping
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
@@ -87,12 +87,6 @@ private const val MAX_PARTICIPANTS_PER_ROOM = 12
 private const val MAX_MEMBERSHIPS_PER_ROOM = 64
 private const val MAX_MESSAGES_PER_WINDOW = 240
 private const val RATE_WINDOW_MS = 10_000L
-private const val MAX_CHAT_HISTORY = 50
-private const val MAX_CHAT_MESSAGES_PER_WINDOW = 3
-private const val CHAT_RATE_WINDOW_MS = 3_000L
-private const val CHAT_MUTE_AFTER_REJECTIONS = 5
-private const val CHAT_REJECTION_WINDOW_MS = 30_000L
-private const val CHAT_MUTE_MS = 60_000L
 
 /**
  * The reactions a client may send.
@@ -171,6 +165,7 @@ internal fun Application.watchTogetherModule(
     hostGraceMs: Long = HOST_GRACE_MS,
     /** Empty rooms retain their code briefly for reconnects, then release quota on sweep. */
     roomGraceMs: Long = ROOM_GRACE_MS,
+    roomCleanupIntervalMs: Long = ROOM_CLEANUP_INTERVAL_MS,
     /** Injectable so tests can observe presence coalescing without waiting out the real window. */
     presenceBroadcastIntervalMs: Long = PRESENCE_BROADCAST_INTERVAL_MS,
     maxActiveRoomsPerIp: Int =
@@ -242,6 +237,7 @@ internal fun Application.watchTogetherModule(
         accountBackend::validateAccessToken,
     /** Test seam; production retries transient account-store failures with capped jitter. */
     watchAuthRetryDelayMs: (Int) -> Long = ::watchAuthTransientRetryDelayMs,
+    watchInitialAuthTimeoutMs: Long = WATCH_INITIAL_AUTH_TIMEOUT_MS,
     /** Test seam shared by expiry checks; production uses the wall clock encoded in tokens. */
     watchAuthClock: () -> Long = System::currentTimeMillis,
     /** Signed official schedule feed; null keeps the public endpoint safely unavailable. */
@@ -252,6 +248,7 @@ internal fun Application.watchTogetherModule(
     remoteControlRelay: RemoteControlRelay<WebSocketSession> = RemoteControlRelay(),
 ) {
     require(roomGraceMs >= 0L) { "roomGraceMs must not be negative" }
+    require(watchInitialAuthTimeoutMs > 0L) { "watchInitialAuthTimeoutMs must be positive" }
     require(maxActiveRoomsPerIp in 1..MAX_ROOMS) {
         "maxActiveRoomsPerIp must be between 1 and $MAX_ROOMS"
     }
@@ -268,6 +265,8 @@ internal fun Application.watchTogetherModule(
     // Outlives any one socket, which is what a delayed host handover needs: the connection
     // whose loss starts the clock is precisely the one that can't run the timer.
     val appScope: CoroutineScope = this
+    val roomCleanup = appScope.launchRoomCleanup(roomStore, roomCleanupIntervalMs)
+    monitor.subscribe(ApplicationStopping) { roomCleanup.cancel() }
     // Import the previous JSON publication exactly once when a production database is empty.
     if (calendarScheduleStore !== NoOpCalendarScheduleStore) {
         runCatching {
@@ -404,6 +403,7 @@ internal fun Application.watchTogetherModule(
                         accessToken = checkNotNull(accessToken),
                         authenticator = watchAccountAuthenticator,
                         retryDelayMs = watchAuthRetryDelayMs,
+                        totalTimeoutMs = watchInitialAuthTimeoutMs,
                     ) ?: return@webSocket
                 } else {
                     AuthenticatedAccount(
@@ -647,8 +647,6 @@ internal fun Application.watchTogetherModule(
                                             return@consumeEach sendError("房间不存在或已关闭")
                                         }
                                 }
-                            joinFailureLimiter.clear(clientIp)
-
                             var joinRejected: RoomJoinRejection? = null
                             var staleSession: WebSocketSession? = null
                             var issuedResumeCapability: String? = null
@@ -721,6 +719,9 @@ internal fun Application.watchTogetherModule(
                                 }
                                 return@consumeEach
                             }
+                            // Only an admitted member has demonstrated a legitimate join.
+                            // Finding a known code must not reset failed room-code guesses.
+                            joinFailureLimiter.clear(clientIp)
                             staleSession?.let {
                                 runCatching {
                                     it.close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "reconnected"))
@@ -1284,73 +1285,27 @@ internal fun Application.watchTogetherModule(
                                         clientMessageId,
                                     )
 
-                            val existing =
-                                clientMessageId?.let { requestedId ->
-                                    synchronized(room) {
-                                        room.chatHistory.firstOrNull {
-                                            it.clientId == clientId &&
-                                                it.clientMessageId == requestedId
-                                        }
-                                    }
-                                }
-                            if (existing != null) {
-                                sendMessage(WatchWireMessage(type = "chat", chat = existing))
-                                return@consumeEach
-                            }
-
                             val now = System.currentTimeMillis()
-                            val admission =
-                                synchronized(room) {
-                                    room.memberships[clientId]
-                                        ?.admitChat(
-                                            nowMs = now,
-                                            maxPerWindow = MAX_CHAT_MESSAGES_PER_WINDOW,
-                                            windowMs = CHAT_RATE_WINDOW_MS,
-                                            muteAfterRejections = CHAT_MUTE_AFTER_REJECTIONS,
-                                            rejectionWindowMs = CHAT_REJECTION_WINDOW_MS,
-                                            muteMs = CHAT_MUTE_MS,
-                                        ) ?: ChatAdmission.RateLimited
-                                }
-                            when (admission) {
-                                ChatAdmission.Allowed -> Unit
-                                ChatAdmission.RateLimited -> {
+                            when (val result = room.acceptChat(this, clientId, text, clientMessageId, now)) {
+                                is RoomChatResult.Accepted -> broadcastChat(room, result.message)
+                                is RoomChatResult.Duplicate ->
+                                    sendMessage(WatchWireMessage(type = "chat", chat = result.message))
+                                RoomChatResult.StaleSession -> Unit
+                                is RoomChatResult.Refused -> {
                                     WatchMetrics.chatRejected.incrementAndGet()
-                                    return@consumeEach sendError(
-                                        "发送太快了，请稍后再试",
-                                        "chat_rate_limited",
-                                        clientMessageId,
-                                    )
-                                }
-                                is ChatAdmission.Muted -> {
-                                    WatchMetrics.chatRejected.incrementAndGet()
-                                    val seconds = ((admission.untilMs - now + 999L) / 1_000L).coerceAtLeast(1L)
-                                    return@consumeEach sendError(
-                                        "发送过于频繁，已暂停发言 $seconds 秒",
-                                        "chat_muted",
-                                        clientMessageId,
-                                    )
+                                    val muted = result.admission as? ChatAdmission.Muted
+                                    if (muted != null) {
+                                        val seconds = ((muted.untilMs - now + 999L) / 1_000L).coerceAtLeast(1L)
+                                        sendError(
+                                            "发送过于频繁，已暂停发言 $seconds 秒",
+                                            "chat_muted",
+                                            clientMessageId,
+                                        )
+                                    } else {
+                                        sendError("发送太快了，请稍后再试", "chat_rate_limited", clientMessageId)
+                                    }
                                 }
                             }
-
-                            val chat =
-                                synchronized(room) {
-                                    val sender = room.participants[clientId] ?: return@synchronized null
-                                    WatchWireChatMessage(
-                                        id = ++room.nextChatId,
-                                        clientId = clientId,
-                                        name = sender.name,
-                                        avatarId = sender.avatarId,
-                                        text = text,
-                                        sentAtMs = now,
-                                        clientMessageId = clientMessageId,
-                                    ).also { item ->
-                                        room.chatHistory.addLast(item)
-                                        while (room.chatHistory.size > MAX_CHAT_HISTORY) {
-                                            room.chatHistory.removeFirst()
-                                        }
-                                    }
-                                } ?: return@consumeEach
-                            broadcastChat(room, chat)
                         }
 
                         "reaction" -> {

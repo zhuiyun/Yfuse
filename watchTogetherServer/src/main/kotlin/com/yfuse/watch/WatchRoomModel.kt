@@ -122,6 +122,7 @@ internal class Room(
     val memberships: LinkedHashMap<String, Membership> = linkedMapOf(),
     val participants: LinkedHashMap<String, Participant> = linkedMapOf(),
     val chatHistory: ArrayDeque<WatchWireChatMessage> = ArrayDeque(),
+    val chatReceipts: WatchChatReceipts = WatchChatReceipts(),
     var nextChatId: Long = 0L,
     val playlist: MutableList<WatchWirePlaylistEntry> = mutableListOf(),
     var playlistRevision: Long = 0L,
