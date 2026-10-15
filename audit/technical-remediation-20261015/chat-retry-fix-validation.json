@@ -1,0 +1,57 @@
+{
+  "verified_at_utc": "2026-10-15T01:58:05.427735+00:00",
+  "baseline": "fd9fa3f5f9bf9797556b2b8426a51e939e79f554",
+  "resolves": "review.json findings[0]: expired chat receipts permit duplicate history and row keys",
+  "behavior": "After a receipt miss, the same room lock protects lookup of clientId/clientMessageId in the existing bounded history. A hit returns the original message without changing history, sequence, chat pacing or receipt TTL.",
+  "modified_source_sha256": {
+    "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchRoomChat.kt": "f02d4bfe466df6f6ed0a7b6d9d6549e63a5a3f9925efb5215fd43cd094fdac86",
+    "watchTogetherServer/src/test/kotlin/com/yfuse/watch/WatchRoomChatTest.kt": "0742b420347e1b3525d954dfb00da72af9226ed6d168c84fd1bb0f8757bfea91"
+  },
+  "other_prior_validated_source_hashes_unchanged": 46,
+  "red_before_fix": {
+    "task": ":watchTogetherServer:test --tests com.yfuse.watch.WatchRoomChatTest",
+    "tests": 6,
+    "failures": 3,
+    "expected": true
+  },
+  "server_full_suite_after_fix": {
+    "tests": 279,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "first_test_utc": "2026-10-15T01:56:07.965Z",
+    "last_test_utc": "2026-10-15T01:56:13.363Z"
+  },
+  "new_regression_tests": 3,
+  "updated_expiry_test": true,
+  "coverage": [
+    "expired receipts with concurrent retries",
+    "original text/id and unique welcome history",
+    "no retry quota consumption or receipt TTL renewal",
+    "capacity-evicted receipts with retained history",
+    "different sender identity and null-ID legacy messages"
+  ],
+  "checks": [
+    "server Kotlin compilation",
+    "changed server Kotlin ktlintFormat and ktlintCheck",
+    "git diff --check",
+    "function-size gate plus added WatchRoomChat.kt measured explicitly"
+  ],
+  "cross_layer_probe": {
+    "source": "tmp/review-service-20261015/ChatRetryFixedProbe.java",
+    "exit_code": 0,
+    "uses": "Current compiled Room.acceptChat, welcomeMessage, client wire mapping, mergeIncomingWatchChat and WatchChatPanel.rowKey",
+    "result": [
+      "retry=Duplicate",
+      "originalId=1, ackId=1",
+      "welcomeHistory=1",
+      "mergedMessages=1",
+      "rowKey=client host same",
+      "duplicateRowKey=false"
+    ]
+  },
+  "client_full_suite_rerun": false,
+  "client_sources_unchanged": true,
+  "device_tests_run": false,
+  "apk_built": false
+}

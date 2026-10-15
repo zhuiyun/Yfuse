@@ -1,0 +1,162 @@
+{
+  "baseline": "fd9fa3f5f9bf9797556b2b8426a51e939e79f554",
+  "tested_source": "Uncommitted working tree; source hashes below include added files",
+  "verified_at_utc": "2026-10-15T01:42:15.684328+00:00",
+  "requested_items": [
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "scope": {
+    "5": "15-second initial authentication deadline includes retries and backoff; cancellable authentication waits retain permits for still-running blocking work",
+    "6": "Bounded chat retry receipts independent of history; account/client/message identity; clear join-failure history only after successful admission",
+    "7": "Application-owned 30-second empty-room cleanup; room identity, lock and participant checks preserved",
+    "8": "Direct command loop/session boundary; explicit session configuration and control; extracted Enhanced input backpressure and shared PCM output ownership",
+    "9": "Detail playback resolution, retry and progress batching; Player models, source mapping, metadata, queue executor and reducer",
+    "10": "Server overview and dialogs; calendar schedule, cards, tablet layout, tracking, resources, settings and presentation helpers"
+  },
+  "gradle_modules": {
+    "phoneShared": {
+      "tests": 4889,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 863,
+      "first_test_utc": "2026-10-15T01:37:03.665Z",
+      "last_test_utc": "2026-10-15T01:37:34.868Z",
+      "test_xml_manifest_sha256": "c4996efce627bde36d082c945d8b63dad6ebc215c7ecef258b413a21cb188a5e"
+    },
+    "tvShared": {
+      "tests": 118,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 22,
+      "first_test_utc": "2026-10-15T01:41:25.684Z",
+      "last_test_utc": "2026-10-15T01:41:26.196Z",
+      "test_xml_manifest_sha256": "00d6b4b92c24d795bbe7afb4e8efd27297bbe1f5a200aaebb8b709176541b4be"
+    },
+    "watchTogetherServer": {
+      "tests": 276,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 42,
+      "first_test_utc": "2026-10-15T01:41:43.663Z",
+      "last_test_utc": "2026-10-15T01:41:49.271Z",
+      "test_xml_manifest_sha256": "ad2d67bd741bf63f77f9a0d72560ee1cb2d3f91add51716268179a9481fa1d3b"
+    }
+  },
+  "gradle_total": 5283,
+  "new_regression_tests": 17,
+  "compiled_targets": [
+    ":phoneShared:compileAndroidMain",
+    ":composeApp:compileDebugKotlin",
+    ":tvShared:compileAndroidMain",
+    ":tvApp:compileDebugKotlin"
+  ],
+  "checks": [
+    "47 changed Kotlin files: ktlintFormat and ktlintCheck",
+    "git diff --check",
+    "scripts/check_function_size.py",
+    "28 added production Kotlin files measured separately using the same function-size implementation and ceilings",
+    "scripts/verify-module-boundaries.py",
+    "scripts/check-backend-boundary.py",
+    "No function-size ceiling raised; Direct prepareCurrent baseline moved to its extracted session file",
+    "Original report SHA-256 unchanged; project version and release notes unchanged"
+  ],
+  "profile": {
+    "yfuseIncludeMdk": true,
+    "yfuseNativeOnlyRuntime": false
+  },
+  "gradle_tasks": [
+    ":phoneShared:testAndroidHostTest",
+    ":composeApp:compileDebugKotlin",
+    ":tvShared:testAndroidHostTest",
+    ":tvApp:compileDebugKotlin",
+    ":watchTogetherServer:test",
+    ":phoneShared:ktlintCheck",
+    ":watchTogetherServer:ktlintCheck"
+  ],
+  "gradle_arguments": [
+    "--offline",
+    "--no-daemon",
+    "--max-workers=1",
+    "--no-parallel",
+    "--init-script",
+    "tmp/remediation-ktlint.init.gradle",
+    "-Pkotlin.compiler.execution.strategy=in-process",
+    "-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8",
+    "-PyfuseIncludeMdk=true",
+    "-PyfuseNativeOnlyRuntime=false"
+  ],
+  "lint_scope_archive": "audit/technical-remediation-20261015/ktlint.init.gradle",
+  "lint_scope_sha256": "482e3f3ecffcfaafb4b80fa2adb8731903e63d252fa91fed3574068d7b0c2ec5",
+  "local_java_configuration": {
+    "JAVA_HOME": "C:/Users/app-inkbird/.jdks/corretto-17.0.15",
+    "GRADLE_USER_HOME": "D:/Demo/Yfuse/.gradle-tmp",
+    "JAVA_TOOL_OPTIONS": "-Djdk.net.unixdomain.tmpdir=D:/Demo/Yfuse/tmp/nonexistent-java-socket-dir"
+  },
+  "source_file_sha256": {
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxInputQueue.kt": "6d97b10066508930f3f14df35f45fe69c7bd9fb8081c5ff454573da3ff18f8be",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt": "8d287695fd3b70c2eb8d74b1a4c4be1239adfa9ba322b819ddbd861de1554271",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectSession.kt": "11d1e6195f17a01007ee96750c8b3c587594edc3a9c9dca86c35297160eaa5cd",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectYPlayer.kt": "a46e0472be5c137acb4b0eff4b5408e3e631c9e52b02f19aca7323fae2b29d52",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidPendingAudioOutput.kt": "66faa17675b85769dea4648edc7a16712ee6ca525b0af834575322f3c1661697",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/NativeDirectSessionConfiguration.kt": "fce610dc851801dcb2867cee4bf0e66302a80c96035685e7b4abd8383a2c4727",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxInputQueueTest.kt": "857e96472bd6c766bafb52f210774652e991c10249a849da2f2d9f09fe0e75ff",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPendingAudioOutputTest.kt": "6e2adfe991c36d6c89d427d87efe3b60f5fd033249f003b4a802428750a3c425",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarEntryCard.kt": "2956aeba8fa35a89ccf89090dae9eb359c4e6f2953d2dbd6d955d1ab7912d1bc",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarPresentation.kt": "cc116dea97cd7e55f043c8989f1635c1d2c7f878e02626bc242565c30e6a7ff2",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarResourcesPane.kt": "89a5a40cd6211a17cb17aeb5a9f113a3393ec9d9b698ed0240cd3ede09f270e2",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarScheduleContent.kt": "531cd80fcf37c53e6f2ab8168c03785a42b05d0fe6ee6760aede7dc5ed248d8d",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarScreen.kt": "2db23e82ecb30426a5e73458b799a20026fd2f26f2c9ddf1c69d5f4de98e45c3",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarSettingsPane.kt": "1eb824e869b383a2b2362093229e1f4abc94d61ba9453db5a6ddf55a9263d492",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarTabletWeek.kt": "a77c8e4417fa44154ef2ffb053baed8dd935123ca916a654090b93bb93aa8788",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarTrackingPane.kt": "988fec47eeb147ce56910a2dd21790ef2605103ec12e5545498b45ee4504480f",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailExecutor.kt": "cbff642dd6cd44e8e3a49cd670451a1436f75936aa3e97bd06007de3fc75c7b5",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailPlaybackResolver.kt": "456c3b51ef01dc2e5a014259c17cd7c23d6d3e5b71ab0a4cf1556560ff6a3335",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailProgressBatch.kt": "10320300f10cff125e2b2c7e8b62d9af4bed3734eeec39598b8b2b226ae98098",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailRequestRetry.kt": "67b813731810bbda2ec1743b7192949519264f28b0f750a41beaa9f89a375c38",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerMediaModels.kt": "307809fdc4e57afa0749331ecb1d3c610d4d2bb560601d8056929147abf6f5d3",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerQueueExecutor.kt": "0d6985abeed9095a0765a0f718c691fc659189bc2f73d720b74e1bebe7e0a05b",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerQueueMetadata.kt": "6e4d38a9b896d3b75518eecaf4e1afd37be9bfcc9da3b5ae21eca24932b313c3",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerReducer.kt": "20689ceac071c009004dc5954d436904dcf0d832689d35e78e2d3e71a592da7e",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSourceMapping.kt": "90e0260bae10b5e72166f6d4b684b0e644c7b50aa4d47e0d91bc7a10cf9ae22c",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt": "f8e107f7f75c5069fe89cce689024bb3222df4056434de5de131544bdeb41513",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServerActionsDialog.kt": "a45dc7505a914f7d899368bd95fba68bbdaaaf292f1c3ce457293bb58f70ad50",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServerFilterDialog.kt": "18e904f96f8398a884e9f188ac936852fa94bfa588884625a738910bcfd3310a",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServerIconDialog.kt": "4400e8294ea484462daabea09f73b15ac9b2fbe2490d51984617cffcac485110",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServerManagementDialog.kt": "fab14b4433665dd062f02215cdf8562dcb74142d95a11eb90936ca9cb4b5afe5",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServerOverviewCards.kt": "ce4fbf6c2d015e554cdbcb8c05b9c2a149895d31ce5a23ef46d082eda2eb9b44",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServerRoutesDialog.kt": "5e6cf3895eba77fac5e15a7641dd50279e6eb0054c1ce50d3575eefb332d6ed5",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServerTransportDiagnosticsDialog.kt": "a80d18a1db18200f2ca9318e62ec7f42d05856e18ae0fb4f223acd1ea3ade2de",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersTabScreen.kt": "2a52988d816cc6f9d6566358fd8b688144baf9d18b96a7999b71e37f23014093",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/detail/DetailProgressBatchTest.kt": "c325e5202ead753a781b908e2964c2d3bab4008ffab8084aba226ababba17508",
+    "watchTogetherServer/src/main/kotlin/com/yfuse/watch/Application.kt": "3125cde1522e887a9ead179e75fcf253d1b3618db55593c5114406b1d641fa1d",
+    "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchAccountAuthentication.kt": "6a26a6f73a125b03a49a866e8949b1bcf729af381136dcc3552afff50f4583dc",
+    "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchRoomChat.kt": "1c3fa3ef5cc70c46cdf0939c961bc4e825a231085fcae2bb865f4cc608241613",
+    "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchRoomCleanup.kt": "198a43be5db0faa3571442a31d3163e6b51e3981b8fa7f3c71870ab856e5440c",
+    "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchRoomModel.kt": "af89668762593f7eb3dc90f52e98b000a32cb525f882539b491b517734f4f9ad",
+    "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchRoomStore.kt": "5aa0561887c698564b68d3dd93e8eb765fa8528772b646eeae9201cf06315a10",
+    "watchTogetherServer/src/main/kotlin/com/yfuse/watch/account/AccountService.kt": "a1d22a7037d68f73217297971902f6313cc2043c5e565caefc9cbc90fe8b9583",
+    "watchTogetherServer/src/main/kotlin/com/yfuse/watch/account/AccountWorkExecutor.kt": "8d6fa3e01074c69d345a75478b4c19d713ccc3e1641e24e62c0891f82e66286c",
+    "watchTogetherServer/src/test/kotlin/com/yfuse/watch/WatchAdmissionLifecycleTest.kt": "ec6e8f5860a6d4b539acb9d97794d76c26f82c82bc237f0bd16a41e8d2febe41",
+    "watchTogetherServer/src/test/kotlin/com/yfuse/watch/WatchRoomChatTest.kt": "aabf7cc51255ee053c13500c14f6a15af543ad60dc91261b370b92262c4912d6",
+    "watchTogetherServer/src/test/kotlin/com/yfuse/watch/WatchRoomCleanupTest.kt": "e6286a47faa320b20bc1a71b71f5998bcc8d286f73b42f5203456cffbc5de4ec",
+    "watchTogetherServer/src/test/kotlin/com/yfuse/watch/account/AccountWorkCancellationTest.kt": "712fece78c17f4728bc20ef699c8fd95efa8a69baabdc6d230f21f408cef9b6e",
+    "config/function-size-baseline.txt": "8116fc9f4bb6544acb74266b6ab0c1dd44355c66ac7136175fec7eaa2a0786f4"
+  },
+  "original_report_sha256": "aaef3bfd1b0cdd251907d6c0f066d6f4890cabddf6f65988102a525c8ce4417c",
+  "device_tests_run": false,
+  "limitations": [
+    "No device or emulator playback, UI gesture, TV focus or JNI integration testing",
+    "No new signed APK, version increment, push or production deployment",
+    "Compiler warnings remain; this change does not claim full-project warning cleanup",
+    "The extracted playback sessions still contain substantial codec orchestration; this change establishes the listed ownership boundaries and does not eliminate every large function"
+  ],
+  "validation_environment_note": "An earlier parallel compilation exhausted the Kotlin compiler heap; final validation used one worker and in-process compilation with a temporary 6 GiB heap override. Repository JVM settings were unchanged."
+}

@@ -1,0 +1,59 @@
+{
+  "reviewed_at_utc": "2026-10-15T01:51:05.297801+00:00",
+  "baseline": "fd9fa3f5f9bf9797556b2b8426a51e939e79f554",
+  "scope": "Current uncommitted changes for requested items 5-10, including added Kotlin files and caller context",
+  "source_hashes_match_prior_validation": true,
+  "matched_source_files": 48,
+  "product_files_changed_during_review": false,
+  "full_gradle_suite_rerun": false,
+  "prior_passing_tests": 5283,
+  "findings": [
+    {
+      "priority": "P2",
+      "title": "Expired chat receipts allow duplicate history entries and transcript row keys",
+      "file": "watchTogetherServer/src/main/kotlin/com/yfuse/watch/WatchRoomChat.kt",
+      "lines": [
+        90,
+        92
+      ],
+      "trigger": "Resend the same account/client/clientMessageId after the 300000 ms receipt TTL while the original is still in the 50-message history",
+      "server_probe_output": [
+        "first=Accepted",
+        "retry=Accepted",
+        "history=2, ids=1,2"
+      ],
+      "client_probe_output": [
+        "mergedMessages=2",
+        "firstRowKey=client host same",
+        "secondRowKey=client host same",
+        "duplicateRowKey=true"
+      ],
+      "client_probe_exit": 1,
+      "client_probe_assertion": "A retry of one client message was retained as two transcript rows",
+      "evidence": [
+        "WatchTogetherClient.retryChat has no message age check",
+        "mergeIncomingWatchChat retains two Sent messages with different server ids",
+        "WatchChatPanel uses clientId/clientMessageId row keys",
+        "The new receipt-expiry unit test expects Accepted without checking history or UI identity"
+      ],
+      "impact": "Duplicate messages and duplicate LazyColumn keys. A physical-device UI crash was not reproduced.",
+      "suggested_fix": "Retain bounded history deduplication as a fallback and define a consistent expired-retry policy; add a history/client-identity regression test",
+      "resolution": {
+        "status": "fixed",
+        "verified_at_utc": "2026-10-15T01:58:05.427735+00:00",
+        "validation": "audit/technical-remediation-20261015/chat-retry-fix-validation.json"
+      }
+    }
+  ],
+  "other_review_results": {
+    "native_playback": "No confirmed new regression in session extraction, command/release ordering, backpressure, generation invalidation or PCM ownership",
+    "detail_player_ui": "Normalized comparison found moved logic unchanged except intended batch-progress cancellation/progress serialization; no reachable new regression confirmed",
+    "authentication_rooms": "No confirmed new regression in total deadlines, cancellation permits, connection leases, room cleanup or join failure clearing"
+  },
+  "device_tests_run": false,
+  "reproduction_sources": [
+    "tmp/review-service-20261015/ChatTtlProbe.java",
+    "tmp/review-service-20261015/ChatClientProbe.java"
+  ],
+  "reproduction_runtime": "Existing validated server and phoneShared classes; phone test worker classpath from .gradle-tmp/.tmp/gradle-worker-classpath10615120034034439645txt"
+}
