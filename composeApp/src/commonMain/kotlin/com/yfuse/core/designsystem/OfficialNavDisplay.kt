@@ -72,7 +72,7 @@ fun <T : Any> OfficialNavDisplay(
     content: @Composable (T) -> Unit,
 ) {
     val parentRouteVisible = LocalRouteVisible.current
-    val parentVisibility = LocalRouteVisibilityState.current
+    val parentVisibility = LocalRouteVisibilityState.current ?: rememberUpdatedState(parentRouteVisible)
     val currentContent by rememberUpdatedState(content)
     val launchers = backStack.filter(isLauncher)
     val shownStack = backStack.filterNot(isLauncher).ifEmpty { backStack }
@@ -128,13 +128,14 @@ fun <T : Any> OfficialNavDisplay(
                 ) { entryKey ->
                     val visibility =
                         remember(entryKey, parentVisibility) {
-                            derivedStateOf { (parentVisibility?.value ?: true) && entryKey == currentTop }
+                            derivedStateOf { parentVisibility.value && entryKey == currentTop }
                         }
                     val routeKey = contentKey(entryKey)
                     CompositionLocalProvider(
                         *zoomBackRouteLocals(zoom, routeKey),
-                        LocalRouteVisible provides
-                            (parentRouteVisible && entryKey == currentTop),
+                        // NavDisplay retains entry content: read live visibility after the splash,
+                        // rather than the parent's Boolean captured when this entry was created.
+                        LocalRouteVisible provides visibility.value,
                         LocalRouteVisibilityState provides visibility,
                     ) {
                         val entryTransition = LocalNavAnimatedContentScope.current.transition

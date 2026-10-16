@@ -337,7 +337,7 @@ jobs:
             test_args: ""
           - api: 37
             sdk: "37.0"
-            test_args: "-Pandroid.testInstrumentationRunnerArguments.class=com.yfuse.app.DetailBackNavigationInstrumentedTest"
+            test_args: "-Pandroid.testInstrumentationRunnerArguments.class=com.yfuse.app.DetailBackNavigationInstrumentedTest,com.yfuse.app.PlatformNavigationBackInstrumentedTest"
     # A cold native dependency cache is bootstrapped here too, as in `verify`.
     timeout-minutes: 300
     steps:
