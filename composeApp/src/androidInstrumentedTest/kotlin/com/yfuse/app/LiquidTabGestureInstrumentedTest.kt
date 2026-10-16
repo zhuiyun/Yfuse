@@ -1,6 +1,7 @@
 package com.yfuse.app
 
 import android.os.SystemClock
+import android.view.InputDevice
 import android.view.MotionEvent
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
@@ -14,8 +15,10 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.yfuse.MainActivity
 import com.yfuse.app.RootComponent.Tab
 import com.yfuse.core.designsystem.LocalPulseSweepEnabled
 import com.yfuse.core.designsystem.YfuseTheme
@@ -71,18 +74,18 @@ class LiquidTabGestureInstrumentedTest {
                 bounds.get().let { Offset(it.left + it.width * (index + 0.5f) / 4f, it.center.y) }
 
             var down = SystemClock.uptimeMillis()
-            send(MotionEvent.ACTION_DOWN, cell(0), down)
-            move(cell(0), cell(3), down)
+            send(scenario, MotionEvent.ACTION_DOWN, cell(0), down)
+            move(scenario, cell(0), cell(3), down)
             assertEquals("Dragging must not navigate before release", 0, selections.get())
-            send(MotionEvent.ACTION_UP, cell(3), down)
+            send(scenario, MotionEvent.ACTION_UP, cell(3), down)
             instrumentation.waitForIdleSync()
             assertEquals(Tab.Profile, active.value)
             assertEquals("A drag also triggered a child click", 1, selections.get())
 
             down = SystemClock.uptimeMillis()
-            send(MotionEvent.ACTION_DOWN, cell(3), down)
-            move(cell(3), cell(0), down)
-            send(MotionEvent.ACTION_CANCEL, cell(0), down)
+            send(scenario, MotionEvent.ACTION_DOWN, cell(3), down)
+            move(scenario, cell(3), cell(0), down)
+            send(scenario, MotionEvent.ACTION_CANCEL, cell(0), down)
             instrumentation.waitForIdleSync()
             assertEquals(Tab.Profile, active.value)
             assertEquals(1, selections.get())
@@ -90,15 +93,15 @@ class LiquidTabGestureInstrumentedTest {
             scenario.onActivity { enabled.value = false }
             instrumentation.waitForIdleSync()
             down = SystemClock.uptimeMillis()
-            send(MotionEvent.ACTION_DOWN, cell(3), down)
-            move(cell(3), cell(0), down)
-            send(MotionEvent.ACTION_UP, cell(0), down)
+            send(scenario, MotionEvent.ACTION_DOWN, cell(3), down)
+            move(scenario, cell(3), cell(0), down)
+            send(scenario, MotionEvent.ACTION_UP, cell(0), down)
             instrumentation.waitForIdleSync()
             assertEquals("Disabled motion retained its drag handler", 1, selections.get())
 
             down = SystemClock.uptimeMillis()
-            send(MotionEvent.ACTION_DOWN, cell(1), down)
-            send(MotionEvent.ACTION_UP, cell(1), down)
+            send(scenario, MotionEvent.ACTION_DOWN, cell(1), down)
+            send(scenario, MotionEvent.ACTION_UP, cell(1), down)
             instrumentation.waitForIdleSync()
             assertEquals(Tab.Browse, active.value)
             assertEquals(2, selections.get())
@@ -106,27 +109,45 @@ class LiquidTabGestureInstrumentedTest {
     }
 
     private fun move(
+        scenario: ActivityScenario<MainActivity>,
         from: Offset,
         to: Offset,
         down: Long,
     ) {
         for (step in 1..12) {
             val fraction = step / 12f
-            send(MotionEvent.ACTION_MOVE, from + (to - from) * fraction, down)
+            send(scenario, MotionEvent.ACTION_MOVE, from + (to - from) * fraction, down)
             SystemClock.sleep(16)
         }
     }
 
     private fun send(
+        scenario: ActivityScenario<MainActivity>,
         action: Int,
         position: Offset,
         down: Long,
     ) {
-        val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, position.x, position.y, 0)
-        try {
-            InstrumentationRegistry.getInstrumentation().sendPointerSync(event)
-        } finally {
-            event.recycle()
+        // Test component gestures without the emulator Taskbar intercepting window-targeted input.
+        // Dedicated system-navigation tests continue to inject through the real OS dispatcher.
+        scenario.onActivity { activity ->
+            val decor = activity.window.decorView
+            val origin = IntArray(2)
+            decor.getLocationInWindow(origin)
+            val event =
+                MotionEvent.obtain(
+                    down,
+                    SystemClock.uptimeMillis(),
+                    action,
+                    position.x - origin[0],
+                    position.y - origin[1],
+                    0,
+                )
+            try {
+                event.source = InputDevice.SOURCE_TOUCHSCREEN
+                decor.dispatchTouchEvent(event)
+            } finally {
+                event.recycle()
+            }
         }
     }
 }
