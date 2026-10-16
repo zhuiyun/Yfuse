@@ -573,6 +573,44 @@ internal class AndroidAdaptiveCore2YPlayer(
             0
         }
 
+    private fun logSelectedRoute(
+        item: YMediaItem,
+        decision: YCore2RouteDecision,
+    ) {
+        val plan = decision.plan
+        AppLog.info(
+            category = "player.core2",
+            event = "route_selected",
+            message =
+                "YCore selected ${plan.route.name} playback graph " +
+                    "(${playbackDiagnosticTrace(item.playbackSessionId)})",
+            attributes =
+                mapOf(
+                    "itemId" to item.id,
+                    "serverId" to item.providerKey.orEmpty(),
+                    "sessionId" to item.playbackSessionId.orEmpty(),
+                    "playbackTrace" to playbackDiagnosticTrace(item.playbackSessionId),
+                    "route" to plan.route.name,
+                    "demuxPath" to plan.demuxPath.name,
+                    "decodePath" to plan.decodePath.name,
+                    "renderPath" to plan.renderPath.name,
+                    "platformDemuxSupported" to
+                        decision.probe.playbackRequest.platformDemuxSupported
+                            .toString(),
+                    "enhancedDemuxSupported" to
+                        decision.probe.playbackRequest.enhancedDemuxSupported
+                            .toString(),
+                    "videoCodec" to decision.probe.playbackRequest.video.codec.name,
+                    "audioCodec" to
+                        (
+                            decision.probe.playbackRequest.audio
+                                ?.codec
+                                ?.name ?: "None"
+                        ),
+                ),
+        )
+    }
+
     private suspend fun runLoop() {
         val loop = RouterLoop()
         try {
@@ -1363,37 +1401,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             ) {
                 videoHandoff.close()
             }
-            AppLog.info(
-                category = "player.core2",
-                event = "route_selected",
-                message =
-                    "YCore selected ${plan.route.name} playback graph " +
-                        "(${playbackDiagnosticTrace(item.playbackSessionId)})",
-                attributes =
-                    mapOf(
-                        "itemId" to item.id,
-                        "serverId" to item.providerKey.orEmpty(),
-                        "sessionId" to item.playbackSessionId.orEmpty(),
-                        "playbackTrace" to playbackDiagnosticTrace(item.playbackSessionId),
-                        "route" to plan.route.name,
-                        "demuxPath" to plan.demuxPath.name,
-                        "decodePath" to plan.decodePath.name,
-                        "renderPath" to plan.renderPath.name,
-                        "platformDemuxSupported" to
-                            decision.probe.playbackRequest.platformDemuxSupported
-                                .toString(),
-                        "enhancedDemuxSupported" to
-                            decision.probe.playbackRequest.enhancedDemuxSupported
-                                .toString(),
-                        "videoCodec" to decision.probe.playbackRequest.video.codec.name,
-                        "audioCodec" to
-                            (
-                                decision.probe.playbackRequest.audio
-                                    ?.codec
-                                    ?.name ?: "None"
-                            ),
-                    ),
-            )
+            logSelectedRoute(item, decision)
             pendingFailureKey = decision.toFailureKey()
             pendingAudioOnly = decision.audioOnly
             pendingChapters = decision.probe.chapters

@@ -207,8 +207,8 @@ internal class ZoomFrame {
 
 private enum class SystemRoute { None, Forward, Zoom, Ignored }
 
-/** Returning always moves the current page out to the left, regardless of the gesture's edge. */
-internal const val BACK_NAVIGATION_TOWARD = -1f
+/** Returning always moves the current page out to the right, regardless of the gesture's edge. */
+internal const val BACK_NAVIGATION_TOWARD = 1f
 
 /** NavDisplay's own transition while a zoom back draws the pages: nothing, for no time at all. */
 internal fun zoomBackRouteTransform(): ContentTransform =

@@ -1,10 +1,10 @@
 {
-  "versionName": "1.3.9",
-  "versionCode": 291,
+  "versionName": "1.4.0",
+  "versionCode": 292,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-16T09:52:16.761727+00:00",
+  "confirmedAt": "2026-10-16T10:47:46Z",
   "confirmedBy": "release owner",
-  "confirmationBasis": "The user explicitly requested signing and packaging the uniform leftward back-navigation fix. Together with the standing 2026-10-09 full-MDK instruction, this authorizes the local production-signed 1.3.9/291 package-only delivery using the same pinned MDK SDK and distribution scope."
+  "confirmationBasis": "The user requested the predictive-back fix and signing/packaging, and explicitly specified uniform rightward exit for both gesture edges. The standing full-MDK instruction applies to the same pinned SDK and package-only distribution scope."
 }

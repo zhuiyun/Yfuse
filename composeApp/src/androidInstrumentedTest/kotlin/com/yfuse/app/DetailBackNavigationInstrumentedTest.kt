@@ -43,8 +43,8 @@ import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LiftMenuHost
 import com.yfuse.core.designsystem.LiftMenuState
 import com.yfuse.core.designsystem.LocalLiftMenu
-import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.LocalRouteVisibilityState
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.LocalSharedMediaTransitionController
 import com.yfuse.core.designsystem.LocalZoomBackSources
 import com.yfuse.core.designsystem.MediaSharedElementKey
@@ -96,7 +96,10 @@ class DetailBackNavigationInstrumentedTest {
                             "The first poster return did not preview the library after the splash",
                             row.count { it == PREVIEW_UNDERLAY } > frame.width / 20,
                         )
-                        assertTrue("The first detail faded during back", row.count { it == PREVIEW_DETAIL } > frame.width / 20)
+                        assertTrue(
+                            "The first detail faded during back",
+                            row.count { it == PREVIEW_DETAIL } > frame.width / 20,
+                        )
                     } finally {
                         frame.recycle()
                     }
@@ -144,12 +147,12 @@ class DetailBackNavigationInstrumentedTest {
                             )
                             // System UI's back bubble can cover a few pixels at either edge.
                             assertTrue(
-                                "Either edge must reveal the destination on the right",
-                                row.drop(frame.width / 2).count { it == PREVIEW_UNDERLAY } > frame.width / 20,
+                                "Either edge must reveal the destination on the left",
+                                row.take(frame.width / 2).count { it == PREVIEW_UNDERLAY } > frame.width / 20,
                             )
                             assertTrue(
-                                "The outgoing detail must move to the left",
-                                row.take(frame.width / 2).none { it == PREVIEW_UNDERLAY },
+                                "The outgoing detail must move to the right",
+                                row.drop(frame.width / 2).none { it == PREVIEW_UNDERLAY },
                             )
                         } finally {
                             frame.recycle()
@@ -186,7 +189,7 @@ class DetailBackNavigationInstrumentedTest {
                     val frame = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
                     try {
                         val y = frame.height / 2
-                        val destinationX = (frame.width * 0.8f).toInt()
+                        val destinationX = (frame.width * 0.2f).toInt()
                         val detailX = frame.width - destinationX
                         assertEquals(
                             "$theme/$edge: destination must be visible during the gesture",

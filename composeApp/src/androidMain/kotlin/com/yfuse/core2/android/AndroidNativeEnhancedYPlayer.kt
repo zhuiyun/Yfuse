@@ -370,6 +370,31 @@ internal class AndroidNativeEnhancedYPlayer(
         wakeSignal.trySend(Unit)
     }
 
+    private fun checkEnhancedPlaybackPlan(
+        playbackPlan: YPlaybackPlan,
+        decision: YCore2RouteDecision?,
+    ) {
+        if (forcedPlan == null && !forceSoftwareDecode) {
+            check(decision?.nativeEnhancedExecutable == true) {
+                "Media item is not eligible for YCore NativeEnhanced"
+            }
+        } else {
+            check(playbackPlan.demuxPath == YDemuxPath.Enhanced) {
+                "Forced YCore plan must use the enhanced demux path"
+            }
+            check(
+                playbackPlan.route in
+                    setOf(
+                        YPlaybackRoute.NativeEnhanced,
+                        YPlaybackRoute.GpuEnhanced,
+                        YPlaybackRoute.SoftwareFallback,
+                    ),
+            ) {
+                "Only YCore enhanced, GPU and software plans may be forced"
+            }
+        }
+    }
+
     private suspend fun runLoop() {
         fun newProxy(): AndroidYCoreHttpProxy? =
             runCatching {
@@ -483,25 +508,7 @@ internal class AndroidNativeEnhancedYPlayer(
                         forcedPlan ?: decision?.plan
                     }
                 checkNotNull(playbackPlan) { "Media item has no executable YCore enhanced plan" }
-                if (forcedPlan == null && !forceSoftwareDecode) {
-                    check(decision?.nativeEnhancedExecutable == true) {
-                        "Media item is not eligible for YCore NativeEnhanced"
-                    }
-                } else {
-                    check(playbackPlan.demuxPath == YDemuxPath.Enhanced) {
-                        "Forced YCore plan must use the enhanced demux path"
-                    }
-                    check(
-                        playbackPlan.route in
-                            setOf(
-                                YPlaybackRoute.NativeEnhanced,
-                                YPlaybackRoute.GpuEnhanced,
-                                YPlaybackRoute.SoftwareFallback,
-                            ),
-                    ) {
-                        "Only YCore enhanced, GPU and software plans may be forced"
-                    }
-                }
+                checkEnhancedPlaybackPlan(playbackPlan, decision)
                 val preparedDemux = routeEvaluator.takePreparedEnhancedDemux(item)
                 if (preparedDemux != null) {
                     session.close()
