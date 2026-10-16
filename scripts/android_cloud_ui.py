@@ -21,6 +21,9 @@ import zipfile
 
 PACKAGE = "com.yfuse"
 CERT_SHA256 = "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84"
+TAB_LABELS = {"Browse": "媒体库", "Watching": "观看", "Servers": "服务器", "Profile": "我的"}
+LIBRARY_EMPTY = "还没有可用的服务器，添加一台就能在这里浏览媒体库"
+HISTORY_EMPTY = "还没有播放记录，观看影片后会显示在这里"
 
 
 class EnvironmentBlocked(RuntimeError):
@@ -153,6 +156,38 @@ class Session:
         self.adb("shell", "input", "keyevent", "82")
         return result
 
+    def wait_for_boot_load(self, timeout=180):
+        """Require the disposable emulator to leave near-continuous boot CPU contention."""
+        # The pinned emulator runner waits only for sys.boot_completed. API 37's first-boot
+        # services can still starve it (95-97% CPU PSI in two startup-ANR runs). PSI 'some'
+        # is stalled-task time, not CPU utilization: docs.kernel.org/accounting/psi.html.
+        # Allow substantial contention, but require three samples <=80%, five seconds apart.
+        # A separate three-minute infrastructure budget never extends app launch timeouts.
+        began = time.monotonic()
+        samples = []
+        stable = 0
+        while time.monotonic() - began < timeout:
+            remaining = timeout - (time.monotonic() - began)
+            try:
+                raw = self.adb("shell", "cat", "/proc/pressure/cpu", "/proc/uptime", "/proc/loadavg",
+                               timeout=max(1, min(10, remaining)), check=False)
+            except Exception as error:
+                samples.append({"elapsed_seconds": round(time.monotonic() - began, 2), "error": str(error)})
+                (self.output / "boot-readiness.json").write_text(json.dumps(samples, indent=2))
+                raise EnvironmentBlocked("Cannot read emulator CPU-pressure readiness; see boot-readiness.json") from error
+            match = re.search(r"(?m)^some avg10=([0-9]+(?:\.[0-9]+)?)\b", raw)
+            pressure = float(match.group(1)) if match else None
+            samples.append({"elapsed_seconds": round(time.monotonic() - began, 2),
+                            "cpu_some_avg10": pressure, "raw": raw})
+            (self.output / "boot-readiness.json").write_text(json.dumps(samples, indent=2))
+            if pressure is None or not 0 <= pressure <= 100:
+                raise EnvironmentBlocked("Cannot establish emulator CPU-pressure readiness; see boot-readiness.json")
+            stable = stable + 1 if pressure <= 80 else 0
+            if stable >= 3:
+                return {"samples": len(samples), "cpu_some_avg10": pressure, "evidence": "boot-readiness.json"}
+            time.sleep(min(5, max(0, timeout - (time.monotonic() - began))))
+        raise EnvironmentBlocked(f"Emulator boot CPU pressure did not settle within {timeout} seconds; see boot-readiness.json")
+
     def tree(self):
         path = "/sdcard/yfuse-cloud-window.xml"
         errors = []
@@ -267,6 +302,26 @@ class Session:
         captures.append(self.capture("03e-personal-back"))
         return {"captures": captures, "limit": "clean-install empty lists; existing records are not seeded"}
 
+    def watching(self):
+        self.tap(TAB_LABELS["Watching"])
+        self.wait_label("播放记录")
+        self.wait_label(HISTORY_EMPTY)
+        return self.capture("05a-watching")
+
+    def discovery(self, name="05b-discovery"):
+        # The former Home content remains a secondary destination of the Watching tab.
+        self.tap(TAB_LABELS["Watching"])
+        self.wait_label("播放记录")
+        self.tap("发现")
+        self.wait_label("返回媒体库")
+        self.wait_label("发现")
+        return self.capture(name)
+
+    def discovery_back(self):
+        self.back()
+        self.wait_label("播放记录")
+        return self.capture("05c-discovery-back")
+
     def configuration(self, name, *settings):
         for args in settings:
             self.adb("shell", *args)
@@ -302,10 +357,11 @@ class Session:
                 "limit": "short unauthenticated smoke; not long-duration or playback stability"}
 
     def layout_probe(self):
-        captures = []
-        self.tap("库")
-        captures.append(self.capture("layout-library-empty"))
-        self.tap("首页")
+        # Discovery intentionally hides the dock; return to its Watching origin first.
+        self.back()
+        self.wait_label("播放记录")
+        captures = [self.navigate(TAB_LABELS["Browse"], LIBRARY_EMPTY, "layout-library-empty"),
+                    self.discovery("layout-discovery")]
         for scale in ("1.0", "1.3"):
             self.adb("shell", "settings", "put", "system", "user_rotation", "0")
             self.adb("shell", "settings", "put", "system", "font_scale", scale)
@@ -344,7 +400,10 @@ class Session:
         for name, args in [("logcat.txt", ["logcat", "-d", "-v", "threadtime"]),
                            ("crash-buffer.txt", ["logcat", "-d", "-b", "crash"]),
                            ("meminfo.txt", ["shell", "dumpsys", "meminfo", PACKAGE]),
-                           ("exit-info.txt", ["shell", "dumpsys", "activity", "exit-info", PACKAGE])]:
+                           ("exit-info.txt", ["shell", "dumpsys", "activity", "exit-info", PACKAGE]),
+                           ("activity-state.txt", ["shell", "dumpsys", "activity", "activities"]),
+                           ("window-state.txt", ["shell", "dumpsys", "window"]),
+                           ("app-anr-dropbox.txt", ["shell", "dumpsys", "dropbox", "--print", "data_app_anr"])]:
             try:
                 (self.output / name).write_text(self.adb(*args, check=False))
             except Exception as error:
@@ -361,7 +420,9 @@ class Session:
         """Puts back the device's own font, rotation and theme, and captures Yfuse redrawn in them."""
         self.reset_configuration()
         time.sleep(3)
-        self.wait_label("我的")
+        # The display/soak cases exercise discovery, where the bottom dock is hidden.
+        self.wait_label("返回媒体库")
+        self.wait_label("发现")
         return self.capture(name)
 
     def settle_for_layout_probe(self):
@@ -413,14 +474,20 @@ def print_failure_logs(output):
 def run_cases(session, args):
     session.case("APK identity, hash and signature", lambda: session.verify_apk(args.apk_directory))
     session.case("Booted emulator and ARM64 translation", session.connect)
+    session.case("Emulator boot load settled before installation", session.wait_for_boot_load)
     session.case("Clean install", session.install)
     session.case("App launch and foreground hierarchy", session.launch)
     session.case("Profile page reachable", lambda: session.navigate("我的", "账号与同步", "02-profile"))
     session.case("Account signed-out page reachable", lambda: session.navigate("账号与同步", "登录账号", "03-account-signed-out"))
     session.back()
     session.case("Personal lists, search and one-level back", session.personal_lists)
-    session.case("Servers tab reachable", lambda: session.navigate("服务器", "服务器", "04-servers"))
-    session.case("Home tab reachable", lambda: session.navigate("首页", "首页", "05-home"))
+    session.case("Servers tab reachable", lambda: session.navigate(TAB_LABELS["Servers"], "我的服务器", "04-servers"))
+    session.case("Browse tab reachable", lambda: session.navigate(TAB_LABELS["Browse"], LIBRARY_EMPTY, "05-library"))
+    session.case("Watching tab reachable", session.watching)
+    session.case("Discovery page reachable", session.discovery)
+    session.case("Discovery returns to Watching", session.discovery_back)
+    # Keep the former Home content under the same display/offline/soak checks as before.
+    session.case("Discovery restored for display and stability checks", lambda: session.discovery("05d-discovery-restored"))
     session.case("Large-font foreground capture", lambda: session.configuration("06-font-130",
                  ("settings", "put", "system", "font_scale", "1.3")))
     session.case("Landscape foreground capture", lambda: session.configuration("07-landscape",
