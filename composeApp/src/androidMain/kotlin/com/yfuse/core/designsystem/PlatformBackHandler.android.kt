@@ -94,7 +94,9 @@ actual fun PlatformNavigationBackHandler(
                 onCancelled = { cancelled() },
             )
         }
-    SideEffect { callback.updateEnabled(enabled && visibility.value) }
+    // Subscribe in composition so hiding a route cancels its gesture before another event.
+    val callbackEnabled = enabled && visibility.value
+    SideEffect { callback.updateEnabled(callbackEnabled) }
     // The window owns this bridge, even when a NavDisplay entry provides a private scene
     // dispatcher and lifecycle. Keep a dialog owner when present; visibility gates the route.
     DisposableEffect(owner, callback) {
