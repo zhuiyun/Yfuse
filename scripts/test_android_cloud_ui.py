@@ -254,7 +254,7 @@ class NavigationContractTest(unittest.TestCase):
 
 
 class BootReadinessTest(unittest.TestCase):
-    marker = "2026-10-16 14:19:50.123   625   653 I UserController: Finished processing BOOT_COMPLETED for u0"
+    marker = "2026-10-16 14:19:50.123 +0000   625   653 I UserController: Finished processing BOOT_COMPLETED for u0"
 
     def check_samples(self, values, timeout=180):
         directory = tempfile.TemporaryDirectory()
@@ -332,6 +332,19 @@ class BootReadinessTest(unittest.TestCase):
         for marker in invalid:
             with self.subTest(marker=marker):
                 self.assertIsNone(cloud.boot_readiness_evidence("2026-10-16T14:20:00", "100.00 30.00", marker)["boot_completed"])
+
+    def test_real_utc_year_output_from_all_supported_images(self):
+        # Exact final callback lines captured from the API 35/36/37 diagnostic run.
+        captures = [
+            ("2026-10-16T14:35:07", "216.25 204.62", "2026-10-16 14:32:30.631 +0000   559   580 I ActivityManager: Finished processing BOOT_COMPLETED for u0"),
+            ("2026-10-16T14:35:36", "222.42 202.19", "2026-10-16 14:33:13.865 +0000   620   681 I ActivityManager: Finished processing BOOT_COMPLETED for u0"),
+            ("2026-10-16T14:35:50", "224.31 208.12", "2026-10-16 14:33:36.888 +0000   620   640 I UserController: Finished processing BOOT_COMPLETED for u0"),
+        ]
+        for now, uptime, marker in captures:
+            with self.subTest(marker=marker):
+                self.assertEqual(marker, cloud.boot_readiness_evidence(now, uptime, marker)["boot_completed"])
+                for offset in ("+0800", "-0400", "UTC", ""):
+                    self.assertIsNone(cloud.boot_readiness_evidence(now, uptime, marker.replace("+0000", offset))["boot_completed"])
 
     def test_invalid_uptime_never_becomes_readiness_evidence(self):
         for raw in ("", "NaN 1", "100 inf", "-1 20", "0 1", "100 20 extra", "100 " + "9" * 400):

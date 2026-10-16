@@ -47,7 +47,7 @@ def boot_readiness_evidence(device_utc, uptime_raw, boot_log):
     boot_started = now - timedelta(seconds=uptime)
     pattern = re.compile(
         r"([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3})"
-        r"[ \t]+[0-9]+[ \t]+[0-9]+[ \t]+I[ \t]+(?:ActivityManager|UserController)[ \t]*:"
+        r"[ \t]+\+0000[ \t]+[0-9]+[ \t]+[0-9]+[ \t]+I[ \t]+(?:ActivityManager|UserController)[ \t]*:"
         r"[ \t]*Finished processing BOOT_COMPLETED for u0[ \t]*"
     )
     marker = None
