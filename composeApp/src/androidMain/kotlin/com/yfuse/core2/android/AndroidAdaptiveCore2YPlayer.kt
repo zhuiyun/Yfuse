@@ -2646,6 +2646,10 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
 
         private suspend fun retryCurrentItem() {
+            // A queued recovery may have begun another budget since retry() interrupted the probe.
+            // Reset at command execution too, and do not reuse the failed deep-probe cooldown.
+            invalidateProbe("superseded")
+            routeEvaluator.resetForRetry()
             sameRouteRecoveryAttempts.keys.removeAll { it.itemIndex == currentIndex }
             codecResetCounts.remove(currentIndex)
             allowTunnel = true
@@ -2676,7 +2680,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 // active child and let its worker release, reopen and configure in
                 // strict order instead of constructing a competing codec instance.
                 if (active is AndroidNativeEnhancedYPlayer) {
-                    active.retryWithProbeBudget(activeProbeBudget)
+                    active.retryWithProbeBudget(probes.begin().budget)
                 } else {
                     active.retry()
                 }

@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.res.imageResource
+import com.yfuse.app.SPLASH_PLAYBACK_SPEED
 import com.yfuse.app.markResource
 import com.yfuse.app.rememberSplashChoreography
 
@@ -35,7 +36,7 @@ actual fun SplashPreview(
         clock.snapTo(0f)
         clock.animateTo(
             targetValue = choreography.fadeStartMs,
-            animationSpec = tween(choreography.fadeStartMs.toInt(), easing = LinearEasing),
+            animationSpec = tween(choreography.fadeStartMs.toInt() / SPLASH_PLAYBACK_SPEED, easing = LinearEasing),
         )
     }
 

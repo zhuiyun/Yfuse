@@ -1,6 +1,9 @@
 package com.yfuse.core2.android
 
 import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.api.YPlaybackException
+import com.yfuse.core2.api.YPlaybackFailureCategory
+import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
@@ -11,9 +14,12 @@ import com.yfuse.core2.strategy.YPlaybackRequest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AndroidEnhancedMediaProbeFailureMemoryTest {
@@ -44,6 +50,91 @@ class AndroidEnhancedMediaProbeFailureMemoryTest {
         now += 30_000_000_000L
         assertIs<YCore2ProbeResult.Failure>(probe.probe(item))
         assertEquals(2, opens)
+    }
+
+    @Test
+    fun manualRetryReopensTheSourceImmediatelyAfterACachedNetworkFailure() {
+        var opens = 0
+        val failure =
+            YPlaybackException(
+                category = YPlaybackFailureCategory.Network,
+                stage = YPlaybackFailureStage.SourceOpen,
+            )
+        val probe =
+            AndroidEnhancedMediaProbe(
+                clock = { 0L },
+                probeSource = {
+                    opens++
+                    if (opens == 1) {
+                        YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable, failure)
+                    } else {
+                        success()
+                    }
+                },
+            )
+
+        repeat(2) {
+            assertSame(failure, assertFailsWith<YPlaybackException> { probe.probe(item).sourceSuccessOrThrow() })
+        }
+        assertEquals(1, opens)
+
+        probe.resetFailuresForRetry()
+
+        assertIs<YCore2ProbeResult.Success>(probe.probe(item).sourceSuccessOrThrow())
+        assertEquals(2, opens)
+    }
+
+    @Test
+    fun manualRetryPreservesSuccessfulMetadata() {
+        var opens = 0
+        val probe =
+            AndroidEnhancedMediaProbe(
+                probeSource = {
+                    opens++
+                    success()
+                },
+            )
+        val result = assertIs<YCore2ProbeResult.Success>(probe.probe(item))
+
+        probe.resetFailuresForRetry()
+
+        assertSame(result, probe.probe(item))
+        assertEquals(1, opens)
+    }
+
+    @Test
+    fun lateFailureFromThePreviousAttemptCannotBlockManualRetry() {
+        val opens = AtomicInteger()
+        val entered = CountDownLatch(1)
+        val finish = CountDownLatch(1)
+        val caller = Executors.newSingleThreadExecutor()
+        val probe =
+            AndroidEnhancedMediaProbe(
+                clock = { 0L },
+                probeSource = {
+                    if (opens.incrementAndGet() == 1) {
+                        entered.countDown()
+                        check(finish.await(5L, TimeUnit.SECONDS))
+                        YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
+                    } else {
+                        success()
+                    }
+                },
+            )
+        try {
+            val oldAttempt = caller.submit<YCore2ProbeResult?> { probe.probe(item) }
+            assertTrue(entered.await(2L, TimeUnit.SECONDS))
+
+            probe.resetFailuresForRetry()
+            finish.countDown()
+            assertIs<YCore2ProbeResult.Failure>(oldAttempt.get(2L, TimeUnit.SECONDS))
+
+            assertIs<YCore2ProbeResult.Success>(probe.probe(item))
+            assertEquals(2, opens.get())
+        } finally {
+            finish.countDown()
+            caller.shutdownNow()
+        }
     }
 
     @Test

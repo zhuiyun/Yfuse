@@ -106,6 +106,9 @@ internal fun SplashAnimation.markResource(): Int? =
 /** How long every choreography leaves for the hand-off to the app. */
 internal const val FADE_MS = 120f
 
+/** Run the authored timeline faster without dropping its opening or resolved frame. */
+internal const val SPLASH_PLAYBACK_SPEED = 2
+
 // ---- Shared easing and spring maths. ----
 
 /** 0 before [start], 1 after [start] + [duration], linear in between. */

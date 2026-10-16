@@ -258,6 +258,9 @@ class ZoomBackNavigationTest {
             dispatcher.addInput(input)
             dispatcher.addHandler(root.handler)
             host.attach()
+            // The composable now binds this relay through Activity's PredictiveBackHandler.
+            // Bind the test input here; device tests cover the real Activity/System UI bridge.
+            dispatcher.addHandler(host.standIn)
             host.displayOwner.navigationEventDispatcher.addHandler(page.handler)
             host.onBack = { ordinaryBacks++ }
             host.onStack(listOf("root", "detail"), null)
@@ -267,6 +270,7 @@ class ZoomBackNavigationTest {
             if (closed) return
             closed = true
             host.detach()
+            host.standIn.remove()
             dispatcher.dispose()
         }
     }

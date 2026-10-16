@@ -5,7 +5,6 @@ import androidx.compose.animation.core.animate
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -19,7 +18,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -34,9 +32,10 @@ fun BackOverlay(
     if (enabled) ReportOverlayVisible()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val currentBack by rememberUpdatedState(onBack)
+    val latestEnabled by rememberUpdatedState(enabled)
     val scope = rememberCoroutineScope()
     var progress by remember { mutableFloatStateOf(0f) }
-    val overlayShape = remember { RoundedCornerShape(16.dp) }
+    var committing by remember { mutableStateOf(false) }
     val settling = remember { arrayOfNulls<Job>(1) }
     val settleBack = {
         settling[0]?.cancel()
@@ -47,45 +46,68 @@ fun BackOverlay(
                 } else {
                     animate(progress, 0f, animationSpec = Motion.settle()) { value, _ -> progress = value }
                 }
+                committing = false
             }
     }
     var committedBacks by remember { mutableIntStateOf(0) }
-    PlatformPredictiveBackHandler(
+    ZoomBackSystemBack(
         enabled = enabled,
-        onProgress = {
-            settling[0]?.cancel()
-            progress = if (reduceMotion) 0f else it.coerceIn(0f, 1f)
+        onStarted = { event ->
+            if (!committing) {
+                settling[0]?.cancel()
+                progress = if (reduceMotion) 0f else event.progress.coerceIn(0f, 1f)
+            }
         },
-        onBack = {
-            settling[0]?.cancel()
-            currentBack()
-            committedBacks++
+        onProgressed = { event ->
+            if (!committing) {
+                settling[0]?.cancel()
+                progress = if (reduceMotion) 0f else event.progress.coerceIn(0f, 1f)
+            }
         },
-        onCancel = settleBack,
+        onCompleted = {
+            if (!committing) {
+                settling[0]?.cancel()
+                committing = true
+                settling[0] =
+                    scope.launch {
+                        if (!reduceMotion && progress > 0f) {
+                            // Finish outside the viewport before the host starts its own dismiss animation.
+                            animate(
+                                progress,
+                                1f,
+                                animationSpec = Motion.tween(Motion.POP),
+                            ) { value, _ ->
+                                progress = value
+                            }
+                        }
+                        if (latestEnabled) {
+                            currentBack()
+                            committedBacks++
+                        }
+                    }
+            }
+        },
+        onCancelled = { if (!committing) settleBack() },
     )
-    // A committed back leaves the overlay where the finger let go, for the host's exit to carry on
-    // from. A host that kept it instead — a step back inside it, a question asked first — gets it
-    // whole again, as after a cancelled gesture.
+    // A committed gesture has already carried the overlay off screen before the host dismisses.
+    // A host that kept it instead — a step back inside it, a question asked first — gets it whole
+    // again, as after a cancelled gesture.
     LaunchedEffect(committedBacks) { if (committedBacks > 0 && enabled) settleBack() }
     // Brought back while it was still leaving, it is a new showing: the gesture that sent it away
     // is over, and the panel must not come back still leaning away from it.
     val wasEnabled = remember { booleanArrayOf(enabled) }
     SideEffect {
+        if (!enabled && wasEnabled[0]) settling[0]?.cancel()
         if (enabled && !wasEnabled[0]) {
             settling[0]?.cancel()
             progress = 0f
+            committing = false
         }
         wasEnabled[0] = enabled
     }
     Box(
         modifier.fillMaxSize().graphicsLayer {
-            val p = if (reduceMotion) 0f else progress.coerceIn(0f, 1f)
-            scaleX = 1f - 0.10f * p
-            scaleY = scaleX
-            alpha = 1f - 0.2f * p
-            translationX = 24.dp.toPx() * p
-            shape = overlayShape
-            clip = p > 0f
+            translationX = if (reduceMotion) 0f else BACK_NAVIGATION_TOWARD * size.width * progress.coerceIn(0f, 1f)
         },
         content = content,
     )
@@ -100,9 +122,8 @@ fun BackOverlay(
  * [content] must draw from the value it is handed, not from the owner's state. While it leaves it
  * takes no touch and the screen reader no longer finds it.
  *
- * It goes back the way a page from a poster does (跟手返回): pulled down from its top, or swiped
- * from the side, it follows the finger, and let go past the point of no return it flies back into
- * [source] — the shelf or rail it was opened from — or, with none on screen, leaves the ordinary way.
+ * A pull-down can return to [source], the shelf or rail it came from. A system side swipe instead
+ * carries the opaque page out through the swiped edge, and cancellation returns it to its place.
  *
  * The page underneath is still composed; stop anything there that moves on its own — a carousel's
  * auto-advance — while this is up, and hide it from the screen reader, which otherwise still walks
@@ -121,16 +142,16 @@ fun <T : Any> OverlayPage(
     val shown = value ?: retained ?: return
     val visible = value != null
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val presence = remember { Animatable(if (reduceMotion) 1f else 0f) }
+    val travel = remember { Animatable(if (reduceMotion) 0f else 1f) }
     // Set when the page has already flown back into its source: there is nothing left to leave.
     val zoomedAway = remember { booleanArrayOf(false) }
     LaunchedEffect(visible, reduceMotion) {
-        val target = if (visible) 1f else 0f
+        val target = if (visible) 0f else BACK_NAVIGATION_TOWARD
         if (visible) zoomedAway[0] = false
         if (reduceMotion || (!visible && zoomedAway[0])) {
-            presence.snapTo(target)
+            travel.snapTo(target)
         } else {
-            presence.animateTo(target, Motion.tween(if (visible) Motion.PUSH else Motion.POP))
+            travel.animateTo(target, Motion.tween(if (visible) Motion.PUSH else Motion.POP))
         }
         if (!visible) retained = null
     }
@@ -141,12 +162,7 @@ fun <T : Any> OverlayPage(
         onZoomedAway = { zoomedAway[0] = true },
         modifier =
             modifier.graphicsLayer {
-                val p = presence.value
-                alpha = p
-                translationX = (1f - p) * OverlayPageTravel.toPx()
+                translationX = travel.value * size.width
             },
     ) { content(shown) }
 }
-
-/** How far an [OverlayPage] travels in from the trailing edge — the route push's own distance. */
-private val OverlayPageTravel = 30.dp

@@ -8,14 +8,14 @@ class SplashTimingPolicyTest {
     @Test
     fun selected_design_plays_from_its_beginning_on_returning_launches_but_respects_reduced_motion() {
         val timing = splashTiming(false, false, false, selectedMotionDurationMs = 2250)
-        assertEquals(2250, timing.motionDurationMs)
+        assertEquals(1125, timing.motionDurationMs)
         assertEquals(0f, splashClockStart(2250f, timing.motionDurationMs))
         assertEquals(0, splashTiming(false, true, false, selectedMotionDurationMs = 2250).motionDurationMs)
         assertEquals(0, splashTiming(false, false, true, selectedMotionDurationMs = 2250).motionDurationMs)
     }
 
     @Test
-    fun a_returning_launch_is_a_600ms_greeting() {
+    fun a_returning_launch_is_a_300ms_greeting() {
         val timing =
             splashTiming(
                 firstLaunch = false,
@@ -23,7 +23,7 @@ class SplashTimingPolicyTest {
                 systemAnimationsOff = false,
             )
 
-        assertTrue(timing.motionDurationMs + timing.fadeDurationMs <= 600)
+        assertEquals(300, timing.motionDurationMs + timing.fadeDurationMs)
         assertEquals(0, timing.stillFrameHoldMs)
     }
 
@@ -36,19 +36,19 @@ class SplashTimingPolicyTest {
                 systemAnimationsOff = false,
             )
 
-        // 折带展开's beats are authored against a 1_200ms clock.
-        assertEquals(1_200, timing.motionDurationMs + timing.fadeDurationMs)
+        // 折带展开's full 1_200ms timeline plays at 2× speed.
+        assertEquals(600, timing.motionDurationMs + timing.fadeDurationMs)
     }
 
     @Test
-    fun a_shorter_launch_joins_the_timeline_later_instead_of_playing_it_faster() {
+    fun accelerated_launches_preserve_their_authored_timeline_sections() {
         val first = splashTiming(firstLaunch = true, reduceMotion = false, systemAnimationsOff = false)
         val returning = splashTiming(firstLaunch = false, reduceMotion = false, systemAnimationsOff = false)
 
         assertEquals(0f, splashClockStart(fadeStartMs = 1_080f, motionDurationMs = first.motionDurationMs))
-        // The clock covers exactly as much of the timeline as there is time for: 1× speed.
+        // Returning launches keep the same closing section, now at 2× speed.
         val start = splashClockStart(fadeStartMs = 1_080f, motionDurationMs = returning.motionDurationMs)
-        assertEquals(returning.motionDurationMs.toFloat(), 1_080f - start)
+        assertEquals(returning.motionDurationMs * 2f, 1_080f - start)
     }
 
     @Test

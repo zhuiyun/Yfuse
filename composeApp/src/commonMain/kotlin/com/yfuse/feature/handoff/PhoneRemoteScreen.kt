@@ -57,7 +57,6 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
-import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.SwipeRowSystemEdge
 import com.yfuse.core.designsystem.ThemeIcon
 import com.yfuse.core.designsystem.ThemeText
@@ -122,7 +121,6 @@ internal fun PhoneRemoteScreen(
             last = now
         }
     }
-    PlatformBackHandler(onBack = onBack)
     val state by client.state.collectAsState()
     val connected = state == PhoneRemoteState.Connected
     val send: (RemoteControlKey) -> Unit = { key ->

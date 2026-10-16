@@ -87,29 +87,20 @@ class ZoomBackGeometryTest {
     }
 
     @Test
-    fun sideSwipeShrinksAboutTheCentreAndLeansTowardsTheFinger() {
-        val rest =
-            zoomBackSideCard(page, progress = 0f, toward = 1f, lift = 0f, shiftAtFullPx = 40f, cornerAtFullPx = corner)
-        assertRect(Rect(0f, 0f, 1000f, 2000f), rest.bounds)
-
-        val full =
-            zoomBackSideCard(
-                page,
-                progress = 1f,
-                toward = 1f,
-                lift = 100f,
-                shiftAtFullPx = 40f,
-                cornerAtFullPx = corner,
-            )
-        assertNear(0.88f, full.contentScale)
-        assertNear(880f, full.bounds.width)
-        assertNear(60f + 40f, full.bounds.left, "centred, then 40px towards the swipe")
-        assertNear(120f + 12f, full.bounds.top, "centred, then 12% of the finger's lift")
-        assertNear(corner, full.cornerRadius)
-
-        val fromRight =
-            zoomBackSideCard(page, progress = 1f, toward = -1f, lift = 0f, shiftAtFullPx = 40f, cornerAtFullPx = corner)
-        assertNear(60f - 40f, fromRight.bounds.left)
+    fun sideSwipePreservesSizeAndOpacityAndFollowsEitherEdgeWithoutVerticalDrift() {
+        for (toward in listOf(-1f, 1f)) {
+            for (step in 0..20) {
+                val p = step / 20f
+                val card = zoomBackSideCard(page, p, toward)
+                assertRect(
+                    Rect(toward * page.width * p, 0f, toward * page.width * p + page.width, page.height),
+                    card.bounds,
+                )
+                assertNear(1f, card.contentScale)
+                assertNear(1f, card.contentAlpha)
+                assertNear(0f, card.cornerRadius)
+            }
+        }
     }
 
     @Test

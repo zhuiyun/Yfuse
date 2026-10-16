@@ -1,9 +1,13 @@
 package com.yfuse.feature.servers
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -23,7 +27,9 @@ import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -34,6 +40,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
@@ -106,6 +113,8 @@ internal fun ServerFormInput(
     onSubmit: (() -> Unit)? = null,
     /** Takes focus once the dialog has arrived — the password of a server to sign in to again. */
     autoFocus: Boolean = false,
+    /** Separate editable controls from the surrounding server section. */
+    outlined: Boolean = false,
     onValueChange: (String) -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -113,6 +122,8 @@ internal fun ServerFormInput(
     val focusManager = LocalFocusManager.current
     var revealPassword by rememberSaveable { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused by interactionSource.collectIsFocusedAsState()
     if (autoFocus) {
         val entrance = LocalOverlayEntrance.current
         LaunchedEffect(Unit) {
@@ -122,64 +133,85 @@ internal fun ServerFormInput(
             runCatching { focusRequester.requestFocus() }
         }
     }
-    ServerFormRow(label = label, divider = divider) {
-        Box(contentAlignment = Alignment.CenterStart) {
-            if (value.isEmpty() && placeholder != null) {
-                Text(placeholder, style = AppTypography.body.medium, color = palette.hint)
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    enabled = enabled,
-                    singleLine = true,
-                    textStyle = AppTypography.body.medium.copy(color = palette.text),
-                    cursorBrush = SolidColor(accent.accent),
-                    visualTransformation =
-                        if (password && !revealPassword) {
-                            PasswordVisualTransformation()
-                        } else {
-                            VisualTransformation.None
-                        },
-                    keyboardOptions =
-                        KeyboardOptions(
-                            autoCorrectEnabled = if (password) false else null,
-                            keyboardType = if (password) secretKeyboardType(keyboardType) else keyboardType,
-                            imeAction = if (password) ImeAction.Done else ImeAction.Next,
-                        ),
-                    keyboardActions =
-                        KeyboardActions(
-                            onNext = { focusManager.moveFocus(FocusDirection.Down) },
-                            onDone = {
-                                focusManager.clearFocus()
-                                onSubmit?.invoke()
-                            },
-                        ),
-                    modifier =
-                        Modifier
-                            .weight(1f)
-                            .focusRequester(focusRequester)
-                            .semantics {
-                                contentDescription = label
-                                if (autofillType != null) contentType = autofillType
-                            },
-                )
-                if (password) {
-                    Text(
-                        if (revealPassword) "隐藏" else "显示",
-                        style = AppTypography.caption.strong,
-                        color = accent.accent,
-                        modifier =
+    ServerFormRow(label = label, divider = divider && !outlined, labelBottomPadding = if (outlined) 6.dp else 3.dp) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            singleLine = true,
+            interactionSource = interactionSource,
+            textStyle = AppTypography.body.medium.copy(color = palette.text),
+            cursorBrush = SolidColor(accent.accent),
+            visualTransformation =
+                if (password && !revealPassword) {
+                    PasswordVisualTransformation()
+                } else {
+                    VisualTransformation.None
+                },
+            keyboardOptions =
+                KeyboardOptions(
+                    autoCorrectEnabled = if (password) false else null,
+                    keyboardType = if (password) secretKeyboardType(keyboardType) else keyboardType,
+                    imeAction = if (password) ImeAction.Done else ImeAction.Next,
+                ),
+            keyboardActions =
+                KeyboardActions(
+                    onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                    onDone = {
+                        focusManager.clearFocus()
+                        onSubmit?.invoke()
+                    },
+                ),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (outlined) {
                             Modifier
-                                .pressable(
-                                    onClickLabel = if (revealPassword) "隐藏密码" else "显示密码",
-                                ) { revealPassword = !revealPassword }
-                                .touchTarget()
-                                .padding(start = 8.dp),
-                    )
+                                .graphicsLayer { alpha = if (enabled) 1f else 0.5f }
+                                .background(
+                                    if (palette.isDark) palette.reducedFill.card3 else Color.White,
+                                    AppShapes.control,
+                                ).border(
+                                    if (focused) 2.dp else 1.dp,
+                                    if (focused) accent.accent else palette.sub2.copy(alpha = 0.75f),
+                                    AppShapes.control,
+                                ).defaultMinSize(minHeight = 48.dp)
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        } else {
+                            Modifier
+                        },
+                    ).focusRequester(focusRequester)
+                    .semantics {
+                        contentDescription = label
+                        if (autofillType != null) contentType = autofillType
+                    },
+            decorationBox = { innerTextField ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                        if (value.isEmpty() && placeholder != null) {
+                            Text(placeholder, style = AppTypography.body.medium, color = palette.hint)
+                        }
+                        innerTextField()
+                    }
+                    if (password) {
+                        Text(
+                            if (revealPassword) "隐藏" else "显示",
+                            style = AppTypography.caption.strong,
+                            color = accent.accent,
+                            modifier =
+                                Modifier
+                                    .pressable(
+                                        enabled = enabled,
+                                        onClickLabel = if (revealPassword) "隐藏密码" else "显示密码",
+                                    ) { revealPassword = !revealPassword }
+                                    .touchTarget()
+                                    .padding(start = 8.dp),
+                        )
+                    }
                 }
-            }
-        }
+            },
+        )
     }
 }
 
@@ -195,31 +227,57 @@ internal fun ServerProtocolSegment(
     label: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    outlined: Boolean = false,
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     Box(
         modifier
-            .pressable(role = Role.RadioButton, onClick = onClick)
+            .graphicsLayer { alpha = if (enabled) 1f else 0.5f }
+            .pressable(enabled = enabled, role = Role.RadioButton, focusShape = AppShapes.thumb, onClick = onClick)
             .semantics { this.selected = selected }
             .touchTarget()
-            .glass(
-                shape = AppShapes.thumb,
-                fill = if (selected) accent.container else palette.card2,
-                border =
-                    if (selected) {
-                        accent.border
-                    } else {
-                        palette.border.copy(alpha = 0.55f)
-                    },
-            ).padding(vertical = 6.dp),
+            .then(
+                if (outlined) {
+                    Modifier
+                        .background(
+                            if (selected) {
+                                accent.accent
+                            } else if (palette.isDark) {
+                                palette.reducedFill.card3
+                            } else {
+                                Color.White
+                            },
+                            AppShapes.thumb,
+                        ).border(
+                            1.dp,
+                            if (selected) accent.accent else palette.sub2.copy(alpha = 0.75f),
+                            AppShapes.thumb,
+                        )
+                } else {
+                    Modifier.glass(
+                        shape = AppShapes.thumb,
+                        fill = if (selected) accent.container else palette.card2,
+                        border = if (selected) accent.border else palette.border.copy(alpha = 0.55f),
+                    )
+                },
+            ).padding(horizontal = 8.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             label,
             style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
-            color = if (selected) accent.accent else palette.sub2,
+            color =
+                when {
+                    outlined && selected -> accent.onAccent
+                    outlined -> palette.text
+                    selected -> accent.accent
+                    else -> palette.sub2
+                },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -231,12 +289,16 @@ internal fun ServerProviderSegment(
     kind: MediaServerKind,
     selectedKind: MediaServerKind,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    outlined: Boolean = false,
     onClick: () -> Unit,
 ) {
     ServerProtocolSegment(
         label = label,
         selected = kind == selectedKind,
         modifier = modifier,
+        enabled = enabled,
+        outlined = outlined,
         onClick = onClick,
     )
 }

@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-16T17:37:20.7260077+08:00",
+  "status": "passed",
+  "behavior": "Both swipe edges reveal the destination on the left and translate the outgoing page to the right, at full size and full opacity.",
+  "build": "isolated com.yfuse.backpreview debug and instrumentation APKs",
+  "tests": 2,
+  "failures": 0,
+  "device": "Android 15 API 35 isolated emulator",
+  "android17DeviceTestPerformed": false,
+  "lint": "passed",
+  "signedReleaseProduced": false,
+  "lastSignedDelivery": "1.3.8/290, unchanged by this source fix",
+  "sources": [
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ZoomBackNavigation.kt",
+      "sha256": "e0b184ab97d42770d333229efb16d30e871312ed25c57da73ae168c4d49a0cb7"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/OfficialNavDisplay.kt",
+      "sha256": "75e88a07a4008fd2fca012a22b3f3bbfe7ce70847a824225775bcefacc734e66"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/BackOverlay.kt",
+      "sha256": "4e8e19ccf4753652635b4074ffb21a81d983b561a75ff5184260ef9c6350c94e"
+    },
+    {
+      "path": "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/app/DetailBackNavigationInstrumentedTest.kt",
+      "sha256": "51ab9fdf51df6221bd6814ef5eb48350cc35c3ac1a1786e3798da6ff9c1bb42b"
+    }
+  ]
+}

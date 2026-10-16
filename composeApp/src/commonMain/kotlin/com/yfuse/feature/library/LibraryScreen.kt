@@ -41,7 +41,6 @@ fun LibraryScreen(component: LibraryComponent) {
                         if (component.historyIsRoot) {
                             {
                                 WatchingEntrySection(
-                                    onOpenWatchingCenter = component::openWatchingCenter,
                                     onOpenDiscovery = component::openDiscovery,
                                     onOpenCalendar = component::openCalendar,
                                 )

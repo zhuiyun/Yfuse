@@ -1,6 +1,7 @@
 package com.yfuse.app
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
@@ -18,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,9 +44,11 @@ import com.yfuse.core.designsystem.LiftMenuHost
 import com.yfuse.core.designsystem.LiftMenuState
 import com.yfuse.core.designsystem.LocalLiftMenu
 import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.LocalRouteVisibilityState
 import com.yfuse.core.designsystem.LocalSharedMediaTransitionController
 import com.yfuse.core.designsystem.LocalZoomBackSources
 import com.yfuse.core.designsystem.MediaSharedElementKey
+import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OfficialNavMotion
 import com.yfuse.core.designsystem.PlatformBackHandler
@@ -65,6 +69,165 @@ import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class DetailBackNavigationInstrumentedTest {
+    @Test(timeout = 60_000L)
+    fun first_poster_back_previews_after_splash_visibility_changes() {
+        withGestureNavigation {
+            val probe =
+                NavigationProbe(
+                    initialRoutes = listOf("library"),
+                    posterPath = true,
+                    visual = true,
+                    initiallyVisible = false,
+                )
+            launchMainActivityForInput().use { scenario ->
+                installNavigation(scenario, probe)
+                awaitCondition("The library did not compose behind the splash") { probe.hostComposed.get() }
+                scenario.onActivity { probe.parentVisible.value = true }
+                awaitComposedRoute("library", probe)
+                tapPoster(probe)
+                awaitComposedRoute("detail-a", probe)
+                awaitCondition("The first poster's entry did not settle") { !probe.transitionActive.get() }
+                // This must be the first system gesture, without warming another page's handler.
+                injectEdgeSwipe(scenario, fromRight = false, cancel = true, duringGesture = {
+                    val frame = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+                    try {
+                        val row = IntArray(frame.width) { frame.getPixel(it, frame.height * 4 / 5) }
+                        assertTrue(
+                            "The first poster return did not preview the library after the splash",
+                            row.count { it == PREVIEW_UNDERLAY } > frame.width / 20,
+                        )
+                        assertTrue("The first detail faded during back", row.count { it == PREVIEW_DETAIL } > frame.width / 20)
+                    } finally {
+                        frame.recycle()
+                    }
+                })
+                assertStack(scenario, probe, listOf("library", "detail-a"), pops = 0)
+                injectEdgeSwipe(scenario, fromRight = false, cancel = false)
+                awaitComposedRoute("library", probe)
+                assertStack(scenario, probe, listOf("library"), pops = 1)
+            }
+        }
+    }
+
+    @Test(timeout = 60_000L)
+    fun system_gesture_reveals_the_destination_before_release() {
+        withGestureNavigation {
+            val probe =
+                NavigationProbe(
+                    initialRoutes = listOf("library", "plain-detail"),
+                    visual = true,
+                    theme = MotionTheme.Calm,
+                )
+            launchMainActivityForInput().use { scenario ->
+                installNavigation(scenario, probe)
+                awaitComposedRoute("plain-detail", probe)
+                awaitCondition("Detail entry did not settle") { probe.routeSettled.get() }
+                for (fromRight in listOf(false, true)) {
+                    injectEdgeSwipe(scenario, fromRight = fromRight, cancel = true, duringGesture = {
+                        val instrumentation = InstrumentationRegistry.getInstrumentation()
+                        val frame = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+                        try {
+                            val file =
+                                java.io.File(
+                                    instrumentation.targetContext.getExternalFilesDir(null),
+                                    "detail-system-back-$fromRight.png",
+                                )
+                            file.outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                            val row = IntArray(frame.width) { frame.getPixel(it, frame.height / 2) }
+                            assertTrue(
+                                "System gesture never revealed the destination",
+                                row.count { it == PREVIEW_UNDERLAY } > frame.width / 20,
+                            )
+                            assertTrue(
+                                "Detail disappeared before gesture release",
+                                row.count { it == PREVIEW_DETAIL } > frame.width / 20,
+                            )
+                            // System UI's back bubble can cover a few pixels at either edge.
+                            assertTrue(
+                                "Either edge must reveal the destination on the right",
+                                row.drop(frame.width / 2).count { it == PREVIEW_UNDERLAY } > frame.width / 20,
+                            )
+                            assertTrue(
+                                "The outgoing detail must move to the left",
+                                row.take(frame.width / 2).none { it == PREVIEW_UNDERLAY },
+                            )
+                        } finally {
+                            frame.recycle()
+                        }
+                    })
+                    SystemClock.sleep(700L)
+                    assertStack(scenario, probe, listOf("library", "plain-detail"), pops = 0)
+                }
+                injectEdgeSwipe(scenario, fromRight = false, cancel = false)
+                awaitComposedRoute("library", probe)
+                assertStack(scenario, probe, listOf("library"), pops = 1)
+            }
+        }
+    }
+
+    @Test(timeout = 90_000L)
+    fun detail_preview_visibly_moves_at_full_size_in_both_motion_themes() {
+        for (theme in listOf(MotionTheme.Classic, MotionTheme.Calm)) {
+            val probe = NavigationProbe(initialRoutes = listOf("library", "plain-detail"), visual = true, theme = theme)
+            launchMainActivityForInput().use { scenario ->
+                installNavigation(scenario, probe)
+                awaitComposedRoute("plain-detail", probe)
+                awaitCondition("Detail entry did not settle") { probe.routeSettled.get() }
+                val instrumentation = InstrumentationRegistry.getInstrumentation()
+                for (edge in listOf(BackEventCompat.EDGE_LEFT, BackEventCompat.EDGE_RIGHT)) {
+                    scenario.onActivity {
+                        it.onBackPressedDispatcher.dispatchOnBackStarted(BackEventCompat(1f, 500f, 0f, edge))
+                    }
+                    instrumentation.waitForIdleSync()
+                    scenario.onActivity {
+                        it.onBackPressedDispatcher.dispatchOnBackProgressed(BackEventCompat(400f, 500f, 0.4f, edge))
+                    }
+                    SystemClock.sleep(150L)
+                    val frame = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+                    try {
+                        val y = frame.height / 2
+                        val destinationX = (frame.width * 0.8f).toInt()
+                        val detailX = frame.width - destinationX
+                        assertEquals(
+                            "$theme/$edge: destination must be visible during the gesture",
+                            PREVIEW_UNDERLAY,
+                            frame.getPixel(destinationX, y),
+                        )
+                        assertEquals(
+                            "$theme/$edge: detail must remain fully opaque",
+                            PREVIEW_DETAIL,
+                            frame.getPixel(detailX, y),
+                        )
+                        // A full-height stripe retains its thickness under translation. A scale
+                        // or a competing handler that never previews fails this pixel check.
+                        val stripeY = frame.height / 3
+                        var stripeWidth = 0
+                        for (x in 0 until frame.width) if (frame.getPixel(x, stripeY) == PREVIEW_STRIPE) stripeWidth++
+                        val file =
+                            java.io.File(
+                                instrumentation.targetContext.getExternalFilesDir(null),
+                                "detail-back-${theme.name}-$edge.png",
+                            )
+                        file.outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                        // A fractional layer translation can antialias one boundary pixel.
+                        assertTrue(
+                            "$theme/$edge: the detail must not shrink (expected ${probe.stripeWidth.get()}, got $stripeWidth)",
+                            kotlin.math.abs(probe.stripeWidth.get() - stripeWidth) <= 1,
+                        )
+                    } finally {
+                        frame.recycle()
+                    }
+                    scenario.onActivity { it.onBackPressedDispatcher.dispatchOnBackCancelled() }
+                    SystemClock.sleep(700L)
+                    assertStack(scenario, probe, listOf("library", "plain-detail"), pops = 0)
+                }
+                predictiveGesture(scenario, cancel = false)
+                awaitComposedRoute("library", probe)
+                assertStack(scenario, probe, listOf("library"), pops = 1)
+            }
+        }
+    }
+
     @Test(timeout = 60_000L)
     fun activity_back_returns_through_nested_details_without_finishing_the_app() {
         val probe = NavigationProbe()
@@ -406,8 +569,12 @@ class DetailBackNavigationInstrumentedTest {
         // setContent, and waits for window focus before any injected touch can reach System UI.
         scenario.onActivity { activity ->
             activity.setContent {
-                YfuseTheme(dark = false) {
-                    CompositionLocalProvider(LocalLiftMenu provides probe.menu) {
+                YfuseTheme(dark = false, motionTheme = probe.theme) {
+                    CompositionLocalProvider(
+                        LocalLiftMenu provides probe.menu,
+                        LocalRouteVisible provides probe.parentVisible.value,
+                        LocalRouteVisibilityState provides probe.parentVisible,
+                    ) {
                         Box(Modifier.fillMaxSize()) {
                             PlatformBackHandler(enabled = probe.routes.size == 1) { probe.rootBacks.incrementAndGet() }
                             OfficialNavDisplay(
@@ -443,7 +610,38 @@ class DetailBackNavigationInstrumentedTest {
                                             if (previewActive) probe.previewSeen.set(true)
                                         }
                                     }
-                                    if (probe.posterPath) {
+                                    if (probe.visual && !probe.posterPath) {
+                                        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                                            drawRect(
+                                                Color(
+                                                    if (route ==
+                                                        "library"
+                                                    ) {
+                                                        PREVIEW_UNDERLAY
+                                                    } else {
+                                                        PREVIEW_DETAIL
+                                                    },
+                                                ),
+                                            )
+                                            if (route != "library") {
+                                                val width = 24.dp.roundToPx()
+                                                probe.stripeWidth.set(width)
+                                                drawRect(
+                                                    Color(PREVIEW_STRIPE),
+                                                    topLeft =
+                                                        androidx.compose.ui.geometry.Offset(
+                                                            size.width * 0.5f,
+                                                            0f,
+                                                        ),
+                                                    size =
+                                                        androidx.compose.ui.geometry.Size(
+                                                            width.toFloat(),
+                                                            size.height * 0.4f,
+                                                        ),
+                                                )
+                                            }
+                                        }
+                                    } else if (probe.posterPath) {
                                         PosterRoute(
                                             route,
                                             probe,
@@ -456,7 +654,10 @@ class DetailBackNavigationInstrumentedTest {
                             }
                             LiftMenuHost(probe.menu)
                             val menuVisible = probe.menu.isOpen
-                            SideEffect { probe.menuComposed.set(menuVisible) }
+                            SideEffect {
+                                probe.menuComposed.set(menuVisible)
+                                probe.hostComposed.set(true)
+                            }
                         }
                     }
                 }
@@ -484,7 +685,13 @@ class DetailBackNavigationInstrumentedTest {
                     probe.routes.add(next)
                 }
             }
-        Box(Modifier.fillMaxSize().sharedMediaArtwork(heroKey).background(Color(0xFF334455))) {
+        val background =
+            if (probe.visual) {
+                Color(if (route == "library") PREVIEW_UNDERLAY else PREVIEW_DETAIL)
+            } else {
+                Color(0xFF334455)
+            }
+        Box(Modifier.fillMaxSize().sharedMediaArtwork(heroKey).background(background)) {
             if (posterKey != null) {
                 Box(
                     Modifier
@@ -539,6 +746,7 @@ class DetailBackNavigationInstrumentedTest {
         scenario: ActivityScenario<MainActivity>,
         fromRight: Boolean,
         cancel: Boolean,
+        duringGesture: () -> Unit = {},
     ) {
         var width = 0
         var height = 0
@@ -564,6 +772,10 @@ class DetailBackNavigationInstrumentedTest {
                 Log.i("DetailBackInput", "First MOVE eventTime=$eventTime downTime=$down deltaMs=${eventTime - down}")
             }
             injectPointer(MotionEvent.ACTION_MOVE, start + (end - start) * step / 16f, y, down, eventTime)
+            if (step == 12) {
+                SystemClock.sleep(80L)
+                duringGesture()
+            }
         }
         injectPointer(if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP, end, y, down)
     }
@@ -792,9 +1004,15 @@ class DetailBackNavigationInstrumentedTest {
 
     private class NavigationProbe(
         initialRoutes: List<String> = listOf("library", "detail-a", "detail-b"),
+        initiallyVisible: Boolean = true,
         val posterPath: Boolean = false,
+        val visual: Boolean = false,
+        val theme: MotionTheme = MotionTheme.Classic,
     ) {
+        val stripeWidth = AtomicInteger()
         val routes = mutableStateListOf<String>().apply { addAll(initialRoutes) }
+        val parentVisible = mutableStateOf(initiallyVisible)
+        val hostComposed = AtomicBoolean()
         val pops = AtomicInteger()
         val rootPops = AtomicInteger()
         val rootBacks = AtomicInteger()
@@ -806,5 +1024,11 @@ class DetailBackNavigationInstrumentedTest {
         val routeSettled = AtomicBoolean()
         val menuComposed = AtomicBoolean()
         val menu = LiftMenuState()
+    }
+
+    private companion object {
+        const val PREVIEW_UNDERLAY = -16745473
+        const val PREVIEW_DETAIL = -2911171
+        const val PREVIEW_STRIPE = -1
     }
 }

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.PredictiveBackMotionTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-16T09:11:13.093Z" hostname="DESKTOP-HM2J0FM" time="0.061">
+  <properties/>
+  <testcase name="reducedMotionKeepsThePageWholeAndCompletesWithoutAnimationFrames" classname="com.yfuse.core.designsystem.PredictiveBackMotionTest" time="0.015"/>
+  <testcase name="eitherEdgeKeepsThePageOpaqueUntilItIsEntirelyOutsideTheViewport" classname="com.yfuse.core.designsystem.PredictiveBackMotionTest" time="0.0"/>
+  <testcase name="aNewSwipeCanCatchACancellingPageWithoutJumpingOrBeingIgnored" classname="com.yfuse.core.designsystem.PredictiveBackMotionTest" time="0.029"/>
+  <testcase name="replacingAPageDuringCommitCannotCompleteAnOldBack" classname="com.yfuse.core.designsystem.PredictiveBackMotionTest" time="0.002"/>
+  <testcase name="committingNeverMorphsIntoAPosterAndFinishesExactlyOnce" classname="com.yfuse.core.designsystem.PredictiveBackMotionTest" time="0.006"/>
+  <testcase name="cancellationRestoresThePageAndTheNextCommitStartsAtItsOwnReleasePosition" classname="com.yfuse.core.designsystem.PredictiveBackMotionTest" time="0.009"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -54,9 +55,9 @@ import com.yfuse.core.logging.AppLog
 // finishes that gesture the moment the platform says so. A zoom back needs the page underneath
 // from the first pixel of a pull, and needs the page on top to stay until its flight has landed.
 // So a stack that can zoom back gives NavDisplay a dispatcher of its own, which only this file
-// drives, and stands in for NavDisplay's handler on the activity's dispatcher: an ordinary page's
-// system swipe is passed straight through, event for event; a page entered from a poster follows
-// the zoom geometry and tells NavDisplay the gesture is over only when the card has gone.
+// drives, and stands in for NavDisplay's handler on the activity's dispatcher. Measured pages
+// follow an opaque side slide; an explicit pull-down may still return to its poster. NavDisplay
+// completes the navigation only after the departing page has gone.
 
 /** A back handler whose four callbacks are plain lambdas. */
 internal class RelayBackHandler : NavigationEventHandler<NavigationEventInfo>(NavigationEventInfo.None, false) {
@@ -75,17 +76,17 @@ internal class RelayBackHandler : NavigationEventHandler<NavigationEventInfo>(Na
         }
     }
 
-    override fun onBackStarted(event: NavigationEvent) {
+    public override fun onBackStarted(event: NavigationEvent) {
         gestureAccepted = acceptsBack()
         if (gestureAccepted == true) onStarted(event)
     }
 
-    override fun onBackProgressed(event: NavigationEvent) {
+    public override fun onBackProgressed(event: NavigationEvent) {
         if (!acceptsBack()) rejectGesture()
         if (gestureAccepted == true) onProgressed(event)
     }
 
-    override fun onBackCompleted() {
+    public override fun onBackCompleted() {
         val accepted = gestureAccepted
         gestureAccepted = null
         when {
@@ -94,7 +95,7 @@ internal class RelayBackHandler : NavigationEventHandler<NavigationEventInfo>(Na
         }
     }
 
-    override fun onBackCancelled() {
+    public override fun onBackCancelled() {
         val accepted = gestureAccepted
         gestureAccepted = null
         if (accepted != false) onCancelled()
@@ -126,6 +127,7 @@ internal class PrivateNavigation {
     }
 
     fun started(event: NavigationEvent) {
+        cancelled()
         inProgress = true
         input.backStarted(event)
     }
@@ -205,8 +207,8 @@ internal class ZoomFrame {
 
 private enum class SystemRoute { None, Forward, Zoom, Ignored }
 
-/** +1 for a swipe from the left edge, towards which the page leans; −1 from the right. */
-internal fun zoomBackToward(swipeEdge: Int): Float = if (swipeEdge == NavigationEvent.EDGE_RIGHT) -1f else 1f
+/** Returning always moves the current page out to the left, regardless of the gesture's edge. */
+internal const val BACK_NAVIGATION_TOWARD = -1f
 
 /** NavDisplay's own transition while a zoom back draws the pages: nothing, for no time at all. */
 internal fun zoomBackRouteTransform(): ContentTransform =
@@ -286,12 +288,10 @@ internal class ZoomBackNavHost(
 
     fun attach() {
         navigation.attach()
-        realOwner.navigationEventDispatcher.addHandler(standIn)
     }
 
     fun detach() {
         abandonGesture()
-        standIn.remove()
         navigation.dispose()
     }
 
@@ -395,9 +395,9 @@ internal class ZoomBackNavHost(
         systemStack = stack.toList()
         system =
             when {
-                !visible || !controller.idle -> SystemRoute.Ignored
-                top != null && stack.size > 1 && origins.containsKey(top) && !blocked() && beginGesture(top) -> {
-                    if (controller.startSide(zoomBackToward(event.swipeEdge), event.touchY, event.progress)) {
+                !visible || !controller.canStartSide -> SystemRoute.Ignored
+                top != null && stack.size > 1 && !blocked() && beginGesture(top, useOrigin = false) -> {
+                    if (controller.startSide(BACK_NAVIGATION_TOWARD, event.progress)) {
                         navigation.started(
                             NavigationEvent(
                                 swipeEdge = event.swipeEdge,
@@ -422,7 +422,7 @@ internal class ZoomBackNavHost(
 
     private fun systemProgressed(event: NavigationEvent) {
         when (system) {
-            SystemRoute.Zoom -> controller.moveSide(event.touchY, event.progress)
+            SystemRoute.Zoom -> controller.moveSide(event.progress)
             SystemRoute.Forward -> navigation.progressed(event)
             SystemRoute.None, SystemRoute.Ignored -> Unit
         }
@@ -462,14 +462,17 @@ internal class ZoomBackNavHost(
         clearGesture()
     }
 
-    private fun beginGesture(key: String): Boolean {
+    private fun beginGesture(
+        key: String,
+        useOrigin: Boolean = true,
+    ): Boolean {
         val underlay = stack.getOrNull(stack.size - 2) ?: return false
         val size = frames[key]?.size ?: return false
         if (size.width <= 0f || size.height <= 0f) return false
         controller.page = size
         pageKey = key
         underlayKey = underlay
-        sources.wanted = origins[key]?.key
+        sources.wanted = if (useOrigin) origins[key]?.key else null
         AppLog.info("navigation.back", "zoom_started", "Back gesture started")
         return true
     }
@@ -510,15 +513,13 @@ internal class ZoomBackNavHost(
 }
 
 /**
- * The zoom back of a navigation stack, or null where it cannot have one: [enabled] only for
- * pushed-route stacks, and only where the activity provides a navigation-event dispatcher.
- * Decided once, so the host's composition never changes shape under its pages.
+ * Keeps NavDisplay's scene lifecycle separate from the Activity callback that receives system back.
+ * Nested stacks register after their parents, so the visible deepest page keeps back priority.
  */
 @Composable
-internal fun rememberZoomBackNavHost(enabled: Boolean): ZoomBackNavHost? {
+internal fun rememberZoomBackNavHost(canGoBack: Boolean): ZoomBackNavHost? {
     val realOwner = LocalNavigationEventDispatcherOwner.current
-    val bridged = remember { enabled && realOwner != null }
-    if (!bridged || realOwner == null) return null
+    if (realOwner == null) return null
     val scope = rememberCoroutineScope()
     val origins = rememberSaveable(saver = ZoomOriginsSaver) { mutableStateMapOf<String, ZoomOrigin>() }
     val host = remember(realOwner) { ZoomBackNavHost(ZoomBackController(scope), realOwner, origins) }
@@ -527,6 +528,13 @@ internal fun rememberZoomBackNavHost(enabled: Boolean): ZoomBackNavHost? {
         onDispose { host.detach() }
     }
     ConfigureZoomBack(host.controller)
+    PlatformNavigationBackHandler(
+        enabled = canGoBack,
+        onStarted = host.standIn::onBackStarted,
+        onProgressed = host.standIn::onBackProgressed,
+        onCompleted = host.standIn::onBackCompleted,
+        onCancelled = host.standIn::onBackCancelled,
+    )
     return host
 }
 
@@ -536,7 +544,7 @@ private fun ConfigureZoomBack(controller: ZoomBackController) {
     val density = LocalDensity.current
     val haptics = LocalHaptics.current
     val tips = LocalTips.current
-    val still = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
+    val still = LocalAccessibilityOptions.current.reduceMotion
     val artLayer = rememberGraphicsLayer()
     SideEffect {
         controller.still = still
@@ -545,7 +553,6 @@ private fun ConfigureZoomBack(controller: ZoomBackController) {
         controller.artLayer = artLayer
         with(density) {
             controller.cornerAtFullPx = ZoomBackCorner.toPx()
-            controller.sideShiftPx = ZoomBackSideShift.toPx()
             controller.landingCornerPx = Dimens.medium.toPx()
         }
     }
@@ -630,8 +637,7 @@ internal fun BoxScope.ZoomBackRouteTip(
 private val ZoomBackTipTop = 60.dp
 
 /**
- * A back handler that reports the whole predictive gesture — edge, finger and progress — not just
- * its progress. Where there is no navigation-event dispatcher it falls back to a plain back.
+ * The same Activity-backed gesture bridge used by navigation stacks, also for fullscreen overlays.
  */
 @Composable
 internal fun ZoomBackSystemBack(
@@ -641,43 +647,19 @@ internal fun ZoomBackSystemBack(
     onCompleted: () -> Unit,
     onCancelled: () -> Unit,
 ) {
-    val visibility = rememberRouteVisibility()
-    val latestEnabled by rememberUpdatedState(enabled)
-    val owner = LocalNavigationEventDispatcherOwner.current
-    if (owner == null) {
-        PlatformBackHandler(enabled = enabled, onBack = onCompleted)
-        return
-    }
-    val latestStarted by rememberUpdatedState(onStarted)
-    val latestProgressed by rememberUpdatedState(onProgressed)
-    val latestCompleted by rememberUpdatedState(onCompleted)
-    val latestCancelled by rememberUpdatedState(onCancelled)
-    val handler =
-        remember {
-            RelayBackHandler().apply {
-                this.acceptsBack = { latestEnabled && visibility.value }
-                this.onStarted = { latestStarted(it) }
-                this.onProgressed = { latestProgressed(it) }
-                this.onCompleted = { latestCompleted() }
-                this.onCancelled = { latestCancelled() }
-            }
-        }
-    SideEffect {
-        val active = enabled && visibility.value
-        if (!active) handler.rejectGesture()
-        handler.isBackEnabled = active
-    }
-    DisposableEffect(owner, handler) {
-        owner.navigationEventDispatcher.addHandler(handler)
-        onDispose { handler.remove() }
-    }
+    PlatformNavigationBackHandler(
+        enabled = enabled,
+        onStarted = onStarted,
+        onProgressed = onProgressed,
+        onCompleted = onCompleted,
+        onCancelled = onCancelled,
+    )
 }
 
 /**
  * A full-screen page drawn over another — 全部剧集, 查看全部 — that goes back the way a route from a
- * poster does: pulled down from its top, or swiped from the side, it follows the finger and flies
- * back into [source], the shelf or rail it was opened from. Without a [source] on screen it goes
- * the ordinary way. [onZoomedAway] hears that the page has already gone, before [onBack] closes it.
+ * poster does when pulled down. A system side swipe instead slides the opaque page off screen.
+ * [onZoomedAway] hears that the page has already gone, before [onBack] closes it.
  */
 @Composable
 internal fun ZoomBackOverlay(
@@ -689,6 +671,7 @@ internal fun ZoomBackOverlay(
     content: @Composable BoxScope.() -> Unit,
 ) {
     if (visible) ReportOverlayVisible()
+    val pageBackground = LocalPalette.current.background
     val scope = rememberCoroutineScope()
     val controller = remember { ZoomBackController(scope) }
     val frame = remember { ZoomFrame() }
@@ -716,7 +699,7 @@ internal fun ZoomBackOverlay(
         }
         wasVisible[0] = visible
         controller.onStarted = {
-            gestureSource[0] = latestSource
+            gestureSource[0] = latestSource.takeUnless { controller.sideGesture }
             gestureSource[0]?.wanted = true
         }
         controller.onFinished = { committed ->
@@ -735,10 +718,10 @@ internal fun ZoomBackOverlay(
         enabled = visible,
         onStarted = { event ->
             sideRouted[0] =
-                controller.idle &&
-                controller.startSide(zoomBackToward(event.swipeEdge), event.touchY, event.progress)
+                controller.canStartSide &&
+                controller.startSide(BACK_NAVIGATION_TOWARD, event.progress)
         },
-        onProgressed = { event -> if (sideRouted[0]) controller.moveSide(event.touchY, event.progress) },
+        onProgressed = { event -> if (sideRouted[0]) controller.moveSide(event.progress) },
         onCompleted = {
             when {
                 sideRouted[0] -> controller.commitSide()
@@ -777,7 +760,7 @@ internal fun ZoomBackOverlay(
             ).zoomBackLayers(
                 controller,
                 role = { if (controller.active) ZoomBackRole.Page else ZoomBackRole.None },
-            ),
+            ).drawBehind { drawRect(pageBackground) },
         content = content,
     )
 }

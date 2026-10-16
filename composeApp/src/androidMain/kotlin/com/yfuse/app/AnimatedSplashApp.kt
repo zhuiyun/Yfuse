@@ -157,9 +157,9 @@ fun AnimatedSplashApp(
         if (stillFrame) {
             arrival.snapTo(1f)
         } else if (waveHandoff) {
-            arrival.animateTo(1f, tween(WAVE_HANDOFF_FADE_MS, easing = LinearEasing))
+            arrival.animateTo(1f, tween(WAVE_HANDOFF_FADE_MS / SPLASH_PLAYBACK_SPEED, easing = LinearEasing))
         } else {
-            arrival.animateTo(1f, tween(Motion.EMPHASIZED, easing = Motion.Curve))
+            arrival.animateTo(1f, tween(Motion.EMPHASIZED / SPLASH_PLAYBACK_SPEED, easing = Motion.Curve))
         }
     }
 
@@ -260,7 +260,7 @@ private fun AnimatedSplashScreen(
     val finish by rememberUpdatedState(onFinished)
 
     // Where on the authored timeline this launch starts: 0 for the whole welcome, later for the
-    // compact returning launch. The clock always runs at the speed the beats were drawn for.
+    // compact returning launch. Both run the authored beats at the same accelerated speed.
     val clockStart =
         if (stillFrame) 0f else splashClockStart(choreography.fadeStartMs, timing.motionDurationMs)
     val clock = remember(choreography) { Animatable(clockStart) }
@@ -443,19 +443,19 @@ internal data class SplashTiming(
 )
 
 /**
- * Where a launch joins the authored timeline so that [motionDurationMs] of it plays at 1×.
+ * Where a launch joins the authored timeline for [motionDurationMs] of accelerated playback.
  *
- * The beats are drawn against their own clock, so a shorter launch never speeds them up — it
- * starts later, on the part where the mark resolves and the name arrives.
+ * Convert wall-clock duration back to authored time so selected designs still play from their
+ * beginning. The compact returning launch keeps the same closing section as before.
  */
 internal fun splashClockStart(
     fadeStartMs: Float,
     motionDurationMs: Int,
-): Float = (fadeStartMs - motionDurationMs).coerceAtLeast(0f)
+): Float = (fadeStartMs - motionDurationMs * SPLASH_PLAYBACK_SPEED).coerceAtLeast(0f)
 
 /**
  * The full illustration is a first-launch welcome, not a compulsory gate on every launch.
- * Later launches play its closing part — the mark resolving, the name arriving — in 600ms.
+ * Later launches play its closing part — the mark resolving, the name arriving — in 300ms.
  */
 internal fun splashTiming(
     firstLaunch: Boolean,
@@ -478,20 +478,20 @@ internal fun splashTiming(
             )
         selectedMotionDurationMs != null ->
             SplashTiming(
-                motionDurationMs = selectedMotionDurationMs,
-                fadeDurationMs = FIRST_LAUNCH_FADE_MS,
+                motionDurationMs = selectedMotionDurationMs / SPLASH_PLAYBACK_SPEED,
+                fadeDurationMs = FIRST_LAUNCH_FADE_MS / SPLASH_PLAYBACK_SPEED,
                 stillFrameHoldMs = 0,
             )
         firstLaunch ->
             SplashTiming(
-                motionDurationMs = FIRST_LAUNCH_MOTION_MS,
-                fadeDurationMs = FIRST_LAUNCH_FADE_MS,
+                motionDurationMs = FIRST_LAUNCH_MOTION_MS / SPLASH_PLAYBACK_SPEED,
+                fadeDurationMs = FIRST_LAUNCH_FADE_MS / SPLASH_PLAYBACK_SPEED,
                 stillFrameHoldMs = 0,
             )
         else ->
             SplashTiming(
-                motionDurationMs = RETURNING_LAUNCH_MOTION_MS,
-                fadeDurationMs = RETURNING_LAUNCH_FADE_MS,
+                motionDurationMs = RETURNING_LAUNCH_MOTION_MS / SPLASH_PLAYBACK_SPEED,
+                fadeDurationMs = RETURNING_LAUNCH_FADE_MS / SPLASH_PLAYBACK_SPEED,
                 stillFrameHoldMs = 0,
             )
     }
@@ -502,8 +502,8 @@ private const val SPLASH_HISTORY_SEEN_KEY = "has_seen_full_splash"
 private const val FIRST_LAUNCH_MOTION_MS = 1_080
 private const val FIRST_LAUNCH_FADE_MS = 120
 
-// The welcome was seen once; 600ms is a greeting where 1.2s on every launch is a wait. The
-// clock still runs at 1× — the launch joins the timeline later (see [splashClockStart]).
+// Authored timeline durations; playback scales them uniformly. Returning launches retain
+// the closing section of the welcome (see [splashClockStart]).
 private const val RETURNING_LAUNCH_MOTION_MS = 480
 private const val RETURNING_LAUNCH_FADE_MS = 120
 private const val REDUCED_MOTION_HOLD_MS = 260L

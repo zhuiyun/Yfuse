@@ -7,8 +7,6 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -22,7 +20,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -34,7 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
@@ -81,33 +78,15 @@ fun <T : Any> OfficialNavDisplay(
     val shownStack = backStack.filterNot(isLauncher).ifEmpty { backStack }
     val currentTop by rememberUpdatedState(shownStack.last())
     val latestBack by rememberUpdatedState(onBack)
-    // Keep the activity dispatcher connected to the visible stack as well as the
-    // NavigationEvent dispatcher used by predictive transitions. A private scene dispatcher
-    // can otherwise leave Android treating a detail page as the activity's root.
-    PlatformBackHandler(enabled = parentRouteVisible && shownStack.size > 1) { latestBack() }
     val sharedMediaController = remember { SharedMediaTransitionController() }
-    // 跟手返回 for pushed routes. Before NavDisplay, so its stand-in back handler registers where
-    // NavDisplay's own used to: after the shell's, before every page's.
-    val zoom = rememberZoomBackNavHost(enabled = motion == OfficialNavMotion.Stack)
+    // Register each stack with Activity before its pages, preserving the deepest visible
+    // handler's priority while NavDisplay receives the matching private scene events.
+    val zoom = rememberZoomBackNavHost(canGoBack = parentRouteVisible && shownStack.size > 1)
     val liftMenu = LocalLiftMenu.current
     val screenReader = rememberScreenReaderActive()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val calm = calmMotion()
     val previousDepth = remember { intArrayOf(shownStack.size) }
-    // The route that was in front before this composition: the one a shrinking stack lets go of.
-    val previousTop = remember { arrayOf<String?>(contentKey(shownStack.last())) }
-    if (shownStack.size < previousDepth[0]) {
-        // 一镜到底: back runs the way in backwards. Decided before the smaller stack is composed,
-        // so the artwork is registered on both pages in the frame the pop starts — or kept off
-        // them where 跟手返回 is already flying the page home, or a lifted card is (LiftExpansion).
-        val returnTo =
-            if (reduceMotion || calm || liftMenu?.isOpen == true || shownStack.size != previousDepth[0] - 1) {
-                null
-            } else {
-                zoom?.poppedOrigin(popped = previousTop[0], returnedTo = contentKey(shownStack.last()))
-            }
-        sharedMediaController.onPop(returnTo)
-    }
     SideEffect {
         // A route pushed right after a poster was tapped is a route from that poster.
         val pushedFrom = if (shownStack.size > previousDepth[0]) sharedMediaController.takeOrigin() else null
@@ -120,20 +99,13 @@ fun <T : Any> OfficialNavDisplay(
             zoom.onStack(shownStack.map(contentKey), pushedFrom, visible = parentRouteVisible)
         }
         previousDepth[0] = shownStack.size
-        previousTop[0] = contentKey(shownStack.last())
     }
     val activeSharedKey = sharedMediaController.activeKey
     val density = LocalDensity.current
+    val pageBackground = LocalPalette.current.background
     val searchTravelPx = with(density) { Motion.searchTravel.roundToPx() }
     val pushTravelPx = with(density) { Motion.pushOffset.roundToPx() }
-    val popTravelPx = with(density) { Motion.popOffset.roundToPx() }
     val calmTravelPx = with(density) { CalmTravel.roundToPx() }
-    // Only a stacked route rounds its corners on the way out. The root tabs and 搜索 never
-    // did — the amount was pinned at 0 — yet every entry still paid for the transition
-    // animation and a clipping layer.
-    // The artwork already rounds in its overlay; clipping the entire departing page as well
-    // adds a full-screen mask and a second corner animation to the same return.
-    val roundsCorners = motion == OfficialNavMotion.Stack && !reduceMotion && !calm && activeSharedKey == null
     SharedTransitionLayout(modifier.windowSizeHandoff()) {
         // The key is cleared once the morph has actually run, not after a fixed 420ms: a slow
         // first frame on a low-end phone used to pull the key out from under a morph in flight.
@@ -165,44 +137,22 @@ fun <T : Any> OfficialNavDisplay(
                             (parentRouteVisible && entryKey == currentTop),
                         LocalRouteVisibilityState provides visibility,
                     ) {
-                        // The animation and its layer are conditional; the Box is not. Switching
-                        // 减弱动态效果 from a pushed settings page flips [roundsCorners] under that
-                        // very page, and a Box per branch would dispose and rebuild it.
-                        val corners =
-                            if (roundsCorners) {
-                                val visibility = LocalNavAnimatedContentScope.current
-                                val edge =
-                                    visibility.transition.animateFloat(
-                                        transitionSpec = {
-                                            // A zoom back draws both pages itself; NavDisplay's
-                                            // transition has to be over the moment it lets go.
-                                            if (zoom?.suppressPopTransition == true) {
-                                                snap()
-                                            } else {
-                                                tween(Motion.POP, easing = Motion.Curve)
-                                            }
-                                        },
-                                        label = "routeReturnCorners",
-                                    ) { if (it == EnterExitState.PostExit) 1f else 0f }
-                                Modifier.graphicsLayer {
-                                    // The card has its own corners, and must not be clipped to the page.
-                                    val zoomed = zoom != null && zoom.roleOf(routeKey) != ZoomBackRole.None
-                                    val amount = if (zoomed) 0f else edge.value
-                                    shape = RoundedCornerShape(Motion.routeReturnCorner * amount)
-                                    clip = amount > 0f
-                                }
-                            } else {
-                                Modifier
-                            }
                         val entryTransition = LocalNavAnimatedContentScope.current.transition
                         Box(
                             Modifier
                                 .zoomBackFrame(zoom, routeKey)
                                 .fillMaxSize()
-                                .then(corners)
                                 .zoomBackRoute(zoom, routeKey) {
                                     entryTransition.currentState == EnterExitState.Visible &&
                                         entryTransition.targetState == EnterExitState.Visible
+                                }.drawBehind {
+                                    // Glass content still needs a solid page beneath it while two
+                                    // destinations share the host during a return gesture.
+                                    if (motion == OfficialNavMotion.Stack ||
+                                        entryTransition.currentState != entryTransition.targetState
+                                    ) {
+                                        drawRect(pageBackground)
+                                    }
                                 },
                         ) {
                             currentContent(entryKey)
@@ -226,7 +176,6 @@ fun <T : Any> OfficialNavDisplay(
                                 reduceMotion,
                                 searchTravelPx,
                                 pushTravelPx,
-                                popTravelPx,
                                 popping = false,
                             )
                         }
@@ -242,7 +191,6 @@ fun <T : Any> OfficialNavDisplay(
                                 reduceMotion,
                                 searchTravelPx,
                                 pushTravelPx,
-                                popTravelPx,
                                 popping = true,
                             )
                         }
@@ -250,18 +198,10 @@ fun <T : Any> OfficialNavDisplay(
                     predictivePopTransitionSpec = {
                         if (zoom?.suppressPopTransition == true) {
                             zoomBackRouteTransform()
-                        } else if (calm && !reduceMotion) {
-                            calmContentTransform(popMotion, calmTravelPx, popping = true, predictive = true)
+                        } else if (reduceMotion) {
+                            noBackTransition()
                         } else {
-                            rootContentTransform(
-                                popMotion,
-                                reduceMotion,
-                                searchTravelPx,
-                                pushTravelPx,
-                                popTravelPx,
-                                popping = true,
-                                predictive = true,
-                            )
+                            opaqueBackTransform(predictive = true)
                         }
                     },
                     entryProvider = entryProvider,
@@ -277,24 +217,9 @@ fun <T : Any> OfficialNavDisplay(
 }
 
 /**
- * The poster [popped] was opened from, when the stack went back to exactly the page it was opened
- * over and no 跟手返回 is carrying it there already: the pull-down and the side swipe fly the page
- * home themselves, and their gesture is still finishing when the stack shrinks.
- */
-private fun ZoomBackNavHost.poppedOrigin(
-    popped: String?,
-    returnedTo: String,
-): MediaSharedElementKey? {
-    if (popped == null || !controller.idle) return null
-    val origin = origins[popped] ?: return null
-    return origin.key.takeIf { origin.underlay == returnedTo }
-}
-
-/**
  * 静息 — see [MotionTheme.Calm]: opacity and a few dp of travel, nothing scales. A push fades the
  * new page in over [CALM_PUSH_MS] as it slides [CalmTravel], and the page it covers out over the
- * same span, so the two are never both under half strength; going back, and every switch between
- * tabs or into 搜索, is a [CALM_SWAP_MS] crossfade.
+ * same span. Back navigation uses the same opaque slide as the other motion themes.
  */
 private fun calmContentTransform(
     motion: OfficialNavMotion,
@@ -302,14 +227,12 @@ private fun calmContentTransform(
     popping: Boolean,
     predictive: Boolean = false,
 ): ContentTransform {
+    if (popping) return opaqueBackTransform(predictive = predictive)
     val easing = if (predictive) LinearEasing else Motion.Curve
     val swap = tween<Float>(CALM_SWAP_MS, easing = easing)
     val transform =
         when {
             motion != OfficialNavMotion.Stack -> fadeIn(swap) togetherWith fadeOut(swap)
-            popping ->
-                EnterTransition.None togetherWith
-                    (fadeOut(swap) + slideOutHorizontally(tween(CALM_SWAP_MS, easing = easing)) { travelPx })
             else ->
                 (
                     fadeIn(tween(CALM_PUSH_MS, easing = easing)) +
@@ -319,7 +242,7 @@ private fun calmContentTransform(
     return ContentTransform(
         targetContentEnter = transform.targetContentEnter,
         initialContentExit = transform.initialContentExit,
-        targetContentZIndex = if (popping && motion == OfficialNavMotion.Stack) -1f else 0f,
+        targetContentZIndex = 0f,
         sizeTransform = null,
     )
 }
@@ -336,12 +259,11 @@ private fun rootContentTransform(
     reduceMotion: Boolean,
     searchTravelPx: Int,
     pushTravelPx: Int,
-    popTravelPx: Int,
     popping: Boolean,
     predictive: Boolean = false,
 ): ContentTransform {
     if (reduceMotion) return noBackTransition()
-    if (predictive && motion == OfficialNavMotion.Stack) return predictiveStackTransform(popTravelPx)
+    if (popping) return opaqueBackTransform(predictive = predictive)
 
     // A gesture's progress is the animation's progress. On the front-loaded house curve a 30%
     // swipe showed about 80% of the way back; linear keeps the page under the finger.
@@ -365,7 +287,7 @@ private fun rootContentTransform(
 
     val transform =
         when (motion) {
-            OfficialNavMotion.Stack -> stackContentTransform(popping, pushTravelPx, popTravelPx)
+            OfficialNavMotion.Stack -> stackPushTransform(pushTravelPx)
             OfficialNavMotion.RootTab -> tabEnter togetherWith tabExit
             OfficialNavMotion.SearchEnter ->
                 (
@@ -405,63 +327,31 @@ private fun rootContentTransform(
     )
 }
 
-/**
- * Predictive back on a stacked route: the page being pulled away is a card under the finger. It
- * stays on top, shrinks and slides with the gesture on a linear clock, and keeps its opacity
- * until the last stretch — which is nearly always after the release — while the page it returns
- * to remains opaque behind it. Fading the card with the swipe had it mostly gone by 30%.
- */
-private fun predictiveStackTransform(popTravelPx: Int): ContentTransform =
-    ContentTransform(
-        targetContentEnter =
-            slideInHorizontally(tween(Motion.POP, easing = LinearEasing)) { -popTravelPx },
+/** Full-size page translation; the destination stays fixed and both surfaces remain opaque. */
+private fun opaqueBackTransform(predictive: Boolean = false): ContentTransform {
+    val easing = if (predictive) LinearEasing else Motion.Curve
+    return ContentTransform(
+        targetContentEnter = EnterTransition.None,
         initialContentExit =
-            scaleOut(tween(Motion.POP, easing = LinearEasing), targetScale = PREDICTIVE_EXIT_SCALE) +
-                slideOutHorizontally(tween(Motion.POP, easing = LinearEasing)) { popTravelPx } +
-                fadeOut(
-                    tween(
-                        durationMillis = PREDICTIVE_EXIT_FADE_MS,
-                        delayMillis = Motion.POP - PREDICTIVE_EXIT_FADE_MS,
-                        easing = LinearEasing,
-                    ),
-                ),
+            slideOutHorizontally(tween(Motion.POP, easing = easing)) { (BACK_NAVIGATION_TOWARD * it).toInt() },
         targetContentZIndex = -1f,
         sizeTransform = null,
     )
+}
 
-private fun stackContentTransform(
-    popping: Boolean,
-    pushTravelPx: Int,
-    popTravelPx: Int,
-): ContentTransform =
-    if (popping) {
-        // Keep the destination opaque underneath the departing page. Crossfading two
-        // full-screen layers exposes the backdrop halfway through even at steady frame rates.
-        ContentTransform(
-            targetContentEnter =
-                slideInHorizontally(tween(Motion.POP, easing = Motion.Curve)) { -popTravelPx },
-            initialContentExit =
-                fadeOut(tween(Motion.POP, easing = Motion.Curve)) +
-                    slideOutHorizontally(tween(Motion.POP, easing = Motion.Curve)) {
-                        popTravelPx
-                    },
-            targetContentZIndex = -1f,
-            sizeTransform = null,
-        )
-    } else {
-        (
-            fadeIn(tween(Motion.PUSH, easing = Motion.Curve)) +
-                slideInHorizontally(tween(Motion.PUSH, easing = Motion.Curve)) {
-                    pushTravelPx
-                }
-        ) togetherWith (
-            // Over the same span as the new page's fade-in, on the same curve, so the two always add
-            // up to one. Shorter, the page being covered went under half strength before the new
-            // one had reached it — at 120ms about 40ms in, and still for 29–45ms at 180ms.
-            fadeOut(tween(Motion.PUSH, easing = Motion.Curve)) +
-                slideOutHorizontally(tween(Motion.PUSH, easing = Motion.Curve)) { -pushTravelPx / 2 }
-        )
-    }
+private fun stackPushTransform(pushTravelPx: Int): ContentTransform =
+    (
+        fadeIn(tween(Motion.PUSH, easing = Motion.Curve)) +
+            slideInHorizontally(tween(Motion.PUSH, easing = Motion.Curve)) {
+                pushTravelPx
+            }
+    ) togetherWith (
+        // Over the same span as the new page's fade-in, on the same curve, so the two always add
+        // up to one. Shorter, the page being covered went under half strength before the new
+        // one had reached it — at 120ms about 40ms in, and still for 29–45ms at 180ms.
+        fadeOut(tween(Motion.PUSH, easing = Motion.Curve)) +
+            slideOutHorizontally(tween(Motion.PUSH, easing = Motion.Curve)) { -pushTravelPx / 2 }
+    )
 
 private const val ROOT_TAB_EXIT_SCALE = 0.994f
 private const val SEARCH_SCALE_FROM = 0.97f
@@ -472,12 +362,6 @@ private val CalmTravel = 8.dp
 /** 静息's push; everything else it does is a [CALM_SWAP_MS] crossfade. */
 private const val CALM_PUSH_MS = 200
 private const val CALM_SWAP_MS = 150
-
-/** How far a page shrinks under a predictive back gesture — the platform's own 90%. */
-private const val PREDICTIVE_EXIT_SCALE = 0.9f
-
-/** The last stretch of a predictive back in which the pulled page finally fades. */
-private const val PREDICTIVE_EXIT_FADE_MS = 90
 
 /** How long a shared artwork morph may take to begin before its key is released regardless. */
 private const val SHARED_MORPH_START_TIMEOUT_MS = 600L

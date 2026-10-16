@@ -56,9 +56,8 @@ import kotlin.time.TimeSource
  *
  * One of these follows one gesture at a time on one host: the pull-down at the top of the page or
  * the system's side swipe. Both end in the same [ZoomCard] geometry (see ZoomBackGeometry.kt), so a
- * release either flies the card into the poster it came from, springs it home, or — with no poster
- * to go to, or under 减弱动态效果 — lets it fade the ordinary way. Either flight starts at the
- * speed the card had, and a finger can catch the card again anywhere along it (see [catchAt]).
+ * a side release carries an opaque page off screen while a pull can fly into its poster. A
+ * cancelled gesture springs home. Reduced motion completes without moving or fading the page.
  *
  * The host decides what "going back" means (a navigation pop, an overlay closing) through
  * [onStarted], [onFinished] and [resolveTarget], and draws the card with [zoomBackLayers].
@@ -72,7 +71,6 @@ internal class ZoomBackController(
     var haptics: Haptics = NoHaptics
     var tips: TipsState? = null
     var cornerAtFullPx = 0f
-    var sideShiftPx = 0f
     var landingCornerPx = 0f
 
     /** The overlay layer the landing artwork is drawn through, so its opacity is the card's own. */
@@ -101,15 +99,16 @@ internal class ZoomBackController(
     private var drag by mutableStateOf(Offset.Zero)
     private var progress by mutableFloatStateOf(0f)
     private var toward by mutableFloatStateOf(1f)
-    private var lift by mutableFloatStateOf(0f)
-    private var sideStartY = 0f
     private var armed = false
+    private var sideOrigin = ZoomCard.resting(Size.Zero)
 
     // Fixed at release; read while the card settles.
     private var from = ZoomCard.resting(Size.Zero)
     private var releasedUnder = 0f
     private var landing: ZoomBackTarget? = null
     private val settle = Animatable(0f)
+    private var settlingStarted by mutableStateOf(false)
+    private val settleProgress: Float get() = if (settlingStarted) settle.value else 0f
     private var job: Job? = null
 
     // The system's side swipe reports only how far it has got, never how fast. The card's own
@@ -128,14 +127,23 @@ internal class ZoomBackController(
     /** Anything under way, including a finished page still waiting for its host to remove it. */
     val active: Boolean get() = phase != ZoomBackPhase.Idle
 
-    /** Flying into its poster or home again: a finger can take hold of the card (see [catchAt]). */
-    val catchable: Boolean get() = !still && (phase == ZoomBackPhase.Flying || phase == ZoomBackPhase.Returning)
+    /** Only a poster pull can be caught by touch; side returns are resumed through [startSide]. */
+    val catchable: Boolean
+        get() = !still && !side && (phase == ZoomBackPhase.Flying || phase == ZoomBackPhase.Returning)
 
     val idle: Boolean get() = phase == ZoomBackPhase.Idle
 
+    val canStartSide: Boolean get() = idle || (side && phase == ZoomBackPhase.Returning)
+
     /** Let go past the point of no return: the page is flying or fading away, or already gone. */
     val leaving: Boolean
-        get() = phase == ZoomBackPhase.Flying || phase == ZoomBackPhase.Fading || phase == ZoomBackPhase.Done
+        get() =
+            phase == ZoomBackPhase.Flying ||
+                phase == ZoomBackPhase.Fading ||
+                phase == ZoomBackPhase.Sliding ||
+                phase == ZoomBackPhase.Done
+
+    val sideGesture: Boolean get() = side
 
     val pullFollowing: Boolean get() = phase == ZoomBackPhase.Following && !side
 
@@ -217,15 +225,17 @@ internal class ZoomBackController(
     /** The system's side swipe began; [toward] is +1 for a swipe from the left edge, −1 from the right. */
     fun startSide(
         toward: Float,
-        touchY: Float,
         progress: Float,
     ): Boolean {
-        if (!idle || page.width <= 0f || page.height <= 0f) return false
+        if (!canStartSide || page.width <= 0f || page.height <= 0f) return false
+        // A second swipe can catch a cancelling page at the exact position currently drawn.
+        // Waiting for the old spring to finish used to silently swallow that new gesture.
+        sideOrigin = card()
+        job?.cancel()
+        job = null
         side = true
         caught = null
         this.toward = toward
-        sideStartY = touchY
-        lift = 0f
         this.progress = 0f
         armed = false
         phase = ZoomBackPhase.Following
@@ -239,12 +249,8 @@ internal class ZoomBackController(
         return true
     }
 
-    fun moveSide(
-        touchY: Float,
-        progress: Float,
-    ) {
+    fun moveSide(progress: Float) {
         if (!sideFollowing) return
-        lift = touchY - sideStartY
         follow(progress)
         trackSide()
     }
@@ -282,25 +288,37 @@ internal class ZoomBackController(
 
     /** The card as it should be drawn now. */
     fun card(page: Size = this.page): ZoomCard =
-        when (phase) {
-            ZoomBackPhase.Idle -> ZoomCard.resting(page)
-            ZoomBackPhase.Following ->
-                caught?.let { it.copy(bounds = it.bounds.translate(drag)) }
-                    ?: if (side) {
-                        zoomBackSideCard(page, progress, toward, lift, sideShiftPx, cornerAtFullPx)
-                    } else {
-                        zoomBackPullCard(page, pivot, drag, progress, cornerAtFullPx)
-                    }
-            ZoomBackPhase.Flying ->
-                landing?.let { target ->
-                    zoomBackFlightCard(from, target.bounds, page, settle.value, landingCornerPx, landing = true)
-                        .continuingFrom(from, settle.value, landing = true)
-                } ?: from
-            ZoomBackPhase.Returning ->
-                zoomBackFlightCard(from, Rect(Offset.Zero, page), page, settle.value, 0f, landing = false)
-                    .continuingFrom(from, settle.value, landing = false)
-            ZoomBackPhase.Fading -> zoomBackFadeCard(from, settle.value, shrink = !still)
-            ZoomBackPhase.Done -> from.copy(contentAlpha = 0f, artAlpha = 0f)
+        if (still && phase != ZoomBackPhase.Done) {
+            ZoomCard.resting(page)
+        } else {
+            when (phase) {
+                ZoomBackPhase.Idle -> ZoomCard.resting(page)
+                ZoomBackPhase.Following ->
+                    caught?.let { it.copy(bounds = it.bounds.translate(drag)) }
+                        ?: if (side) {
+                            zoomBackCommitCard(sideOrigin, page, toward, progress)
+                        } else {
+                            zoomBackPullCard(page, pivot, drag, progress, cornerAtFullPx)
+                        }
+                ZoomBackPhase.Flying ->
+                    landing?.let { target ->
+                        zoomBackFlightCard(from, target.bounds, page, settleProgress, landingCornerPx, landing = true)
+                            .continuingFrom(from, settleProgress, landing = true)
+                    } ?: from
+                ZoomBackPhase.Returning ->
+                    zoomBackFlightCard(
+                        from,
+                        Rect(Offset.Zero, page),
+                        page,
+                        if (side) settleProgress.coerceIn(0f, 1f) else settleProgress,
+                        0f,
+                        landing = false,
+                    ).continuingFrom(from, settleProgress, landing = false)
+                ZoomBackPhase.Fading -> zoomBackFadeCard(from, settleProgress, shrink = !still)
+                ZoomBackPhase.Sliding ->
+                    zoomBackCommitCard(from, page, toward, settleProgress)
+                ZoomBackPhase.Done -> from.copy(contentAlpha = 0f, artAlpha = 0f)
+            }
         }
 
     /** How far the page underneath has come back: 0 while the page above is whole, 1 once it has gone. */
@@ -308,9 +326,9 @@ internal class ZoomBackController(
         when (phase) {
             ZoomBackPhase.Idle, ZoomBackPhase.Done -> 1f
             ZoomBackPhase.Following -> progress.coerceIn(0f, 1f)
-            ZoomBackPhase.Flying, ZoomBackPhase.Fading ->
-                releasedUnder + (1f - releasedUnder) * settle.value.coerceIn(0f, 1f)
-            ZoomBackPhase.Returning -> releasedUnder * (1f - settle.value.coerceIn(0f, 1f))
+            ZoomBackPhase.Flying, ZoomBackPhase.Fading, ZoomBackPhase.Sliding ->
+                releasedUnder + (1f - releasedUnder) * settleProgress.coerceIn(0f, 1f)
+            ZoomBackPhase.Returning -> releasedUnder * (1f - settleProgress.coerceIn(0f, 1f))
         }
 
     /** Back to rest without telling anyone: the host has already taken the page away, or kept it. */
@@ -322,7 +340,7 @@ internal class ZoomBackController(
         caught = null
         progress = 0f
         drag = Offset.Zero
-        lift = 0f
+        settlingStarted = false
         phase = ZoomBackPhase.Idle
     }
 
@@ -339,7 +357,9 @@ internal class ZoomBackController(
     /** [speed] turns how the card was moving into flights a second along the way it is sent. */
     private fun commit(speed: (Rect, Rect) -> Float) {
         val start = card()
-        val target = if (still) null else resolveTarget()
+        // Side back translates at full size and opacity. Poster morphing is
+        // reserved for the explicit pull-down gesture; a system back must not turn into a fade.
+        val target = if (still || side) null else resolveTarget()
         from = start
         releasedUnder = underlay()
         // A card caught on its way into one poster lets that poster show again if it now goes
@@ -348,12 +368,30 @@ internal class ZoomBackController(
         landing = target
         caught = null
         artRecordedFrom = null
-        phase = if (target != null) ZoomBackPhase.Flying else ZoomBackPhase.Fading
+        settlingStarted = false
+        phase =
+            when {
+                side -> ZoomBackPhase.Sliding
+                target != null -> ZoomBackPhase.Flying
+                else -> ZoomBackPhase.Fading
+            }
         job?.cancel()
         job =
             scope.launch {
                 settle.snapTo(0f)
-                if (target != null) {
+                settlingStarted = true
+                if (still) {
+                    settle.snapTo(1f)
+                } else if (side) {
+                    val end = zoomBackSideCard(page, 1f, toward)
+                    settle.animateTo(
+                        targetValue = 1f,
+                        animationSpec =
+                            androidx.compose.animation.core
+                                .spring(dampingRatio = 1f, stiffness = 600f),
+                        initialVelocity = speed(start.bounds, end.bounds).coerceAtLeast(0f),
+                    )
+                } else if (target != null) {
                     target.art?.hidden = true
                     settle.animateTo(
                         targetValue = 1f,
@@ -363,7 +401,7 @@ internal class ZoomBackController(
                         initialVelocity = speed(start.bounds, target.bounds),
                     )
                 } else {
-                    settle.animateTo(1f, Motion.tween(if (still) Motion.REDUCED_FADE else Motion.POP))
+                    settle.animateTo(1f, Motion.tween(Motion.POP))
                 }
                 // The card is drawn no more and the poster it landed on shows itself again, in
                 // the same frame: the two are the same picture in the same place.
@@ -385,17 +423,27 @@ internal class ZoomBackController(
         landing?.art?.hidden = false
         if (start.artAlpha <= 0f) landing = null
         caught = null
+        settlingStarted = false
         phase = ZoomBackPhase.Returning
         job?.cancel()
         job =
             scope.launch {
                 settle.snapTo(0f)
+                settlingStarted = true
                 if (still) {
-                    settle.animateTo(1f, Motion.tween(Motion.REDUCED_FADE))
+                    settle.snapTo(1f)
                 } else {
                     settle.animateTo(
                         targetValue = 1f,
-                        animationSpec = Motion.oneTake(Motion.ONE_TAKE_PROGRESS_THRESHOLD),
+                        animationSpec =
+                            if (side) {
+                                androidx.compose.animation.core.spring(
+                                    dampingRatio = 1f,
+                                    stiffness = 600f,
+                                )
+                            } else {
+                                Motion.oneTake(Motion.ONE_TAKE_PROGRESS_THRESHOLD)
+                            },
                         initialVelocity = speed(start.bounds, Rect(Offset.Zero, page)),
                     )
                 }
@@ -457,7 +505,7 @@ internal fun zoomBackEdgeFlightVelocity(
     return along.coerceIn(-ZOOM_BACK_MAX_FLIGHT_VELOCITY, ZOOM_BACK_MAX_FLIGHT_VELOCITY)
 }
 
-internal enum class ZoomBackPhase { Idle, Following, Flying, Fading, Returning, Done }
+internal enum class ZoomBackPhase { Idle, Following, Flying, Fading, Sliding, Returning, Done }
 
 /** How long a finished page may wait for its host to take it away before it is drawn again. */
 private const val ZOOM_BACK_DONE_TIMEOUT_MS = 1_000L
@@ -497,7 +545,7 @@ internal fun Modifier.zoomBackLayers(
     this
         .drawBehind {
             if (role() == ZoomBackRole.Page) {
-                val dim = zoomBackUnderlayDim(controller.underlay())
+                val dim = if (controller.sideGesture) 0f else zoomBackUnderlayDim(controller.underlay())
                 if (dim > 0f && controller.phase != ZoomBackPhase.Done) drawRect(Color.Black.copy(alpha = dim))
             }
         }.graphicsLayer {
@@ -518,7 +566,14 @@ internal fun Modifier.zoomBackLayers(
                     }
                 }
                 ZoomBackRole.Underlay -> {
-                    val scale = zoomBackUnderlayScale(controller.underlay())
+                    val scale =
+                        if (controller.sideGesture ||
+                            controller.still
+                        ) {
+                            1f
+                        } else {
+                            zoomBackUnderlayScale(controller.underlay())
+                        }
                     scaleX = scale
                     scaleY = scale
                 }

@@ -180,7 +180,7 @@ internal fun RefinedTopBar(
                     ),
                 )
             }.windowInsetsPadding(cutout)
-            .padding(horizontal = if (compact) 14.dp else 22.dp, vertical = 14.dp),
+            .padding(vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
@@ -564,7 +564,7 @@ private fun RefinedBottomBarContent(
                     ),
                 )
             }.windowInsetsPadding(cutout)
-            .padding(start = 22.dp, end = 22.dp, top = 10.dp, bottom = 16.dp),
+            .padding(top = 10.dp, bottom = 16.dp),
     ) {
         Row(
             verticalAlignment = Alignment.Bottom,

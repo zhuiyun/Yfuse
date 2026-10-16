@@ -1,0 +1,180 @@
+{
+  "date": "2026-10-16T17:12:41.3556657+08:00",
+  "status": "passed",
+  "request": "详情页可预测返回保持原尺寸、不透明，修复缺失的返回动画",
+  "implementation": [
+    "系统侧滑保持 scale=1、alpha=1，以横向位移揭示上一页",
+    "取消回位，可接住尚在回位的页面继续下一次手势",
+    "通过 Activity PredictiveBackHandler 注册真实系统手势回调",
+    "静息主题保留返回动画，仅明确减少动态效果时关闭",
+    "设备遥控与电视登录子页接入统一导航返回"
+  ],
+  "validation": {
+    "debugApkBuild": "passed",
+    "applicationId": "com.yfuse.backpreview",
+    "deliveredRelease": false,
+    "includeMdk": true,
+    "nativeOnlyRuntime": false,
+    "unitTests": 74,
+    "unitFailures": 0,
+    "unitErrors": 0,
+    "instrumentedTests": 7,
+    "instrumentedFailures": 0,
+    "device": "isolated Android 15 API 35 emulator",
+    "lint": "passed, scoped to 14 changed Kotlin files",
+    "diffCheck": "passed",
+    "pixelAssertions": "Both edges and Classic/Calm themes: full size and opaque; 1 px tolerance for translated antialiasing",
+    "systemGestureAssertions": "Reveal destination before release, cancel, repeat, nested pop, Home/resume, menu priority and root fallback",
+    "limitation": "Pixel tests use colored route fixtures in the production navigation host, not a live server media detail session",
+    "initialUnitFailure": "Legacy fixture still drove the old dispatcher; fixture bridge updated with all assertions preserved, then all 74 passed"
+  },
+  "evidence": {
+    "build": "build-and-initial-tests.log",
+    "unit": "unit-tests-final.log",
+    "device": "device-tests.log",
+    "lint": "lint-final.log",
+    "screenshots": "screenshots"
+  },
+  "officialReferences": [
+    "https://developer.android.com/design/ui/mobile/guides/patterns/predictive-back",
+    "https://developer.android.com/develop/ui/compose/system/predictive-back-setup"
+  ],
+  "designNote": "Full-size opaque translation follows the user requirement; it deliberately does not reproduce the default Google shrinking/fading visual.",
+  "testSuites": [
+    {
+      "name": "com.yfuse.core.designsystem.BackdropFramesTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.core.designsystem.PredictiveBackMotionTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ZoomBackCatchTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ZoomBackGeometryTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ZoomBackNavigationTest",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.core.designsystem.ZoomBackPullTrackerTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.feature.handoff.DeviceHandoffStoreTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.feature.handoff.HandoffBannerTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.feature.handoff.HandoffTargetIdentityTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.feature.handoff.HandoffTimelineTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yfuse.feature.handoff.RemoteSwipeTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "sources": [
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/PlatformBackHandler.kt",
+      "sha256": "f2fd55c77f949dfc82cd603402802444700094e39a3d47b515fdf6b4b0645bb0"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/designsystem/PlatformBackHandler.android.kt",
+      "sha256": "b23a0f2c302441a5af5d0f2df1a878f50d4c05821817c1ea9bae7f31ec9c1f11"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/handoff/DeviceHandoffScreen.kt",
+      "sha256": "011ab7a80fd509074b6c548ddec3c311090cf91e0b034d65a42fd6c7fad1c831"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/handoff/PhoneRemoteScreen.kt",
+      "sha256": "3511ce284cc411fb744269792126ca30cebfdd610af2e94faa4ec0eaf66c6002"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/handoff/RemoteSignInScreen.kt",
+      "sha256": "089ed4de30d097bf7f3ee09f5e8774acefcf969c2403a0911bdc87f59ac2ba80"
+    },
+    {
+      "path": "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/app/DetailBackNavigationInstrumentedTest.kt",
+      "sha256": "470ed903b057e82b98cfdc11147171f50272c053982fdf3a5d5dc14b1543f8f8"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/OfficialNavDisplay.kt",
+      "sha256": "d24c86b3c752d55f853f17efd0a605be17271e33ae0e0b0e01d6ccebd75c0ec4"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/BackOverlay.kt",
+      "sha256": "c3df64a4ac3dbd568217499d3cbc41f0a4c9c2aa2c538fbc1ab53a3ef53f4a23"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ZoomBack.kt",
+      "sha256": "08d34fda184a3a114d3ff2d2fe6019651c5a9290272387002c20f8a01f014bbb"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ZoomBackGeometry.kt",
+      "sha256": "a136a54561f8b7524cc71a1637fa2530145d1e6e113d2137becde74bc8fc6757"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ZoomBackNavigation.kt",
+      "sha256": "985aa5682c57bf45cec9217842171a13942f87bb4f47d567536f5ec4f491b881"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/PredictiveBackMotionTest.kt",
+      "sha256": "4d95fc4da72faa6a2d65eea00501cb1a417892bcb5001e3da4b1697a6011a738"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/ZoomBackNavigationTest.kt",
+      "sha256": "0a241c9558af4123cf244b4ac1fd0676fccd7117d921effa672235e253db8499"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/ZoomBackGeometryTest.kt",
+      "sha256": "4b0a97a19fc642126465eeff3de7896846eca9236f67e8a5249bdc74c804a4f8"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.handoff.HandoffBannerTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-16T09:11:13.268Z" hostname="DESKTOP-HM2J0FM" time="0.01">
+  <properties/>
+  <testcase name="the_clock_reads_like_the_player" classname="com.yfuse.feature.handoff.HandoffBannerTest" time="0.005"/>
+  <testcase name="a_failed_transfer_says_why_unless_another_is_offered" classname="com.yfuse.feature.handoff.HandoffBannerTest" time="0.001"/>
+  <testcase name="continuing_shows_until_the_transfer_it_started_is_over" classname="com.yfuse.feature.handoff.HandoffBannerTest" time="0.001"/>
+  <testcase name="another_devices_playback_is_offered_only_when_this_one_could_take_it" classname="com.yfuse.feature.handoff.HandoffBannerTest" time="0.002"/>
+  <testcase name="an_offered_transfer_comes_first_and_steps_aside_while_it_is_being_refused" classname="com.yfuse.feature.handoff.HandoffBannerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

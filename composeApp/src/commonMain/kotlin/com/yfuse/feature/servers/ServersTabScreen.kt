@@ -376,7 +376,6 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
             isCurrent = server.id == state.defaultServerId,
             canManage = canManage,
             health = health[server.id],
-            lastWatchedLabel = formatWatchedAgo(lastWatched[server.id], nowEpochMs),
             onOpenLibrary = {
                 if (server.id != state.defaultServerId) {
                     component.store.accept(ServersIntent.SelectDefault(server.id))

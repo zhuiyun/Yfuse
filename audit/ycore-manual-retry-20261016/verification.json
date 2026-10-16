@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-16",
+  "baseCommit": "98366c4db071fafc297f4eccc640c5b157979cdd",
+  "build": "BUILD SUCCESSFUL in 7m 19s",
+  "checks": [
+    ":phoneShared:ktlintCheck (4 changed Kotlin files)",
+    ":phoneShared:testAndroidHostTest",
+    ":composeApp:compileDebugKotlin",
+    "git diff --check"
+  ],
+  "tests": {
+    "suites": 865,
+    "tests": 4902,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "yfuseIncludeMdk": true,
+  "yfuseNativeOnlyRuntime": false,
+  "apkBuilt": false,
+  "deviceTested": false,
+  "files": [
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt",
+      "sha256": "dce89b3d2f46c18986076e1bc8657514b4a6e4a26bd4f77a266c34c7ab2408e1"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2MediaProbe.kt",
+      "sha256": "5cc02d213a669b692539a730c256b97b8e01553663ee47f05fd3ab38beb9826f"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedMediaProbe.kt",
+      "sha256": "456aad33a7bd2b69a6c41daca43caaa25a999b5ac35dfaf6ec61a15af2aa15f7"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidEnhancedMediaProbeFailureMemoryTest.kt",
+      "sha256": "191ddbe54a3eda96eedfd296d6da74aa3551342666ae066d599d097a0e6325fc"
+    }
+  ]
+}

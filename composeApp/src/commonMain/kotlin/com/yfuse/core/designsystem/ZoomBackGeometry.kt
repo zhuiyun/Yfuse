@@ -29,12 +29,6 @@ internal const val ZOOM_BACK_FLICK_CREDIT = ZOOM_BACK_COMMIT / 2f
 /** How much a full pull shrinks the page about the finger. */
 internal const val ZOOM_BACK_PULL_SHRINK = 0.3f
 
-/** How much a full side swipe shrinks the page about its centre — the platform's lighter touch. */
-internal const val ZOOM_BACK_SIDE_SHRINK = 0.12f
-
-/** How much of the finger's vertical travel a side swipe carries into the page. */
-internal const val ZOOM_BACK_SIDE_FOLLOW = 0.12f
-
 /** Where the page underneath starts from, and how dark it is while the page above is still whole. */
 internal const val ZOOM_BACK_UNDERLAY_SCALE = 0.95f
 internal const val ZOOM_BACK_UNDERLAY_DIM = 0.5f
@@ -53,9 +47,6 @@ internal const val ZOOM_BACK_MAX_FLIGHT_VELOCITY = 12f
 
 /** The card's corner radius at progress 1. */
 val ZoomBackCorner = 34.dp
-
-/** How far a full side swipe moves the page towards the finger. */
-val ZoomBackSideShift = 14.dp
 
 /** How far a finger travels before a drag's direction is decided. */
 val ZoomBackSlop = 8.dp
@@ -126,30 +117,25 @@ fun zoomBackPullCard(
     )
 }
 
-/**
- * The page under the system's side swipe: scaled by 1 − 0.12p about its centre, moved [shiftAtFullPx] × p
- * [toward] the finger (+1 for a swipe from the left edge, −1 from the right) and following 12% of
- * the finger's vertical travel since the swipe began, [lift].
- */
+/** Full-size, opaque translation. Gesture progress and committed travel share the same path. */
 fun zoomBackSideCard(
     page: Size,
     progress: Float,
     toward: Float,
-    lift: Float,
-    shiftAtFullPx: Float,
-    cornerAtFullPx: Float,
-): ZoomCard {
-    val p = progress.coerceIn(0f, 1f)
-    val scale = 1f - ZOOM_BACK_SIDE_SHRINK * p
-    val width = page.width * scale
-    val height = page.height * scale
-    val left = (page.width - width) / 2f + toward * shiftAtFullPx * p
-    val top = (page.height - height) / 2f + ZOOM_BACK_SIDE_FOLLOW * lift
-    return ZoomCard(
-        bounds = Rect(left, top, left + width, top + height),
-        contentScale = scale,
-        cornerRadius = cornerAtFullPx * p,
+): ZoomCard =
+    ZoomCard.resting(page).copy(
+        bounds = Rect(Offset(toward * page.width * progress.coerceIn(0f, 1f), 0f), page),
     )
+
+/** Continues from the release position, with no scale, vertical drift or opacity change. */
+internal fun zoomBackCommitCard(
+    from: ZoomCard,
+    page: Size,
+    toward: Float,
+    fraction: Float,
+): ZoomCard {
+    val target = zoomBackSideCard(page, 1f, toward)
+    return zoomBackFlightCard(from, target.bounds, page, fraction.coerceIn(0f, 1f), 0f, landing = false)
 }
 
 /** The page underneath: 0.95 while the page above is whole, 1 once it has gone. */

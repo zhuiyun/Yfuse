@@ -1,0 +1,13 @@
+def reviewedFiles = [
+ "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt",
+ "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2MediaProbe.kt",
+ "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedMediaProbe.kt",
+ "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidEnhancedMediaProbeFailureMemoryTest.kt"
+] as Set
+
+gradle.projectsEvaluated {
+ allprojects {
+  def lint = extensions.findByName("ktlint")
+  if (lint != null) { lint.filter { exclude { element -> !element.directory && !reviewedFiles.contains(rootProject.relativePath(element.file).replace("\\", "/")) } } }
+ }
+}

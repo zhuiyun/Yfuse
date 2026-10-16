@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.BackdropFramesTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-16T09:11:13.018Z" hostname="DESKTOP-HM2J0FM" time="0.014">
+  <properties/>
+  <testcase name="ready_surface_redraws_for_each_new_frame" classname="com.yfuse.core.designsystem.BackdropFramesTest" time="0.013"/>
+  <testcase name="empty_surface_redraws_when_the_first_frame_arrives" classname="com.yfuse.core.designsystem.BackdropFramesTest" time="0.0"/>
+  <testcase name="recording_does_not_subscribe_the_source_to_its_own_frames" classname="com.yfuse.core.designsystem.BackdropFramesTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

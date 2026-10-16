@@ -31,7 +31,6 @@ import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
-import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingsCard
@@ -78,7 +77,6 @@ internal fun RemoteSignInScreen(
         }
     // Leaving withdraws a server that was only offered: the television stops showing it.
     DisposableEffect(client) { onDispose { client.close() } }
-    PlatformBackHandler(onBack = onBack)
     val servers by registry.data.collectAsState()
     val access by personal.policy.collectAsState()
     val state by client.state.collectAsState()

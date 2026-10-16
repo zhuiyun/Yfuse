@@ -27,7 +27,6 @@ import com.yfuse.core.designsystem.ThemeText as Text
 /** Compact shortcuts leave the history cards as this tab's primary content. */
 @Composable
 internal fun WatchingEntrySection(
-    onOpenWatchingCenter: () -> Unit,
     onOpenDiscovery: () -> Unit,
     onOpenCalendar: () -> Unit,
 ) {
@@ -35,7 +34,6 @@ internal fun WatchingEntrySection(
         Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        WatchingEntry("观看中心", "续播与收藏", AppIcons.Play, onOpenWatchingCenter, Modifier.weight(1f))
         WatchingEntry("发现", "推荐与热门", AppIcons.Search, onOpenDiscovery, Modifier.weight(1f))
         WatchingEntry("追剧日历", "播出与追更", AppIcons.WatchCalendar, onOpenCalendar, Modifier.weight(1f))
     }

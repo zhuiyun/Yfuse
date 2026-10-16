@@ -28,6 +28,8 @@ import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.Section
@@ -62,113 +64,131 @@ fun DeviceHandoffScreen(
     // So does 登录服务器到电视, for a television whose 添加服务器 waits on a phone.
     var signInSessionId by rememberSaveable { mutableStateOf<String?>(null) }
     var signInName by rememberSaveable { mutableStateOf("") }
-    val television = remoteSessionId
-    if (television != null) {
-        PhoneRemoteScreen(television, remoteName, onBack = { remoteSessionId = null })
-        return
+    val pages =
+        buildList {
+            add(HandoffPage("devices"))
+            remoteSessionId?.let { add(HandoffPage("remote", it, remoteName)) }
+            signInSessionId?.let { add(HandoffPage("sign-in", it, signInName)) }
+        }
+    val closeChild: () -> Unit = {
+        if (signInSessionId != null) signInSessionId = null else remoteSessionId = null
     }
-    val asking = signInSessionId
-    if (asking != null) {
-        RemoteSignInScreen(asking, signInName, onBack = { signInSessionId = null })
-        return
-    }
-    // Only this page, not a remote or a sign-in in its place, has the devices asked for more often.
-    DisposableEffect(store) {
-        store.accept(DeviceHandoffIntent.PageShown)
-        onDispose { store.accept(DeviceHandoffIntent.PageHidden) }
-    }
-    SettingsPage(title = "设备接力", onBack = onBack) {
-        if (state.signInAsks.isNotEmpty()) {
-            item {
-                Section(title = "等待登录的电视") {
-                    SettingsCard {
-                        state.signInAsks.forEachIndexed { index, waiting ->
-                            if (index > 0) SettingsDivider()
-                            SettingRow(
-                                "登录服务器到 ${waiting.name}",
-                                embedded = true,
-                                onClick = {
-                                    signInName = waiting.name
-                                    signInSessionId = waiting.sessionId
-                                },
-                                icon = AppIcons.Server,
-                                supporting = "电视正在等待，选一台服务器发给它",
+    OfficialNavDisplay(
+        backStack = pages,
+        onBack = closeChild,
+        contentKey = { "${it.kind}:${it.sessionId}" },
+    ) { page ->
+        when (page.kind) {
+            "remote" -> PhoneRemoteScreen(page.sessionId, page.name, onBack = closeChild)
+            "sign-in" -> RemoteSignInScreen(page.sessionId, page.name, onBack = closeChild)
+            else -> {
+                // Only this page, not a remote or a sign-in in its place, has the devices asked for more often.
+                val visible = LocalRouteVisible.current
+                DisposableEffect(store, visible) {
+                    if (visible) store.accept(DeviceHandoffIntent.PageShown)
+                    onDispose { if (visible) store.accept(DeviceHandoffIntent.PageHidden) }
+                }
+                SettingsPage(title = "设备接力", onBack = onBack) {
+                    if (state.signInAsks.isNotEmpty()) {
+                        item {
+                            Section(title = "等待登录的电视") {
+                                SettingsCard {
+                                    state.signInAsks.forEachIndexed { index, waiting ->
+                                        if (index > 0) SettingsDivider()
+                                        SettingRow(
+                                            "登录服务器到 ${waiting.name}",
+                                            embedded = true,
+                                            onClick = {
+                                                signInName = waiting.name
+                                                signInSessionId = waiting.sessionId
+                                            },
+                                            icon = AppIcons.Server,
+                                            supporting = "电视正在等待，选一台服务器发给它",
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        Section(title = "在线设备") {
+                            SettingsCard {
+                                SettingRow(
+                                    "连接状态",
+                                    state.connectionLabel,
+                                    embedded = true,
+                                )
+                                if (state.online && state.devices.isEmpty()) {
+                                    SettingsDivider()
+                                    SettingRow("可用设备", "暂未发现可接收的在线设备", embedded = true)
+                                }
+                                state.devices.forEach { device ->
+                                    SettingsDivider()
+                                    SettingRow(
+                                        device.name,
+                                        device.platform + if (state.busy) " · 接力中" else " · 接力播放",
+                                        embedded = true,
+                                        icon = AppIcons.Play,
+                                        onClick =
+                                            if (state.busy) {
+                                                null
+                                            } else {
+                                                ({ store.accept(DeviceHandoffIntent.Send(device.sessionId)) })
+                                            },
+                                    )
+                                }
+                                // Only televisions that host 手机遥控 are listed, and only on a device that is not one.
+                                state.remotes.forEach { remote ->
+                                    SettingsDivider()
+                                    SettingRow(
+                                        "遥控 ${remote.name}",
+                                        "手机当遥控器和键盘",
+                                        embedded = true,
+                                        icon = AppIcons.Grid,
+                                        onClick = {
+                                            remoteName = remote.name
+                                            remoteSessionId = remote.sessionId
+                                        },
+                                    )
+                                }
+                                if (state.busy) {
+                                    SettingsDivider()
+                                    SettingRow("取消接力", "停止本次传输", embedded = true, onClick = {
+                                        store.accept(DeviceHandoffIntent.CancelTransfer)
+                                    })
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        Section(title = "使用说明") {
+                            ThemeText(
+                                "两台设备需登录同一鱼服账号并保持在线。接收设备确认就绪后，本机才会暂停。",
+                                style = AppTypography.caption.regular,
+                                color = palette.sub2,
+                            )
+                        }
+                    }
+                    listOfNotNull(state.message, state.connectionError, state.error).forEach { notice ->
+                        item {
+                            ThemeText(
+                                notice,
+                                color = palette.sub,
+                                modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
                             )
                         }
                     }
                 }
             }
         }
-        item {
-            Section(title = "在线设备") {
-                SettingsCard {
-                    SettingRow(
-                        "连接状态",
-                        state.connectionLabel,
-                        embedded = true,
-                    )
-                    if (state.online && state.devices.isEmpty()) {
-                        SettingsDivider()
-                        SettingRow("可用设备", "暂未发现可接收的在线设备", embedded = true)
-                    }
-                    state.devices.forEach { device ->
-                        SettingsDivider()
-                        SettingRow(
-                            device.name,
-                            device.platform + if (state.busy) " · 接力中" else " · 接力播放",
-                            embedded = true,
-                            icon = AppIcons.Play,
-                            onClick =
-                                if (state.busy) {
-                                    null
-                                } else {
-                                    ({ store.accept(DeviceHandoffIntent.Send(device.sessionId)) })
-                                },
-                        )
-                    }
-                    // Only televisions that host 手机遥控 are listed, and only on a device that is not one.
-                    state.remotes.forEach { remote ->
-                        SettingsDivider()
-                        SettingRow(
-                            "遥控 ${remote.name}",
-                            "手机当遥控器和键盘",
-                            embedded = true,
-                            icon = AppIcons.Grid,
-                            onClick = {
-                                remoteName = remote.name
-                                remoteSessionId = remote.sessionId
-                            },
-                        )
-                    }
-                    if (state.busy) {
-                        SettingsDivider()
-                        SettingRow("取消接力", "停止本次传输", embedded = true, onClick = {
-                            store.accept(DeviceHandoffIntent.CancelTransfer)
-                        })
-                    }
-                }
-            }
-        }
-        item {
-            Section(title = "使用说明") {
-                ThemeText(
-                    "两台设备需登录同一鱼服账号并保持在线。接收设备确认就绪后，本机才会暂停。",
-                    style = AppTypography.caption.regular,
-                    color = palette.sub2,
-                )
-            }
-        }
-        listOfNotNull(state.message, state.connectionError, state.error).forEach { notice ->
-            item {
-                ThemeText(
-                    notice,
-                    color = palette.sub,
-                    modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-                )
-            }
-        }
     }
 }
+
+private data class HandoffPage(
+    val kind: String,
+    val sessionId: String = "",
+    val name: String = "",
+)
 
 /**
  * The same page for the television's settings, which swap their pages in place rather than through

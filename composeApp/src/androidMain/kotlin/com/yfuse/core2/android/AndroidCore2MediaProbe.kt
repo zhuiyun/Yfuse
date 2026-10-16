@@ -622,6 +622,11 @@ internal class AndroidCore2RouteEvaluator(
     private var lastPlatformAttempt: Triple<YMediaItem, AndroidProbeBudget?, YCore2ProbeResult>? = null
     val sourceFacts = kotlinx.coroutines.flow.MutableStateFlow<AndroidPlaybackProbeFacts?>(null)
 
+    fun resetForRetry() {
+        lastPlatformAttempt = null
+        enhancedProbe.resetFailuresForRetry()
+    }
+
     fun adoptCurrentItem(
         item: YMediaItem,
         positionMs: Long,

@@ -51,9 +51,18 @@ internal class AndroidEnhancedMediaProbe(
      * seconds over the network) for the same answer before the actual open failed again in
      * milliseconds. Remembering the failure briefly keeps the recovery chain honest about time
      * without pinning the route: a recovered network is retried after the window, while a
-     * refreshed URL or authorization is retried immediately.
+     * refreshed URL, authorization or explicit viewer retry is attempted immediately.
      */
     private val failureCache = HashMap<EnhancedProbeFailureKey, TimedProbeFailure>()
+    private var retryGeneration = 0L
+
+    /** A viewer retry must read the source again, even inside the automatic recovery cooldown. */
+    fun resetFailuresForRetry() {
+        synchronized(probeCacheLock) {
+            retryGeneration++
+            failureCache.clear()
+        }
+    }
 
     /**
      * Successful deep probes for this evaluator's lifetime, newest last.
@@ -81,13 +90,15 @@ internal class AndroidEnhancedMediaProbe(
         val failureKey =
             EnhancedProbeFailureKey(cacheKey, item.uri, item.headers.toMap(), item.transportCredentials)
         val now = clock()
-        synchronized(probeCacheLock) {
-            probeCache[cacheKey]?.let { cached -> return cached }
-            failureCache[failureKey]?.let { failed ->
-                if (now - failed.retryAfterNs < 0L) return failed.result
-                failureCache.remove(failureKey)
+        val probeGeneration =
+            synchronized(probeCacheLock) {
+                probeCache[cacheKey]?.let { cached -> return cached }
+                failureCache[failureKey]?.let { failed ->
+                    if (now - failed.retryAfterNs < 0L) return failed.result
+                    failureCache.remove(failureKey)
+                }
+                retryGeneration
             }
-        }
         val result =
             yCoreStartupStage("enhanced_probe", item) {
                 if (budget == null) {
@@ -106,6 +117,8 @@ internal class AndroidEnhancedMediaProbe(
             }
         budget?.ensureActive()
         synchronized(probeCacheLock) {
+            // A cancelled native probe may finish late; it cannot poison the viewer's new attempt.
+            if (probeGeneration != retryGeneration) return result
             when (result) {
                 is YCore2ProbeResult.Success -> {
                     failureCache.remove(failureKey)

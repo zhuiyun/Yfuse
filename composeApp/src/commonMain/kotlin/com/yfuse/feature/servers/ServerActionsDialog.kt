@@ -1,66 +1,74 @@
-@file:OptIn(ExperimentalSharedTransitionApi::class)
-
 package com.yfuse.feature.servers
 
-import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.data.LatencySeverity
 import com.yfuse.core.data.ServerHealth
 import com.yfuse.core.data.ServerHealthStatus
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.Semantic
-import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.overlayAction
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.serverTintColor
 import com.yfuse.core.model.SavedServer
+import kotlinx.coroutines.delay
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
-/**
- * Long-press menu — the card's own identity, then the things its face cannot carry.
- *
- * The first version was a title, a URL and three bare lines of text, the destructive one
- * wearing a full-bleed pink band that ran into the panel's edges. It read as a form rather
- * than as a menu about one particular machine. This one restates the card — same badge
- * colour, same two facts — so there is never a doubt about which of a dozen servers is
- * about to be removed, and gives every action a glyph, a sentence and a shape of its own.
- */
+/** Bottom sheet with separate connection and management pages and a fixed library action. */
 @Composable
 internal fun ServerActionsDialog(
     server: SavedServer,
     isCurrent: Boolean,
-    /** False for a child profile: what changes the server is left out, and the note says why. */
     canManage: Boolean,
     health: ServerHealth?,
-    lastWatchedLabel: String,
     onOpenLibrary: () -> Unit,
     onRefresh: () -> Unit,
     onCopyAddress: () -> Unit,
@@ -74,282 +82,300 @@ internal fun ServerActionsDialog(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    GlassDialog(onDismiss = onDismiss) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
+    val sheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    var managing by rememberSaveable(server.id, canManage) { mutableStateOf(false) }
+    var copied by remember(server.id) { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(2_000)
+            copied = false
+        }
+    }
+    GlassDialog(
+        onDismiss = onDismiss,
+        modifier =
+            Modifier
+                .background(if (palette.isDark) palette.reducedFill.card2 else Color.White, sheetShape)
+                .semantics { paneTitle = "${server.serverName}服务器操作" },
+        scrollable = false,
+        liquidButtons = false,
+        contentPadding = 0.dp,
+        alignment = Alignment.BottomCenter,
+        windowPadding = PaddingValues(start = 12.dp, top = 24.dp, end = 12.dp, bottom = 0.dp),
+        shape = sheetShape,
+        maxWidth = 480.dp,
+        dragHandle = false,
+        animation = DialogAnimation.Slide,
+    ) {
+        val sheetPalette = LocalPalette.current
+        val accent = LocalAccentColors.current
+        Box(
+            Modifier
+                .align(Alignment.CenterHorizontally)
+                .padding(top = 10.dp, bottom = 4.dp)
+                .size(width = 30.dp, height = 4.dp)
+                .background(sheetPalette.sub2.copy(alpha = 0.45f), CircleShape),
+        )
+        ServerActionsHeader(server, isCurrent, health, onDismiss)
+
+        if (canManage) {
+            Row(
                 Modifier
-                    .size(44.dp)
-                    .clip(AppShapes.thumb)
-                    .background(serverTintColor(server.id, server.iconTint)),
-                contentAlignment = Alignment.Center,
+                    .padding(horizontal = 18.dp)
+                    .fillMaxWidth()
+                    .selectableGroup()
+                    .background(sheetPalette.reducedFill.card3, AppShapes.control)
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    server.iconEmoji ?: server.serverName.take(1).uppercase(),
-                    style = AppTypography.section.strong,
-                    color = if (server.iconEmoji == null) Color.White else Color.Unspecified,
-                )
+                ServerActionsTab("连接", selected = !managing, modifier = Modifier.weight(1f)) { managing = false }
+                ServerActionsTab("管理", selected = managing, modifier = Modifier.weight(1f)) { managing = true }
             }
-            Column(Modifier.weight(1f)) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        server.serverName,
-                        style = AppTypography.section.strong,
-                        color = palette.text,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (isCurrent) {
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // Only the action list scrolls: short screens retain both the identity and the library key.
+        key(managing) {
+            Column(
+                Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp),
+            ) {
+                Column(Modifier.heightIn(min = if (canManage && !isCurrent) 276.dp else 224.dp)) {
+                    ServerActionsGroup {
+                        if (managing && canManage) {
+                            ServerActionRow(AppIcons.Edit, "编辑服务器", onClick = overlayAction(onEdit))
+                            ServerActionsDivider()
+                            ServerActionRow(AppIcons.Grid, "图标与颜色", onClick = overlayAction(onIcon))
+                            ServerActionsDivider()
+                            ServerActionRow(AppIcons.Server, "服务器管理", onClick = overlayAction(onManage))
+                            if (!isCurrent) {
+                                ServerActionsDivider()
+                                ServerActionRow(AppIcons.Check, "设为当前服务器", onClick = overlayAction(onSetDefault))
+                            }
+                        } else {
+                            ServerActionRow(AppIcons.Refresh, "检测连接", onClick = onRefresh, navigates = false)
+                            if (canManage) {
+                                ServerActionsDivider()
+                                ServerActionRow(AppIcons.Cast, "切换线路", onClick = overlayAction(onRoutes))
+                            }
+                            ServerActionsDivider()
+                            ServerActionRow(
+                                icon = if (copied) AppIcons.Check else AppIcons.Cloud,
+                                label = if (copied) "地址已复制" else "复制地址",
+                                navigates = false,
+                                onClick = {
+                                    onCopyAddress()
+                                    copied = true
+                                },
+                            )
+                            ServerActionsDivider()
+                            ServerActionRow(AppIcons.Lock, "HTTPS 诊断", onClick = overlayAction(onDiagnostics))
+                            // A child may choose its current server, but cannot edit or remove one.
+                            if (!canManage && !isCurrent) {
+                                ServerActionsDivider()
+                                ServerActionRow(AppIcons.Check, "设为当前服务器", onClick = overlayAction(onSetDefault))
+                            }
+                        }
+                    }
+                    if (managing && canManage) {
+                        Spacer(Modifier.height(12.dp))
+                        ServerActionsGroup {
+                            ServerActionRow(
+                                AppIcons.Remove,
+                                "移除服务器",
+                                destructive = true,
+                                onClick = overlayAction(onRemove),
+                            )
+                        }
+                    }
+                    if (!canManage) {
                         Text(
-                            "当前",
-                            style = AppTypography.caption.strong,
-                            color = accent.accent,
-                            modifier =
-                                Modifier
-                                    .glass(AppShapes.chip, accent.container, accent.border)
-                                    .padding(horizontal = 7.dp, vertical = 2.dp),
+                            CHILD_PROFILE_NOTE,
+                            style = AppTypography.caption.regular,
+                            color = sheetPalette.sub2,
+                            modifier = Modifier.padding(top = 12.dp),
                         )
                     }
                 }
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    server.baseUrl,
-                    style = AppTypography.caption.regular,
-                    color = palette.sub2,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         }
 
-        Spacer(Modifier.height(12.dp))
-        // The same two facts the card carries, so the sheet is unmistakably about it.
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .glass(AppShapes.chip, palette.card2, palette.border)
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(
-                        when (health?.status) {
-                            ServerHealthStatus.Healthy -> Semantic.Success
-                            ServerHealthStatus.Degraded -> Semantic.Warning
-                            ServerHealthStatus.AuthRequired -> Semantic.Error
-                            else -> Semantic.Offline
-                        },
-                    ),
-            )
-            Text(
-                connectionLabel(health),
-                style = AppTypography.caption.medium,
-                color = palette.sub,
-                maxLines = 1,
-            )
-            Box(
-                Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(
-                        latencySeverityColor(
-                            health?.latencySeverity ?: LatencySeverity.Unknown,
-                        ),
-                    ),
-            )
-            Text(
-                latencyLabel(health),
-                style = AppTypography.caption.medium,
-                color = latencySeverityColor(health?.latencySeverity ?: LatencySeverity.Unknown),
-                maxLines = 1,
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                lastWatchedLabel,
-                style = AppTypography.caption.regular,
-                color = palette.sub2,
-                maxLines = 1,
-            )
-        }
-
-        Spacer(Modifier.height(14.dp))
-        ServerActionRow(
-            icon = AppIcons.Home,
-            label = "打开媒体库",
-            description = if (isCurrent) "进入当前服务器的内容" else "切换到此服务器并进入内容",
-            prominent = true,
+        Button(
             onClick = overlayAction(onOpenLibrary),
-        )
-        Spacer(Modifier.height(8.dp))
-        ServerActionRow(
-            icon = AppIcons.Refresh,
-            label = "测试连接",
-            description = "重新检查在线状态与访问延迟",
-            onClick = onRefresh,
-        )
-        Spacer(Modifier.height(8.dp))
-        ServerActionRow(
-            icon = AppIcons.Cloud,
-            label = "复制服务器地址",
-            description = server.baseUrl,
-            onClick = onCopyAddress,
-        )
-        Spacer(Modifier.height(8.dp))
-        ServerActionRow(
-            icon = AppIcons.Check,
-            label = if (isCurrent) "已是当前服务器" else "设为当前服务器",
-            description =
-                if (isCurrent) {
-                    "库、搜索和播放都在读取这一台"
-                } else {
-                    "库、搜索和播放都会切到这一台"
-                },
-            enabled = !isCurrent,
-            onClick = overlayAction(onSetDefault),
-        )
-        if (canManage) {
-            Spacer(Modifier.height(8.dp))
-            ServerActionRow(
-                icon = AppIcons.Cast,
-                label = "线路",
-                description = routesSummary(server, health),
-                onClick = overlayAction(onRoutes),
+            modifier =
+                Modifier
+                    .padding(start = 18.dp, top = 16.dp, end = 18.dp, bottom = 18.dp)
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 48.dp),
+            shape = AppShapes.control,
+            colors = ButtonDefaults.buttonColors(containerColor = accent.accent, contentColor = accent.onAccent),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            Text(
+                if (isCurrent) "打开媒体库" else "切换到此服务器",
+                style = AppTypography.body.strong,
+                color = accent.onAccent,
             )
-        }
-        Spacer(Modifier.height(8.dp))
-        ServerActionRow(
-            icon = AppIcons.Lock,
-            label = "HTTPS 诊断",
-            description = "检查主线路与备用地址的传输安全",
-            onClick = overlayAction(onDiagnostics),
-        )
-        if (canManage) {
-            Spacer(Modifier.height(8.dp))
-            ServerActionRow(
-                icon = AppIcons.Server,
-                label = "服务器管理",
-                description = "扫描媒体库、查看并运行服务器任务",
-                onClick = overlayAction(onManage),
-            )
-            Spacer(Modifier.height(8.dp))
-            ServerActionRow(
-                icon = AppIcons.Grid,
-                label = "图标与颜色",
-                description = "给这台服务器一个一眼认得出的样子",
-                onClick = overlayAction(onIcon),
-            )
-            Spacer(Modifier.height(8.dp))
-            ServerActionRow(
-                icon = AppIcons.Edit,
-                label = "编辑连接与名称",
-                description = "改名不用重新登录，改地址或账号要",
-                onClick = overlayAction(onEdit),
-            )
-            Spacer(Modifier.height(8.dp))
-            ServerActionRow(
-                icon = AppIcons.Close,
-                label = "移除服务器",
-                description = "已下载的离线内容会保留",
-                destructive = true,
-                onClick = overlayAction(onRemove),
-            )
-        } else {
-            Spacer(Modifier.height(12.dp))
-            Text(CHILD_PROFILE_NOTE, style = AppTypography.caption.regular, color = palette.sub2)
+            Spacer(Modifier.width(8.dp))
+            Icon(AppIcons.ChevronRight, null, tint = accent.onAccent, modifier = Modifier.size(18.dp))
         }
     }
 }
 
-/** One action: a glyph in its own tile, a verb, and what the verb will do. */
 @Composable
-private fun ServerActionRow(
-    icon: ImageVector,
-    label: String,
-    description: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-    destructive: Boolean = false,
-    prominent: Boolean = false,
+private fun ServerActionsHeader(
+    server: SavedServer,
+    isCurrent: Boolean,
+    health: ServerHealth?,
+    onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val ink =
-        when {
-            destructive -> palette.error
-            !enabled -> palette.sub2
-            else -> palette.text
-        }
+    val close = overlayDismiss(onDismiss)
     Row(
-        Modifier
-            .fillMaxWidth()
-            .pressable(enabled = enabled, onClick = onClick)
-            .liquidGlass(
-                shape = AppShapes.chip,
-                // The destructive fill stays inside the row's own rounded shape instead of
-                // bleeding to the panel's edges the way the old option row's band did.
-                fill =
-                    when {
-                        destructive -> palette.errorContainer
-                        prominent -> accent.container
-                        else -> palette.card2
-                    },
-                border =
-                    when {
-                        destructive -> palette.error.copy(alpha = 0.34f)
-                        prominent -> accent.border.copy(alpha = 0.38f)
-                        else -> palette.border
-                    },
-            ).padding(horizontal = 12.dp, vertical = 11.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             Modifier
-                .size(30.dp)
-                .clip(AppShapes.thumb)
-                .background(
-                    when {
-                        destructive -> palette.error.copy(alpha = 0.12f)
-                        prominent -> accent.accent
-                        else -> accent.container
-                    },
-                ),
+                .size(44.dp)
+                .background(serverTintColor(server.id, server.iconTint), AppShapes.thumb),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint =
-                    when {
-                        destructive -> palette.error
-                        prominent -> accent.onAccent
-                        else -> accent.accent
-                    },
-                modifier = Modifier.size(14.dp),
+            Text(
+                server.iconEmoji ?: server.serverName.take(1).uppercase(),
+                style = AppTypography.section.strong,
+                color = if (server.iconEmoji == null) Color.White else Color.Unspecified,
             )
         }
         Column(Modifier.weight(1f)) {
-            Text(label, style = AppTypography.body.strong, color = ink, maxLines = 1)
-            Spacer(Modifier.height(2.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    server.serverName,
+                    style = AppTypography.body.strong,
+                    color = palette.text,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).semantics { heading() },
+                )
+                if (isCurrent) {
+                    Text(
+                        "当前",
+                        style = AppTypography.caption.strong,
+                        color = accent.accent,
+                        modifier =
+                            Modifier
+                                .background(
+                                    accent.container,
+                                    AppShapes.thumb,
+                                ).padding(horizontal = 5.dp, vertical = 2.dp),
+                    )
+                }
+            }
             Text(
-                description,
+                "${server.kind.name} · ${server.baseUrl.removePrefix("https://").removePrefix("http://")}",
                 style = AppTypography.caption.regular,
                 color = palette.sub2,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+            Text(
+                buildString {
+                    append(connectionLabel(health))
+                    health?.latencyMs?.let { append(" · $it ms") }
+                },
+                style = AppTypography.caption.medium,
+                color =
+                    when (health?.status) {
+                        ServerHealthStatus.Healthy -> palette.success
+                        ServerHealthStatus.Degraded -> palette.warning
+                        ServerHealthStatus.Offline, ServerHealthStatus.AuthRequired -> palette.error
+                        else -> palette.sub2
+                    },
+                modifier = Modifier.padding(top = 5.dp).liveStatus(),
             )
         }
+        Box(
+            Modifier
+                .size(44.dp)
+                .pressable(role = Role.Button, focusShape = CircleShape, onClickLabel = "关闭菜单", onClick = close)
+                .background(palette.reducedFill.card3, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(AppIcons.Close, "关闭菜单", tint = palette.sub2, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun ServerActionsTab(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Box(
+        modifier
+            .pressable(role = Role.Tab, focusShape = AppShapes.thumb, onClick = onClick)
+            .semantics { this.selected = selected }
+            .background(if (selected) palette.text else Color.Transparent, AppShapes.thumb)
+            .defaultMinSize(minHeight = 44.dp)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            style = AppTypography.body.strong,
+            color = if (selected) palette.background else palette.sub2,
+        )
+    }
+}
+
+@Composable
+private fun ServerActionsGroup(content: @Composable ColumnScope.() -> Unit) {
+    val palette = LocalPalette.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(AppShapes.control)
+            .background(palette.reducedFill.card3)
+            .border(1.dp, palette.sub2.copy(alpha = 0.45f), AppShapes.control),
+        content = content,
+    )
+}
+
+@Composable
+private fun ServerActionsDivider() {
+    Box(Modifier.fillMaxWidth().height(1.dp).background(LocalPalette.current.text.copy(alpha = 0.1f)))
+}
+
+@Composable
+private fun ServerActionRow(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    destructive: Boolean = false,
+    navigates: Boolean = true,
+) {
+    val palette = LocalPalette.current
+    val ink = if (destructive) palette.error else palette.text
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .pressable(role = Role.Button, focusShape = AppShapes.control, onClick = onClick)
+            .background(if (destructive) palette.errorContainer else Color.Transparent)
+            .defaultMinSize(minHeight = 52.dp)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = ink, modifier = Modifier.size(20.dp))
+        Text(label, style = AppTypography.body.medium, color = ink, modifier = Modifier.weight(1f))
+        if (navigates) Icon(AppIcons.ChevronRight, null, tint = ink, modifier = Modifier.size(16.dp))
     }
 }

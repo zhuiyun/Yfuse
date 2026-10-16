@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.feature.handoff.DeviceHandoffStoreTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-10-16T09:11:13.198Z" hostname="DESKTOP-HM2J0FM" time="0.069">
+  <properties/>
+  <testcase name="while_the_page_is_shown_the_devices_are_asked_for_sooner_than_the_heartbeat" classname="com.yfuse.feature.handoff.DeviceHandoffStoreTest" time="0.042"/>
+  <testcase name="the_page_shows_what_the_controller_knows_of_the_accounts_devices" classname="com.yfuse.feature.handoff.DeviceHandoffStoreTest" time="0.003"/>
+  <testcase name="a_closed_page_stops_asking" classname="com.yfuse.feature.handoff.DeviceHandoffStoreTest" time="0.004"/>
+  <testcase name="a_transfer_is_sent_and_cancelled_through_the_controller" classname="com.yfuse.feature.handoff.DeviceHandoffStoreTest" time="0.019"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

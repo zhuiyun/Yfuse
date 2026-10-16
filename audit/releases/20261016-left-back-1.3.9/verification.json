@@ -1,0 +1,112 @@
+{
+  "versionName": "1.3.9",
+  "versionCode": 291,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "98366c4db071fafc297f4eccc640c5b157979cdd",
+  "treeDirtyAtBuild": true,
+  "diffHash": "7d5e2d12df71",
+  "uncommittedInputs": [
+    ".github/mdk-distribution-approval.json",
+    "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/app/DetailBackNavigationInstrumentedTest.kt",
+    "composeApp/src/androidMain/AndroidManifest.xml",
+    "composeApp/src/androidMain/kotlin/com/yfuse/app/AnimatedSplashApp.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/app/SplashChoreography.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core/designsystem/PlatformBackHandler.android.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core/designsystem/SplashPreview.android.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2MediaProbe.kt",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedMediaProbe.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/app/SplashTimingPolicyTest.kt",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidEnhancedMediaProbeFailureMemoryTest.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/BackOverlay.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/OfficialNavDisplay.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/PlatformBackHandler.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ZoomBack.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ZoomBackGeometry.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ZoomBackNavigation.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/handoff/DeviceHandoffScreen.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/handoff/PhoneRemoteScreen.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/handoff/RemoteSignInScreen.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/history/WatchingEntrySection.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryScreen.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AddServerDialog.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServerActionsDialog.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServerFormFields.kt",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersTabScreen.kt",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/PredictiveBackMotionTest.kt",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/ZoomBackGeometryTest.kt",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/ZoomBackNavigationTest.kt",
+    "release-notes.txt",
+    "version.properties"
+  ],
+  "buildInputsRecheckedAfterBuild": true,
+  "file": "Yfuse-1.3.9-full-arm64.apk",
+  "bytes": 29983843,
+  "sha256": "8f1c3459c2a3b9b89bdd2721257b03b3ed188d861cef284da48befd04a0f9591",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "numberOfSigners": 1,
+  "zipAlignment16K": true,
+  "dexVerified": true,
+  "dexClasses": 14242,
+  "dexMethodsWithCode": 62657,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "dexFiles": {
+    "classes.dex": "8a3e0c9cce36a7c14d3bb4877ae15b51b0f00dcc24c90f4bb619e7ea5e22a911",
+    "classes2.dex": "9afc19c37fd961e410ff7a2a5480af64a08fe078a275f4b4e2b87d9d8072acc0"
+  },
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1195544,
+      "sha256": "c889a8704465ce7cbfc48d302da7e2482b4d59afe1eaacbd9c49eee150197203"
+    }
+  },
+  "mdkEngineMatchesPinnedSdk": true,
+  "mdkPlaybackSnapshotJniIncluded": true,
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "previousActualVersionName": "1.3.8",
+  "previousActualVersionCode": 290,
+  "previousArtifactSha256": "fa4a1de19ba22edc49710e27447a25e2698f36ab42223cbb6e7f1a85ae12c3c1",
+  "releaseNotesFirstLine": "1.3.9",
+  "sourceRegression": {
+    "reusedPriorResults": false,
+    "scope": "Fresh navigation and handoff tests for uniform leftward exit; tested source hashes rechecked",
+    "navigationSourceHashesRechecked": 14,
+    "validatedSourceHashesRechecked": 33,
+    "modules": {
+      "phoneShared": {
+        "tests": 75,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "suites": 11
+      }
+    },
+    "testTask": ":phoneShared:testAndroidHostTest",
+    "testXmlManifestSha256": "a78cde59b0b70182911e7013869d4dcc654196baf210466e411ee9d032c8eb00"
+  },
+  "buildWarnings": [
+    "No update-manifest public key is configured; the local build permits this and APK signature verification passed."
+  ],
+  "sourceDeviceValidation": {
+    "tests": 7,
+    "failures": 0,
+    "platform": "Android 17 API 37 Pixel_10a emulator; isolated com.yfuse.backpreview application",
+    "android17DeviceTestPerformed": true,
+    "fixture": "Production navigation host with colored routes; full-size opaque pixels, leftward exit from either edge, real edge input, nested return, cancellation, Home/resume"
+  },
+  "deviceTestOfReleasePerformed": false,
+  "serverDeployed": false,
+  "published": false,
+  "uploaded": false,
+  "verifiedAtUtc": "2026-10-16T10:32:28.351835+00:00"
+}

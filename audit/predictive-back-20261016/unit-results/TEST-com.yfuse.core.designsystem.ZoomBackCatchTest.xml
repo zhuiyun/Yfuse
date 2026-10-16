@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yfuse.core.designsystem.ZoomBackCatchTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-10-16T09:11:13.173Z" hostname="DESKTOP-HM2J0FM" time="0.01">
+  <properties/>
+  <testcase name="aCardMovingAsOnePieceReadsTheSameEitherWay" classname="com.yfuse.core.designsystem.ZoomBackCatchTest" time="0.008"/>
+  <testcase name="aShrinkingCardStartsItsFlightAtTheSpeedItWasShrinking" classname="com.yfuse.core.designsystem.ZoomBackCatchTest" time="0.0"/>
+  <testcase name="aCaughtCardCarriesOnFromHowFarThePageUnderneathHadCome" classname="com.yfuse.core.designsystem.ZoomBackCatchTest" time="0.0"/>
+  <testcase name="anUncaughtCardIsLeftExactlyAsItWas" classname="com.yfuse.core.designsystem.ZoomBackCatchTest" time="0.0"/>
+  <testcase name="aCaughtCardFlungBackUpGoesHome" classname="com.yfuse.core.designsystem.ZoomBackCatchTest" time="0.001"/>
+  <testcase name="underReducedMotionNothingIsCaught" classname="com.yfuse.core.designsystem.ZoomBackCatchTest" time="0.0"/>
+  <testcase name="aFingerOnTheCardInFlightCatchesItWhereItIs" classname="com.yfuse.core.designsystem.ZoomBackCatchTest" time="0.001"/>
+  <testcase name="aReleaseAfterACatchKeepsWhatTheCardAlreadyShowed" classname="com.yfuse.core.designsystem.ZoomBackCatchTest" time="0.0"/>
+  <testcase name="aFingerBesideTheCardOrOnACardAtRestDoesNotCatch" classname="com.yfuse.core.designsystem.ZoomBackCatchTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

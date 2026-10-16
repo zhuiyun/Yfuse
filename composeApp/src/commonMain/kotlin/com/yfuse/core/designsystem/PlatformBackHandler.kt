@@ -1,6 +1,7 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.runtime.Composable
+import androidx.navigationevent.NavigationEvent
 
 /** Commit-only bridge for the shell-level "non-Home root returns Home" decision. */
 @Composable
@@ -16,4 +17,14 @@ expect fun PlatformPredictiveBackHandler(
     onProgress: (Float) -> Unit,
     onBack: () -> Unit,
     onCancel: () -> Unit,
+)
+
+/** Registers with the system back dispatcher, preserving the edge and the full gesture lifecycle. */
+@Composable
+expect fun PlatformNavigationBackHandler(
+    enabled: Boolean,
+    onStarted: (NavigationEvent) -> Unit,
+    onProgressed: (NavigationEvent) -> Unit,
+    onCompleted: () -> Unit,
+    onCancelled: () -> Unit,
 )
