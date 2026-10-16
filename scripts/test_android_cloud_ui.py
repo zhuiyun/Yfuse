@@ -254,44 +254,89 @@ class NavigationContractTest(unittest.TestCase):
 
 
 class BootReadinessTest(unittest.TestCase):
-    def check_pressure(self, values, timeout=180):
+    marker = "2026-10-16 14:19:50.123   625   653 I UserController: Finished processing BOOT_COMPLETED for u0"
+
+    def check_samples(self, values, timeout=180):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         session = cloud.Session(Path(directory.name), {"versionName": "1.4.0", "versionCode": 292}, 1)
         now = [0]
+        current = [None]
         def sleep(seconds):
             now[0] += seconds
         def adb(*args, **kwargs):
-            value = next(values)
-            return value if isinstance(value, str) else f"some avg10={value:.2f} avg60=0.00 avg300=0.00 total=1\n"
+            self.assertNotIn("/proc/pressure/cpu", args)
+            if args[0] == "logcat":
+                self.assertIn("UTC", args)
+                self.assertIn("year", args)
+                current[0] = next(values)
+                return self.marker if current[0][2] else ""
+            if args[1] == "cat":
+                return f"{current[0][0]} {current[0][1]}\n10.0 5.0 2.0 1/100 42"
+            if args[1] == "date":
+                return (cloud.datetime(2026, 10, 16, 14, 20) + cloud.timedelta(seconds=now[0])).strftime("%Y-%m-%dT%H:%M:%S")
+            if args[1:3] == ("dumpsys", "cpuinfo"):
+                return "cached old 100% TOTAL: diagnostic only"
+            raise AssertionError(args)
         with patch.object(session, "adb", side_effect=adb), \
                 patch.object(cloud.time, "monotonic", side_effect=lambda: now[0]), \
                 patch.object(cloud.time, "sleep", side_effect=sleep):
             result = session.wait_for_boot_load(timeout)
         return result, json.loads((Path(directory.name) / "boot-readiness.json").read_text())
 
-    def test_requires_consecutive_samples_after_near_saturated_boot_load(self):
-        result, samples = self.check_pressure(iter([97, 70, 85, 79, 75, 70]))
+    def test_requires_three_post_boot_idle_intervals_not_cached_cpuinfo(self):
+        result, samples = self.check_samples(iter([(100, 0, False), (105, 0, True),
+                                                   (110, 5, True), (115, 10, True), (120, 15, True)]))
+        self.assertEqual(5, result["samples"])
+        self.assertEqual(1, result["idle_cpu_equivalents"])
+        self.assertEqual([0, 0, 1, 2, 3], [sample["consecutive_idle_intervals"] for sample in samples])
+        self.assertIn("Cached", samples[-1]["cpuinfo_note"])
+
+    def test_busy_interval_resets_the_streak(self):
+        values = [(100, 0, True), (105, 5, True), (110, 5, True),
+                  (115, 10, True), (120, 15, True), (125, 20, True)]
+        result, samples = self.check_samples(iter(values))
         self.assertEqual(6, result["samples"])
-        self.assertEqual([97, 70, 85, 79, 75, 70], [sample["cpu_some_avg10"] for sample in samples])
-        self.assertEqual(25, samples[-1]["elapsed_seconds"])
+        self.assertEqual([0, 1, 0, 1, 2, 3], [sample["consecutive_idle_intervals"] for sample in samples])
 
-    def test_sustained_pressure_is_an_infrastructure_failure_not_an_app_pass(self):
-        with self.assertRaisesRegex(cloud.EnvironmentBlocked, "did not settle"):
-            self.check_pressure(iter([97] * 4), timeout=20)
+    def test_missing_completion_or_idle_capacity_blocks_within_the_budget(self):
+        for values in ([(100 + n * 5, n * 10, False) for n in range(4)],
+                       [(100 + n * 5, 0, True) for n in range(4)]):
+            with self.subTest(values=values), self.assertRaisesRegex(cloud.EnvironmentBlocked, "not established"):
+                self.check_samples(iter(values), timeout=20)
 
-    def test_missing_pressure_evidence_blocks_instead_of_silently_passing(self):
-        with self.assertRaisesRegex(cloud.EnvironmentBlocked, "Cannot establish"):
-            self.check_pressure(iter(["cat: Permission denied"]))
+    def test_reset_counters_or_unusable_evidence_block(self):
+        for values in ([(100, 10, True), (90, 15, True)],
+                       [(100, 10, True), (105, 5, True)], [("NaN", 0, True)]):
+            with self.subTest(values=values), self.assertRaisesRegex(cloud.EnvironmentBlocked, "Cannot establish"):
+                self.check_samples(iter(values))
 
-    def test_pressure_read_timeout_is_retained_as_an_infrastructure_failure(self):
+    def test_read_timeout_is_retained_as_an_infrastructure_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             session = cloud.Session(Path(directory), {"versionName": "1.4.0", "versionCode": 292}, 1)
             with patch.object(session, "adb", side_effect=subprocess.TimeoutExpired("adb", 10)):
-                with self.assertRaisesRegex(cloud.EnvironmentBlocked, "Cannot read"):
+                with self.assertRaisesRegex(cloud.EnvironmentBlocked, "Cannot establish"):
                     session.wait_for_boot_load()
             samples = json.loads((Path(directory) / "boot-readiness.json").read_text())
         self.assertIn("timed out", samples[0]["error"])
+
+    def test_boot_marker_is_exact_framework_user_zero_and_from_this_boot(self):
+        valid = self.marker
+        for marker in (valid, valid.replace("UserController", "ActivityManager")):
+            self.assertEqual(marker, cloud.boot_readiness_evidence("2026-10-16T14:20:00", "100.00 30.00", marker)["boot_completed"])
+        invalid = [valid.replace("u0", user) for user in ("u01", "u10", "u0 garbage")]
+        invalid += [valid.replace("UserController", "Yfuse"), valid.replace(" I ", " W "),
+                    valid.replace("Finished processing", "Posting"), valid.replace("14:19:50", "14:17:00"),
+                    valid.replace("14:19:50", "14:30:00"), valid.replace("2026-", "2025-"),
+                    valid.replace("BOOT_COMPLETED for u0", "BOOT_COMPLETED for\nu0")]
+        for marker in invalid:
+            with self.subTest(marker=marker):
+                self.assertIsNone(cloud.boot_readiness_evidence("2026-10-16T14:20:00", "100.00 30.00", marker)["boot_completed"])
+
+    def test_invalid_uptime_never_becomes_readiness_evidence(self):
+        for raw in ("", "NaN 1", "100 inf", "-1 20", "0 1", "100 20 extra", "100 " + "9" * 400):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                cloud.boot_readiness_evidence("2026-10-16T14:20:00", raw, self.marker)
 
 
 class FailureOutputTest(unittest.TestCase):

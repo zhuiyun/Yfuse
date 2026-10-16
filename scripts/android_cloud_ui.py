@@ -7,8 +7,10 @@ Emulator timing/memory observations are not physical-device performance benchmar
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -28,6 +30,35 @@ HISTORY_EMPTY = "还没有播放记录，观看影片后会显示在这里"
 
 class EnvironmentBlocked(RuntimeError):
     pass
+
+
+def boot_readiness_evidence(device_utc, uptime_raw, boot_log):
+    """Parse supported shell counters and a current-boot, framework-tagged u0 callback."""
+    now = datetime.strptime(device_utc, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+    if now.year <= 1970:
+        raise ValueError("Emulator wall clock is uninitialized")
+    lines = uptime_raw.splitlines()
+    fields = lines[0].split() if lines else []
+    if len(fields) != 2 or any(not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", value) for value in fields):
+        raise ValueError("Invalid emulator uptime counters")
+    uptime, idle = map(float, fields)
+    if not all(math.isfinite(value) for value in (uptime, idle)) or uptime <= 0:
+        raise ValueError("Non-finite or nonpositive emulator uptime")
+    boot_started = now - timedelta(seconds=uptime)
+    pattern = re.compile(
+        r"([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3})"
+        r"[ \t]+[0-9]+[ \t]+[0-9]+[ \t]+I[ \t]+(?:ActivityManager|UserController)[ \t]*:"
+        r"[ \t]*Finished processing BOOT_COMPLETED for u0[ \t]*"
+    )
+    marker = None
+    for line in boot_log.splitlines():
+        match = pattern.fullmatch(line)
+        if match:
+            stamp = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=timezone.utc)
+            # Two seconds cover the shell date's one-second resolution and command ordering.
+            if boot_started - timedelta(seconds=2) <= stamp <= now + timedelta(seconds=2):
+                marker = line
+    return {"uptime_seconds": uptime, "combined_idle_seconds": idle, "boot_completed": marker}
 
 
 def command(args, *, timeout=60, check=True, binary=False):
@@ -157,36 +188,60 @@ class Session:
         return result
 
     def wait_for_boot_load(self, timeout=180):
-        """Require the disposable emulator to leave near-continuous boot CPU contention."""
-        # The pinned emulator runner waits only for sys.boot_completed. API 37's first-boot
-        # services can still starve it (95-97% CPU PSI in two startup-ANR runs). PSI 'some'
-        # is stalled-task time, not CPU utilization: docs.kernel.org/accounting/psi.html.
-        # Allow substantial contention, but require three samples <=80%, five seconds apart.
-        # A separate three-minute infrastructure budget never extends app launch timeouts.
+        """Wait for this boot's final broadcast and observed idle capacity before installing."""
+        # The runner waits only for sys.boot_completed. Actual API 35/36/37 captures show
+        # the final u0 callback later, with CPU activity continuing after it. /proc/uptime
+        # supplies combined idle CPU seconds (docs.kernel.org/filesystems/proc.html).
+        # Require >=1 CPU-equivalent idle capacity over three post-boot intervals, not a
+        # guessed CPU percentage/core count. This is an environment prerequisite, not an
+        # app-performance claim; all app timeouts and failure checks remain independent.
+        # dumpsys cpuinfo is cached on these images and is retained ONLY as diagnostics.
         began = time.monotonic()
         samples = []
         stable = 0
+        previous = None
         while time.monotonic() - began < timeout:
-            remaining = timeout - (time.monotonic() - began)
+            sample = {"elapsed_seconds": round(time.monotonic() - began, 2)}
+            def read(*args):
+                remaining = timeout - (time.monotonic() - began)
+                if remaining <= 0:
+                    raise TimeoutError("Emulator boot readiness budget exhausted")
+                return self.adb(*args, timeout=max(1, min(10, remaining)))
             try:
-                raw = self.adb("shell", "cat", "/proc/pressure/cpu", "/proc/uptime", "/proc/loadavg",
-                               timeout=max(1, min(10, remaining)), check=False)
+                sample["boot_log"] = read("logcat", "-d", "-b", "system", "-v", "threadtime", "-v", "UTC", "-v", "year",
+                                          "-s", "UserController:I", "ActivityManager:I", "*:S")
+                sample["uptime_load"] = read("shell", "cat", "/proc/uptime", "/proc/loadavg")
+                sample["device_utc"] = read("shell", "date", "-u", "+%Y-%m-%dT%H:%M:%S")
+                sample.update(boot_readiness_evidence(sample["device_utc"], sample["uptime_load"], sample["boot_log"]))
+                if previous is not None:
+                    elapsed = sample["uptime_seconds"] - previous["uptime_seconds"]
+                    idle = sample["combined_idle_seconds"] - previous["combined_idle_seconds"]
+                    if elapsed <= 0 or idle < 0:
+                        raise ValueError("Emulator uptime counters reset or did not advance")
+                    sample["idle_cpu_equivalents"] = idle / elapsed
+                    interval_ready = (sample["boot_completed"] and previous["boot_completed"] and
+                                      5 <= elapsed <= 30 and idle / elapsed >= 1)
+                    stable = stable + 1 if interval_ready else 0
+                if previous is None or stable >= 3:
+                    sample["cpuinfo_note"] = "Cached system diagnostic; not a current-load readiness measurement"
+                    try:
+                        sample["cpuinfo"] = read("shell", "dumpsys", "cpuinfo")
+                    except Exception as error:
+                        sample["cpuinfo_error"] = str(error)
             except Exception as error:
-                samples.append({"elapsed_seconds": round(time.monotonic() - began, 2), "error": str(error)})
+                sample["error"] = str(error)
+                samples.append(sample)
                 (self.output / "boot-readiness.json").write_text(json.dumps(samples, indent=2))
-                raise EnvironmentBlocked("Cannot read emulator CPU-pressure readiness; see boot-readiness.json") from error
-            match = re.search(r"(?m)^some avg10=([0-9]+(?:\.[0-9]+)?)\b", raw)
-            pressure = float(match.group(1)) if match else None
-            samples.append({"elapsed_seconds": round(time.monotonic() - began, 2),
-                            "cpu_some_avg10": pressure, "raw": raw})
+                raise EnvironmentBlocked("Cannot establish emulator boot readiness; see boot-readiness.json") from error
+            sample["consecutive_idle_intervals"] = stable
+            samples.append(sample)
             (self.output / "boot-readiness.json").write_text(json.dumps(samples, indent=2))
-            if pressure is None or not 0 <= pressure <= 100:
-                raise EnvironmentBlocked("Cannot establish emulator CPU-pressure readiness; see boot-readiness.json")
-            stable = stable + 1 if pressure <= 80 else 0
-            if stable >= 3:
-                return {"samples": len(samples), "cpu_some_avg10": pressure, "evidence": "boot-readiness.json"}
+            if stable >= 3 and time.monotonic() - began < timeout:
+                return {"samples": len(samples), "idle_cpu_equivalents": sample["idle_cpu_equivalents"],
+                        "boot_completed": sample["boot_completed"], "evidence": "boot-readiness.json"}
+            previous = sample
             time.sleep(min(5, max(0, timeout - (time.monotonic() - began))))
-        raise EnvironmentBlocked(f"Emulator boot CPU pressure did not settle within {timeout} seconds; see boot-readiness.json")
+        raise EnvironmentBlocked(f"Emulator boot readiness not established within {timeout} seconds; see boot-readiness.json")
 
     def tree(self):
         path = "/sdcard/yfuse-cloud-window.xml"
