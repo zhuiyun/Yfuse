@@ -35,7 +35,8 @@ import java.util.concurrent.atomic.AtomicReference
 class LiquidTabGestureInstrumentedTest {
     @Test(timeout = 45_000L)
     fun drag_commits_once_on_release_cancel_rolls_back_and_switch_restores_taps() {
-        val active = mutableStateOf(Tab.Home)
+        // Browse and Watching are the first two persistent cells; Home is a discovery route.
+        val active = mutableStateOf(Tab.Browse)
         val enabled = mutableStateOf(true)
         val selections = AtomicInteger()
         val bounds = AtomicReference(Rect.Zero)
@@ -103,7 +104,7 @@ class LiquidTabGestureInstrumentedTest {
             send(scenario, MotionEvent.ACTION_DOWN, cell(1), down)
             send(scenario, MotionEvent.ACTION_UP, cell(1), down)
             instrumentation.waitForIdleSync()
-            assertEquals(Tab.Browse, active.value)
+            assertEquals(Tab.Watching, active.value)
             assertEquals(2, selections.get())
         }
     }
