@@ -22,6 +22,21 @@ class AndroidDemuxAnalysisPolicyTest {
     private val item = YMediaItem("movie", "https://host/movie", sourceHints = hints)
 
     @Test
+    fun remote_sdr_matroska_eac3_uses_enhanced_demux_without_claiming_decode_support() {
+        val eac3 = item.copy(sourceHints = hints.copy(audioCodecs = listOf("eac3")))
+        assertTrue(eac3.prefersEnhancedStartupDemux())
+        assertTrue(item.copy(sourceHints = hints.copy(audioCodec = "E-AC-3")).prefersEnhancedStartupDemux())
+        assertFalse(item.copy(sourceHints = hints.copy(audioCodecs = listOf("aac"))).prefersEnhancedStartupDemux())
+        assertFalse(eac3.copy(uri = "file:///movie.mkv").prefersEnhancedStartupDemux())
+        assertFalse(eac3.copy(sourceHints = eac3.sourceHints?.copy(container = "mp4")).prefersEnhancedStartupDemux())
+        assertFalse(eac3.copy(sourceHints = eac3.sourceHints?.copy(dolbyVision = true)).prefersEnhancedStartupDemux())
+        assertFalse(
+            eac3.copy(sourceHints = eac3.sourceHints?.copy(dynamicRange = "HDR10")).prefersEnhancedStartupDemux(),
+        )
+        assertFalse(eac3.copy(sourceHints = eac3.sourceHints?.copy(audioTrackCount = 0)).prefersEnhancedStartupDemux())
+    }
+
+    @Test
     fun matching_track_count_without_the_requested_language_still_requires_full_analysis() {
         val preference =
             item.copy(

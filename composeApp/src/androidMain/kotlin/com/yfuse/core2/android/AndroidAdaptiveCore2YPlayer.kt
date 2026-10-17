@@ -627,10 +627,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                     if (failure is CancellationException) throw failure
                     if (released) break
                     if (failure is AndroidProbeAbortedException && failure.reason == "superseded") continue
-                    val probeTimedOut = failure is AndroidProbeAbortedException
+                    val probeTimedOut = failure is AndroidProbeAbortedException && failure.reason == "deadline"
                     logRouterFailure(failure, command, loop.keptRouteFailure)
-                    // The timeout text is only the fallback: a route that failed concretely
-                    // before this start ran out of time is what the user is told about.
+                    // Preserve earlier route evidence without presenting a later deadline as
+                    // proof that every route lacks support for the source format.
                     loop.publishUnavailable(
                         reason = core2RouterFailureReason(failure),
                         sourceFailure = failure.mediaSourceFailure(),
@@ -838,17 +838,6 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
         }
 
-        /** A deadline this router renewed for recovery, and when it really ends (see below). */
-        var renewedProbeBudget: AndroidProbeBudget? = null
-        var renewedProbeDeadlineNs = 0L
-
-        fun remainingStartDeadlineMs(budget: AndroidProbeBudget): Long {
-            val remainingMs = budget.remainingMsOrZero()
-            if (budget !== renewedProbeBudget) return remainingMs
-            val renewedRemainingNs = (renewedProbeDeadlineNs - System.nanoTime()).coerceAtLeast(0L)
-            return minOf(remainingMs, renewedRemainingNs / NANOS_PER_MILLISECOND)
-        }
-
         /**
          * Makes sure a recovery attempt of a start that has not rendered yet has time to run.
          *
@@ -862,17 +851,10 @@ internal class AndroidAdaptiveCore2YPlayer(
          */
         fun ensureRecoveryProbeBudget() {
             val current = activeProbeBudget ?: return
-            val remainingMs = remainingStartDeadlineMs(current)
+            val remainingMs = current.remainingMsOrZero()
             if (!yCoreRecoveryNeedsFreshProbeBudget(remainingMs)) return
             probes.invalidate("recovery")
-            val renewed = probes.begin().budget
-            // The controller's budgets carry the full start deadline; this bounds the attempt.
-            renewedProbeBudget = renewed
-            renewedProbeDeadlineNs = System.nanoTime() + RECOVERY_PROBE_ALLOWANCE_MS * NANOS_PER_MILLISECOND
-            scope.launch {
-                delay(RECOVERY_PROBE_ALLOWANCE_MS)
-                renewed.cancel("deadline")
-            }
+            probes.begin(timeoutMs = RECOVERY_PROBE_ALLOWANCE_MS)
             AppLog.info(
                 category = "player.core2",
                 event = "recovery_probe_budget_renewed",
@@ -1284,10 +1266,12 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
             // A route this device already rendered for exactly this media skips the probes and
             // starts at planning; the device-side gates below still run on it.
+            val adoptedCurrentItem =
+                target == null && warmedRoute == null && routeEvaluator.adoptCurrentItem(item, positionMs)
             val rememberedProbe =
                 if (target == null &&
                     warmedRoute == null &&
-                    !routeEvaluator.adoptCurrentItem(item, positionMs) &&
+                    !adoptedCurrentItem &&
                     !bypassLearnedRouteMemory &&
                     !forceSoftwareFallback
                 ) {
@@ -1302,6 +1286,18 @@ internal class AndroidAdaptiveCore2YPlayer(
                     message = "YCore reused the probe a verified playback of this media established",
                     attributes = mapOf("itemIndex" to currentIndex.toString()),
                 )
+            }
+            if (target == null &&
+                warmedRoute == null &&
+                rememberedProbe == null &&
+                !adoptedCurrentItem &&
+                !forceSoftwareFallback &&
+                !preferSoftwareDecode &&
+                item.prefersEnhancedStartupDemux()
+            ) {
+                videoHandoff.close()
+                routeEvaluator.closePreparedExtractor()
+                return createInternalEnhancedRoute(item, singleRequest, null)
             }
             var decision =
                 warmedRoute?.decision
@@ -1903,7 +1899,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             diagnostics =
                                 reportedChildState.diagnostics.copy(
                                     reason =
-                                        "Remote source ended early; " +
+                                        "Remote source read failed; " +
                                             "reopening from verified output position",
                                 ),
                         )
@@ -1911,8 +1907,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         category = "player.network",
                         event = if (prematureEnd) "premature_eof_recovery" else "transport_read_recovery",
                         message =
-                            "YCore rejected a premature EOF " +
-                                "and reopened the active route",
+                            "YCore is retrying the active route after a recoverable source read failure",
                         attributes =
                             mapOf(
                                 "route" to reportedChildState.diagnostics.route.name,
@@ -1927,6 +1922,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                             index = childIndex(),
                             positionMs = reportedChildState.positionMs,
                             route = reportedChildState.diagnostics.route,
+                            // The retry count above bounds automatic recovery. A permitted retry
+                            // must never inherit the deadline that cancelled the previous open.
+                            renewProbeBudget = true,
                         ),
                     )
                     return true
@@ -2810,9 +2808,9 @@ internal class AndroidAdaptiveCore2YPlayer(
         ) : Command
 
         /**
-         * [renewProbeBudget] is set when the recovery follows a failure of the route itself rather
-         * than the start running out of time (see ensureRecoveryProbeBudget); the transport
-         * recovery that reopens a stalled read keeps the start's deadline.
+         * [renewProbeBudget] grants a bounded retry its own deadline. Transport retries are
+         * limited by their route counter; a deadline that cancelled the old sockets must not
+         * cancel the replacement before it can open the source.
          */
         data class RecoverSameRoute(
             val index: Int,
@@ -2929,7 +2927,7 @@ internal fun yCoreAttemptRanOutOfTime(
     attemptDeadlineStopped: Boolean,
 ): Boolean =
     if (reported != null) {
-        reported.diagnosticRootCause() is AndroidProbeAbortedException
+        reported.diagnosticRootCause().let { it is AndroidProbeAbortedException && it.reason == "deadline" }
     } else {
         attemptDeadlineStopped && (category == null || category == YPlaybackFailureCategory.Unknown)
     }
@@ -2999,21 +2997,24 @@ internal fun yCoreRouteFailure(
 /**
  * The state a start that stops on a failed attempt publishes.
  *
- * When the attempt only ran out of its startup deadline after an earlier route of the same start
- * failed concretely, that earlier failure is the reason the media did not play: the deadline is
- * its consequence, and a "probe timed out" message sent users to check a network that was fine.
+ * A previous demuxer's limitation does not prove that the enhanced path cannot decode the file.
+ * Keep that evidence in diagnostics, but report the deadline that ended the current attempt.
  */
 internal fun YPlayerState.withStartFailure(
     attemptRanOutOfTime: Boolean,
     kept: YCoreRouteFailure?,
 ): YPlayerState {
-    if (phase != YPlaybackPhase.Failed || !attemptRanOutOfTime || kept == null || !kept.concrete) return this
+    if (phase != YPlaybackPhase.Failed || !attemptRanOutOfTime) return this
     return copy(
-        error = kept.message,
-        errorCategory = kept.category,
+        error = YCORE_STARTUP_TIMEOUT_MESSAGE,
+        errorCategory = YPlaybackFailureCategory.Network,
         diagnostics =
             diagnostics.copy(
-                reason = "${kept.reason}; ${diagnostics.route.name} then ran out of its startup deadline",
+                reason =
+                    listOfNotNull(
+                        kept?.reason,
+                        "${diagnostics.route.name} ran out of its startup deadline",
+                    ).joinToString("; "),
             ),
     )
 }
@@ -3027,10 +3028,9 @@ internal data class YCoreUnavailableError(
 /**
  * What a start publishes when the router itself cannot produce another route.
  *
- * A typed source failure the router hit is current evidence and wins. On a native-only start the
- * last concrete route failure comes next, then the probe timeout, which is only the fallback when
- * nothing more concrete is known. With a compatibility engine the failure stays Unknown on
- * purpose: that is what hands the item to the product-level Legacy fallback.
+ * A typed source failure the router hit is current evidence and wins. A deadline remains a
+ * deadline even when an earlier demuxer hid a track. With a compatibility engine the failure
+ * stays Unknown on purpose: that is what hands the item to the product-level Legacy fallback.
  */
 internal fun yCoreUnavailableError(
     routerReason: String,
@@ -3046,6 +3046,12 @@ internal fun yCoreUnavailableError(
     return when {
         sourceFailure != null ->
             YCoreUnavailableError(yCoreEnhancedFailureMessage(sourceFailure), sourceFailure.category, routerReason)
+        nativeOnly && probeTimedOut && !protectedContent ->
+            YCoreUnavailableError(
+                message = YCORE_STARTUP_TIMEOUT_MESSAGE,
+                category = YPlaybackFailureCategory.Network,
+                reason = listOfNotNull(kept?.reason, "startup deadline: $routerReason").joinToString("; "),
+            )
         kept != null ->
             YCoreUnavailableError(kept.message, kept.category, "${kept.reason}; recovery ended: $routerReason")
         protectedContent ->
@@ -3057,12 +3063,6 @@ internal fun yCoreUnavailableError(
                         probeTimedOut -> YPlaybackFailureCategory.Network
                         else -> currentCategory ?: YPlaybackFailureCategory.Unknown
                     },
-                reason = routerReason,
-            )
-        nativeOnly && probeTimedOut ->
-            YCoreUnavailableError(
-                message = "YCore 2.0 片源起播探测超时，请检查网络或刷新片源后重试",
-                category = YPlaybackFailureCategory.Network,
                 reason = routerReason,
             )
         nativeOnly ->

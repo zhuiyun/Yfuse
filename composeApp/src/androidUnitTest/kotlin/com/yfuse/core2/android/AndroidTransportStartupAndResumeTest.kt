@@ -17,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -35,6 +36,53 @@ private fun <T> ExecutorService.await(read: () -> T): T =
     submit(Callable(read)).get(READ_BOUND_SECONDS, TimeUnit.SECONDS)
 
 class AndroidTransportStartupAndResumeTest {
+    @Test
+    fun `proxy startup reads only the demanded block until playback begins`() {
+        val blockBytes = 2 * 1024 * 1024
+        val media = ByteArray(blockBytes * 6) { it.toByte() }
+        val requests = CopyOnWriteArrayList<YMediaTransportRequest>()
+        val releaseBlocks = CountDownLatch(1)
+        val currentBlockOpened = CountDownLatch(1)
+        val forwardBlockOpened = CountDownLatch(1)
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mkv",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                prioritizeStartupReads = true,
+                createTransport = {
+                    TestRangeTransport(media, requests, fullBlockRelease = releaseBlocks) { range ->
+                        if (range == YByteRange(0L, blockBytes - 1L)) currentBlockOpened.countDown()
+                        if (range.startInclusive == blockBytes.toLong()) forwardBlockOpened.countDown()
+                    }
+                },
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            assertEquals(media.size.toLong(), worker.await { source.getSize() })
+            assertEquals(1, worker.await { source.readAt(0L, ByteArray(1), 0, 1) })
+            assertTrue(currentBlockOpened.await(2, TimeUnit.SECONDS))
+            assertTrue(requests.all { it.range?.startInclusive == 0L })
+            source.updatePlaybackWindow(YTransportPlaybackWindow(playing = true, bufferedUs = 3_000_000L))
+            assertEquals(1, worker.await { source.readAt(1L, ByteArray(1), 0, 1) })
+            assertTrue(forwardBlockOpened.await(2, TimeUnit.SECONDS))
+        } finally {
+            releaseBlocks.countDown()
+            source.close()
+            worker.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `release and supersession are not retried as transient network failures`() {
+        assertTrue(isRecoverableMediaReadFailure(AndroidProbeAbortedException("deadline")))
+        for (reason in listOf("released", "superseded")) {
+            val cancellation = AndroidProbeAbortedException(reason)
+            assertFalse(isRecoverableMediaReadFailure(cancellation))
+            assertFalse(isRecoverableMediaReadFailure(IOException("read cancelled", cancellation)))
+        }
+    }
+
     @Test
     fun `metadata reads beyond the first slice do not wait for a full speculative block`() {
         val media = ByteArray(4 * 1024 * 1024) { it.toByte() }
@@ -214,6 +262,7 @@ private class TestRangeTransport(
     private val failFirstAfter: Int? = null,
     private val changedTag: Boolean = false,
     private val fullBlockRelease: CountDownLatch? = null,
+    private val opened: (YByteRange) -> Unit = {},
 ) : YMediaTransport {
     override val supportedProtocols = setOf(YSourceProtocol.Https)
     override val features = setOf(YTransportFeature.ByteRange)
@@ -228,6 +277,7 @@ private class TestRangeTransport(
         endExclusive = minOf(checkNotNull(range.endInclusive).toInt() + 1, media.size)
         if (position >= endExclusive) throw IOException("Outside media")
         requests.add(request)
+        opened(range)
         attempt++
         fullBlock = endExclusive - position >= 2 * 1024 * 1024
         return YMediaTransportResponse(

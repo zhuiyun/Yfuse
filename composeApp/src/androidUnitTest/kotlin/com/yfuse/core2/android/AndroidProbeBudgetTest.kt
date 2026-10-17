@@ -18,6 +18,32 @@ import kotlin.test.assertTrue
 
 class AndroidProbeBudgetTest {
     @Test
+    fun `recovery owns a fresh bounded budget after the old deadline cancelled its sockets`() {
+        val controller = AndroidProbeController()
+        val old = controller.begin()
+        val closedSockets = AtomicInteger()
+        old.budget.onCancel { closedSockets.incrementAndGet() }
+        old.budget.cancel("deadline")
+        assertEquals(1, closedSockets.get())
+        controller.invalidate("recovery")
+        val recovery = controller.begin(timeoutMs = 20_000L)
+        try {
+            recovery.budget.ensureActive()
+            assertTrue(recovery.generation != old.generation)
+            assertTrue(recovery.budget.remainingMs() in 1L..20_000L)
+            controller.complete(old.budget)
+            assertTrue(controller.budget() === recovery.budget)
+            recovery.budget.cancel("deadline")
+            assertEquals(
+                "deadline",
+                assertFailsWith<AndroidProbeAbortedException> { recovery.budget.ensureActive() }.reason,
+            )
+        } finally {
+            controller.invalidate("released")
+        }
+    }
+
+    @Test
     fun `blocked platform owner does not suppress an independent enhanced probe`() {
         val caller = Executors.newSingleThreadExecutor()
         val vendorEntered = CountDownLatch(1)

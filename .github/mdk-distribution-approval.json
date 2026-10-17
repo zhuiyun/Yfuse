@@ -1,10 +1,10 @@
 {
-  "versionName": "1.4.1",
-  "versionCode": 293,
+  "versionName": "1.4.2",
+  "versionCode": 294,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-17T11:50:48Z",
+  "confirmedAt": "2026-10-17T17:28:59Z",
   "confirmedBy": "release owner",
-  "confirmationBasis": "The release owner explicitly approved committing the playback-progress repair, cloud validation and production-signed packaging, without online publication or server deployment. The standing full-MDK instruction applies to the unchanged pinned SDK and package-only distribution scope."
+  "confirmationBasis": "The release owner requested fixing the playback startup failure and packaging the result, then explicitly authorized pushing this repair to master and running the artifact-only production-signing workflow. No online publication or deployment is authorized. The standing full-MDK instruction in AGENTS.md applies to the unchanged pinned SDK and package-only delivery scope."
 }

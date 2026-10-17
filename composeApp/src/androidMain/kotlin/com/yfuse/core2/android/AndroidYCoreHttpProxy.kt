@@ -1719,6 +1719,7 @@ internal class AndroidYCoreHttpProxy(
                     cacheIdentity = identity,
                     cacheMaximumBytes = maximumBytes,
                     representationSession = lease.session,
+                    prioritizeStartupReads = true,
                     onNetworkSample =
                         when {
                             route.hlsAbrResource != null -> {

@@ -227,8 +227,8 @@ data class YMediaSourceHints(
     /**
      * Server-declared codec identifiers of every audio track, in server order.
      *
-     * Diagnostics only: when a demuxer hides a declared track this names what it hid, which is
-     * the difference between "container error" and "TrueHD is unsupported here" in a bundle.
+     * Used for diagnostics and demuxer ordering only. Actual demuxed tracks remain authoritative
+     * for decoder configuration and output capability checks.
      */
     val audioCodecs: List<String> = emptyList(),
     val dynamicRange: String? = null,

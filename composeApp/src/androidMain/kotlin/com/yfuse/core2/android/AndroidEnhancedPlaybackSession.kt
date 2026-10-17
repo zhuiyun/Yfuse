@@ -334,7 +334,7 @@ internal class AndroidEnhancedPlaybackSession(
                 safeDetail = "Enhanced source open",
             ) {
                 yCoreStartupStage("enhanced_source_open", diagnosticItem) {
-                    adoptedOpen ?: demuxReadAhead.open(source, probeBudget)
+                    adoptedOpen ?: openWithStartupAnalysis(source, probeBudget)
                 }
             }
         val videoTrack =
@@ -674,6 +674,23 @@ internal class AndroidEnhancedPlaybackSession(
             wallClock.seek(0L, System.nanoTime())
         }
         return result
+    }
+
+    private fun openWithStartupAnalysis(
+        source: YDemuxSource,
+        probeBudget: AndroidProbeBudget?,
+    ): YDemuxOpenResult {
+        val startupItem = diagnosticItem?.takeIf { it.allowsShortDemuxAnalysis() }
+        val openingSource = source.copy(startupAnalysis = startupItem != null)
+        val opened = demuxReadAhead.open(openingSource, probeBudget)
+        if (startupItem == null || opened.hasRequiredStartupTracks(startupItem)) return opened
+        probeBudget?.ensureActive()
+        AppLog.info(
+            "player.core2",
+            "demux_analysis_expanded",
+            "Incomplete startup tracks require full analysis",
+        )
+        return demuxReadAhead.open(source.copy(startupAnalysis = false), probeBudget)
     }
 
     private fun selectInitialTracks(trackIds: Set<YTrackId>) {

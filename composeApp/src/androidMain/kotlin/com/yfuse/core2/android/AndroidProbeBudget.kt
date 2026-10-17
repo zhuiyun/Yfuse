@@ -96,9 +96,10 @@ internal class AndroidProbeController {
     private var generation = 0L
     private var active: Ticket? = null
 
-    fun begin(): Ticket =
+    fun begin(timeoutMs: Long = 30_000L): Ticket =
         synchronized(lock) {
-            active ?: Ticket(generation, AndroidProbeBudget(foreground = true)).also { active = it }
+            active
+                ?: Ticket(generation, AndroidProbeBudget(timeoutMs = timeoutMs, foreground = true)).also { active = it }
         }
 
     fun budget(): AndroidProbeBudget? = synchronized(lock) { active?.budget }

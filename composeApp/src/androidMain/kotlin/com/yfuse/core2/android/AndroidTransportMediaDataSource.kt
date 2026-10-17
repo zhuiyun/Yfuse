@@ -53,6 +53,8 @@ internal class AndroidTransportMediaDataSource(
     private val rangeReadBudgetMs: Long = 30_000L,
     /** Only bounded background warmers opt in; playback keeps non-blocking cache admission. */
     private val persistReadBlocks: Boolean = false,
+    /** Proxy startup follows the demuxer's demand before spending bandwidth on distant ranges. */
+    private val prioritizeStartupReads: Boolean = false,
     memoryLeaseOverride: PlaybackMemoryLease? = null,
     private val allowsSpeculativeWork: () -> Boolean = { AndroidPlaybackMemoryBudget.allowsSpeculativeWork },
     private val refreshMemoryPressure: () -> Unit = AndroidPlaybackMemoryBudget::refreshPressure,
@@ -1042,11 +1044,12 @@ internal class AndroidTransportMediaDataSource(
                 consumption = (mediaBitRateBitsPerSecond * window.speed.toDouble()).toLong(),
                 bufferedUs = (window.bufferedUs / window.speed).toLong(),
             )
+        val startupReadsOnly = prioritizeStartupReads && !window.playing
         val activeDepth =
-            if (!window.playing || window.bufferedUs / window.speed < 2_000_000L) {
-                minOf(prefetchDepthBlocks, 2)
-            } else {
-                prefetchDepthBlocks
+            when {
+                startupReadsOnly -> 0
+                !window.playing || window.bufferedUs / window.speed < 2_000_000L -> minOf(prefetchDepthBlocks, 2)
+                else -> prefetchDepthBlocks
             }
         val desired =
             (0 until activeDepth)
@@ -1077,10 +1080,10 @@ internal class AndroidTransportMediaDataSource(
         }
         // A non-interleaved file is read in two runs; the one not being read right now keeps a
         // window of its own instead of losing its read-ahead at every alternation.
-        val otherRuns = otherRunPrefetchBlocks(blockIndex - 1L, activeDepth)
+        val otherRuns = if (startupReadsOnly) emptySet() else otherRunPrefetchBlocks(blockIndex - 1L, activeDepth)
         // Index reads can still land anywhere. Give at most two moving ranges a chance to finish
         // instead of repeatedly discarding them as that window moves.
-        retainMovingPrefetches(desired)
+        if (!startupReadsOnly) retainMovingPrefetches(desired)
         cancelPrefetchOutside(desired + otherRuns)
         // The current run first: under a tight memory budget it is the one about to be read.
         desired.sorted().forEach(::schedulePrefetchBlock)
@@ -1353,7 +1356,10 @@ internal class AndroidTransportMediaDataSource(
         }
         // MediaSource metadata often already includes Content-Length. That path must also
         // overlap index I/O, but repeated getSize() calls must not restart an evicted probe.
-        if (!startupTailPrefetchScheduled && knownSize > blockSize) {
+        if (!startupTailPrefetchScheduled &&
+            knownSize > blockSize &&
+            (!prioritizeStartupReads || playbackWindow.playing)
+        ) {
             startupTailPrefetchScheduled = true
             val tailBlock = (knownSize - 1L) / blockSize
             if (tailBlock > 1L) {
@@ -1688,6 +1694,12 @@ private fun Int.toRangeFailureKind(): YTransportFailureKind =
     }
 
 internal fun isRecoverableMediaReadFailure(failure: Throwable?): Boolean {
+    // Cancellation stays cancellation even when the transport wraps it in an IOException.
+    generateSequence(failure) { it.cause.takeUnless { cause -> cause === it } }
+        .take(8)
+        .filterIsInstance<AndroidProbeAbortedException>()
+        .firstOrNull()
+        ?.let { return it.reason == "deadline" }
     var current = failure
     repeat(8) {
         val cause = current ?: return false

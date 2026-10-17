@@ -71,6 +71,8 @@ class AndroidAdaptiveCore2RecoveryFailureTest {
                 attemptDeadlineStopped = true,
             ),
         )
+        assertFalse(yCoreAttemptRanOutOfTime(AndroidProbeAbortedException("released"), null, true))
+        assertFalse(yCoreAttemptRanOutOfTime(AndroidProbeAbortedException("superseded"), null, true))
         // Without a reported failure only an unclassified one after the deadline qualifies.
         assertTrue(yCoreAttemptRanOutOfTime(null, YPlaybackFailureCategory.Unknown, attemptDeadlineStopped = true))
         assertTrue(yCoreAttemptRanOutOfTime(null, null, attemptDeadlineStopped = true))
@@ -124,7 +126,7 @@ class AndroidAdaptiveCore2RecoveryFailureTest {
     }
 
     @Test
-    fun `a spent recovery publishes the concrete failure instead of a probe timeout`() {
+    fun `an enhanced deadline does not claim the previously hidden audio is unsupported`() {
         // Incident A: NativeDirect hid the E-AC-3 track, the enhanced recovery ran out of time.
         val kept = assertNotNull(yCoreRouteFailure(YPlaybackRoute.NativeDirect, null, null, null, hiddenAudio))
         val published =
@@ -139,14 +141,14 @@ class AndroidAdaptiveCore2RecoveryFailureTest {
                 currentCategory = null,
             )
 
-        assertEquals(YCORE_HIDDEN_AUDIO_TRACK_MESSAGE, published.message)
-        assertEquals(YPlaybackFailureCategory.Container, published.category)
+        assertEquals(YCORE_STARTUP_TIMEOUT_MESSAGE, published.message)
+        assertEquals(YPlaybackFailureCategory.Network, published.category)
         assertTrue(published.reason.startsWith("NativeDirect failed at Demux"))
-        assertTrue(published.reason.endsWith("recovery ended: Core2 router failed at AndroidProbeAbortedException"))
+        assertTrue(published.reason.endsWith("startup deadline: Core2 router failed at AndroidProbeAbortedException"))
     }
 
     @Test
-    fun `the probe timeout text remains only when nothing more concrete is known`() {
+    fun `a deadline reports timeout and a missing route keeps its ordinary failure`() {
         val timeout =
             yCoreUnavailableError(
                 routerReason = "router",
@@ -164,7 +166,7 @@ class AndroidAdaptiveCore2RecoveryFailureTest {
                 currentError = null,
                 currentCategory = null,
             )
-        assertEquals("YCore 2.0 片源起播探测超时，请检查网络或刷新片源后重试", timeout.message)
+        assertEquals(YCORE_STARTUP_TIMEOUT_MESSAGE, timeout.message)
         assertEquals(YPlaybackFailureCategory.Network, timeout.category)
 
         val noRoute =
@@ -196,7 +198,7 @@ class AndroidAdaptiveCore2RecoveryFailureTest {
     }
 
     @Test
-    fun `a start that stops on a deadline shows the earlier concrete failure`() {
+    fun `a deadline keeps earlier route detail only in diagnostics`() {
         val kept = assertNotNull(yCoreRouteFailure(YPlaybackRoute.NativeDirect, null, null, null, hiddenAudio))
         val timedOut =
             YPlayerState(
@@ -208,14 +210,14 @@ class AndroidAdaptiveCore2RecoveryFailureTest {
 
         val published = timedOut.withStartFailure(attemptRanOutOfTime = true, kept = kept)
 
-        assertEquals(YCORE_HIDDEN_AUDIO_TRACK_MESSAGE, published.error)
-        assertEquals(YPlaybackFailureCategory.Container, published.errorCategory)
+        assertEquals(YCORE_STARTUP_TIMEOUT_MESSAGE, published.error)
+        assertEquals(YPlaybackFailureCategory.Network, published.errorCategory)
         assertEquals(
-            "${kept.reason}; NativeEnhanced then ran out of its startup deadline",
+            "${kept.reason}; NativeEnhanced ran out of its startup deadline",
             published.diagnostics.reason,
         )
         assertSame(timedOut, timedOut.withStartFailure(attemptRanOutOfTime = false, kept = kept))
-        assertSame(timedOut, timedOut.withStartFailure(attemptRanOutOfTime = true, kept = null))
+        assertEquals(YCORE_STARTUP_TIMEOUT_MESSAGE, timedOut.withStartFailure(true, null).error)
         val preparing = timedOut.copy(phase = YPlaybackPhase.Preparing)
         assertSame(preparing, preparing.withStartFailure(attemptRanOutOfTime = true, kept = kept))
     }

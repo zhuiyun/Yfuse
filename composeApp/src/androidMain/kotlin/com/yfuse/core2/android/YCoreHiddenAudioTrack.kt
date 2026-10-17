@@ -20,7 +20,10 @@ internal const val ENHANCED_HIDDEN_AUDIO_DETAIL =
     "Enhanced demux did not expose a server-declared audio track"
 
 internal const val YCORE_HIDDEN_AUDIO_TRACK_MESSAGE =
-    "YCore 2.0 无法解封装当前片源的音轨，其音频编码可能不受本机支持"
+    "YCore 2.0 当前解封装路径未识别到片源声明的音轨"
+
+internal const val YCORE_STARTUP_TIMEOUT_MESSAGE =
+    "YCore 2.0 起播超时，请重试或切换内核"
 
 internal fun hiddenServerAudioTrackDetail(
     prefix: String,

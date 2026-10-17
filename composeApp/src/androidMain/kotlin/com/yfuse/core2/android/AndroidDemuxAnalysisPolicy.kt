@@ -9,6 +9,19 @@ import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.demux.YDemuxOpenResult
 import com.yfuse.core2.demux.YDemuxTrackType
 
+/** Selects a demuxer, never a decoder: the enhanced open still validates the real tracks. */
+internal fun YMediaItem.prefersEnhancedStartupDemux(): Boolean {
+    if (!allowsShortDemuxAnalysis()) return false
+    if (uri.substringBefore(':').lowercase() !in setOf("http", "https")) return false
+    val hints = sourceHints ?: return false
+    if (hints.container?.lowercase() !in setOf("mkv", "matroska")) return false
+    // Some vendor Matroska extractors omit E-AC-3 entirely. Reopening the same extractor
+    // after its probe expires wastes the startup budget before FFmpeg can see the audio.
+    return (hints.audioCodecs + listOfNotNull(hints.audioCodec)).any {
+        it.lowercase() in setOf("eac3", "e-ac-3", "e-ac3", "ec-3", "eac3_joc")
+    }
+}
+
 internal fun YMediaItem.allowsShortDemuxAnalysis(): Boolean {
     val hints = sourceHints ?: return false
     return disc == null &&
