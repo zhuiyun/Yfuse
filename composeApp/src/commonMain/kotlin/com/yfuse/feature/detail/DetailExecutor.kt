@@ -254,6 +254,7 @@ internal class DetailExecutor(
                     dispatch(DetailMsg.VersionSelected(versionId))
                 }
             }
+            is DetailIntent.SyncLocalProgress -> dispatch(DetailMsg.LocalProgressSynced(intent.progress))
             is DetailIntent.SyncPlayPosition ->
                 dispatch(DetailMsg.PlayPositionSynced(intent.serverId, intent.itemId, intent.positionTicks))
         }

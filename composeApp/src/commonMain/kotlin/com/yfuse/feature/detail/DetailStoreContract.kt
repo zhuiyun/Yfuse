@@ -7,6 +7,7 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
+import com.yfuse.core.sync.playback.PlaybackStateRecord
 
 data class DetailState(
     val loading: Boolean = false,
@@ -185,6 +186,11 @@ sealed interface DetailIntent {
         val serverId: String?,
         val itemId: String?,
         val versionId: String?,
+    ) : DetailIntent
+
+    /** Current local records for the exact server/items displayed on this page. */
+    data class SyncLocalProgress(
+        val progress: Map<Pair<String, String>, PlaybackStateRecord?>,
     ) : DetailIntent
 
     /**

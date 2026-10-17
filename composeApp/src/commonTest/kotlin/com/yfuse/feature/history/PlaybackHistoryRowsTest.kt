@@ -1,5 +1,7 @@
 package com.yfuse.feature.history
 
+import com.russhwolf.settings.MapSettings
+import com.yfuse.core.data.PlaybackProgressProjection
 import com.yfuse.core.data.dto.BaseItemDto
 import com.yfuse.core.data.dto.toMediaDetail
 import com.yfuse.core.model.MediaServerKind
@@ -10,12 +12,147 @@ import com.yfuse.core.personal.PersonalCollection
 import com.yfuse.core.personal.PersonalEntry
 import com.yfuse.core.personal.PersonalMediaRef
 import com.yfuse.core.personal.PersonalStamp
+import com.yfuse.core.sync.playback.PlaybackMutationKind
+import com.yfuse.core.sync.playback.PlaybackStateRecord
+import com.yfuse.core.sync.playback.PlaybackSyncStore
+import com.yfuse.core.sync.playback.PlaybackSyncTrigger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlaybackHistoryRowsTest {
+    @Test
+    fun historyAndDetailUseTheSameLatestStoreProgressWithoutRewritingHistory() {
+        val entry = episode("tmdb:7/s1e1", "a", 10)
+        val store = PlaybackSyncStore(MapSettings()) { 1_000L }
+        val detail = BaseItemDto(Id = "a", Type = "Episode").toMediaDetail()
+        val projection = PlaybackProgressProjection(store)
+        for (position in listOf(120_000L, 30_000L, 150_000L)) {
+            val revision = store.changes.value
+            store.updatePlayback(
+                mediaKey = entry.media.mediaKey,
+                aliases = emptyList(),
+                positionMs = position,
+                durationMs = 240_000,
+                played = false,
+                sessionId = "session",
+                serverId = "first",
+                serverItemId = "a",
+                mutationKind = PlaybackMutationKind.AutoProgress,
+                trigger = PlaybackSyncTrigger.Periodic,
+            )
+            assertTrue(store.changes.value > revision)
+            val row =
+                playbackHistoryRows(
+                    listOf(entry),
+                    emptyList(),
+                    listOf(first),
+                    policy,
+                    progressForItem = store::stateForServerItem,
+                ).single()
+            assertEquals(position, row.entry.positionMs)
+            assertEquals(projection.projectDetail(first, detail).resumePositionTicks, row.entry.positionMs * 10_000L)
+            assertEquals(entry.watchedAtEpochMs, row.entry.watchedAtEpochMs)
+            assertEquals(60_000L, entry.positionMs)
+        }
+    }
+
+    @Test
+    fun exactLocalProgressOverridesStaleHistoryIncludingRewindAndCompletionReset() {
+        val entry = episode("tmdb:7/s1e1", "a", 10).copy(positionMs = 220_000, completed = true)
+        val session = LocalViewingSession("session", entry.media, seriesTitle = "剧名", startedAtEpochMs = 1)
+        val state =
+            PlaybackStateRecord(
+                mediaKey = entry.media.mediaKey,
+                positionMs = 30_000,
+                durationMs = 300_000,
+                played = false,
+                deviceId = "device",
+                serverId = "first",
+                serverItemId = "a",
+            )
+        val row = playbackHistoryRows(listOf(entry), listOf(session), listOf(first), policy) { _, _ -> state }.single()
+        assertEquals(0.1f, row.progress)
+        assertEquals(30_000L, row.entry.positionMs)
+        assertEquals(300_000L, row.durationMs)
+        assertEquals(false, row.entry.completed)
+        assertEquals(entry.identity, row.entry.identity)
+        assertEquals(entry.watchedAtEpochMs, row.entry.watchedAtEpochMs)
+        assertEquals(entry.stamp, row.entry.stamp)
+        assertEquals(session, row.session)
+        assertEquals("剧名", row.title)
+    }
+
+    @Test
+    fun historyProgressNeverBorrowsAnotherServerItemOrProfileRecord() {
+        val entry = episode("tmdb:7/s1e1", "a", 10)
+        val matching =
+            PlaybackStateRecord(
+                mediaKey = entry.media.mediaKey,
+                positionMs = 200_000,
+                played = true,
+                deviceId = "device",
+                serverId = "first",
+                serverItemId = "a",
+            )
+        val foreignRecords =
+            listOf(
+                matching.copy(serverId = "second"),
+                matching.copy(serverItemId = "b"),
+                matching.copy(profileId = "child"),
+            )
+        for (foreign in foreignRecords) {
+            val row =
+                playbackHistoryRows(listOf(entry), emptyList(), listOf(first), policy) { _, _ -> foreign }.single()
+            assertEquals(entry, row.entry)
+            assertEquals(0.25f, row.progress)
+        }
+    }
+
+    @Test
+    fun renamedServerProjectsTheSameCanonicalItemAsDetailAndKeepsDurationFallback() {
+        val entry = episode("tmdb:7/s1e1", "a", 10)
+        val renamed = first.copy(id = "new", previousIds = setOf("first"))
+        val requested = mutableListOf<Pair<String, String>>()
+        val row =
+            playbackHistoryRows(listOf(entry), emptyList(), listOf(renamed), policy) { serverId, itemId ->
+                requested += serverId to itemId
+                PlaybackStateRecord(
+                    mediaKey = entry.media.mediaKey,
+                    positionMs = 120_000,
+                    durationMs = 0,
+                    deviceId = "device",
+                    serverId = serverId,
+                    serverItemId = itemId,
+                )
+            }.single()
+        assertEquals(listOf("new" to "a"), requested)
+        assertEquals(0.5f, row.progress)
+        assertEquals(240_000L, row.durationMs)
+    }
+
+    @Test
+    fun localProgressDoesNotChangeWhichEpisodeIsTheLatestHistoryTarget() {
+        val older = episode("tmdb:7/s1e1", "older", 10)
+        val latest = episode("tmdb:7/s1e2", "latest", 20, "second")
+        val row =
+            playbackHistoryRows(listOf(older, latest), emptyList(), listOf(first, second), policy) { serverId, itemId ->
+                PlaybackStateRecord(
+                    mediaKey = "tmdb:7",
+                    positionMs = if (itemId == "older") 230_000 else 120_000,
+                    durationMs = 240_000,
+                    lastPlayedAtEpochMs = if (itemId == "older") 100 else 1,
+                    deviceId = "device",
+                    serverId = serverId,
+                    serverItemId = itemId,
+                )
+            }.single()
+        assertEquals("latest", row.entry.media.serverItemId)
+        assertEquals("second", row.server?.id)
+        assertEquals(0.5f, row.progress)
+    }
+
     @Test
     fun loadingWindowPrioritizesVisibleCardsAndAddsOnlyAdjacentPrefetch() {
         val rows =

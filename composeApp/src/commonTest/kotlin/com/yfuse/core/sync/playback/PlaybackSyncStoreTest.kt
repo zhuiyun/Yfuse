@@ -2,6 +2,9 @@ package com.yfuse.core.sync.playback
 
 import com.russhwolf.settings.MapSettings
 import com.russhwolf.settings.Settings
+import com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE
+import com.yfuse.core.personal.PersonalLibraryRepository
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -48,6 +51,77 @@ class PlaybackSyncStoreTest {
             ?.document
             ?.state
             ?.positionMs
+
+    @Test
+    fun observableProgressChangesBeforeDeferredDiskFlush() {
+        val settings = CountingSettings()
+        val store = PlaybackSyncStore(settings) { 1_000L }
+        val initial = store.changes.value
+        store.play(1_000L, PlaybackSyncTrigger.Started)
+        assertTrue(store.changes.value > initial)
+        val started = store.changes.value
+
+        store.play(12_000L, PlaybackSyncTrigger.Periodic)
+
+        assertTrue(store.changes.value > started)
+        assertEquals(12_000L, store.stateForServerItem("server-a", "item-a")?.positionMs)
+        assertEquals(1_000L, persistedPosition(settings))
+        val beforeFlush = store.changes.value
+        store.flush()
+        assertEquals(beforeFlush, store.changes.value)
+        assertEquals(12_000L, persistedPosition(settings))
+    }
+
+    @Test
+    fun accountResetInvalidatesLocalProgressProjection() {
+        val store = PlaybackSyncStore(MapSettings()) { 1_000L }
+        store.bindAccount("first")
+        store.play(12_000L, PlaybackSyncTrigger.Stop)
+        val beforeReset = store.changes.value
+
+        store.bindAccount("second")
+
+        assertTrue(store.changes.value > beforeReset)
+        assertEquals(null, store.stateForServerItem("server-a", "item-a"))
+    }
+
+    @Test
+    fun profileSwitchInvalidatesProgressWithoutAnotherPlaybackWrite() =
+        runTest {
+            val settings = MapSettings()
+            val personal = PersonalLibraryRepository(settings)
+            val store = PlaybackSyncStore(settings, personal = personal)
+            store.play(12_000L, PlaybackSyncTrigger.Stop)
+            personal.saveProfile(name = "Other", child = false, serverIds = emptySet()).getOrThrow()
+            val other = personal.state.value.profiles.last().id
+            val beforeSwitch = store.changes.value
+
+            personal.switchProfile(other).getOrThrow()
+
+            assertTrue(store.changes.value > beforeSwitch)
+            assertEquals(null, store.stateForServerItem("server-a", "item-a"))
+            val beforeReturn = store.changes.value
+            personal.switchProfile(DEFAULT_PERSONAL_PROFILE).getOrThrow()
+            assertTrue(store.changes.value > beforeReturn)
+            assertEquals(12_000L, store.stateForServerItem("server-a", "item-a")?.positionMs)
+        }
+
+    @Test
+    fun serverProgressBatchPublishesOneCompleteSnapshot() {
+        val store = PlaybackSyncStore(MapSettings()) { 1_000L }
+        val beforePull = store.changes.value
+        store.absorbServerProgressBatch(
+            "server-a",
+            listOf(
+                PlaybackSyncStore.ServerProgressInput("item-a", 10_000L, false),
+                PlaybackSyncStore.ServerProgressInput("item-b", 20_000L, false),
+            ),
+            store.scopeToken,
+        )
+        assertEquals(beforePull + 1L, store.changes.value)
+        assertEquals(10_000L, store.stateForServerItem("server-a", "item-a")?.positionMs)
+        assertEquals(20_000L, store.stateForServerItem("server-a", "item-b")?.positionMs)
+    }
 
     @Test
     fun periodicProgressIsCoalescedUntilATerminalTriggerWritesItThrough() {

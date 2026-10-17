@@ -1,6 +1,8 @@
 package com.yfuse.core.sync.playback
 
 import com.russhwolf.settings.MapSettings
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -96,15 +98,96 @@ class PlaybackSyncStoreServerDatesTest {
     }
 
     @Test
-    fun without_a_server_date_only_the_short_item_bookkeeping_is_ignored() {
+    fun without_a_server_date_acknowledged_local_progress_still_wins() {
         watchedHere("short", positionMs = 40_000L, durationMs = 120_000L)
         watchedHere("film", positionMs = 40 * 60_000L, durationMs = 120 * 60_000L)
 
         assertFalse(store.absorbServerProgress("server", "short", positionMs = 0L, played = true))
-        assertTrue(store.absorbServerProgress("server", "film", positionMs = 0L, played = true))
+        assertFalse(store.absorbServerProgress("server", "film", positionMs = 0L, played = true))
 
         assertFalse(store.stateForServerItem("server", "short")!!.played)
-        assertTrue(store.stateForServerItem("server", "film")!!.played)
+        assertFalse(store.stateForServerItem("server", "film")!!.played)
+        assertEquals(40 * 60_000L, store.stateForServerItem("server", "film")!!.positionMs)
+    }
+
+    @Test
+    fun an_undated_snapshot_cannot_restore_progress_after_a_local_rewind() {
+        watchedHere("film", positionMs = 10_000L, durationMs = 600_000L)
+        val beforePull = store.changes.value
+
+        assertFalse(store.absorbServerProgress("server", "film", positionMs = 300_000L, played = false))
+        assertEquals(10_000L, store.stateForServerItem("server", "film")!!.positionMs)
+        assertEquals(beforePull, store.changes.value)
+    }
+
+    @Test
+    fun an_acknowledged_restart_rejects_undated_history_but_accepts_a_proven_later_playback() {
+        watchedHere("film", positionMs = 300_000L, durationMs = 600_000L)
+        val restarted = store.markRestarted("emby:film", serverId = "server", serverItemId = "film")
+        assertFalse(store.absorbServerProgress("server", "film", positionMs = 300_000L, played = false))
+        store.markUploaded(
+            mediaKey = "emby:film",
+            aliases = emptyList(),
+            serverId = "server",
+            entityKey = "entity-film",
+            mutationId = restarted.mutationId,
+            cursor = 2L,
+        )
+
+        assertFalse(store.absorbServerProgress("server", "film", positionMs = 300_000L, played = false))
+        assertEquals(0L, store.stateForServerItem("server", "film")!!.positionMs)
+        assertTrue(
+            store.absorbServerProgress(
+                "server",
+                "film",
+                positionMs = 20_000L,
+                played = false,
+                lastPlayedAtEpochMs = now + 30 * 60_000L,
+            ),
+        )
+        assertEquals(20_000L, store.stateForServerItem("server", "film")!!.positionMs)
+        assertFalse(store.absorbServerProgress("server", "film", positionMs = 300_000L, played = false))
+        assertEquals(20_000L, store.stateForServerItem("server", "film")!!.positionMs)
+    }
+
+    @Test
+    fun a_newer_dated_playback_advances_freshness_even_at_the_same_position() {
+        watchedHere("film", positionMs = 20_000L, durationMs = 600_000L)
+        val later = now + 30 * 60_000L
+        assertTrue(
+            store.absorbServerProgress(
+                "server",
+                "film",
+                positionMs = 20_000L,
+                played = false,
+                lastPlayedAtEpochMs = later,
+            ),
+        )
+        assertEquals(later, store.stateForServerItem("server", "film")!!.lastPlayedAtEpochMs)
+        assertFalse(
+            store.absorbServerProgress(
+                "server",
+                "film",
+                positionMs = 300_000L,
+                played = false,
+                lastPlayedAtEpochMs = now + 10 * 60_000L,
+            ),
+        )
+        assertEquals(20_000L, store.stateForServerItem("server", "film")!!.positionMs)
+    }
+
+    @Test
+    fun legacy_server_absorption_keeps_local_session_protection_after_reload() {
+        watchedHere("film", positionMs = 20_000L, durationMs = 600_000L)
+        val legacy =
+            requireNotNull(store.find("emby:film", serverId = "server"))
+                .copy(mutationId = "server-absorb-legacy")
+        val settings = MapSettings()
+        settings.putString("playback.cross_platform.documents.v1", Json.encodeToString(listOf(legacy)))
+        val reloaded = PlaybackSyncStore(settings) { now }
+
+        assertFalse(reloaded.absorbServerProgress("server", "film", positionMs = 300_000L, played = true))
+        assertEquals(20_000L, reloaded.stateForServerItem("server", "film")!!.positionMs)
     }
 
     @Test

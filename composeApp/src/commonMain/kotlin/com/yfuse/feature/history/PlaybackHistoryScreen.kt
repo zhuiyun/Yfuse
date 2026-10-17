@@ -66,6 +66,7 @@ fun PlaybackHistoryScreen(
     val policy by component.personal.policy.collectAsState()
     val sessions by component.viewing.sessions.collectAsState()
     val servers by component.registry.data.collectAsState()
+    val progressRevision by component.progressChanges.collectAsState()
     // Metadata enriches one card at a time. Reconcile deduplication only after the list settles,
     // so new provider aliases cannot remove or reshape rows halfway through a fling.
     val metadata by produceState(component.metadata.value, component) {
@@ -80,12 +81,20 @@ fun PlaybackHistoryScreen(
     }
     val scopeToken = component.personal.scopeToken
     val rows =
-        remember(personal.history, sessions, servers, policy, metadata, scopeToken) {
+        remember(personal.history, sessions, servers, policy, metadata, scopeToken, progressRevision) {
             val currentMetadata =
                 metadata
                     .filterKeys { it.scopeToken == scopeToken }
                     .mapKeys { it.key.serverId to it.key.itemId }
-            playbackHistoryRows(personal.history, sessions, servers.servers, policy, currentMetadata)
+            playbackHistoryRows(
+                personal.history,
+                sessions,
+                servers.servers,
+                policy,
+                currentMetadata,
+            ) { serverId, itemId ->
+                component.progress?.stateForServerItem(serverId, itemId)
+            }
         }
     val visible = LocalRouteVisible.current
     LaunchedEffect(component, scopeToken, rows, visible) {

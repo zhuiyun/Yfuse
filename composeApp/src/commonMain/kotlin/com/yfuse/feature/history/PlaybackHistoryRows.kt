@@ -9,6 +9,7 @@ import com.yfuse.core.personal.PersonalCollection
 import com.yfuse.core.personal.PersonalEntry
 import com.yfuse.core.personal.PersonalMediaRef
 import com.yfuse.core.sync.parseEpisodeWatchKey
+import com.yfuse.core.sync.playback.PlaybackStateRecord
 
 internal data class PlaybackHistoryMetadataKey(
     val scopeToken: String,
@@ -75,6 +76,7 @@ internal fun playbackHistoryRows(
     servers: List<SavedServer>,
     policy: PersonalAccessPolicy,
     metadataByItem: Map<Pair<String, String>, PlaybackHistoryMetadata?> = emptyMap(),
+    progressForItem: (serverId: String, itemId: String) -> PlaybackStateRecord? = { _, _ -> null },
 ): List<PlaybackHistoryRow> {
     val metadata =
         sessions
@@ -96,8 +98,24 @@ internal fun playbackHistoryRows(
                     }
                 val server = playbackHistoryServer(entry.media, servers)
                 val key = server?.let { origin -> entry.media.serverItemId?.let { origin.id to it } }
+                // History owns identity, metadata and ordering; the same exact-item local state
+                // used by detail owns the visible progress. Never join via provider aliases.
+                val progress =
+                    key?.takeIf { policy.allowsServer(it.first) }?.let { (serverId, itemId) ->
+                        progressForItem(serverId, itemId)?.takeIf {
+                            it.profileId == entry.profileId && it.serverId == serverId && it.serverItemId == itemId
+                        }
+                    }
+                val projectedEntry =
+                    progress?.let {
+                        entry.copy(
+                            positionMs = it.positionMs.coerceAtLeast(0L),
+                            durationMs = it.durationMs.takeIf { duration -> duration > 0L } ?: entry.durationMs,
+                            completed = it.played,
+                        )
+                    } ?: entry
                 PlaybackHistoryRow(
-                    entry,
+                    projectedEntry,
                     session,
                     server,
                     key?.let(metadataByItem::get),

@@ -7,6 +7,7 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
+import com.yfuse.core.sync.playback.PlaybackStateRecord
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.toUserMessage
@@ -214,6 +215,10 @@ internal sealed interface DetailMsg {
         val target: MediaDetail,
         val positionTicks: Long,
         val preferredVersionId: String? = null,
+    ) : DetailMsg
+
+    data class LocalProgressSynced(
+        val progress: Map<Pair<String, String>, PlaybackStateRecord?>,
     ) : DetailMsg
 
     /** [DetailIntent.SyncPlayPosition]: a resume point for the target it was read for, and no other. */

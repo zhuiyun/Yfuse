@@ -1,10 +1,10 @@
 {
-  "versionName": "1.4.0",
-  "versionCode": 292,
+  "versionName": "1.4.1",
+  "versionCode": 293,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-16T10:47:46Z",
+  "confirmedAt": "2026-10-17T11:50:48Z",
   "confirmedBy": "release owner",
-  "confirmationBasis": "The user requested the predictive-back fix and signing/packaging, and explicitly specified uniform rightward exit for both gesture edges. The standing full-MDK instruction applies to the same pinned SDK and package-only distribution scope."
+  "confirmationBasis": "The release owner explicitly approved committing the playback-progress repair, cloud validation and production-signed packaging, without online publication or server deployment. The standing full-MDK instruction applies to the unchanged pinned SDK and package-only distribution scope."
 }

@@ -323,6 +323,7 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                 } else {
                     this
                 }
+            is DetailMsg.LocalProgressSynced -> withLocalProgress(msg.progress)
             is DetailMsg.PlayPositionSynced ->
                 if (playServer?.id == msg.serverId && playTarget?.id == msg.itemId) {
                     copy(playPositionTicks = msg.positionTicks.coerceAtLeast(0L))

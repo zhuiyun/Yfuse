@@ -9,6 +9,27 @@ import kotlin.test.assertTrue
 
 class PlaybackProgressReporterTest {
     @Test
+    fun ended_only_change_is_reported_without_waiting_for_close() =
+        runTest {
+            val events = mutableListOf<Event>()
+            val reporter =
+                PlaybackProgressReporter(
+                    listOf(PlayerMediaItem("movie", "direct", "hls", "电影")),
+                    RecordingSink(events),
+                    backgroundScope,
+                )
+            val paused = PlaybackState(playing = false, positionMs = 60_000L, durationMs = 60_000L)
+            reporter.update(paused)
+            runCurrent()
+            reporter.update(paused.copy(ended = true))
+            runCurrent()
+            assertEquals(listOf("started", "stopped"), events.map(Event::kind))
+            reporter.close(paused.copy(ended = true))
+            runCurrent()
+            assertEquals(listOf("started", "stopped"), events.map(Event::kind))
+        }
+
+    @Test
     fun one_sink_exception_does_not_prevent_the_later_stop_attempt() =
         runTest {
             val delivered = mutableListOf<String>()

@@ -10,6 +10,7 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.personal.LocalViewingStore
 import com.yfuse.core.personal.PersonalLibraryRepository
+import com.yfuse.core.sync.playback.PlaybackSyncStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
@@ -35,6 +36,7 @@ class PlaybackHistoryComponent(
     val personal: PersonalLibraryRepository = GlobalContext.get().get(),
     val viewing: LocalViewingStore = GlobalContext.get().get(),
     private val nowMs: () -> Long = System::currentTimeMillis,
+    internal val progress: PlaybackSyncStore? = GlobalContext.getOrNull()?.getOrNull(),
 ) : ComponentContext by componentContext {
     // Detail covers this route without destroying its scroll position.
     internal val listState = LazyListState()
@@ -48,6 +50,7 @@ class PlaybackHistoryComponent(
     private val posterStates = mutableMapOf<String, PlaybackHistoryPosterState>()
     private val loadedMetadata = MutableStateFlow<Map<PlaybackHistoryMetadataKey, PlaybackHistoryMetadata?>>(emptyMap())
     internal val metadata = loadedMetadata.asStateFlow()
+    internal val progressChanges = progress?.changes ?: MutableStateFlow(0L).asStateFlow()
 
     init {
         lifecycle.doOnDestroy(scope::cancel)

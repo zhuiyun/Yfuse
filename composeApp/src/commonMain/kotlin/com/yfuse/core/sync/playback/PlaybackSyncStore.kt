@@ -2,6 +2,9 @@ package com.yfuse.core.sync.playback
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.logging.AppLog
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.util.TreeMap
@@ -27,6 +30,10 @@ class PlaybackSyncStore(
     private val serverApplySerializer = ListSerializer(PendingPlaybackServerApply.serializer())
     private val lock = personal?.coordinationLock ?: Any()
     private var documents = loadDocuments().toMutableList()
+    private val mutableChanges = MutableStateFlow(0L)
+
+    /** Invalidates screen projections as soon as memory changes, independently of disk/network flush. */
+    val changes: StateFlow<Long> = mutableChanges.asStateFlow()
 
     /** True while [documents] holds coalesced progress that settings have not received yet. */
     private var documentsUnsaved = false
@@ -40,6 +47,18 @@ class PlaybackSyncStore(
             .getStringOrNull(KEY_DEVICE_ID)
             ?.takeIf(String::isNotBlank)
             ?: newId("device").also { settings.putString(KEY_DEVICE_ID, it) }
+
+    init {
+        var observedScope = scopeToken
+        personal?.observeChanges {
+            synchronized(lock) {
+                if (observedScope != scopeToken) {
+                    observedScope = scopeToken
+                    publishChangeLocked()
+                }
+            }
+        }
+    }
 
     /**
      * Binds the local cloud-sync partition to one Yfuse account. Re-entering the same account
@@ -66,6 +85,7 @@ class PlaybackSyncStore(
             settings.remove(KEY_SERVER_APPLIES)
             settings.putLong(KEY_CURSOR, 0L)
             settings.putString(KEY_ACCOUNT_USER_ID, userId)
+            publishChangeLocked()
             true
         }
 
@@ -352,7 +372,8 @@ class PlaybackSyncStore(
      * server's copy of *this* playback is not newer: Jellyfin turns an item shorter than
      * MinResumeDurationSeconds (300 s by default) into "played, position 0" once a progress
      * report passes 5%, so taking it erased the resume point of every 短剧 episode left halfway.
-     * Without a server timestamp the old rule stands, except for that short-item case.
+     * Without a server timestamp, a snapshot cannot prove that it is newer than local playback.
+     * Keep the local record even after upload acknowledgement; acknowledgement is not freshness.
      *
      * A dirty record is a local playback the server has not received yet; it stays, and the
      * outbox delivers it. Imported values are clean, so a pull is never echoed back to the cloud
@@ -394,19 +415,21 @@ class PlaybackSyncStore(
         val normalizedPosition = input.positionMs.coerceAtLeast(0L)
         val current = stored.document.state
         val serverPlayedAt = input.lastPlayedAtEpochMs?.takeIf { it > 0L }
-        val imported = stored.mutationId.startsWith(SERVER_MUTATION_PREFIX)
+        // Older versions could relabel a locally watched record as server-only after a pull.
+        // Session history still proves its local provenance; preserve that freshness boundary.
+        val imported = stored.mutationId.startsWith(SERVER_MUTATION_PREFIX) && stored.document.history.isEmpty()
         if (!imported) {
             val serverSawLaterPlayback =
                 if (serverPlayedAt != null) {
                     serverPlayedAt > current.lastPlayedAtEpochMs + SERVER_CLOCK_TOLERANCE_MS
                 } else {
-                    !current.keepsShortResumeAgainst(input.played, normalizedPosition, input.durationMs)
+                    false
                 }
             if (!serverSawLaterPlayback) return false
         }
         val valuesChanged = current.positionMs != normalizedPosition || current.played != input.played
-        // An earlier pull dated imported records by its own clock; the server's date heals them.
-        val dateHealed = imported && serverPlayedAt != null && serverPlayedAt != current.lastPlayedAtEpochMs
+        // Advance the freshness watermark even if a newer playback happens to stop at the same position.
+        val dateHealed = serverPlayedAt != null && serverPlayedAt != current.lastPlayedAtEpochMs
         if (!valuesChanged && !dateHealed) return false
         val state =
             current.copy(
@@ -429,29 +452,12 @@ class PlaybackSyncStore(
                 stored.copy(
                     document = stored.document.copy(state = state),
                     dirty = false,
-                    mutationId = newId(SERVER_ABSORB_MUTATION),
+                    // A dated pull does not turn previously local state into an unprotected import.
+                    mutationId = newId(if (imported) SERVER_ABSORB_MUTATION else DATED_SERVER_ABSORB_MUTATION),
                 ),
         )
         pull?.replaced(stored, index)
         return true
-    }
-
-    /**
-     * Jellyfin marks an item shorter than its MinResumeDurationSeconds played, at position 0,
-     * as soon as a progress report passes 5%. With no server date to tell the two apart, a resume
-     * point recorded here for such an item is kept rather than replaced by that bookkeeping.
-     */
-    private fun PlaybackStateRecord.keepsShortResumeAgainst(
-        serverPlayed: Boolean,
-        serverPositionMs: Long,
-        serverDurationMs: Long,
-    ): Boolean {
-        val knownDurationMs = durationMs.takeIf { it > 0L } ?: serverDurationMs
-        return !played &&
-            positionMs > 0L &&
-            serverPlayed &&
-            serverPositionMs == 0L &&
-            knownDurationMs in 1L until SHORT_ITEM_RESUME_MAX_DURATION_MS
     }
 
     data class ServerProgressInput(
@@ -906,6 +912,7 @@ class PlaybackSyncStore(
             return
         }
         trimDocumentsLocked()
+        publishChangeLocked()
         if (deferrable && !deferredPersistOverdueLocked()) {
             documentsUnsaved = true
             return
@@ -920,8 +927,13 @@ class PlaybackSyncStore(
         return nowEpochMs() - last !in 0L until DEFERRED_PERSIST_MAX_AGE_MS
     }
 
+    private fun publishChangeLocked() {
+        mutableChanges.value += 1L
+    }
+
     private fun trimAndPersistDocumentsLocked() {
         trimDocumentsLocked()
+        publishChangeLocked()
         persistLocked()
     }
 
@@ -1025,12 +1037,11 @@ class PlaybackSyncStore(
         const val SERVER_MUTATION_PREFIX = "server-"
         const val SERVER_SEED_MUTATION = "server-seed"
         const val SERVER_ABSORB_MUTATION = "server-absorb"
+        const val DATED_SERVER_ABSORB_MUTATION = "dated-server-absorb"
 
         /** A server date within this of the local one is the same playback seen by two clocks. */
         const val SERVER_CLOCK_TOLERANCE_MS = 2 * 60_000L
 
-        /** Jellyfin's default MinResumeDurationSeconds. */
-        const val SHORT_ITEM_RESUME_MAX_DURATION_MS = 300_000L
         const val MAX_ALIASES = 32
 
         /** The most playback progress a process death can cost; see [replaceLocked]. */

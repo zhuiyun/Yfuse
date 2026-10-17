@@ -31,6 +31,199 @@ import kotlin.test.assertNull
 
 class PlaybackRecordDurabilityTest {
     @Test
+    fun rapidTransitionsPreserveAllDeparturesAndProtectReenteredItem() =
+        runTest {
+            for (returnToFirst in listOf(false, true)) {
+                val fixture = fixture()
+                val release = CompletableDeferred<Unit>()
+                try {
+                    val second = item.copy(id = "second", watchKey = "emby:second", matchKeys = listOf("emby:second"))
+                    val third = item.copy(id = "third", watchKey = "emby:third", matchKeys = listOf("emby:third"))
+                    val reporter =
+                        PlaybackProgressReporter(
+                            listOf(item, second, third),
+                            WaitingSink(release),
+                            scope = this,
+                            playbackSync = fixture.manager,
+                        )
+                    reporter.update(PlaybackState(playing = true, positionMs = 50_000, durationMs = 60_000))
+                    runCurrent()
+                    reporter.update(PlaybackState(playing = true, positionMs = 54_000, durationMs = 60_000))
+                    reporter.update(
+                        PlaybackState(playing = true, currentIndex = 1, positionMs = 4_000, durationMs = 60_000),
+                    )
+                    val finalIndex = if (returnToFirst) 0 else 2
+                    reporter.update(
+                        PlaybackState(playing = true, currentIndex = finalIndex, positionMs = 0, durationMs = 60_000),
+                    )
+                    reporter.close(PlaybackState(currentIndex = finalIndex, positionMs = 3_000, durationMs = 60_000))
+                    fun assertPositions(store: PlaybackSyncStore) {
+                        assertEquals(
+                            if (returnToFirst) 3_000L else 54_000L,
+                            store.stateForServerItem("server", "movie")?.positionMs,
+                        )
+                        assertEquals(4_000L, store.stateForServerItem("server", "second")?.positionMs)
+                        if (!returnToFirst) {
+                            assertEquals(3_000L, store.stateForServerItem("server", "third")?.positionMs)
+                        }
+                    }
+                    assertPositions(fixture.store)
+                    assertPositions(PlaybackSyncStore(fixture.settings, personal = fixture.personal))
+                    release.complete(Unit)
+                    runCurrent()
+                    assertPositions(fixture.store)
+                } finally {
+                    release.complete(Unit)
+                    fixture.client.close()
+                }
+            }
+        }
+
+    @Test
+    fun sameIndexCrossServerRebindPersistsTheCorrectServer() =
+        runTest {
+            val fixture = fixture()
+            val release = CompletableDeferred<Unit>()
+            try {
+                val replacement =
+                    item.copy(
+                        serverId = "other-server",
+                        watchKey = "emby:other-server:movie",
+                        matchKeys = listOf("emby:other-server:movie"),
+                    )
+                val reporter =
+                    PlaybackProgressReporter(
+                        listOf(item),
+                        WaitingSink(release),
+                        scope = this,
+                        playbackSync = fixture.manager,
+                    )
+                reporter.update(PlaybackState(playing = true, positionMs = 50_000, durationMs = 60_000))
+                runCurrent()
+                reporter.update(PlaybackState(playing = true, positionMs = 54_000, durationMs = 60_000))
+                reporter.rebind(listOf(replacement), PlaybackState(playing = true, positionMs = 0, durationMs = 60_000))
+                reporter.close(PlaybackState(positionMs = 3_000, durationMs = 60_000))
+                assertEquals(54_000L, fixture.store.stateForServerItem("server", "movie")?.positionMs)
+                assertEquals(3_000L, fixture.store.stateForServerItem("other-server", "movie")?.positionMs)
+                release.complete(Unit)
+                runCurrent()
+                assertEquals(54_000L, fixture.store.stateForServerItem("server", "movie")?.positionMs)
+                assertEquals(3_000L, fixture.store.stateForServerItem("other-server", "movie")?.positionMs)
+            } finally {
+                release.complete(Unit)
+                fixture.client.close()
+            }
+        }
+
+    @Test
+    fun sameItemIdOnAnotherServerDoesNotHideTheDeparture() =
+        runTest {
+            val fixture = fixture()
+            val release = CompletableDeferred<Unit>()
+            try {
+                val next =
+                    item.copy(
+                        serverId = "other-server",
+                        watchKey = "emby:other-server:movie",
+                        matchKeys = listOf("emby:other-server:movie"),
+                    )
+                val reporter =
+                    PlaybackProgressReporter(
+                        listOf(item, next),
+                        WaitingSink(release),
+                        scope = this,
+                        playbackSync = fixture.manager,
+                    )
+                reporter.update(PlaybackState(playing = true, positionMs = 50_000, durationMs = 60_000))
+                runCurrent()
+                reporter.update(PlaybackState(playing = true, positionMs = 54_000, durationMs = 60_000))
+                reporter.update(PlaybackState(playing = true, currentIndex = 1, positionMs = 0, durationMs = 60_000))
+                reporter.close(PlaybackState(currentIndex = 1, positionMs = 3_000, durationMs = 60_000))
+                assertEquals(54_000L, fixture.store.stateForServerItem("server", "movie")?.positionMs)
+                assertEquals(3_000L, fixture.store.stateForServerItem("other-server", "movie")?.positionMs)
+                release.complete(Unit)
+                runCurrent()
+                assertEquals(54_000L, fixture.store.stateForServerItem("server", "movie")?.positionMs)
+                assertEquals(3_000L, fixture.store.stateForServerItem("other-server", "movie")?.positionMs)
+            } finally {
+                release.complete(Unit)
+                fixture.client.close()
+            }
+        }
+
+    @Test
+    fun queueReorderDoesNotFlushTheOldIndexAsADifferentEpisode() =
+        runTest {
+            val fixture = fixture()
+            val release = CompletableDeferred<Unit>()
+            try {
+                val next = item.copy(id = "next", watchKey = "emby:next", matchKeys = listOf("emby:next"))
+                val reporter =
+                    PlaybackProgressReporter(
+                        listOf(item, next),
+                        WaitingSink(release),
+                        scope = this,
+                        playbackSync = fixture.manager,
+                    )
+                reporter.update(
+                    PlaybackState(playing = true, currentIndex = 1, positionMs = 20_000, durationMs = 60_000),
+                )
+                runCurrent()
+                reporter.rebind(
+                    listOf(next, item),
+                    PlaybackState(playing = true, currentIndex = 1, positionMs = 21_000, durationMs = 60_000),
+                )
+                reporter.update(
+                    PlaybackState(playing = true, currentIndex = 0, positionMs = 21_000, durationMs = 60_000),
+                )
+                reporter.close(PlaybackState(currentIndex = 0, positionMs = 22_000, durationMs = 60_000))
+                assertNull(fixture.store.stateForServerItem("server", "movie"))
+                assertEquals(22_000L, fixture.store.stateForServerItem("server", "next")?.positionMs)
+                release.complete(Unit)
+                runCurrent()
+                assertNull(fixture.store.stateForServerItem("server", "movie"))
+                assertEquals(22_000L, fixture.store.stateForServerItem("server", "next")?.positionMs)
+            } finally {
+                release.complete(Unit)
+                fixture.client.close()
+            }
+        }
+
+    @Test
+    fun closePreservesDepartedEpisodeWhileStartRequestIsStillBlocked() =
+        runTest {
+            val fixture = fixture()
+            val release = CompletableDeferred<Unit>()
+            try {
+                val next = item.copy(id = "next", watchKey = "emby:next", matchKeys = listOf("emby:next"))
+                val reporter =
+                    PlaybackProgressReporter(
+                        listOf(item, next),
+                        WaitingSink(release),
+                        scope = this,
+                        playbackSync = fixture.manager,
+                    )
+                reporter.update(PlaybackState(playing = true, positionMs = 50_000, durationMs = 60_000))
+                runCurrent()
+                reporter.update(PlaybackState(playing = true, positionMs = 54_000, durationMs = 60_000))
+                reporter.update(PlaybackState(playing = true, currentIndex = 1, positionMs = 0, durationMs = 60_000))
+                reporter.close(PlaybackState(currentIndex = 1, positionMs = 3_000, durationMs = 60_000))
+                assertEquals(54_000L, fixture.store.stateForServerItem("server", "movie")?.positionMs)
+                assertEquals(3_000L, fixture.store.stateForServerItem("server", "next")?.positionMs)
+                val restarted = PlaybackSyncStore(fixture.settings, personal = fixture.personal)
+                assertEquals(54_000L, restarted.stateForServerItem("server", "movie")?.positionMs)
+                assertEquals(3_000L, restarted.stateForServerItem("server", "next")?.positionMs)
+                release.complete(Unit)
+                runCurrent()
+                assertEquals(54_000L, fixture.store.stateForServerItem("server", "movie")?.positionMs)
+                assertEquals(3_000L, fixture.store.stateForServerItem("server", "next")?.positionMs)
+            } finally {
+                release.complete(Unit)
+                fixture.client.close()
+            }
+        }
+
+    @Test
     fun shortPlaybackIsPersistedAtCloseWhileTheStartRequestIsStillBlocked() =
         runTest {
             val fixture = fixture()

@@ -77,7 +77,7 @@ internal class PlaybackProgressReporter(
     private var items = items
     private var observedItems = items
     private val localScopeToken = playbackSync?.playbackScopeToken
-    private val generatedSessions = mutableMapOf<Pair<String, String>, String>()
+    private val generatedSessions = mutableMapOf<Triple<String?, String, String>, String>()
     private var observedBinding = items.reportingBinding()
     private val commandLock = Any()
     private val pendingCommands = ArrayDeque<Command>()
@@ -90,15 +90,16 @@ internal class PlaybackProgressReporter(
     private var latestState: PlaybackState? = null
 
     private var observedIndex = -1
+    private var observedItem: PlayerMediaItem? = null
     private var observedPlaying: Boolean? = null
+    private var observedEnded = false
     private var observedPositionMs = 0L
     private var observedDurationMs = 0L
     private var enqueuedPositionMs = Long.MIN_VALUE
 
     /** The entry playback just left, with the last position the sampling path saw on it. */
     private data class Departure(
-        val index: Int,
-        val itemId: String,
+        val item: PlayerMediaItem,
         val positionMs: Long,
         val durationMs: Long,
     )
@@ -112,8 +113,7 @@ internal class PlaybackProgressReporter(
      * watched: never finished, left in 继续观看 and picked again by 播放. The last *sampled*
      * position is at most one tick old.
      */
-    @Volatile
-    private var lastDeparture: Departure? = null
+    private val pendingDepartures = mutableMapOf<Pair<String?, String>, Departure>()
     private val preloadedSources = mutableSetOf<String>()
 
     private var activeIndex = -1
@@ -193,24 +193,38 @@ internal class PlaybackProgressReporter(
         latestState = state
         preloadNextIfNeeded(state)
 
-        val itemChanged = state.currentIndex != observedIndex
+        val currentItem = observedItems.getOrNull(state.currentIndex)
+        val identityChanged = currentItem?.serverId != observedItem?.serverId || currentItem?.id != observedItem?.id
+        val itemChanged = state.currentIndex != observedIndex || identityChanged
         val playStateChanged = state.playing != observedPlaying
+        val endedChanged = state.ended != observedEnded
         val seeked = abs(state.positionMs - observedPositionMs) >= SEEK_THRESHOLD_MS
         val periodic =
             enqueuedPositionMs == Long.MIN_VALUE ||
                 abs(state.positionMs - enqueuedPositionMs) >= REPORT_INTERVAL_MS
 
-        if (itemChanged && observedIndex >= 0) {
-            items.getOrNull(observedIndex)?.let { departed ->
-                lastDeparture = Departure(observedIndex, departed.id, observedPositionMs, observedDurationMs)
+        if (identityChanged) {
+            synchronized(commandLock) {
+                if (closed) return
+                observedItem?.let { departed ->
+                    pendingDepartures[departed.serverId to departed.id] =
+                        Departure(departed, observedPositionMs, observedDurationMs)
+                }
+                // Re-entry supersedes the previous visit, including a previous session for this
+                // item. A queued stop must never restore that visit over the new playback clock.
+                observedItems.getOrNull(state.currentIndex)?.let { current ->
+                    pendingDepartures.remove(current.serverId to current.id)
+                }
             }
         }
         observedIndex = state.currentIndex
+        observedItem = observedItems.getOrNull(state.currentIndex)
         observedPlaying = state.playing
+        observedEnded = state.ended
         observedPositionMs = state.positionMs
         observedDurationMs = state.durationMs
 
-        if (itemChanged || playStateChanged || seeked || periodic) {
+        if (itemChanged || playStateChanged || endedChanged || seeked || periodic) {
             enqueuedPositionMs = state.positionMs
             enqueue(Command.Update(state))
         }
@@ -250,8 +264,17 @@ internal class PlaybackProgressReporter(
         latestState = state
         val binding = items.reportingBinding()
         if (binding == observedBinding) return
-        observedBinding = binding
-        observedItems = items
+        synchronized(commandLock) {
+            if (closed) return
+            observedItem?.let { previous ->
+                if (items.none { it.serverId == previous.serverId && it.id == previous.id }) {
+                    pendingDepartures[previous.serverId to previous.id] =
+                        Departure(previous, observedPositionMs, observedDurationMs)
+                }
+            }
+            observedBinding = binding
+            observedItems = items
+        }
         enqueue(Command.Rebind(items, state))
     }
 
@@ -260,6 +283,20 @@ internal class PlaybackProgressReporter(
             if (closed) return
             latestState = state
             closed = true
+            // Close can overtake a pending episode transition. Preserve that episode's sampled
+            // stop too, since all subsequent actor-side local writes are suppressed after close.
+            val closingItem = observedItems.getOrNull(state.currentIndex)
+            pendingDepartures.values.forEach { departure ->
+                if (departure.item.id != closingItem?.id || departure.item.serverId != closingItem?.serverId) {
+                    recordLocalPlayback(
+                        departure.item,
+                        departure.positionMs,
+                        departure.durationMs,
+                        sessionIdFor(departure.item),
+                        PlaybackSyncTrigger.Stop,
+                    )
+                }
+            }
             // Persist the final sample before waiting for an in-flight server request. The actor
             // cannot subsequently replace it with an older queued sample.
             observedItems.getOrNull(state.currentIndex)?.let { item ->
@@ -450,11 +487,13 @@ internal class PlaybackProgressReporter(
             }
         val stateStillNamesOldActive =
             oldStateItem?.let { item ->
-                item.id == oldActiveId && item.playSessionId == activeBindingSessionId
+                item.serverId == oldActive?.serverId && item.id == oldActiveId &&
+                    item.playSessionId == activeBindingSessionId
             } == true
         val retainedIndex =
             newItems.indexOfFirst { item ->
-                item.id == oldActiveId && item.playSessionId == activeBindingSessionId
+                item.serverId == oldActive?.serverId && item.id == oldActiveId &&
+                    item.playSessionId == activeBindingSessionId
             }
 
         if (activeIndex >= 0 && stateStillNamesOldActive && retainedIndex >= 0) {
@@ -466,9 +505,12 @@ internal class PlaybackProgressReporter(
         val newIndex = state.currentIndex.coerceIn(0, newItems.lastIndex)
         val newActive = newItems.getOrNull(newIndex)
         val activeChanged =
-            oldActiveId != newActive?.id ||
+            oldActive?.serverId != newActive?.serverId || oldActiveId != newActive?.id ||
                 activeBindingSessionId != newActive?.playSessionId
-        if (activeChanged) stopActive(PlaybackSyncTrigger.Stop)
+        if (activeChanged) {
+            applyDeparture()
+            stopActive(PlaybackSyncTrigger.Stop)
+        }
         items = newItems
         if (activeChanged) {
             terminalIndex = -1
@@ -480,11 +522,26 @@ internal class PlaybackProgressReporter(
 
     /** Stops the departed entry where it was last seen rather than where it was last reported. */
     private fun applyDeparture() {
-        val departure = lastDeparture ?: return
-        lastDeparture = null
-        if (activeIndex < 0 || departure.index != activeIndex || departure.itemId != activeItemId) return
-        activePositionMs = departure.positionMs.coerceAtLeast(0L)
-        if (departure.durationMs > 0L) activeDurationMs = departure.durationMs
+        synchronized(commandLock) {
+            val activeItem = items.getOrNull(activeIndex) ?: return
+            val key = activeItem.serverId to activeItemId
+            val departure = pendingDepartures[key] ?: return
+            if (departure.item.playSessionId != activeBindingSessionId) return
+            activePositionMs = departure.positionMs.coerceAtLeast(0L)
+            if (departure.durationMs > 0L) activeDurationMs = departure.durationMs
+            // Persist before consuming the departure. Otherwise close could see no departure
+            // here, then suppress stopActive's local write while its server request is pending.
+            if (!closed) {
+                recordLocalPlayback(
+                    departure.item,
+                    activePositionMs,
+                    activeDurationMs,
+                    activeSessionId,
+                    PlaybackSyncTrigger.Stop,
+                )
+            }
+            pendingDepartures.remove(key)
+        }
     }
 
     private suspend fun stopActive(trigger: PlaybackSyncTrigger) {
@@ -570,7 +627,7 @@ internal class PlaybackProgressReporter(
     private fun sessionIdFor(item: PlayerMediaItem): String =
         item.playSessionId.takeIf { it.isNotBlank() } ?: synchronized(commandLock) {
             generatedSessions.getOrPut(
-                item.id to item.playSessionId,
+                Triple(item.serverId, item.id, item.playSessionId),
             ) { "yfuse${Random.nextLong().toULong().toString(16)}" }
         }
 
@@ -587,7 +644,8 @@ internal class PlaybackProgressReporter(
             }
 }
 
-private fun List<PlayerMediaItem>.reportingBinding(): List<Pair<String, String>> = map { it.id to it.playSessionId }
+private fun List<PlayerMediaItem>.reportingBinding(): List<Triple<String?, String, String>> =
+    map { Triple(it.serverId, it.id, it.playSessionId) }
 
 private fun PlaybackState.playMethodFor(item: PlayerMediaItem): String =
     if (transcoding) "Transcode" else item.playMethod.embyValue

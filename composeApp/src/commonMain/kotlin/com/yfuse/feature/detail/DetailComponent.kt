@@ -37,6 +37,7 @@ import com.yfuse.core.offline.buildOfflineDownloadRequests
 import com.yfuse.core.offline.sameOfflineDownloadVariant
 import com.yfuse.core.offline.selectOfflineBatchItems
 import com.yfuse.core.sync.playback.PlaybackSyncManager
+import com.yfuse.core.sync.playback.PlaybackSyncStore
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.util.componentScope
@@ -521,13 +522,9 @@ class DetailComponent(
             preloadPreparedAt = null
         }
 
-        // Set by the first launch and kept: the player route pops itself while the player is still
-        // starting, so the page can come back once before the player has played anything.
-        var playbackLaunched = false
         store.labels
             .onEach {
                 if (it is DetailLabel.Play) {
-                    playbackLaunched = true
                     val fromStart = explicitFromStartPending
                     if (fromStart) {
                         mirrorRestarted(store.state)
@@ -565,7 +562,6 @@ class DetailComponent(
             object : Lifecycle.Callbacks {
                 override fun onResume() {
                     pageVisible.value = true
-                    if (playbackLaunched) syncPlayPosition()
                 }
 
                 override fun onPause() {
@@ -573,6 +569,17 @@ class DetailComponent(
                 }
             },
         )
+
+        // The page can resume before the player's final local write. Observe that write as well
+        // as visibility and newly loaded selections; neither returning nor progress needs a fetch.
+        runCatching { GlobalContext.get().get<PlaybackSyncStore>() }.getOrNull()?.let { local ->
+            localDetailProgress(store.states, pageVisible, local.changes, local::stateForServerItem)
+                .onEach { progress ->
+                    if (store.state.withLocalProgress(progress) != store.state) {
+                        store.accept(DetailIntent.SyncLocalProgress(progress))
+                    }
+                }.launchIn(scope)
+        }
 
         // Prepare the selected item while the user reads the detail page. The full episode queue
         // and backup sources wait until the player claims this Store and shows its first frame.
@@ -757,22 +764,6 @@ class DetailComponent(
                 serverId = identity.serverId,
             ) ?: return fallbackTicks
         return syncedMs.coerceAtMost(Long.MAX_VALUE / TICKS_PER_MILLISECOND) * TICKS_PER_MILLISECOND
-    }
-
-    /**
-     * Back in front after a launch, 播放 says where it would resume now. The page waited behind the
-     * player without reloading its target, so 继续播放, the resume time and 从头 still described the
-     * position from before playing, while the key itself resumed from the new one. A title played to
-     * the end reads as 0: 播放 again, with nothing for 从头 to rewind.
-     */
-    private fun syncPlayPosition() {
-        val state = store.state
-        val server = state.playServer ?: return
-        val target = state.playTarget ?: return
-        val ticks = syncedStartPositionTicks(state, state.playPositionTicks)
-        if (ticks != state.playPositionTicks) {
-            store.accept(DetailIntent.SyncPlayPosition(server.id, target.id, ticks))
-        }
     }
 
     private fun playbackIdentity(state: DetailState): PlaybackIdentity? {
