@@ -37,9 +37,7 @@ internal fun DetailState.localProgressSnapshot(
     }
 
 /** Project progress only. Metadata, selections and an open progress editor remain untouched. */
-internal fun DetailState.withLocalProgress(
-    progress: Map<Pair<String, String>, PlaybackStateRecord?>,
-): DetailState {
+internal fun DetailState.withLocalProgress(progress: Map<Pair<String, String>, PlaybackStateRecord?>): DetailState {
     fun MediaDetail.project(serverId: String?): MediaDetail {
         if (serverId == null) return this
         val key = serverId to id
@@ -69,7 +67,10 @@ internal fun DetailState.withLocalProgress(
                 val durationMs =
                     record?.durationMs?.takeIf { it > 0L }
                         ?: episode.runtimeTicks?.div(10_000L)?.takeIf { it > 0L }
-                        ?: episode.runtimeMinutes?.toLong()?.times(60_000L)?.takeIf { it > 0L }
+                        ?: episode.runtimeMinutes
+                            ?.toLong()
+                            ?.times(60_000L)
+                            ?.takeIf { it > 0L }
                 episode.copy(
                     played = record?.played == true,
                     resumePositionTicks = ticks,

@@ -7,10 +7,10 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
-import com.yfuse.core.sync.playback.PlaybackStateRecord
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.toUserMessage
+import com.yfuse.core.sync.playback.PlaybackStateRecord
 import kotlinx.coroutines.CancellationException
 
 internal fun Throwable.toOrganizationMessage(fallback: String): String {

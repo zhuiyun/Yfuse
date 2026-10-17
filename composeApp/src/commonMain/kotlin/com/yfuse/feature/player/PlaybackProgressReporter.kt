@@ -487,12 +487,14 @@ internal class PlaybackProgressReporter(
             }
         val stateStillNamesOldActive =
             oldStateItem?.let { item ->
-                item.serverId == oldActive?.serverId && item.id == oldActiveId &&
+                item.serverId == oldActive?.serverId &&
+                    item.id == oldActiveId &&
                     item.playSessionId == activeBindingSessionId
             } == true
         val retainedIndex =
             newItems.indexOfFirst { item ->
-                item.serverId == oldActive?.serverId && item.id == oldActiveId &&
+                item.serverId == oldActive?.serverId &&
+                    item.id == oldActiveId &&
                     item.playSessionId == activeBindingSessionId
             }
 
@@ -505,7 +507,8 @@ internal class PlaybackProgressReporter(
         val newIndex = state.currentIndex.coerceIn(0, newItems.lastIndex)
         val newActive = newItems.getOrNull(newIndex)
         val activeChanged =
-            oldActive?.serverId != newActive?.serverId || oldActiveId != newActive?.id ||
+            oldActive?.serverId != newActive?.serverId ||
+                oldActiveId != newActive?.id ||
                 activeBindingSessionId != newActive?.playSessionId
         if (activeChanged) {
             applyDeparture()

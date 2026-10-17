@@ -57,6 +57,7 @@ class PlaybackRecordDurabilityTest {
                         PlaybackState(playing = true, currentIndex = finalIndex, positionMs = 0, durationMs = 60_000),
                     )
                     reporter.close(PlaybackState(currentIndex = finalIndex, positionMs = 3_000, durationMs = 60_000))
+
                     fun assertPositions(store: PlaybackSyncStore) {
                         assertEquals(
                             if (returnToFirst) 3_000L else 54_000L,

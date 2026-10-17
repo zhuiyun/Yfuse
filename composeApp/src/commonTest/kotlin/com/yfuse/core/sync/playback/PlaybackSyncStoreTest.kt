@@ -93,7 +93,10 @@ class PlaybackSyncStoreTest {
             val store = PlaybackSyncStore(settings, personal = personal)
             store.play(12_000L, PlaybackSyncTrigger.Stop)
             personal.saveProfile(name = "Other", child = false, serverIds = emptySet()).getOrThrow()
-            val other = personal.state.value.profiles.last().id
+            val other =
+                personal.state.value.profiles
+                    .last()
+                    .id
             val beforeSwitch = store.changes.value
 
             personal.switchProfile(other).getOrThrow()
