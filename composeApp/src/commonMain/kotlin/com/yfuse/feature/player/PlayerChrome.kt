@@ -21,14 +21,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -994,8 +991,8 @@ internal fun PlayerLockKey(
         onClick = onClick,
         onLongClick = onLongClick,
         onLongClickLabel = "解锁屏幕".takeIf { onLongClick != null },
-        // On the left edge in landscape, which is where a phone's notch or punch-hole may be.
-        modifier = modifier.windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Start)),
+        // Stay aligned with the bars even when the cutout is on the opposite edge.
+        modifier = modifier.windowInsetsPadding(playerCutoutInsets(WindowInsetsSides.Start)),
     )
 }
 

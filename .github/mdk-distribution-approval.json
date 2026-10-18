@@ -1,10 +1,10 @@
 {
-  "versionName": "1.4.2",
-  "versionCode": 294,
+  "versionName": "1.4.3",
+  "versionCode": 295,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
   "confirmedAt": "2026-10-17T17:28:59Z",
   "confirmedBy": "release owner",
-  "confirmationBasis": "The release owner requested fixing the playback startup failure and packaging the result, then explicitly authorized pushing this repair to master and running the artifact-only production-signing workflow. No online publication or deployment is authorized. The standing full-MDK instruction in AGENTS.md applies to the unchanged pinned SDK and package-only delivery scope."
+  "confirmationBasis": "Continuing the release owner's authorization in this session for the artifact-only production-signing workflow. On 2026-10-18 at 08:35:41 Asia/Shanghai, the owner requested packaging the player horizontal-margin fix. The standing full-MDK instruction in AGENTS.md applies to the unchanged pinned SDK and package-only delivery scope. No online publication or deployment is authorized."
 }

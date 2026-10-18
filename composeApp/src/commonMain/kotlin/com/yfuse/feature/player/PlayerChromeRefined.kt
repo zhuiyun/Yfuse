@@ -30,13 +30,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -166,8 +163,8 @@ internal fun RefinedTopBar(
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val haptics = LocalHaptics.current
-    // The scrim runs edge to edge; the keys keep clear of a notch or a punch-hole.
-    val cutout = WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
+    // Keep the keys centred with equal safe margins; the scrim still runs edge to edge.
+    val cutout = playerCutoutInsets(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
     Row(
         modifier
             .fillMaxWidth()
@@ -550,8 +547,8 @@ private fun RefinedBottomBarContent(
             { ambientSeekAccent(ambientLight?.value, artworkAccent.value) }
         }
 
-    // As the title bar: the scrim runs edge to edge, the keys and the rail keep clear of a cutout.
-    val cutout = WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+    // Match the title bar's equal safe margins for the keys and the seek rail.
+    val cutout = playerCutoutInsets(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
     Column(
         modifier
             .fillMaxWidth()
