@@ -86,17 +86,30 @@ fun <T : Any> OfficialNavDisplay(
     val screenReader = rememberScreenReaderActive()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val calm = calmMotion()
+    val cinema = cinemaMotion()
+    val routeOrigins = remember { MediaRouteOrigins() }
+    val routeKeys = shownStack.map(contentKey)
+    val returnPoster = routeOrigins.returningTo(routeKeys)
+    val cinemaPoster = cinema && (sharedMediaController.activeKey != null || returnPoster != null)
     val previousDepth = remember { intArrayOf(shownStack.size) }
     SideEffect {
         // A route pushed right after a poster was tapped is a route from that poster.
         val pushedFrom = if (shownStack.size > previousDepth[0]) sharedMediaController.takeOrigin() else null
+        if (shownStack.size < previousDepth[0] && cinema) {
+            if (zoom?.suppressPopTransition == true || returnPoster == null) {
+                sharedMediaController.suppressForPop()
+            } else {
+                sharedMediaController.onPop(returnPoster)
+            }
+        }
+        routeOrigins.update(routeKeys, pushedFrom)
         if (zoom != null) {
             zoom.onBack = { latestBack() }
             // While a morph is in flight a swipe back goes to NavDisplay, whose predictive pop the
             // morph follows and, once committed, finishes in reverse: 跟手返回 would pull the page
             // away from under artwork still drawn above it.
             zoom.blocked = { liftMenu?.isOpen == true || screenReader || sharedMediaController.activeKey != null }
-            zoom.onStack(shownStack.map(contentKey), pushedFrom, visible = parentRouteVisible)
+            zoom.onStack(routeKeys, pushedFrom, visible = parentRouteVisible)
         }
         previousDepth[0] = shownStack.size
     }
@@ -169,7 +182,9 @@ fun <T : Any> OfficialNavDisplay(
                     modifier = Modifier.fillMaxSize(),
                     onBack = onBack,
                     transitionSpec = {
-                        if (calm && !reduceMotion) {
+                        if (cinemaPoster && motion == OfficialNavMotion.Stack) {
+                            cinemaPosterPageTransform(popping = false)
+                        } else if (calm && !reduceMotion) {
                             calmContentTransform(motion, calmTravelPx, popping = false)
                         } else {
                             rootContentTransform(
@@ -184,6 +199,8 @@ fun <T : Any> OfficialNavDisplay(
                     popTransitionSpec = {
                         if (zoom?.suppressPopTransition == true) {
                             zoomBackRouteTransform()
+                        } else if (cinemaPoster && popMotion == OfficialNavMotion.Stack) {
+                            cinemaPosterPageTransform(popping = true)
                         } else if (calm && !reduceMotion) {
                             calmContentTransform(popMotion, calmTravelPx, popping = true)
                         } else {

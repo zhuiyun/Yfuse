@@ -1,0 +1,392 @@
+{
+  "modules": {
+    "phoneShared": {
+      "suites": 875,
+      "tests": 4974,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "tvShared": {
+      "suites": 23,
+      "tests": 120,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "sources": {
+    ".github/mdk-distribution-approval.json": "0df2a148212b031d70d6f96d9eac008754f21350d646bc99b3438ca516ce60ec",
+    ".github/workflows/quality-gates-v2.yml": "4ecc5ad3fe3f1f66b349b1c28dbd85cfa33ae339720a899f88432de0c4f60710",
+    "audit/releases/20261017-ycore-startup-1.4.2.md": "157ea69603359b97599552e798164b2bbdbd2bc8b5b71413561651257078d32a",
+    "audit/releases/20261018-player-insets-1.4.3.md": "c7ab1871bdae6fc857cbb3cb4a8a8fa90214a673375e506db9f173d7d7148137",
+    "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/app/DetailBackNavigationInstrumentedTest.kt": "c9b0d88398506f71cad35e1962cb030112135d83fbd24d8cf684ec10bf67f675",
+    "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/app/LiquidTabGestureInstrumentedTest.kt": "7c6d3d0d15fd8c06de26579bf77173d71faac2a98a2d6d611b4458bee9025ab6",
+    "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/app/PlatformNavigationBackInstrumentedTest.kt": "ea9453e651863838496908a9d87d1f276b6d58c358a76f53cadd5e4cfc9a42c2",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core/designsystem/NavigationBackCallback.android.kt": "97734f8c81253676081755ef1d0d0ae1bf0f555b70d3516fce610a632a40fb1c",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core/designsystem/PlatformBackHandler.android.kt": "c3ebdb62f27be7e3b0c0920415903152d71f729d40e98ea076310db886094da1",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt": "a63c706dd679c994fa8fb532a41b0cd74bb1589271dbaf6d7f5c2724eeaedca9",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxAnalysisPolicy.kt": "f74f21fda100fd36581fd8af5f9ac0bd10b455752136736ade4e03e529ad9571",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt": "59c0692132474a287fc7acf4286afd36c440a1f76bb141ca29ca4b15052c67b2",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeEnhancedYPlayer.kt": "24735aac663d0dfffea3e0d2d26dca899d7d65b2a93771d8bfb6ebcee66bb7bb",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidProbeBudget.kt": "2fb895645b9bf7cd1f8bbbfab6e3c305728106a7d09970ab17c246bba4cd06f9",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidTransportMediaDataSource.kt": "4747f0404bcdd1e55bd59d0088b514a69e8e0a2ac17bd35b4d0c082804b2a721",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt": "3d42e3b463ab6b2adfbec51f22b9fa038b962e41dda3e97f0cceea4d25106c38",
+    "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/YCoreHiddenAudioTrack.kt": "c70c375995a4e105f6e69a8108f718d445fe98fe030338a0c8a67cb9c514ae3d",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRootControls.kt": "460103667c42a72b9e7c4d8cbb6e287caf975803099c554e87bf9f68ecdb57fd",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRootSurface.kt": "206c5cd3bca7ea9c10c0202207f4528ae39609a1d9203d5b784d853d37d29a01",
+    "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/VideoPlayer.android.kt": "5e6aebdfd8e23250d809916508da8d32611ddef6dc4b704290aa33fa6ce99bec",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core/designsystem/NavigationBackCallbackTest.kt": "d90f0cb24ad9d1d6d96197f33de81e554e290cacbaf48b3acc56def20cec902b",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2RecoveryFailureTest.kt": "c3524a10e3bc5285d8cd55d72c07df471ec5a43667b7ea80b550e43f5dc66422",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxAnalysisPolicyTest.kt": "1a7325837dd3e9e890389703a0bda90a12ce9c08123a8efa75310a85073b5c4c",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidPcmEffectStageTest.kt": "b872e7f5ff7a7d3b529b0babe15c9438c47dcb4304c6e3ef24b1936c503e458c",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidProbeBudgetTest.kt": "b17205c460eb0dda8ba4df5779ed854bd8ca2c1bf424d2d312da35c315c12c3d",
+    "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidTransportStartupAndResumeTest.kt": "4944dd094e17ced02f98754adc57766b4367f23e0c45a7f505276591e3ee0e80",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/data/ServerHealthMonitor.kt": "3ccd6962a2a8cc1f5e1dc6358f187d8f11a5f692863fa05a54fb6b82c753a968",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/BurstIcon.kt": "67b427d8d858a8b833cd91a8959ad81522dfa6cd8f61437611ef3fb974ef4103",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/CarouselEffects.kt": "320ebe26a2099052ca0d483ab2cd331bf5bb6531b77b2f2f42c9f888982a7aae",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/CinemaEffects.kt": "3addcd751c6d5242f908a27d7182d72c9cc6edd1a04b3daaf17dcae4983dda38",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/CinemaFeedback.kt": "ef4811ae562f26e09bdb07a655eae86fea1440633b06ab9cdea205c842c86778",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/CinemaMotion.kt": "0ace0d48beca10ff8ab591bcfee0984da686b2e14387b7e15701103182193961",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/CinemaPosterNavigation.kt": "4d12070434a87096b85daed50752cf22e5a38d837a0e46f91dadcaad97a3def6",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/CinemaSelection.kt": "48a9bbbe91271e749cda0106f59464d8183f14bc8d06e08abc71c053241537cc",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/EpisodeNumberGrid.kt": "dc9068c0c5bcea59dcb6c4ce28059d8540bf2b92e9d98f3146db6b18e3b66e1d",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Interaction.kt": "2d230f47f3227893ecaccae53f514175c871597773e70d8fb0fb6298e379cfc1",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/MotionTheme.kt": "239ddf72d1b06209d3a4956d3fe7f5883ded069042c9f1814310fc70a801f9b2",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/OfficialNavDisplay.kt": "203c3854639307dfef383b26b10cf14cef65db99f3682b3bcfa295b05103fb39",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/PlayerHandoff.kt": "10b871caf050118dfc202fcb4400606ecf8dd7c45e39855159f34e5bffb4ff7b",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Poster.kt": "0a0e13f0f45f0fcb643d7e37b4bdd832521d51b88c69df3878e0d5ac260810de",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SharedMediaTransition.kt": "13c38dfb6dc3faf280f0448a472a5335063d313f24282152b02c2cff51d38671",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ZoomBackNavigation.kt": "e109686f717a0f4f0c3b900f4a7c8bb60995316f8e58d089e3b55ff8d2102de5",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/CinemaWatchReadiness.kt": "66e47dc6ec20ac4dcd5b39bef7ed6aa86747fe88a93d5ef0cd58b3b8eae657e3",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackSyncStore.kt": "b8425d320f31dbcfdd18f85e28cdf44b4210b05dd99c9709051fed37a1ea487f",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core2/api/YPlayer.kt": "8529655a09981a13a52bcf90e3b863417b75e1c0bc8b80ed6c992d9b2fc9b578",
+    "composeApp/src/commonMain/kotlin/com/yfuse/core2/audio/YAudioEffectProcessor.kt": "69c45932f0f991e8ee42abf6b8329ebaff28933d3f4e19e3482fef9c349f0c8f",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/calendar/CalendarTrackingPane.kt": "5626788128d2320f5f0902502603e40e4510bf946def65d8a0f95fc55eb5ea83",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/CinemaDetailHero.kt": "c03230ec08d311b230c0a7a452d9c17ca697944d34b93907792fe801d45afc88",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailComponent.kt": "15f7a88843ec7dab18af71e6ee1cd0602b5de835a83ab1291b1789d4bdd5a8ea",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailExecutor.kt": "e9caca710e6a759ba99a8404cb5a7e70ac14e4137c1693a459b8bde37772f021",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailHero.kt": "828d90ef973d7d4791c4cb162048cd691a4be98263d5ca3aad2b08e558b16c6e",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailLoading.kt": "ba4665ea23a2940edee41b9ff56b84071fb285003d692748a44e2c71e66c9674",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailLocalProgress.kt": "e7ff5911da95fa14bc254cfaf05cdaaa7a20f155d90386f4264f10e257d67bde",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailReducer.kt": "3bc04cdec6da3b25dca47d36f1119ed3d8f321058adcd3506644e15751139ff0",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailScreen.kt": "f8e62e1ef2a70da87ead29e2de2f8741ab64eb0e9e35b71878e3b492abaa3686",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailStoreContract.kt": "d4e627d3d39d67e2da0fdf45c6fa95ef3bf32426288e470106248967c2a71e9f",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailStoreExecutionSupport.kt": "977ed6707e4a38747483a9a497e9d7a6e640394b8003e61da3135f4481138e48",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/SourceListDialog.kt": "f3572fea87113faeb0f5d6025fac2a81c9c04d0f42c3c60d816035cbec1aeb33",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/history/PlaybackHistoryComponent.kt": "f4a71d77b289243b1963382e5d4663b381068851181d177c2e965cce88f4e572",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/history/PlaybackHistoryRows.kt": "97a11c749b8563590f19e5c498b2533b6deee708720064dae9f6a12a0fbef635",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/history/PlaybackHistoryScreen.kt": "6f3e70a700fd4235af2ba2333405c1b477d42abb000f967b463c9e4c211100a2",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryHomeScreen.kt": "44f73e9c50c6a37ccc3ac981020efc295c8995c82016c80ab9fa704fa16b0230",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/CinemaOperationFeedback.kt": "133b0ed68bf0bd789bf508266684c23ace80e8efd8170a385161f682f8dc8de1",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/CinemaPlaybackMotion.kt": "09e9f700b5f5ed1586a7b98b1a536383d37a3a7a5965d8a71db759e1140168cf",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/EpisodeStrip.kt": "3324f11851f270b1e4ba45db64e1e27292c9a3cba7a018f076a9cdc84f627e9b",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackExperienceOverlay.kt": "1d6c3c60f79efd3242bd8d2a3691e48a62442f3123805d3bc357928e1d77769c",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackProgressReporter.kt": "434e1e8d61a6f9e5975e71e2f980b0f2343deec18380d89b614802c28026e6f6",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerCastPanel.kt": "b7eeadc8dc6c6576959dc8a105a3d217f4ce6413bc97d5af48a0090d56b21fa1",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChrome.kt": "74eb30b15cc89915f287ae997a4a30d0428421cc7555ffdd04854e784933b923",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt": "646a2aa8d9048cb333aa8563ad0452e327c3f3d84f40ee3aadeb083349d6e63c",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlAreas.kt": "3d47357eefd2b9956a0af700b2ac747d486ea5c6b13ce29335447efa6ed1bbc7",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlComponents.kt": "15c127841b52b18c4728fea48930679473b4ebdbf801e40c6c23269b07970c67",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControlPanels.kt": "6d79d29569f8b2615bb22e7a7b4ed5e47bc2f8cf65f3563b026f0bb16242eea5",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSafeInsets.kt": "bb7a89509b4acdb175bef8dbc4a2f5aeb5f9b62177cd9456ac3d00e4aca641d9",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSettingsPanel.kt": "a7079df53317d23b5fab2a70b7cc1dc238f40b59d1c6ffecb6fd95152634775a",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSpeedBoost.kt": "dc3a1021d22cb82aef01e6e1c37e7831cb7e88f28cc7e970519b83a769b8efb5",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerTracksPanel.kt": "d49c32981c35f0cbb583f811ba8be18913e8434d1d1bfb61748861e957ffcbd5",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchChatPanel.kt": "9fdf87a89999bb3b0aed9031b2244fb9404d14544804fa13eb19cb76ce3b43a2",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchTogetherDialogs.kt": "062121cbe8b248f6664bbf171e364212a745a144974cb8bac10c65ee8fab2084",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/CinemaDownloadFeedback.kt": "9d60ac82db3855faf38d97126721537192b598724f1eb2cdeccb7def9d8e33b3",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/DownloadsScreen.kt": "28fd2f57f13ab2a83983df53fe57c4ded76a02909db7a7252a935a5d83e39220",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt": "1afbe59da2eaed35b93fcdc3fa828e2536c018a94854d0bbe41da411e4a67efe",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/CinemaServerFeedback.kt": "a1f2c69858a6d9725eae3b1cd39e53cf2374eee4612c259e73a0883bcbe5bc74",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServerOverviewCards.kt": "ada4e835fc87100358f9a86bdf66c45bf586c1f0f0d3ac12b77f36cdfba0c1b6",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/servers/ServersTabScreen.kt": "d5ee9a589703fc32cd8e909618e78859bc80088d1e92701bac58b293b2f49a18",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/watch/CinemaParticipantRoster.kt": "edf5fc6a74fe1047af7621d2f4461bbc96590ad576f45d9b557bc7f413566ffa",
+    "composeApp/src/commonMain/kotlin/com/yfuse/feature/watch/WatchRoomInfoDialog.kt": "2ed2a48804124d68b4e604668f9649e2eeb51d0e8721e1914bcf9f936249d674",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/data/ServerHealthRefreshResultTest.kt": "3b40e424454ad40b2227e9272e851a672a5083971c7e4b3eee565d96649936e3",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/CinemaFeedbackTest.kt": "c5e977d3c77dc936103dc87cfd15ec6ed78f44b359f52f4baaf0adc6fd8808ec",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/CinemaMotionTest.kt": "b218fbd3e719b2228bf53ecfbddaca02b5a7e7f497d1c3e61d452663e909d68c",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/CinemaPosterNavigationTest.kt": "00a3e560bceafd986dca68bf1163477c836105667981d4533d9ed11fa5d1e963",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/sync/CinemaWatchReadinessTest.kt": "5cec3ba80a1904e72845c725d2d807e25be708916ff81a932c149cd24c12adc6",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/sync/playback/PlaybackSyncStoreServerDatesTest.kt": "f9c81bce9503a424fff321bc3d0e61796360ed68a68f3fa71e60d023cf15f76f",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core/sync/playback/PlaybackSyncStoreTest.kt": "cd14f1c26ef0295e5d4c1856ba1bf6c907f5f80cd4432c91a387492da2440bb4",
+    "composeApp/src/commonTest/kotlin/com/yfuse/core2/audio/YAudioEffectProcessorTest.kt": "aa38cdd6de29a6d93e1815d75143fdc35a2256128ccd06954a585f27ab5629da",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/detail/DetailLocalProgressTest.kt": "1e5599901b5293ac488f7332a317f50ba758e87bd5d15a913d6b0b7d519dc9dc",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/history/PlaybackHistoryRowsTest.kt": "3889e6c0ee8bcfe37a16630271da67ae754c106dd00eb9795be46b845ea9f596",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/CinemaEpisodeMotionTest.kt": "07044a35b8640140adcbfdc983edfb87c7a7f32a2a12a98460d7c662b26d4cef",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/CinemaOperationFeedbackTest.kt": "6f8c96d54940265ca30e6f41fe7f386614ed9f3924a7470dc2f955f42c3d892a",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlaybackProgressReporterTest.kt": "c47a4d2b1ed9afaa75f88576737811b3f23adf24611d0e65f2b5056f1315329d",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlaybackRecordDurabilityTest.kt": "d4b0428b4354333facc1fb30be5bd0fe4e005e0126a408f637a9a728372e6f17",
+    "composeApp/src/commonTest/kotlin/com/yfuse/feature/servers/CinemaServerFeedbackTest.kt": "c02b343f4a54734a5459f5b873656cc462f0c80c679739d696c69dd9931a261f",
+    "config/function-size-baseline.txt": "40bb9aadc764a5995d4622db04b9e3644910498d8d29f02ff464de93d189b34a",
+    "release-notes.txt": "9ab63c0ed1aaa16df3e7ffda54a22eb2f9513d11927cbe90f6b42a4abd3d54b0",
+    "scripts/android_cloud_ui.py": "0e3370dea0e590cf365d4900327b71ae47f93842c607ce0e0ce0da7542bb745c",
+    "scripts/test_android_cloud_ui.py": "c7a8f02f8be062aa35fa183ffe8a9001aedd4594b3c02e8101501b09044da636",
+    "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvApp.kt": "6be08d541687f945c479d6223651cc3d9fc5775b002bb20ce7686abff54aa7d2",
+    "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvCinemaSpotlight.kt": "cb3d90ca723eb3dba81544b9d278f66770bb17422882996baed83e9a64f3fb68",
+    "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvFocusParallax.kt": "5c21caa21344be5b242729e7e673e4324f08b30056a12e337c5c107dfdf17ade",
+    "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvHomeScreen.kt": "8278acbc38a2346835c751636a846d13857dc8509104727cc37e33c607dcf972",
+    "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvLibraryScreens.kt": "ac1d70cc9029d6d80a5e1cf30eb9672a5335b53b69e16f48f135f15407e67c32",
+    "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt": "343be90390d5b2723b27e645d15cb7568e5d7708a9951c0ac45019d7a96f30b3",
+    "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvUiComponents.kt": "998af3345cd630f31723e00087e1a52aa1c2bead9e1779de46e3c3b966faf890",
+    "tvApp/src/androidUnitTest/kotlin/com/yfuse/tv/ui/TvCinemaSpotlightTest.kt": "102a8b48c0276888690f7c8f3fbb44f46a5a4f6e57fd88b67fbb5bc57ed00ca7",
+    "tvApp/src/androidUnitTest/kotlin/com/yfuse/tv/ui/TvSettingsSearchTest.kt": "fb06249200a1e01880a61b57b284c525c3d5b2702208da6577d398f39ef94935",
+    "version.properties": "e5f2db5809177d91486838256bdf7e1de00bb6459787a80dc3aa03547160ca73"
+  },
+  "previous_cases_retained": 5055,
+  "upstream_behavior_test_replacements": [
+    {
+      "before": [
+        "phoneShared",
+        "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryFailureTest",
+        "a spent recovery publishes the concrete failure instead of a probe timeout"
+      ],
+      "after": [
+        "phoneShared",
+        "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryFailureTest",
+        "an enhanced deadline does not claim the previously hidden audio is unsupported"
+      ]
+    },
+    {
+      "before": [
+        "phoneShared",
+        "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryFailureTest",
+        "the probe timeout text remains only when nothing more concrete is known"
+      ],
+      "after": [
+        "phoneShared",
+        "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryFailureTest",
+        "a deadline reports timeout and a missing route keeps its ordinary failure"
+      ]
+    },
+    {
+      "before": [
+        "phoneShared",
+        "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryFailureTest",
+        "a start that stops on a deadline shows the earlier concrete failure"
+      ],
+      "after": [
+        "phoneShared",
+        "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryFailureTest",
+        "a deadline keeps earlier route detail only in diagnostics"
+      ]
+    },
+    {
+      "before": [
+        "phoneShared",
+        "com.yfuse.core.sync.playback.PlaybackSyncStoreServerDatesTest",
+        "without_a_server_date_only_the_short_item_bookkeeping_is_ignored"
+      ],
+      "after": [
+        "phoneShared",
+        "com.yfuse.core.sync.playback.PlaybackSyncStoreServerDatesTest",
+        "without_a_server_date_acknowledged_local_progress_still_wins"
+      ]
+    }
+  ],
+  "previous_cases_missing": [],
+  "new_cases": [
+    [
+      "phoneShared",
+      "com.yfuse.core.designsystem.NavigationBackCallbackTest",
+      "aGestureStartedWhileHiddenCannotBecomeAnOrdinaryBack"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core.designsystem.NavigationBackCallbackTest",
+      "eitherEdgeCanCommitWithoutAProgressEvent"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core.designsystem.NavigationBackCallbackTest",
+      "firstStartIsSynchronousAndKeepsTheOriginalEventWithoutProgress"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core.designsystem.NavigationBackCallbackTest",
+      "hidingAndReopeningRejectsTheOldGestureExactlyOnce"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core.designsystem.NavigationBackCallbackTest",
+      "lifecycleInvalidationCancelsButDoesNotCommitAfterRestart"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core.designsystem.NavigationBackCallbackTest",
+      "liveVisibilityIsCheckedBeforeProgressEvenBeforeRecomposition"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core.sync.playback.PlaybackSyncStoreServerDatesTest",
+      "a_newer_dated_playback_advances_freshness_even_at_the_same_position"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core.sync.playback.PlaybackSyncStoreServerDatesTest",
+      "an_acknowledged_restart_rejects_undated_history_but_accepts_a_proven_later_playback"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core.sync.playback.PlaybackSyncStoreServerDatesTest",
+      "an_undated_snapshot_cannot_restore_progress_after_a_local_rewind"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core.sync.playback.PlaybackSyncStoreServerDatesTest",
+      "legacy_server_absorption_keeps_local_session_protection_after_reload"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core.sync.playback.PlaybackSyncStoreServerDatesTest",
+      "without_a_server_date_acknowledged_local_progress_still_wins"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core.sync.playback.PlaybackSyncStoreTest",
+      "accountResetInvalidatesLocalProgressProjection"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core.sync.playback.PlaybackSyncStoreTest",
+      "observableProgressChangesBeforeDeferredDiskFlush"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core.sync.playback.PlaybackSyncStoreTest",
+      "profileSwitchInvalidatesProgressWithoutAnotherPlaybackWrite"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core.sync.playback.PlaybackSyncStoreTest",
+      "serverProgressBatchPublishesOneCompleteSnapshot"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryFailureTest",
+      "a deadline keeps earlier route detail only in diagnostics"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryFailureTest",
+      "a deadline reports timeout and a missing route keeps its ordinary failure"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core2.android.AndroidAdaptiveCore2RecoveryFailureTest",
+      "an enhanced deadline does not claim the previously hidden audio is unsupported"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core2.android.AndroidDemuxAnalysisPolicyTest",
+      "remote_sdr_matroska_eac3_uses_enhanced_demux_without_claiming_decode_support"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core2.android.AndroidProbeBudgetTest",
+      "recovery owns a fresh bounded budget after the old deadline cancelled its sockets"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core2.android.AndroidTransportStartupAndResumeTest",
+      "proxy startup reads only the demanded block until playback begins"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.core2.android.AndroidTransportStartupAndResumeTest",
+      "release and supersession are not retried as transient network failures"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.detail.DetailLocalProgressTest",
+      "final_write_after_resume_updates_completion_then_reset_clears_it"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.detail.DetailLocalProgressTest",
+      "invalid_and_extreme_positions_do_not_overflow"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.detail.DetailLocalProgressTest",
+      "local_updates_refresh_target_and_episode_without_changing_selection"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.detail.DetailLocalProgressTest",
+      "missing_records_clear_cached_progress_and_other_servers_cannot_overwrite_it"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.detail.DetailLocalProgressTest",
+      "observation_handles_late_writes_visibility_and_newly_loaded_items"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.detail.DetailLocalProgressTest",
+      "progress_uses_each_items_own_server_when_resource_is_switched"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.history.PlaybackHistoryRowsTest",
+      "exactLocalProgressOverridesStaleHistoryIncludingRewindAndCompletionReset"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.history.PlaybackHistoryRowsTest",
+      "historyAndDetailUseTheSameLatestStoreProgressWithoutRewritingHistory"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.history.PlaybackHistoryRowsTest",
+      "historyProgressNeverBorrowsAnotherServerItemOrProfileRecord"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.history.PlaybackHistoryRowsTest",
+      "localProgressDoesNotChangeWhichEpisodeIsTheLatestHistoryTarget"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.history.PlaybackHistoryRowsTest",
+      "renamedServerProjectsTheSameCanonicalItemAsDetailAndKeepsDurationFallback"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.player.PlaybackProgressReporterTest",
+      "ended_only_change_is_reported_without_waiting_for_close"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.player.PlaybackRecordDurabilityTest",
+      "closePreservesDepartedEpisodeWhileStartRequestIsStillBlocked"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.player.PlaybackRecordDurabilityTest",
+      "queueReorderDoesNotFlushTheOldIndexAsADifferentEpisode"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.player.PlaybackRecordDurabilityTest",
+      "rapidTransitionsPreserveAllDeparturesAndProtectReenteredItem"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.player.PlaybackRecordDurabilityTest",
+      "sameIndexCrossServerRebindPersistsTheCorrectServer"
+    ],
+    [
+      "phoneShared",
+      "com.yfuse.feature.player.PlaybackRecordDurabilityTest",
+      "sameItemIdOnAnotherServerDoesNotHideTheDeparture"
+    ]
+  ],
+  "total": {
+    "suites": 898,
+    "tests": 5094,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

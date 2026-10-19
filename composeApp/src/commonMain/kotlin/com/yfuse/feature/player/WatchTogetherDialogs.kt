@@ -39,6 +39,7 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.PageLoadingSkeleton
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.WatchAvatar
+import com.yfuse.core.designsystem.cinemaReadyRing
 import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionItems
@@ -50,6 +51,7 @@ import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchNetworkQuality
 import com.yfuse.core.sync.WatchParticipant
 import com.yfuse.core.sync.WatchTogetherClient
+import com.yfuse.core.sync.cinemaReady
 import com.yfuse.feature.watch.CopyableRoomCode
 import org.koin.core.context.GlobalContext
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -184,7 +186,11 @@ internal fun WatchTogetherDialog(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            WatchAvatar(participant.avatarId, 32.dp)
+                            WatchAvatar(
+                                participant.avatarId,
+                                32.dp,
+                                modifier = Modifier.cinemaReadyRing(participant.cinemaReady(), accent.accent),
+                            )
                             Text(
                                 when {
                                     participant.isSelf -> "我"

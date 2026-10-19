@@ -831,7 +831,7 @@ private fun HeroCarousel(
                 blurHash = if (urls.firstOrNull() != null) item.backdropBlurHash else item.posterBlurHash,
                 modifier =
                     Modifier
-                        .sharedMediaArtwork(sharedKey, sourceShape = artworkShape)
+                        .sharedMediaArtwork(sharedKey, sourceShape = artworkShape, sourceUrls = urls)
                         .playerArtworkSource(sharedKey, urls)
                         .fillMaxSize()
                         .carouselArtworkMotion(pageOffset, LocalAccessibilityOptions.current.reduceMotion)

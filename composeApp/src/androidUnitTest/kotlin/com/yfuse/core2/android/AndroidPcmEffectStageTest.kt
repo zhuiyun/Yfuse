@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class AndroidPcmEffectStageTest {
     @Test
@@ -97,6 +98,19 @@ class AndroidPcmEffectStageTest {
         assertEquals(6, copy.remaining())
         assertEquals(listOf(1_500, 1_500), List(2) { copy.order(ByteOrder.LITTLE_ENDIAN).getShort().toInt() })
         assertEquals(listOf<Byte>(7, 9), listOf(copy.get(), copy.get()))
+    }
+
+    @Test
+    fun extreme_float_decoder_output_does_not_send_nan_to_the_audio_sink() {
+        val stage = boostStage(AndroidPcmSampleFormat.Float32)
+        val data = floats(Float.MAX_VALUE, -Float.MAX_VALUE).asReadOnlyBuffer()
+
+        val copy = stage.input(data)
+
+        val output = List(2) { copy.order(ByteOrder.LITTLE_ENDIAN).getFloat() }
+        assertTrue(output.all { it.isFinite() && kotlin.math.abs(it) <= 0.8913f }, "$output")
+        assertEquals(Float.MAX_VALUE, data.order(ByteOrder.LITTLE_ENDIAN).getFloat(0))
+        assertEquals(0, data.position())
     }
 
     private fun boostStage(format: AndroidPcmSampleFormat) =

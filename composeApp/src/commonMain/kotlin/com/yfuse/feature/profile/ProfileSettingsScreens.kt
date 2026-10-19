@@ -674,7 +674,11 @@ internal fun AppearanceSettingsScreen(
                     SettingsDivider()
                     SettingRow(
                         "播放器进出场",
-                        if (calm) "静息主题下为标准淡入" else playerTransitionSummary,
+                        when (motionTheme) {
+                            MotionTheme.Calm -> "静息主题下为标准淡入"
+                            MotionTheme.Cinema -> "影院主题下随首帧揭幕"
+                            MotionTheme.Classic -> playerTransitionSummary
+                        },
                         true,
                         onPlayerTransition,
                         icon = AppIcons.Play,

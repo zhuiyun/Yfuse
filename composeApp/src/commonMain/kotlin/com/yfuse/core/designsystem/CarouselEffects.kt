@@ -23,38 +23,59 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun rememberCarouselCaptionProgress(selected: Boolean): State<Float> {
+    val cinema = cinemaMotion()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val visible = LocalRouteVisible.current
     // A restored, already selected card starts at rest, so returning from detail never replays it.
     val progress = remember { Animatable(if (selected) 1f else 0f) }
-    LaunchedEffect(selected, reduceMotion, visible) {
+    LaunchedEffect(selected, reduceMotion, visible, cinema) {
         when {
             reduceMotion || !visible -> progress.snapTo(1f)
             !selected -> progress.snapTo(0f)
-            else -> progress.animateTo(1f, tween(Motion.CAROUSEL_CAPTION, easing = LinearEasing))
+            else ->
+                progress.animateTo(
+                    1f,
+                    tween(if (cinema) CinemaMotion.HERO else Motion.CAROUSEL_CAPTION, easing = LinearEasing),
+                )
         }
     }
     return progress.asState()
 }
 
+@Composable
 fun Modifier.carouselCaptionEntry(
     progress: State<Float>,
     stage: Int,
-): Modifier =
-    graphicsLayer {
-        translationY = carouselCaptionOffset(progress.value, stage).dp.toPx()
+): Modifier {
+    val cinema = cinemaMotion()
+    return graphicsLayer {
+        translationY =
+            (
+                if (cinema) {
+                    cinemaCaptionOffset(
+                        progress.value,
+                        stage,
+                    )
+                } else {
+                    carouselCaptionOffset(progress.value, stage)
+                }
+            ).dp.toPx()
     }
+}
 
+@Composable
 fun Modifier.carouselArtworkMotion(
     offset: () -> Float,
     reduceMotion: Boolean,
-): Modifier =
-    graphicsLayer {
-        val visual = carouselArtworkVisual(offset(), reduceMotion)
+): Modifier {
+    val cinema = cinemaMotion() && !reduceMotion
+    return graphicsLayer {
+        val visual = if (cinema) cinemaArtworkVisual(offset()) else carouselArtworkVisual(offset(), reduceMotion)
         scaleX = visual.scale
         scaleY = visual.scale
         translationX = size.width * visual.translationFraction
     }
+}
 
 /** Observe presses without consuming the pager's drag or any child control's click. */
 fun Modifier.carouselTouchPause(touched: MutableState<Boolean>): Modifier =
@@ -75,6 +96,7 @@ fun Modifier.carouselTouchPause(touched: MutableState<Boolean>): Modifier =
 /** The page theme uses its target once; only background draw nodes observe this frame clock. */
 @Composable
 fun rememberCarouselPageColor(target: Color?): State<Color> {
+    val cinema = cinemaMotion()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val visible = LocalRouteVisible.current
     val palette = rememberArtworkPagePalette(target)
@@ -100,7 +122,11 @@ fun rememberCarouselPageColor(target: Color?): State<Color> {
         }
     LaunchedEffect(transition) {
         if (transition.animate) {
-            animate(0f, 1f, animationSpec = tween(Motion.CAROUSEL_COLOR, easing = Motion.Curve)) { value, _ ->
+            animate(
+                0f,
+                1f,
+                animationSpec = tween(if (cinema) CinemaMotion.COLOR else Motion.CAROUSEL_COLOR, easing = Motion.Curve),
+            ) { value, _ ->
                 output.value = interpolateArtworkPageColor(transition.start, transition.target, value)
             }
             output.value = transition.target

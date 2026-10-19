@@ -65,6 +65,8 @@ internal class TvFocusTravel {
         if (repeated) return null
         return moved.takeIf { nowMs - pressedAtMs in 0L..TvFocusMotion.ARRIVAL_WINDOW_MILLIS }
     }
+
+    fun isRepeating(nowMs: Long): Boolean = repeated && nowMs - pressedAtMs in 0L..TvFocusMotion.ARRIVAL_WINDOW_MILLIS
 }
 
 /**

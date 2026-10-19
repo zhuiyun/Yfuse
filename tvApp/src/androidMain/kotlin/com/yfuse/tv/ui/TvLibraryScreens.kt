@@ -41,7 +41,9 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.LiftMenu
+import com.yfuse.core.designsystem.cinemaMotion
 import com.yfuse.core.designsystem.contentHandoff
+import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainer
@@ -635,6 +637,7 @@ internal fun TvLibraryGridScreen(
                             key = { _, container -> "container:server:${container.serverId}:${container.id}" },
                         ) { index, container ->
                             TvMediaCard(
+                                modifier = if (cinemaMotion()) motionAwareItem() else Modifier,
                                 model = container.toTvCard(component, component.onOpenContainer),
                                 focusScope = gridScope,
                                 focusMemory = focusMemory,
@@ -652,6 +655,7 @@ internal fun TvLibraryGridScreen(
                             key = { _, item -> "item:server:${component.serverId}:${item.id}" },
                         ) { index, item ->
                             TvMediaCard(
+                                modifier = if (cinemaMotion()) motionAwareItem() else Modifier,
                                 model =
                                     item.toGridTvCard(component, quickActions = { quickActions(item) }) {
                                         component.onOpenItem(item.id)

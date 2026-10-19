@@ -34,8 +34,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.CinemaConnection
+import com.yfuse.core.designsystem.CinemaSelectionCheck
+import com.yfuse.core.designsystem.CinemaSelectionGroup
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.cinemaMotion
+import com.yfuse.core.designsystem.cinemaSelectionTarget
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.designsystem.overlayAction
@@ -89,6 +94,7 @@ internal fun SettingsPanel(
     castDevices: List<Pair<String, String>>,
     castingDeviceId: String?,
     castDiscovering: Boolean,
+    castConnection: CinemaConnection,
     castError: String?,
     castStatus: String?,
     castPosition: String?,
@@ -241,6 +247,7 @@ internal fun SettingsPanel(
                             castDevices = castDevices,
                             castingDeviceId = castingDeviceId,
                             castDiscovering = castDiscovering,
+                            castConnection = castConnection,
                             castError = castError,
                             castStatus = castStatus,
                             castPosition = castPosition,
@@ -401,37 +408,43 @@ internal fun SourcePickerPopup(
                 color = Color.White.copy(alpha = 0.44f),
             )
         }
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(top = 9.dp),
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-        ) {
-            options.forEach { (id, label) ->
-                val selected = id == selectedId
-                Column(
-                    Modifier
-                        .widthIn(min = 116.dp, max = 150.dp)
-                        .glass(
-                            shape = AppShapes.card,
-                            fill = if (selected) accent.container else Color.White.copy(alpha = 0.05f),
-                            border = if (selected) accent.border else Color.White.copy(alpha = 0.08f),
-                        ).noRippleClickable { onSelect(id) }
-                        .padding(horizontal = 11.dp, vertical = 10.dp),
-                ) {
-                    Text(
-                        label,
-                        style = AppTypography.body.strong,
-                        color = if (selected) accent.accent else Color.White.copy(alpha = 0.88f),
-                        maxLines = 1,
-                    )
-                    Text(
-                        if (selected) "当前线路" else "可用线路",
-                        style = AppTypography.caption.medium,
-                        color = Color.White.copy(alpha = 0.44f),
-                        modifier = Modifier.padding(top = 3.dp),
-                    )
+        CinemaSelectionGroup(accent.accent) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(top = 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                options.forEach { (id, label) ->
+                    androidx.compose.runtime.key(id) {
+                        val selected = id == selectedId
+                        Column(
+                            Modifier
+                                .widthIn(min = 116.dp, max = 150.dp)
+                                .cinemaSelectionTarget(id, selected)
+                                .glass(
+                                    shape = AppShapes.card,
+                                    fill = if (selected) accent.container else Color.White.copy(alpha = 0.05f),
+                                    border = if (selected) accent.border else Color.White.copy(alpha = 0.08f),
+                                ).noRippleClickable { onSelect(id) }
+                                .padding(horizontal = 11.dp, vertical = 10.dp),
+                        ) {
+                            if (cinemaMotion()) CinemaSelectionCheck(selected, accent.accent)
+                            Text(
+                                label,
+                                style = AppTypography.body.strong,
+                                color = if (selected) accent.accent else Color.White.copy(alpha = 0.88f),
+                                maxLines = 1,
+                            )
+                            Text(
+                                if (selected) "当前线路" else "可用线路",
+                                style = AppTypography.caption.medium,
+                                color = Color.White.copy(alpha = 0.44f),
+                                modifier = Modifier.padding(top = 3.dp),
+                            )
+                        }
+                    }
                 }
             }
         }

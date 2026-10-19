@@ -462,7 +462,7 @@ fun Poster(
             modifier =
                 Modifier
                     .launchWaveImage()
-                    .sharedMediaArtwork(sharedTransitionKey, sourceShape = shape)
+                    .sharedMediaArtwork(sharedTransitionKey, sourceShape = shape, sourceUrls = candidates)
                     .playerArtworkSource(sharedTransitionKey, candidates)
                     .fillMaxSize(),
             alphaOnly = true,

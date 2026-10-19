@@ -22,11 +22,15 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.CinemaSelectionCheck
+import com.yfuse.core.designsystem.CinemaSelectionGroup
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.RecommendBadge
+import com.yfuse.core.designsystem.cinemaMotion
+import com.yfuse.core.designsystem.cinemaSelectionTarget
 import com.yfuse.core.designsystem.overlayActionBeforeExit
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.solidGlass
@@ -84,52 +88,56 @@ internal fun SourceListDialog(
         )
         // No height cap of its own: [GlassDialog] scrolls whatever it cannot fit, and it is
         // the only one that knows how much screen there actually is.
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            available.forEach { entry ->
-                val selected = entry.serverId == selectedServerId && entry.itemId == selectedItemId
-                val select = {
-                    entry.itemId?.let { onSelect(entry.serverId, it) }
-                    Unit
+        CinemaSelectionGroup(accent) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                available.forEach { entry ->
+                    androidx.compose.runtime.key(entry.serverId, entry.itemId) {
+                        val selected = entry.serverId == selectedServerId && entry.itemId == selectedItemId
+                        val select = {
+                            entry.itemId?.let { onSelect(entry.serverId, it) }
+                            Unit
+                        }
+                        // 再点已选项 plays. The player takes the screen anyway, so it starts now and the
+                        // list leaves alongside rather than holding playback back for its exit.
+                        val animatedSelect = overlayActionBeforeExit(select)
+                        SourceRow(
+                            entry = entry,
+                            selected = selected,
+                            accent = accent,
+                            best =
+                                if (presentation !=
+                                    null
+                                ) {
+                                    entry.serverId == presentation.recommendedServerId &&
+                                        entry.itemId == presentation.recommendedItemId
+                                } else {
+                                    entry.serverId == bestServerId
+                                },
+                            onSelect = if (selected) animatedSelect else select,
+                        )
+                    }
                 }
-                // 再点已选项 plays. The player takes the screen anyway, so it starts now and the
-                // list leaves alongside rather than holding playback back for its exit.
-                val animatedSelect = overlayActionBeforeExit(select)
-                SourceRow(
-                    entry = entry,
-                    selected = selected,
-                    accent = accent,
-                    best =
-                        if (presentation !=
-                            null
-                        ) {
-                            entry.serverId == presentation.recommendedServerId &&
-                                entry.itemId == presentation.recommendedItemId
-                        } else {
-                            entry.serverId == bestServerId
-                        },
-                    onSelect = if (selected) animatedSelect else select,
-                )
-            }
-            if (available.isEmpty()) {
-                Text(
-                    "暂未找到可比较的版本，请返回后重试。",
-                    style = AppTypography.caption.regular,
-                    color = palette.sub2,
-                    modifier = Modifier.padding(vertical = 12.dp),
-                )
-            }
-            sources.filter { it !in available }.forEach { entry ->
-                Text(
-                    entry.serverName + " · " +
-                        when {
-                            !entry.reachable -> "暂时无法连接"
-                            entry.itemId == null -> "未找到对应作品或集数"
-                            else -> "服务器未提供版本信息"
-                        },
-                    style = AppTypography.caption.regular,
-                    color = palette.sub2,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
+                if (available.isEmpty()) {
+                    Text(
+                        "暂未找到可比较的版本，请返回后重试。",
+                        style = AppTypography.caption.regular,
+                        color = palette.sub2,
+                        modifier = Modifier.padding(vertical = 12.dp),
+                    )
+                }
+                sources.filter { it !in available }.forEach { entry ->
+                    Text(
+                        entry.serverName + " · " +
+                            when {
+                                !entry.reachable -> "暂时无法连接"
+                                entry.itemId == null -> "未找到对应作品或集数"
+                                else -> "服务器未提供版本信息"
+                            },
+                        style = AppTypography.caption.regular,
+                        color = palette.sub2,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
             }
         }
     }
@@ -148,6 +156,7 @@ private fun SourceRow(
     Column(
         Modifier
             .fillMaxWidth()
+            .cinemaSelectionTarget(entry.serverId to entry.itemId, selected)
             .pressable(onClick = onSelect)
             .solidGlass(
                 shape = AppShapes.card,
@@ -190,6 +199,7 @@ private fun SourceRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
+            if (cinemaMotion()) CinemaSelectionCheck(selected, accent)
             if (best) {
                 RecommendBadge()
             }

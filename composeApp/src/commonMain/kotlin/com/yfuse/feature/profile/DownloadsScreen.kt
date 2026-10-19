@@ -1096,6 +1096,7 @@ private fun DownloadTaskRow(
                 }
             }
             if (!selectionMode) {
+                CinemaDownloadMark(item.status, accent)
                 Text(
                     when (item.status) {
                         DownloadStatus.Completed -> "播放"

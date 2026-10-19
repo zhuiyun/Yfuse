@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -189,11 +190,14 @@ internal fun Modifier.playerHandoffKey(
     val screen = rememberScreenGeometrySource()
     val cornerPx = with(LocalDensity.current) { corner.toPx() }
     val bounds = remember { arrayOfNulls<Rect>(1) }
+    var pressGeneration by remember { mutableIntStateOf(0) }
     return this
+        .cinemaActivationPulse(pressGeneration, tint ?: LocalAccentColors.current.accent)
         .onGloballyPositioned { bounds[0] = it.boundsInWindow() }
         .pointerInput(cornerPx, tint, ink, glass, screen) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                pressGeneration++
                 bounds[0]?.let { inWindow ->
                     val onScreen = inWindow.translate(screen.current().windowOffset)
                     PlayerHandoff.keyPressed(HandoffKey(onScreen, cornerPx, tint, ink, glass))

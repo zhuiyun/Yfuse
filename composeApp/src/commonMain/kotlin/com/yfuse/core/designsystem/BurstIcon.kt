@@ -48,6 +48,7 @@ fun BurstIcon(
 ) {
     // 静息 marks the change without the burst: the icon swaps, nothing pops or rings.
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion || calmMotion()
+    val cinema = cinemaMotion()
     val light = rememberLightFeedback()
     val visible = LocalRouteVisible.current
     val pop = remember { Animatable(1f) }
@@ -57,7 +58,7 @@ fun BurstIcon(
     // title would burst at it.
     var reacted by remember { mutableStateOf(active) }
 
-    LaunchedEffect(active, reduceMotion, visible, light) {
+    LaunchedEffect(active, reduceMotion, visible, light, cinema) {
         if (reduceMotion || !visible) {
             reacted = active
             pop.snapTo(1f)
@@ -73,13 +74,16 @@ fun BurstIcon(
         val turnedOn = active && !reacted
         reacted = active
         if (turnedOn) {
-            light.emit(LightEffect.Converge)
-            if (light.enabled) {
+            if (!cinema) light.emit(LightEffect.Converge)
+            if (light.enabled && !cinema) {
                 ring.snapTo(1f)
             } else {
                 ring.snapTo(0f)
                 launch {
-                    ring.animateTo(1f, tween(Motion.BURST, easing = LinearOutSlowInEasing))
+                    ring.animateTo(
+                        1f,
+                        tween(if (cinema) CinemaMotion.CONFIRM else Motion.BURST, easing = LinearOutSlowInEasing),
+                    )
                 }
             }
             // A kick, not a jump: one dip and one small rebound (about 1.05) from wherever the icon
@@ -96,7 +100,9 @@ fun BurstIcon(
     Box(modifier.lightFeedback(light), contentAlignment = Alignment.Center) {
         Canvas(Modifier.matchParentSize()) {
             val progress = ring.value
-            if (!light.enabled && !reduceMotion && visible && progress < 1f) {
+            if (cinema && progress < 1f) {
+                drawCinemaOrbit(progress, burstColor, iconSize.toPx() * 0.8f)
+            } else if (!light.enabled && !reduceMotion && visible && progress < 1f) {
                 // Draw outside the fixed icon bounds without enlarging its layout or hit target.
                 val radius = iconSize.toPx() * 1.2f * (0.38f + progress * 0.62f)
                 drawCircle(

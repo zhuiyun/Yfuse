@@ -37,12 +37,16 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.WatchAvatar
+import com.yfuse.core.designsystem.cinemaMotion
+import com.yfuse.core.designsystem.cinemaReadyRing
 import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchParticipant
 import com.yfuse.core.sync.WatchTogetherState
+import com.yfuse.core.sync.cinemaReady
 import com.yfuse.core.sync.durationMismatchWarning
 import com.yfuse.core.sync.parseEpisodeWatchKey
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -131,7 +135,7 @@ fun WatchRoomInfoDialog(
                     style = AppTypography.body.strong,
                     color = palette.sub2,
                 )
-                state.participants.forEach { ParticipantRow(it) }
+                CinemaParticipantRoster(state.participants) { ParticipantRow(it) }
             }
 
             if (state.connected) {
@@ -239,12 +243,20 @@ private fun ParticipantRow(participant: WatchParticipant) {
         horizontalArrangement = Arrangement.spacedBy(9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .size(7.dp)
-                .clip(CircleShape)
-                .background(if (participant.ready) Brand.Online else Brand.Offline),
-        )
+        if (cinemaMotion()) {
+            WatchAvatar(
+                participant.avatarId,
+                28.dp,
+                modifier = Modifier.cinemaReadyRing(participant.cinemaReady(), Brand.Online),
+            )
+        } else {
+            Box(
+                Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(if (participant.ready) Brand.Online else Brand.Offline),
+            )
+        }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 if (participant.isSelf) "${participant.name}（我）" else participant.name,

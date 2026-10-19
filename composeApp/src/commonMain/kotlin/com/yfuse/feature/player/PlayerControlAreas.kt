@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.State
 import com.yfuse.core.data.PlayerGestureSettings
 import com.yfuse.core.designsystem.AmbientLight
+import com.yfuse.core.designsystem.CinemaConnection
 import com.yfuse.core.model.PlaybackChapter
 import com.yfuse.core.model.ShortDramaMode
 import com.yfuse.tv.player.TvPlayerChromeBridge
@@ -189,6 +190,7 @@ internal data class PlayerCastState(
     /** The receiver this is casting to; null while nothing is. */
     val deviceId: String? = null,
     val discovering: Boolean = false,
+    val connection: CinemaConnection = CinemaConnection.Idle,
     val error: String? = null,
     val status: String? = null,
     /** A session is connecting or live on a receiver; [status] then names it and its state. */

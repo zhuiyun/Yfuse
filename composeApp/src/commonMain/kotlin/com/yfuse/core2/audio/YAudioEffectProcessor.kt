@@ -72,17 +72,22 @@ class YAudioEffectProcessor(
             for (index in offset until offset + channelCount) {
                 if (!samples[index].isFinite()) samples[index] = 0f
             }
-            val gain = stage.gain(samples, offset)
-            var peak = 0f
+            val gain = stage.gain(samples, offset).toDouble()
+            var peak = 0.0
             for (channel in 0 until channelCount) {
                 val index = offset + channel
-                val lift = if (channel == centreChannel) CENTRE_LIFT else 1f
-                samples[index] *= gain * lift
-                peak = maxOf(peak, abs(samples[index]))
+                val lift = if (channel == centreChannel) CENTRE_LIFT.toDouble() else 1.0
+                peak = maxOf(peak, abs(samples[index].toDouble() * gain * lift))
             }
+            // Float PCM can contain finite values beyond full scale. Applying the gain in Float
+            // first can overflow to infinity, then infinity * the limiter's zero gain becomes NaN.
+            // Keep headroom through the limiter and narrow only the bounded output, preserving
+            // channel balance instead of clipping each input independently.
             val limit = limiter.gain(peak)
-            if (limit < 1f) {
-                for (index in offset until offset + channelCount) samples[index] *= limit
+            for (channel in 0 until channelCount) {
+                val index = offset + channel
+                val lift = if (channel == centreChannel) CENTRE_LIFT.toDouble() else 1.0
+                samples[index] = (samples[index].toDouble() * gain * lift * limit).toFloat()
             }
             offset += channelCount
         }
@@ -261,17 +266,17 @@ private class PeakLimiter(
     private val ceiling: Float,
     sampleRate: Int,
 ) {
-    private val release = smoothing(LIMITER_RELEASE_SECONDS, sampleRate).toFloat()
-    private var gain = 1f
+    private val release = smoothing(LIMITER_RELEASE_SECONDS, sampleRate)
+    private var gain = 1.0
 
-    fun gain(peak: Float): Float {
-        val wanted = if (peak > ceiling) ceiling / peak else 1f
+    fun gain(peak: Double): Double {
+        val wanted = if (peak > ceiling) ceiling / peak else 1.0
         gain = if (wanted < gain) wanted else gain + (wanted - gain) * release
         return gain
     }
 
     fun reset() {
-        gain = 1f
+        gain = 1.0
     }
 }
 

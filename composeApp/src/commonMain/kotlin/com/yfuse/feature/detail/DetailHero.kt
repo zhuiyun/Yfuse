@@ -232,6 +232,8 @@ internal fun Hero(
     sharedKey: MediaSharedElementKey?,
     scroll: State<Float>,
     onResolvedUrl: (String) -> Unit,
+    standInUrls: List<String> = emptyList(),
+    continuous: Boolean = false,
 ) {
     // 详情页顶图 1.08 → 1, §3.1. The parallax below has always been here; the entrance
     // it belongs to was not, so the artwork simply appeared at rest.
@@ -246,7 +248,11 @@ internal fun Hero(
     // 一镜到底: a lifted card is growing into this hero (LiftExpansion.kt). The hero stays out of
     // sight under it until it hands over, and then is simply there at rest, the card's own size.
     val expansion = rememberLiftExpansion(sharedKey)
-    var entered by rememberSaveable(animationKey) { mutableStateOf(sharedEntrance || still || expansion != null) }
+    var entered by rememberSaveable(animationKey) {
+        mutableStateOf(
+            sharedEntrance || still || expansion != null || continuous,
+        )
+    }
     LaunchedEffect(animationKey) { entered = true }
     val entrance by animateFloatAsState(
         targetValue = if (entered) 1f else 0f,
@@ -293,34 +299,40 @@ internal fun Hero(
         // while its 1.08 entrance can no longer bleed below the physical hero edge without
         // the scrim and flash through the sheet's transparent gradient start.
         Box(Modifier.fillMaxSize().clipToBounds().liftExpansionTarget(expansion)) {
-            FallbackImage(
-                urls = urls,
-                contentDescription = title,
-                // The hero already owns the scale entrance. Resolve readiness with alpha only
-                // so a network/disk result does not arrive as a hard cut or add a second scale.
-                progressive = true,
-                alphaOnly = true,
-                // Under a card that is about to hand over, a picture arrives whole: fading in, it
-                // would still be half there when the card lifts off it.
-                revealDurationMillis = if (heldByCard) 0 else Motion.POSTER_FADE,
-                onResolvedUrl = { url ->
+            val imageModifier =
+                Modifier
+                    .sharedMediaArtwork(sharedKey)
+                    .playerArtworkSource(sharedKey, urls)
+                    .fillMaxSize()
+                    .fadeIntoPage()
+                    .graphicsLayer {
+                        val scale = 1f + (Motion.DETAIL_HERO_SCALE_FROM - 1f) * (1f - entrance)
+                        scaleX = scale
+                        scaleY = scale
+                    }
+            if (continuous) {
+                CinemaHeroImage(urls, standInUrls, title, imageModifier) { url ->
                     expansion?.heroReady = true
                     onResolvedUrl(url)
-                },
-                modifier =
-                    Modifier
-                        .sharedMediaArtwork(sharedKey)
-                        .playerArtworkSource(sharedKey, urls)
-                        .fillMaxSize()
-                        .fadeIntoPage()
-                        .graphicsLayer {
-                            val scale =
-                                1f +
-                                    (Motion.DETAIL_HERO_SCALE_FROM - 1f) * (1f - entrance)
-                            scaleX = scale
-                            scaleY = scale
-                        },
-            )
+                }
+            } else {
+                FallbackImage(
+                    urls = urls,
+                    contentDescription = title,
+                    // The hero already owns the scale entrance. Resolve readiness with alpha only
+                    // so a network/disk result does not arrive as a hard cut or add a second scale.
+                    progressive = true,
+                    alphaOnly = true,
+                    // Under a card that is about to hand over, a picture arrives whole: fading in, it
+                    // would still be half there when the card lifts off it.
+                    revealDurationMillis = if (heldByCard) 0 else Motion.POSTER_FADE,
+                    onResolvedUrl = { url ->
+                        expansion?.heroReady = true
+                        onResolvedUrl(url)
+                    },
+                    modifier = imageModifier,
+                )
+            }
             Box(
                 Modifier
                     .fillMaxSize()

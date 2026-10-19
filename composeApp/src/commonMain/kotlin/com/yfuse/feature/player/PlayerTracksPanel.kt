@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.CinemaSelectionGroup
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.motionAwareScrollTo
@@ -364,12 +365,19 @@ internal fun TracksPanel(
             )
         }
     } else if (state.audioTracks.isNotEmpty()) {
-        state.audioTracks.forEach { track ->
-            OptionRow(
-                track.label,
-                track.selected,
-                onClick = { onSelectAudio(track.id) },
-            )
+        CinemaSelectionGroup(rememberAccentColorsForSurface(dark = true).accent) {
+            Column {
+                state.audioTracks.forEach { track ->
+                    androidx.compose.runtime.key(track.id) {
+                        OptionRow(
+                            track.label,
+                            track.selected,
+                            onClick = { onSelectAudio(track.id) },
+                            selectionKey = track.id,
+                        )
+                    }
+                }
+            }
         }
         GroupLabel("音频同步")
         if (audioControls.available) {

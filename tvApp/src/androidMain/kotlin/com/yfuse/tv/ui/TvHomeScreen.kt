@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -41,10 +42,15 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.CinemaMotion
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.cinemaHeroLayer
+import com.yfuse.core.designsystem.cinemaMotion
 import com.yfuse.core.designsystem.contentHandoff
+import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberCinemaHeroProgress
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
@@ -307,6 +313,17 @@ private fun TvHomeHero(
     focused: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val cinema = cinemaMotion()
+    val heroKey = item?.let { it.mediaType to it.id }
+    val progress = rememberCinemaHeroProgress(heroKey)
+    val accent =
+        rememberAnimatedArtworkAccent(
+            url = TmdbImages.backdrop(item?.backdropPath, "w1280").takeIf { cinema },
+            fallback = TvAccent,
+            darkTheme = true,
+            identity = heroKey,
+            durationMillis = if (cinema) CinemaMotion.COLOR else 0,
+        )
     Box(
         modifier
             // Whole while focus is on 播放 or 详情, so the page stays at its top — see TvFocusPivot.
@@ -319,7 +336,14 @@ private fun TvHomeHero(
     ) {
         Crossfade(
             targetState = item,
-            animationSpec = if (reduceMotion) snap() else Motion.tween(Motion.AMBIENT),
+            animationSpec =
+                if (reduceMotion) {
+                    snap()
+                } else {
+                    Motion.tween(
+                        if (cinema) CinemaMotion.HERO else Motion.AMBIENT,
+                    )
+                },
             label = "tv-living-poster",
         ) { current ->
             TvLoadingImage(
@@ -354,8 +378,16 @@ private fun TvHomeHero(
                     ),
                 ),
         )
+        if (cinema) {
+            Box(
+                Modifier.fillMaxSize().drawBehind {
+                    drawRect(Brush.horizontalGradient(listOf(accent.value.copy(alpha = 0.14f), Color.Transparent)))
+                },
+            )
+        }
         Column(
             Modifier
+                .cinemaHeroLayer(progress, stage = 1)
                 .align(Alignment.CenterStart)
                 .width(540.dp)
                 .padding(start = 34.dp),

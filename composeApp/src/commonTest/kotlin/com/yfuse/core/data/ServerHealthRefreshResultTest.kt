@@ -78,10 +78,36 @@ class ServerHealthRefreshResultTest {
             val task = async { monitor.refreshResult(server("a")) }
             runCurrent()
             assertTrue(started.isCompleted)
+            assertEquals(mapOf("a" to 1), monitor.checking.value)
             task.cancel()
             runCurrent()
             assertTrue(task.isCancelled)
             assertNull(monitor.health.value["a"])
+            assertTrue(monitor.checking.value.isEmpty())
+        }
+
+    @Test
+    fun concurrent_checks_keep_the_indicator_until_the_last_probe_finishes() =
+        runTest {
+            val release = CompletableDeferred<Unit>()
+            val repo =
+                testRepo {
+                    release.await()
+                    json("{}")
+                }
+            val monitor = ServerHealthMonitor(repo, testRegistry())
+            val first = async { monitor.refreshResult(server("a")) }
+            val second = async { monitor.refreshResult(server("a")) }
+            val other = async { monitor.refreshResult(server("b")) }
+            runCurrent()
+            assertEquals(mapOf("a" to 2, "b" to 1), monitor.checking.value)
+            first.cancel()
+            runCurrent()
+            assertEquals(mapOf("a" to 1, "b" to 1), monitor.checking.value)
+            release.complete(Unit)
+            assertTrue(second.await().isSuccess)
+            assertTrue(other.await().isSuccess)
+            assertTrue(monitor.checking.value.isEmpty())
         }
 
     private fun server(id: String) =

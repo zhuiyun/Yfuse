@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.cinemaMotion
 import com.yfuse.core.designsystem.glass
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -160,12 +161,16 @@ internal fun SpeedBoostPill(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(AppIcons.Forward, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-            SPEED_BOOST_GEARS.forEachIndexed { index, speed ->
-                Text(
-                    speedBoostLabel(speed),
-                    style = if (index == shown) AppTypography.body.strong else AppTypography.caption.regular,
-                    color = if (index == shown) Color.White else Color.White.copy(alpha = 0.5f),
-                )
+            if (cinemaMotion()) {
+                CinemaSpeedReadout(shown, held = gear != null)
+            } else {
+                SPEED_BOOST_GEARS.forEachIndexed { index, speed ->
+                    Text(
+                        speedBoostLabel(speed),
+                        style = if (index == shown) AppTypography.body.strong else AppTypography.caption.regular,
+                        color = if (index == shown) Color.White else Color.White.copy(alpha = 0.5f),
+                    )
+                }
             }
         }
     }

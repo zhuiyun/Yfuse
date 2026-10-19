@@ -40,6 +40,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -88,6 +89,7 @@ import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.offset
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.DialogPresence
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
@@ -96,6 +98,8 @@ import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.calmMotion
+import com.yfuse.core.designsystem.cinemaActivationPulse
+import com.yfuse.core.designsystem.cinemaConfirmation
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.tv.focus.FocusAnchor
@@ -598,13 +602,23 @@ internal fun TvActionButton(
     serverId: String? = null,
     profileId: String? = null,
 ) {
+    var playGeneration by remember { mutableIntStateOf(0) }
+    val playAction = icon == AppIcons.Play
     TvFocusableSurface(
         stableId = stableId,
         focusScope = focusScope,
         focusMemory = focusMemory,
-        onClick = onClick,
+        onClick = {
+            if (playAction) playGeneration++
+            onClick()
+        },
         contentDescription = label,
-        modifier = modifier.height(52.dp).width(IntrinsicSize.Max),
+        modifier =
+            modifier
+                .height(
+                    52.dp,
+                ).width(IntrinsicSize.Max)
+                .cinemaActivationPulse(playGeneration, TvAccent, enabled = playAction),
         focusRequester = focusRequester,
         navigationRequester = navigationRequester,
         returnToNavigationOnLeft = returnToNavigationOnLeft,
@@ -637,7 +651,16 @@ internal fun TvActionButton(
             horizontalArrangement = Arrangement.Center,
         ) {
             if (icon != null) {
-                TvFocusIcon(icon = icon, rest = restInk, focused = focusInk, modifier = Modifier.size(22.dp))
+                TvFocusIcon(
+                    icon = icon,
+                    rest = restInk,
+                    focused = focusInk,
+                    modifier =
+                        Modifier.size(22.dp).cinemaConfirmation(
+                            selected && !selectable,
+                            TvAccent,
+                        ),
+                )
                 Spacer(Modifier.width(10.dp))
             }
             TvFocusText(
@@ -693,7 +716,7 @@ internal fun TvMediaCard(
         focusMemory = focusMemory,
         onClick = model.onClick,
         modifier =
-            modifier.width(width).onFocusChanged { focus ->
+            modifier.width(width).cinemaSpotlightTarget(model.imageUrl).onFocusChanged { focus ->
                 // Focus moved on — to the rail, say — and the card stayed: that restore has nothing
                 // left to do, and left pending it pulled focus back here the next time the page
                 // restored. It ends a frame later, and only while the card is still on screen: a

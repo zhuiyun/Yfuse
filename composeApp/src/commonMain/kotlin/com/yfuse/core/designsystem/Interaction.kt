@@ -529,8 +529,17 @@ internal fun pressLayerTargetAlpha(
  */
 @Composable
 fun LazyItemScope.motionAwareItem(): Modifier =
-    if (LocalAccessibilityOptions.current.reduceMotion) {
+    if (LocalAccessibilityOptions.current.reduceMotion ||
+        LocalMotionBudget.current.reduced ||
+        !LocalRouteVisible.current
+    ) {
         Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
+    } else if (cinemaMotion()) {
+        Modifier.animateItem(
+            fadeInSpec = Motion.tween(CinemaMotion.ITEM_ENTER),
+            placementSpec = Motion.tween(CinemaMotion.REORDER),
+            fadeOutSpec = Motion.tween(CinemaMotion.ITEM_EXIT),
+        )
     } else {
         Modifier.animateItem(
             fadeInSpec = Motion.tween(Motion.QUICK),
@@ -542,8 +551,17 @@ fun LazyItemScope.motionAwareItem(): Modifier =
 /** [motionAwareItem], for grids. */
 @Composable
 fun LazyGridItemScope.motionAwareItem(): Modifier =
-    if (LocalAccessibilityOptions.current.reduceMotion) {
+    if (LocalAccessibilityOptions.current.reduceMotion ||
+        LocalMotionBudget.current.reduced ||
+        !LocalRouteVisible.current
+    ) {
         Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
+    } else if (cinemaMotion()) {
+        Modifier.animateItem(
+            fadeInSpec = Motion.tween(CinemaMotion.ITEM_ENTER),
+            placementSpec = Motion.tween(CinemaMotion.REORDER),
+            fadeOutSpec = Motion.tween(CinemaMotion.ITEM_EXIT),
+        )
     } else {
         Modifier.animateItem(
             fadeInSpec = Motion.tween(Motion.QUICK),

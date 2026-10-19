@@ -165,15 +165,19 @@ fun EpisodeNumberGrid(
         }
         Spacer(Modifier.height(6.dp))
         // Each 40dp cell sits in a 48dp touch slot, which already leaves 8dp between rows.
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val positions = if (reversed) range.reversed() else range.toList()
-            positions.forEach { position ->
-                NumberCell(
-                    cell = cells[position],
-                    colors = colors,
-                    focusRequester = currentFocus.takeIf { position == currentPosition },
-                    onClick = { onPick(position) },
-                )
+        CinemaSelectionGroup(colors.accent) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val positions = if (reversed) range.reversed() else range.toList()
+                positions.forEach { position ->
+                    androidx.compose.runtime.key(cells[position].key) {
+                        NumberCell(
+                            cell = cells[position],
+                            colors = colors,
+                            focusRequester = currentFocus.takeIf { position == currentPosition },
+                            onClick = { onPick(position) },
+                        )
+                    }
+                }
             }
         }
     }
@@ -236,6 +240,7 @@ private fun NumberCell(
             .semantics { if (state.isNotEmpty()) stateDescription = state }
             .touchTarget(focus = focusShape)
             .size(width = 52.dp, height = 40.dp)
+            .cinemaSelectionTarget(cell.key, cell.current)
             .clip(AppShapes.thumb)
             .background(if (cell.current) colors.accent else colors.cellFill),
         contentAlignment = Alignment.Center,
@@ -259,6 +264,9 @@ private fun NumberCell(
                     .height(2.dp)
                     .background(colors.accent),
             )
+        }
+        if (cinemaMotion()) {
+            CinemaSelectionCheck(cell.current, colors.onAccent, Modifier.align(Alignment.TopStart))
         }
         if (cell.downloaded) {
             Box(

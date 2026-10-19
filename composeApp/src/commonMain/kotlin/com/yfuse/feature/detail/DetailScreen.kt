@@ -57,6 +57,7 @@ import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.ZoomBackAnchor
 import com.yfuse.core.designsystem.backdropSource
+import com.yfuse.core.designsystem.cinemaDetailArrival
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.lightOnAppear
 import com.yfuse.core.designsystem.motionItem
@@ -188,6 +189,7 @@ fun DetailScreen(component: DetailComponent) {
     val playbackSelection by PlaybackSelection.state.collectAsState()
     val palette = LocalPalette.current
     val detail = state.detail
+    val cinemaArtwork = rememberCinemaDetailArtwork(state.server?.id ?: component.serverId, component.itemId)
     LaunchedEffect(component, detail != null) {
         if (detail != null) {
             // Record after a content composition has crossed a frame, not just after HTTP returned.
@@ -626,348 +628,360 @@ fun DetailScreen(component: DetailComponent) {
                 // longer finds.
                 val underAllEpisodes = if (allEpisodesOpen) Modifier.clearAndSetSemantics {} else Modifier
 
-                SkeletonHandoff(
-                    loading = detail == null && state.error == null,
-                    modifier = Modifier.fillMaxSize().then(underAllEpisodes),
-                    skeleton = { DetailSkeleton(heroHeight) },
+                Box(
+                    Modifier.fillMaxSize().backdropSource(
+                        detailBackdrop,
+                        record = { topBarProgress.value > 0f || seasonPickerOpen },
+                    ),
                 ) {
-                    when {
-                        detail == null ->
-                            ErrorState(
-                                message = state.error ?: "加载失败",
-                                onRetry = { component.store.accept(DetailIntent.Retry) },
-                                modifier = Modifier.align(Alignment.Center),
-                            )
+                    if (cinemaArtwork != null) {
+                        CinemaDetailHero(cinemaArtwork, heroUrls, displayTitle, heroHeight, detailSurface, heroScroll) {
+                            resolvedHeroUrl = it
+                        }
+                    }
+                    SkeletonHandoff(
+                        loading = detail == null && state.error == null,
+                        modifier = Modifier.fillMaxSize().then(underAllEpisodes),
+                        skeleton = { DetailSkeleton(heroHeight, artworkBehind = cinemaArtwork != null) },
+                    ) {
+                        when {
+                            detail == null ->
+                                ErrorState(
+                                    message = state.error ?: "加载失败",
+                                    onRetry = { component.store.accept(DetailIntent.Retry) },
+                                    modifier = Modifier.align(Alignment.Center),
+                                )
 
-                        else ->
-                            LazyColumn(
-                                Modifier
-                                    .fillMaxSize()
-                                    .nestedScroll(overscrollConnection)
-                                    // What the collapsed top bar blurs. The bar is a sibling drawn after
-                                    // this, which is what keeps it out of its own backdrop. Captured only
-                                    // while something samples it: the bar once it has begun to fade in,
-                                    // or the season list.
-                                    .backdropSource(
-                                        detailBackdrop,
-                                        record = { topBarProgress.value > 0f || seasonPickerOpen },
-                                    ),
-                                state = listState,
-                                contentPadding = PaddingValues(bottom = Dimens.contentBottom),
-                            ) {
-                                motionItem(key = "hero") {
-                                    Box(Modifier.lightOnAppear(enhancedOnly = true)) {
-                                        Hero(
-                                            urls = heroUrls,
-                                            title = displayTitle,
-                                            height = heroHeight,
-                                            surfaceColor = detailSurface,
-                                            animationKey = "detail-hero-${detail.id}",
-                                            sharedKey = sharedHeroKey,
-                                            scroll = heroScroll,
-                                            onResolvedUrl = { resolvedHeroUrl = it },
-                                        )
+                            else ->
+                                LazyColumn(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .nestedScroll(overscrollConnection),
+                                    state = listState,
+                                    contentPadding = PaddingValues(bottom = Dimens.contentBottom),
+                                ) {
+                                    motionItem(key = "hero") {
+                                        if (cinemaArtwork != null) {
+                                            Box(Modifier.fillMaxWidth().height(heroHeight))
+                                        } else {
+                                            Box(Modifier.lightOnAppear(enhancedOnly = true)) {
+                                                Hero(
+                                                    urls = heroUrls,
+                                                    title = displayTitle,
+                                                    height = heroHeight,
+                                                    surfaceColor = detailSurface,
+                                                    animationKey = "detail-hero-${detail.id}",
+                                                    sharedKey = sharedHeroKey,
+                                                    scroll = heroScroll,
+                                                    onResolvedUrl = { resolvedHeroUrl = it },
+                                                )
+                                            }
+                                        }
                                     }
-                                }
 
-                                motionItem(key = "sheet") {
-                                    Column(
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .liftOverHero(captionLift)
-                                            .padding(horizontal = Dimens.pageHorizontal)
-                                            .padding(top = SheetGap),
-                                        verticalArrangement = Arrangement.spacedBy(SheetGap),
-                                    ) {
-                                        TitleBlock(
-                                            detail = detail,
-                                            title = displayTitle,
-                                            accent = { detailAccentState.value },
-                                            // A series has no file of its own, so its 杜比 facts belong to
-                                            // the episode 继续观看 would open — which is the copy the badge
-                                            // would be describing anyway.
-                                            version = selectedVersion ?: state.playTarget?.versions?.firstOrNull(),
-                                            modifier =
-                                                Modifier.onSizeChanged {
-                                                    captionLift = with(density) { it.height.toDp() } +
-                                                        SheetGap + PlayButtonHeroOverlap
-                                                },
-                                            statuses = detailStatusList,
-                                            onStatusClick = { moreSheetOpen = true },
-                                        )
-                                        // Built out here rather than in the colour scope below: the play key
-                                        // repaints on every frame of its blend, the keys stay the same list.
-                                        val actionKeys =
-                                            detailPageActionKeys(
-                                                state,
-                                                episodeRowActions.downloads,
-                                                accept = component.store::accept,
-                                                onTogglePlayed = togglePlayed,
-                                            ) { openDownload(OfflineBatchMode.Current) } + listOfNotNull(trailers.key)
-                                        AnimatedColorContent(detailPlayColorState) { detailPlayColor ->
-                                            DetailActionDock(
-                                                accent = detailPlayColor,
-                                                label = if (state.playPositionTicks > 0L) "继续播放" else "播放",
-                                                detailLine = playDetailLine,
-                                                resumeTimeLabel = formatResumePosition(state.playPositionTicks),
-                                                resolving = state.resolvingPlay,
-                                                canPlayFromStart = state.playPositionTicks > 0L,
-                                                onPlay =
-                                                    playerArtworkOnClick(
-                                                        sharedHeroKey,
-                                                    ) { component.store.accept(DetailIntent.Play) },
-                                                onPlayFromStart =
-                                                    playerArtworkOnClick(sharedHeroKey) {
-                                                        component.store.accept(DetailIntent.PlayFromStart)
+                                    motionItem(key = "sheet") {
+                                        Column(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .cinemaDetailArrival()
+                                                .liftOverHero(captionLift)
+                                                .padding(horizontal = Dimens.pageHorizontal)
+                                                .padding(top = SheetGap),
+                                            verticalArrangement = Arrangement.spacedBy(SheetGap),
+                                        ) {
+                                            TitleBlock(
+                                                detail = detail,
+                                                title = displayTitle,
+                                                accent = { detailAccentState.value },
+                                                // A series has no file of its own, so its 杜比 facts belong to
+                                                // the episode 继续观看 would open — which is the copy the badge
+                                                // would be describing anyway.
+                                                version = selectedVersion ?: state.playTarget?.versions?.firstOrNull(),
+                                                modifier =
+                                                    Modifier.onSizeChanged {
+                                                        captionLift = with(density) { it.height.toDp() } +
+                                                            SheetGap + PlayButtonHeroOverlap
                                                     },
-                                                keys = actionKeys,
-                                                keyAccent = detailAccent,
+                                                statuses = detailStatusList,
+                                                onStatusClick = { moreSheetOpen = true },
+                                            )
+                                            // Built out here rather than in the colour scope below: the play key
+                                            // repaints on every frame of its blend, the keys stay the same list.
+                                            val actionKeys =
+                                                detailPageActionKeys(
+                                                    state,
+                                                    episodeRowActions.downloads,
+                                                    accept = component.store::accept,
+                                                    onTogglePlayed = togglePlayed,
+                                                ) { openDownload(OfflineBatchMode.Current) } +
+                                                    listOfNotNull(trailers.key)
+                                            AnimatedColorContent(detailPlayColorState) { detailPlayColor ->
+                                                DetailActionDock(
+                                                    accent = detailPlayColor,
+                                                    label = if (state.playPositionTicks > 0L) "继续播放" else "播放",
+                                                    detailLine = playDetailLine,
+                                                    resumeTimeLabel = formatResumePosition(state.playPositionTicks),
+                                                    resolving = state.resolvingPlay,
+                                                    canPlayFromStart = state.playPositionTicks > 0L,
+                                                    onPlay =
+                                                        playerArtworkOnClick(
+                                                            sharedHeroKey,
+                                                        ) { component.store.accept(DetailIntent.Play) },
+                                                    onPlayFromStart =
+                                                        playerArtworkOnClick(sharedHeroKey) {
+                                                            component.store.accept(DetailIntent.PlayFromStart)
+                                                        },
+                                                    keys = actionKeys,
+                                                    keyAccent = detailAccent,
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // The personal lists live in the 更多操作 sheet: as buttons under the play key
+                                    // they pushed the synopsis and the sources below the fold. The one compact row
+                                    // of keys there carries 收藏 / 稍后看 / 已看 / 下载 instead, and the title block
+                                    // still says which lists hold the title.
+                                    val overview = detail.overview
+                                    if (!overview.isNullOrBlank()) {
+                                        motionItem(key = "overview") {
+                                            OverviewSection(
+                                                text = overview,
+                                                expanded = overviewExpanded,
+                                                onToggle = { overviewExpanded = !overviewExpanded },
+                                                accent = { detailAccentState.value },
+                                                modifier = Modifier.sectionPadding(),
                                             )
                                         }
                                     }
-                                }
 
-                                // The personal lists live in the 更多操作 sheet: as buttons under the play key
-                                // they pushed the synopsis and the sources below the fold. The one compact row
-                                // of keys there carries 收藏 / 稍后看 / 已看 / 下载 instead, and the title block
-                                // still says which lists hold the title.
-                                val overview = detail.overview
-                                if (!overview.isNullOrBlank()) {
-                                    motionItem(key = "overview") {
-                                        OverviewSection(
-                                            text = overview,
-                                            expanded = overviewExpanded,
-                                            onToggle = { overviewExpanded = !overviewExpanded },
-                                            accent = { detailAccentState.value },
-                                            modifier = Modifier.sectionPadding(),
-                                        )
+                                    // Choose an episode directly after the synopsis, before comparing sources.
+                                    // A season with none keeps the section while other seasons can be picked.
+                                    if (detail.type.equals("Series", ignoreCase = true) ||
+                                        state.episodes.isNotEmpty() ||
+                                        state.seasons.size > 1
+                                    ) {
+                                        motionItem(key = "episodes") {
+                                            Box(Modifier.zoomBackAnchor(allEpisodesSource)) {
+                                                EpisodeSection(
+                                                    baseUrl = playBaseUrl,
+                                                    accessToken = playAccessToken,
+                                                    episodes = state.episodes,
+                                                    seriesPosterUrl = heroUrls.getOrNull(1),
+                                                    selectedEpisodeId = state.selectedEpisodeId,
+                                                    accent = detailAccent,
+                                                    seasonLabel =
+                                                        state.seasons
+                                                            .firstOrNull { it.id == state.selectedSeasonId }
+                                                            ?.name
+                                                            ?: "剧集",
+                                                    availableEpisodeCount = state.episodes.size,
+                                                    seasonCount = state.seasons.size,
+                                                    seasonLoading = listedSeasonId != state.selectedSeasonId,
+                                                    listedSeasonId = listedSeasonId,
+                                                    pickerOpen = seasonPickerOpen,
+                                                    onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
+                                                    onPickerAnchor = { seasonPickerAnchor.bounds = it },
+                                                    onManageProgress = {
+                                                        component.store.accept(DetailIntent.OpenProgressManager)
+                                                    },
+                                                    onOpenCalendar = { airingCalendarOpen = true },
+                                                    onPlayEpisode = { episode ->
+                                                        com.yfuse.core.designsystem.PlayerArtworkOrigins.begin(
+                                                            sharedHeroKey,
+                                                        )
+                                                        component.store.accept(
+                                                            DetailIntent.SelectEpisode(
+                                                                episode.id,
+                                                                episode.resumePositionTicks ?: 0L,
+                                                            ),
+                                                        )
+                                                    },
+                                                    onSeeAll = { allEpisodesOpen = true },
+                                                    rowActions = episodeRowActions,
+                                                )
+                                            }
+                                        }
                                     }
-                                }
 
-                                // Choose an episode directly after the synopsis, before comparing sources.
-                                // A season with none keeps the section while other seasons can be picked.
-                                if (detail.type.equals("Series", ignoreCase = true) ||
-                                    state.episodes.isNotEmpty() ||
-                                    state.seasons.size > 1
-                                ) {
-                                    motionItem(key = "episodes") {
-                                        Box(Modifier.zoomBackAnchor(allEpisodesSource)) {
-                                            EpisodeSection(
-                                                baseUrl = playBaseUrl,
-                                                accessToken = playAccessToken,
-                                                episodes = state.episodes,
-                                                seriesPosterUrl = heroUrls.getOrNull(1),
-                                                selectedEpisodeId = state.selectedEpisodeId,
+                                    if (state.server != null) {
+                                        motionItem(key = "sources") {
+                                            SourceSection(
+                                                sources = comparableSources,
+                                                presentation = sourcePresentation,
+                                                loading = state.sourcesLoading,
+                                                error = state.sourcesError,
+                                                onRetry = { component.store.accept(DetailIntent.RetrySources) },
+                                                selectedServerId = state.selectedSourceServerId,
+                                                selectedItemId = state.selectedSourceItemId,
                                                 accent = detailAccent,
-                                                seasonLabel =
-                                                    state.seasons
-                                                        .firstOrNull { it.id == state.selectedSeasonId }
-                                                        ?.name
-                                                        ?: "剧集",
-                                                availableEpisodeCount = state.episodes.size,
-                                                seasonCount = state.seasons.size,
-                                                seasonLoading = listedSeasonId != state.selectedSeasonId,
-                                                listedSeasonId = listedSeasonId,
-                                                pickerOpen = seasonPickerOpen,
-                                                onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
-                                                onPickerAnchor = { seasonPickerAnchor.bounds = it },
-                                                onManageProgress = {
-                                                    component.store.accept(DetailIntent.OpenProgressManager)
+                                                onSelect = { serverId, itemId ->
+                                                    component.store.accept(DetailIntent.SelectSource(serverId, itemId))
                                                 },
-                                                onOpenCalendar = { airingCalendarOpen = true },
-                                                onPlayEpisode = { episode ->
-                                                    com.yfuse.core.designsystem.PlayerArtworkOrigins.begin(
-                                                        sharedHeroKey,
-                                                    )
+                                                onSeeAll = { sourceListOpen = true },
+                                                modifier = Modifier.padding(top = Dimens.sectionGap),
+                                            )
+                                        }
+                                    }
+
+                                    if (playableVersions.isNotEmpty()) {
+                                        motionItem(key = "versions") {
+                                            VersionSection(
+                                                versions = playableVersions,
+                                                selectedId = state.selectedVersionId,
+                                                accent = detailAccent,
+                                                onSelect = {
+                                                    component.store.accept(DetailIntent.SelectVersion(it))
+                                                },
+                                                modifier = Modifier.padding(top = Dimens.sectionGap),
+                                            )
+                                        }
+                                    }
+
+                                    // The tracks of whatever file will actually open. A film's own, or, for a
+                                    // series, the episode 继续观看 resolves to — the same copy the 杜比 badge
+                                    // above describes.
+                                    val playableVersion = selectedVersion
+                                    if (playableVersion != null &&
+                                        (
+                                            playableVersion.audioTracks.size > 1 ||
+                                                playableVersion.subtitleTracks.isNotEmpty()
+                                        )
+                                    ) {
+                                        motionItem(key = "tracks") {
+                                            TrackSection(
+                                                version = playableVersion,
+                                                audioLanguage = state.preferredAudioLanguage,
+                                                audioOrdinal = state.preferredAudioOrdinal,
+                                                subtitleLanguage = state.preferredSubtitleLanguage,
+                                                subtitleOrdinal = state.preferredSubtitleOrdinal,
+                                                accent = detailAccent,
+                                                onSelectAudio = { choice ->
                                                     component.store.accept(
-                                                        DetailIntent.SelectEpisode(
-                                                            episode.id,
-                                                            episode.resumePositionTicks ?: 0L,
+                                                        DetailIntent.SelectAudioLanguage(choice.value, choice.ordinal),
+                                                    )
+                                                },
+                                                onSelectSubtitle = { choice ->
+                                                    component.store.accept(
+                                                        DetailIntent.SelectSubtitleLanguage(
+                                                            choice.value,
+                                                            choice.ordinal,
                                                         ),
                                                     )
                                                 },
-                                                onSeeAll = { allEpisodesOpen = true },
-                                                rowActions = episodeRowActions,
+                                                modifier = Modifier.padding(top = Dimens.sectionGap),
+                                            )
+                                        }
+                                    }
+
+                                    if (detail.genres.isNotEmpty()) {
+                                        motionItem(key = "genres") {
+                                            GenreSection(
+                                                detail.genres,
+                                                Modifier.sectionPadding(),
+                                                onGenreClick = component::searchFor,
+                                            )
+                                        }
+                                    }
+
+                                    if (detail.backdropTags.isNotEmpty()) {
+                                        motionItem(key = "artwork") {
+                                            ArtworkSection(
+                                                // Whichever item owns the artwork — the episode's own, or the
+                                                // show's when the episode has none. The index addresses that
+                                                // item's backdrop list, so it has to be that item's id.
+                                                baseUrl = baseUrl,
+                                                accessToken = accessToken,
+                                                itemId = detail.backdropItemId,
+                                                tags = detail.backdropTags,
+                                                modifier = Modifier.padding(top = Dimens.sectionGap),
+                                            )
+                                        }
+                                    }
+
+                                    val links =
+                                        externalLinks(
+                                            providerIds = detail.providerIds,
+                                            type = detail.type,
+                                            seriesTmdbId = seriesTmdbId,
+                                            seasonNumber = detail.seasonNumber,
+                                            episodeNumber = detail.episodeNumber,
+                                        )
+                                    if (links.isNotEmpty()) {
+                                        motionItem(key = "links") {
+                                            ExternalLinksSection(links, Modifier.sectionPadding())
+                                        }
+                                    }
+
+                                    if (detail.people.isNotEmpty()) {
+                                        motionItem(key = "cast") {
+                                            CastRow(
+                                                baseUrl = baseUrl,
+                                                accessToken = accessToken,
+                                                people = detail.people,
+                                                modifier = Modifier.padding(top = Dimens.sectionGap),
+                                                onPersonClick = component::openPerson,
+                                            )
+                                        }
+                                    }
+
+                                    if (state.related.isNotEmpty()) {
+                                        motionItem(key = "related") {
+                                            RelatedSection(
+                                                baseUrl = baseUrl,
+                                                accessToken = accessToken,
+                                                serverId = state.server?.id,
+                                                items = state.related,
+                                                accent = detailAccent,
+                                                onOpen = { itemId ->
+                                                    state.server?.id?.let { component.onOpenRelated(it, itemId) }
+                                                },
+                                                liftMenu =
+                                                    state.server?.let { server ->
+                                                        { item: MediaItem ->
+                                                            component.relatedLiftMenu(
+                                                                serverId = server.id,
+                                                                listed = item,
+                                                                backdropUrl =
+                                                                    EmbyImages.backdrop(
+                                                                        baseUrl,
+                                                                        item,
+                                                                        accessToken = accessToken,
+                                                                    ),
+                                                                onShare = {
+                                                                    sharer.sharePosterCard(
+                                                                        item.posterShareCard(
+                                                                            EmbyImages.poster(
+                                                                                baseUrl,
+                                                                                item,
+                                                                                accessToken = accessToken,
+                                                                            ),
+                                                                        ),
+                                                                    )
+                                                                },
+                                                            )
+                                                        }
+                                                    },
+                                            )
+                                        }
+                                    }
+
+                                    // Last on the page: 媒体信息 is the file's technical readout — codec,
+                                    // bitrate, size — which is what someone comes back for, not what they came
+                                    // for. Everything above it is about the title itself.
+                                    if (selectedVersion != null) {
+                                        motionItem(key = "mediaInfo") {
+                                            MediaInfoSection(
+                                                version = selectedVersion,
+                                                dateCreated = state.playTarget?.dateCreated,
+                                                modifier = Modifier.padding(top = Dimens.sectionGap),
                                             )
                                         }
                                     }
                                 }
-
-                                if (state.server != null) {
-                                    motionItem(key = "sources") {
-                                        SourceSection(
-                                            sources = comparableSources,
-                                            presentation = sourcePresentation,
-                                            loading = state.sourcesLoading,
-                                            error = state.sourcesError,
-                                            onRetry = { component.store.accept(DetailIntent.RetrySources) },
-                                            selectedServerId = state.selectedSourceServerId,
-                                            selectedItemId = state.selectedSourceItemId,
-                                            accent = detailAccent,
-                                            onSelect = { serverId, itemId ->
-                                                component.store.accept(DetailIntent.SelectSource(serverId, itemId))
-                                            },
-                                            onSeeAll = { sourceListOpen = true },
-                                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                                        )
-                                    }
-                                }
-
-                                if (playableVersions.isNotEmpty()) {
-                                    motionItem(key = "versions") {
-                                        VersionSection(
-                                            versions = playableVersions,
-                                            selectedId = state.selectedVersionId,
-                                            accent = detailAccent,
-                                            onSelect = {
-                                                component.store.accept(DetailIntent.SelectVersion(it))
-                                            },
-                                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                                        )
-                                    }
-                                }
-
-                                // The tracks of whatever file will actually open. A film's own, or, for a
-                                // series, the episode 继续观看 resolves to — the same copy the 杜比 badge
-                                // above describes.
-                                val playableVersion = selectedVersion
-                                if (playableVersion != null &&
-                                    (
-                                        playableVersion.audioTracks.size > 1 ||
-                                            playableVersion.subtitleTracks.isNotEmpty()
-                                    )
-                                ) {
-                                    motionItem(key = "tracks") {
-                                        TrackSection(
-                                            version = playableVersion,
-                                            audioLanguage = state.preferredAudioLanguage,
-                                            audioOrdinal = state.preferredAudioOrdinal,
-                                            subtitleLanguage = state.preferredSubtitleLanguage,
-                                            subtitleOrdinal = state.preferredSubtitleOrdinal,
-                                            accent = detailAccent,
-                                            onSelectAudio = { choice ->
-                                                component.store.accept(
-                                                    DetailIntent.SelectAudioLanguage(choice.value, choice.ordinal),
-                                                )
-                                            },
-                                            onSelectSubtitle = { choice ->
-                                                component.store.accept(
-                                                    DetailIntent.SelectSubtitleLanguage(choice.value, choice.ordinal),
-                                                )
-                                            },
-                                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                                        )
-                                    }
-                                }
-
-                                if (detail.genres.isNotEmpty()) {
-                                    motionItem(key = "genres") {
-                                        GenreSection(
-                                            detail.genres,
-                                            Modifier.sectionPadding(),
-                                            onGenreClick = component::searchFor,
-                                        )
-                                    }
-                                }
-
-                                if (detail.backdropTags.isNotEmpty()) {
-                                    motionItem(key = "artwork") {
-                                        ArtworkSection(
-                                            // Whichever item owns the artwork — the episode's own, or the
-                                            // show's when the episode has none. The index addresses that
-                                            // item's backdrop list, so it has to be that item's id.
-                                            baseUrl = baseUrl,
-                                            accessToken = accessToken,
-                                            itemId = detail.backdropItemId,
-                                            tags = detail.backdropTags,
-                                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                                        )
-                                    }
-                                }
-
-                                val links =
-                                    externalLinks(
-                                        providerIds = detail.providerIds,
-                                        type = detail.type,
-                                        seriesTmdbId = seriesTmdbId,
-                                        seasonNumber = detail.seasonNumber,
-                                        episodeNumber = detail.episodeNumber,
-                                    )
-                                if (links.isNotEmpty()) {
-                                    motionItem(key = "links") {
-                                        ExternalLinksSection(links, Modifier.sectionPadding())
-                                    }
-                                }
-
-                                if (detail.people.isNotEmpty()) {
-                                    motionItem(key = "cast") {
-                                        CastRow(
-                                            baseUrl = baseUrl,
-                                            accessToken = accessToken,
-                                            people = detail.people,
-                                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                                            onPersonClick = component::openPerson,
-                                        )
-                                    }
-                                }
-
-                                if (state.related.isNotEmpty()) {
-                                    motionItem(key = "related") {
-                                        RelatedSection(
-                                            baseUrl = baseUrl,
-                                            accessToken = accessToken,
-                                            serverId = state.server?.id,
-                                            items = state.related,
-                                            accent = detailAccent,
-                                            onOpen = { itemId ->
-                                                state.server?.id?.let { component.onOpenRelated(it, itemId) }
-                                            },
-                                            liftMenu =
-                                                state.server?.let { server ->
-                                                    { item: MediaItem ->
-                                                        component.relatedLiftMenu(
-                                                            serverId = server.id,
-                                                            listed = item,
-                                                            backdropUrl =
-                                                                EmbyImages.backdrop(
-                                                                    baseUrl,
-                                                                    item,
-                                                                    accessToken = accessToken,
-                                                                ),
-                                                            onShare = {
-                                                                sharer.sharePosterCard(
-                                                                    item.posterShareCard(
-                                                                        EmbyImages.poster(
-                                                                            baseUrl,
-                                                                            item,
-                                                                            accessToken = accessToken,
-                                                                        ),
-                                                                    ),
-                                                                )
-                                                            },
-                                                        )
-                                                    }
-                                                },
-                                        )
-                                    }
-                                }
-
-                                // Last on the page: 媒体信息 is the file's technical readout — codec,
-                                // bitrate, size — which is what someone comes back for, not what they came
-                                // for. Everything above it is about the title itself.
-                                if (selectedVersion != null) {
-                                    motionItem(key = "mediaInfo") {
-                                        MediaInfoSection(
-                                            version = selectedVersion,
-                                            dateCreated = state.playTarget?.dateCreated,
-                                            modifier = Modifier.padding(top = Dimens.sectionGap),
-                                        )
-                                    }
-                                }
-                            }
+                        }
                     }
                 }
-
                 AnimatedColorContent(detailPlayColorState) { detailPlayColor ->
                     DetailTopBar(
                         title = displayTitle,

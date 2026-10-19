@@ -29,11 +29,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.CinemaMotion
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.cinemaMotion
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.pressable
@@ -90,8 +92,11 @@ internal fun PlaybackContinuityOverlay(
     visible: Boolean,
     message: () -> PlaybackStatusLine,
     modifier: Modifier = Modifier,
+    mediaKey: Any = title,
+    cinemaEnabled: Boolean = true,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val cinema = cinemaMotion() && cinemaEnabled
     var statusVisible by remember(visible, title) { mutableStateOf(false) }
     LaunchedEffect(visible, title) {
         statusVisible = false
@@ -103,7 +108,18 @@ internal fun PlaybackContinuityOverlay(
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(Motion.tween(if (reduceMotion) 0 else Motion.CONTINUITY_ENTER)),
-        exit = fadeOut(Motion.tween(if (reduceMotion) 0 else Motion.CONTINUITY_EXIT)),
+        exit =
+            fadeOut(
+                Motion.tween(
+                    if (reduceMotion) {
+                        0
+                    } else if (cinema) {
+                        CinemaMotion.REVEAL
+                    } else {
+                        Motion.CONTINUITY_EXIT
+                    },
+                ),
+            ),
         modifier = modifier,
     ) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -119,7 +135,7 @@ internal fun PlaybackContinuityOverlay(
                     // full-screen Box, it is one fewer layer to measure, place and composite on
                     // an overlay that covers the whole screen during every handover.
                     modifier =
-                        Modifier.fillMaxSize().drawWithContent {
+                        Modifier.fillMaxSize().cinemaOpeningArtwork(mediaKey, visible, cinema).drawWithContent {
                             drawContent()
                             drawRect(Color.Black, alpha = CONTINUITY_ARTWORK_DIM)
                         },

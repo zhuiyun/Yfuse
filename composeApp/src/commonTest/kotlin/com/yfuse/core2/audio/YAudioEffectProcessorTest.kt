@@ -165,6 +165,34 @@ class YAudioEffectProcessorTest {
         }
     }
 
+    @Test
+    fun large_finite_float_pcm_stays_finite_and_bounded_in_every_effect() {
+        for (effect in YAudioEffect.entries - YAudioEffect.Off) {
+            val processor = YAudioEffectProcessor(effect, RATE, stereo)
+            val samples = floatArrayOf(Float.MAX_VALUE, -Float.MAX_VALUE, 0.25f, -0.25f)
+
+            processor.process(samples, frames = 2)
+
+            val ceiling = if (effect == YAudioEffect.LoudnessNormalize) 0.8414f else 0.8913f
+            assertTrue(samples.all { it.isFinite() && abs(it) <= ceiling }, "$effect: ${samples.toList()}")
+            val following = FloatArray(2_048) { if (it % 2 == 0) 0.25f else -0.25f }
+            processor.process(following, frames = 1_024)
+            assertTrue(following.all { it.isFinite() && abs(it) <= ceiling })
+            assertTrue(following.last() < 0f, "$effect must recover after the extreme sample")
+        }
+    }
+
+    @Test
+    fun limiting_extreme_float_pcm_preserves_channel_balance() {
+        val processor = YAudioEffectProcessor(YAudioEffect.VolumeBoost, RATE, stereo)
+        val samples = floatArrayOf(Float.MAX_VALUE, -Float.MAX_VALUE / 2f)
+
+        processor.process(samples, frames = 1)
+
+        assertEquals(decibels(-1.0).toFloat(), samples[0], 1e-6f)
+        assertEquals(-0.5f, samples[1] / samples[0], 1e-6f)
+    }
+
     /** Feeds a 997 Hz stereo tone in 1024-frame chunks; returns the output peak of its last 100 ms. */
     private fun processTone(
         processor: YAudioEffectProcessor,

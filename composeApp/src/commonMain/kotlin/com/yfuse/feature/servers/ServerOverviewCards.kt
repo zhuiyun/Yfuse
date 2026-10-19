@@ -238,6 +238,7 @@ internal fun refreshResultColor(result: ServerRefreshResult): Color =
 internal fun CurrentServerHero(
     server: SavedServer,
     health: ServerHealth?,
+    checking: Boolean,
     stats: ServerStats?,
     serverCount: Int,
     onlineCount: Int,
@@ -338,7 +339,7 @@ internal fun CurrentServerHero(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Box(Modifier.size(7.dp).clip(CircleShape).background(statusColor))
+                    ServerConnectionMark(status, checking, statusColor, 7.dp)
                     Text(
                         connectionLabel(health),
                         style = AppTypography.body.medium,
@@ -479,6 +480,7 @@ internal fun ServerCard(
     server: SavedServer,
     isCurrent: Boolean,
     health: ServerHealth?,
+    checking: Boolean,
     stats: ServerStats?,
     lastWatchedLabel: String,
     /** The server wants a new sign-in, and [onClick] opens that form instead of 库. */
@@ -615,7 +617,7 @@ internal fun ServerCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(6.dp).clip(CircleShape).background(statusColor))
+                ServerConnectionMark(status, checking, statusColor, 6.dp)
                 Text(
                     connectionLabel(health),
                     style = AppTypography.caption.medium,

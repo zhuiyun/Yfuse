@@ -133,6 +133,8 @@ private fun playerTransitionStyle(context: Context): PlayerTransitionStyle {
     if (!context.animationScalesAtNormalSpeed()) return PlayerTransitionStyle.None
     val preferences = runCatching { GlobalContext.get().get<ThemePreferences>() }.getOrNull()
     if (preferences?.motionTheme?.value == MotionTheme.Calm) return PlayerTransitionStyle.None
+    // Cinema uses the readiness-driven artwork cover, without a second Activity handoff over it.
+    if (preferences?.motionTheme?.value == MotionTheme.Cinema) return PlayerTransitionStyle.None
     return preferences?.playerTransition?.value ?: PlayerTransitionStyle.Turn
 }
 

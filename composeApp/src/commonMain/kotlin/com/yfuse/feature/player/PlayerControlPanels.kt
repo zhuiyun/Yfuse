@@ -96,6 +96,7 @@ internal fun BoxScope.PlayerSettingsLayers(
                 castDevices = cast.devices,
                 castingDeviceId = cast.deviceId,
                 castDiscovering = cast.discovering,
+                castConnection = cast.connection,
                 castError = cast.error,
                 castStatus = cast.status,
                 castPosition = cast.position,

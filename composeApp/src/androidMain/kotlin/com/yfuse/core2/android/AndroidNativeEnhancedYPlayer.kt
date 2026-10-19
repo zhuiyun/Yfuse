@@ -7,6 +7,7 @@ import com.yfuse.core.logging.diagnosticRootCause
 import com.yfuse.core.logging.diagnosticTypeName
 import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
+import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
@@ -396,7 +397,12 @@ internal class AndroidNativeEnhancedYPlayer(
     }
 
     private suspend fun runLoop() {
-        fun newProxy(): AndroidYCoreHttpProxy? =
+        PlaybackLoop().run()
+    }
+
+    /** One instance owns the enhanced worker's state until its release barrier completes. */
+    private inner class PlaybackLoop {
+        private fun newProxy(): AndroidYCoreHttpProxy? =
             runCatching {
                 AndroidYCoreHttpProxy(
                     context = appContext,
@@ -411,39 +417,58 @@ internal class AndroidNativeEnhancedYPlayer(
                     forwardCacheTargetUs = preferredRemoteBufferTargetUs ?: DEFAULT_FORWARD_CACHE_TARGET_US,
                 )
             }.getOrNull()
-        val session =
+
+        private val session =
             AndroidEnhancedPlaybackSession(
                 context = appContext,
                 runtimeCapabilities = AndroidRuntimeCapabilityRegistry(appContext),
                 frameRateSwitchMode = frameRateSwitchMode,
                 preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
             ).also { activeSession = it }
-        var surfaceOutput: AndroidSurfaceVideoOutput? = null
-        var currentIndex = request.startIndex
-        var requestedPlay = request.autoPlay
-        var speed = 1f
-        var audioDelayMs = 0L
-        var prepared = false
-        var lastPublishNs = 0L
-        var externalSubtitles = emptyList<AndroidLoadedExternalSubtitle>()
-        val externalSubtitleSession =
+        private var surfaceOutput: AndroidSurfaceVideoOutput? = null
+        private var currentIndex = request.startIndex
+        private var requestedPlay = request.autoPlay
+        private var speed = 1f
+        private var audioDelayMs = 0L
+        private var prepared = false
+        private var lastPublishNs = 0L
+        private var externalSubtitles = emptyList<AndroidLoadedExternalSubtitle>()
+        private val externalSubtitleSession =
             AndroidExternalSubtitleSession(
                 scope = scope,
                 load = { source, headers, id -> externalSubtitleLoader.load(source, headers, id) },
                 completed = { submit(Command.ExternalSubtitleReady(it)) },
             )
-        var selectedExternalSubtitleId: String? = null
-        var secondaryExternalSubtitleId: String? = null
-        var secondaryTrackId: String? = null
-        var activePlan: YPlaybackPlan? = null
-        var activeDolbyProfile: Int? = null
-        var adaptiveFeedbackGeneration = 0L
-        var pendingInitialDecision = initialDecision
-        val rebufferTracker =
+        private var selectedExternalSubtitleId: String? = null
+        private var secondaryExternalSubtitleId: String? = null
+        private var secondaryTrackId: String? = null
+        private var activePlan: YPlaybackPlan? = null
+        private var activeDolbyProfile: Int? = null
+        private var adaptiveFeedbackGeneration = 0L
+        private var pendingInitialDecision = initialDecision
+        private val rebufferTracker =
             com.yfuse.core2.api
                 .YRebufferTracker()
 
-        suspend fun prepareCurrent(positionUs: Long) {
+        private fun resolvePlaybackPlan(
+            item: YMediaItem,
+            decision: YCore2RouteDecision?,
+        ): YPlaybackPlan {
+            val playbackPlan =
+                if (forceSoftwareDecode) {
+                    requiredYCoreSoftwarePlan(
+                        probedVideo = decision?.probe?.playbackRequest?.video,
+                        protectedContent = item.drmConfiguration != null,
+                    )
+                } else {
+                    forcedPlan ?: decision?.plan
+                }
+            checkNotNull(playbackPlan) { "Media item has no executable YCore enhanced plan" }
+            checkEnhancedPlaybackPlan(playbackPlan, decision)
+            return playbackPlan
+        }
+
+        private suspend fun prepareCurrent(positionUs: Long) {
             rebufferTracker.discontinuity(System.nanoTime() / 1_000_000L)
             externalSubtitleSession.close()
             adaptiveFeedbackGeneration++
@@ -498,17 +523,7 @@ internal class AndroidNativeEnhancedYPlayer(
                         }
                 budget.ensureActive()
                 currentCoroutineContext().ensureActive()
-                val playbackPlan =
-                    if (forceSoftwareDecode) {
-                        requiredYCoreSoftwarePlan(
-                            probedVideo = decision?.probe?.playbackRequest?.video,
-                            protectedContent = item.drmConfiguration != null,
-                        )
-                    } else {
-                        forcedPlan ?: decision?.plan
-                    }
-                checkNotNull(playbackPlan) { "Media item has no executable YCore enhanced plan" }
-                checkEnhancedPlaybackPlan(playbackPlan, decision)
+                val playbackPlan = resolvePlaybackPlan(item, decision)
                 val preparedDemux = routeEvaluator.takePreparedEnhancedDemux(item)
                 if (preparedDemux != null) {
                     session.close()
@@ -651,11 +666,11 @@ internal class AndroidNativeEnhancedYPlayer(
             }
         }
 
-        var lastAudioDiagnosticNs = 0L
-        var lastAudioRendering = false
-        var lastSubtitleDiagnosticNs = 0L
+        private var lastAudioDiagnosticNs = 0L
+        private var lastAudioRendering = false
+        private var lastSubtitleDiagnosticNs = 0L
 
-        fun publishSnapshot(force: Boolean = false) {
+        private fun publishSnapshot(force: Boolean = false) {
             if (!prepared || released) return
             val now = System.nanoTime()
             if (!force && now - lastPublishNs < STATE_PUBLISH_INTERVAL_NS) return
@@ -839,7 +854,7 @@ internal class AndroidNativeEnhancedYPlayer(
             }
         }
 
-        fun finishRebuffer() {
+        private fun finishRebuffer() {
             val stats = rebufferTracker.stop(releasedAtMs ?: System.nanoTime() / 1_000_000L)
             mutableState.updateState {
                 it.copy(
@@ -853,7 +868,7 @@ internal class AndroidNativeEnhancedYPlayer(
             }
         }
 
-        fun publishFailure(caught: Throwable) {
+        private fun publishFailure(caught: Throwable) {
             if (caught is CancellationException) throw caught
             val failure = proxy?.sourceFailure(request.items[currentIndex].uri) ?: caught
             if (failure is CancellationException) throw failure
@@ -934,191 +949,197 @@ internal class AndroidNativeEnhancedYPlayer(
             proxy = null
         }
 
-        try {
-            while (scope.isActive) {
-                val pendingCommands = mutableListOf<Command>()
-                while (true) {
-                    val command = commands.tryReceive().getOrNull() ?: break
-                    pendingCommands += command
-                }
-                val handled = pendingCommands.isNotEmpty()
-                for (command in coalesceNativeEnhancedCommands(pendingCommands)) {
-                    try {
-                        when (command) {
-                            Command.Prepare ->
-                                prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
-                            Command.Play -> {
-                                requestedPlay = true
-                                if (!prepared) {
+        suspend fun run() {
+            try {
+                while (scope.isActive) {
+                    val pendingCommands = mutableListOf<Command>()
+                    while (true) {
+                        val command = commands.tryReceive().getOrNull() ?: break
+                        pendingCommands += command
+                    }
+                    val handled = pendingCommands.isNotEmpty()
+                    for (command in coalesceNativeEnhancedCommands(pendingCommands)) {
+                        try {
+                            when (command) {
+                                Command.Prepare ->
                                     prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
-                                } else {
-                                    session.play()
+                                Command.Play -> {
+                                    requestedPlay = true
+                                    if (!prepared) {
+                                        prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
+                                    } else {
+                                        session.play()
+                                    }
                                 }
-                            }
-                            Command.Pause -> {
-                                requestedPlay = false
-                                if (prepared) session.pause()
-                            }
-                            is Command.Seek -> {
-                                rebufferTracker.discontinuity(System.nanoTime() / 1_000_000L)
-                                if (prepared) {
-                                    adaptiveFeedbackGeneration++
-                                    proxy?.updatePlaybackFeedback(
-                                        YAdaptivePlaybackFeedback(
-                                            bufferedDurationUs = 0L,
-                                            playing = false,
-                                            speed = speed,
-                                            generation = adaptiveFeedbackGeneration,
-                                        ),
-                                    )
-                                    session.seekTo(command.positionUs)
+                                Command.Pause -> {
+                                    requestedPlay = false
+                                    if (prepared) session.pause()
                                 }
-                            }
-                            is Command.SetSpeed -> {
-                                speed = command.speed
-                                if (prepared) session.setSpeed(speed)
-                            }
-                            is Command.SetAudioDelay -> {
-                                audioDelayMs = command.delayMs
-                                session.setAudioDelayMs(audioDelayMs)
-                            }
-                            is Command.SetAudioEffect -> session.setAudioEffect(command.effect)
-                            is Command.ExternalSubtitleReady -> {
-                                if (externalSubtitleSession.accept(command.result)) {
-                                    externalSubtitles = externalSubtitleSession.tracks
+                                is Command.Seek -> {
+                                    rebufferTracker.discontinuity(System.nanoTime() / 1_000_000L)
+                                    if (prepared) {
+                                        adaptiveFeedbackGeneration++
+                                        proxy?.updatePlaybackFeedback(
+                                            YAdaptivePlaybackFeedback(
+                                                bufferedDurationUs = 0L,
+                                                playing = false,
+                                                speed = speed,
+                                                generation = adaptiveFeedbackGeneration,
+                                            ),
+                                        )
+                                        session.seekTo(command.positionUs)
+                                    }
                                 }
-                            }
-                            is Command.SetVideoOutput -> {
-                                val previous = surfaceOutput
-                                surfaceOutput = command.output
-                                val next = command.output?.surface?.takeIf { it.isValid }
-                                if (next == null) {
-                                    val position =
-                                        if (prepared) {
-                                            session.snapshot().positionUs
-                                        } else {
-                                            mutableState.value.positionMs * MICROS_PER_MILLISECOND
+                                is Command.SetSpeed -> {
+                                    speed = command.speed
+                                    if (prepared) session.setSpeed(speed)
+                                }
+                                is Command.SetAudioDelay -> {
+                                    audioDelayMs = command.delayMs
+                                    session.setAudioDelayMs(audioDelayMs)
+                                }
+                                is Command.SetAudioEffect -> session.setAudioEffect(command.effect)
+                                is Command.ExternalSubtitleReady -> {
+                                    if (externalSubtitleSession.accept(command.result)) {
+                                        externalSubtitles = externalSubtitleSession.tracks
+                                    }
+                                }
+                                is Command.SetVideoOutput -> {
+                                    val previous = surfaceOutput
+                                    surfaceOutput = command.output
+                                    val next = command.output?.surface?.takeIf { it.isValid }
+                                    if (next == null) {
+                                        val position =
+                                            if (prepared) {
+                                                session.snapshot().positionUs
+                                            } else {
+                                                mutableState.value.positionMs * MICROS_PER_MILLISECOND
+                                            }
+                                        session.close()
+                                        prepared = false
+                                        mutableState.updateState {
+                                            it.copy(
+                                                playing = false,
+                                                buffering = requestedPlay,
+                                                positionMs = position / MICROS_PER_MILLISECOND,
+                                                diagnostics = it.diagnostics.copy(videoOutput = "等待 Surface"),
+                                            )
                                         }
+                                    } else if (prepared && previous?.surface?.isValid == true) {
+                                        runCatching { session.setOutputSurface(next) }
+                                            .onFailure {
+                                                val position = session.snapshot().positionUs
+                                                session.close()
+                                                prepared = false
+                                                prepareCurrent(position)
+                                            }
+                                    } else if (!prepared) {
+                                        prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
+                                    }
+                                }
+                                is Command.SelectAudioTrack -> {
+                                    if (prepared) {
+                                        val changed =
+                                            session.selectAudioTrack(
+                                                YTrackId(command.trackId),
+                                                capabilityProvider.current(),
+                                            )
+                                        if (!changed) continue
+                                        val selectedTrackId = "$AUDIO_TRACK_PREFIX${command.trackId}"
+                                        mutableState.updateState { state ->
+                                            state.copy(
+                                                audioTracks =
+                                                    state.audioTracks.map { track ->
+                                                        track.copy(selected = track.id == selectedTrackId)
+                                                    },
+                                                error = null,
+                                                errorCategory = null,
+                                            )
+                                        }
+                                    }
+                                }
+                                is Command.SelectSubtitleTrack -> {
+                                    externalSubtitleSession.retry(command.externalTrackId)
+                                    if (prepared) {
+                                        val selectedId =
+                                            command.externalTrackId
+                                                ?: command.trackId?.let { "$SUBTITLE_TRACK_PREFIX$it" }
+                                        val candidate =
+                                            mutableState.value.subtitleTracks.firstOrNull {
+                                                it.id == selectedId
+                                            }
+                                        if (selectedId != null && candidate == null) continue
+                                        if (command.secondary && candidate?.selected == true) continue
+                                        // Repeated UI restore events must not clear the active channel.
+                                        if (command.secondary && selectedId == secondaryTrackId) continue
+                                        if (!command.secondary && candidate?.selected == true) continue
+                                        session.selectSubtitleTrack(command.trackId?.let(::YTrackId), command.secondary)
+                                        if (command.secondary) {
+                                            secondaryExternalSubtitleId = command.externalTrackId
+                                            secondaryTrackId = selectedId
+                                        } else {
+                                            selectedExternalSubtitleId = command.externalTrackId
+                                            if (selectedId != null && selectedId == secondaryTrackId) {
+                                                session.selectSubtitleTrack(null, secondary = true)
+                                                secondaryExternalSubtitleId = null
+                                                secondaryTrackId = null
+                                            }
+                                        }
+                                        mutableState.updateState { state ->
+                                            state.copy(
+                                                subtitleTracks =
+                                                    if (command.secondary) {
+                                                        state.subtitleTracks
+                                                    } else {
+                                                        state.subtitleTracks.map { track ->
+                                                            track.copy(selected = track.id == selectedId)
+                                                        }
+                                                    },
+                                                secondarySubtitleTrackId = secondaryTrackId,
+                                                error = null,
+                                                errorCategory = null,
+                                            )
+                                        }
+                                    }
+                                }
+                                is Command.SelectItem -> {
+                                    currentIndex = command.index
                                     session.close()
                                     prepared = false
-                                    mutableState.updateState {
-                                        it.copy(
-                                            playing = false,
-                                            buffering = requestedPlay,
-                                            positionMs = position / MICROS_PER_MILLISECOND,
-                                            diagnostics = it.diagnostics.copy(videoOutput = "等待 Surface"),
-                                        )
-                                    }
-                                } else if (prepared && previous?.surface?.isValid == true) {
-                                    runCatching { session.setOutputSurface(next) }
-                                        .onFailure {
-                                            val position = session.snapshot().positionUs
-                                            session.close()
-                                            prepared = false
-                                            prepareCurrent(position)
-                                        }
-                                } else if (!prepared) {
-                                    prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
+                                    prepareCurrent(0L)
                                 }
                             }
-                            is Command.SelectAudioTrack -> {
-                                if (prepared) {
-                                    val changed =
-                                        session.selectAudioTrack(
-                                            YTrackId(command.trackId),
-                                            capabilityProvider.current(),
-                                        )
-                                    if (!changed) continue
-                                    val selectedTrackId = "$AUDIO_TRACK_PREFIX${command.trackId}"
-                                    mutableState.updateState { state ->
-                                        state.copy(
-                                            audioTracks =
-                                                state.audioTracks.map { track ->
-                                                    track.copy(selected = track.id == selectedTrackId)
-                                                },
-                                            error = null,
-                                            errorCategory = null,
-                                        )
-                                    }
-                                }
-                            }
-                            is Command.SelectSubtitleTrack -> {
-                                externalSubtitleSession.retry(command.externalTrackId)
-                                if (prepared) {
-                                    val selectedId =
-                                        command.externalTrackId
-                                            ?: command.trackId?.let { "$SUBTITLE_TRACK_PREFIX$it" }
-                                    val candidate =
-                                        mutableState.value.subtitleTracks.firstOrNull {
-                                            it.id == selectedId
-                                        }
-                                    if (selectedId != null && candidate == null) continue
-                                    if (command.secondary && candidate?.selected == true) continue
-                                    // Repeated UI restore events must not clear the active channel.
-                                    if (command.secondary && selectedId == secondaryTrackId) continue
-                                    if (!command.secondary && candidate?.selected == true) continue
-                                    session.selectSubtitleTrack(command.trackId?.let(::YTrackId), command.secondary)
-                                    if (command.secondary) {
-                                        secondaryExternalSubtitleId = command.externalTrackId
-                                        secondaryTrackId = selectedId
-                                    } else {
-                                        selectedExternalSubtitleId = command.externalTrackId
-                                        if (selectedId != null && selectedId == secondaryTrackId) {
-                                            session.selectSubtitleTrack(null, secondary = true)
-                                            secondaryExternalSubtitleId = null
-                                            secondaryTrackId = null
-                                        }
-                                    }
-                                    mutableState.updateState { state ->
-                                        state.copy(
-                                            subtitleTracks =
-                                                if (command.secondary) {
-                                                    state.subtitleTracks
-                                                } else {
-                                                    state.subtitleTracks.map { track ->
-                                                        track.copy(selected = track.id == selectedId)
-                                                    }
-                                                },
-                                            secondarySubtitleTrackId = secondaryTrackId,
-                                            error = null,
-                                            errorCategory = null,
-                                        )
-                                    }
-                                }
-                            }
-                            is Command.SelectItem -> {
-                                currentIndex = command.index
-                                session.close()
-                                prepared = false
-                                prepareCurrent(0L)
-                            }
+                            publishSnapshot(force = true)
+                        } catch (failure: Throwable) {
+                            publishFailure(failure)
+                            break
                         }
-                        publishSnapshot(force = true)
-                    } catch (failure: Throwable) {
-                        publishFailure(failure)
-                        break
+                    }
+
+                    val didWork =
+                        playbackWorkerStep(::publishFailure) {
+                            val worked = if (prepared) session.pump() else false
+                            publishSnapshot()
+                            worked
+                        } ?: false
+                    if (!handled && !didWork) {
+                        // A queued command ends the wait at once; a paused session has no pump work
+                        // and can sleep longer without delaying command handling.
+                        val idleDelayMs =
+                            playbackPumpIdleDelayMs(
+                                playing = requestedPlay,
+                                buffering = mutableState.value.buffering,
+                                previewPending = session.previewPending,
+                            )
+                        withTimeoutOrNull(idleDelayMs) { wakeSignal.receiveCatching() }
                     }
                 }
-
-                val didWork =
-                    playbackWorkerStep(::publishFailure) {
-                        val worked = if (prepared) session.pump() else false
-                        publishSnapshot()
-                        worked
-                    } ?: false
-                if (!handled && !didWork) {
-                    // A queued command ends the wait at once; a paused session has no pump work
-                    // and can sleep longer without delaying command handling.
-                    val idleDelayMs =
-                        playbackPumpIdleDelayMs(
-                            playing = requestedPlay,
-                            buffering = mutableState.value.buffering,
-                            previewPending = session.previewPending,
-                        )
-                    withTimeoutOrNull(idleDelayMs) { wakeSignal.receiveCatching() }
-                }
+            } finally {
+                close()
             }
-        } finally {
+        }
+
+        private fun close() {
             val failures =
                 listOf(
                     runCatching { finishRebuffer() },

@@ -1163,6 +1163,213 @@ internal class AndroidAdaptiveCore2YPlayer(
             )
         }
 
+        private fun createForcedEnhancedChild(
+            item: YMediaItem,
+            singleRequest: YPlayerOpenRequest,
+        ): YPlayer? {
+            // The failed platform route already spent its probe budget. A forced recovery
+            // opens the enhanced demuxer directly; probing the platform again here and in
+            // the child used 16 of its 20 seconds before FFmpeg could even open the source.
+            val decision = lastRouteDecision?.takeIf { it.first == item }?.second
+            decision?.let {
+                pendingInputHdrType = it.probe.playbackRequest.video.hdrType
+                pendingChapters = it.probe.chapters
+            }
+            videoHandoff.close()
+            routeEvaluator.closePreparedExtractor()
+            return createInternalEnhancedRoute(item, singleRequest, decision)
+                ?: createInternalSoftwareRoute(item, singleRequest, decision)
+        }
+
+        private fun createPlannedChild(
+            item: YMediaItem,
+            singleRequest: YPlayerOpenRequest,
+            decision: YCore2RouteDecision,
+            tunnelAllowed: Boolean,
+        ): YPlayer? {
+            val plan = decision.plan
+            return when {
+                !forceSoftwareFallback && tunnelAllowed && decision.nativeTunnelExecutable ->
+                    AndroidNativeTunnelYPlayer(
+                        context = context,
+                        request = singleRequest,
+                        routeEvaluator = routeEvaluator,
+                        initialDecision = decision,
+                        allowAudioPassthrough = allowAudioPassthrough,
+                        frameRateSwitchMode = frameRateSwitchMode,
+                    )
+                !forceSoftwareFallback &&
+                    decision.nativeDirectExecutable &&
+                    !decision.plan.usesHdrFallback ->
+                    AndroidNativeDirectYPlayer(
+                        context = context,
+                        request = singleRequest,
+                        decoderName = decision.plan.decoderName,
+                        runtimeCapabilityKey = decision.runtimeCapabilityKey(),
+                        plannedAudioOutputPath = decision.plan.audioPath,
+                        preparedExtractor = routeEvaluator::takePreparedExtractor,
+                        videoHandoff =
+                            videoHandoff.takeIf {
+                                item.drmConfiguration == null &&
+                                    decision.probe.playbackRequest.video.hdrType == YHdrType.Sdr &&
+                                    decision.plan.audioPath == YAudioOutputPath.DecodePcm
+                            },
+                        preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
+                        frameRateSwitchMode = frameRateSwitchMode,
+                        plannedDolbyVisionConfig = decision.probe.dolbyVisionConfig,
+                        confirmedDolbyVisionNalIdentity =
+                            decision.probe.unconfiguredDolbyVisionSignal,
+                        requireDolbyVisionIdentity =
+                            decision.probe.playbackRequest.video.hdrType == YHdrType.DolbyVision,
+                    )
+                !forceSoftwareFallback && decision.nativeEnhancedExecutable ->
+                    AndroidNativeEnhancedYPlayer(
+                        context = context,
+                        request = singleRequest,
+                        routeEvaluator = routeEvaluator,
+                        initialDecision = decision,
+                        initialProbeBudget = activeProbeBudget,
+                        allowAudioPassthrough = allowAudioPassthrough,
+                        frameRateSwitchMode = frameRateSwitchMode,
+                        preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
+                    )
+                // The enhanced session is built around a video track and a valid Surface.
+                plan.route == YPlaybackRoute.SoftwareFallback &&
+                    !decision.audioOnly &&
+                    plan.demuxPath == YDemuxPath.Enhanced &&
+                    item.drmConfiguration == null &&
+                    yCoreSoftwarePlanExecutable(plan) ->
+                    AndroidNativeEnhancedYPlayer(
+                        context = context,
+                        request = singleRequest,
+                        routeEvaluator = routeEvaluator,
+                        initialDecision = decision,
+                        initialProbeBudget = activeProbeBudget,
+                        allowAudioPassthrough = false,
+                        frameRateSwitchMode = frameRateSwitchMode,
+                        forcedPlan = plan,
+                        // Only hardware video decode reaches here with Dolby Vision (see the
+                        // guard); the demux must then still prove the Dolby configuration.
+                        requireDolbyVisionIdentity = plan.inputHdrType == YHdrType.DolbyVision,
+                        preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
+                    )
+                plan.route == YPlaybackRoute.GpuEnhanced -> {
+                    val routeGpuProbe =
+                        AndroidYCoreGpuRuntime.probe(
+                            context,
+                            yCoreGpuEvidenceKey(decision.probe.playbackRequest, plan),
+                        )
+                    if (
+                        routeGpuProbe.canAttemptNativeVulkan &&
+                        decision.probe.playbackRequest.enhancedDemuxSupported &&
+                        item.drmConfiguration == null
+                    ) {
+                        val nativeGpuPlan =
+                            plan.copy(
+                                demuxPath = YDemuxPath.Enhanced,
+                                reason =
+                                    buildString {
+                                        append(plan.reason)
+                                        if (plan.demuxPath != YDemuxPath.Enhanced) {
+                                            append("; Vulkan frame ownership requires YCore enhanced demux")
+                                        }
+                                        append(
+                                            if (routeGpuProbe.canClaimNativeVulkan) {
+                                                "; native Vulkan output passed the persisted measurement gate"
+                                            } else {
+                                                "; native Vulkan measurement trial (libplacebo remains recovery)"
+                                            },
+                                        )
+                                    },
+                            )
+                        AndroidNativeEnhancedYPlayer(
+                            context = context,
+                            request = singleRequest,
+                            routeEvaluator = routeEvaluator,
+                            initialDecision = decision,
+                            initialProbeBudget = activeProbeBudget,
+                            allowAudioPassthrough = false,
+                            frameRateSwitchMode = frameRateSwitchMode,
+                            forcedPlan = nativeGpuPlan,
+                            preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
+                        )
+                    } else {
+                        fallbackRouteFactory?.create(
+                            item,
+                            singleRequest,
+                            plan.withNativeGpuFallbackTruth(routeGpuProbe),
+                            speed,
+                        ) ?: createInconclusiveSourceRoute(item, singleRequest, decision)
+                    }
+                }
+                plan.route == YPlaybackRoute.SoftwareFallback ->
+                    fallbackRouteFactory?.create(item, singleRequest, plan, speed)
+                        ?: createInternalSoftwareRoute(item, singleRequest, decision)
+                        ?: createInconclusiveSourceRoute(item, singleRequest, decision)
+                else -> createInconclusiveSourceRoute(item, singleRequest, decision)
+            }
+        }
+
+        private fun adoptPreloadedRoute(
+            item: YMediaItem,
+            positionMs: Long,
+            target: YAdaptivePlaybackTarget?,
+            tunnelAllowed: Boolean,
+            forcePowerSaver: Boolean,
+        ): PreloadedNextRoute? {
+            val warmedRoute =
+                preloadedNextRoute?.takeIf { warmed ->
+                    target == null &&
+                        positionMs == 0L &&
+                        warmed.matches(
+                            index = currentIndex,
+                            item = item,
+                            preferTunnel = tunnelAllowed,
+                            allowAudioPassthrough = allowAudioPassthrough,
+                            forcePowerSaver = forcePowerSaver,
+                        )
+                }
+            if (warmedRoute == null) videoHandoff.close()
+            if (warmedRoute != null) {
+                preloadedNextRoute = null
+                val adopted = routeEvaluator.adoptPreparedSources(item, warmedRoute.sources)
+                AppLog.info(
+                    category = "player.core2",
+                    event = "next_item_source_adopted",
+                    message = "Next-item prepared source ownership resolved",
+                    attributes = mapOf("adopted" to adopted.toString(), "itemIndex" to currentIndex.toString()),
+                )
+                AppLog.info(
+                    category = "player.core2",
+                    event = "next_item_preload_reused",
+                    message = "YCore reused the preheated route and decoder capability",
+                    attributes = mapOf("itemIndex" to currentIndex.toString()),
+                )
+            }
+            return warmedRoute
+        }
+
+        private fun recordPlannedChild(
+            item: YMediaItem,
+            target: YAdaptivePlaybackTarget?,
+            decision: YCore2RouteDecision,
+        ) {
+            if (!decision.nativeDirectExecutable) routeEvaluator.closePreparedExtractor()
+            if (!decision.nativeDirectExecutable ||
+                decision.probe.playbackRequest.video.hdrType != YHdrType.Sdr ||
+                decision.plan.audioPath != YAudioOutputPath.DecodePcm
+            ) {
+                videoHandoff.close()
+            }
+            logSelectedRoute(item, decision)
+            pendingFailureKey = decision.toFailureKey()
+            pendingAudioOnly = decision.audioOnly
+            pendingChapters = decision.probe.chapters
+            // Manifest target revisions may carry a different init under the same user cache identity.
+            // Each revision is probed afresh and must never poison the root item's learned probe.
+            pendingVerifiedRoute = if (target == null) item to decision.probe else null
+        }
+
         suspend fun createChild(
             positionMs: Long,
             budget: AndroidProbeBudget,
@@ -1221,49 +1428,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                 )
             }
             if (forceEnhancedFallback) {
-                // The failed platform route already spent its probe budget. A forced recovery
-                // opens the enhanced demuxer directly; probing the platform again here and in
-                // the child used 16 of its 20 seconds before FFmpeg could even open the source.
-                val decision = lastRouteDecision?.takeIf { it.first == item }?.second
-                decision?.let {
-                    pendingInputHdrType = it.probe.playbackRequest.video.hdrType
-                    pendingChapters = it.probe.chapters
-                }
-                videoHandoff.close()
-                routeEvaluator.closePreparedExtractor()
-                return createInternalEnhancedRoute(item, singleRequest, decision)
-                    ?: createInternalSoftwareRoute(item, singleRequest, decision)
+                return createForcedEnhancedChild(item, singleRequest)
             }
 
-            val warmedRoute =
-                preloadedNextRoute?.takeIf { warmed ->
-                    target == null &&
-                        positionMs == 0L &&
-                        warmed.matches(
-                            index = currentIndex,
-                            item = item,
-                            preferTunnel = tunnelAllowed,
-                            allowAudioPassthrough = allowAudioPassthrough,
-                            forcePowerSaver = forcePowerSaver,
-                        )
-                }
-            if (warmedRoute == null) videoHandoff.close()
-            if (warmedRoute != null) {
-                preloadedNextRoute = null
-                val adopted = routeEvaluator.adoptPreparedSources(item, warmedRoute.sources)
-                AppLog.info(
-                    category = "player.core2",
-                    event = "next_item_source_adopted",
-                    message = "Next-item prepared source ownership resolved",
-                    attributes = mapOf("adopted" to adopted.toString(), "itemIndex" to currentIndex.toString()),
-                )
-                AppLog.info(
-                    category = "player.core2",
-                    event = "next_item_preload_reused",
-                    message = "YCore reused the preheated route and decoder capability",
-                    attributes = mapOf("itemIndex" to currentIndex.toString()),
-                )
-            }
+            val warmedRoute = adoptPreloadedRoute(item, positionMs, target, tunnelAllowed, forcePowerSaver)
             // A route this device already rendered for exactly this media skips the probes and
             // starts at planning; the device-side gates below still run on it.
             val adoptedCurrentItem =
@@ -1389,141 +1557,8 @@ internal class AndroidAdaptiveCore2YPlayer(
                     )
             }
             if (!bypassLearnedRouteMemory && failureLedger.isBlocked(decision.toFailureKey())) return null
-            val plan = decision.plan
-            if (!decision.nativeDirectExecutable) routeEvaluator.closePreparedExtractor()
-            if (!decision.nativeDirectExecutable ||
-                decision.probe.playbackRequest.video.hdrType != YHdrType.Sdr ||
-                decision.plan.audioPath != YAudioOutputPath.DecodePcm
-            ) {
-                videoHandoff.close()
-            }
-            logSelectedRoute(item, decision)
-            pendingFailureKey = decision.toFailureKey()
-            pendingAudioOnly = decision.audioOnly
-            pendingChapters = decision.probe.chapters
-            // Manifest target revisions may carry a different init under the same user cache identity.
-            // Each revision is probed afresh and must never poison the root item's learned probe.
-            pendingVerifiedRoute = if (target == null) item to decision.probe else null
-            return when {
-                !forceSoftwareFallback && tunnelAllowed && decision.nativeTunnelExecutable ->
-                    AndroidNativeTunnelYPlayer(
-                        context = context,
-                        request = singleRequest,
-                        routeEvaluator = routeEvaluator,
-                        initialDecision = decision,
-                        allowAudioPassthrough = allowAudioPassthrough,
-                        frameRateSwitchMode = frameRateSwitchMode,
-                    )
-                !forceSoftwareFallback &&
-                    decision.nativeDirectExecutable &&
-                    !decision.plan.usesHdrFallback ->
-                    AndroidNativeDirectYPlayer(
-                        context = context,
-                        request = singleRequest,
-                        decoderName = decision.plan.decoderName,
-                        runtimeCapabilityKey = decision.runtimeCapabilityKey(),
-                        plannedAudioOutputPath = decision.plan.audioPath,
-                        preparedExtractor = routeEvaluator::takePreparedExtractor,
-                        videoHandoff =
-                            videoHandoff.takeIf {
-                                item.drmConfiguration == null &&
-                                    decision.probe.playbackRequest.video.hdrType == YHdrType.Sdr &&
-                                    decision.plan.audioPath == YAudioOutputPath.DecodePcm
-                            },
-                        preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
-                        frameRateSwitchMode = frameRateSwitchMode,
-                        plannedDolbyVisionConfig = decision.probe.dolbyVisionConfig,
-                        confirmedDolbyVisionNalIdentity =
-                            decision.probe.unconfiguredDolbyVisionSignal,
-                        requireDolbyVisionIdentity =
-                            decision.probe.playbackRequest.video.hdrType == YHdrType.DolbyVision,
-                    )
-                !forceSoftwareFallback && decision.nativeEnhancedExecutable ->
-                    AndroidNativeEnhancedYPlayer(
-                        context = context,
-                        request = singleRequest,
-                        routeEvaluator = routeEvaluator,
-                        initialDecision = decision,
-                        initialProbeBudget = activeProbeBudget,
-                        allowAudioPassthrough = allowAudioPassthrough,
-                        frameRateSwitchMode = frameRateSwitchMode,
-                        preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
-                    )
-                // The enhanced session is built around a video track and a valid Surface.
-                plan.route == YPlaybackRoute.SoftwareFallback &&
-                    !decision.audioOnly &&
-                    plan.demuxPath == YDemuxPath.Enhanced &&
-                    item.drmConfiguration == null &&
-                    yCoreSoftwarePlanExecutable(plan) ->
-                    AndroidNativeEnhancedYPlayer(
-                        context = context,
-                        request = singleRequest,
-                        routeEvaluator = routeEvaluator,
-                        initialDecision = decision,
-                        initialProbeBudget = activeProbeBudget,
-                        allowAudioPassthrough = false,
-                        frameRateSwitchMode = frameRateSwitchMode,
-                        forcedPlan = plan,
-                        // Only hardware video decode reaches here with Dolby Vision (see the
-                        // guard); the demux must then still prove the Dolby configuration.
-                        requireDolbyVisionIdentity = plan.inputHdrType == YHdrType.DolbyVision,
-                        preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
-                    )
-                plan.route == YPlaybackRoute.GpuEnhanced -> {
-                    val routeGpuProbe =
-                        AndroidYCoreGpuRuntime.probe(
-                            context,
-                            yCoreGpuEvidenceKey(decision.probe.playbackRequest, plan),
-                        )
-                    if (
-                        routeGpuProbe.canAttemptNativeVulkan &&
-                        decision.probe.playbackRequest.enhancedDemuxSupported &&
-                        item.drmConfiguration == null
-                    ) {
-                        val nativeGpuPlan =
-                            plan.copy(
-                                demuxPath = YDemuxPath.Enhanced,
-                                reason =
-                                    buildString {
-                                        append(plan.reason)
-                                        if (plan.demuxPath != YDemuxPath.Enhanced) {
-                                            append("; Vulkan frame ownership requires YCore enhanced demux")
-                                        }
-                                        append(
-                                            if (routeGpuProbe.canClaimNativeVulkan) {
-                                                "; native Vulkan output passed the persisted measurement gate"
-                                            } else {
-                                                "; native Vulkan measurement trial (libplacebo remains recovery)"
-                                            },
-                                        )
-                                    },
-                            )
-                        AndroidNativeEnhancedYPlayer(
-                            context = context,
-                            request = singleRequest,
-                            routeEvaluator = routeEvaluator,
-                            initialDecision = decision,
-                            initialProbeBudget = activeProbeBudget,
-                            allowAudioPassthrough = false,
-                            frameRateSwitchMode = frameRateSwitchMode,
-                            forcedPlan = nativeGpuPlan,
-                            preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
-                        )
-                    } else {
-                        fallbackRouteFactory?.create(
-                            item,
-                            singleRequest,
-                            plan.withNativeGpuFallbackTruth(routeGpuProbe),
-                            speed,
-                        ) ?: createInconclusiveSourceRoute(item, singleRequest, decision)
-                    }
-                }
-                plan.route == YPlaybackRoute.SoftwareFallback ->
-                    fallbackRouteFactory?.create(item, singleRequest, plan, speed)
-                        ?: createInternalSoftwareRoute(item, singleRequest, decision)
-                        ?: createInconclusiveSourceRoute(item, singleRequest, decision)
-                else -> createInconclusiveSourceRoute(item, singleRequest, decision)
-            }
+            recordPlannedChild(item, target, decision)
+            return createPlannedChild(item, singleRequest, decision, tunnelAllowed)
         }
 
         suspend fun attachChild(next: YPlayer) {

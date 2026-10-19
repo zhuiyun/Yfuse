@@ -11,6 +11,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -55,6 +56,19 @@ internal class SharedMediaTransitionController {
         private set
 
     private val artworkShapes = LinkedHashMap<MediaSharedElementKey, Shape>()
+    private val artworkUrls = mutableStateMapOf<MediaSharedElementKey, List<String>>()
+
+    fun registerArtworkUrls(
+        key: MediaSharedElementKey,
+        urls: List<String?>,
+    ) {
+        val candidates = urls.filterNotNull().filter(String::isNotBlank).distinct()
+        if (candidates.isEmpty()) return
+        artworkUrls[key] = candidates
+        if (artworkUrls.size > 512) artworkUrls.remove(artworkUrls.keys.first { it != key })
+    }
+
+    fun artworkUrls(key: MediaSharedElementKey): List<String> = artworkUrls[key].orEmpty()
 
     fun registerArtworkShape(
         key: MediaSharedElementKey,
@@ -195,10 +209,14 @@ internal fun sharedMediaOnClick(
 internal fun Modifier.sharedMediaArtwork(
     key: MediaSharedElementKey?,
     sourceShape: Shape? = null,
+    sourceUrls: List<String?> = emptyList(),
 ): Modifier {
     val controller = LocalSharedMediaTransitionController.current
     if (key != null && sourceShape != null) {
-        SideEffect { controller?.registerArtworkShape(key, sourceShape) }
+        SideEffect {
+            controller?.registerArtworkShape(key, sourceShape)
+            controller?.registerArtworkUrls(key, sourceUrls)
+        }
     }
     val base = zoomBackSource(key)
     if (!isSharedMediaArtworkActive(key)) return base

@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -12,8 +13,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.CinemaArrivingItem
+import com.yfuse.core.designsystem.CinemaConnection
+import com.yfuse.core.designsystem.CinemaConnectionMark
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.cinemaMotion
 import com.yfuse.core.designsystem.liveStatus
 import kotlinx.coroutines.delay
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -24,6 +29,7 @@ internal fun CastPanel(
     castDevices: List<Pair<String, String>>,
     castingDeviceId: String?,
     castDiscovering: Boolean,
+    castConnection: CinemaConnection,
     castError: String?,
     castStatus: String?,
     castPosition: String?,
@@ -59,6 +65,13 @@ internal fun CastPanel(
         if (castDiscovering) scanStarting = false
     }
     GroupLabel("局域网投屏设备")
+    if (cinemaMotion()) {
+        CinemaConnectionMark(
+            state = castConnection,
+            color = if (castConnection == CinemaConnection.Failed) DarkPalette.error else Color.White,
+            television = true,
+        )
+    }
     castStatus?.let { DiagnosticRow("状态", it) }
     remotePosition?.let { DiagnosticRow("远端进度", it) }
     castCapabilities?.let { DiagnosticRow("远端能力", it) }
@@ -79,8 +92,16 @@ internal fun CastPanel(
             modifier = Modifier.padding(vertical = Dimens.space.sm).liveStatus(),
         )
     }
-    castDevices.forEach { (id, name) ->
-        OptionRow(name, id == castingDeviceId, onClick = { onCastTo(id) })
+    castDevices.forEachIndexed { index, (id, name) ->
+        key(id) {
+            CinemaArrivingItem(index) {
+                OptionRow(
+                    name,
+                    id == castingDeviceId && castConnection == CinemaConnection.Connected,
+                    onClick = { onCastTo(id) },
+                )
+            }
+        }
     }
     if (castingDeviceId != null) {
         OptionRow("停止投屏", false, onClick = onStopCast)

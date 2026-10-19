@@ -65,6 +65,7 @@ class TvSettingsSearchTest {
         assertEquals(listOf(TvSettingsPage.Appearance), searchTvSettings("动效"))
         assertEquals(listOf(TvSettingsPage.Appearance), searchTvSettings("动效主题"))
         assertEquals(listOf(TvSettingsPage.Appearance), searchTvSettings("静息"))
+        assertEquals(listOf(TvSettingsPage.Appearance), searchTvSettings("影院"))
         assertTrue(TvSettingsPage.Appearance in searchTvSettings("动画"))
     }
 

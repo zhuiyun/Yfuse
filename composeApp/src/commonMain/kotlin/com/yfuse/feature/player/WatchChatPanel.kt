@@ -5,7 +5,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,8 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -45,6 +44,7 @@ import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.WatchAvatar
+import com.yfuse.core.designsystem.cinemaReadyRing
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayDismiss
@@ -55,6 +55,7 @@ import com.yfuse.core.sync.ChatDeliveryState
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.WatchParticipant
 import com.yfuse.core.sync.WatchStickers
+import com.yfuse.core.sync.cinemaReady
 import com.yfuse.core.sync.oneLineText
 import com.yfuse.core.sync.sticker
 import com.yfuse.core.util.graphemeCount
@@ -204,19 +205,22 @@ internal fun WatchChatPanel(
         }
 
         if (participants.isNotEmpty()) {
-            Row(
+            LazyRow(
                 Modifier
                     .fillMaxWidth()
-                    .padding(top = 12.dp)
-                    .horizontalScroll(rememberScrollState()),
+                    .padding(top = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
             ) {
-                participants.forEach { participant ->
+                motionItems(participants, key = { it.clientId }) { participant ->
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
-                        WatchAvatar(participant.avatarId, 30.dp)
+                        WatchAvatar(
+                            participant.avatarId,
+                            30.dp,
+                            modifier = Modifier.cinemaReadyRing(participant.cinemaReady(), accent.accent),
+                        )
                         Text(
                             when {
                                 participant.isSelf -> "我"

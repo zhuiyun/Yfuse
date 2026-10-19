@@ -31,6 +31,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.CinemaSelectionCheck
+import com.yfuse.core.designsystem.CinemaSelectionGroup
 import com.yfuse.core.designsystem.EpisodeGridColors
 import com.yfuse.core.designsystem.EpisodeNumberCell
 import com.yfuse.core.designsystem.EpisodeNumberGrid
@@ -38,6 +40,8 @@ import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.PlayerTokens
+import com.yfuse.core.designsystem.cinemaMotion
+import com.yfuse.core.designsystem.cinemaSelectionTarget
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
@@ -187,21 +191,27 @@ internal fun EpisodeStrip(
                         .padding(horizontal = 22.dp),
             )
         } else {
-            LazyRow(
-                state = listState,
-                contentPadding = PaddingValues(horizontal = 22.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                motionItemsIndexed(
-                    items = episodes,
-                    key = { index, episode -> episode.watchKey.ifBlank { "episode-$index" } },
-                ) { index, episode ->
-                    EpisodeStripCard(
-                        episode = episode,
-                        current = index == currentIndex,
-                        onClick = { onSelect(index) },
-                        modifier = Modifier,
-                    )
+            CinemaSelectionGroup(rememberAccentColorsForSurface(dark = true).accent) {
+                LazyRow(
+                    state = listState,
+                    contentPadding = PaddingValues(horizontal = 22.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    motionItemsIndexed(
+                        items = episodes,
+                        key = { index, episode -> episode.watchKey.ifBlank { "episode-$index" } },
+                    ) { index, episode ->
+                        EpisodeStripCard(
+                            episode = episode,
+                            current = index == currentIndex,
+                            onClick = { onSelect(index) },
+                            modifier =
+                                Modifier.cinemaSelectionTarget(
+                                    episode.watchKey.ifBlank { "episode-$index" },
+                                    index == currentIndex,
+                                ),
+                        )
+                    }
                 }
             }
         }
@@ -253,6 +263,9 @@ private fun EpisodeStripCard(
                 ) {
                     Text("正在播放", style = AppTypography.caption.strong, color = Color.White)
                 }
+            }
+            if (cinemaMotion()) {
+                CinemaSelectionCheck(current, accent.accent, Modifier.align(Alignment.TopEnd).padding(6.dp))
             }
             episode.progress?.let { progress ->
                 Box(

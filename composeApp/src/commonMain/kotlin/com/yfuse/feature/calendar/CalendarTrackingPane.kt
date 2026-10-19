@@ -236,6 +236,12 @@ private fun CalendarTrackingList(
             // has no item to open and therefore no key.
             val seriesItemId = series.seriesItemId
             val sharedKey = seriesItemId?.let { MediaSharedElementKey(series.serverId, it) }
+            val posterUrls =
+                resolvedPosters + component.trackingPosterUrls(series) +
+                    listOf(
+                        TmdbImages.poster(series.posterPath, width = "w185"),
+                        TmdbImages.media(series.posterPath, width = "w185"),
+                    ) + schedulePosterUrls[series.tmdbId].orEmpty()
             val openSeriesDetail =
                 sharedMediaOnClick(sharedKey, sourceShape = AppShapes.thumb) {
                     seriesItemId?.let { component.onOpenItem(series.serverId, it) }
@@ -255,17 +261,11 @@ private fun CalendarTrackingList(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 FallbackImage(
-                    urls =
-                        resolvedPosters + component.trackingPosterUrls(series) +
-                            listOf(
-                                TmdbImages.poster(series.posterPath, width = "w185"),
-                                TmdbImages.media(series.posterPath, width = "w185"),
-                            ) +
-                            schedulePosterUrls[series.tmdbId].orEmpty(),
+                    urls = posterUrls,
                     contentDescription = null,
                     modifier =
                         Modifier
-                            .sharedMediaArtwork(sharedKey, sourceShape = AppShapes.thumb)
+                            .sharedMediaArtwork(sharedKey, sourceShape = AppShapes.thumb, sourceUrls = posterUrls)
                             .width(48.dp)
                             .height(68.dp)
                             .clip(AppShapes.thumb)

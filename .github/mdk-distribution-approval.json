@@ -1,10 +1,10 @@
 {
-  "versionName": "1.4.3",
-  "versionCode": 295,
+  "versionName": "1.4.4",
+  "versionCode": 296,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-17T17:28:59Z",
+  "confirmedAt": "2026-10-19T10:12:58.781980+00:00",
   "confirmedBy": "release owner",
-  "confirmationBasis": "Continuing the release owner's authorization in this session for the artifact-only production-signing workflow. On 2026-10-18 at 08:35:41 Asia/Shanghai, the owner requested packaging the player horizontal-margin fix. The standing full-MDK instruction in AGENTS.md applies to the unchanged pinned SDK and package-only delivery scope. No online publication or deployment is authorized."
+  "confirmationBasis": "The release owner requested fetching cloud code, merging and packaging on 2026-10-19. Together with the standing full-MDK instruction, this authorizes the local production-signed 1.4.4/296 package-only delivery using the unchanged pinned MDK SDK and scope. No push, upload, publication or deployment is authorized."
 }

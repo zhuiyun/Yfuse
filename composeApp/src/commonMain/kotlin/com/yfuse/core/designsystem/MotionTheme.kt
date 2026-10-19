@@ -13,7 +13,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
  * in quickly over a few dp, lists arrive together instead of row by row, and there are no particles,
  * waves or bounces. It suits a television, an older phone, or anyone who finds the rest busy.
  *
- * Neither is 减少动画, which still takes motion away entirely wherever it is on. Persisted by name,
+ * 影院 adds coordinated artwork, activation and focus effects. All themes honour 减少动画,
+ * which still takes motion away entirely wherever it is on. Persisted by name,
  * so new themes are appended and never renamed.
  */
 enum class MotionTheme(
@@ -22,6 +23,7 @@ enum class MotionTheme(
 ) {
     Classic("经典", "全部动效，按下方各项设置播放"),
     Calm("静息", "只保留淡入淡出与小幅位移：按压不缩放，无粒子、潮涌与回弹"),
+    Cinema("影院", "播放光环、收藏星轨、分层海报、磁性重排与切集胶片；电视焦点随海报聚光"),
 }
 
 val LocalMotionTheme = staticCompositionLocalOf { MotionTheme.Classic }

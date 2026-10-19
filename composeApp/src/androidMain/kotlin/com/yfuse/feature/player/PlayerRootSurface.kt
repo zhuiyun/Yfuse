@@ -243,6 +243,8 @@ internal fun PlayerRootSurface(
             PlaybackContinuityOverlay(
                 artworkUrls = continuityArtwork,
                 title = currentItem?.title.orEmpty(),
+                mediaKey = currentItem?.let { it.serverId to it.id } ?: "empty",
+                cinemaEnabled = !inPictureInPicture && !ambientPowerLimited,
                 visible =
                     transition?.coversPicture() != true &&
                         currentItem != null &&
@@ -252,6 +254,17 @@ internal fun PlayerRootSurface(
                         !pictureReady,
                 message = continuityMessage,
                 modifier = Modifier.fillMaxSize(),
+            )
+            CinemaEpisodeOverlay(
+                identity = currentItem?.let { it.serverId to it.id },
+                title = currentItem?.title.orEmpty(),
+                awaitingPicture =
+                    currentItem != null && !pictureReady && !audioOnly && state.error == null && !state.ended,
+                suppressed = inPictureInPicture || ambientPowerLimited,
+                modifier =
+                    Modifier
+                        .align(androidx.compose.ui.Alignment.BottomCenter)
+                        .padding(horizontal = 24.dp, vertical = 116.dp),
             )
             PlayerTransitionLayer(
                 state = transition,

@@ -253,7 +253,7 @@ fun TvRoot(component: RootComponent) {
     // 焦点固定位: focus holds its place on the screen and rows and pages slide under it — see
     // TvFocusPivot. Provided here, so every page, list and dialog of the shell agrees on it.
     ProvideTvFocusPivot(reduceMotion) {
-        Box(
+        TvCinemaSpotlightHost(
             Modifier
                 .fillMaxSize()
                 .background(TvBackground)

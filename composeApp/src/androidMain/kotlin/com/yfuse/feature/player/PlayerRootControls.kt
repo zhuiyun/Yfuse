@@ -937,6 +937,7 @@ internal fun PlayerRootControls(
                 devices = castState.devices.map { it.id to it.name },
                 deviceId = castState.activeDeviceId,
                 discovering = castState.discovering,
+                connection = cinemaCastConnection(castState),
                 error = castState.error,
                 status =
                     castState.activeDevice?.let {

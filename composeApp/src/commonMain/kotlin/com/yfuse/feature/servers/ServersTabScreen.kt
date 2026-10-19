@@ -86,6 +86,7 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
     val palette = LocalPalette.current
     val routeVisible = LocalRouteVisible.current
     val health by component.health.health.collectAsState()
+    val checking by component.health.checking.collectAsState()
     val lastWatched by component.activity.lastWatched.collectAsState()
     val serverStats by component.stats.stats.collectAsState()
     val layout by component.layout.collectAsState()
@@ -264,6 +265,7 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
                                 CurrentServerHero(
                                     server = server,
                                     health = health[server.id],
+                                    checking = (checking[server.id] ?: 0) > 0,
                                     stats = serverStats[server.id],
                                     serverCount = state.servers.size,
                                     onlineCount = onlineServerCount,
@@ -330,6 +332,7 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
                                 server = server,
                                 isCurrent = false,
                                 health = health[server.id],
+                                checking = (checking[server.id] ?: 0) > 0,
                                 stats = serverStats[server.id],
                                 lastWatchedLabel = formatWatchedAgo(lastWatched[server.id], nowEpochMs),
                                 signInOnClick = signIn,

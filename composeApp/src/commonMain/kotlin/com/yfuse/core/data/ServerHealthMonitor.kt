@@ -128,6 +128,10 @@ class ServerHealthMonitor(
 
     private val _health = MutableStateFlow<Map<String, ServerHealth>>(emptyMap())
     val health: StateFlow<Map<String, ServerHealth>> = _health.asStateFlow()
+    private val activeChecks = MutableStateFlow<Map<String, Int>>(emptyMap())
+
+    /** Counts concurrent probes so one completed/cancelled request cannot hide another. */
+    val checking: StateFlow<Map<String, Int>> = activeChecks.asStateFlow()
     private val appForeground = MutableStateFlow(false)
     private val playerVisible = MutableStateFlow(false)
 
@@ -288,8 +292,17 @@ class ServerHealthMonitor(
         refreshResult(server)
     }
 
-    suspend fun refreshResult(server: SavedServer): Result<Unit> =
-        probeRoutes(server).also { rememberVerdict(server, it) }
+    suspend fun refreshResult(server: SavedServer): Result<Unit> {
+        activeChecks.update { it + (server.id to ((it[server.id] ?: 0) + 1)) }
+        try {
+            return probeRoutes(server).also { rememberVerdict(server, it) }
+        } finally {
+            activeChecks.update { checks ->
+                val remaining = (checks[server.id] ?: 1) - 1
+                if (remaining > 0) checks + (server.id to remaining) else checks - server.id
+            }
+        }
+    }
 
     private suspend fun probeRoutes(server: SavedServer): Result<Unit> {
         val routes = server.effectiveRoutes

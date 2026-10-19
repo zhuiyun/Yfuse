@@ -28,11 +28,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.CinemaSelectionCheck
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.PillSwitch
 import com.yfuse.core.designsystem.PressFeedback
+import com.yfuse.core.designsystem.cinemaMotion
+import com.yfuse.core.designsystem.cinemaSelectionTarget
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
@@ -105,11 +108,13 @@ internal fun OptionRow(
     onAction: () -> Unit = {},
     detailLabel: String? = null,
     modifier: Modifier = Modifier,
+    selectionKey: Any = label,
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
     Row(
         modifier
             .fillMaxWidth()
+            .cinemaSelectionTarget(selectionKey, selected)
             .playerChoiceFeedback(selected = selected, onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 9.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -145,6 +150,8 @@ internal fun OptionRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(start = 10.dp),
                 )
+
+            cinemaMotion() -> CinemaSelectionCheck(selected, accent.accent, Modifier.padding(start = 10.dp))
 
             selected ->
                 Box(

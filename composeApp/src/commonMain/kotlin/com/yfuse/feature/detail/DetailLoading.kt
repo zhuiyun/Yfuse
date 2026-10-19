@@ -39,7 +39,10 @@ import com.yfuse.core.designsystem.skeletonSweep
  * library skeletons.
  */
 @Composable
-internal fun DetailSkeleton(heroHeight: Dp) {
+internal fun DetailSkeleton(
+    heroHeight: Dp,
+    artworkBehind: Boolean = false,
+) {
     Column(Modifier.fillMaxSize().skeletonSweep()) {
         // A loading placeholder can disappear before Compose's shared-transition overlay has
         // received its first bounds. Making that short-lived node a shared element leaves the
@@ -49,7 +52,7 @@ internal fun DetailSkeleton(heroHeight: Dp) {
             Modifier
                 .fillMaxWidth()
                 .height(heroHeight)
-                .heroBloom(),
+                .then(if (artworkBehind) Modifier else Modifier.heroBloom()),
         )
         Column(
             Modifier

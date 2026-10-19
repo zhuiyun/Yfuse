@@ -1,0 +1,77 @@
+{
+  "versionName": "1.4.4",
+  "versionCode": 296,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "f1d2bf5b230c2cc69413594cac05ca5b94c39937",
+  "treeDirtyAtBuild": true,
+  "diffHash": "60ff13618dd6",
+  "buildInputsRecheckedAfterBuild": true,
+  "buildInputCount": 116,
+  "file": "Yfuse-1.4.4-full-arm64.apk",
+  "bytes": 30008379,
+  "sha256": "13fc46dc1039fd0f7b46bbd8eb58e8232e16dcb9790d360afe1d6e75320f5d0f",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "zipAlignment16K": true,
+  "dexVerified": true,
+  "dexClasses": 14264,
+  "dexMethodsWithCode": 62783,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "dexFiles": {
+    "classes.dex": "f2dfad980872da740490fb5f618bf227cc3f6d4a7df6a7f3231f108e32e2ab8f",
+    "classes2.dex": "69c6444784e29573d960760904212e6b5974ec22c41e968d3f1a4fa95f64a3ad"
+  },
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1195544,
+      "sha256": "c889a8704465ce7cbfc48d302da7e2482b4d59afe1eaacbd9c49eee150197203"
+    }
+  },
+  "mdkEngineMatchesPinnedSdk": true,
+  "mdkPlaybackSnapshotJniIncluded": true,
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "previousActualVersionName": "1.4.3",
+  "previousActualVersionCode": 295,
+  "previousArtifactSha256": "423d36e412e57a6c08eee2d3ad3cf94cc446f851980252c83075f72af501476a",
+  "releaseNotesFirstLine": "1.4.4",
+  "sourceRegression": {
+    "scope": "Full phoneShared and tvShared local regression",
+    "modules": {
+      "phoneShared": {
+        "suites": 875,
+        "tests": 4974,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tvShared": {
+        "suites": 23,
+        "tests": 120,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "total": {
+      "suites": 898,
+      "tests": 5094,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "sourceHashesRechecked": 116,
+    "junitArchiveSha256": "0c797245460eb0356c80d5142ce6650bbb599e08eed45c815521078256c3ada2"
+  },
+  "deviceTestOfReleasePerformed": false,
+  "published": false,
+  "uploaded": false,
+  "verifiedAtUtc": "2026-10-19T10:30:55.548453+00:00"
+}
