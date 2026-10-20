@@ -1,0 +1,74 @@
+{
+  "versionName": "1.4.6",
+  "versionCode": 298,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "b98ea2177260ffd1fa6507a5686bf5e7991c81d1",
+  "trackedSourceCleanAtBuild": true,
+  "treeDirtyAtBuild": true,
+  "dirtyTreeExplanation": "Only untracked local audit records; all production sources are committed and unchanged.",
+  "buildInputsRecheckedAfterBuild": true,
+  "file": "Yfuse-1.4.6-full-arm64.apk",
+  "bytes": 30011279,
+  "sha256": "7b0ff3161e9f68d19da18a875afeb3ab533fc2a5e9b3c464330a30ca27755386",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "zipAlignment16K": true,
+  "dexVerified": true,
+  "dexClasses": 14277,
+  "dexMethodsWithCode": 62795,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "dexFiles": {
+    "classes.dex": "f3936a2de4a083ed1340c3d5fbbdf88eadb8a9af0ae8bd490ea84448b7378b2c",
+    "classes2.dex": "074a31ce1d6cf5db6a907255243037b055f20c7ae1a2013df7e566a161029f86"
+  },
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1195544,
+      "sha256": "c889a8704465ce7cbfc48d302da7e2482b4d59afe1eaacbd9c49eee150197203"
+    }
+  },
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "previousActualVersionName": "1.4.5",
+  "previousActualVersionCode": 297,
+  "sourceRegression": {
+    "modules": {
+      "phoneShared": {
+        "suites": 878,
+        "tests": 4990,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tvShared": {
+        "suites": 23,
+        "tests": 120,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "total": {
+      "suites": 901,
+      "tests": 5110,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "reusedFromVersion": "1.4.5",
+    "rerun": false,
+    "unchangedSourceFilesRechecked": 54,
+    "releaseInputHashesRechecked": 57
+  },
+  "deviceTestsExecuted": false,
+  "published": false,
+  "apkUploaded": false,
+  "verifiedAtUtc": "2026-10-20T03:14:28.829630+00:00"
+}
