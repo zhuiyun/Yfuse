@@ -1,0 +1,44 @@
+{
+  "system": "Yfuse Cinema 2.0",
+  "scope": "Extend the existing project motion system across all 12 interaction families and close the 15 audited gaps.",
+  "families": [
+    {"area": "Press, long press, focus", "implementation": "Existing pressable, visible press hold, focus ring and lift menu retained; shared field focus now animates its border."},
+    {"area": "Selection, toggles, sliders", "implementation": "CinemaSelectionGroup now carries spring velocity; existing chip, switch and slider components retained."},
+    {"area": "Tabs and filters", "implementation": "Existing root/subtab indicators retained; unified-library filters now use accessible animated YfChip."},
+    {"area": "Navigation, poster and back", "implementation": "Existing CinemaPosterNavigation and SharedMediaTransition round trip retained, including interrupted/predictive back handling."},
+    {"area": "Dialogs and disclosure", "implementation": "Existing dialog presence retained; shared size motion respects hidden routes and calm mode; TV biography now expands through it."},
+    {"area": "Lists and removal", "implementation": "Spring placement shared by lazy lists and grids; account device and personal conflict rows have stable independent motion nodes; bookmarks support undo."},
+    {"area": "Search, forms, keyboard", "implementation": "Existing search/IME integration retained; focused form border and button label handoffs added; system keyboard animation remains platform-owned."},
+    {"area": "Loading, refresh, paging", "implementation": "Existing skeleton/refresh/pagination retained; unified library refresh stages the previously read extent without blanking existing content."},
+    {"area": "Success, error, busy, cancellation", "implementation": "Shared OperationFeedback uses actual operation state; ExclusiveUiOperation acquires synchronously and releases on cancellation."},
+    {"area": "Player", "implementation": "Existing controls and gestures retained; subtitle download has busy state instead of a selected check; bookmark save/undo/jump feedback added."},
+    {"area": "Long-running business operations", "implementation": "Migration, metadata, routes, sync, authentication and scan progress/result paths integrated; existing download and handoff feedback retained."},
+    {"area": "TV, tablet and window changes", "implementation": "Existing focus, parallax and single-tree window-size handoff retained; TV biography and calendar navigation extended."}
+  ],
+  "auditedGaps": [
+    "Migration busy guard and semantic outcomes",
+    "Remote subtitle row busy state",
+    "Bookmark save locator, delete undo and seek timestamp",
+    "Unified library refresh retention and animated filters/grid",
+    "Server routes and HTTPS probe status",
+    "Family profile selection locator and feedback",
+    "Sync operation and conflict row feedback",
+    "Phone remote direction and connection state feedback",
+    "Plex and remote sign-in stages",
+    "Metadata operation-specific feedback and selection locator",
+    "File scan real progress and saved results shortcut",
+    "Account device stable row removal",
+    "Permission changed-state locator",
+    "TV person biography expansion",
+    "TV calendar direct date and unwatched navigation"
+  ],
+  "preserved": [
+    "Only player floating menus permit pull-down dismissal",
+    "Reduced-motion and power/thermal/low-RAM policies",
+    "Explicit remote credential-send confirmation",
+    "Guardian PIN and per-profile authorization",
+    "Playback, source selection and synchronization policies",
+    "Pinned MDK component and full ARM64 delivery"
+  ],
+  "validationLimit": "No physical Android device is connected; instrumented tests are compiled, not executed. Device frame-time, input-latency and visual tuning remain unmeasured."
+}

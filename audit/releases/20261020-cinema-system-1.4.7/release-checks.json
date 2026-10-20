@@ -1,0 +1,15 @@
+{
+  "versionName": "1.4.7",
+  "versionCode": 299,
+  "releaseMetadataTests": 4,
+  "mdkApprovalTests": 4,
+  "failures": 0,
+  "versionNotesApprovalConsistent": true,
+  "functionSizeGate": true,
+  "moduleBoundaryGate": true,
+  "designSystemGate": true,
+  "behavioralTestBoundaryGate": true,
+  "ktlint": true,
+  "instrumentedTestsCompiled": true,
+  "deviceTestsExecuted": false
+}

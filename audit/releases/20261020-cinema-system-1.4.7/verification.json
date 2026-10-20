@@ -1,0 +1,73 @@
+{
+  "versionName": "1.4.7",
+  "versionCode": 299,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "cd53a928be7561ae748c24499ef23cbfb7cddad5",
+  "trackedSourceCleanAtBuild": true,
+  "treeDirtyAtBuild": true,
+  "dirtyTreeExplanation": "Only untracked local audit records; production and test sources committed before packaging.",
+  "buildInputsRecheckedAfterBuild": true,
+  "file": "Yfuse-1.4.7-full-arm64.apk",
+  "bytes": 30023239,
+  "sha256": "5a109cddf9a5c2615736bbc8619c5856f8b0bc986df6b3efe6fcb712ba509d4d",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "zipAlignment16K": true,
+  "dexVerified": true,
+  "dexClasses": 14293,
+  "dexMethodsWithCode": 62843,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "dexFiles": {
+    "classes.dex": "25b273c153c947198d30a8fc108ab3bd9b2bf67fc419969823e35bc1fe4325b6",
+    "classes2.dex": "7c161e59b50b370bb1f393b3e8be2664b5142e72de2b15762aef4b01c8ac72bb"
+  },
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1195544,
+      "sha256": "c889a8704465ce7cbfc48d302da7e2482b4d59afe1eaacbd9c49eee150197203"
+    }
+  },
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "previousActualVersionName": "1.4.6",
+  "previousActualVersionCode": 298,
+  "sourceRegression": {
+    "modules": {
+      "phoneShared": {
+        "tests": 4996,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "suites": 879
+      },
+      "tvShared": {
+        "tests": 123,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "suites": 23
+      }
+    },
+    "total": {
+      "tests": 5119,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 902
+    },
+    "deviceTestsExecuted": false,
+    "regressionRerun": true
+  },
+  "deviceTestsExecuted": false,
+  "published": false,
+  "apkUploaded": false,
+  "sourcePushed": false,
+  "verifiedAtUtc": "2026-10-20T03:54:10.700320+00:00"
+}

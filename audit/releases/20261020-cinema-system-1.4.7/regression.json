@@ -1,0 +1,27 @@
+{
+  "modules": {
+    "phoneShared": {
+      "tests": 4996,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 879
+    },
+    "tvShared": {
+      "tests": 123,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 23
+    }
+  },
+  "total": {
+    "tests": 5119,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": 902
+  },
+  "deviceTestsExecuted": false,
+  "regressionRerun": true
+}
