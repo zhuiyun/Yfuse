@@ -8,6 +8,105 @@ import kotlin.test.assertTrue
 
 class SharedMediaTransitionTest {
     @Test
+    fun a_lifted_card_arms_its_return_without_starting_a_second_forward_morph() {
+        val controller = SharedMediaTransitionController()
+        val poster = MediaSharedElementKey("server", "movie")
+        val origin = controller.openFromCard { controller.begin(poster) }
+        controller.prepareReturn(origin)
+        assertNull(controller.activeKey)
+        assertFalse(controller.isArtworkRegistered(poster))
+        assertFalse(controller.hasPreparedReturn)
+
+        controller.markReturnReady(poster)
+        assertTrue(controller.isArtworkRegistered(poster))
+        assertTrue(controller.hasPreparedReturn)
+        controller.onPop(poster)
+        assertEquals(poster, controller.activeKey)
+    }
+
+    @Test
+    fun a_retained_entry_cannot_arm_a_different_routes_return() {
+        val controller = SharedMediaTransitionController()
+        val first = MediaSharedElementKey("server", "first")
+        val second = MediaSharedElementKey("server", "second")
+        controller.prepareReturn(first)
+        controller.prepareReturn(second)
+        controller.markReturnReady(first)
+        assertFalse(controller.hasPreparedReturn)
+        controller.markReturnReady(second)
+        assertTrue(controller.hasPreparedReturn)
+        controller.prepareReturn(null)
+        assertFalse(controller.hasPreparedReturn)
+    }
+
+    @Test
+    fun a_settled_cinema_hero_stays_registered_until_its_return_finishes() {
+        val controller = SharedMediaTransitionController()
+        val poster = MediaSharedElementKey("server", "movie")
+        controller.begin(poster, AppShapes.thumb)
+        controller.prepareReturn(poster)
+        controller.finish(poster)
+
+        assertNull(controller.activeKey)
+        assertTrue(controller.isArtworkRegistered(poster))
+        assertFalse(controller.isArtworkRegistered(poster.copy(serverId = "other")))
+        controller.onPop(poster)
+        controller.prepareReturn(null)
+        assertTrue(controller.isArtworkRegistered(poster))
+        controller.finish(poster)
+        assertFalse(controller.isArtworkRegistered(poster))
+    }
+
+    @Test
+    fun nested_return_keeps_the_flying_pair_then_prepares_the_underlying_hero() {
+        val controller = SharedMediaTransitionController()
+        val first = MediaSharedElementKey("server", "first")
+        val second = MediaSharedElementKey("server", "second")
+        controller.begin(first, AppShapes.thumb)
+        controller.prepareReturn(first)
+        controller.finish(first)
+        controller.begin(second, AppShapes.sheet)
+        controller.prepareReturn(second)
+        controller.finish(second)
+
+        controller.onPop(second)
+        controller.prepareReturn(first)
+        assertTrue(controller.isArtworkRegistered(second))
+        assertFalse(controller.isArtworkRegistered(first))
+        assertEquals(AppShapes.sheet, controller.artworkShape)
+        controller.finish(second)
+        assertTrue(controller.isArtworkRegistered(first))
+        assertFalse(controller.isArtworkRegistered(second))
+        assertEquals(AppShapes.thumb, controller.artworkShape)
+    }
+
+    @Test
+    fun a_second_back_during_return_uses_the_next_posters_key() {
+        val controller = SharedMediaTransitionController()
+        val first = MediaSharedElementKey("server", "first")
+        val second = MediaSharedElementKey("server", "second")
+        controller.onPop(second)
+        controller.onPop(first)
+        controller.finish(second)
+        assertEquals(first, controller.activeKey)
+        assertTrue(controller.isArtworkRegistered(first))
+    }
+
+    @Test
+    fun clearing_return_readiness_does_not_enable_an_unrelated_poster() {
+        val controller = SharedMediaTransitionController()
+        val poster = MediaSharedElementKey("server", "movie")
+        controller.prepareReturn(poster)
+        controller.markReturnReady(poster)
+        controller.prepareReturn(null)
+        assertFalse(controller.isArtworkRegistered(poster))
+        controller.prepareReturn(poster)
+        controller.markReturnReady(poster)
+        controller.suppressForPop()
+        assertFalse(controller.isArtworkRegistered(poster))
+    }
+
+    @Test
     fun returning_to_an_earlier_poster_restores_its_own_shape() {
         val controller = SharedMediaTransitionController()
         val first = MediaSharedElementKey("server-a", "movie-1")

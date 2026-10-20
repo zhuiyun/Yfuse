@@ -134,8 +134,6 @@ internal fun TvQuickActionsPanel(
         windowPadding = PaddingValues(0.dp),
         shape = TvQuickActionsShape,
         maxWidth = TvQuickActionsWidth,
-        dragHandle = false,
-        dragToDismiss = false,
         // Pinned to the edge, it rises in place whatever style the other dialogs use.
         animation = DialogAnimation.Lift,
     ) {

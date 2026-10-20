@@ -37,6 +37,7 @@ import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingsCard
 import com.yfuse.core.designsystem.SettingsDivider
 import com.yfuse.core.designsystem.ThemeText
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.handoff.ActiveHandoffPlayback
@@ -126,9 +127,24 @@ fun DeviceHandoffScreen(
                                     SettingsDivider()
                                     SettingRow(
                                         device.name,
-                                        device.platform + if (state.busy) " · 接力中" else " · 接力播放",
+                                        if (device.sessionId == state.targetSessionId) {
+                                            state.error ?: state.message ?: device.platform
+                                        } else {
+                                            device.platform + " · 接力播放"
+                                        },
                                         embedded = true,
                                         icon = AppIcons.Play,
+                                        loading = state.busy && device.sessionId == state.targetSessionId,
+                                        modifier =
+                                            Modifier.contentHandoff(
+                                                if (device.sessionId ==
+                                                    state.targetSessionId
+                                                ) {
+                                                    state.message to state.error
+                                                } else {
+                                                    device.platform
+                                                },
+                                            ),
                                         onClick =
                                             if (state.busy) {
                                                 null
@@ -173,8 +189,15 @@ fun DeviceHandoffScreen(
                         item {
                             ThemeText(
                                 notice,
-                                color = palette.sub,
-                                modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                                color =
+                                    if (notice == state.error ||
+                                        notice == state.connectionError
+                                    ) {
+                                        palette.error
+                                    } else {
+                                        palette.sub
+                                    },
+                                modifier = Modifier.padding(horizontal = Dimens.pageHorizontal).liveStatus(),
                             )
                         }
                     }

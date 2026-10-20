@@ -5,8 +5,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.AnnotatedString
 import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
@@ -19,6 +24,9 @@ import com.yfuse.core.designsystem.SettingsCard
 import com.yfuse.core.designsystem.SettingsDivider
 import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.ThemeText
+import com.yfuse.core.designsystem.contentHandoff
+import com.yfuse.core.designsystem.liveStatus
+import com.yfuse.core.trakt.TraktOperation
 import com.yfuse.core.trakt.TraktRepository
 import com.yfuse.feature.profile.SettingsPage
 import com.yfuse.feature.profile.rememberComposedPageStore
@@ -32,6 +40,8 @@ fun TraktSettingsScreen(
     val state = settings.trakt
     val palette = LocalPalette.current
     val uriHandler = LocalUriHandler.current
+    val clipboard = LocalClipboardManager.current
+    var copiedCode by remember(state.challenge) { mutableStateOf(false) }
     DisposableEffect(store) {
         store.accept(TraktSettingsIntent.PageShown)
         onDispose { store.accept(TraktSettingsIntent.PageHidden) }
@@ -56,6 +66,7 @@ fun TraktSettingsScreen(
                             "连接 Trakt",
                             "打开授权",
                             embedded = true,
+                            loading = state.busy && state.operation == TraktOperation.Authorize,
                             onClick =
                                 if (settings.canConnect) {
                                     (
@@ -91,6 +102,13 @@ fun TraktSettingsScreen(
                                 ?: "在 Trakt 网页确认授权后返回",
                             embedded = true,
                         )
+                        challenge.userCode?.let { code ->
+                            SettingsDivider()
+                            SettingRow("复制授权码", if (copiedCode) "已复制" else code, embedded = true, onClick = {
+                                clipboard.setText(AnnotatedString(code))
+                                copiedCode = true
+                            })
+                        }
                         settings.verificationPage?.let { page ->
                             SettingsDivider()
                             SettingRow(
@@ -114,15 +132,17 @@ fun TraktSettingsScreen(
                     SettingsCard {
                         SettingRow(
                             "导入想看单",
-                            if (state.busy) "正在处理…" else "合并到当前资料",
+                            if (state.busy && state.operation == TraktOperation.Watchlist) "正在导入想看单…" else "合并到当前资料",
                             embedded = true,
+                            loading = state.busy && state.operation == TraktOperation.Watchlist,
                             onClick = if (state.busy) null else ({ store.accept(TraktSettingsIntent.ImportWatchlist) }),
                         )
                         SettingsDivider()
                         SettingRow(
                             "导入观看历史",
-                            if (state.busy) "正在处理…" else "合并到当前资料",
+                            if (state.busy && state.operation == TraktOperation.History) "正在导入观看历史…" else "合并到当前资料",
                             embedded = true,
+                            loading = state.busy && state.operation == TraktOperation.History,
                             onClick = if (state.busy) null else ({ store.accept(TraktSettingsIntent.ImportHistory) }),
                         )
                         SettingsDivider()
@@ -160,8 +180,8 @@ fun TraktSettingsScreen(
             item {
                 ThemeText(
                     notice,
-                    color = palette.sub,
-                    modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                    color = if (notice == state.error) palette.error else palette.success,
+                    modifier = Modifier.padding(horizontal = Dimens.pageHorizontal).contentHandoff(notice).liveStatus(),
                 )
             }
         }

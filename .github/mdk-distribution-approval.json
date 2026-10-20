@@ -1,10 +1,10 @@
 {
-  "versionName": "1.4.4",
-  "versionCode": 296,
+  "versionName": "1.4.6",
+  "versionCode": 298,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-19T10:12:58.781980+00:00",
+  "confirmedAt": "2026-10-20T03:11:17.008849+00:00",
   "confirmedBy": "release owner",
-  "confirmationBasis": "The release owner requested fetching cloud code, merging and packaging on 2026-10-19. Together with the standing full-MDK instruction, this authorizes the local production-signed 1.4.4/296 package-only delivery using the unchanged pinned MDK SDK and scope. No push, upload, publication or deployment is authorized."
+  "confirmationBasis": "The release owner requested production signing, packaging and source-code upload on 2026-10-20. The standing full-MDK instruction covers the unchanged pinned component and local production-signed 1.4.6/298 package-only delivery. Source push uses artifact-only CI; no update-server or public APK publication was requested."
 }

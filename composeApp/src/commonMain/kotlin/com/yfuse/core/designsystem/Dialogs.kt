@@ -6,10 +6,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,7 +57,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
@@ -206,7 +202,7 @@ fun <T : Any> DialogPresence(
 /** Longer than the slowest exit of any dialog style; only a non-dialog [DialogPresence] waits this. */
 private const val PRESENCE_RELEASE_AFTER_MS = 1_500L
 
-/** The shared modal material used outside player chrome. */
+/** The shared modal material. Content drags only scroll; pull dismissal belongs to player popups. */
 @Composable
 fun GlassDialog(
     onDismiss: () -> Unit,
@@ -220,19 +216,8 @@ fun GlassDialog(
     dismissEnabled: Boolean = true,
     maxWidth: Dp = OverlayMaxWidth,
     properties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    // False when the content opens with an edge-to-edge header that draws its own handle. 磁吸归位's
-    // handle is a 28dp row above the content, so it would push that header down and leave a band
-    // of bare glass - a second sheet peeking out above the first. The gesture is unaffected: a
-    // panel that is not scrollable is itself the drag surface.
-    dragHandle: Boolean = true,
     /**
-     * Whether pulling the panel down may close it. Off for a form holding unsaved input: a
-     * flick that lands a little too fast would otherwise throw away an address, a user name and
-     * a password in one move.
-     */
-    dragToDismiss: Boolean = true,
-    /**
-     * Asked before the scrim, back or a drag starts the exit. Return false to keep the dialog
+     * Asked before the scrim or back starts the exit. Return false to keep the dialog
      * where it is — to ask 「放弃更改？」 first, say — instead of animating out and back in.
      */
     confirmDismiss: (() -> Boolean)? = null,
@@ -253,7 +238,6 @@ fun GlassDialog(
     val currentPresence by rememberUpdatedState(presence)
     val ownerClosed = presence?.visible == false
     val canDismiss by rememberUpdatedState(dismissEnabled)
-    val canDrag by rememberUpdatedState(dragToDismiss)
     val confirm by rememberUpdatedState(confirmDismiss)
     val tryDismiss: () -> Boolean =
         remember {
@@ -339,29 +323,6 @@ fun GlassDialog(
                 }
             }
         val paneTitle = remember { mutableStateOf<String?>(null) }
-        // Durations answer to the system flag too — [rememberOverlayTransition] reads
-        // `reduceMotion` — but a way of closing the dialog answers only to the person. 减弱动态效果
-        // turns the gesture off because the panel would have to jump home with no settle;
-        // 「移除动画」 on the device asks for shorter transitions, not for fewer ways out.
-        val dragOff = LocalAccessibilityOptions.current.reduceMotionByUser
-        // Pushing a dialog away is a gesture, not a style. It used to be gated on 磁吸归位 being
-        // the selected animation, which made the one way of dismissing that needs no target at all
-        // a property of a decorative preference: 42 of the 43 styles could only be closed by the
-        // scrim or a button. Every style gets the gesture now — a scrollable panel hands it over
-        // through nested scroll, one with nothing to scroll is dragged directly (see below) —
-        // and 磁吸归位 keeps what is actually its own, the visible handle and its settle visuals.
-        val drag =
-            rememberDialogDragState(
-                enabled = {
-                    !dragOff &&
-                        canDismiss &&
-                        canDrag &&
-                        !leaving &&
-                        progress() >= 1f
-                },
-                dismiss = requestDismiss,
-                tryDismiss = tryDismiss,
-            )
         // The owner is expected to take the dialog out of composition in [onDismiss]. One that
         // declines — it is still loading or saving, or its request failed — used to leave the
         // panel parked at progress 0: invisible, with its window still taking every touch and
@@ -378,16 +339,7 @@ fun GlassDialog(
             delay(DISMISS_DECLINED_AFTER_MS)
             afterExit = null
             closedByOwner = false
-            drag.reset()
             leaving = false
-        }
-        val panelDrag = rememberDraggableState { drag.move(it) }
-        LaunchedEffect(dragOff, leaving) {
-            if (dragOff) {
-                drag.reset()
-            } else if (leaving) {
-                drag.stopSettling()
-            }
         }
         val contentMotion = remember(chosenAnimation, progress) { DialogContentMotion(chosenAnimation, progress) }
         val lightMoving by remember(progress) { derivedStateOf { progress() > 0f && progress() < 1f } }
@@ -432,21 +384,16 @@ fun GlassDialog(
                     Modifier
                         .safeDrawingPadding()
                         // Only the padding, never [imeNestedScroll]: that one drives the keyboard
-                        // from leftover scroll, and once a panel is at its top every upward pull
-                        // is leftover. The dismiss drag only takes the downward half, so on a panel
-                        // with nothing to type into a swipe up summoned an empty keyboard.
+                        // from leftover scroll. Scrolling a panel with nothing to type into must
+                        // never summon an empty keyboard.
                         .imePadding()
                         .padding(windowPadding)
                         .widthIn(max = maxWidth)
                         .fillMaxWidth()
                         // TalkBack announces the pane by the title its [OverlayHeader] publishes.
                         .semantics { shownTitle?.let { this.paneTitle = it } }
-                        // At rest the drag contributes nothing — zero offset, no stretch — so every
-                        // style keeps its authored enter and exit geometry untouched, and only a
-                        // finger on the panel translates it.
                         .dialogMotion(
                             chosenAnimation,
-                            drag = drag.takeIf { !dragOff },
                             progress = progress,
                         ).shadow(Shadows.sheet, shape)
                         .mutedGlassPanel(shape)
@@ -454,26 +401,7 @@ fun GlassDialog(
                         .phaseLightEdge(progress, phaseLights)
                         .pointerInput(Unit) { detectTapGestures { } }
                         .then(modifier)
-                        // Nothing to scroll is nothing to hand over: a panel that never scrolls has
-                        // no nested-scroll source at all, so the panel itself is the drag surface.
-                        // Outside [contentPadding], so the gesture starts anywhere on the glass; a
-                        // scrollable child inside it still wins the gesture and feeds the same
-                        // state through [nestedScroll] below.
-                        .then(
-                            if (scrollable || dragOff || !dragToDismiss) {
-                                Modifier
-                            } else {
-                                Modifier.draggable(
-                                    state = panelDrag,
-                                    orientation = Orientation.Vertical,
-                                    enabled = canDismiss && canDrag && !leaving,
-                                    onDragStopped = { drag.release(it) },
-                                )
-                            },
-                        ).padding(contentPadding)
-                        // Before [verticalScroll], so a panel that has nothing left to scroll hands
-                        // the remaining downward drag to the dialog instead of swallowing it.
-                        .then(if (dragOff || !dragToDismiss) Modifier else Modifier.nestedScroll(drag))
+                        .padding(contentPadding)
                         .then(
                             if (scrollable) {
                                 Modifier.verticalScroll(panelScrollState)
@@ -482,9 +410,6 @@ fun GlassDialog(
                             },
                         ),
                 ) {
-                    if (dragHandle && chosenAnimation == DialogAnimation.MagneticDrag) {
-                        DialogDragHandle(drag, !dragOff && canDismiss && canDrag && !leaving)
-                    }
                     content()
                 }
             }

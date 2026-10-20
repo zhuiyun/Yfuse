@@ -103,12 +103,19 @@ fun <T : Any> OfficialNavDisplay(
             }
         }
         routeOrigins.update(routeKeys, pushedFrom)
+        sharedMediaController.prepareReturn(
+            if (cinema) routeOrigins.returningTo(routeKeys.dropLast(1)) else null,
+        )
         if (zoom != null) {
             zoom.onBack = { latestBack() }
-            // While a morph is in flight a swipe back goes to NavDisplay, whose predictive pop the
-            // morph follows and, once committed, finishes in reverse: 跟手返回 would pull the page
-            // away from under artwork still drawn above it.
-            zoom.blocked = { liftMenu?.isOpen == true || screenReader || sharedMediaController.activeKey != null }
+            // Cinema poster returns must seek NavDisplay's shared bounds directly. A second
+            // full-page slide would hide the hero before its flight back to the source card.
+            zoom.blocked = {
+                liftMenu?.isOpen == true ||
+                    screenReader ||
+                    sharedMediaController.activeKey != null ||
+                    (cinema && sharedMediaController.hasPreparedReturn)
+            }
             zoom.onStack(routeKeys, pushedFrom, visible = parentRouteVisible)
         }
         previousDepth[0] = shownStack.size
@@ -152,14 +159,19 @@ fun <T : Any> OfficialNavDisplay(
                         LocalRouteVisibilityState provides visibility,
                     ) {
                         val entryTransition = LocalNavAnimatedContentScope.current.transition
+                        val returnCandidate = sharedMediaController.returnKey
+                        val entrySettled =
+                            entryTransition.currentState == EnterExitState.Visible &&
+                                entryTransition.targetState == EnterExitState.Visible
+                        SideEffect {
+                            if (visibility.value && entrySettled) sharedMediaController.markReturnReady(returnCandidate)
+                        }
                         Box(
                             Modifier
                                 .zoomBackFrame(zoom, routeKey)
                                 .fillMaxSize()
-                                .zoomBackRoute(zoom, routeKey) {
-                                    entryTransition.currentState == EnterExitState.Visible &&
-                                        entryTransition.targetState == EnterExitState.Visible
-                                }.drawBehind {
+                                .zoomBackRoute(zoom, routeKey)
+                                .drawBehind {
                                     // Glass content still needs a solid page beneath it while two
                                     // destinations share the host during a return gesture.
                                     if (motion == OfficialNavMotion.Stack ||
@@ -170,7 +182,6 @@ fun <T : Any> OfficialNavDisplay(
                                 },
                         ) {
                             currentContent(entryKey)
-                            ZoomBackRouteTip(zoom, routeKey)
                         }
                     }
                 }
@@ -216,6 +227,11 @@ fun <T : Any> OfficialNavDisplay(
                     predictivePopTransitionSpec = {
                         if (zoom?.suppressPopTransition == true) {
                             zoomBackRouteTransform()
+                        } else if (cinema &&
+                            popMotion == OfficialNavMotion.Stack &&
+                            (sharedMediaController.hasPreparedReturn || sharedMediaController.activeKey != null)
+                        ) {
+                            cinemaPosterPageTransform(popping = true)
                         } else if (reduceMotion) {
                             noBackTransition()
                         } else {

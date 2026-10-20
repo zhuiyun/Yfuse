@@ -157,8 +157,6 @@ internal fun DetailMoreActionsDialog(
         alignment = Alignment.BottomCenter,
         windowPadding = PaddingValues(start = 12.dp, top = 72.dp, end = 12.dp, bottom = 0.dp),
         shape = AppShapes.sheet,
-        // The artwork header carries the handle; the panel itself takes the drag.
-        dragHandle = false,
         // Pinned to the bottom edge, so it rises from it whatever the chosen 弹窗动画.
         animation = DialogAnimation.Slide,
     ) {
@@ -270,15 +268,6 @@ private fun DetailMoreHero(
                         1f to Color.Black.copy(alpha = 0.76f),
                     ),
                 ),
-        )
-        Box(
-            Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 8.dp)
-                .width(38.dp)
-                .height(4.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.72f)),
         )
         Icon(
             AppIcons.Close,

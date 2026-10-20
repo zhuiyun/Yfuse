@@ -10,6 +10,7 @@ import android.view.MotionEvent
 import androidx.activity.BackEventCompat
 import androidx.activity.compose.setContent
 import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -46,6 +47,7 @@ import com.yfuse.core.designsystem.LocalLiftMenu
 import com.yfuse.core.designsystem.LocalRouteVisibilityState
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.LocalSharedMediaTransitionController
+import com.yfuse.core.designsystem.LocalSharedTransitionScope
 import com.yfuse.core.designsystem.LocalZoomBackSources
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.MotionTheme
@@ -247,8 +249,8 @@ class DetailBackNavigationInstrumentedTest {
     }
 
     @Test(timeout = 60_000L)
-    fun ordinary_back_restores_nested_posters_without_a_predictive_preview() {
-        val probe = NavigationProbe(initialRoutes = listOf("library"), posterPath = true)
+    fun ordinary_back_animates_each_settled_cinema_hero_back_to_its_poster() {
+        val probe = NavigationProbe(initialRoutes = listOf("library"), posterPath = true, theme = MotionTheme.Cinema)
         launchMainActivityForInput().use { scenario ->
             installNavigation(scenario, probe)
             awaitComposedRoute("library", probe)
@@ -258,15 +260,52 @@ class DetailBackNavigationInstrumentedTest {
             tapPoster(probe)
             awaitComposedRoute("detail-b", probe)
             awaitCondition("The nested poster's forward morph did not settle") { !probe.transitionActive.get() }
+            probe.sharedReturningRoute.set(null)
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             awaitComposedRoute("detail-a", probe)
+            awaitCondition(
+                "The nested hero never ran a shared return",
+            ) { probe.sharedReturningRoute.get() == "detail-b" }
             awaitCondition("The nested poster return did not settle") { !probe.transitionActive.get() }
             assertStack(scenario, probe, listOf("library", "detail-a"), pops = 1)
+            probe.sharedReturningRoute.set(null)
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             awaitComposedRoute("library", probe)
+            awaitCondition(
+                "The first hero never ran a shared return",
+            ) { probe.sharedReturningRoute.get() == "detail-a" }
             awaitCondition("The library poster return did not settle") { !probe.transitionActive.get() }
             assertStack(scenario, probe, listOf("library"), pops = 2)
             assertFalse("Ordinary back showed a predictive preview", probe.previewSeen.get())
+        }
+    }
+
+    @Test(timeout = 60_000L)
+    fun cinema_system_back_seeks_the_shared_hero_and_can_cancel_then_commit_from_either_edge() {
+        val probe = NavigationProbe(initialRoutes = listOf("library"), posterPath = true, theme = MotionTheme.Cinema)
+        launchMainActivityForInput().use { scenario ->
+            installNavigation(scenario, probe)
+            awaitComposedRoute("library", probe)
+            tapPoster(probe)
+            awaitComposedRoute("detail-a", probe)
+            awaitCondition("The poster entry did not settle") { !probe.transitionActive.get() }
+            for (edge in listOf(BackEventCompat.EDGE_LEFT, BackEventCompat.EDGE_RIGHT)) {
+                predictiveGesture(scenario, cancel = true, edge = edge) {
+                    awaitCondition("The system gesture never sought the shared hero") { probe.sharedMoving.get() }
+                }
+                awaitCondition("The cancelled hero did not settle") {
+                    !probe.sharedMoving.get() &&
+                        probe.routeSettled.get()
+                }
+                assertStack(scenario, probe, listOf("library", "detail-a"), pops = 0)
+            }
+            probe.sharedReturningRoute.set(null)
+            predictiveGesture(scenario, cancel = false, edge = BackEventCompat.EDGE_RIGHT) {
+                awaitCondition("The committed gesture did not animate the hero") { probe.sharedMoving.get() }
+            }
+            awaitComposedRoute("library", probe)
+            assertEquals("detail-a", probe.sharedReturningRoute.get())
+            assertStack(scenario, probe, listOf("library"), pops = 1)
         }
     }
 
@@ -564,6 +603,7 @@ class DetailBackNavigationInstrumentedTest {
         }
     }
 
+    @OptIn(ExperimentalSharedTransitionApi::class)
     private fun installNavigation(
         scenario: ActivityScenario<MainActivity>,
         probe: NavigationProbe,
@@ -599,15 +639,20 @@ class DetailBackNavigationInstrumentedTest {
                                     val visible = LocalRouteVisible.current
                                     val transitionActive =
                                         LocalSharedMediaTransitionController.current?.activeKey != null
+                                    val sharedMoving = LocalSharedTransitionScope.current?.isTransitionActive == true
                                     val previewActive = LocalZoomBackSources.current?.wanted != null
                                     val transition = LocalNavAnimatedContentScope.current.transition
                                     val routeSettled =
                                         transition.currentState == EnterExitState.Visible &&
                                             transition.targetState == EnterExitState.Visible
                                     SideEffect {
+                                        if (sharedMoving && transition.targetState == EnterExitState.PostExit) {
+                                            probe.sharedReturningRoute.set(route)
+                                        }
                                         if (visible) {
                                             probe.composedTop.set(route)
                                             probe.transitionActive.set(transitionActive)
+                                            probe.sharedMoving.set(sharedMoving)
                                             probe.previewActive.set(previewActive)
                                             probe.routeSettled.set(routeSettled)
                                             if (previewActive) probe.previewSeen.set(true)
@@ -722,18 +767,21 @@ class DetailBackNavigationInstrumentedTest {
     private fun predictiveGesture(
         scenario: ActivityScenario<MainActivity>,
         cancel: Boolean,
+        edge: Int = BackEventCompat.EDGE_LEFT,
+        duringGesture: () -> Unit = {},
     ) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         scenario.onActivity {
-            it.onBackPressedDispatcher.dispatchOnBackStarted(BackEventCompat(1f, 300f, 0f, BackEventCompat.EDGE_LEFT))
+            it.onBackPressedDispatcher.dispatchOnBackStarted(BackEventCompat(1f, 300f, 0f, edge))
         }
         instrumentation.waitForIdleSync()
         scenario.onActivity {
             it.onBackPressedDispatcher.dispatchOnBackProgressed(
-                BackEventCompat(160f, 300f, 0.4f, BackEventCompat.EDGE_LEFT),
+                BackEventCompat(160f, 300f, 0.4f, edge),
             )
         }
         instrumentation.waitForIdleSync()
+        duringGesture()
         scenario.onActivity {
             if (cancel) {
                 it.onBackPressedDispatcher.dispatchOnBackCancelled()
@@ -1022,6 +1070,8 @@ class DetailBackNavigationInstrumentedTest {
         val composedTop = AtomicReference<String>()
         val posterBounds = AtomicReference(Rect.Zero)
         val transitionActive = AtomicBoolean()
+        val sharedMoving = AtomicBoolean()
+        val sharedReturningRoute = AtomicReference<String?>()
         val previewActive = AtomicBoolean()
         val previewSeen = AtomicBoolean()
         val routeSettled = AtomicBoolean()

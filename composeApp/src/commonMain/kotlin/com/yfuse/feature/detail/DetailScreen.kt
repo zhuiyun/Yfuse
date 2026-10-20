@@ -916,6 +916,7 @@ fun DetailScreen(component: DetailComponent) {
                                     if (detail.people.isNotEmpty()) {
                                         motionItem(key = "cast") {
                                             CastRow(
+                                                serverId = state.server?.id,
                                                 baseUrl = baseUrl,
                                                 accessToken = accessToken,
                                                 people = detail.people,

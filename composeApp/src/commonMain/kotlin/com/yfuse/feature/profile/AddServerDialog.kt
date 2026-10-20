@@ -92,9 +92,7 @@ fun AddServerDialog(
     GlassDialog(
         onDismiss = onDismiss,
         scrollable = false,
-        // A flick that landed a little fast, or a tap beside the panel, used to throw away an
-        // address, an account and a password in one move. Once anything is entered, closing asks.
-        dragToDismiss = !holdsInput,
+        // Once anything is entered, closing asks before discarding the form.
         confirmDismiss = {
             if (holdsInput) confirmDiscard = true
             !holdsInput

@@ -152,6 +152,7 @@ fun SettingRow(
 
     val rowModifier =
         modifier
+            .settingsSearchAnchor(title)
             .fillMaxWidth()
             .let { if (embedded) it else it.flatGlass(AppShapes.control, palette.card2, palette.border) }
             .let {

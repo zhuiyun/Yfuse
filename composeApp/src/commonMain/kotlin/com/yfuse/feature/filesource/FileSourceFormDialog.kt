@@ -83,7 +83,6 @@ private fun FileSourceFormDialog(
     GlassDialog(
         onDismiss = controller::dismissForm,
         scrollable = false,
-        dragToDismiss = !holdsInput,
         confirmDismiss = {
             if (holdsInput) confirmDiscard = true
             !holdsInput

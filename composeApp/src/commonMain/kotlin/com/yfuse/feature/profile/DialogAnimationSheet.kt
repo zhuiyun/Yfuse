@@ -129,13 +129,6 @@ internal fun DialogAnimationSheet(
             GlassDialog(onDismiss = { preview = null }) {
                 OverlayHeader(animation.label, animation.description, onClose = { preview = null })
                 Text("点击下方按钮、空白区域或返回键，查看隐藏动画。", color = LocalPalette.current.text, style = AppTypography.body.regular)
-                if (animation == DialogAnimation.MagneticDrag) {
-                    Text(
-                        "向下轻拉顶部短条会回弹，拉远或快速下滑会关闭。",
-                        color = LocalPalette.current.sub,
-                        style = AppTypography.caption.regular,
-                    )
-                }
                 if (animation == DialogAnimation.Cascade) {
                     Spacer(Modifier.height(12.dp))
                     OverlayOptionRow("第一个选项", true, {})

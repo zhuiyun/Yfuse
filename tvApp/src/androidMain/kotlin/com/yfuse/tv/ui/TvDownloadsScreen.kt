@@ -1,20 +1,30 @@
 package com.yfuse.tv.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.MAX_CONCURRENT_OFFLINE_DOWNLOADS
 import com.yfuse.core.offline.OfflineMedia
@@ -71,6 +81,11 @@ internal fun TvDownloadsPage(
             }
         }
 
+    val motionDuration = if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.QUICK
+    BackHandler(enabled = shown.any { it.id == expandedId } && pendingRemoval == null) {
+        expandedId?.let { focusMemory.requestFocus(focusScope, "downloads:item:$it") }
+        expandedId = null
+    }
     TvSettingsPageScaffold(page = TvSettingsPage.Downloads, status = status) {
         item(key = "downloads-summary") {
             TvSettingsNote(
@@ -125,7 +140,19 @@ internal fun TvDownloadsPage(
                         selected = expandedId == media.id,
                         navigationRequester = navigationRequester,
                     )
-                    if (expandedId == media.id) {
+                    AnimatedVisibility(
+                        visible = expandedId == media.id,
+                        enter = expandVertically(Motion.tween(motionDuration)) + fadeIn(Motion.tween(motionDuration)),
+                        exit = shrinkVertically(Motion.tween(motionDuration)) + fadeOut(Motion.tween(motionDuration)),
+                    ) {
+                        LaunchedEffect(expandedId) {
+                            if (expandedId == media.id) {
+                                withFrameNanos { }
+                                if (!focusMemory.requestFocus(focusScope, "downloads:action:${media.id}")) {
+                                    focusMemory.requestFocus(focusScope, "downloads:remove:${media.id}")
+                                }
+                            }
+                        }
                         Row(
                             Modifier.fillMaxWidth().padding(start = 56.dp, top = 8.dp, bottom = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -149,6 +176,7 @@ internal fun TvDownloadsPage(
                                 TvActionButton(
                                     label = action,
                                     stableId = "downloads:action:${media.id}",
+                                    enabled = expandedId == media.id,
                                     focusScope = focusScope,
                                     focusMemory = focusMemory,
                                     onClick = {
@@ -165,6 +193,7 @@ internal fun TvDownloadsPage(
                             TvActionButton(
                                 label = "删除",
                                 stableId = "downloads:remove:${media.id}",
+                                enabled = expandedId == media.id,
                                 focusScope = focusScope,
                                 focusMemory = focusMemory,
                                 // A file that took an evening to fetch went at one press of OK.

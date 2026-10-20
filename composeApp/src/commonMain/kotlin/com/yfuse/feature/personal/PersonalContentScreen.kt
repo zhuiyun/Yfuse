@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -44,13 +44,18 @@ import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.PageHint
+import com.yfuse.core.designsystem.RollingNumber
 import com.yfuse.core.designsystem.SwipeActionsRow
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.YfFormField
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberSegmentIndicator
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
@@ -91,8 +96,18 @@ internal fun PersonalContentScreen(
         }
     val counts = collections.map { entries -> entries.count { it.identity != state.pendingRemoval?.identity } }
     SideEffect { onSwipeable(visible.isNotEmpty()) }
+    val watchLaterScroll = rememberSaveable(contentScope, saver = LazyListState.Saver) { LazyListState() }
+    val favoritesScroll = rememberSaveable(contentScope, saver = LazyListState.Saver) { LazyListState() }
+    val historyScroll = rememberSaveable(contentScope, saver = LazyListState.Saver) { LazyListState() }
+    val scroll =
+        listOf(
+            watchLaterScroll,
+            favoritesScroll,
+            historyScroll,
+        )[PersonalContentTabs.indexOf(tab).coerceAtLeast(0)]
     LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding(),
+        state = scroll,
+        modifier = Modifier.fillMaxSize().statusBarsPadding().contentHandoff(tab),
         contentPadding = PaddingValues(top = 14.dp, bottom = systemNavigationContentInset()),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -111,7 +126,7 @@ internal fun PersonalContentScreen(
         }
         item(key = "personal-tabs") { PersonalContentFilters(tab, counts) { tab = it } }
         if (searching) {
-            item(key = "personal-search") {
+            motionItem(key = "personal-search") {
                 YfFormField(
                     value = query,
                     onValueChange = { query = it },
@@ -138,7 +153,7 @@ internal fun PersonalContentScreen(
                 )
             }
         }
-        items(visible, key = { it.identity }) { entry ->
+        motionItems(visible, key = { it.identity }) { entry ->
             PersonalContentCard(
                 entry = entry,
                 servers = servers,
@@ -189,8 +204,9 @@ private fun PersonalContentFilters(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val indicator = rememberSegmentIndicator(PersonalContentTabs.indexOf(selected), accent.accent, underline = true)
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
+        Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal).then(indicator.container),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         PersonalContentTabs.forEachIndexed { index, tab ->
@@ -199,6 +215,7 @@ private fun PersonalContentFilters(
             Column(
                 Modifier
                     .weight(1f)
+                    .then(indicator.item(index))
                     .pressable(role = Role.Tab, onClickLabel = label, onClick = { onSelect(tab) })
                     .semantics {
                         contentDescription = label
@@ -211,7 +228,7 @@ private fun PersonalContentFilters(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
+                RollingNumber(
                     counts[index].toString(),
                     style = AppTypography.section.strong,
                     color = if (active) accent.accent else palette.text,

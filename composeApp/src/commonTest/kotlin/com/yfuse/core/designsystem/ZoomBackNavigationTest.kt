@@ -19,6 +19,73 @@ import kotlin.test.assertTrue
 
 class ZoomBackNavigationTest {
     @Test
+    fun posterRoutesKeepBothSystemEdgesAndOrdinaryBackWorking() =
+        runTest {
+            for (edge in listOf(NavigationEvent.EDGE_LEFT, NavigationEvent.EDGE_RIGHT)) {
+                withHost(this) { fixture ->
+                    fixture.host.onStack(
+                        listOf("root", "detail"),
+                        MediaSharedElementKey("server", "film"),
+                    )
+                    fixture.input.backStarted(NavigationEvent(swipeEdge = edge, progress = 0f))
+                    fixture.input.backProgressed(NavigationEvent(swipeEdge = edge, progress = 0.5f))
+                    fixture.input.backCancelled()
+                    assertEquals(1, fixture.page.cancelled)
+                    assertEquals(0, fixture.page.completed)
+
+                    fixture.input.backStarted(NavigationEvent(swipeEdge = edge, progress = 0f))
+                    fixture.input.backCompleted()
+                    assertEquals(2, fixture.page.started)
+                    assertEquals(1, fixture.page.progressed)
+                    assertEquals(1, fixture.page.completed)
+                    assertEquals(0, fixture.root.completed)
+
+                    fixture.input.backCompleted()
+                    assertEquals(1, fixture.ordinaryBacks)
+                    assertEquals(1, fixture.page.completed)
+                }
+            }
+        }
+
+    @Test
+    fun posterOriginsSurviveTabChangesAndNestedRoutePushAndPop() =
+        runTest {
+            withHost(this) { fixture ->
+                val details = listOf("root", "detail", "related-detail")
+                fixture.host.onStack(
+                    details.take(2),
+                    MediaSharedElementKey("server", "film"),
+                )
+                fixture.host.onStack(details, MediaSharedElementKey("server", "sequel"))
+                fixture.host.onStack(details, null, visible = false)
+                fixture.host.onStack(details, null)
+                assertEquals(setOf("detail", "related-detail"), fixture.host.origins.keys)
+
+                fixture.host.onStack(
+                    details + "preview",
+                    MediaSharedElementKey("server", "preview-art"),
+                )
+                assertEquals(
+                    "preview-art",
+                    fixture.host.origins["preview"]
+                        ?.key
+                        ?.itemId,
+                )
+                fixture.host.onStack(details, null)
+                assertEquals(setOf("detail", "related-detail"), fixture.host.origins.keys)
+                fixture.host.onStack(details.take(2), null)
+                assertEquals(setOf("detail"), fixture.host.origins.keys)
+                assertEquals(
+                    "film",
+                    fixture.host.origins["detail"]
+                        ?.key
+                        ?.itemId,
+                )
+                assertEquals(0, fixture.ordinaryBacks)
+            }
+        }
+
+    @Test
     fun aVisiblePageReceivesTheGestureAndCommitsOnce() =
         runTest {
             withHost(this) { fixture ->

@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,8 +49,10 @@ import com.yfuse.core.designsystem.ReportOverlayVisible
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.returnLocator
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.filesource.FileSource
 import com.yfuse.core.filesource.FileSourceProgress
@@ -75,6 +78,7 @@ internal fun FileBrowserScreen(controller: FileSourcesController) {
     val progress by controller.progress.collectAsState()
     val launch by controller.launch.collectAsState()
     val palette = LocalPalette.current
+    val visitedFolders = remember(browser.source.id) { mutableStateMapOf<List<String>, String>() }
     var menuFor by remember { mutableStateOf<FolderRow?>(null) }
     ReportOverlayVisible()
     StatusBarIconStyle(darkIcons = !palette.isDark)
@@ -94,7 +98,10 @@ internal fun FileBrowserScreen(controller: FileSourcesController) {
             progress = progress,
             onBack = controller::navigateUp,
             onRefresh = controller::refresh,
+            onNavigateDepth = controller::navigateToDepth,
+            returnedFolder = visitedFolders[path],
             onRow = { row ->
+                if (row.entry.directory) visitedFolders[path] = row.entry.name
                 if (row.entry.directory) controller.openFolder(row.entry.name) else controller.play(row.entry)
             },
             onRowMenu = { row -> menuFor = row },
@@ -146,6 +153,8 @@ private fun FolderPage(
     onRow: (FolderRow) -> Unit,
     onRowMenu: (FolderRow) -> Unit,
     onEditSource: () -> Unit,
+    onNavigateDepth: (Int) -> Unit,
+    returnedFolder: String?,
 ) {
     val palette = LocalPalette.current
     LazyColumn(
@@ -168,6 +177,9 @@ private fun FolderPage(
                 onBack = onBack,
                 onRefresh = onRefresh,
             )
+        }
+        if (path.isNotEmpty()) {
+            motionItem(key = "breadcrumbs") { FolderBreadcrumbs(source.name, path, onNavigateDepth) }
         }
         when (listing) {
             null, FolderListing.Loading ->
@@ -198,13 +210,14 @@ private fun FolderPage(
                             modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp),
                         )
                     }
-                    items(
+                    motionItems(
                         listing.rows,
                         key = { "entry:${it.entry.name}" },
                         contentType = { if (it.entry.directory) "folder" else "video" },
                     ) { row ->
                         FolderRowItem(
                             row = row,
+                            located = row.entry.name == returnedFolder,
                             progress = row.itemId?.let(progress::get),
                             preparing = preparing == row.entry.name,
                             onClick = { onRow(row) },
@@ -270,6 +283,7 @@ private fun FolderHeader(
 @Composable
 private fun FolderRowItem(
     row: FolderRow,
+    located: Boolean = false,
     progress: FileSourceProgress?,
     preparing: Boolean,
     onClick: () -> Unit,
@@ -283,6 +297,7 @@ private fun FolderRowItem(
     Row(
         Modifier
             .fillMaxWidth()
+            .returnLocator(located)
             .pressable(
                 onClickLabel = if (entry.directory) "打开${entry.name}" else "播放${entry.name}",
                 onLongClick = onLongClick,

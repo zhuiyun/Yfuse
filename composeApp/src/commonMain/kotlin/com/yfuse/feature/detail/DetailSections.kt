@@ -40,6 +40,7 @@ import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.SectionHeader
@@ -47,6 +48,8 @@ import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItemsIndexed
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
+import com.yfuse.core.designsystem.sharedMediaArtwork
+import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.model.Person
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -300,6 +303,7 @@ internal fun OverviewSection(
 
 @Composable
 internal fun CastRow(
+    serverId: String? = null,
     baseUrl: String,
     accessToken: String,
     people: List<Person>,
@@ -318,11 +322,19 @@ internal fun CastRow(
                 people.take(20),
                 key = { index, person -> "person-${person.id}-$index" },
             ) { _, person ->
+                val sharedKey = serverId?.let { MediaSharedElementKey(it, "person:${person.id}") }
+                val open = sharedMediaOnClick(sharedKey, CircleShape) { onPersonClick?.invoke(person) }
                 Column(
                     Modifier
                         .width(66.dp)
                         .let { base ->
-                            if (onPersonClick != null) base.pressable { onPersonClick(person) } else base
+                            if (onPersonClick !=
+                                null
+                            ) {
+                                base.pressable(onClickLabel = "查看${person.name}的资料", onClick = open)
+                            } else {
+                                base
+                            }
                         },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -332,6 +344,7 @@ internal fun CastRow(
                         modifier =
                             Modifier
                                 .size(52.dp)
+                                .sharedMediaArtwork(sharedKey, CircleShape)
                                 .border(1.dp, Color.White.copy(alpha = 0.88f), CircleShape),
                     )
                     Spacer(Modifier.height(6.dp))

@@ -10,6 +10,25 @@ class CinemaPosterNavigationTest {
     private val second = MediaSharedElementKey("b", "second")
 
     @Test
+    fun a_cancelled_preview_preserves_the_origin_for_the_next_back() {
+        val routes = MediaRouteOrigins()
+        val stack = listOf("library", "first")
+        routes.update(stack.take(1), null)
+        routes.update(stack, first)
+        repeat(3) {
+            assertEquals(first, routes.returningTo(stack.dropLast(1)))
+            routes.update(stack, null)
+        }
+        val controller = SharedMediaTransitionController()
+        controller.prepareReturn(routes.returningTo(stack.dropLast(1)))
+        controller.markReturnReady(first)
+        assertTrue(controller.isArtworkRegistered(first))
+        routes.update(stack.dropLast(1), null)
+        controller.prepareReturn(routes.returningTo(emptyList()))
+        assertNull(controller.returnKey)
+    }
+
+    @Test
     fun nested_details_return_to_their_own_posters_in_order() {
         val routes = MediaRouteOrigins()
         routes.update(listOf("library"), null)

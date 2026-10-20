@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -36,11 +36,15 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.sharedMediaArtwork
+import com.yfuse.core.designsystem.sharedMediaOnClick
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
@@ -131,7 +135,7 @@ fun PlaybackHistoryScreen(
                     }
                 }
             }
-            items(rows, key = { it.entry.identity }, contentType = { "history-card" }) { row ->
+            motionItems(rows, key = { it.entry.identity }, contentType = { "history-card" }) { row ->
                 val key = component.metadataKey(row)
                 val rowMetadata =
                     remember(component, key) {
@@ -146,6 +150,17 @@ fun PlaybackHistoryScreen(
                     row = enriched,
                     posterState = component.posterState(row),
                     onRetry = { component.retryMetadata(row) },
+                    sharedKey = key?.let { MediaSharedElementKey(it.serverId, it.itemId) },
+                    onContinue =
+                        if (component.canContinue(row)) {
+                            (
+                                {
+                                    if (!component.continuePlayback(row)) notice = "来源已变化，请重新打开影片"
+                                }
+                            )
+                        } else {
+                            null
+                        },
                     onOpen = {
                         if (!component.open(row)) notice = "暂时无法打开详情，请先连接这条记录的来源服务器"
                     },
@@ -161,6 +176,8 @@ private fun PlaybackHistoryCard(
     row: PlaybackHistoryRow,
     posterState: PlaybackHistoryPosterState,
     onRetry: () -> Unit,
+    sharedKey: MediaSharedElementKey?,
+    onContinue: (() -> Unit)?,
     onOpen: () -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -170,15 +187,22 @@ private fun PlaybackHistoryCard(
             .padding(horizontal = Dimens.pageHorizontal)
             .fillMaxWidth()
             .glass(AppShapes.card, palette.card2, palette.border)
-            .pressable(onClickLabel = "查看${row.title}的详情", focusShape = AppShapes.card, onClick = onOpen)
-            .padding(12.dp),
+            .pressable(
+                onClickLabel = "查看${row.title}的详情",
+                focusShape = AppShapes.card,
+                onClick = sharedMediaOnClick(sharedKey, AppShapes.card, onOpen),
+            ).padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val urls = remember(row) { playbackHistoryPosterUrls(row) }
         // Clip the container before the placeholder or image is drawn, including its first frame.
         Box(
-            Modifier.size(width = 72.dp, height = 108.dp).clip(AppShapes.card).background(palette.card3),
+            Modifier
+                .size(width = 72.dp, height = 108.dp)
+                .sharedMediaArtwork(sharedKey, AppShapes.card, urls)
+                .clip(AppShapes.card)
+                .background(palette.card3),
             contentAlignment = Alignment.Center,
         ) {
             Icon(AppIcons.Play, null, tint = palette.sub2, modifier = Modifier.size(24.dp))
@@ -244,6 +268,11 @@ private fun PlaybackHistoryCard(
                     .background(palette.card3),
             ) {
                 Box(Modifier.fillMaxWidth(row.progress).height(3.dp).background(LocalAccentColors.current.accent))
+            }
+            if (onContinue != null) {
+                TextButton(onClick = onContinue) {
+                    Text(if (entry.completed) "重新播放" else "继续播放", color = LocalAccentColors.current.accent)
+                }
             }
             Text(
                 remember(entry.watchedAtEpochMs) { historyWatchedAtLabel(entry.watchedAtEpochMs) },

@@ -53,6 +53,7 @@ class PlaybackHistoryComponentTest {
             personal.recordHistory(media, 60_000, 240_000, false)
             val lifecycle = LifecycleRegistry()
             val opened = mutableListOf<Pair<String, String>>()
+            val played = mutableListOf<Triple<String, String, Long>>()
             val component =
                 PlaybackHistoryComponent(
                     DefaultComponentContext(lifecycle),
@@ -61,6 +62,7 @@ class PlaybackHistoryComponentTest {
                     onBack = {},
                     onOpenItem = { server, item -> opened += server to item },
                     onOpenMetadata = {},
+                    onContinue = { server, item, ticks -> played += Triple(server, item, ticks) },
                     personal = personal,
                     viewing = LocalViewingStore(MapSettings(), personal),
                 )
@@ -74,8 +76,14 @@ class PlaybackHistoryComponentTest {
             registry.setDefault("second")
             assertTrue(component.open(row))
             assertEquals(listOf("first" to "episode-3"), opened)
+            assertTrue(component.canContinue(row))
+            assertTrue(component.continuePlayback(row))
+            assertEquals(listOf(Triple("first", "episode-3", 600_000_000L)), played)
+            assertFalse(component.continuePlayback(row.copy(entry = row.entry.copy(profileId = "another-profile"))))
             registry.remove("first")
             assertFalse(component.open(row))
+            assertFalse(component.continuePlayback(row))
+            assertEquals(1, played.size)
             assertEquals(1, opened.size)
             lifecycle.destroy()
         }

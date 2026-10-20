@@ -101,6 +101,8 @@ class HandoffControllerTest {
             runCurrent()
             controller.send("target")
             runCurrent()
+            assertEquals("target", controller.state.value.targetSessionId)
+            assertTrue(controller.state.value.busy)
             assertEquals(0, bridge.pauses)
             api.request = api.request!!.copy(status = HandoffStatus.Ready)
             advanceTimeBy(10_000)

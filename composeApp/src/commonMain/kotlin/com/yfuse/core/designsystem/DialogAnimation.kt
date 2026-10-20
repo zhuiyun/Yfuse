@@ -60,7 +60,7 @@ enum class DialogAnimation(
     PosterMorph("海报化窗", "海报延展成弹窗；没有海报时从触点展开", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_EMPHASIZED),
     Ripple("涟漪显现", "从触点泛起两道轻柔波纹，逐渐显露内容", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_STANDARD),
     PageFold("折页展开", "上页先展开，下页随后舒展，轻巧收拢", Motion.Dialog.ENTER_EMPHASIZED, Motion.Dialog.EXIT_STANDARD),
-    MagneticDrag("磁吸归位", "向下拖动弹窗，轻拉回弹，拉远后顺势关闭", Motion.Dialog.ENTER_STANDARD, Motion.Dialog.EXIT_QUICK),
+    MagneticDrag("磁吸归位", "面板轻弹展开，柔和收起；播放器浮动菜单支持拖动归位", Motion.Dialog.ENTER_STANDARD, Motion.Dialog.EXIT_QUICK),
     Sheen("柔光扫入", "面板轻轻浮起，海报色柔光掠过边缘", Motion.Dialog.ENTER_STANDARD, Motion.Dialog.EXIT_QUICK),
     Cascade("内容接力", "面板先落定，标题、选项与按钮依次轻盈入场", Motion.Dialog.ENTER_EXTENDED, Motion.Dialog.EXIT_STANDARD),
     PaperPlane("纸飞机投递", "沿折纸航线轻巧滑入，稳稳送到眼前", Motion.Dialog.ENTER_STANDARD, Motion.Dialog.EXIT_QUICK),

@@ -104,18 +104,10 @@ internal fun ServerActionsDialog(
         windowPadding = PaddingValues(start = 12.dp, top = 24.dp, end = 12.dp, bottom = 0.dp),
         shape = sheetShape,
         maxWidth = 480.dp,
-        dragHandle = false,
         animation = DialogAnimation.Slide,
     ) {
         val sheetPalette = LocalPalette.current
         val accent = LocalAccentColors.current
-        Box(
-            Modifier
-                .align(Alignment.CenterHorizontally)
-                .padding(top = 10.dp, bottom = 4.dp)
-                .size(width = 30.dp, height = 4.dp)
-                .background(sheetPalette.sub2.copy(alpha = 0.45f), CircleShape),
-        )
         ServerActionsHeader(server, isCurrent, health, onDismiss)
 
         if (canManage) {

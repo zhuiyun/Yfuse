@@ -90,7 +90,7 @@ internal fun MetadataEditorDialog(
             draft = loaded.draft
         }
     }
-    // Edited text is not something a fast flick should be able to throw away.
+    // Keep edited text and unapplied images until the person confirms discarding them.
     val editing = original?.let { draft != it.draft } == true
     // Nor something the scrim, back or 关闭 should drop unasked — a picked, unapplied image included.
     val unsaved = editing || selected != null
@@ -98,7 +98,6 @@ internal fun MetadataEditorDialog(
     GlassDialog(
         onDismiss = onDismiss,
         dismissEnabled = !busy,
-        dragToDismiss = !unsaved,
         confirmDismiss = {
             if (unsaved) confirmDiscard = true
             !unsaved

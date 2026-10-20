@@ -44,13 +44,34 @@ internal fun mediaLazyItemKey(
  * Starts a shared transition for a deliberate forward tap, and runs it backwards for the back
  * that returns to the same poster (一镜到底, see [onPop]).
  *
- * The key is cleared once a morph has settled, so a later predictive pop — which 跟手返回 draws
- * itself — never finds a stale morph waiting above its gesture.
+ * The active key is cleared once a morph settles. Cinema keeps the current detail's return key
+ * registered at rest, so its measured hero is already available when a back transition starts.
  */
 @Stable
 internal class SharedMediaTransitionController {
     var activeKey by mutableStateOf<MediaSharedElementKey?>(null)
         private set
+
+    var returnKey by mutableStateOf<MediaSharedElementKey?>(null)
+        private set
+
+    private var returnReady by mutableStateOf(false)
+    val hasPreparedReturn: Boolean get() = returnKey != null && returnReady
+
+    fun prepareReturn(key: MediaSharedElementKey?) {
+        if (returnKey != key) returnReady = false
+        returnKey = key
+        if (activeKey == null && key != null) artworkShape = artworkShapes[key] ?: AppShapes.card
+    }
+
+    /** A lifted card owns its entry animation; arm its hero only after the route arrives. */
+    fun markReturnReady(key: MediaSharedElementKey?) {
+        if (key != null && key == returnKey) returnReady = true
+    }
+
+    /** Registration must survive the idle interval between opening a detail and going back. */
+    fun isArtworkRegistered(key: MediaSharedElementKey): Boolean =
+        if (activeKey != null) activeKey == key && !popSuppressed else hasPreparedReturn && returnKey == key
 
     var artworkShape by mutableStateOf<Shape>(AppShapes.card)
         private set
@@ -76,7 +97,7 @@ internal class SharedMediaTransitionController {
     ) {
         artworkShapes[key] = shape
         if (artworkShapes.size > 512) artworkShapes.remove(artworkShapes.keys.first())
-        if (activeKey == key) artworkShape = shape
+        if (activeKey == key || (activeKey == null && returnKey == key)) artworkShape = shape
     }
 
     // State, not a plain field: artwork that reads it has to hear when a pop starts, or a back
@@ -95,9 +116,8 @@ internal class SharedMediaTransitionController {
         noteOrigin(key)
     }
 
-    // The poster a route is about to be pushed from, for 跟手返回 to go back into. Noted on every
-    // tap — under 减弱动态效果 too, which has no morph but keeps the pull-down — and claimed by the
-    // push that follows it, or by nothing once it is stale.
+    // The poster a route is about to be pushed from. Record taps even under reduced motion;
+    // the route that immediately follows claims the origin, and stale taps are discarded.
     private var pendingOrigin: MediaSharedElementKey? = null
     private var pendingSince: TimeSource.Monotonic.ValueTimeMark? = null
 
@@ -119,6 +139,7 @@ internal class SharedMediaTransitionController {
     /** A shrinking navigation stack must not reuse the forward-only artwork morph. */
     fun suppressForPop() {
         popSuppressed = true
+        prepareReturn(null)
     }
 
     /**
@@ -128,7 +149,7 @@ internal class SharedMediaTransitionController {
      * else keeps the old rule and suppresses the forward morph.
      */
     fun onPop(returnTo: MediaSharedElementKey?) {
-        if (activeKey != null && !popSuppressed) return
+        if (activeKey != null && !popSuppressed && (returnTo == null || returnTo == activeKey)) return
         if (returnTo == null) {
             suppressForPop()
             return
@@ -151,11 +172,16 @@ internal class SharedMediaTransitionController {
         open()
         val key = pendingOrigin ?: return null
         if (activeKey == key) activeKey = null
+        returnReady = false
         return key
     }
 
     fun finish(key: MediaSharedElementKey) {
-        if (activeKey == key) activeKey = null
+        if (activeKey == key) {
+            activeKey = null
+            markReturnReady(returnKey)
+            returnKey?.let { artworkShape = artworkShapes[it] ?: AppShapes.card }
+        }
     }
 }
 
@@ -201,8 +227,8 @@ internal fun sharedMediaOnClick(
 }
 
 /**
- * Register matching artwork for the current one-way media push, if one is active — and, while a
- * 跟手返回 is looking for it, offer it as the place the page goes back into (see [zoomBackSource]).
+ * Keep the active pair and Cinema's resting detail registered. Removing the hero modifier when
+ * the forward flight finished lost its measured bounds before the reverse transition began.
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -219,11 +245,12 @@ internal fun Modifier.sharedMediaArtwork(
         }
     }
     val base = zoomBackSource(key)
-    if (!isSharedMediaArtworkActive(key)) return base
-    val activeKey = checkNotNull(key)
+    if (key == null || controller == null || LocalAccessibilityOptions.current.reduceMotion || calmMotion()) return base
+    val registered by remember(controller, key) { derivedStateOf { controller.isArtworkRegistered(key) } }
+    if (!registered) return base
     val sharedScope = LocalSharedTransitionScope.current ?: return base
     val visibilityScope = LocalNavAnimatedContentScope.current
-    val shape = controller?.artworkShape ?: AppShapes.card
+    val shape = controller.artworkShape
     val overlayShape =
         sourceShape ?: run {
             val rounding =
@@ -239,7 +266,7 @@ internal fun Modifier.sharedMediaArtwork(
     return with(sharedScope) {
         base
             .sharedBounds(
-                sharedContentState = rememberSharedContentState(activeKey),
+                sharedContentState = rememberSharedContentState(key),
                 animatedVisibilityScope = visibilityScope,
                 // The poster's picture gives way to the page's on the bounds' own clock, so the two
                 // arrive together; the default fades ran on a softer spring of their own.

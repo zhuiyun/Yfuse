@@ -37,6 +37,7 @@ class PlaybackHistoryComponent(
     val viewing: LocalViewingStore = GlobalContext.get().get(),
     private val nowMs: () -> Long = System::currentTimeMillis,
     internal val progress: PlaybackSyncStore? = GlobalContext.getOrNull()?.getOrNull(),
+    private val onContinue: ((String, String, Long) -> Unit)? = null,
 ) : ComponentContext by componentContext {
     // Detail covers this route without destroying its scroll position.
     internal val listState = LazyListState()
@@ -194,6 +195,19 @@ class PlaybackHistoryComponent(
                 if (detailRequests[key] === request) detailRequests.remove(key)
             }
         }
+    }
+
+    internal fun canContinue(row: PlaybackHistoryRow): Boolean = onContinue != null && metadataKey(row) != null
+
+    /** Resolve again at the click, so a removed source or switched profile cannot launch old media. */
+    internal fun continuePlayback(row: PlaybackHistoryRow): Boolean {
+        val play = onContinue ?: return false
+        val key = metadataKey(row) ?: return false
+        val synced = progress?.stateForServerItem(key.serverId, key.itemId)
+        val completed = synced?.played ?: row.entry.completed
+        val position = synced?.positionMs ?: row.entry.positionMs
+        play(key.serverId, key.itemId, historyResumeTicks(position, completed))
+        return true
     }
 
     /** Re-resolve access at the tap, since the server or active profile may have changed. */

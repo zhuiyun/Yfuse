@@ -46,16 +46,20 @@ import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.SectionHeader
 import com.yfuse.core.designsystem.SkeletonPosterTile
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.cinemaDetailArrival
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
@@ -180,9 +184,19 @@ private fun PersonHeader(
             fallbackUrls = portraits.drop(1),
             shape = CircleShape,
             contentDescription = state.displayName,
-            modifier = Modifier.size(84.dp).border(1.dp, palette.border, CircleShape),
+            modifier =
+                Modifier
+                    .size(84.dp)
+                    .sharedMediaArtwork(
+                        server?.id?.let { MediaSharedElementKey(it, "person:$personId") },
+                        CircleShape,
+                        portraits,
+                    ).border(1.dp, palette.border, CircleShape),
         )
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Column(
+            Modifier.weight(1f).contentHandoff(state.profileLoading),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
             val facts =
                 listOfNotNull(
                     personLifeLine(state.birthDate, state.deathDate, today),
@@ -216,6 +230,7 @@ private fun PersonBiography(
     Column(
         Modifier
             .fillMaxWidth()
+            .cinemaDetailArrival()
             .animateContentSize(animationSpec = Motion.settle(reduceMotion))
             .then(
                 if (canToggle) {

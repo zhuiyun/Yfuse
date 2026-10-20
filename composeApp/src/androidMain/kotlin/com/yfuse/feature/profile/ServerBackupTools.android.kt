@@ -623,8 +623,6 @@ actual fun ServerBackupTools(
     if (showProtectedExport) {
         GlassDialog(
             onDismiss = ::closeProtectedExport,
-            // Two typed passphrases: a flick must not throw them away mid-entry.
-            dragToDismiss = false,
             // The window already holds FLAG_SECURE; the dialog's own window says so explicitly.
             properties =
                 DialogProperties(

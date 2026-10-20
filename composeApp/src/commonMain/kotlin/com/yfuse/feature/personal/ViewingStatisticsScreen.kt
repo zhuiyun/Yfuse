@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,7 +41,11 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.RollingNumber
+import com.yfuse.core.designsystem.contentHandoff
+import com.yfuse.core.designsystem.directionalHandoff
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.returnLocator
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.personal.LocalViewingSession
 import com.yfuse.core.personal.LocalViewingStore
@@ -127,7 +133,7 @@ fun ViewingStatisticsScreen(
             accessToken = server.accessToken,
         )
     }
-    SettingsPage("观影统计", "当前资料 · 仅记录本机实际观看", onBack) {
+    SettingsPage("观影统计", "当前资料 · 仅记录本机实际观看", onBack, modifier = Modifier.contentHandoff(historyOpen)) {
         item(key = "viewing-controls") {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Row {
@@ -169,111 +175,148 @@ fun ViewingStatisticsScreen(
         }
         if (!historyOpen) {
             item(key = "viewing-calendar") {
-                Column(Modifier.padding(horizontal = 20.dp).widthIn(max = 720.dp).fillMaxWidth()) {
-                    Text("观影日历", style = AppTypography.body.strong, color = palette.text)
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = {
-                            monthText = month.minusMonths(1).toString()
-                            selectedDay = null
-                        }) {
-                            Icon(AppIcons.ChevronLeft, "上个月", tint = palette.text)
-                        }
-                        Text(
-                            "${month.year}年${month.monthValue}月",
-                            style = AppTypography.body.strong,
-                            modifier = Modifier.weight(1f),
-                            color = palette.text,
-                        )
-                        TextButton(onClick = {
-                            monthText = YearMonth.from(today).toString()
-                            selectedDay = null
-                        }) {
-                            Text("今天", color = palette.success)
-                        }
-                        IconButton(onClick = {
-                            monthText = month.plusMonths(1).toString()
-                            selectedDay = null
-                        }) {
-                            Icon(AppIcons.ChevronRight, "下个月", tint = palette.text)
-                        }
-                    }
-                    Row(Modifier.fillMaxWidth()) {
-                        listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日").forEach {
-                            Box(Modifier.weight(1f).padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
-                                Text(it, style = AppTypography.caption.regular, color = palette.sub)
+                BoxWithConstraints(Modifier.padding(horizontal = 20.dp).widthIn(max = 720.dp).fillMaxWidth()) {
+                    val compact = maxWidth < 600.dp || LocalDensity.current.fontScale > 1.3f
+                    val cellHeight = if (compact) 56.dp * LocalDensity.current.fontScale.coerceAtLeast(1f) else 92.dp
+                    Column(Modifier.fillMaxWidth().directionalHandoff(month.year * 12L + month.monthValue)) {
+                        Text("观影日历", style = AppTypography.body.strong, color = palette.text)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = {
+                                monthText = month.minusMonths(1).toString()
+                                selectedDay = null
+                            }) {
+                                Icon(AppIcons.ChevronLeft, "上个月", tint = palette.text)
+                            }
+                            Text(
+                                "${month.year}年${month.monthValue}月",
+                                style = AppTypography.body.strong,
+                                modifier = Modifier.weight(1f),
+                                color = palette.text,
+                            )
+                            TextButton(onClick = {
+                                monthText = YearMonth.from(today).toString()
+                                selectedDay = null
+                            }) {
+                                Text("今天", color = palette.success)
+                            }
+                            IconButton(onClick = {
+                                monthText = month.plusMonths(1).toString()
+                                selectedDay = null
+                            }) {
+                                Icon(AppIcons.ChevronRight, "下个月", tint = palette.text)
                             }
                         }
-                    }
-                    viewingMonthCells(month).chunked(7).forEach { week ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(bottom = 5.dp),
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        ) {
-                            week.forEach { date ->
-                                if (date == null) {
-                                    Spacer(Modifier.weight(1f).height(92.dp))
+                        Row(Modifier.fillMaxWidth()) {
+                            (
+                                if (compact) {
+                                    listOf(
+                                        "一",
+                                        "二",
+                                        "三",
+                                        "四",
+                                        "五",
+                                        "六",
+                                        "日",
+                                    )
                                 } else {
-                                    val watched = byDay[date.toString()].orEmpty()
-                                    val unique = watched.distinctBy { it.seriesKey ?: it.media.identity }
-                                    val shape = RoundedCornerShape(10.dp)
-                                    Box(
-                                        Modifier
-                                            .weight(1f)
-                                            .height(92.dp)
-                                            .clip(shape)
-                                            .background(if (watched.isEmpty()) palette.card2 else palette.card)
-                                            .border(
-                                                if (selectedDay ==
-                                                    date.toString()
-                                                ) {
-                                                    2.dp
-                                                } else {
-                                                    0.dp
-                                                },
-                                                palette.success,
-                                                shape,
-                                            ).pressable {
-                                                selectedDay = date.toString()
-                                                historyLimit = 30
-                                            }.semantics { contentDescription = "$date，${watched.size} 次观看" }
-                                            .padding(5.dp),
-                                    ) {
-                                        Text(
-                                            date.dayOfMonth.toString(),
-                                            style = AppTypography.caption.regular,
-                                            color =
-                                                if (date ==
-                                                    today
-                                                ) {
-                                                    palette.success
-                                                } else {
-                                                    palette.text
-                                                },
-                                        )
-                                        unique.firstOrNull()?.let { session ->
-                                            FallbackImage(
-                                                listOf(poster(session)),
-                                                session.displayTitle,
-                                                Modifier
-                                                    .fillMaxSize()
-                                                    .padding(
-                                                        top = 19.dp,
-                                                    ).clip(RoundedCornerShape(5.dp)),
-                                                contentScale = ContentScale.Fit,
-                                                progressive = false,
+                                    listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+                                }
+                            ).forEach {
+                                Box(
+                                    Modifier.weight(1f).padding(vertical = 10.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(it, style = AppTypography.caption.regular, color = palette.sub)
+                                }
+                            }
+                        }
+                        viewingMonthCells(month).chunked(7).forEach { week ->
+                            Row(
+                                Modifier.fillMaxWidth().padding(bottom = 5.dp),
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            ) {
+                                week.forEach { date ->
+                                    if (date == null) {
+                                        Spacer(Modifier.weight(1f).height(cellHeight))
+                                    } else {
+                                        val watched = byDay[date.toString()].orEmpty()
+                                        val unique = watched.distinctBy { it.seriesKey ?: it.media.identity }
+                                        val shape = RoundedCornerShape(10.dp)
+                                        Box(
+                                            Modifier
+                                                .weight(1f)
+                                                .height(cellHeight)
+                                                .clip(shape)
+                                                .background(
+                                                    if (watched.isEmpty()) {
+                                                        palette.card2
+                                                    } else {
+                                                        palette.success.copy(
+                                                            alpha = 0.12f,
+                                                        )
+                                                    },
+                                                ).returnLocator(selectedDay == date.toString())
+                                                .border(
+                                                    if (selectedDay ==
+                                                        date.toString()
+                                                    ) {
+                                                        2.dp
+                                                    } else {
+                                                        0.dp
+                                                    },
+                                                    palette.success,
+                                                    shape,
+                                                ).pressable {
+                                                    selectedDay = date.toString()
+                                                    historyLimit = 30
+                                                }.semantics { contentDescription = "$date，${watched.size} 次观看" }
+                                                .padding(5.dp),
+                                        ) {
+                                            Text(
+                                                date.dayOfMonth.toString(),
+                                                style = AppTypography.caption.regular,
+                                                color =
+                                                    if (date ==
+                                                        today
+                                                    ) {
+                                                        palette.success
+                                                    } else {
+                                                        palette.text
+                                                    },
                                             )
-                                            if (unique.size > 1) {
+                                            if (compact && watched.isNotEmpty()) {
                                                 Text(
-                                                    "+${unique.size - 1}",
+                                                    "${unique.size} 部",
                                                     style = AppTypography.caption.regular,
-                                                    color = palette.text,
-                                                    modifier =
-                                                        Modifier
-                                                            .align(
-                                                                Alignment.BottomEnd,
-                                                            ).background(palette.card)
-                                                            .padding(2.dp),
+                                                    color = palette.sub,
+                                                    modifier = Modifier.align(Alignment.BottomCenter),
                                                 )
+                                            }
+                                            unique.firstOrNull()?.takeUnless { compact }?.let { session ->
+                                                FallbackImage(
+                                                    listOf(poster(session)),
+                                                    session.displayTitle,
+                                                    Modifier
+                                                        .fillMaxSize()
+                                                        .padding(
+                                                            top = 19.dp,
+                                                        ).clip(RoundedCornerShape(5.dp)),
+                                                    contentScale = ContentScale.Fit,
+                                                    progressive = false,
+                                                )
+                                                if (unique.size > 1) {
+                                                    Text(
+                                                        "+${unique.size - 1}",
+                                                        style = AppTypography.caption.regular,
+                                                        color = palette.text,
+                                                        modifier =
+                                                            Modifier
+                                                                .align(
+                                                                    Alignment.BottomEnd,
+                                                                ).background(palette.card)
+                                                                .padding(2.dp),
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -382,7 +425,7 @@ private fun ViewingMetric(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(label, style = AppTypography.caption.regular, color = palette.sub)
-        Text(value, style = AppTypography.body.strong, color = palette.text)
+        RollingNumber(value, style = AppTypography.body.strong, color = palette.text)
     }
 }
 

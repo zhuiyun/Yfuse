@@ -171,6 +171,7 @@ class TraktRepositoryTest {
             fixture.api.watchlistItems = listOf(TraktListItem(type = "movie"))
             fixture.repository.importWatchlist()
             runCurrent()
+            assertEquals(TraktOperation.Watchlist, fixture.repository.state.value.operation)
             assertTrue(fixture.repository.state.value.busy)
 
             fixture.repository.disconnect()

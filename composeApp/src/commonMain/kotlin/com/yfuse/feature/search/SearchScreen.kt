@@ -90,6 +90,7 @@ import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
+import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.StatusBarIconStyle
@@ -323,6 +324,8 @@ private fun SearchHomeScreen(
                                 expanded = coverageExpanded,
                                 onToggle = { coverageExpanded = !coverageExpanded },
                                 onOpenServerSettings = component.onOpenServerSettings,
+                                onRetry = { store.accept(SearchIntent.RetryServer(it)) },
+                                retryEnabled = !state.loading && state.query.trim() == state.searchedQuery,
                             )
                         }
                     }
@@ -1098,6 +1101,8 @@ private fun ServerGroup(
 /** Keeps empty/offline servers out of the main result stream without hiding coverage. */
 @Composable
 private fun SearchCoverageNotice(
+    onRetry: (String?) -> Unit,
+    retryEnabled: Boolean,
     unavailable: List<ServerSearchGroup>,
     emptyServerCount: Int,
     expanded: Boolean,
@@ -1158,6 +1163,14 @@ private fun SearchCoverageNotice(
                         color = palette.hint,
                     )
                 }
+                if (unavailable.size > 1) {
+                    SettingRow(
+                        "重试失败服务器",
+                        "保留已有结果",
+                        enabled = retryEnabled && unavailable.any { !it.retrying },
+                        onClick = { onRetry(null) },
+                    )
+                }
                 unavailable.forEach { group ->
                     Column(
                         Modifier
@@ -1165,6 +1178,13 @@ private fun SearchCoverageNotice(
                             .glass(AppShapes.chip, palette.card3, palette.border)
                             .padding(horizontal = 11.dp, vertical = 9.dp),
                     ) {
+                        SettingRow(
+                            "重试此服务器",
+                            if (group.retrying) "正在重试…" else "重新连接并搜索",
+                            enabled = retryEnabled,
+                            loading = group.retrying,
+                            onClick = { onRetry(group.serverId) },
+                        )
                         Text(
                             group.serverName,
                             style = AppTypography.caption.strong,

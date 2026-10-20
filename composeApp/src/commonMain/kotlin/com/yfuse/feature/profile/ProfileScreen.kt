@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -33,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,6 +75,8 @@ import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.LocalSettingsLocator
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.OfficialNavDisplay
@@ -88,6 +92,7 @@ import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.SettingsCard
 import com.yfuse.core.designsystem.SettingsDivider
+import com.yfuse.core.designsystem.SettingsLocatorRequest
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.SplashPreview
@@ -101,6 +106,7 @@ import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.settingsSearchAnchor
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.logging.AppLog
@@ -151,12 +157,13 @@ private enum class Sheet {
 /** Light to dark, which is how the segmented control is read left to right. */
 private val ThemeModeDisplayOrder = listOf(ThemeMode.Light, ThemeMode.System, ThemeMode.Dark)
 
-private data class SettingsSearchDestination(
+internal data class SettingsSearchDestination(
     val title: String,
     val summary: String,
     val keywords: String,
     val page: ProfilePage? = null,
     val opensServers: Boolean = false,
+    val anchor: SettingsControlAnchor? = null,
     val icon: ImageVector,
     val tint: Color,
 )
@@ -343,6 +350,8 @@ fun ProfileScreen(component: ProfileComponent) {
     var videoCacheUsageBytes by remember { mutableStateOf<Long?>(null) }
     val pages by component.pages.subscribeAsState()
     var settingsQuery by rememberSaveable { mutableStateOf("") }
+    var settingsLocator by remember { mutableStateOf<SettingsLocatorRequest?>(null) }
+    var settingsLocatorPage by remember { mutableStateOf<ProfilePage?>(null) }
     var offlineToPlay by remember { mutableStateOf<OfflineMedia?>(null) }
     var openLinkDialog by remember { mutableStateOf(false) }
     var linkToPlay by remember { mutableStateOf<PlayerMediaItem?>(null) }
@@ -377,464 +386,486 @@ fun ProfileScreen(component: ProfileComponent) {
             contentKey = { it.configuration.name },
             modifier = Modifier.fillMaxSize(),
         ) { entry ->
-            when (val activePage = entry.configuration) {
-                ProfilePage.Account ->
-                    AccountSettingsScreen(
-                        account = component.account,
-                        onBack = component::closePage,
-                        onOpenSessions = { component.openPage(ProfilePage.AccountSessions) },
-                    )
-
-                ProfilePage.AccountSessions ->
-                    AccountSessionsScreen(
-                        account = component.account,
-                        onBack = component::closePage,
-                    )
-
-                ProfilePage.Playback ->
-                    PlaybackSettingsScreen(
-                        onBack = component::closePage,
-                        optimizationMode = optimizationMode,
-                        mediaVersionPreference = mediaVersionPreference,
-                        autoNext = autoNext,
-                        detailThemeSong = detailThemeSong,
-                        smartCrossServerSource = smartCrossServerSource,
-                        progressSyncEnabled = progressSyncEnabled,
-                        anonymousQoeSharing = anonymousQoeSharing,
-                        videoCacheSize = videoCacheSize,
-                        sourcePreheat = sourcePreheat,
-                        skipSegments =
-                            if (skipTimesBySeries.isEmpty()) {
-                                "${skipMode.label} · 跟随服务器"
-                            } else {
-                                skipMode.label
-                            },
-                        onPlaybackMode = { sheet = Sheet.PlaybackMode },
-                        onMediaVersionPreference = { sheet = Sheet.MediaVersionPreference },
-                        onOpenAdvanced = { component.openPage(ProfilePage.AdvancedPlayback) },
-                        onAutoNext = prefs::setAutoNext,
-                        onDetailThemeSong = component.playbackPreferences::setDetailThemeSong,
-                        onSmartCrossServerSource = component.playbackPreferences::setSmartCrossServerSource,
-                        onProgressSync = component.dependencies.serverSyncManager::setProgress,
-                        onAnonymousQoeSharing = component.playbackPreferences::setAnonymousQoeSharing,
-                        onVideoCache = { sheet = Sheet.VideoCache },
-                        onSourcePreheat = { sheet = Sheet.SourcePreheat },
-                        onSkipSegments = { sheet = Sheet.SkipSegments },
-                        portraitVideo = portraitVideo,
-                        onPortraitVideo = { sheet = Sheet.PortraitVideo },
-                        defaultSpeed = defaultSpeed,
-                        onDefaultSpeed = { sheet = Sheet.DefaultSpeed },
-                    )
-
-                ProfilePage.AdvancedPlayback ->
-                    AdvancedPlaybackSettingsScreen(
-                        onBack = component::closePage,
-                        optimizationMode = optimizationMode,
-                        engineSelection = engineSelection,
-                        decoder = decoder,
-                        yCoreBufferDuration = yCoreBufferDuration,
-                        onOptimizationMode = { sheet = Sheet.AdvancedPlaybackMode },
-                        onEngine = { sheet = Sheet.Engine },
-                        onDecoder = { sheet = Sheet.Decoder },
-                        onYCoreBufferDuration = { sheet = Sheet.YCoreBufferDuration },
-                    )
-
-                ProfilePage.Danmaku ->
-                    DanmakuSettingsScreen(
-                        onBack = component::closePage,
-                        sourceSummary =
-                            when (danmakuSources.size) {
-                                0 -> "未配置"
-                                1 -> "${danmakuSources.first().name}"
-                                else -> {
-                                    val active = danmakuSources.activeOr(danmakuActiveSourceId)
-                                    "${danmakuSources.size} 个 · ${active?.name.orEmpty()}"
-                                }
-                            },
-                        blockedSummary = if (danmakuBlocked.isEmpty()) "未设置" else "${danmakuBlocked.size} 个",
-                        onSources = { sheet = Sheet.DanmakuSource },
-                        onBlockedWords = { sheet = Sheet.DanmakuBlocked },
-                    )
-
-                ProfilePage.WatchTogether ->
-                    if (watchAvailable) {
-                        (entry.instance as? ProfileComponent.Child.WatchTogether)?.let { watchPage ->
-                            val watch by watchPage.store.states.collectAsState(watchPage.store.state)
-                            WatchTogetherSettingsScreen(
-                                onBack = component::closePage,
-                                connected = watch.connected,
-                                roomCode = watch.roomCode,
-                                nickname = watch.nickname,
-                                chatDanmaku = watch.chatDanmaku,
-                                chatPreview = watch.chatPreview,
-                                onJoin = { sheet = Sheet.WatchTogether },
-                                onProfile = { sheet = Sheet.WatchProfile },
-                                onChatDanmaku = { enabled ->
-                                    watchPage.store.accept(WatchTogetherSettingsIntent.SetChatDanmaku(enabled))
-                                },
-                                onChatPreview = { enabled ->
-                                    watchPage.store.accept(WatchTogetherSettingsIntent.SetChatPreview(enabled))
-                                },
-                            )
-                        }
-                    } else {
+            CompositionLocalProvider(
+                LocalSettingsLocator provides settingsLocator?.takeIf { entry.configuration == settingsLocatorPage },
+            ) {
+                when (val activePage = entry.configuration) {
+                    ProfilePage.Account ->
                         AccountSettingsScreen(
                             account = component.account,
                             onBack = component::closePage,
                             onOpenSessions = { component.openPage(ProfilePage.AccountSessions) },
                         )
-                    }
 
-                ProfilePage.GlassMaterial ->
-                    GlassMaterialSettingsScreen(
-                        materials = glassMaterials,
-                        onChange = prefs::setGlassMaterial,
-                        onBack = component::closePage,
-                    )
+                    ProfilePage.AccountSessions ->
+                        AccountSessionsScreen(
+                            account = component.account,
+                            onBack = component::closePage,
+                        )
 
-                ProfilePage.Appearance ->
-                    AppearanceSettingsScreen(
-                        libraryCarousel = libraryCarousel,
-                        onLibraryCarousel = prefs::setLibraryCarousel,
-                        navCollapseOnScroll = navCollapseOnScroll,
-                        onNavCollapseOnScroll = prefs::setNavCollapseOnScroll,
-                        onBack = component::closePage,
-                        brandSummary =
-                            if (splashAnimation) {
-                                "${appIcon.label} · 开屏已开启"
-                            } else {
-                                "${appIcon.label} · 开屏已关闭"
+                    ProfilePage.Playback ->
+                        PlaybackSettingsScreen(
+                            onBack = component::closePage,
+                            optimizationMode = optimizationMode,
+                            mediaVersionPreference = mediaVersionPreference,
+                            autoNext = autoNext,
+                            detailThemeSong = detailThemeSong,
+                            smartCrossServerSource = smartCrossServerSource,
+                            progressSyncEnabled = progressSyncEnabled,
+                            anonymousQoeSharing = anonymousQoeSharing,
+                            videoCacheSize = videoCacheSize,
+                            sourcePreheat = sourcePreheat,
+                            skipSegments =
+                                if (skipTimesBySeries.isEmpty()) {
+                                    "${skipMode.label} · 跟随服务器"
+                                } else {
+                                    skipMode.label
+                                },
+                            onPlaybackMode = { sheet = Sheet.PlaybackMode },
+                            onMediaVersionPreference = { sheet = Sheet.MediaVersionPreference },
+                            onOpenAdvanced = { component.openPage(ProfilePage.AdvancedPlayback) },
+                            onAutoNext = prefs::setAutoNext,
+                            onDetailThemeSong = component.playbackPreferences::setDetailThemeSong,
+                            onSmartCrossServerSource = component.playbackPreferences::setSmartCrossServerSource,
+                            onProgressSync = component.dependencies.serverSyncManager::setProgress,
+                            onAnonymousQoeSharing = component.playbackPreferences::setAnonymousQoeSharing,
+                            onVideoCache = { sheet = Sheet.VideoCache },
+                            onSourcePreheat = { sheet = Sheet.SourcePreheat },
+                            onSkipSegments = { sheet = Sheet.SkipSegments },
+                            portraitVideo = portraitVideo,
+                            onPortraitVideo = { sheet = Sheet.PortraitVideo },
+                            defaultSpeed = defaultSpeed,
+                            onDefaultSpeed = { sheet = Sheet.DefaultSpeed },
+                        )
+
+                    ProfilePage.AdvancedPlayback ->
+                        AdvancedPlaybackSettingsScreen(
+                            onBack = component::closePage,
+                            optimizationMode = optimizationMode,
+                            engineSelection = engineSelection,
+                            decoder = decoder,
+                            yCoreBufferDuration = yCoreBufferDuration,
+                            onOptimizationMode = { sheet = Sheet.AdvancedPlaybackMode },
+                            onEngine = { sheet = Sheet.Engine },
+                            onDecoder = { sheet = Sheet.Decoder },
+                            onYCoreBufferDuration = { sheet = Sheet.YCoreBufferDuration },
+                        )
+
+                    ProfilePage.Danmaku ->
+                        DanmakuSettingsScreen(
+                            onBack = component::closePage,
+                            sourceSummary =
+                                when (danmakuSources.size) {
+                                    0 -> "未配置"
+                                    1 -> "${danmakuSources.first().name}"
+                                    else -> {
+                                        val active = danmakuSources.activeOr(danmakuActiveSourceId)
+                                        "${danmakuSources.size} 个 · ${active?.name.orEmpty()}"
+                                    }
+                                },
+                            blockedSummary = if (danmakuBlocked.isEmpty()) "未设置" else "${danmakuBlocked.size} 个",
+                            onSources = { sheet = Sheet.DanmakuSource },
+                            onBlockedWords = { sheet = Sheet.DanmakuBlocked },
+                        )
+
+                    ProfilePage.WatchTogether ->
+                        if (watchAvailable) {
+                            (entry.instance as? ProfileComponent.Child.WatchTogether)?.let { watchPage ->
+                                val watch by watchPage.store.states.collectAsState(watchPage.store.state)
+                                WatchTogetherSettingsScreen(
+                                    onBack = component::closePage,
+                                    connected = watch.connected,
+                                    roomCode = watch.roomCode,
+                                    nickname = watch.nickname,
+                                    chatDanmaku = watch.chatDanmaku,
+                                    chatPreview = watch.chatPreview,
+                                    onJoin = { sheet = Sheet.WatchTogether },
+                                    onProfile = { sheet = Sheet.WatchProfile },
+                                    onChatDanmaku = { enabled ->
+                                        watchPage.store.accept(WatchTogetherSettingsIntent.SetChatDanmaku(enabled))
+                                    },
+                                    onChatPreview = { enabled ->
+                                        watchPage.store.accept(WatchTogetherSettingsIntent.SetChatPreview(enabled))
+                                    },
+                                )
+                            }
+                        } else {
+                            AccountSettingsScreen(
+                                account = component.account,
+                                onBack = component::closePage,
+                                onOpenSessions = { component.openPage(ProfilePage.AccountSessions) },
+                            )
+                        }
+
+                    ProfilePage.GlassMaterial ->
+                        GlassMaterialSettingsScreen(
+                            materials = glassMaterials,
+                            onChange = prefs::setGlassMaterial,
+                            onBack = component::closePage,
+                        )
+
+                    ProfilePage.Appearance ->
+                        AppearanceSettingsScreen(
+                            libraryCarousel = libraryCarousel,
+                            onLibraryCarousel = prefs::setLibraryCarousel,
+                            navCollapseOnScroll = navCollapseOnScroll,
+                            onNavCollapseOnScroll = prefs::setNavCollapseOnScroll,
+                            onBack = component::closePage,
+                            brandSummary =
+                                if (splashAnimation) {
+                                    "${appIcon.label} · 开屏已开启"
+                                } else {
+                                    "${appIcon.label} · 开屏已关闭"
+                                },
+                            backgroundSummary =
+                                if (backgroundImage == null) {
+                                    "未设置"
+                                } else {
+                                    "已设置 · ${(backgroundDim * 100).toInt()}% 遮罩"
+                                },
+                            startupSummary = startupTab.label,
+                            motionTheme = motionTheme,
+                            dialogAnimationSummary = dialogAnimation.label,
+                            loadingAnimationSummary = loadingAnimation.label,
+                            playerTransitionSummary = playerTransition.label,
+                            particleLightSummary = particleLight.label,
+                            onParticleLight = { sheet = Sheet.ParticleLight },
+                            onMotionTheme = { sheet = Sheet.MotionTheme },
+                            onDialogAnimation = { sheet = Sheet.DialogAnimation },
+                            onLoadingAnimation = { sheet = Sheet.LoadingAnimation },
+                            onPlayerTransition = { sheet = Sheet.PlayerTransition },
+                            onGlassMaterial = { component.openPage(ProfilePage.GlassMaterial) },
+                            reduceTransparency = reduceTransparency,
+                            largeText = largeText,
+                            reduceMotion = reduceMotion,
+                            systemMotionOff = platformAnimationsDisabled(),
+                            pulseSweep = pulseSweep,
+                            onBackground = { sheet = Sheet.Background },
+                            onBrand = { component.openPage(ProfilePage.Splash) },
+                            onStartupTab = { sheet = Sheet.StartupTab },
+                            onReduceTransparency = prefs::setReduceTransparency,
+                            onLargeText = prefs::setLargeText,
+                            onReduceMotion = prefs::setReduceMotion,
+                            onPulseSweep = prefs::setPulseSweep,
+                        )
+
+                    ProfilePage.DataAndDiagnostics ->
+                        DataAndDiagnosticsScreen(
+                            onBack = component::closePage,
+                            serverCount = state.servers.size,
+                            customUserAgent = customUserAgent,
+                            onExport = component::exportServers,
+                            onImport = component::importServers,
+                            onExportRelay = component::exportRelayServers,
+                            onInspectRelay = component::inspectRelayServers,
+                            onIsRelay = component::isRelayServers,
+                            onImportRelay = component::importRelayServers,
+                            imageCacheUsageBytes = imageCacheUsageBytes,
+                            videoCacheUsageBytes = videoCacheUsageBytes,
+                            videoCacheSize = videoCacheSize,
+                            onUserAgent = { sheet = Sheet.UserAgent },
+                            onClearCache = { confirmClearCache = true },
+                            onClearVideoCache = { confirmClearVideoCache = true },
+                        )
+
+                    ProfilePage.Downloads ->
+                        DownloadsScreen(
+                            onBack = component::closePage,
+                            manager = component.offlineMedia,
+                            onPlay = { offlineToPlay = it },
+                        )
+
+                    ProfilePage.Splash ->
+                        BrandAndSplashScreen(
+                            onBack = component::closePage,
+                            prefs = prefs,
+                            appIcon = appIcon,
+                            onAppIcon = { chosen ->
+                                setAppIconVariant(chosen)
+                                appIcon = chosen
                             },
-                        backgroundSummary =
-                            if (backgroundImage == null) {
-                                "未设置"
-                            } else {
-                                "已设置 · ${(backgroundDim * 100).toInt()}% 遮罩"
-                            },
-                        startupSummary = startupTab.label,
-                        motionTheme = motionTheme,
-                        dialogAnimationSummary = dialogAnimation.label,
-                        loadingAnimationSummary = loadingAnimation.label,
-                        playerTransitionSummary = playerTransition.label,
-                        particleLightSummary = particleLight.label,
-                        onParticleLight = { sheet = Sheet.ParticleLight },
-                        onMotionTheme = { sheet = Sheet.MotionTheme },
-                        onDialogAnimation = { sheet = Sheet.DialogAnimation },
-                        onLoadingAnimation = { sheet = Sheet.LoadingAnimation },
-                        onPlayerTransition = { sheet = Sheet.PlayerTransition },
-                        onGlassMaterial = { component.openPage(ProfilePage.GlassMaterial) },
-                        reduceTransparency = reduceTransparency,
-                        largeText = largeText,
-                        reduceMotion = reduceMotion,
-                        systemMotionOff = platformAnimationsDisabled(),
-                        pulseSweep = pulseSweep,
-                        onBackground = { sheet = Sheet.Background },
-                        onBrand = { component.openPage(ProfilePage.Splash) },
-                        onStartupTab = { sheet = Sheet.StartupTab },
-                        onReduceTransparency = prefs::setReduceTransparency,
-                        onLargeText = prefs::setLargeText,
-                        onReduceMotion = prefs::setReduceMotion,
-                        onPulseSweep = prefs::setPulseSweep,
-                    )
+                        )
 
-                ProfilePage.DataAndDiagnostics ->
-                    DataAndDiagnosticsScreen(
-                        onBack = component::closePage,
-                        serverCount = state.servers.size,
-                        customUserAgent = customUserAgent,
-                        onExport = component::exportServers,
-                        onImport = component::importServers,
-                        onExportRelay = component::exportRelayServers,
-                        onInspectRelay = component::inspectRelayServers,
-                        onIsRelay = component::isRelayServers,
-                        onImportRelay = component::importRelayServers,
-                        imageCacheUsageBytes = imageCacheUsageBytes,
-                        videoCacheUsageBytes = videoCacheUsageBytes,
-                        videoCacheSize = videoCacheSize,
-                        onUserAgent = { sheet = Sheet.UserAgent },
-                        onClearCache = { confirmClearCache = true },
-                        onClearVideoCache = { confirmClearVideoCache = true },
-                    )
+                    ProfilePage.Personal, ProfilePage.Family, ProfilePage.Sync ->
+                        (entry.instance as? ProfileComponent.Child.Personal)?.let { personalPage ->
+                            com.yfuse.feature.personal.PersonalCenterScreen(
+                                store = personalPage.store,
+                                servers = component.familyServers(),
+                                onBack = component::closePage,
+                                onOpenMedia = component.onOpenPersonalMedia,
+                                initialTab =
+                                    when (activePage) {
+                                        ProfilePage.Family -> com.yfuse.feature.personal.PersonalCenterTab.Profiles
+                                        ProfilePage.Sync -> com.yfuse.feature.personal.PersonalCenterTab.Sync
+                                        else -> com.yfuse.feature.personal.PersonalCenterTab.WatchLater
+                                    },
+                            )
+                        }
 
-                ProfilePage.Downloads ->
-                    DownloadsScreen(
-                        onBack = component::closePage,
-                        manager = component.offlineMedia,
-                        onPlay = { offlineToPlay = it },
-                    )
-
-                ProfilePage.Splash ->
-                    BrandAndSplashScreen(
-                        onBack = component::closePage,
-                        prefs = prefs,
-                        appIcon = appIcon,
-                        onAppIcon = { chosen ->
-                            setAppIconVariant(chosen)
-                            appIcon = chosen
-                        },
-                    )
-
-                ProfilePage.Personal, ProfilePage.Family, ProfilePage.Sync ->
-                    (entry.instance as? ProfileComponent.Child.Personal)?.let { personalPage ->
-                        com.yfuse.feature.personal.PersonalCenterScreen(
-                            store = personalPage.store,
-                            servers = component.familyServers(),
+                    ProfilePage.ViewingStatistics ->
+                        com.yfuse.feature.personal.ViewingStatisticsScreen(
+                            store = component.viewing,
                             onBack = component::closePage,
                             onOpenMedia = component.onOpenPersonalMedia,
-                            initialTab =
-                                when (activePage) {
-                                    ProfilePage.Family -> com.yfuse.feature.personal.PersonalCenterTab.Profiles
-                                    ProfilePage.Sync -> com.yfuse.feature.personal.PersonalCenterTab.Sync
-                                    else -> com.yfuse.feature.personal.PersonalCenterTab.WatchLater
-                                },
                         )
-                    }
 
-                ProfilePage.ViewingStatistics ->
-                    com.yfuse.feature.personal.ViewingStatisticsScreen(
-                        store = component.viewing,
-                        onBack = component::closePage,
-                        onOpenMedia = component.onOpenPersonalMedia,
-                    )
+                    ProfilePage.Handoff ->
+                        (entry.instance as? ProfileComponent.Child.Handoff)?.let { handoffPage ->
+                            com.yfuse.feature.handoff
+                                .DeviceHandoffScreen(handoffPage.store, component::closePage)
+                        }
 
-                ProfilePage.Handoff ->
-                    (entry.instance as? ProfileComponent.Child.Handoff)?.let { handoffPage ->
-                        com.yfuse.feature.handoff
-                            .DeviceHandoffScreen(handoffPage.store, component::closePage)
-                    }
+                    ProfilePage.Trakt ->
+                        (entry.instance as? ProfileComponent.Child.Trakt)?.let { traktPage ->
+                            com.yfuse.feature.trakt
+                                .TraktSettingsScreen(traktPage.store, component::closePage)
+                        }
 
-                ProfilePage.Trakt ->
-                    (entry.instance as? ProfileComponent.Child.Trakt)?.let { traktPage ->
-                        com.yfuse.feature.trakt
-                            .TraktSettingsScreen(traktPage.store, component::closePage)
-                    }
-
-                ProfilePage.Root ->
-                    SkeletonHandoff(
-                        loading = !state.initialized,
-                        modifier = Modifier.fillMaxSize(),
-                        skeleton = { PageLoadingSkeleton() },
-                    ) {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize().statusBarsPadding(),
-                            state = mainListState,
-                            contentPadding = PaddingValues(top = Dimens.contentTop, bottom = rootBottomContentInset),
-                            verticalArrangement = Arrangement.spacedBy(18.dp),
+                    ProfilePage.Root ->
+                        SkeletonHandoff(
+                            loading = !state.initialized,
+                            modifier = Modifier.fillMaxSize(),
+                            skeleton = { PageLoadingSkeleton() },
                         ) {
-                            // Every root item carries a stable key: the search results item above the
-                            // sections comes and goes, and index keys would shift every section after it,
-                            // dropping their state and replaying animateItem and skeleton arrival.
-                            motionItem(key = "settings-search", contentType = "settings-search") {
-                                YfFormField(
-                                    value = settingsQuery,
-                                    onValueChange = { settingsQuery = it.take(60) },
-                                    label = "搜索设置",
-                                    modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-                                )
-                            }
-                            if (settingsQuery.isNotBlank()) {
-                                motionItem(key = "settings-search-results", contentType = "settings-search-results") {
-                                    SettingsSearchResults(
-                                        query = settingsQuery,
-                                        onOpen = component::openPage,
-                                        onOpenServers = component.onOpenServers,
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize().statusBarsPadding(),
+                                state = mainListState,
+                                contentPadding =
+                                    PaddingValues(
+                                        top = Dimens.contentTop,
+                                        bottom = rootBottomContentInset,
+                                    ),
+                                verticalArrangement = Arrangement.spacedBy(18.dp),
+                            ) {
+                                // Every root item carries a stable key: the search results item above the
+                                // sections comes and goes, and index keys would shift every section after it,
+                                // dropping their state and replaying animateItem and skeleton arrival.
+                                motionItem(key = "settings-search", contentType = "settings-search") {
+                                    YfFormField(
+                                        value = settingsQuery,
+                                        onValueChange = { settingsQuery = it.take(60) },
+                                        label = "搜索设置",
+                                        modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
                                     )
                                 }
-                            }
-                            motionItem(key = "servers-and-account", contentType = "settings-section") {
-                                Section(title = "服务器与账号") {
-                                    SettingsCard {
-                                        if (BackendAccess.Default.enabled) {
+                                if (settingsQuery.isNotBlank()) {
+                                    motionItem(
+                                        key = "settings-search-results",
+                                        contentType = "settings-search-results",
+                                    ) {
+                                        SettingsSearchResults(
+                                            query = settingsQuery,
+                                            onOpen = { page, anchor ->
+                                                settingsLocatorPage = page
+                                                settingsLocator =
+                                                    anchor?.let {
+                                                        SettingsLocatorRequest(
+                                                            it.pageTitle,
+                                                            it.itemIndex,
+                                                            it.label,
+                                                        )
+                                                    }
+                                                component.openPage(page)
+                                            },
+                                            onOpenServers = component.onOpenServers,
+                                        )
+                                    }
+                                }
+                                motionItem(key = "servers-and-account", contentType = "settings-section") {
+                                    Section(title = "服务器与账号") {
+                                        SettingsCard {
+                                            if (BackendAccess.Default.enabled) {
+                                                SettingRow(
+                                                    icon = AppIcons.User,
+                                                    iconTint = SettingTint.account,
+                                                    title = "账号与同步",
+                                                    value =
+                                                        when (val account = accountState) {
+                                                            AccountState.Restoring -> "正在恢复"
+                                                            is AccountState.RestoreFailed -> "连接失败 · 点此重试"
+                                                            AccountState.SignedOut -> "未登录"
+                                                            is AccountState.SignedIn -> "${account.session.user.nickname} · 加密同步"
+                                                        },
+                                                    embedded = true,
+                                                    onClick = { component.openPage(ProfilePage.Account) },
+                                                )
+                                                SettingsDivider()
+                                            }
                                             SettingRow(
-                                                icon = AppIcons.User,
-                                                iconTint = SettingTint.account,
-                                                title = "账号与同步",
+                                                icon = AppIcons.Server,
+                                                iconTint = SettingTint.servers,
+                                                title = "服务器",
                                                 value =
-                                                    when (val account = accountState) {
-                                                        AccountState.Restoring -> "正在恢复"
-                                                        is AccountState.RestoreFailed -> "连接失败 · 点此重试"
-                                                        AccountState.SignedOut -> "未登录"
-                                                        is AccountState.SignedIn -> "${account.session.user.nickname} · 加密同步"
+                                                    if (state.servers.isEmpty()) {
+                                                        "尚未连接"
+                                                    } else {
+                                                        val current = state.currentServer?.serverName
+                                                        "${state.servers.size} 台 · ${current ?: "未选择"}"
                                                     },
                                                 embedded = true,
-                                                onClick = { component.openPage(ProfilePage.Account) },
+                                                onClick = component.onOpenServers,
+                                            )
+                                        }
+                                    }
+                                }
+
+                                motionItem(key = "personal-settings", contentType = "personal-settings") {
+                                    PersonalSettingsSection(
+                                        personal = component.personal,
+                                        onOpenContent = { component.openPage(ProfilePage.Personal) },
+                                        onOpenStatistics = { component.openPage(ProfilePage.ViewingStatistics) },
+                                        onOpenFamily = { component.openPage(ProfilePage.Family) },
+                                        onOpenHandoff = { component.openPage(ProfilePage.Handoff) },
+                                        onOpenTrakt = { component.openPage(ProfilePage.Trakt) },
+                                    )
+                                }
+
+                                motionItem(key = "appearance", contentType = "settings-section") {
+                                    Section(title = "外观与主题") {
+                                        SettingsCard {
+                                            SettingSegmentRow(
+                                                title = "主题",
+                                                options = ThemeModeDisplayOrder.map { it.label },
+                                                selectedIndex = ThemeModeDisplayOrder.indexOf(mode).coerceAtLeast(0),
+                                                onSelect = { prefs.setMode(ThemeModeDisplayOrder[it]) },
+                                                icon = AppIcons.Cloud,
+                                                iconTint = SettingTint.appearance,
                                             )
                                             SettingsDivider()
-                                        }
-                                        SettingRow(
-                                            icon = AppIcons.Server,
-                                            iconTint = SettingTint.servers,
-                                            title = "服务器",
-                                            value =
-                                                if (state.servers.isEmpty()) {
-                                                    "尚未连接"
-                                                } else {
-                                                    val current = state.currentServer?.serverName
-                                                    "${state.servers.size} 台 · ${current ?: "未选择"}"
-                                                },
-                                            embedded = true,
-                                            onClick = component.onOpenServers,
-                                        )
-                                    }
-                                }
-                            }
-
-                            motionItem(key = "personal-settings", contentType = "personal-settings") {
-                                PersonalSettingsSection(
-                                    personal = component.personal,
-                                    onOpenContent = { component.openPage(ProfilePage.Personal) },
-                                    onOpenStatistics = { component.openPage(ProfilePage.ViewingStatistics) },
-                                    onOpenFamily = { component.openPage(ProfilePage.Family) },
-                                    onOpenHandoff = { component.openPage(ProfilePage.Handoff) },
-                                    onOpenTrakt = { component.openPage(ProfilePage.Trakt) },
-                                )
-                            }
-
-                            motionItem(key = "appearance", contentType = "settings-section") {
-                                Section(title = "外观与主题") {
-                                    SettingsCard {
-                                        SettingSegmentRow(
-                                            title = "主题",
-                                            options = ThemeModeDisplayOrder.map { it.label },
-                                            selectedIndex = ThemeModeDisplayOrder.indexOf(mode).coerceAtLeast(0),
-                                            onSelect = { prefs.setMode(ThemeModeDisplayOrder[it]) },
-                                            icon = AppIcons.Cloud,
-                                            iconTint = SettingTint.appearance,
-                                        )
-                                        SettingsDivider()
-                                        SettingSegmentRow(
-                                            title = "视觉效果",
-                                            options = GlassStyle.entries.map { it.label },
-                                            selectedIndex = GlassStyle.entries.indexOf(glassStyle),
-                                            onSelect = { prefs.setGlassStyle(GlassStyle.entries[it]) },
-                                            icon = AppIcons.Grid,
-                                            iconTint = SettingTint.components,
-                                        )
-                                        SettingsDivider()
-                                        SettingRow(
-                                            "更多外观与辅助",
-                                            "弹窗动画 · 背景 · 辅助功能",
-                                            embedded = true,
-                                            onClick = { component.openPage(ProfilePage.Appearance) },
-                                            icon = AppIcons.Info,
-                                            iconTint = SettingTint.appearance,
-                                        )
-                                    }
-                                }
-                            }
-
-                            motionItem(key = "playback", contentType = "settings-section") {
-                                Section(title = "播放") {
-                                    SettingsCard {
-                                        SettingRow(
-                                            "播放设置",
-                                            "${playbackSettingsSummary(optimizationMode, decoder)}",
-                                            embedded = true,
-                                            onClick = { component.openPage(ProfilePage.Playback) },
-                                            icon = AppIcons.Play,
-                                            iconTint = SettingTint.playback,
-                                        )
-                                        if (BackendAccess.Default.enabled) {
+                                            SettingSegmentRow(
+                                                title = "视觉效果",
+                                                options = GlassStyle.entries.map { it.label },
+                                                selectedIndex = GlassStyle.entries.indexOf(glassStyle),
+                                                onSelect = { prefs.setGlassStyle(GlassStyle.entries[it]) },
+                                                icon = AppIcons.Grid,
+                                                iconTint = SettingTint.components,
+                                            )
                                             SettingsDivider()
                                             SettingRow(
-                                                "一起看",
-                                                when {
-                                                    !watchAvailable -> "登录后使用"
-                                                    watchState.connected ->
-                                                        "房间 ${watchState.roomCode.orEmpty()}"
-                                                    else -> "$watchNickname"
-                                                },
+                                                "更多外观与辅助",
+                                                "弹窗动画 · 背景 · 辅助功能",
                                                 embedded = true,
-                                                onClick = {
-                                                    component.openPage(
-                                                        if (watchAvailable) {
-                                                            ProfilePage.WatchTogether
-                                                        } else {
-                                                            ProfilePage.Account
-                                                        },
-                                                    )
-                                                },
-                                                icon = AppIcons.Chat,
-                                                iconTint = SettingTint.watchTogether,
+                                                onClick = { component.openPage(ProfilePage.Appearance) },
+                                                icon = AppIcons.Info,
+                                                iconTint = SettingTint.appearance,
                                             )
                                         }
-                                        SettingsDivider()
-                                        SettingRow(
-                                            "打开链接",
-                                            if (personalPolicy.child) "儿童资料不可用" else "粘贴 http(s) 视频地址直接播放",
-                                            embedded = true,
-                                            onClick = { openLinkDialog = true },
-                                            icon = AppIcons.PlaybackSource,
-                                            iconTint = SettingTint.playback,
-                                            enabled = !personalPolicy.child,
-                                        )
                                     }
                                 }
-                            }
 
-                            motionItem(key = "subtitles-and-danmaku", contentType = "settings-section") {
-                                Section(title = "字幕与弹幕") {
-                                    SettingsCard {
-                                        SettingRow(
-                                            "弹幕设置",
-                                            when (danmakuSources.size) {
-                                                0 -> "来源 · 关键词屏蔽 · 显示"
-                                                1 -> "1 个来源 · 关键词屏蔽"
-                                                else -> "${danmakuSources.size} 个来源 · 关键词屏蔽"
-                                            },
-                                            embedded = true,
-                                            onClick = { component.openPage(ProfilePage.Danmaku) },
-                                            icon = AppIcons.Danmaku,
-                                            iconTint = SettingTint.danmaku,
-                                        )
+                                motionItem(key = "playback", contentType = "settings-section") {
+                                    Section(title = "播放") {
+                                        SettingsCard {
+                                            SettingRow(
+                                                "播放设置",
+                                                "${playbackSettingsSummary(optimizationMode, decoder)}",
+                                                embedded = true,
+                                                onClick = { component.openPage(ProfilePage.Playback) },
+                                                icon = AppIcons.Play,
+                                                iconTint = SettingTint.playback,
+                                            )
+                                            if (BackendAccess.Default.enabled) {
+                                                SettingsDivider()
+                                                SettingRow(
+                                                    "一起看",
+                                                    when {
+                                                        !watchAvailable -> "登录后使用"
+                                                        watchState.connected ->
+                                                            "房间 ${watchState.roomCode.orEmpty()}"
+                                                        else -> "$watchNickname"
+                                                    },
+                                                    embedded = true,
+                                                    onClick = {
+                                                        component.openPage(
+                                                            if (watchAvailable) {
+                                                                ProfilePage.WatchTogether
+                                                            } else {
+                                                                ProfilePage.Account
+                                                            },
+                                                        )
+                                                    },
+                                                    icon = AppIcons.Chat,
+                                                    iconTint = SettingTint.watchTogether,
+                                                )
+                                            }
+                                            SettingsDivider()
+                                            SettingRow(
+                                                "打开链接",
+                                                if (personalPolicy.child) "儿童资料不可用" else "粘贴 http(s) 视频地址直接播放",
+                                                embedded = true,
+                                                onClick = { openLinkDialog = true },
+                                                icon = AppIcons.PlaybackSource,
+                                                iconTint = SettingTint.playback,
+                                                enabled = !personalPolicy.child,
+                                            )
+                                        }
                                     }
                                 }
-                            }
 
-                            motionItem(key = "downloads", contentType = "settings-section") {
-                                Section(title = "下载") {
-                                    SettingsCard {
-                                        DownloadRow(
-                                            value =
-                                                when (offlineIndexStatus) {
-                                                    OfflineIndexStatus.Loading -> "正在读取…"
-                                                    OfflineIndexStatus.Failed -> "暂不可用"
-                                                    OfflineIndexStatus.Ready -> "${offlineItems.size} 项"
+                                motionItem(key = "subtitles-and-danmaku", contentType = "settings-section") {
+                                    Section(title = "字幕与弹幕") {
+                                        SettingsCard {
+                                            SettingRow(
+                                                "弹幕设置",
+                                                when (danmakuSources.size) {
+                                                    0 -> "来源 · 关键词屏蔽 · 显示"
+                                                    1 -> "1 个来源 · 关键词屏蔽"
+                                                    else -> "${danmakuSources.size} 个来源 · 关键词屏蔽"
                                                 },
-                                            embedded = true,
-                                            onClick = { component.openPage(ProfilePage.Downloads) },
-                                        )
+                                                embedded = true,
+                                                onClick = { component.openPage(ProfilePage.Danmaku) },
+                                                icon = AppIcons.Danmaku,
+                                                iconTint = SettingTint.danmaku,
+                                            )
+                                        }
                                     }
                                 }
-                            }
 
-                            motionItem(key = "sync-and-data", contentType = "settings-section") {
-                                Section(title = "同步与数据") {
-                                    SettingsCard {
-                                        SettingRow("同步状态与恢复", "个人内容 · 播放进度 · 服务器状态", embedded = true, onClick = {
-                                            component.openPage(ProfilePage.Sync)
-                                        }, icon = AppIcons.Refresh, iconTint = SettingTint.account)
-                                        SettingsDivider()
-                                        SettingRow(
-                                            "高级设置",
-                                            "网络兼容 · 备份 · 缓存 · 诊断",
-                                            embedded = true,
-                                            onClick = { component.openPage(ProfilePage.DataAndDiagnostics) },
-                                            icon = AppIcons.Server,
-                                            iconTint = SettingTint.advanced,
-                                        )
+                                motionItem(key = "downloads", contentType = "settings-section") {
+                                    Section(title = "下载") {
+                                        SettingsCard {
+                                            DownloadRow(
+                                                value =
+                                                    when (offlineIndexStatus) {
+                                                        OfflineIndexStatus.Loading -> "正在读取…"
+                                                        OfflineIndexStatus.Failed -> "暂不可用"
+                                                        OfflineIndexStatus.Ready -> "${offlineItems.size} 项"
+                                                    },
+                                                embedded = true,
+                                                onClick = { component.openPage(ProfilePage.Downloads) },
+                                            )
+                                        }
                                     }
                                 }
-                            }
 
-                            motionItem(key = "about", contentType = "settings-about") {
-                                Section(title = "关于") {
-                                    AppUpdateTools()
-                                    AppVersionFooter()
+                                motionItem(key = "sync-and-data", contentType = "settings-section") {
+                                    Section(title = "同步与数据") {
+                                        SettingsCard {
+                                            SettingRow("同步状态与恢复", "个人内容 · 播放进度 · 服务器状态", embedded = true, onClick = {
+                                                component.openPage(ProfilePage.Sync)
+                                            }, icon = AppIcons.Refresh, iconTint = SettingTint.account)
+                                            SettingsDivider()
+                                            SettingRow(
+                                                "高级设置",
+                                                "网络兼容 · 备份 · 缓存 · 诊断",
+                                                embedded = true,
+                                                onClick = { component.openPage(ProfilePage.DataAndDiagnostics) },
+                                                icon = AppIcons.Server,
+                                                iconTint = SettingTint.advanced,
+                                            )
+                                        }
+                                    }
+                                }
+
+                                motionItem(key = "about", contentType = "settings-about") {
+                                    Section(title = "关于") {
+                                        AppUpdateTools()
+                                        AppVersionFooter()
+                                    }
                                 }
                             }
                         }
-                    }
+                }
             }
         }
 
@@ -1280,11 +1311,22 @@ internal fun SettingsPage(
     state: LazyListState = rememberLazyListState(),
     showBackButton: Boolean = true,
     bottomContentInset: Dp? = null,
+    modifier: Modifier = Modifier,
     content: LazyListScope.() -> Unit,
 ) {
     val effectiveBottomInset = bottomContentInset ?: systemNavigationContentInset()
+    val locator = LocalSettingsLocator.current
+    val visible = LocalRouteVisible.current
+    LaunchedEffect(locator, title, visible) {
+        if (locator != null && visible && locator.pageTitle == title && !locator.ready && !locator.consumed) {
+            withFrameNanos { }
+            state.scrollToItem(locator.itemIndex)
+            withFrameNanos { }
+            locator.ready = true
+        }
+    }
     LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding(),
+        modifier = modifier.fillMaxSize().statusBarsPadding(),
         state = state,
         contentPadding = PaddingValues(top = SettingsHeaderTop, bottom = effectiveBottomInset),
         verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -1354,13 +1396,13 @@ internal val SettingsHeaderTop = 8.dp
 @Composable
 private fun SettingsSearchResults(
     query: String,
-    onOpen: (ProfilePage) -> Unit,
+    onOpen: (ProfilePage, SettingsControlAnchor?) -> Unit,
     onOpenServers: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val needle = query.trim().lowercase()
     val results =
-        SettingsSearchDestinations
+        (settingsControlDestinations() + SettingsSearchDestinations)
             .filter { it.page?.availableInCurrentBuild() != false }
             .filter { destination ->
                 listOf(destination.title, destination.summary, destination.keywords)
@@ -1385,7 +1427,7 @@ private fun SettingsSearchResults(
                             if (destination.opensServers) {
                                 onOpenServers()
                             } else {
-                                destination.page?.let(onOpen)
+                                destination.page?.let { onOpen(it, destination.anchor) }
                             }
                         },
                         icon = destination.icon,
@@ -1671,6 +1713,7 @@ internal fun SettingSegmentRow(
     BoxWithConstraints(
         Modifier
             .fillMaxWidth()
+            .settingsSearchAnchor(title)
             .heightIn(min = MinTouchTarget)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {

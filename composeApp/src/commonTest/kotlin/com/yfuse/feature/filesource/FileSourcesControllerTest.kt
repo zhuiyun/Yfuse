@@ -130,6 +130,30 @@ class FileSourcesControllerTest {
         }
 
     @Test
+    fun breadcrumbReturnsToAnAncestorWithoutReloadingOrLeavingTheSource() =
+        runTest(UnconfinedTestDispatcher()) {
+            val controller = controller()
+            val source = savedSource()
+            registry.save(source, password = "pw")
+            controller.open(source)
+            controller.openFolder("剧集")
+            controller.openFolder("第一季")
+            val requests = client.listed.toList()
+            controller.navigateToDepth(-1)
+            controller.navigateToDepth(3)
+            assertEquals(listOf("剧集", "第一季"), controller.browser.value?.path)
+            controller.navigateToDepth(0)
+            assertEquals(emptyList(), controller.browser.value?.path)
+            assertEquals(
+                source.id,
+                controller.browser.value
+                    ?.source
+                    ?.id,
+            )
+            assertEquals(requests, client.listed)
+        }
+
+    @Test
     fun folders_push_and_pop_and_the_root_closes_the_browser() =
         runTest(UnconfinedTestDispatcher()) {
             val controller = controller()

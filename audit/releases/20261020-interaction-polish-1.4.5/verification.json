@@ -1,0 +1,69 @@
+{
+  "versionName": "1.4.5",
+  "versionCode": 297,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "d7f2d1d0d805e4fa03090dd2d2c8e3964561370d",
+  "treeDirtyAtBuild": true,
+  "buildInputsRecheckedAfterBuild": true,
+  "file": "Yfuse-1.4.5-full-arm64.apk",
+  "bytes": 30011259,
+  "sha256": "ac924f6ca0afc369faa26bf6a004f3de4b5d9c2cc08da33a77fea9350ad435ca",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "zipAlignment16K": true,
+  "dexVerified": true,
+  "dexClasses": 14277,
+  "dexMethodsWithCode": 62795,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "dexFiles": {
+    "classes.dex": "637e9232c10ea5e40b3709ab88a26dd2ef72cd42f00df890c0ed44d631e586c6",
+    "classes2.dex": "27873e0528a1cabdde4922c1862d52a06dd67095ad765b519a2d977dd43fb170"
+  },
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1195544,
+      "sha256": "c889a8704465ce7cbfc48d302da7e2482b4d59afe1eaacbd9c49eee150197203"
+    }
+  },
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "previousActualVersionName": "1.4.4",
+  "previousActualVersionCode": 296,
+  "sourceRegression": {
+    "modules": {
+      "phoneShared": {
+        "suites": 878,
+        "tests": 4990,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tvShared": {
+        "suites": 23,
+        "tests": 120,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "total": {
+      "suites": 901,
+      "tests": 5110,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "sourceHashesRechecked": 57
+  },
+  "deviceTestsExecuted": false,
+  "published": false,
+  "uploaded": false,
+  "verifiedAtUtc": "2026-10-20T03:00:00.665962+00:00"
+}

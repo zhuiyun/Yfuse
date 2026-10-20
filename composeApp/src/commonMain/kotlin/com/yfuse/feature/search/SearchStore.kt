@@ -27,7 +27,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
@@ -44,6 +46,7 @@ data class ServerSearchGroup(
     val totalCount: Int = items.size,
     val error: String? = null,
     val loadingMore: Boolean = false,
+    val retrying: Boolean = false,
     val loadMoreError: String? = null,
     /** The server-side offset of the next page; the card count drifts below it after de-duplication. */
     val nextStartIndex: Int = items.size,
@@ -205,6 +208,11 @@ sealed interface SearchIntent {
 
     data object Retry : SearchIntent
 
+    /** Null retries the failed servers only, leaving successful results in place. */
+    data class RetryServer(
+        val serverId: String? = null,
+    ) : SearchIntent
+
     data object Clear : SearchIntent
 
     data class ForgetRecent(
@@ -256,6 +264,16 @@ sealed interface SearchIntent {
 }
 
 private sealed interface SearchMsg {
+    data class ServerRetrying(
+        val serverId: String,
+    ) : SearchMsg
+
+    data class ServerRetried(
+        val query: String,
+        val groups: List<ServerSearchGroup>,
+        val aggregated: List<CrossServerMediaGroup>,
+    ) : SearchMsg
+
     data class Playlist(
         val rule: com.yfuse.core.data.SmartPlaylist,
     ) : SearchMsg
@@ -414,6 +432,8 @@ class SearchStoreFactory(
         private var searchJob: Job? = null
         private var peopleJob: Job? = null
         private val loadMoreJobs = mutableMapOf<String, Job>()
+        private val retryJobs = mutableMapOf<String, Job>()
+        private var searchGeneration = 0L
 
         /** The server whose 媒体库 the state offers, loaded or on the way. */
         private var librariesFor: String? = null
@@ -424,6 +444,9 @@ class SearchStoreFactory(
         private var genresJob: Job? = null
 
         private fun cancelInFlight() {
+            searchGeneration++
+            retryJobs.values.forEach { it.cancel() }
+            retryJobs.clear()
             searchJob?.cancel()
             peopleJob?.cancel()
             personJob?.cancel()
@@ -453,6 +476,7 @@ class SearchStoreFactory(
                 }
                 SearchIntent.Submit -> search(state().query)
                 SearchIntent.Retry -> search(state().searchedQuery.ifEmpty { state().query })
+                is SearchIntent.RetryServer -> retryFailedServers(intent.serverId)
                 SearchIntent.Clear -> {
                     debounceJob?.cancel()
                     clear()
@@ -507,6 +531,67 @@ class SearchStoreFactory(
                 is SearchIntent.SelectPerson -> selectPerson(intent.person)
                 is SearchIntent.LoadMore -> loadMore(intent.serverId)
             }
+        }
+
+        private fun retryFailedServers(serverId: String?) {
+            val snapshot = state()
+            if (snapshot.loading || snapshot.person != null || snapshot.query.trim() != snapshot.searchedQuery) return
+            snapshot.unavailableGroups.filter { serverId == null || it.serverId == serverId }.forEach { group ->
+                retryServer(snapshot, group.serverId)
+            }
+        }
+
+        private fun retryServer(
+            snapshot: SearchState,
+            serverId: String,
+        ) {
+            if (retryJobs[serverId]?.isActive == true) return
+            val server = registry.serverById(serverId) ?: return
+            val generation = searchGeneration
+            dispatch(SearchMsg.ServerRetrying(serverId))
+            retryJobs[serverId] =
+                scope.launch {
+                    val result = repo.searchPage(server, snapshot.searchedQuery, filter = searchFilter(snapshot))
+                    currentCoroutineContext().ensureActive()
+                    if (generation != searchGeneration ||
+                        state().query != snapshot.query ||
+                        registry.serverById(serverId) != server
+                    ) {
+                        return@launch
+                    }
+                    val replacement =
+                        result.fold(
+                            onSuccess = {
+                                ServerSearchGroup(
+                                    server.id,
+                                    server.serverName,
+                                    it.items,
+                                    it.totalCount,
+                                    nextStartIndex = it.nextStartIndex,
+                                )
+                            },
+                            onFailure = {
+                                ServerSearchGroup(
+                                    server.id,
+                                    server.serverName,
+                                    error = it.toUserMessage("搜索失败"),
+                                )
+                            },
+                        )
+                    val groups = state().groups.map { if (it.serverId == serverId) replacement else it }
+                    val aggregated =
+                        if (snapshot.mergesServers) {
+                            aggregateCrossServerMedia(
+                                groups.flatMap { group ->
+                                    group.items.map { CrossServerMediaHit(group.serverId, group.serverName, it) }
+                                },
+                                health = healthMonitor?.health?.value.orEmpty(),
+                            )
+                        } else {
+                            emptyList()
+                        }
+                    dispatch(SearchMsg.ServerRetried(snapshot.searchedQuery, groups, aggregated))
+                }
         }
 
         private fun searchFilter(snapshot: SearchState) =
@@ -1007,6 +1092,23 @@ class SearchStoreFactory(
                                 }
                             },
                     )
+                is SearchMsg.ServerRetrying ->
+                    copy(
+                        groups =
+                            groups.map {
+                                if (it.serverId == msg.serverId) it.copy(retrying = true) else it
+                            },
+                    )
+                is SearchMsg.ServerRetried ->
+                    if (msg.query != searchedQuery) {
+                        this
+                    } else {
+                        copy(
+                            groups = msg.groups,
+                            items = msg.groups.flatMap(ServerSearchGroup::items),
+                            aggregated = msg.aggregated,
+                        )
+                    }
                 is SearchMsg.MoreLoaded ->
                     if (msg.query != searchedQuery) {
                         this

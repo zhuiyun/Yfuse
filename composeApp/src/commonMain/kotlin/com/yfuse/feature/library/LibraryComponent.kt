@@ -226,6 +226,7 @@ class LibraryComponent(
                         repo = repo,
                         onBack = ::navigateBack,
                         onOpenItem = { serverId, itemId -> openDetail(serverId, itemId) },
+                        onContinue = { serverId, itemId, ticks -> openPlayer(Config.Player(serverId, itemId, ticks)) },
                         onOpenMetadata = { onOpenDiscoveryTitle(it, null) },
                     ),
                 )

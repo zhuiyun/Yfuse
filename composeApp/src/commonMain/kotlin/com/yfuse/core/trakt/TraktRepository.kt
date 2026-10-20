@@ -40,6 +40,8 @@ interface TraktImportSink {
     suspend fun importHistory(item: TraktListItem): Boolean
 }
 
+enum class TraktOperation { Authorize, Watchlist, History }
+
 data class TraktUiState(
     val signedIn: Boolean = false,
     val configuration: TraktConfiguration? = null,
@@ -47,6 +49,7 @@ data class TraktUiState(
     val scrobbling: Boolean = false,
     val challenge: TraktAuthChallenge? = null,
     val busy: Boolean = false,
+    val operation: TraktOperation? = null,
     val pending: Int = 0,
     val message: String? = null,
     val error: String? = null,
@@ -175,7 +178,7 @@ class TraktRepository(
         if (_state.value.busy) return
         val currentScope = activeScope ?: return
         val generation = ++authorizationGeneration
-        _state.update { it.copy(busy = true, error = null, message = null) }
+        _state.update { it.copy(busy = true, operation = TraktOperation.Authorize, error = null, message = null) }
         authJob =
             currentScope.launch {
                 var challenge: TraktAuthChallenge? = null
@@ -239,7 +242,7 @@ class TraktRepository(
                             generation,
                         )
                     ) {
-                        _state.update { it.copy(challenge = null, busy = false) }
+                        _state.update { it.copy(challenge = null, busy = false, operation = null) }
                     }
                 }
             }
@@ -262,7 +265,7 @@ class TraktRepository(
         val generation = ++authorizationGeneration
         authJob?.cancel()
         save(identity, TraktLocalState())
-        _state.update { it.copy(busy = false, challenge = null) }
+        _state.update { it.copy(busy = false, challenge = null, operation = null) }
         activeScope?.launch {
             try {
                 auth.revoke(token.accessToken)
@@ -290,7 +293,14 @@ class TraktRepository(
         if (_state.value.busy || local.token == null) return
         val currentScope = activeScope ?: return
         val generation = authorizationGeneration
-        _state.update { it.copy(busy = true, error = null) }
+        _state.update {
+            it.copy(
+                busy = true,
+                operation = if (history) TraktOperation.History else TraktOperation.Watchlist,
+                error = null,
+                message = null,
+            )
+        }
         currentScope.launch {
             var imported = 0
             var retained = 0
@@ -348,7 +358,13 @@ class TraktRepository(
                     _state.update { it.copy(error = "导入未完成，已完成内容已保留；重试将从上次页继续") }
                 }
             } finally {
-                if (isAuthorizationCurrent(identity, generation)) _state.update { it.copy(busy = false) }
+                if (isAuthorizationCurrent(
+                        identity,
+                        generation,
+                    )
+                ) {
+                    _state.update { it.copy(busy = false, operation = null) }
+                }
             }
         }
     }

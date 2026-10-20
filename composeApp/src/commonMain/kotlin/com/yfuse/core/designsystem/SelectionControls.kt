@@ -92,6 +92,7 @@ fun SwitchRow(
     val palette = LocalPalette.current
     Row(
         Modifier
+            .settingsSearchAnchor(title)
             .fillMaxWidth()
             .let { if (embedded) it else it.flatGlass(AppShapes.control, palette.card2, palette.border) }
             // The row was the one gesture in the app on a bare `toggleable(indication = null)`:

@@ -6,8 +6,6 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.ProvidedValue
@@ -24,7 +22,6 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -38,7 +35,6 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
 import androidx.navigationevent.DirectNavigationEventInput
 import androidx.navigationevent.NavigationEvent
@@ -53,11 +49,11 @@ import com.yfuse.core.logging.AppLog
 //
 // NavDisplay composes the page underneath only while *its* back gesture is in progress, and it
 // finishes that gesture the moment the platform says so. A zoom back needs the page underneath
-// from the first pixel of a pull, and needs the page on top to stay until its flight has landed.
+// from the first preview frame, and needs the page on top to stay until its slide has finished.
 // So a stack that can zoom back gives NavDisplay a dispatcher of its own, which only this file
 // drives, and stands in for NavDisplay's handler on the activity's dispatcher. Measured pages
-// follow an opaque side slide; an explicit pull-down may still return to its poster. NavDisplay
-// completes the navigation only after the departing page has gone.
+// follow an opaque side slide. NavDisplay completes the navigation only after the departing page
+// has gone; content drags never dismiss navigation pages.
 
 /** A back handler whose four callbacks are plain lambdas. */
 internal class RelayBackHandler : NavigationEventHandler<NavigationEventInfo>(NavigationEventInfo.None, false) {
@@ -304,8 +300,6 @@ internal class ZoomBackNavHost(
         }
     }
 
-    fun isZoomPage(key: String): Boolean = origins.containsKey(key)
-
     fun roleOf(key: String): ZoomBackRole =
         when {
             !controller.active -> ZoomBackRole.None
@@ -360,34 +354,6 @@ internal class ZoomBackNavHost(
             )
         }
         stack = keys
-    }
-
-    fun canPull(key: String): Boolean =
-        visible &&
-            controller.idle &&
-            system == SystemRoute.None &&
-            stack.size > 1 &&
-            stack.last() == key &&
-            origins.containsKey(key) &&
-            !blocked()
-
-    fun startPull(
-        key: String,
-        pivot: Offset,
-    ) {
-        if (!canPull(key) || !beginGesture(key)) return
-        if (controller.startPull(pivot)) {
-            navigation.started(
-                NavigationEvent(
-                    swipeEdge = NavigationEvent.EDGE_NONE,
-                    progress = 0f,
-                    touchX = pivot.x.coerceAtLeast(0f),
-                    touchY = pivot.y.coerceAtLeast(0f),
-                ),
-            )
-        } else {
-            clearGesture()
-        }
     }
 
     private fun systemStarted(event: NavigationEvent) {
@@ -588,53 +554,21 @@ internal fun Modifier.zoomBackFrame(
 ): Modifier = if (host == null) this else onPlaced { host.frame(key).outer = it }
 
 /**
- * A route in a zoom-back stack: the pull-down when the route came from a poster, and the card, the
- * shade and the returning page for whichever gesture is going on. [settled] says the route's own
- * push has finished; a pull never starts on a page still arriving.
+ * Layers for system back previews. Content scrolling has no dismissal handler.
  */
 @Composable
 internal fun Modifier.zoomBackRoute(
     host: ZoomBackNavHost?,
     key: String,
-    settled: () -> Boolean,
 ): Modifier {
     if (host == null) return this
     DisposableEffect(host, key) {
         onDispose { host.forget(key) }
     }
-    val pull =
-        if (host.isZoomPage(key)) {
-            Modifier.zoomBackPull(
-                controller = host.controller,
-                canStart = { settled() && host.canPull(key) },
-                onStart = { host.startPull(key, it) },
-            )
-        } else {
-            Modifier
-        }
     return this
-        .then(pull)
         .zoomBackLayers(host.controller, role = { host.roleOf(key) }, onInner = { host.frame(key).inner = it })
         .graphicsLayer { alpha = if (host.isRetired(key)) 0f else 1f }
 }
-
-/** 情境提示 for the pull-down, on a page that came from a poster, once it is the page in front. */
-@Composable
-internal fun BoxScope.ZoomBackRouteTip(
-    host: ZoomBackNavHost?,
-    key: String,
-) {
-    if (host == null || !host.isZoomPage(key)) return
-    ContextualTip(
-        id = Tips.ZOOM_BACK,
-        text = "在顶部下拉可以缩回海报",
-        active = LocalRouteVisible.current && host.controller.idle,
-        modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = ZoomBackTipTop),
-    )
-}
-
-/** Clear of a page's own top bar. */
-private val ZoomBackTipTop = 60.dp
 
 /**
  * The same Activity-backed gesture bridge used by navigation stacks, also for fullscreen overlays.
@@ -657,8 +591,8 @@ internal fun ZoomBackSystemBack(
 }
 
 /**
- * A full-screen page drawn over another — 全部剧集, 查看全部 — that goes back the way a route from a
- * poster does when pulled down. A system side swipe instead slides the opaque page off screen.
+ * A full-screen page drawn over another — 全部剧集, 查看全部 — whose system back preview slides the
+ * opaque page off screen. Scrolling its content never closes it.
  * [onZoomedAway] hears that the page has already gone, before [onBack] closes it.
  */
 @Composable
@@ -679,8 +613,6 @@ internal fun ZoomBackOverlay(
     val latestAway by rememberUpdatedState(onZoomedAway)
     val latestSource by rememberUpdatedState(source)
     val latestVisible by rememberUpdatedState(visible)
-    val screenReader = rememberScreenReaderActive()
-    val latestScreenReader by rememberUpdatedState(screenReader)
     val gestureSource = remember { arrayOfNulls<ZoomBackAnchor>(1) }
     val wasVisible = remember { booleanArrayOf(visible) }
     ConfigureZoomBack(controller)
@@ -752,12 +684,7 @@ internal fun ZoomBackOverlay(
                 frame.outer = it
                 controller.page = it.size.toSize()
             }.fillMaxSize()
-            .zoomBackPull(
-                controller = controller,
-                canStart = { latestVisible && !latestScreenReader && controller.idle },
-                onStart = { controller.startPull(it) },
-                swallowLeftover = true,
-            ).zoomBackLayers(
+            .zoomBackLayers(
                 controller,
                 role = { if (controller.active) ZoomBackRole.Page else ZoomBackRole.None },
             ).drawBehind { drawRect(pageBackground) },

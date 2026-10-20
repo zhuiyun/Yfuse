@@ -1,6 +1,9 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.unit.Velocity
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -11,6 +14,28 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DialogMotionPolishTest {
+    @Test
+    fun playerPopupScrollHandsOffToPullOnlyAtTheTopAndDismissesOnce() =
+        runTest {
+            var dismissals = 0
+            val drag = DialogDragState(this, { true }, { dismissals++ }, 96f)
+            val input = NestedScrollSource.UserInput
+            assertEquals(Offset.Zero, drag.onPostScroll(Offset(0f, 50f), Offset.Zero, input))
+            assertEquals(0f, drag.offset)
+            assertEquals(Offset(0f, 30f), drag.onPostScroll(Offset.Zero, Offset(0f, 30f), input))
+            assertEquals(0, dismissals)
+            assertEquals(Offset(0f, -30f), drag.onPreScroll(Offset(0f, -30f), input))
+            assertEquals(0f, drag.offset)
+
+            drag.onPostScroll(Offset.Zero, Offset(0f, 150f), input)
+            assertEquals(Velocity(0f, 1200f), drag.onPreFling(Velocity(0f, 1200f)))
+            drag.onPreFling(Velocity(0f, 1200f))
+            assertEquals(1, dismissals)
+            assertTrue(drag.dismissedByDrag)
+            drag.reset()
+            advanceUntilIdle()
+        }
+
     @Test
     fun capsule_expands_monotonically_in_portrait_landscape_and_tiny_panels() {
         for ((width, height) in listOf(320f to 540f, 561f to 201f, 1f to 1f)) {

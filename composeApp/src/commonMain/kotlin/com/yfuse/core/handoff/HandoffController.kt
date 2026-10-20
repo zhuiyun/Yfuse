@@ -37,6 +37,7 @@ data class HandoffUiState(
     val devices: List<HandoffDevice> = emptyList(),
     val incoming: HandoffRequest? = null,
     val busy: Boolean = false,
+    val targetSessionId: String? = null,
     val message: String? = null,
     val error: String? = null,
     val connectionError: String? = null,
@@ -248,11 +249,11 @@ class HandoffController(
         if (_state.value.busy) return
         val media =
             playback.snapshot() ?: run {
-                _state.update { it.copy(error = "请先打开要接力的影片") }
+                _state.update { it.copy(targetSessionId = targetSessionId, error = "请先打开要接力的影片", message = null) }
                 return
             }
         val transferScope = activeScope ?: return
-        _state.update { it.copy(busy = true, error = null, message = "等待另一台设备确认") }
+        _state.update { it.copy(busy = true, targetSessionId = targetSessionId, error = null, message = "等待另一台设备确认") }
         transfer =
             transferScope.launch {
                 val id = UUID.randomUUID().toString()
@@ -275,6 +276,7 @@ class HandoffController(
                     withTimeout(remaining(offered)) {
                         awaitStatus(id, HandoffStatus.Ready)
                         check(owner.value == currentOwner)
+                        _state.update { it.copy(message = "对方已就绪，正在接续播放") }
                         // The latest position is captured only after the receiving player is ready.
                         paused = true
                         log("source_paused", id, startedAt)
@@ -334,7 +336,15 @@ class HandoffController(
     fun accept(request: HandoffRequest) {
         if (_state.value.busy || request.targetSessionId != sessionId) return
         val transferScope = activeScope ?: return
-        _state.update { it.copy(busy = true, incoming = null, error = null, message = "正在准备接收影片") }
+        _state.update {
+            it.copy(
+                busy = true,
+                targetSessionId = null,
+                incoming = null,
+                error = null,
+                message = "正在准备接收影片",
+            )
+        }
         transfer =
             transferScope.launch {
                 val startedAt = now()

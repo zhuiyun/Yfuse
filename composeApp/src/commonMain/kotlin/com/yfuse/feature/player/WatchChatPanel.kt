@@ -51,7 +51,6 @@ import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.touchTarget
-import com.yfuse.core.sync.ChatDeliveryState
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.WatchParticipant
 import com.yfuse.core.sync.WatchStickers
@@ -94,12 +93,14 @@ internal fun WatchChatPanel(
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val accent = rememberAccentColorsForSurface(dark = true)
     var showJumpToLatest by remember { mutableStateOf(false) }
+    var lastReadKey by remember { mutableStateOf(messages.lastOrNull()?.animationKey()) }
 
     // Keyed like the rows below: the server's copy of a line you sent replacing the pending one is
     // not a new message.
     LaunchedEffect(messages.lastOrNull()?.animationKey(), reduceMotion) {
         if (messages.isEmpty()) {
             showJumpToLatest = false
+            lastReadKey = messages.lastOrNull()?.animationKey()
             return@LaunchedEffect
         }
         // Follow the transcript only for someone already at the end of it. Scrolling back
@@ -114,6 +115,7 @@ internal fun WatchChatPanel(
             last == null -> {
                 listState.scrollToItem(messages.lastIndex)
                 showJumpToLatest = false
+                lastReadKey = messages.lastOrNull()?.animationKey()
             }
             last.index >= messages.lastIndex - 1 -> {
                 if (reduceMotion) {
@@ -122,6 +124,7 @@ internal fun WatchChatPanel(
                     listState.animateScrollToItem(messages.lastIndex)
                 }
                 showJumpToLatest = false
+                lastReadKey = messages.lastOrNull()?.animationKey()
             }
             else -> showJumpToLatest = true
         }
@@ -138,6 +141,7 @@ internal fun WatchChatPanel(
                 lastVisibleIndex >= messages.lastIndex - 1
             ) {
                 showJumpToLatest = false
+                lastReadKey = messages.lastOrNull()?.animationKey()
             }
         }
     }
@@ -311,7 +315,7 @@ internal fun WatchChatPanel(
 
             if (showJumpToLatest && messages.isNotEmpty()) {
                 Text(
-                    "有新消息 · 回到最新",
+                    "${chatUnreadCount(messages.map { it.animationKey() }, lastReadKey)} 条新消息 · 回到最新",
                     style = AppTypography.caption.strong,
                     color = accent.onAccent,
                     modifier =
@@ -328,6 +332,7 @@ internal fun WatchChatPanel(
                                             listState.animateScrollToItem(messages.lastIndex)
                                         }
                                         showJumpToLatest = false
+                                        lastReadKey = messages.lastOrNull()?.animationKey()
                                     }
                                 },
                             ).touchTarget()
@@ -482,30 +487,7 @@ private fun WatchChatBubble(
                                 ).padding(horizontal = 11.dp, vertical = 8.dp),
                     )
                 }
-                if (message.deliveryState != ChatDeliveryState.Sent) {
-                    Text(
-                        if (message.deliveryState == ChatDeliveryState.Pending) {
-                            "发送中…"
-                        } else {
-                            "发送失败 · 点击重试"
-                        },
-                        style = AppTypography.caption.medium,
-                        color =
-                            if (message.deliveryState == ChatDeliveryState.Failed) {
-                                DarkPalette.error
-                            } else {
-                                Color.White.copy(alpha = 0.42f)
-                            },
-                        modifier =
-                            Modifier
-                                .padding(horizontal = 4.dp, vertical = 2.dp)
-                                .noRippleClickable {
-                                    if (message.deliveryState == ChatDeliveryState.Failed) {
-                                        message.clientMessageId?.let(onRetry)
-                                    }
-                                },
-                    )
-                }
+                ChatDeliveryFeedback(message, onRetry)
             }
         }
     }

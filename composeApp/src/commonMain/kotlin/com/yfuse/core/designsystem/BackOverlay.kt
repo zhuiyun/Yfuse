@@ -122,8 +122,8 @@ fun BackOverlay(
  * [content] must draw from the value it is handed, not from the owner's state. While it leaves it
  * takes no touch and the screen reader no longer finds it.
  *
- * A pull-down can return to [source], the shelf or rail it came from. A system side swipe instead
- * carries the opaque page out through the swiped edge, and cancellation returns it to its place.
+ * A system side swipe carries the opaque page out through the swiped edge, and cancellation
+ * returns it to its place. Content drags only scroll the page.
  *
  * The page underneath is still composed; stop anything there that moves on its own — a carousel's
  * auto-advance — while this is up, and hide it from the screen reader, which otherwise still walks

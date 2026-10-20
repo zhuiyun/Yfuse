@@ -40,7 +40,7 @@ internal fun OpenStreamLinkDialog(
     val palette = LocalPalette.current
 
     // A form: a flick that lands a little too fast must not throw a long pasted address away.
-    GlassDialog(onDismiss = onDismiss, dragToDismiss = false) {
+    GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "打开链接",
             subtitle = "粘贴 http:// 或 https:// 视频地址，直接用播放器打开。",

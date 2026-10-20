@@ -262,6 +262,12 @@ class FileSourcesController(
         if (browser.folders[path] !is FolderListing.Loaded) load(path)
     }
 
+    fun navigateToDepth(depth: Int) {
+        val current = _browser.value ?: return
+        if (depth !in 0 until current.path.size) return
+        _browser.value = current.copy(path = current.path.take(depth), preparing = null)
+    }
+
     /** Up one folder; out of the browser from its root. */
     fun navigateUp() {
         val browser = _browser.value ?: return
