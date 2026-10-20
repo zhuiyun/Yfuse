@@ -24,10 +24,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.data.ServerHealth
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OperationFeedback
+import com.yfuse.core.designsystem.OperationTone
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
@@ -39,6 +42,8 @@ import com.yfuse.core.designsystem.ThemeText as Text
 @Composable
 internal fun ServerTransportDiagnosticsDialog(
     server: SavedServer,
+    health: ServerHealth? = null,
+    checking: Boolean = false,
     onProbe: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -86,9 +91,24 @@ internal fun ServerTransportDiagnosticsDialog(
                 }
             }
         }
+        if (checking || health != null) {
+            OperationFeedback(
+                if (checking) "正在测试实际连接与延迟…" else health?.summary.orEmpty(),
+                if (checking) {
+                    OperationTone.Working
+                } else if (health?.reachable ==
+                    true
+                ) {
+                    OperationTone.Success
+                } else {
+                    OperationTone.Error
+                },
+            )
+        }
         Spacer(Modifier.height(12.dp))
         OverlayButton(
-            label = "同时测试连接与延迟",
+            label = if (checking) "正在测试连接与延迟…" else "同时测试连接与延迟",
+            loading = checking,
             onClick = onProbe,
             modifier = Modifier.fillMaxWidth(),
             tone = OverlayButtonTone.Primary,

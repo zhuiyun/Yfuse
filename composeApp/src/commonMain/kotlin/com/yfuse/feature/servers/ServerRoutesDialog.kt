@@ -49,6 +49,8 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalToastBottomInset
 import com.yfuse.core.designsystem.MinTouchTarget
+import com.yfuse.core.designsystem.OperationFeedback
+import com.yfuse.core.designsystem.OperationTone
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
@@ -57,8 +59,10 @@ import com.yfuse.core.designsystem.SwipeActionsRow
 import com.yfuse.core.designsystem.ToastAction
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberUndoWindow
+import com.yfuse.core.designsystem.returnLocator
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerRoute
@@ -82,6 +86,7 @@ import com.yfuse.core.designsystem.ThemeText as Text
 internal fun ServerRoutesDialog(
     server: SavedServer,
     health: ServerHealth?,
+    checking: Boolean = false,
     onActivate: (String) -> Unit,
     onSave: (List<ServerRoute>, Boolean) -> Unit,
     onProbe: () -> Unit,
@@ -128,7 +133,7 @@ internal fun ServerRoutesDialog(
             subtitle = "同一台服务器的多个地址；无法连接时会自动切到可用线路",
             onClose = onDismiss,
         )
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.motionAwareAnimateContentSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             routes.forEach { route ->
                 key(route.id) {
                     val isPrimary = route.id == ServerRoute.PRIMARY_ID
@@ -155,7 +160,7 @@ internal fun ServerRoutesDialog(
                             isPrimary = isPrimary,
                             onActivate = { onActivate(route.id) },
                             onRemove = { removeRoute(route) },
-                            modifier = actions,
+                            modifier = actions.returnLocator(route.id == server.activeRoute.id),
                         )
                     }
                 }
@@ -177,11 +182,24 @@ internal fun ServerRoutesDialog(
 
         Spacer(Modifier.height(10.dp))
         OverlayButton(
-            label = "测速全部线路",
+            label = if (checking) "正在测试全部线路…" else "测速全部线路",
+            loading = checking,
             onClick = onProbe,
             modifier = Modifier.fillMaxWidth(),
         )
 
+        health?.let { result ->
+            OperationFeedback(
+                if (checking) "正在更新线路连接与延迟…" else result.summary,
+                if (checking) {
+                    OperationTone.Working
+                } else if (result.reachable) {
+                    OperationTone.Success
+                } else {
+                    OperationTone.Error
+                },
+            )
+        }
         Spacer(Modifier.height(14.dp))
         if (atCapacity) {
             Text(

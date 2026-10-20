@@ -44,6 +44,7 @@ fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
+            .motionAwareAnimateContentSize()
             .flatGlass(AppShapes.card, palette.card2, palette.border),
         content = content,
     )
@@ -231,7 +232,7 @@ fun SettingRow(
                 valueColor = palette.sub2.copy(alpha = alpha),
                 modifier = Modifier.weight(1f),
             )
-            if (showChevron) {
+            if (showChevron || loading) {
                 InlineLoadingContent(loading = loading, slotSize = 16.dp, color = chevronColor) {
                     Icon(
                         imageVector = AppIcons.ChevronRight,
@@ -279,6 +280,7 @@ private fun SettingRowTitleValue(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.End,
+                modifier = Modifier.contentHandoff(value),
             )
         },
     ) { measurables, constraints ->

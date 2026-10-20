@@ -454,6 +454,7 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
             ServerRoutesDialog(
                 server = live,
                 health = health[live.id],
+                checking = (checking[live.id] ?: 0) > 0,
                 onActivate = { component.activateRoute(live.id, it) },
                 onSave = { routes, cleartextConfirmed ->
                     component.setRoutes(live.id, routes, cleartextConfirmed)
@@ -508,6 +509,8 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
         } else {
             ServerTransportDiagnosticsDialog(
                 server = live,
+                health = health[live.id],
+                checking = (checking[live.id] ?: 0) > 0,
                 onProbe = { component.refreshHealth(live) },
                 onDismiss = { diagnosticsFor = null },
             )

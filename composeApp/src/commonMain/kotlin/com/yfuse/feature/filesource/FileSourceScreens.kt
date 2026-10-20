@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,14 +38,17 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayActionRow
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.filesource.FileSource
 import com.yfuse.core.filesource.FileSourceKind
+import com.yfuse.core.filesource.FileSourceScanProgress
 import com.yfuse.core.network.LocalNetworkPermissionRequiredException
 import com.yfuse.core.network.localNetworkConnectionsRestricted
 import com.yfuse.core.network.localNetworkPermissionGranted
@@ -70,6 +74,7 @@ internal fun FileSourcesSection(controller: FileSourcesController) {
     val connect = rememberFileSourceConnection(controller::showNotice)
     var actionsFor by remember { mutableStateOf<FileSource?>(null) }
     var confirmRemove by remember { mutableStateOf<FileSource?>(null) }
+    var resultsFor by remember { mutableStateOf<FileSource?>(null) }
 
     Column(
         Modifier.fillMaxWidth().padding(top = 10.dp),
@@ -104,13 +109,16 @@ internal fun FileSourcesSection(controller: FileSourcesController) {
                     source = source,
                     status = libraryStatus(scanning[source.id], libraries[source.id]),
                     scanning = source.id in scanning,
+                    progress = scanning[source.id],
                     onOpen = { connect(source.origin) { controller.open(source) } },
                     onMore = { actionsFor = source },
+                    onResults = ({ resultsFor = source }).takeIf { source.id in libraries },
                 )
             }
         }
     }
 
+    resultsFor?.let { source -> FileSourceScanResults(source, onDismiss = { resultsFor = null }) }
     actionsFor?.let { source ->
         FileSourceActionsDialog(
             source = source,
@@ -161,8 +169,10 @@ private fun FileSourceCard(
     source: FileSource,
     status: String?,
     scanning: Boolean,
+    progress: FileSourceScanProgress?,
     onOpen: () -> Unit,
     onMore: () -> Unit,
+    onResults: (() -> Unit)?,
 ) {
     val palette = LocalPalette.current
     val tint = source.kind.tint()
@@ -189,7 +199,7 @@ private fun FileSourceCard(
         ) {
             Icon(AppIcons.Folder, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
         }
-        Column(Modifier.weight(1f)) {
+        Column(Modifier.weight(1f).motionAwareAnimateContentSize()) {
             Text(
                 source.name,
                 style = AppTypography.body.strong,
@@ -207,7 +217,7 @@ private fun FileSourceCard(
             )
             status?.let { line ->
                 Row(
-                    Modifier.padding(top = 3.dp),
+                    Modifier.padding(top = 3.dp).contentHandoff(scanning),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -220,6 +230,29 @@ private fun FileSourceCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+            onResults?.let { open ->
+                Text(
+                    "查看已保存的刮削结果",
+                    style = AppTypography.caption.medium,
+                    color = LocalAccentColors.current.accent,
+                    modifier = Modifier.pressable(onClick = open).touchTarget(),
+                )
+            }
+            progress?.takeIf { it.matching }?.let { current ->
+                LinearProgressIndicator(
+                    progress = {
+                        (
+                            current.titlesLookedUp.toFloat() /
+                                current.titlesToMatch.coerceAtLeast(
+                                    1,
+                                )
+                        ).coerceIn(0f, 1f)
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    color = LocalAccentColors.current.accent,
+                    trackColor = palette.card2,
+                )
             }
         }
         // The same corner key the server cards carry, for the same reason: a place to press that
@@ -304,7 +337,7 @@ private fun FileSourceActionsDialog(
             ) {
                 Icon(AppIcons.Folder, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
             }
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f).motionAwareAnimateContentSize()) {
                 Text(
                     source.name,
                     style = AppTypography.section.strong,

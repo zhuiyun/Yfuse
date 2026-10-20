@@ -463,13 +463,22 @@ class PersonalCenterStoreFactory(
         }
 
         private fun attempt(action: Attempt) {
+            if (state().busy) return
+            dispatch(Msg.Busy(true))
             scope.launch {
-                run(action)
-                    .onSuccess { dispatch(Msg.Succeeded) }
-                    .onFailure { error ->
-                        failed = action
-                        dispatch(Msg.Failed(error.message ?: PERSONAL_ACTION_FAILED))
-                    }
+                try {
+                    run(action)
+                        .onSuccess {
+                            dispatch(Msg.Succeeded)
+                            if (action is Attempt.Switch) dispatch(Msg.Message("已切换家庭资料"))
+                            if (action is Attempt.Resolve) dispatch(Msg.Message("同步冲突已处理"))
+                        }.onFailure { error ->
+                            failed = action
+                            dispatch(Msg.Failed(error.message ?: PERSONAL_ACTION_FAILED))
+                        }
+                } finally {
+                    dispatch(Msg.Busy(false))
+                }
             }
         }
 

@@ -32,6 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.contentHandoff
+import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbItem
@@ -89,7 +91,11 @@ internal fun TvPersonScreen(
                     items = state.otherWorks.map { it.toTvCard { component.onOpenTmdbItem(it) } },
                     focusMemory = focusMemory,
                     navigationRequester = backRequester,
-                    modifier = Modifier.padding(horizontal = TvSafeHorizontal - 8.dp),
+                    modifier =
+                        Modifier
+                            .padding(
+                                horizontal = TvSafeHorizontal - 8.dp,
+                            ).contentHandoff(state.worksLoading),
                 )
             }
         }
@@ -187,7 +193,7 @@ private fun TvPersonBiography(
 ) {
     var expanded by rememberSaveable(text) { mutableStateOf(false) }
     var overflowed by remember(text) { mutableStateOf(false) }
-    Column(Modifier.width(980.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.width(980.dp).motionAwareAnimateContentSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             text,
             color = TvOnSurfaceMuted,
@@ -254,7 +260,7 @@ private fun TvPersonLibraryWorks(
                 items = state.works.map { it.toTvCard(server) { component.onOpenItem(server.id, it.id) } },
                 focusMemory = focusMemory,
                 navigationRequester = backRequester,
-                modifier = Modifier.padding(horizontal = TvSafeHorizontal - 8.dp),
+                modifier = Modifier.padding(horizontal = TvSafeHorizontal - 8.dp).contentHandoff(state.worksLoading),
             )
     }
 }

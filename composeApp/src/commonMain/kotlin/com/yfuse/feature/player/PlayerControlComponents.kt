@@ -19,8 +19,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextAlign
@@ -32,6 +34,7 @@ import com.yfuse.core.designsystem.CinemaSelectionCheck
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.PillSwitch
 import com.yfuse.core.designsystem.PressFeedback
 import com.yfuse.core.designsystem.cinemaMotion
@@ -109,14 +112,26 @@ internal fun OptionRow(
     detailLabel: String? = null,
     modifier: Modifier = Modifier,
     selectionKey: Any = label,
+    busy: Boolean = false,
+    enabled: Boolean = true,
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
     Row(
         modifier
             .fillMaxWidth()
             .cinemaSelectionTarget(selectionKey, selected)
-            .playerChoiceFeedback(selected = selected, onClick = onClick)
-            .padding(horizontal = 11.dp, vertical = 9.dp),
+            .then(
+                if (enabled &&
+                    !busy
+                ) {
+                    Modifier.playerChoiceFeedback(selected = selected, onClick = onClick)
+                } else {
+                    Modifier
+                },
+            ).semantics {
+                if (!enabled || busy) disabled()
+                if (busy) stateDescription = "处理中"
+            }.padding(horizontal = 11.dp, vertical = 9.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -129,6 +144,7 @@ internal fun OptionRow(
             modifier = Modifier.weight(1f, fill = false),
         )
         when {
+            busy -> OrbProgress(size = 18.dp, color = accent.accent, contentDescription = "处理中")
             actionLabel != null ->
                 Text(
                     actionLabel,

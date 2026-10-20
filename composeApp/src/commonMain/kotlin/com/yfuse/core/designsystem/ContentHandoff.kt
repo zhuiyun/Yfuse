@@ -28,6 +28,7 @@ internal fun contentPhase(
 @Composable
 internal fun Modifier.contentHandoff(phase: Any): Modifier {
     val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
+    val calm = calmMotion()
     val committed = remember { arrayOf<Any>(phase) }
     val progress = remember(phase, moving) { Animatable(if (moving && committed[0] != phase) 0f else 1f) }
     SideEffect { committed[0] = phase }
@@ -38,6 +39,6 @@ internal fun Modifier.contentHandoff(phase: Any): Modifier {
     }
     return graphicsLayer {
         alpha = progress.value
-        translationY = 6.dp.toPx() * (1f - progress.value)
+        translationY = (if (calm) 0f else 6.dp.toPx()) * (1f - progress.value)
     }
 }

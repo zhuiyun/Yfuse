@@ -32,10 +32,10 @@ fun animateRotationAsState(
 /** Layout expansion without `animateContentSize` continuing under reduced motion. */
 @Composable
 fun Modifier.motionAwareAnimateContentSize(): Modifier =
-    if (LocalAccessibilityOptions.current.reduceMotion) {
+    if (LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current) {
         this
     } else {
-        animateContentSize(animationSpec = Motion.settle())
+        animateContentSize(animationSpec = if (calmMotion()) Motion.tween(Motion.QUICK) else Motion.settle())
     }
 
 /** Programmatic list movement that snaps under reduced motion. */

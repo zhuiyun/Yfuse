@@ -45,7 +45,9 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.liveStatus
+import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaServerKind
@@ -220,7 +222,11 @@ fun AddServerDialog(
             ServerFormSection {
                 if (form.kind == MediaServerKind.Plex) {
                     ServerFormRow(label = "Plex 云账号", divider = false) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(
+                            Modifier.motionAwareAnimateContentSize().contentHandoff(state.plexAccount::class),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            PlexAccountStage(state.plexAccount)
                             when (val account = state.plexAccount) {
                                 PlexAccountUiState.Idle,
                                 PlexAccountUiState.Cancelled,

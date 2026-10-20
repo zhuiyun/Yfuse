@@ -15,12 +15,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,6 +40,9 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftMenu
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.motionAwareScrollToItem
+import com.yfuse.core.designsystem.returnLocator
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.network.TmdbImages
@@ -42,6 +50,7 @@ import com.yfuse.feature.calendar.CalendarComponent
 import com.yfuse.feature.calendar.CalendarFilter
 import com.yfuse.feature.calendar.CalendarIntent
 import com.yfuse.feature.home.TmdbInfoComponent
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun TvTmdbInfoScreen(
@@ -269,6 +278,34 @@ internal fun TvCalendarScreen(
 ) {
     val state by component.store.states.collectAsState(component.store.state)
     val store = component.store
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    var locatedDate by remember { mutableStateOf<String?>(null) }
+    var jumping by remember { mutableStateOf(false) }
+
+    fun locate(
+        index: Int,
+        unwatched: Boolean = false,
+    ) {
+        if (jumping || index !in state.visibleDays.indices) return
+        val day = state.visibleDays[index]
+        val entryIndex = if (unwatched) day.entries.indexOfFirst { it.canContinueFromCalendar() } else 0
+        val entry = day.entries.getOrNull(entryIndex) ?: return
+        jumping = true
+        scope.launch {
+            try {
+                listState.motionAwareScrollToItem(index + 1, reduceMotion = reduceMotion)
+                focusMemory.rowState("calendar:${day.date}").scrollToItem(entryIndex)
+                locatedDate = day.date
+                // The destination is composed after the scroll. Move focus only on explicit navigation.
+                withFrameNanos { }
+                focusMemory.requestFocus("calendar:${day.date}", tvCalendarCardId(entry))
+            } finally {
+                jumping = false
+            }
+        }
+    }
     val primaryRequester = remember { FocusRequester() }
     TvRestoreRouteFocusEffect(
         route = "calendar",
@@ -279,6 +316,7 @@ internal fun TvCalendarScreen(
 
     LazyColumn(
         Modifier.fillMaxSize(),
+        state = listState,
         contentPadding = PaddingValues(horizontal = TvSafeHorizontal, vertical = TvSafeVertical),
         verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
@@ -312,6 +350,28 @@ internal fun TvCalendarScreen(
                         focusMemory = focusMemory,
                         onClick = { store.accept(CalendarIntent.Refresh) },
                         modifier = Modifier.width(125.dp),
+                    )
+                }
+                val todayIndex = nearestCalendarDayIndex(state.visibleDays, state.today, unwatched = false)
+                val unwatchedIndex = nearestCalendarDayIndex(state.visibleDays, state.today, unwatched = true)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TvActionButton(
+                        label = "今天 / 最近日期",
+                        stableId = "calendar:today",
+                        focusScope = "calendar:header",
+                        focusMemory = focusMemory,
+                        onClick = { locate(todayIndex) },
+                        modifier = Modifier.width(210.dp),
+                        enabled = !jumping && todayIndex >= 0,
+                    )
+                    TvActionButton(
+                        label = "最近未看",
+                        stableId = "calendar:unwatched",
+                        focusScope = "calendar:header",
+                        focusMemory = focusMemory,
+                        onClick = { locate(unwatchedIndex, unwatched = true) },
+                        modifier = Modifier.width(170.dp),
+                        enabled = !jumping && unwatchedIndex >= 0,
                     )
                 }
                 LazyRow(
@@ -367,6 +427,7 @@ internal fun TvCalendarScreen(
                         TvMediaRow(
                             title = if (day.date == state.today) "今天 · ${day.date}" else day.date,
                             sectionKey = "calendar:${day.date}",
+                            modifier = Modifier.returnLocator(locatedDate == day.date),
                             items = day.entries.map { it.toCalendarTvCard(component) },
                             focusMemory = focusMemory,
                             navigationRequester = primaryRequester,

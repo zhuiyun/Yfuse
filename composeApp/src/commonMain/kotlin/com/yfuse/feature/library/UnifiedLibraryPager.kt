@@ -73,17 +73,58 @@ class UnifiedLibraryPager(
     private var hits = linkedMapOf<Pair<String, String>, CrossServerMediaHit>()
     private var extraKeys = emptySet<Pair<String, String>>()
     private var nextCursor = 0
+    private var loadedBatches = 0
+    private var sources = emptyList<SavedServer>()
+
+    /** Refresh the already-read extent off-screen; a profile/query reset still clears immediately. */
+    suspend fun refresh(
+        servers: List<SavedServer>,
+        newQuery: UnifiedLibraryQuery,
+    ) {
+        if (mutableState.value.loading) return
+        if (servers != sources || newQuery != query) {
+            reset(servers, newQuery)
+            loadMore()
+            return
+        }
+        val request = ++generation
+        val previous = mutableState.value
+        val rounds = loadedBatches.coerceAtLeast(1)
+        mutableState.value = previous.copy(loading = true)
+        try {
+            val fresh = UnifiedLibraryPager(libraries, page, extraHits)
+            fresh.reset(servers, newQuery)
+            repeat(rounds) { if (fresh.state.value.hasMore) fresh.loadMore() }
+            if (request != generation) return
+            cursors = fresh.cursors
+            hits = fresh.hits
+            extraKeys = fresh.extraKeys
+            nextCursor = fresh.nextCursor
+            loadedBatches = fresh.loadedBatches
+            val result = fresh.state.value
+            mutableState.value =
+                if (result.groups.isEmpty() && result.failures.isNotEmpty()) {
+                    result.copy(groups = previous.groups)
+                } else {
+                    result
+                }
+        } finally {
+            if (request == generation) mutableState.update { it.copy(loading = false) }
+        }
+    }
 
     suspend fun reset(
         servers: List<SavedServer>,
         newQuery: UnifiedLibraryQuery,
     ) {
         val request = ++generation
+        sources = servers.toList()
         query = newQuery
         cursors = emptyList()
         hits = linkedMapOf()
         extraKeys = emptySet()
         nextCursor = 0
+        loadedBatches = 0
         mutableState.value = UnifiedLibraryState(loading = true)
         try {
             val results =
@@ -202,6 +243,7 @@ class UnifiedLibraryPager(
                         },
                     )
                 }
+                if (updated != cursors) loadedBatches++
                 cursors = updated
                 nextCursor = (selected.last() + 1) % cursors.size
                 mutableState.value =

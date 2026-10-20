@@ -82,6 +82,16 @@ class PlaybackBookmarks(
         persist(state.value.filterNot { it.media == media && it.id == id })
     }
 
+    /** Undo may follow another write; never replace a newer bookmark at the same timestamp. */
+    fun restore(bookmark: PlaybackBookmark) =
+        synchronized(lock) {
+            check(loaded.isSuccess) { loadError.orEmpty() }
+            require(state.value.none { it.media == bookmark.media && it.positionMs == bookmark.positionMs }) {
+                "该时间已有新书签，已保留最新内容"
+            }
+            save(bookmark.media, bookmark.positionMs, bookmark.title, bookmark.note)
+        }
+
     private fun persist(next: List<PlaybackBookmark>) {
         settings.putString(KEY, json.encodeToString(next))
         state.value = next

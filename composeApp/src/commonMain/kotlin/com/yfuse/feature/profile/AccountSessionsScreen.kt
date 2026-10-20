@@ -53,6 +53,7 @@ import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import kotlinx.coroutines.launch
@@ -266,17 +267,14 @@ internal fun AccountSessionsContent(
                     )
                 }
             } else {
-                motionItem {
+                motionItems(otherSessions, key = { "session-${it.id}" }) { session ->
                     SessionSurface {
-                        otherSessions.forEachIndexed { index, session ->
-                            if (index > 0) SessionDivider()
-                            SessionDeviceRow(
-                                session = session,
-                                current = false,
-                                revoking = bulkBusy || session.id in revokingIds,
-                                onRevoke = { onRevokeSession(session.id) },
-                            )
-                        }
+                        SessionDeviceRow(
+                            session = session,
+                            current = false,
+                            revoking = bulkBusy || session.id in revokingIds,
+                            onRevoke = { onRevokeSession(session.id) },
+                        )
                     }
                 }
             }

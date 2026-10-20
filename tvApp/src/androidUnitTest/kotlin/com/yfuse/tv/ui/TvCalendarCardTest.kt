@@ -1,6 +1,7 @@
 package com.yfuse.tv.ui
 
 import com.yfuse.core.model.AiringEpisode
+import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.ShowOrigin
@@ -9,6 +10,43 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 
 class TvCalendarCardTest {
+    @Test
+    fun nearest_date_uses_days_across_year_boundaries_and_ignores_empty_days() {
+        val days =
+            listOf(
+                CalendarDay("2026-12-01", listOf(waiting(1))),
+                CalendarDay("2027-01-01", emptyList()),
+                CalendarDay("2026-12-31", listOf(waiting(2))),
+                CalendarDay("2027-01-20", listOf(waiting(3))),
+            )
+        assertEquals(2, nearestCalendarDayIndex(days, "2027-01-01", false))
+    }
+
+    @Test
+    fun unwatched_shortcut_skips_watched_and_missing_episodes() {
+        val days =
+            listOf(
+                CalendarDay("2026-10-20", listOf(waiting(1).copy(status = LibraryStatus.Watched))),
+                CalendarDay("2026-10-19", listOf(waiting(2).copy(status = LibraryStatus.Missing))),
+                CalendarDay("2026-10-18", listOf(waiting(3).copy(status = LibraryStatus.InProgress))),
+                CalendarDay("2026-10-01", listOf(waiting(4).copy(status = LibraryStatus.Available))),
+            )
+        assertEquals(2, nearestCalendarDayIndex(days, "2026-10-20", true))
+    }
+
+    @Test
+    fun ties_prefer_future_and_invalid_or_unavailable_targets_disable_the_shortcut() {
+        val days =
+            listOf(
+                CalendarDay("invalid", listOf(waiting(1))),
+                CalendarDay("2026-10-19", listOf(waiting(2))),
+                CalendarDay("2026-10-21", listOf(waiting(3))),
+            )
+        assertEquals(2, nearestCalendarDayIndex(days, "2026-10-20", false))
+        assertEquals(-1, nearestCalendarDayIndex(days, "2026-10-20", true))
+        assertEquals(-1, nearestCalendarDayIndex(days, "invalid", false))
+    }
+
     @Test
     fun `two episodes of one show waiting on the same day get cards of their own`() {
         val first = waiting(episode = 1)

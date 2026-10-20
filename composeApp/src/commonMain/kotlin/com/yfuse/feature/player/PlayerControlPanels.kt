@@ -137,6 +137,9 @@ internal fun BoxScope.PlayerSettingsLayers(
                             transportActions.onSeek(
                                 position.coerceIn(0L, state.durationMs.coerceAtLeast(0L)),
                             )
+                            gestureState.say(
+                                "书签 · ${formatTime(position.coerceIn(0L, state.durationMs.coerceAtLeast(0L)))}",
+                            )
                             chrome.settingsPanelKind = null
                         }
                     }),

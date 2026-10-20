@@ -1,10 +1,10 @@
 {
-  "versionName": "1.4.6",
-  "versionCode": 298,
+  "versionName": "1.4.7",
+  "versionCode": 299,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-20T03:11:17.008849+00:00",
+  "confirmedAt": "2026-10-20T03:47:26.198884+00:00",
   "confirmedBy": "release owner",
-  "confirmationBasis": "The release owner requested production signing, packaging and source-code upload on 2026-10-20. The standing full-MDK instruction covers the unchanged pinned component and local production-signed 1.4.6/298 package-only delivery. Source push uses artifact-only CI; no update-server or public APK publication was requested."
+  "confirmationBasis": "The release owner requested the complete Cinema 2.0 interaction implementation and local packaging on 2026-10-20. Standing authorization covers the unchanged pinned MDK and production-signed full ARM64 package-only delivery. No source push or public APK publication is part of this request."
 }

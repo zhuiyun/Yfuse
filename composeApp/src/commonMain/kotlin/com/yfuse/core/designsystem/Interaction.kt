@@ -537,7 +537,7 @@ fun LazyItemScope.motionAwareItem(): Modifier =
     } else if (cinemaMotion()) {
         Modifier.animateItem(
             fadeInSpec = Motion.tween(CinemaMotion.ITEM_ENTER),
-            placementSpec = Motion.tween(CinemaMotion.REORDER),
+            placementSpec = Motion.settle(),
             fadeOutSpec = Motion.tween(CinemaMotion.ITEM_EXIT),
         )
     } else {
@@ -559,7 +559,7 @@ fun LazyGridItemScope.motionAwareItem(): Modifier =
     } else if (cinemaMotion()) {
         Modifier.animateItem(
             fadeInSpec = Motion.tween(CinemaMotion.ITEM_ENTER),
-            placementSpec = Motion.tween(CinemaMotion.REORDER),
+            placementSpec = Motion.settle(),
             fadeOutSpec = Motion.tween(CinemaMotion.ITEM_EXIT),
         )
     } else {

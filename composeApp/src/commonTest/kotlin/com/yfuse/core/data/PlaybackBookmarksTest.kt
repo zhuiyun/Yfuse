@@ -8,6 +8,38 @@ import kotlin.test.assertNotNull
 
 class PlaybackBookmarksTest {
     @Test
+    fun undo_restores_content_after_restart_without_reusing_another_bookmarks_id() {
+        val settings = MapSettings()
+        val media = PlaybackBookmarkKey("a", "movie")
+        val store = PlaybackBookmarks(settings)
+        store.save(media, 10, "Original", "Note")
+        val removed = store.items.value.single()
+        store.remove(media, removed.id)
+        store.save(media.copy(serverId = "b"), 10, "Other server")
+        store.restore(removed)
+        val records = PlaybackBookmarks(settings).items.value
+        assertEquals(2, records.map { it.id }.distinct().size)
+        assertEquals("Note", records.single { it.media == media }.note)
+    }
+
+    @Test
+    fun undo_does_not_overwrite_a_newer_bookmark_at_the_same_timestamp() {
+        val store = PlaybackBookmarks(MapSettings())
+        val media = PlaybackBookmarkKey("a", "movie")
+        store.save(media, 10, "Original")
+        val removed = store.items.value.single()
+        store.remove(media, removed.id)
+        store.save(media, 10, "New title")
+        assertFailsWith<IllegalArgumentException> { store.restore(removed) }
+        assertEquals(
+            "New title",
+            store.items.value
+                .single()
+                .title,
+        )
+    }
+
+    @Test
     fun bookmarks_survive_restart_and_isolate_servers_and_versions() {
         val settings = MapSettings()
         val first = PlaybackBookmarkKey("a", "film", "cut1")

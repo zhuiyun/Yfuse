@@ -28,14 +28,18 @@ import com.yfuse.core.data.plexArtworkTag
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ConfirmDialog
+import com.yfuse.core.designsystem.ExclusiveUiOperation
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OperationFeedback
+import com.yfuse.core.designsystem.OperationTone
 import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.returnLocator
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyError
@@ -62,7 +66,8 @@ internal fun MetadataEditorDialog(
     var draft by remember(server.id, itemId) { mutableStateOf(MetadataDraft("", "")) }
     var images by remember { mutableStateOf<List<MetadataArtwork>?>(null) }
     var selected by remember { mutableStateOf<MetadataArtwork?>(null) }
-    var busy by remember { mutableStateOf(false) }
+    val work = remember(server.id, itemId) { ExclusiveUiOperation() }
+    val busy = work.busy
     var error by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableStateOf(0) }
@@ -70,7 +75,6 @@ internal fun MetadataEditorDialog(
     val palette = LocalPalette.current
 
     suspend fun operation(block: suspend () -> Unit) {
-        busy = true
         error = null
         notice = null
         try {
@@ -79,15 +83,15 @@ internal fun MetadataEditorDialog(
             throw cancelled
         } catch (failure: Exception) {
             error = failure.metadataEditorMessage()
-        } finally {
-            busy = false
         }
     }
     LaunchedEffect(server.id, itemId, reload) {
-        operation {
-            val loaded = service.load(server, itemId)
-            original = loaded
-            draft = loaded.draft
+        work.launch(this, "正在读取元数据…") {
+            operation {
+                val loaded = service.load(server, itemId)
+                original = loaded
+                draft = loaded.draft
+            }
         }
     }
     // Keep edited text and unapplied images until the person confirms discarding them.
@@ -110,10 +114,10 @@ internal fun MetadataEditorDialog(
             if (server.kind != MediaServerKind.Plex) {
                 MetadataField("TMDB ID", draft.tmdbId, 20, true, busy) { draft = draft.copy(tmdbId = it) }
             }
-            OverlayActionRow(if (busy) "处理中…" else "保存文字信息", {
+            OverlayActionRow("保存文字信息", {
                 val before = original
                 if (!busy && before != null) {
-                    scope.launch {
+                    work.launch(scope, "正在保存文字信息…") {
                         operation {
                             service.save(server, before, draft)
                             // The write succeeded even if a later read fails. Refresh the detail now.
@@ -127,7 +131,7 @@ internal fun MetadataEditorDialog(
             listOf("Primary" to "选择海报", "Backdrop" to "选择背景图").forEach { (type, title) ->
                 OverlayActionRow(title, {
                     if (!busy) {
-                        scope.launch {
+                        work.launch(scope, "正在读取可选图片…") {
                             operation {
                                 images = service.artwork(server, itemId, type)
                                 selected =
@@ -156,7 +160,8 @@ internal fun MetadataEditorDialog(
                         Column(
                             Modifier
                                 .width(if (artwork.type == "Primary") 110.dp else 190.dp)
-                                .pressable(onClick = { if (!busy) selected = artwork })
+                                .pressable(enabled = !busy, onClick = { selected = artwork })
+                                .returnLocator(selected == artwork)
                                 .flatGlass(
                                     AppShapes.card,
                                     palette.card2,
@@ -182,7 +187,7 @@ internal fun MetadataEditorDialog(
                 selected?.let { artwork ->
                     OverlayActionRow("应用所选图片", {
                         if (!busy) {
-                            scope.launch {
+                            work.launch(scope, "正在应用所选图片…") {
                                 operation {
                                     service.selectArtwork(server, itemId, artwork)
                                     onChanged()
@@ -197,9 +202,9 @@ internal fun MetadataEditorDialog(
         } else if (!busy) {
             OverlayActionRow("重新读取", { reload += 1 })
         }
-        if (busy) Text("正在与服务器通信…", style = AppTypography.caption.regular, color = palette.sub)
-        error?.let { Text(it, style = AppTypography.caption.regular, color = palette.error) }
-        notice?.let { Text(it, style = AppTypography.caption.regular, color = palette.text) }
+        if (busy) OperationFeedback(work.label.orEmpty(), OperationTone.Working)
+        error?.let { OperationFeedback(it, OperationTone.Error) }
+        notice?.let { OperationFeedback(it, OperationTone.Success) }
         OverlayActionRow("关闭", overlayDismiss(onDismiss))
 
         // Opened from inside the editor, so it belongs to this dialog rather than to its owner.

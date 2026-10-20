@@ -28,6 +28,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingsDivider
 import com.yfuse.core.designsystem.flatGlass
+import com.yfuse.core.designsystem.returnLocator
 import com.yfuse.core.network.localNetworkPermissionGranted
 import com.yfuse.core.network.localNetworkRuntimePermission
 
@@ -129,9 +130,11 @@ private fun PermissionHealthRow(
     unavailableLabel: String,
     onClick: () -> Unit,
 ) {
+    val initial = remember(title) { healthy }
     SettingRow(
         title = title,
-        value = if (healthy) healthyLabel else unavailableLabel,
+        value = if (healthy) "✓ $healthyLabel" else unavailableLabel,
+        modifier = Modifier.returnLocator(healthy != initial),
         embedded = true,
         onClick = if (healthy) null else onClick,
     )

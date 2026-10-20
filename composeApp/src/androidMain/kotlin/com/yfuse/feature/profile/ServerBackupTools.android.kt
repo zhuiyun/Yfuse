@@ -45,9 +45,12 @@ import androidx.core.content.ContextCompat
 import com.yfuse.backend.BackendAccess
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
+import com.yfuse.core.designsystem.ExclusiveUiOperation
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OperationFeedback
+import com.yfuse.core.designsystem.OperationTone
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayButtonTone
@@ -99,6 +102,8 @@ actual fun ServerBackupTools(
     var exportPassphraseError by remember { mutableStateOf<String?>(null) }
     var protectedExportRunning by remember { mutableStateOf(false) }
     val relayApi = migrationRelayApi
+    val work = remember { ExclusiveUiOperation() }
+    var messageTone by remember { mutableStateOf(OperationTone.Error) }
 
     DisposableEffect(activity) {
         val existingFlags = activity?.window?.attributes?.flags ?: 0
@@ -122,6 +127,7 @@ actual fun ServerBackupTools(
     }
 
     suspend fun createProtectedPayload(): String? {
+        messageTone = OperationTone.Error
         val now = System.currentTimeMillis() / 1_000L
         if (!BackendAccess.Default.enabled) {
             if (!validateLegacyPassphrase()) return null
@@ -144,6 +150,7 @@ actual fun ServerBackupTools(
                         message = "Protected server migration content could not be created",
                         throwable = it,
                     )
+                    messageTone = OperationTone.Error
                     message = it.message ?: "生成受保护迁移包失败"
                 }.getOrNull() ?: return null
         return try {
@@ -154,6 +161,7 @@ actual fun ServerBackupTools(
                     migration.payloadSha256,
                 )
             activeMigrationCode = ticket.code
+            messageTone = OperationTone.Success
             message = "迁移码 ${ticket.code}，15 分钟内有效且只能使用一次"
             migration.envelope
         } catch (error: Exception) {
@@ -163,6 +171,7 @@ actual fun ServerBackupTools(
                 message = "One-time migration relay could not be created",
                 throwable = error,
             )
+            messageTone = OperationTone.Error
             message = error.message ?: "迁移服务暂不可用，请检查网络"
             null
         } finally {
@@ -171,8 +180,11 @@ actual fun ServerBackupTools(
     }
 
     fun importText(text: String) {
+        if (work.busy || protectedExportRunning) return
+        messageTone = OperationTone.Info
         val decoded =
             runCatching { decodeQrPayload(text) }.getOrElse {
+                messageTone = OperationTone.Error
                 message = it.message ?: "迁移包无效"
                 return
             }
@@ -192,12 +204,14 @@ actual fun ServerBackupTools(
     }
 
     fun importPendingPayload() {
+        if (work.busy || protectedExportRunning) return
+        messageTone = OperationTone.Error
         val payload =
             pendingImportPayload ?: run {
                 message = "请先扫描二维码或选择迁移文件"
                 return
             }
-        scope.launch {
+        work.launch(scope, "正在验证并导入服务器…") {
             val now = System.currentTimeMillis() / 1_000L
             val result =
                 if (onIsRelay(payload)) {
@@ -237,6 +251,7 @@ actual fun ServerBackupTools(
                     )
                     passphrase = ""
                     pendingImportPayload = null
+                    messageTone = OperationTone.Success
                     message = "已安全导入 $it 个服务器；迁移码已失效，请删除文件/二维码"
                 }.onFailure {
                     AppLog.warning(
@@ -245,6 +260,7 @@ actual fun ServerBackupTools(
                         message = "Protected server migration content import failed",
                         throwable = it,
                     )
+                    messageTone = OperationTone.Error
                     message = it.message ?: "导入失败"
                 }
         }
@@ -271,6 +287,7 @@ actual fun ServerBackupTools(
                         event = "file_exported",
                         message = "Server backup file exported",
                     )
+                    messageTone = OperationTone.Success
                     message = savedMessage
                 }.onFailure {
                     AppLog.error(
@@ -279,6 +296,7 @@ actual fun ServerBackupTools(
                         message = "Server backup file export failed",
                         throwable = it,
                     )
+                    messageTone = OperationTone.Error
                     message = it.message ?: "保存失败"
                 }
             }
@@ -299,6 +317,7 @@ actual fun ServerBackupTools(
                             message = "Server backup file could not be read",
                             throwable = it,
                         )
+                        messageTone = OperationTone.Error
                         message = it.message ?: "读取失败"
                     }
             }
@@ -319,6 +338,7 @@ actual fun ServerBackupTools(
                         event = "qr_exported",
                         message = "Server migration QR image exported",
                     )
+                    messageTone = OperationTone.Success
                     message = "二维码已保存"
                 }.onFailure {
                     AppLog.error(
@@ -327,6 +347,7 @@ actual fun ServerBackupTools(
                         message = "Server migration QR image export failed",
                         throwable = it,
                     )
+                    messageTone = OperationTone.Error
                     message = it.message ?: "保存失败"
                 }
             }
@@ -351,6 +372,7 @@ actual fun ServerBackupTools(
                             message = "Selected image did not contain a valid server migration QR code",
                             throwable = it,
                         )
+                        messageTone = OperationTone.Error
                         message = "未识别到有效的服务器二维码"
                     }
             }
@@ -373,6 +395,7 @@ actual fun ServerBackupTools(
                     event = "camera_permission_denied",
                     message = "Camera permission denied for server migration scanner",
                 )
+                messageTone = OperationTone.Error
                 message = "需要相机权限才能扫码；仍可从相册导入二维码"
             }
         }
@@ -391,6 +414,8 @@ actual fun ServerBackupTools(
      * here as a CharArray that is zeroed as soon as the package is sealed.
      */
     fun exportWithPassphrase() {
+        if (work.busy || protectedExportRunning) return
+        messageTone = OperationTone.Error
         protectedExportPassphraseError(exportPassphrase, exportConfirmation)?.let { reason ->
             exportPassphraseError = reason
             return
@@ -415,6 +440,7 @@ actual fun ServerBackupTools(
                     exportFile.launch("Yfuse-servers.protected.json")
                 }.onFailure {
                     // ServerRegistry has already logged the failure; the message names no secret.
+                    messageTone = OperationTone.Error
                     message = it.message ?: "生成口令保护备份失败"
                 }
         }
@@ -466,6 +492,7 @@ actual fun ServerBackupTools(
 
         OutlinedTextField(
             value = passphrase,
+            enabled = !work.busy && !protectedExportRunning,
             onValueChange = {
                 passphrase =
                     if (pendingImportPayload?.let(onIsRelay) == true) {
@@ -502,8 +529,9 @@ actual fun ServerBackupTools(
         )
         if (pendingImportPayload != null) {
             YfButton(
-                label = "确认导入",
-                enabled = true,
+                label = if (work.busy) "正在导入…" else "确认导入",
+                enabled = !protectedExportRunning,
+                loading = work.busy,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = ::importPendingPayload,
             )
@@ -513,10 +541,11 @@ actual fun ServerBackupTools(
             YfButton(
                 label = if (BackendAccess.Default.enabled) "生成迁移码" else "生成离线二维码",
                 onClick = {
-                    scope.launch {
+                    work.launch(scope, "正在生成受保护迁移包…") {
                         val payload = createProtectedPayload() ?: return@launch
                         val encoded =
                             runCatching { encodeQrPayload(payload) }.getOrElse {
+                                messageTone = OperationTone.Error
                                 message = it.message ?: "迁移包无法编码为二维码"
                                 return@launch
                             }
@@ -532,13 +561,14 @@ actual fun ServerBackupTools(
                                     )
                                 }.getOrNull()
                         if (qrBitmap == null) {
+                            messageTone = OperationTone.Error
                             message = "服务器过多，二维码容量不足，请使用受保护文件导出"
                         } else {
                             showQr = true
                         }
                     }
                 },
-                enabled = serverCount > 0,
+                enabled = serverCount > 0 && !work.busy && !protectedExportRunning,
                 modifier = Modifier.weight(1f),
             )
             YfButton(
@@ -552,7 +582,7 @@ actual fun ServerBackupTools(
                         cameraPermission.launch(Manifest.permission.CAMERA)
                     }
                 },
-                enabled = true,
+                enabled = !work.busy && !protectedExportRunning,
                 modifier = Modifier.weight(1f),
                 tone = YfButtonTone.Secondary,
             )
@@ -568,8 +598,8 @@ actual fun ServerBackupTools(
                 ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MigrationLink("导出文件", Modifier.weight(1f), serverCount > 0) {
-                scope.launch {
+            MigrationLink("导出文件", Modifier.weight(1f), serverCount > 0 && !work.busy && !protectedExportRunning) {
+                work.launch(scope, "正在生成受保护备份…") {
                     createProtectedPayload()?.let {
                         pendingFilePayload = it
                         exportFile.launch("Yfuse-servers.secure.json")
@@ -577,31 +607,24 @@ actual fun ServerBackupTools(
                 }
             }
             MigrationDivider()
-            MigrationLink("口令导出", Modifier.weight(1f), serverCount > 0 && !protectedExportRunning) {
+            MigrationLink("口令导出", Modifier.weight(1f), serverCount > 0 && !protectedExportRunning && !work.busy) {
                 message = null
                 showProtectedExport = true
             }
             MigrationDivider()
-            MigrationLink("导入文件", Modifier.weight(1f), true) {
+            MigrationLink("导入文件", Modifier.weight(1f), !work.busy && !protectedExportRunning) {
                 importFile.launch(arrayOf("application/json", "text/plain", "*/*"))
             }
             MigrationDivider()
-            MigrationLink("相册识别", Modifier.weight(1f), true) {
+            MigrationLink("相册识别", Modifier.weight(1f), !work.busy && !protectedExportRunning) {
                 importQrImage.launch("image/*")
             }
         }
 
-        message?.let {
-            Text(
-                it,
-                style = mr(10.5f, 600),
-                color = Brand.Primary,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .background(Brand.Primary.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
-                        .padding(horizontal = 11.dp, vertical = 8.dp),
-            )
+        when {
+            work.busy -> OperationFeedback(work.label.orEmpty(), OperationTone.Working)
+            protectedExportRunning -> OperationFeedback("正在加密备份…", OperationTone.Working)
+            message != null -> OperationFeedback(message.orEmpty(), messageTone)
         }
         Text(
             if (BackendAccess.Default.enabled) {

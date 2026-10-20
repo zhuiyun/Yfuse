@@ -1,5 +1,6 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -57,6 +58,12 @@ fun YfFormField(
     val accent = LocalAccentColors.current
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
+    val still = LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current
+    val focusColor by animateColorAsState(
+        if (focused) accent.border else accent.border.copy(alpha = 0f),
+        animationSpec = Motion.tween(if (still) 0 else Motion.QUICK),
+        label = "field-focus",
+    )
 
     BasicTextField(
         value = value,
@@ -70,13 +77,8 @@ fun YfFormField(
                     shape = AppShapes.control,
                     fill = palette.card2,
                     border = palette.border,
-                ).then(
-                    if (focused) {
-                        Modifier.border(2.dp, accent.border, AppShapes.control)
-                    } else {
-                        Modifier
-                    },
-                ).padding(
+                ).border(2.dp, focusColor, AppShapes.control)
+                .padding(
                     horizontal = 14.dp,
                     vertical = if (trailingIcon == null) 9.dp else 4.dp,
                 ).semantics { contentDescription = label },
@@ -205,7 +207,7 @@ fun YfButton(
             OrbProgress(size = 16.dp, color = visuals.content)
             Spacer(Modifier.width(8.dp))
         }
-        Text(label, style = AppTypography.body.strong, color = visuals.content)
+        MotionSwap(label) { Text(it, style = AppTypography.body.strong, color = visuals.content) }
     }
 }
 

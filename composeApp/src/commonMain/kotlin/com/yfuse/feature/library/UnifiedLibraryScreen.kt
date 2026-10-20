@@ -18,12 +18,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.data.CrossServerMediaGroup
@@ -42,6 +44,8 @@ import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.PageHint
+import com.yfuse.core.designsystem.YfChip
+import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
@@ -68,11 +72,13 @@ fun UnifiedLibraryScreen(
     val servers by registry.data.collectAsState()
     val access =
         remember { runCatching { GlobalContext.get().getOrNull<PersonalLibraryRepository>() }.getOrNull()?.policy }
-    val canSeeShares = access?.collectAsState()?.value?.canManageServers ?: true
+    val policy = access?.collectAsState()?.value
+    val canSeeShares = policy?.canManageServers ?: true
     // 文件来源's 片库, merged by TMDB id with the servers' copies of the same titles.
     val shelf = rememberFileSourceLibraryShelf(allowed = canSeeShares)
+    var query by remember { mutableStateOf(UnifiedLibraryQuery()) }
     val pager =
-        remember(repository, shelf) {
+        remember(repository, shelf, policy, servers.servers, query) {
             UnifiedLibraryPager(
                 extraHits = { query -> shelf?.hits(query.type.itemType, query.unplayedOnly).orEmpty() },
                 libraries = repository::libraries,
@@ -88,14 +94,12 @@ fun UnifiedLibraryScreen(
                 },
             )
         }
-    val state by pager.state.collectAsState()
-    var query by remember { mutableStateOf(UnifiedLibraryQuery()) }
-    var refresh by remember { mutableStateOf(0) }
-    var sources by remember { mutableStateOf<CrossServerMediaGroup?>(null) }
-    var shareTitle by remember { mutableStateOf<List<CrossServerMediaHit>?>(null) }
+    val state = key(pager) { pager.state.collectAsState().value }
+    var sources by remember(policy, servers.servers) { mutableStateOf<CrossServerMediaGroup?>(null) }
+    var shareTitle by remember(policy, servers.servers) { mutableStateOf<List<CrossServerMediaHit>?>(null) }
     val scope = rememberCoroutineScope()
     val palette = LocalPalette.current
-    LaunchedEffect(servers, query, refresh) {
+    LaunchedEffect(pager, query) {
         pager.reset(servers.servers, query)
         pager.loadMore()
     }
@@ -114,20 +118,22 @@ fun UnifiedLibraryScreen(
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             LibraryAction("返回", onClick = onBack)
             Text("全部服务器", style = AppTypography.body.strong, modifier = Modifier.padding(top = 12.dp))
-            LibraryAction("刷新", onClick = { refresh++ })
+            LibraryAction(if (state.loading) "读取中…" else "刷新", enabled = !state.loading, onClick = {
+                scope.launch { pager.refresh(servers.servers, query) }
+            })
         }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(UnifiedLibraryType.entries) { type ->
-                LibraryAction(type.label, selected = query.type == type) { query = query.copy(type = type) }
+                YfChip(type.label, selected = query.type == type, onClick = { query = query.copy(type = type) })
             }
             item {
-                LibraryAction("只看未看", selected = query.unplayedOnly) {
+                YfChip("只看未看", selected = query.unplayedOnly, role = Role.Checkbox, onClick = {
                     query =
                         query.copy(unplayedOnly = !query.unplayedOnly)
-                }
+                })
             }
         }
         Text(
@@ -161,7 +167,7 @@ fun UnifiedLibraryScreen(
                             // to retry one library at a time; only rediscovering it helps.
                             onRetry = {
                                 if (state.libraryCount == 0) {
-                                    refresh++
+                                    scope.launch { pager.refresh(servers.servers, query) }
                                 } else {
                                     scope.launch { pager.loadMore(retryFailures = true) }
                                 }
@@ -173,7 +179,7 @@ fun UnifiedLibraryScreen(
                     }
                 }
             }
-            items(state.groups, key = { it.identity }) { group ->
+            motionItems(state.groups, key = { it.identity }) { group ->
                 // A server's copy draws the card when there is one; it has the richer page.
                 val hit =
                     group.recommended.takeIf { it.fileSourceId == null }
@@ -281,12 +287,19 @@ fun UnifiedLibraryScreen(
 internal fun LibraryAction(
     label: String,
     selected: Boolean = false,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     Text(
         if (selected) "✓ $label" else label,
         style = AppTypography.caption.strong,
         color = LocalAccentColors.current.accent,
-        modifier = Modifier.pressable(onClick = onClick).touchTarget().padding(horizontal = 8.dp, vertical = 8.dp),
+        modifier =
+            Modifier
+                .pressable(
+                    enabled = enabled,
+                    onClick = onClick,
+                ).touchTarget()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
     )
 }

@@ -7,6 +7,7 @@ import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.SavedServer
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -14,6 +15,66 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class UnifiedLibraryPagerTest {
+    @Test
+    fun refresh_keeps_the_loaded_extent_visible_until_replacement_arrives() =
+        runTest {
+            var gate: CompletableDeferred<Unit>? = null
+            val pager =
+                UnifiedLibraryPager(
+                    libraries = { Result.success(listOf(MediaLibrary("movies", "Movies", "movies"))) },
+                    page = { _, _, offset, _, _ ->
+                        gate?.await()
+                        Result.success(LibraryPage((offset until offset + 40).map { movie("$it") }, 80, offset))
+                    },
+                )
+            val servers = listOf(server("a"))
+            pager.reset(servers, UnifiedLibraryQuery())
+            pager.loadMore()
+            pager.loadMore()
+            gate = CompletableDeferred()
+            val refreshing = async { pager.refresh(servers, UnifiedLibraryQuery()) }
+            runCurrent()
+            assertTrue(pager.state.value.loading)
+            assertEquals(80, pager.state.value.groups.size)
+            gate.complete(Unit)
+            refreshing.await()
+            assertEquals(80, pager.state.value.groups.size)
+            assertFalse(pager.state.value.loading)
+        }
+
+    @Test
+    fun a_refresh_cannot_publish_into_a_different_profile_or_filter() =
+        runTest {
+            var gate: CompletableDeferred<Unit>? = null
+            val pager =
+                UnifiedLibraryPager(
+                    libraries = { Result.success(listOf(MediaLibrary("movies", "Movies", "movies"))) },
+                    page = { source, _, offset, _, _ ->
+                        if (source.id == "a") gate?.await()
+                        Result.success(LibraryPage(listOf(movie(source.id)), 1, offset))
+                    },
+                )
+            pager.reset(listOf(server("a")), UnifiedLibraryQuery())
+            pager.loadMore()
+            gate = CompletableDeferred()
+            val refreshing = async { pager.refresh(listOf(server("a")), UnifiedLibraryQuery()) }
+            runCurrent()
+            pager.reset(listOf(server("b")), UnifiedLibraryQuery())
+            assertTrue(
+                pager.state.value.groups
+                    .isEmpty(),
+            )
+            pager.loadMore()
+            gate.complete(Unit)
+            refreshing.await()
+            assertEquals(
+                "b",
+                pager.state.value.groups
+                    .single()
+                    .recommended.serverId,
+            )
+        }
+
     private fun server(id: String) = SavedServer(id, "https://$id.example", id, "user", "user", "token")
 
     private fun movie(

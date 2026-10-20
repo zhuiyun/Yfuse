@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -38,6 +37,8 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OperationFeedback
+import com.yfuse.core.designsystem.OperationTone
 import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingsCard
@@ -49,6 +50,8 @@ import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.liveStatus
+import com.yfuse.core.designsystem.motionItems
+import com.yfuse.core.designsystem.returnLocator
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE
 import com.yfuse.core.personal.PersonalCollection
@@ -183,7 +186,18 @@ private fun PersonalCenterPage(
         subtitle = library.activeProfile.name,
         onBack = onBack,
     ) {
-        state.message?.let { notice -> item { PersonalNotice(notice) } }
+        if (state.busy) {
+            item {
+                OperationFeedback(
+                    "正在保存更改…",
+                    OperationTone.Working,
+                    Modifier.padding(horizontal = 16.dp),
+                )
+            }
+        }
+        state.message?.let { notice ->
+            item { OperationFeedback(notice, OperationTone.Success, Modifier.padding(horizontal = 16.dp)) }
+        }
         state.failure?.let { failed ->
             item {
                 ErrorState(
@@ -239,7 +253,7 @@ private fun PersonalCenterPage(
                         }
                     }
                 }
-                items(library.profiles, key = { it.id }) { profile ->
+                motionItems(library.profiles, key = { it.id }) { profile ->
                     Section(title = profile.name + if (profile.child) " · 儿童" else " · 成人") {
                         SettingsCard {
                             SettingRow(
@@ -254,13 +268,16 @@ private fun PersonalCenterPage(
                             SettingsDivider()
                             SettingRow(
                                 "当前资料",
-                                if (profile.id ==
-                                    library.activeProfile.id
-                                ) {
-                                    "正在使用"
-                                } else {
-                                    "切换到此资料"
-                                },
+                                modifier = Modifier.returnLocator(profile.id == library.activeProfile.id),
+                                loading = state.busy && profile.id != library.activeProfile.id,
+                                value =
+                                    if (profile.id ==
+                                        library.activeProfile.id
+                                    ) {
+                                        "正在使用"
+                                    } else {
+                                        "切换到此资料"
+                                    },
                                 embedded = true,
                                 onClick =
                                     if (profile.id ==
@@ -320,7 +337,8 @@ private fun PersonalCenterPage(
                                 SettingsDivider()
                                 SettingRow(
                                     "立即同步",
-                                    if (!state.signedIn) "请先登录鱼服账号" else "合并个人数据并重试",
+                                    loading = library.syncing,
+                                    value = if (!state.signedIn) "请先登录鱼服账号" else "合并个人数据并重试",
                                     embedded = true,
                                     icon = AppIcons.Refresh,
                                     onClick =
@@ -363,7 +381,8 @@ private fun PersonalCenterPage(
                                 SettingsDivider()
                                 SettingRow(
                                     "刷新与重试",
-                                    "拉取最新播放进度",
+                                    loading = playbackState.syncing,
+                                    value = "拉取最新播放进度",
                                     embedded = true,
                                     icon = AppIcons.Refresh,
                                     onClick =
@@ -396,18 +415,30 @@ private fun PersonalCenterPage(
                                 SettingsDivider()
                                 SettingRow(
                                     status.serverName,
-                                    status.error ?: if (status.syncing) "同步中" else "就绪",
+                                    loading = status.syncing,
+                                    value = status.error ?: if (status.syncing) "同步中" else "就绪",
                                     embedded = true,
                                 )
                             }
                             SettingsDivider()
-                            SettingRow("重试服务器同步", "重新提交待处理更改", embedded = true, icon = AppIcons.Refresh, onClick = {
-                                onIntent(PersonalCenterIntent.RetryServerSync)
-                            })
+                            SettingRow(
+                                "重试服务器同步",
+                                "重新提交待处理更改",
+                                embedded = true,
+                                icon = AppIcons.Refresh,
+                                loading =
+                                    state.serverStatuses
+                                        .any {
+                                            it.syncing
+                                        },
+                                onClick = {
+                                    onIntent(PersonalCenterIntent.RetryServerSync)
+                                },
+                            )
                         }
                     }
                 }
-                items(
+                motionItems(
                     state.serverConflicts,
                     key = { "${it.mutation.serverId}|${it.mutation.itemId}|${it.mutation.kind}" },
                     contentType = { "sync-conflict" },
@@ -425,11 +456,11 @@ private fun PersonalCenterPage(
                                 embedded = true,
                             )
                             SettingsDivider()
-                            SettingRow("保留本机", "使用当前资料的选择", embedded = true, onClick = {
+                            SettingRow("保留本机", "使用当前资料的选择", embedded = true, enabled = !state.busy, onClick = {
                                 onIntent(PersonalCenterIntent.ResolveConflict(conflict, keepLocal = true))
                             })
                             SettingsDivider()
-                            SettingRow("采用服务器", "使用服务器的选择", embedded = true, onClick = {
+                            SettingRow("采用服务器", "使用服务器的选择", embedded = true, enabled = !state.busy, onClick = {
                                 onIntent(PersonalCenterIntent.ResolveConflict(conflict, keepLocal = false))
                             })
                         }

@@ -2,7 +2,6 @@ package com.yfuse.core.designsystem
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -84,7 +83,7 @@ internal fun CinemaSelectionGroup(
         previous = target
         if (target != null) {
             if (moving && cinemaSelectionMoves(old, target)) {
-                position.animateTo(target.bounds, tween(CinemaMotion.CHOICE, easing = Motion.Curve))
+                position.animateTo(target.bounds, Motion.settle())
             } else {
                 position.snapTo(target.bounds)
             }

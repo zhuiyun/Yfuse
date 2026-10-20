@@ -29,6 +29,8 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OperationFeedback
+import com.yfuse.core.designsystem.OperationTone
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.Section
@@ -36,7 +38,6 @@ import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingsCard
 import com.yfuse.core.designsystem.SettingsDivider
 import com.yfuse.core.designsystem.ThemeText
-import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.model.MediaServerKind
@@ -200,15 +201,15 @@ private fun LazyListScope.remoteSignInStatus(
             else -> null
         }
     item {
-        val palette = LocalPalette.current
-        ThemeText(
+        OperationFeedback(
             message,
-            style = AppTypography.body.medium,
-            color = if (failed) palette.error else palette.body,
-            modifier =
-                Modifier
-                    .padding(horizontal = Dimens.pageHorizontal)
-                    .liveStatus(assertive = failed),
+            when {
+                failed -> OperationTone.Error
+                state == RemoteSignInState.Done -> OperationTone.Success
+                state == RemoteSignInState.Confirming -> OperationTone.Info
+                else -> OperationTone.Working
+            },
+            Modifier.padding(horizontal = Dimens.pageHorizontal),
         )
     }
     action?.let { (label, onClick) ->

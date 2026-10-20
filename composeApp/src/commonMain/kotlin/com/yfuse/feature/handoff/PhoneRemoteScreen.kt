@@ -52,8 +52,10 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.MotionSwap
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
@@ -61,6 +63,7 @@ import com.yfuse.core.designsystem.SwipeRowSystemEdge
 import com.yfuse.core.designsystem.ThemeIcon
 import com.yfuse.core.designsystem.ThemeText
 import com.yfuse.core.designsystem.YfFormField
+import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.inSystemBackEdge
 import com.yfuse.core.designsystem.liveStatus
@@ -73,6 +76,7 @@ import com.yfuse.feature.profile.SettingsBackInset
 import com.yfuse.feature.profile.SettingsHeaderTop
 import com.yfuse.watch.protocol.RemoteControlKey
 import com.yfuse.watch.protocol.WatchProtocol
+import kotlinx.coroutines.delay
 import org.koin.core.context.GlobalContext
 import kotlin.time.TimeSource
 
@@ -153,7 +157,7 @@ internal fun PhoneRemoteScreen(
                     "$televisionName · $status",
                     style = AppTypography.caption.regular,
                     color = if (state is PhoneRemoteState.Failed) palette.error else palette.sub2,
-                    modifier = Modifier.liveStatus(assertive = state is PhoneRemoteState.Failed),
+                    modifier = Modifier.contentHandoff(status).liveStatus(assertive = state is PhoneRemoteState.Failed),
                 )
             }
         }
@@ -216,6 +220,20 @@ private fun RemoteTouchpad(
     val palette = LocalPalette.current
     val latestOnKey by rememberUpdatedState(onKey)
     var touching by remember { mutableStateOf(false) }
+    var direction by remember { mutableStateOf<RemoteControlKey?>(null) }
+    var feedbackGeneration by remember { mutableStateOf(0) }
+    val feedbackKey: (RemoteControlKey) -> Unit = { key ->
+        if (enabled) {
+            direction = key
+            feedbackGeneration++
+            latestOnKey(key)
+        }
+    }
+    val latestFeedback by rememberUpdatedState(feedbackKey)
+    LaunchedEffect(feedbackGeneration, enabled) {
+        if (enabled) delay(350)
+        direction = null
+    }
     val placement = remember { TouchpadPlacement() }
     val actions =
         remember {
@@ -227,7 +245,7 @@ private fun RemoteTouchpad(
                 "确定" to RemoteControlKey.Center,
             ).map { (label, key) ->
                 CustomAccessibilityAction(label) {
-                    latestOnKey(key)
+                    latestFeedback(key)
                     true
                 }
             }
@@ -243,7 +261,7 @@ private fun RemoteTouchpad(
                 contentDescription = "触控板，滑动移动电视上的焦点"
                 role = Role.Button
                 onClick(label = "确定") {
-                    latestOnKey(RemoteControlKey.Center)
+                    latestFeedback(RemoteControlKey.Center)
                     true
                 }
                 customActions = actions
@@ -273,7 +291,7 @@ private fun RemoteTouchpad(
                             val event = withTimeoutOrNull(REMOTE_HOLD_POLL_MS) { awaitPointerEvent() }
                             val now = start.elapsedNow().inWholeMilliseconds
                             if (event == null) {
-                                swipe.hold(now)?.let { latestOnKey(it) }
+                                swipe.hold(now)?.let { latestFeedback(it) }
                                 continue
                             }
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -285,14 +303,14 @@ private fun RemoteTouchpad(
                                 released = true
                                 break
                             }
-                            swipe.move(moved.x, moved.y, now)?.let { latestOnKey(it) }
+                            swipe.move(moved.x, moved.y, now)?.let { latestFeedback(it) }
                         }
                     } finally {
                         touching = false
                     }
                     if (released) {
                         val velocity = tracker.calculateVelocity()
-                        swipe.release(velocity.x, velocity.y)?.let { latestOnKey(it) }
+                        swipe.release(velocity.x, velocity.y)?.let { latestFeedback(it) }
                     }
                 }
             },
@@ -315,6 +333,21 @@ private fun RemoteTouchpad(
                     textAlign = TextAlign.Center,
                 )
             } else {
+                MotionSwap(direction) { key ->
+                    ThemeText(
+                        when (key) {
+                            RemoteControlKey.Up -> "↑"
+                            RemoteControlKey.Down -> "↓"
+                            RemoteControlKey.Left -> "←"
+                            RemoteControlKey.Right -> "→"
+                            RemoteControlKey.Center -> "✓"
+                            else -> "·"
+                        },
+                        style = AppTypography.section.strong,
+                        color = LocalAccentColors.current.accent,
+                        modifier = Modifier.height(36.dp),
+                    )
+                }
                 ThemeText("滑动移动，轻点确定", style = AppTypography.body.medium, color = palette.sub)
                 Spacer(Modifier.height(Dimens.space.xs))
                 ThemeText("按住不放可连续移动", style = AppTypography.caption.regular, color = palette.sub2)

@@ -333,6 +333,8 @@ internal fun TracksPanel(
                 },
                 false,
                 onClick = remoteSubtitleActions.onSearch,
+                busy = remoteSubtitles.loading,
+                enabled = remoteSubtitles.downloadingId == null,
             )
         } else {
             UnsupportedSubtitleControl(remoteSubtitles.searchUnavailableReason)
@@ -353,8 +355,11 @@ internal fun TracksPanel(
                     listOf(result.label, result.detail)
                         .filter(String::isNotBlank)
                         .joinToString(" · "),
-                selected = remoteSubtitles.downloadingId == result.id,
+                selected = false,
+                busy = remoteSubtitles.downloadingId == result.id,
+                enabled = remoteSubtitles.downloadingId == null && !remoteSubtitles.loading,
                 onClick = { remoteSubtitleActions.onDownload(result.id) },
+                detailLabel = "添加到服务器",
             )
         }
         remoteSubtitles.message?.let { message ->
