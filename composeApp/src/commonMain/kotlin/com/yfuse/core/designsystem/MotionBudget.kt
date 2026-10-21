@@ -7,31 +7,24 @@ import androidx.compose.runtime.staticCompositionLocalOf
 /**
  * 动效预算 (MO3): whether this device, right now, can afford the full motion language.
  *
- * The way Telegram does it rather than playing everything and dropping frames: a phone in 省电模式,
- * one warming up — a thermal status of MODERATE or worse — or a low-RAM device is drawn as 静息
- * ([MotionTheme.Calm]: fades and short moves, no particles, tides or bounces), and the costliest
- * decoration goes with it: the live background blur and 氛围光's frame sampling. The person's own
- * choice of theme is kept and comes back as the device recovers.
- *
- * It changes when the device does — a switch in the quick settings, a phone heating up in the sun —
- * and is read at composition, never per frame.
+ * Power saving and low RAM draw as 静息 ([MotionTheme.Calm]), including reduced background blur
+ * and ambient-light sampling. The chosen theme is kept and returns when that budget recovers.
+ * Temperature is diagnostic only and does not reduce motion.
  */
 @Immutable
 data class MotionBudget(
     val powerSave: Boolean = false,
-    /** Thermal status at or past [THERMAL_STATUS_MODERATE]. */
+    /** Diagnostic observation at or past [THERMAL_STATUS_MODERATE]; does not limit motion. */
     val thermal: Boolean = false,
     val lowRam: Boolean = false,
 ) {
-    /** Any of the three: spend less. */
-    val reduced: Boolean get() = powerSave || thermal || lowRam
+    val reduced: Boolean get() = powerSave || lowRam
 }
 
-/** `PowerManager.THERMAL_STATUS_MODERATE`, the point at which Android asks apps to cut back. */
+/** Android's MODERATE thermal status, used only for diagnostics. */
 internal const val THERMAL_STATUS_MODERATE = 2
 
-/** Whether Android's thermal [status] (0 for none) is one to cut back at. */
-internal fun thermallyConstrained(status: Int): Boolean = status >= THERMAL_STATUS_MODERATE
+internal fun isDeviceWarm(status: Int): Boolean = status >= THERMAL_STATUS_MODERATE
 
 /** The theme to draw with: [chosen], or 静息 while [budget] is reduced. */
 internal fun effectiveMotionTheme(

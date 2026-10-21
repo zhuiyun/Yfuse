@@ -69,6 +69,8 @@ fun <T : Any> OfficialNavDisplay(
      * one used to fade the page out and straight back in under the player's own transition.
      */
     isLauncher: (T) -> Boolean = { false },
+    /** Detail entry keeps its shared poster; return uses one opaque, predictive side slide. */
+    isDetail: (T) -> Boolean = { false },
     content: @Composable (T) -> Unit,
 ) {
     val parentRouteVisible = LocalRouteVisible.current
@@ -89,14 +91,17 @@ fun <T : Any> OfficialNavDisplay(
     val cinema = cinemaMotion()
     val routeOrigins = remember { MediaRouteOrigins() }
     val routeKeys = shownStack.map(contentKey)
+    val detailRoutes = remember { DetailReturnRoutes() }
+    val detailReturn = detailRoutes.isDetailReturn(routeKeys)
+    val topIsDetail = isDetail(shownStack.last())
     val returnPoster = routeOrigins.returningTo(routeKeys)
     val cinemaPoster = cinema && (sharedMediaController.activeKey != null || returnPoster != null)
     val previousDepth = remember { intArrayOf(shownStack.size) }
     SideEffect {
         // A route pushed right after a poster was tapped is a route from that poster.
         val pushedFrom = if (shownStack.size > previousDepth[0]) sharedMediaController.takeOrigin() else null
-        if (shownStack.size < previousDepth[0] && cinema) {
-            if (zoom?.suppressPopTransition == true || returnPoster == null) {
+        if (shownStack.size < previousDepth[0] && (cinema || detailReturn)) {
+            if (detailReturn || zoom?.suppressPopTransition == true || returnPoster == null) {
                 sharedMediaController.suppressForPop()
             } else {
                 sharedMediaController.onPop(returnPoster)
@@ -104,17 +109,25 @@ fun <T : Any> OfficialNavDisplay(
         }
         routeOrigins.update(routeKeys, pushedFrom)
         sharedMediaController.prepareReturn(
-            if (cinema) routeOrigins.returningTo(routeKeys.dropLast(1)) else null,
+            if (cinema && !topIsDetail) routeOrigins.returningTo(routeKeys.dropLast(1)) else null,
         )
+        detailRoutes.update(routeKeys, shownStack.filter(isDetail).map(contentKey).toSet())
         if (zoom != null) {
             zoom.onBack = { latestBack() }
-            // Cinema poster returns must seek NavDisplay's shared bounds directly. A second
-            // full-page slide would hide the hero before its flight back to the source card.
+            zoom.detailPreview = topIsDetail && !calm
+            zoom.onSideStarted = {
+                if (topIsDetail) sharedMediaController.suppressForPop()
+            }
             zoom.blocked = {
                 liftMenu?.isOpen == true ||
                     screenReader ||
-                    sharedMediaController.activeKey != null ||
-                    (cinema && sharedMediaController.hasPreparedReturn)
+                    (
+                        !topIsDetail &&
+                            (
+                                sharedMediaController.activeKey != null ||
+                                    (cinema && sharedMediaController.hasPreparedReturn)
+                            )
+                    )
             }
             zoom.onStack(routeKeys, pushedFrom, visible = parentRouteVisible)
         }
@@ -157,6 +170,7 @@ fun <T : Any> OfficialNavDisplay(
                         // rather than the parent's Boolean captured when this entry was created.
                         LocalRouteVisible provides visibility.value,
                         LocalRouteVisibilityState provides visibility,
+                        LocalDetailSideReturn provides isDetail(entryKey),
                     ) {
                         val entryTransition = LocalNavAnimatedContentScope.current.transition
                         val returnCandidate = sharedMediaController.returnKey
@@ -171,7 +185,9 @@ fun <T : Any> OfficialNavDisplay(
                                 .zoomBackFrame(zoom, routeKey)
                                 .fillMaxSize()
                                 .zoomBackRoute(zoom, routeKey)
-                                .drawBehind {
+                                .detailBackCorners(isDetail(entryKey) && !calm && !reduceMotion) {
+                                    zoom?.suppressPopTransition == true
+                                }.drawBehind {
                                     // Glass content still needs a solid page beneath it while two
                                     // destinations share the host during a return gesture.
                                     if (motion == OfficialNavMotion.Stack ||
@@ -210,6 +226,8 @@ fun <T : Any> OfficialNavDisplay(
                     popTransitionSpec = {
                         if (zoom?.suppressPopTransition == true) {
                             zoomBackRouteTransform()
+                        } else if (detailReturn) {
+                            if (reduceMotion) noBackTransition() else detailBackTransform(embellished = !calm)
                         } else if (cinemaPoster && popMotion == OfficialNavMotion.Stack) {
                             cinemaPosterPageTransform(popping = true)
                         } else if (calm && !reduceMotion) {
@@ -227,6 +245,15 @@ fun <T : Any> OfficialNavDisplay(
                     predictivePopTransitionSpec = {
                         if (zoom?.suppressPopTransition == true) {
                             zoomBackRouteTransform()
+                        } else if (topIsDetail) {
+                            if (reduceMotion) {
+                                noBackTransition()
+                            } else {
+                                detailBackTransform(
+                                    predictive = true,
+                                    embellished = !calm,
+                                )
+                            }
                         } else if (cinema &&
                             popMotion == OfficialNavMotion.Stack &&
                             (sharedMediaController.hasPreparedReturn || sharedMediaController.activeKey != null)

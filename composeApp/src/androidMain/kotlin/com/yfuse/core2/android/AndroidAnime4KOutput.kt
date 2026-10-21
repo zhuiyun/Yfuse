@@ -7,10 +7,8 @@ import android.opengl.EGL14
 import android.opengl.EGLConfig
 import android.opengl.EGLExt
 import android.opengl.GLES11Ext
-import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
-import android.os.PowerManager
 import android.view.Surface
 import com.yfuse.core.data.Anime4KMode
 import com.yfuse.core.data.PlaybackPreferences
@@ -59,8 +57,6 @@ internal class AndroidAnime4KOutput private constructor(
         get() = if (effectEnabled) "Anime4K Original · $scale×" else "Anime4K 已自动关闭 · 纹理输出"
     private var samples = 0
     private var slowSamples = 0
-    private var thermalCheckNs = 0L
-    private val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
 
     @Volatile private var closed = false
 
@@ -296,15 +292,8 @@ void main() { color = hook(); }
         frameLedger.presented(timestamp)?.let { onPresented?.invoke(it, now) }
         samples++
         if (now - begin > frameBudgetNs) slowSamples++
-        val hot =
-            if (Build.VERSION.SDK_INT >= 29 && now - thermalCheckNs > 1_000_000_000L) {
-                thermalCheckNs = now
-                power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE
-            } else {
-                false
-            }
-        if (effectEnabled && (hot || samples >= 45 && slowSamples >= 15)) {
-            if (hot || scale <= 1f) {
+        if (effectEnabled && samples >= 45 && slowSamples >= 15) {
+            if (scale <= 1f) {
                 effectEnabled = false
                 targets.forEach(::deleteTarget)
                 targets.clear()

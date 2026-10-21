@@ -26,7 +26,9 @@ internal fun playbackReportingTarget(item: PlayerMediaItem?): PlaybackReportingT
     item.serverId?.takeIf(String::isNotBlank)?.let { serverId ->
         return PlaybackReportingTarget.SavedServer(serverId)
     }
-    if (item.isFileSourcePlayback) return PlaybackReportingTarget.Disabled
+    if (item.isFileSourcePlayback || (item.isExternalPlayback && item.id.startsWith("external-stremio-"))) {
+        return PlaybackReportingTarget.Disabled
+    }
     return if (item.url.hasLocalPlaybackScheme()) {
         PlaybackReportingTarget.Disabled
     } else {

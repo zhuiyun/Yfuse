@@ -39385,7 +39385,7 @@ SPLcom/yfuse/core/designsystem/MotionBudgetKt$$ExternalSyntheticLambda0;-><init>
 SPLcom/yfuse/core/designsystem/MotionBudgetKt;-><clinit>()V
 SPLcom/yfuse/core/designsystem/MotionBudgetKt;->effectiveMotionTheme(Lcom/yfuse/core/designsystem/MotionTheme;Lcom/yfuse/core/designsystem/MotionBudget;)Lcom/yfuse/core/designsystem/MotionTheme;
 SPLcom/yfuse/core/designsystem/MotionBudgetKt;->getLocalMotionBudget()Landroidx/compose/runtime/ProvidableCompositionLocal;
-SPLcom/yfuse/core/designsystem/MotionBudgetKt;->thermallyConstrained(I)Z
+SPLcom/yfuse/core/designsystem/MotionBudgetKt;->isDeviceWarm(I)Z
 SPLcom/yfuse/core/designsystem/MotionBudget_androidKt;->rememberMotionBudget(Landroidx/compose/runtime/Composer;I)Lcom/yfuse/core/designsystem/MotionBudget;
 SPLcom/yfuse/core/designsystem/MotionLazyItemsKt$$ExternalSyntheticLambda0;-><init>(Lkotlin/jvm/functions/Function3;Landroidx/compose/foundation/lazy/LazyItemScope;)V
 SPLcom/yfuse/core/designsystem/MotionLazyItemsKt$$ExternalSyntheticLambda10;-><init>(Ljava/lang/Object;Lkotlin/jvm/functions/Function3;)V

@@ -12,12 +12,15 @@ class CinemaMotionTest {
         for (theme in MotionTheme.entries) {
             for (flags in 0..7) {
                 val budget = MotionBudget(flags and 1 != 0, flags and 2 != 0, flags and 4 != 0)
-                assertEquals(theme == MotionTheme.Cinema && flags == 0, cinemaMotionAllowed(theme, false, budget, true))
+                assertEquals(
+                    theme == MotionTheme.Cinema && flags and 5 == 0,
+                    cinemaMotionAllowed(theme, false, budget, true),
+                )
                 assertFalse(cinemaMotionAllowed(theme, true, budget, true))
                 assertFalse(cinemaMotionAllowed(theme, false, budget, false))
             }
         }
-        assertEquals(MotionTheme.Calm, effectiveMotionTheme(MotionTheme.Cinema, MotionBudget(thermal = true)))
+        assertEquals(MotionTheme.Cinema, effectiveMotionTheme(MotionTheme.Cinema, MotionBudget(thermal = true)))
         assertEquals(MotionTheme.Cinema, effectiveMotionTheme(MotionTheme.Cinema, MotionBudget()))
     }
 

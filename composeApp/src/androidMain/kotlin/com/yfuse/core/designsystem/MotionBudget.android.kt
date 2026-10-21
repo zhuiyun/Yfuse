@@ -6,8 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.os.PowerManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -32,18 +30,10 @@ internal actual fun rememberMotionBudget(): MotionBudget {
  */
 private object AndroidMotionBudget {
     private val state = MutableStateFlow(MotionBudget())
-    private val main = Handler(Looper.getMainLooper())
     private var started = false
     private var powerSave = false
     private var thermal = false
     private var lowRam = false
-
-    /** Cooling hovers around the threshold; the full motion comes back only once it has settled. */
-    private val relaxThermal =
-        Runnable {
-            thermal = false
-            publish()
-        }
 
     fun observe(context: Context): StateFlow<MotionBudget> {
         if (!started) {
@@ -84,16 +74,8 @@ private object AndroidMotionBudget {
     }
 
     private fun onThermalStatus(status: Int) {
-        if (thermallyConstrained(status)) {
-            main.removeCallbacks(relaxThermal)
-            if (!thermal) {
-                thermal = true
-                publish()
-            }
-        } else if (thermal) {
-            main.removeCallbacks(relaxThermal)
-            main.postDelayed(relaxThermal, THERMAL_RELAX_MS)
-        }
+        thermal = isDeviceWarm(status)
+        publish()
     }
 
     private fun publish() {
@@ -103,7 +85,7 @@ private object AndroidMotionBudget {
         AppLog.info(
             category = "performance.motion",
             event = "motion_budget_changed",
-            message = if (next.reduced) "Motion drawn as 静息 to spare the device" else "Full motion restored",
+            message = if (next.reduced) "Motion drawn as 静息 to spare the device" else "Full motion available",
             attributes =
                 mapOf(
                     "powerSave" to next.powerSave.toString(),
@@ -126,6 +108,3 @@ private object Api29MotionThermal {
         power.addThermalStatusListener(onChanged)
     }
 }
-
-/** How long the thermal status has to stay below MODERATE before the full motion returns. */
-private const val THERMAL_RELAX_MS = 30_000L

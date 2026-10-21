@@ -94,9 +94,17 @@ internal fun PlaybackContinuityOverlay(
     modifier: Modifier = Modifier,
     mediaKey: Any = title,
     cinemaEnabled: Boolean = true,
+    pictureReady: Boolean = false,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val cinema = cinemaMotion() && cinemaEnabled
+    val entrance =
+        rememberCinemaPlaybackEntrance(
+            identity = mediaKey,
+            awaitingPicture = visible,
+            pictureReady = pictureReady,
+            allowed = cinema && artworkUrls.any { !it.isNullOrBlank() },
+        )
     var statusVisible by remember(visible, title) { mutableStateOf(false) }
     LaunchedEffect(visible, title) {
         statusVisible = false
@@ -111,8 +119,10 @@ internal fun PlaybackContinuityOverlay(
         exit =
             fadeOut(
                 Motion.tween(
-                    if (reduceMotion) {
+                    if (reduceMotion || (cinema && !pictureReady)) {
                         0
+                    } else if (cinema && entrance.choreographed) {
+                        CinemaPlaybackEntrance.REVEAL_MS
                     } else if (cinema) {
                         CinemaMotion.REVEAL
                     } else {
@@ -122,7 +132,12 @@ internal fun PlaybackContinuityOverlay(
             ),
         modifier = modifier,
     ) {
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .cinemaPlaybackReveal(entrance)
+                .background(Color.Black),
+        ) {
             if (artworkUrls.any { !it.isNullOrBlank() }) {
                 FallbackImage(
                     urls = artworkUrls,
@@ -135,10 +150,13 @@ internal fun PlaybackContinuityOverlay(
                     // full-screen Box, it is one fewer layer to measure, place and composite on
                     // an overlay that covers the whole screen during every handover.
                     modifier =
-                        Modifier.fillMaxSize().cinemaOpeningArtwork(mediaKey, visible, cinema).drawWithContent {
-                            drawContent()
-                            drawRect(Color.Black, alpha = CONTINUITY_ARTWORK_DIM)
-                        },
+                        Modifier
+                            .fillMaxSize()
+                            .cinemaPlaybackPush(entrance)
+                            .drawWithContent {
+                                drawContent()
+                                drawRect(Color.Black, alpha = entrance.artworkDim)
+                            },
                 )
             }
             // The chip is held back for [CONTINUITY_STATUS_DELAY_MS] so a fast handover never
@@ -274,5 +292,3 @@ private fun Modifier.statusSemantics(line: PlaybackStatusLine): Modifier =
     liveStatus().clearAndSetSemantics { contentDescription = line.announcement }
 
 private const val CONTINUITY_STATUS_DELAY_MS = 550L
-
-private const val CONTINUITY_ARTWORK_DIM = 0.34f

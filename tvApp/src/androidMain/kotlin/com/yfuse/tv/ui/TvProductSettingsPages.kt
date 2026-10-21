@@ -44,6 +44,9 @@ internal fun TvProductSettingsPage(
             when (page) {
                 TvSettingsPage.Handoff -> DeviceHandoffScreen(component.handoff, onBack)
                 TvSettingsPage.Trakt -> TraktSettingsScreen(component.trakt, onBack, television = true)
+                TvSettingsPage.Stremio ->
+                    com.yfuse.feature.stremio
+                        .StremioScreen(component.personal, onBack)
                 TvSettingsPage.ViewingStatistics ->
                     com.yfuse.feature.personal.ViewingStatisticsScreen(
                         component.viewing,

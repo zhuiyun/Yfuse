@@ -19,7 +19,7 @@ internal data class DolbyFelPerformanceFacts(
 /** Conservative device gate for decoding two P7 layers plus libplacebo composition at UHD. */
 internal fun supportsFullDolbyFelProcessing(facts: DolbyFelPerformanceFacts): Boolean {
     if (facts.sdkInt < 29 || facts.lowRamDevice) return false
-    if (facts.resourcePressure != PlaybackResourcePressure.Normal) return false
+    if (facts.resourcePressure.requiresPowerSaving) return false
     val performanceClassDevice = facts.mediaPerformanceClass >= 31
     val legacyHighMemoryDevice =
         facts.totalMemoryBytes >= MIN_FULL_FEL_MEMORY_BYTES &&

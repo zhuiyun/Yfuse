@@ -31,6 +31,7 @@ import org.koin.core.definition.BeanDefinition
 import org.koin.core.error.DefinitionOverrideException
 import org.koin.core.module.Module
 import org.koin.core.module.flatten
+import org.koin.core.parameter.parametersOf
 import org.koin.core.qualifier.named
 import org.koin.dsl.koinApplication
 import org.koin.dsl.module
@@ -84,7 +85,7 @@ class AppModuleGraphTest {
             }
         // Sorted, and compared as one text so a failure shows the lines that differ. A binding
         // two modules both declare appears twice here, and fails too.
-        assertEquals(BINDINGS_BEFORE_THE_SPLIT.sorted().joinToString("\n"), bound.sorted().joinToString("\n"))
+        assertEquals(EXPECTED_BINDINGS.sorted().joinToString("\n"), bound.sorted().joinToString("\n"))
     }
 
     @Test
@@ -97,7 +98,7 @@ class AppModuleGraphTest {
                 modules(graph(), shellModule())
             }
         try {
-            assertEquals(BINDINGS_BEFORE_THE_SPLIT.size + 1, app.koin.instanceRegistry.instances.size)
+            assertEquals(EXPECTED_BINDINGS.size + 1, app.koin.instanceRegistry.instances.size)
         } finally {
             app.close()
         }
@@ -141,7 +142,10 @@ class AppModuleGraphTest {
                 val definition = factory.beanDefinition
                 if (definition.id in PLATFORM_ONLY) return@forEach
                 try {
-                    val instance: Any = app.koin.get(definition.primaryType, definition.qualifier)
+                    val instance: Any =
+                        app.koin.get(definition.primaryType, definition.qualifier) {
+                            parametersOf("test-profile")
+                        }
                     if (!definition.primaryType.isInstance(instance)) {
                         failures += "${definition.id}: resolved to ${instance::class.qualifiedName}"
                     } else if (definition.id !in standInIds) {
@@ -171,6 +175,8 @@ class AppModuleGraphTest {
             single { unreachableClient() } onClose { it?.close() }
             single(named("danmaku-http")) { unreachableClient() } onClose { it?.close() }
             single(named("tmdb-http")) { unreachableClient() } onClose { it?.close() }
+            single(named("stremio-http")) { unreachableClient() } onClose { it?.close() }
+            single<SecureStore>(named("stremio-secrets")) { TestSecureStore() }
             single<SecureStore> { TestSecureStore() }
             single {
                 ServerRegistry(settings = get(), secureStore = TestSecureStore(), crypto = get(), personal = get())
@@ -209,6 +215,15 @@ class AppModuleGraphTest {
     }
 
     private companion object {
+        val STREMIO_BINDINGS =
+            listOf(
+                "Factory com.yfuse.core.stremio.StremioRepository",
+                "Singleton com.yfuse.core.stremio.StremioClient",
+                "Singleton com.yfuse.core.security.SecureStore named(stremio-secrets)",
+                "Singleton io.ktor.client.HttpClient named(stremio-http) onClose",
+            )
+        val EXPECTED_BINDINGS get() = BINDINGS_BEFORE_THE_SPLIT + STREMIO_BINDINGS
+
         val BeanDefinition<*>.id: String
             get() = primaryType.qualifiedName + (qualifier?.let { "@${it.value}" } ?: "")
 

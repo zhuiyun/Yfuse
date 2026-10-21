@@ -313,7 +313,7 @@ fun YfuseTheme(
     content: @Composable () -> Unit,
 ) {
     // 静息 overrides the decorative choices it has an opinion on; the individual settings are kept
-    // and come back with 经典. A device short of power, cooling or memory draws as 静息 whatever was
+    // and come back with 经典. A device short of power or memory draws as 静息 whatever was
     // chosen, for as long as it is (see [MotionBudget]).
     val budget = rememberMotionBudget()
     val theme = effectiveMotionTheme(motionTheme, budget)

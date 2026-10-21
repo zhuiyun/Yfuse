@@ -1,6 +1,7 @@
 package com.yfuse.core.trakt
 
 import com.yfuse.core.migration.migrationRelayHttpEngine
+import com.yfuse.core.personal.PersonalCollection
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -21,7 +22,13 @@ import io.ktor.utils.io.readAvailable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.io.ByteArrayOutputStream
 
@@ -107,6 +114,28 @@ private val traktImdbIdPattern = Regex("tt[0-9]{1,16}")
 enum class TraktPlaybackAction { Start, Pause, Stop }
 
 interface TraktApi {
+    suspend fun favorites(
+        clientId: String,
+        token: String,
+        page: Int,
+    ): TraktPage = error("Favorites unavailable")
+
+    suspend fun libraryActivity(
+        clientId: String,
+        token: String,
+    ): String = error("Library activity unavailable")
+
+    suspend fun writeLibrary(
+        clientId: String,
+        token: String,
+        collection: PersonalCollection,
+        media: TraktLibraryMedia,
+        remove: Boolean,
+        watchedAt: Long? = null,
+    ) {
+        error("Library writes unavailable")
+    }
+
     suspend fun history(
         clientId: String,
         token: String,
@@ -133,6 +162,68 @@ interface TraktApi {
 class HttpTraktApi(
     private val client: HttpClient,
 ) : TraktApi {
+    override suspend fun favorites(
+        clientId: String,
+        token: String,
+        page: Int,
+    ) = page(clientId, token, "/sync/favorites", page)
+
+    override suspend fun libraryActivity(
+        clientId: String,
+        token: String,
+    ): String =
+        client
+            .prepareGet("https://api.trakt.tv/sync/last_activities") {
+                auth(clientId, token)
+            }.execute { response ->
+                response.requireSuccess()
+                val value = traktJson.parseToJsonElement(response.boundedText(128 * 1024)).jsonObject
+                check(value["all"]?.jsonPrimitive?.content?.isNotBlank() == true) { "Trakt 活动记录无效" }
+                value.toString()
+            }
+
+    override suspend fun writeLibrary(
+        clientId: String,
+        token: String,
+        collection: PersonalCollection,
+        media: TraktLibraryMedia,
+        remove: Boolean,
+        watchedAt: Long?,
+    ) {
+        require(media.aliases().isNotEmpty())
+        require(collection != PersonalCollection.Favorite || media.type in setOf("movie", "show"))
+        require(
+            collection != PersonalCollection.History ||
+                !remove &&
+                media.type in setOf("movie", "episode") &&
+                watchedAt != null &&
+                watchedAt > 0,
+        )
+        val suffix = if (remove) "/remove" else ""
+        client
+            .preparePost("https://api.trakt.tv/sync/${collection.traktPath}$suffix") {
+                auth(clientId, token)
+                setBody(media.body(watchedAt))
+            }.execute { response ->
+                response.requireSuccess()
+                val result = traktJson.parseToJsonElement(response.boundedText(128 * 1024)).jsonObject
+                val missing = result["not_found"] as? JsonObject
+                check(missing != null) { "Trakt 未确认同步结果" }
+                if (!missing.values.all {
+                        if (it is JsonArray) it.isEmpty() else (it as? JsonPrimitive)?.intOrNull == 0
+                    }
+                ) {
+                    throw TraktUnmatchedItemException()
+                }
+                val keys = if (remove) listOf("deleted") else listOf("added", "existing", "updated")
+                val confirmed =
+                    keys.sumOf { key ->
+                        (result[key] as? JsonObject)?.values?.sumOf { it.jsonPrimitive.intOrNull ?: 0 } ?: 0
+                    }
+                check(confirmed > 0) { "Trakt 未确认条目已同步" }
+            }
+    }
+
     override suspend fun history(
         clientId: String,
         token: String,
@@ -167,6 +258,9 @@ class HttpTraktApi(
                 val pages = response.headers["X-Pagination-Page-Count"]?.toIntOrNull()
                 // The server may clamp our requested limit. Never infer completeness from items.size < 100.
                 check(pages != null || items.isEmpty()) { "Trakt 分页信息缺失，请稍后重试" }
+                check(pages == null || pages >= 0 && (items.isEmpty() || pages >= page)) {
+                    "Trakt 分页信息无效"
+                }
                 TraktPage(items, pages != null && page < pages)
             }
     }

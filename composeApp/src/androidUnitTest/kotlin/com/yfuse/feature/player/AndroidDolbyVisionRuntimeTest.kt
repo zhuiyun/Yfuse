@@ -25,13 +25,33 @@ class AndroidDolbyVisionRuntimeTest {
     }
 
     @Test
-    fun low_memory_or_runtime_pressure_forces_base_layer_budget() {
+    fun low_memory_or_power_saving_forces_base_layer_budget() {
         assertFalse(
             supportsFullDolbyFelProcessing(
                 facts(mediaPerformanceClass = 0, totalMemoryBytes = 4L * GIB),
             ),
         )
-        assertFalse(
+        for (pressure in listOf(PlaybackResourcePressure.BatteryLow, PlaybackResourcePressure.SystemPowerSaver)) {
+            assertFalse(
+                supportsFullDolbyFelProcessing(
+                    facts(mediaPerformanceClass = 31, totalMemoryBytes = 8L * GIB, pressure = pressure),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun thermal_status_does_not_disable_full_fel_on_capable_devices() {
+        assertTrue(
+            supportsFullDolbyFelProcessing(
+                facts(
+                    mediaPerformanceClass = 0,
+                    totalMemoryBytes = 8L * GIB,
+                    pressure = PlaybackResourcePressure.Thermal,
+                ),
+            ),
+        )
+        assertTrue(
             supportsFullDolbyFelProcessing(
                 facts(
                     mediaPerformanceClass = 31,

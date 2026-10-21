@@ -19,6 +19,7 @@ fun HomeTabScreen(component: HomeTabComponent) {
         contentKey = { routeKey(it.configuration) },
         modifier = Modifier.fillMaxSize(),
         isLauncher = { it.instance is HomeTabComponent.Child.Player },
+        isDetail = { it.instance is HomeTabComponent.Child.Detail },
     ) { entry ->
         val instance = entry.instance
         when (instance) {

@@ -1,0 +1,66 @@
+{
+  "results": {
+    "phoneShared": {
+      "suites": 892,
+      "tests": 5085,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "tvShared": {
+      "suites": 25,
+      "tests": 129,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "watchTogetherProtocol": {
+      "suites": 3,
+      "tests": 25,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "yfuseBackendClient": {
+      "suites": 9,
+      "tests": 43,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "watchTogetherServer": {
+      "suites": 42,
+      "tests": 279,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "scripts": {
+    "pythonRoot": 70,
+    "pythonScripts": 112,
+    "castReceiver": 5,
+    "failures": 0
+  },
+  "totalLocalTestsPassed": 5748,
+  "newRegressionTests": 15,
+  "previouslyFailingAuditProbesNowPass": 4,
+  "deviceTestsExecuted": false,
+  "instrumentedTestsCompiled": true,
+  "fixedFindings": [
+    "File navigation cancels and invalidates stale playback preparation and pending launch",
+    "Cancelled preparation cannot clear the replacement request's spinner",
+    "Stremio parent pages preserve independent list positions",
+    "TV sessions can refresh/retry without treating a request failure as an empty list",
+    "TV account focus waits for content readiness; session refresh row is always focusable",
+    "TV revocation requires bulk confirmation and reserves requests before asynchronous work",
+    "Dependency reports normalize Windows lockfile paths"
+  ],
+  "limitations": [
+    "No physical-device playback, visual animation or D-pad validation",
+    "Harmony compiler environment limitations remain as recorded in the preceding audit"
+  ],
+  "versionName": "1.5.0",
+  "versionCode": 302,
+  "sourceInputs": "source-inputs.json"
+}

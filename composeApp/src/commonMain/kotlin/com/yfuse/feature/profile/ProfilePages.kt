@@ -32,6 +32,7 @@ enum class ProfilePage {
     Sync,
     Handoff,
     Trakt,
+    Stremio,
     Account,
     AccountSessions,
     Playback,

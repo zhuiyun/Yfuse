@@ -33,30 +33,6 @@ import com.yfuse.core.designsystem.cinemaMotion
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
-@Composable
-internal fun Modifier.cinemaOpeningArtwork(
-    identity: Any,
-    visible: Boolean,
-    allowed: Boolean,
-): Modifier {
-    val enabled = cinemaMotion() && allowed
-    val progress = remember { Animatable(1f) }
-    LaunchedEffect(identity, visible, enabled) {
-        if (enabled && visible) {
-            progress.snapTo(0f)
-            progress.animateTo(1f, tween(CinemaMotion.PLAY, easing = Motion.Curve))
-        } else {
-            progress.snapTo(1f)
-        }
-    }
-    if (!enabled) return this
-    return graphicsLayer {
-        val scale = if (enabled) 1f + (1f - progress.value) * 0.025f else 1f
-        scaleX = scale
-        scaleY = scale
-    }
-}
-
 internal data class CinemaEpisodeTitle(
     val identity: Any,
     val title: String,

@@ -54,7 +54,6 @@ import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackPerformanceMemory
-import com.yfuse.core.playback.PlaybackResourcePressure
 import com.yfuse.core.playback.planPlayback
 import com.yfuse.core.sync.WatchStickers
 import com.yfuse.core.sync.WatchTogetherClient
@@ -1477,7 +1476,7 @@ internal fun PlayerRoot(
             presentationSubtitleControls = presentationSubtitleControls,
             playbackPreferences = playbackPreferences,
             ambientPowerLimited =
-                runtimeEnvironment.pressure != PlaybackResourcePressure.Normal ||
+                runtimeEnvironment.pressure.requiresPowerSaving ||
                     resolvedOptimization.mode == com.yfuse.core.playback.PlaybackOptimizationMode.PowerSaver,
             inPictureInPicture = inPictureInPicture,
             rotationLocked = rotationLock?.locked == true,

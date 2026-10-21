@@ -699,7 +699,6 @@ internal class AndroidCore2RouteEvaluator(
         item: YMediaItem,
         preferTunnel: Boolean = true,
         allowAudioPassthrough: Boolean = true,
-        forcePowerSaver: Boolean = false,
         rememberedProbe: YCore2ProbeResult.Success? = null,
         prepareSourceForPlayback: Boolean = true,
         budget: AndroidProbeBudget? = null,
@@ -724,7 +723,7 @@ internal class AndroidCore2RouteEvaluator(
         sourceFacts.value = AndroidPlaybackProbeFacts(item, resolved)
         val decision =
             yCoreStartupStage("route_decision", item) {
-                decide(item, resolved, preferTunnel, allowAudioPassthrough, forcePowerSaver, budget)
+                decide(item, resolved, preferTunnel, allowAudioPassthrough, budget)
             }
         budget?.ensureActive()
         // Other demuxers cannot adopt this extractor. Stop its speculative downloads immediately.
@@ -814,7 +813,6 @@ internal class AndroidCore2RouteEvaluator(
         resolved: YCore2ProbeResult.Success,
         preferTunnel: Boolean,
         allowAudioPassthrough: Boolean,
-        forcePowerSaver: Boolean,
         budget: AndroidProbeBudget?,
     ): YCore2RouteDecision? {
         val requested =
@@ -823,18 +821,8 @@ internal class AndroidCore2RouteEvaluator(
                 sourceDeclaresAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0,
                 preferTunnel = preferTunnel && !resolved.unconfiguredDolbyVisionSignal,
                 allowAudioPassthrough = allowAudioPassthrough,
-                decoderPreference =
-                    if (forcePowerSaver) {
-                        YDecoderPreference.HardwarePreferred
-                    } else {
-                        decoderPreference
-                    },
-                optimizationPreference =
-                    if (forcePowerSaver) {
-                        YOptimizationPreference.PowerSaver
-                    } else {
-                        optimizationPreference
-                    },
+                decoderPreference = decoderPreference,
+                optimizationPreference = optimizationPreference,
             )
         val adjustment = quirkDatabase.adjust(deviceIdentity, requested, capabilityProvider.current())
         val request = adjustment.request
@@ -925,9 +913,6 @@ internal class AndroidCore2RouteEvaluator(
                 plan.copy(
                     reason = "${plan.reason}; $dolbyLabel",
                 )
-        }
-        if (forcePowerSaver) {
-            plan = plan.copy(reason = "${plan.reason}; severe thermal power-saver override")
         }
         return YCore2RouteDecision(normalizedProbe, plan)
     }

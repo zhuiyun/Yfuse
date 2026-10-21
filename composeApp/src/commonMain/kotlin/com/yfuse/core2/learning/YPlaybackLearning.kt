@@ -155,13 +155,11 @@ class YPlaybackLearningEngine(
         ) {
             return YLearnedRouteAdvice.Avoid
         }
-        // Heat is the device and the room as much as the route: it only ever costs a preference,
-        // never the route itself, because the alternative is software decode, which runs hotter.
+        // Temperature remains in diagnostic records; only measured playback degradation penalizes a route.
         return if (
             record.codecResets > 0L ||
             (enoughPlayback && perHour(record.audioUnderruns) >= UNDERRUNS_PER_HOUR_TO_PENALIZE) ||
             record.maximumAbsoluteAvDriftMs >= AV_DRIFT_TO_PENALIZE_MS ||
-            record.maximumThermalStatus >= THERMAL_STATUS_SEVERE ||
             dropRate >= DROPPED_FRAMES_PER_SECOND_TO_PENALIZE
         ) {
             YLearnedRouteAdvice.Penalize
@@ -198,7 +196,3 @@ private const val MILLIS_PER_HOUR = 3_600_000.0
 
 /** A record untouched this long no longer speaks for the route. */
 private const val LEARNING_DECAY_MS = 14L * 24L * 60L * 60L * 1_000L
-
-// Mirrors Android's stable PowerManager.THERMAL_STATUS_SEVERE integer without making common code
-// depend on the Android SDK. A severe route is penalized, never avoided.
-private const val THERMAL_STATUS_SEVERE = 3

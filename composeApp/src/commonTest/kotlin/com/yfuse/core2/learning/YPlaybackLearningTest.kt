@@ -87,21 +87,28 @@ class YPlaybackLearningTest {
     }
 
     @Test
-    fun `severe thermal pressure penalizes but never avoids the route`() {
-        repeat(3) {
-            now++
-            engine.record(
-                key(),
-                YPlaybackObservation(
-                    rendered = true,
-                    playedDurationMs = 600_000L,
-                    maximumThermalStatus = 3,
-                ),
-            )
+    fun `stored thermal observations never penalize any playback route`() {
+        for (route in YPlaybackRoute.entries) {
+            val routeKey = key().copy(route = route)
+            for (status in 3..6) {
+                now++
+                val record =
+                    engine.record(
+                        routeKey,
+                        YPlaybackObservation(
+                            rendered = true,
+                            playedDurationMs = 600_000L,
+                            maximumThermalStatus = status,
+                        ),
+                    )
+                assertEquals(status, record.maximumThermalStatus)
+                // Reload the existing store as on app startup, including previously hot sessions.
+                assertEquals(
+                    YLearnedRouteAdvice.Allow,
+                    YPlaybackLearningEngine(store, nowEpochMs = { now }).advice(routeKey),
+                )
+            }
         }
-
-        // Software decode, the alternative an avoided hardware route leaves, runs hotter still.
-        assertEquals(YLearnedRouteAdvice.Penalize, engine.advice(key()))
     }
 
     @Test

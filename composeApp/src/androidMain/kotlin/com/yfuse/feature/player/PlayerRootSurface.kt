@@ -245,6 +245,7 @@ internal fun PlayerRootSurface(
                 title = currentItem?.title.orEmpty(),
                 mediaKey = currentItem?.let { it.serverId to it.id } ?: "empty",
                 cinemaEnabled = !inPictureInPicture && !ambientPowerLimited,
+                pictureReady = pictureReady && state.error == null && !state.ended,
                 visible =
                     transition?.coversPicture() != true &&
                         currentItem != null &&

@@ -21,10 +21,23 @@ internal fun PersonalSettingsSection(
     onOpenFamily: () -> Unit,
     onOpenHandoff: () -> Unit,
     onOpenTrakt: () -> Unit,
+    onOpenStremio: () -> Unit,
 ) {
     val state by personal.state.collectAsState()
+    val policy by personal.policy.collectAsState()
     Section(title = "个人与设备") {
         SettingsCard {
+            if (!policy.child) {
+                SettingRow(
+                    "Stremio 插件",
+                    "插件管理 · 目录 · 搜索 · 播放",
+                    embedded = true,
+                    onClick = onOpenStremio,
+                    icon = AppIcons.Grid,
+                    iconTint = SettingTint.servers,
+                )
+                SettingsDivider()
+            }
             SettingRow(
                 "我的片单",
                 "想看 · 收藏 · 观看历史",
@@ -66,7 +79,7 @@ internal fun PersonalSettingsSection(
                 SettingsDivider()
                 SettingRow(
                     "Trakt",
-                    "授权与观影记录同步",
+                    "播放记录、收藏与待看同步",
                     embedded = true,
                     onClick = onOpenTrakt,
                     icon = AppIcons.Refresh,

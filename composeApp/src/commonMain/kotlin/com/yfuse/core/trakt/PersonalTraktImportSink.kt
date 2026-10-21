@@ -1,13 +1,42 @@
 package com.yfuse.core.trakt
 
 import com.yfuse.core.personal.MAX_PERSONAL_MEDIA_TITLE_CHARS
+import com.yfuse.core.personal.PersonalEntry
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.personal.PersonalMediaRef
 import java.time.Instant
 
 class PersonalTraktImportSink(
     private val personal: PersonalLibraryRepository,
-) : TraktImportSink {
+) : TraktImportSink,
+    TraktLibrarySink {
+    override val scopeToken: String get() = personal.scopeToken
+    override val ownerIdentity: String get() = personal.externalSyncOwner
+
+    override fun isCurrent(
+        snapshot: TraktLibrarySnapshot,
+        entry: PersonalEntry,
+    ): Boolean = personal.externalEntryMatches(snapshot.scope, entry)
+
+    override fun snapshot(): TraktLibrarySnapshot =
+        synchronized(personal.coordinationLock) {
+            personal.requireServerManagement()
+            TraktLibrarySnapshot(
+                personal.scopeToken,
+                personal.activeProfileId,
+                personal.snapshot().entries.filter {
+                    it.profileId == personal.activeProfileId &&
+                        (it.media.serverId == null || personal.canAccessServer(it.media.serverId))
+                },
+            )
+        }
+
+    override fun apply(
+        snapshot: TraktLibrarySnapshot,
+        previous: PersonalEntry?,
+        incoming: PersonalEntry,
+    ): PersonalEntry = personal.mergeExternalEntry(snapshot.scope, previous, incoming)
+
     override suspend fun importWatchlist(item: TraktListItem): Boolean =
         item.toPersonalMedia()?.let(personal::importWatchLater) ?: false
 

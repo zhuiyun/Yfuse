@@ -23,7 +23,7 @@ enum class MotionTheme(
 ) {
     Classic("经典", "全部动效，按下方各项设置播放"),
     Calm("静息", "只保留淡入淡出与小幅位移：按压不缩放，无粒子、潮涌与回弹"),
-    Cinema("影院", "Cinema 2.0：连贯海报往返、弹性选择与重排、清晰任务反馈；电视焦点随海报聚光"),
+    Cinema("影院", "一镜入戏播放、海报展开与侧滑返回、弹性选择与重排；电视焦点随海报聚光"),
 }
 
 val LocalMotionTheme = staticCompositionLocalOf { MotionTheme.Classic }

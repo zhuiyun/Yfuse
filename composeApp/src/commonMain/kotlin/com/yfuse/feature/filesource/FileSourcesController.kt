@@ -118,6 +118,7 @@ class FileSourcesController(
 
     private var submitJob: Job? = null
     private var playJob: Job? = null
+    private var playGeneration = 0L
     private val folderJobs = mutableMapOf<List<String>, Job>()
 
     /** Decrypted once per browsing session, not once per folder; dropped when the browser closes. */
@@ -249,7 +250,7 @@ class FileSourcesController(
     fun open(source: FileSource) {
         folderJobs.values.forEach(Job::cancel)
         folderJobs.clear()
-        playJob?.cancel()
+        cancelPlayback()
         sessionCredentials = null
         _browser.value = FileBrowserState(source)
         load(emptyList())
@@ -258,6 +259,7 @@ class FileSourcesController(
     fun openFolder(name: String) {
         val browser = _browser.value ?: return
         val path = browser.path + name
+        cancelPlayback()
         _browser.value = browser.copy(path = path, preparing = null)
         if (browser.folders[path] !is FolderListing.Loaded) load(path)
     }
@@ -265,6 +267,7 @@ class FileSourcesController(
     fun navigateToDepth(depth: Int) {
         val current = _browser.value ?: return
         if (depth !in 0 until current.path.size) return
+        cancelPlayback()
         _browser.value = current.copy(path = current.path.take(depth), preparing = null)
     }
 
@@ -274,6 +277,7 @@ class FileSourcesController(
         if (browser.path.isEmpty()) {
             closeBrowser()
         } else {
+            cancelPlayback()
             _browser.value = browser.copy(path = browser.path.dropLast(1), preparing = null)
         }
     }
@@ -281,7 +285,7 @@ class FileSourcesController(
     fun closeBrowser() {
         folderJobs.values.forEach(Job::cancel)
         folderJobs.clear()
-        playJob?.cancel()
+        cancelPlayback()
         sessionCredentials = null
         _browser.value = null
     }
@@ -301,7 +305,8 @@ class FileSourcesController(
     ) {
         val browser = _browser.value ?: return
         val listing = browser.listing as? FolderListing.Loaded ?: return
-        playJob?.cancel()
+        cancelPlayback()
+        val generation = playGeneration
         _browser.value = browser.copy(preparing = entry.name)
         playJob =
             scope.launch {
@@ -309,6 +314,7 @@ class FileSourcesController(
                     val credentials = credentials(browser.source)
                     val plan = planFileSourceQueue(browser.source.id, browser.path, listing.entries, entry)
                     val prepared = prepareFileSourceLaunch(browser.source, credentials, plan, client, progress.value)
+                    if (generation != playGeneration) return@launch
                     _launch.value = if (fromStart) prepared.copy(startPositionMs = 0L) else prepared
                     AppLog.info(
                         category = LOG_CATEGORY,
@@ -329,17 +335,26 @@ class FileSourcesController(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
-                    logFailure("queue_prepare_failed", browser.source, error)
-                    _notice.value = error.userMessageFor(browser.source.kind)
+                    if (generation == playGeneration) {
+                        logFailure("queue_prepare_failed", browser.source, error)
+                        _notice.value = error.userMessageFor(browser.source.kind)
+                    }
                 } finally {
-                    _browser.update { current ->
-                        current?.copy(preparing = current.preparing?.takeIf { it != entry.name })
+                    if (generation == playGeneration) {
+                        _browser.update { it?.copy(preparing = null) }
                     }
                 }
             }
     }
 
     fun consumeLaunch() {
+        _launch.value = null
+    }
+
+    private fun cancelPlayback() {
+        playGeneration++
+        playJob?.cancel()
+        playJob = null
         _launch.value = null
     }
 

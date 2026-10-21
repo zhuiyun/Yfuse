@@ -108,11 +108,11 @@ private class AndroidPlaybackRuntimeEnvironmentProvider(
         val batteryPowerMilliwatts = smoothedBatteryPowerMilliwatts?.roundToInt()
         val pressure =
             when {
-                Build.VERSION.SDK_INT >= 29 && thermalStatus >= PowerManager.THERMAL_STATUS_SEVERE ->
-                    PlaybackResourcePressure.Thermal
                 powerManager.isPowerSaveMode -> PlaybackResourcePressure.SystemPowerSaver
                 percent != null && percent <= LOW_BATTERY_PERCENT && !charging ->
                     PlaybackResourcePressure.BatteryLow
+                Build.VERSION.SDK_INT >= 29 && thermalStatus >= PowerManager.THERMAL_STATUS_SEVERE ->
+                    PlaybackResourcePressure.Thermal
                 else -> PlaybackResourcePressure.Normal
             }
         return PlaybackRuntimeEnvironment(

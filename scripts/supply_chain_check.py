@@ -121,7 +121,7 @@ def read_npm_dependencies(root: pathlib.Path) -> list[Dependency]:
             if (not isinstance(name, str) or not name or not isinstance(version, str)
                     or not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", version)):
                 raise ValueError(f"Missing exact npm package version: {package_path}")
-            dep = Dependency("", name, version, str(path.relative_to(root)), "npm")
+            dep = Dependency("", name, version, path.relative_to(root).as_posix(), "npm")
             previous = found.get(dep.coordinate)
             if previous is not None and dep.source not in previous.source.split("; "):
                 dep = Dependency("", name, version, previous.source + "; " + dep.source, "npm")
@@ -146,7 +146,7 @@ def read_dependencies(root: pathlib.Path) -> list[Dependency]:
             group, name, locked_version = match.groups()
             override = overrides.get(f"{group}:{name}")
             version = override or locked_version
-            source = str(path.relative_to(root))
+            source = path.relative_to(root).as_posix()
             if override is not None and override != locked_version:
                 source += f"; effective security override from {SECURITY_OVERRIDES}"
             dep = Dependency(group, name, version, source)

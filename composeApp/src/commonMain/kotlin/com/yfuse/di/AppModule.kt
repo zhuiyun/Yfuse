@@ -29,6 +29,7 @@ fun appModule(
         playbackModule(appVersion),
         accountModule(),
         fileSourceModule(),
+        stremioModule(),
         discoveryModule(feedCacheSettings),
         calendarModule(calendarLocalStore),
         watchTogetherModule(),

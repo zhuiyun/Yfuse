@@ -184,7 +184,7 @@ data class PlaybackDiagnostics(
     val playbackHealth: String = "采集中",
     /** Local device-cost estimate; server energy use is deliberately outside this label. */
     val powerProfile: String = "待规划",
-    /** Battery saver and thermal pressure that may temporarily override the requested mode. */
+    /** Runtime diagnostics and battery pressure that may temporarily override the requested mode. */
     val resourcePressure: String = "正常",
     /** Fast metadata or bounded platform extractor used for the active route. */
     val mediaProbe: String = "服务端元数据",

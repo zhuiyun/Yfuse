@@ -9,7 +9,13 @@ enum class PlaybackResourcePressure(
     Normal("正常"),
     BatteryLow("低电量"),
     SystemPowerSaver("系统省电"),
+
+    /** Temperature observation only; does not lower playback quality or disable effects. */
     Thermal("设备过热"),
+    ;
+
+    val requiresPowerSaving: Boolean
+        get() = this == BatteryLow || this == SystemPowerSaver
 }
 
 data class PlaybackRuntimeEnvironment(
@@ -52,7 +58,7 @@ data class ResolvedPlaybackOptimization(
     val reason: String? = null,
 )
 
-/** System safety may lower cost, but never silently turns a compatibility request into Exo-only. */
+/** Power saving may lower cost, but never silently turns a compatibility request into Exo-only. */
 fun resolvePlaybackOptimization(
     requested: PlaybackOptimizationMode,
     environment: PlaybackRuntimeEnvironment,
@@ -60,16 +66,7 @@ fun resolvePlaybackOptimization(
     when {
         requested == PlaybackOptimizationMode.PowerSaver ->
             ResolvedPlaybackOptimization(requested)
-        environment.pressure == PlaybackResourcePressure.Thermal ->
-            ResolvedPlaybackOptimization(
-                mode = PlaybackOptimizationMode.PowerSaver,
-                reason = "设备温度过高，播放器临时启用省电管线",
-            )
-        environment.pressure in
-            setOf(
-                PlaybackResourcePressure.SystemPowerSaver,
-                PlaybackResourcePressure.BatteryLow,
-            ) &&
+        environment.pressure.requiresPowerSaving &&
             requested != PlaybackOptimizationMode.Compatibility ->
             ResolvedPlaybackOptimization(
                 mode = PlaybackOptimizationMode.PowerSaver,

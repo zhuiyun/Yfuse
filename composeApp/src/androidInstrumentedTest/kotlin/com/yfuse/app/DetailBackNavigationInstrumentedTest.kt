@@ -171,8 +171,8 @@ class DetailBackNavigationInstrumentedTest {
     }
 
     @Test(timeout = 90_000L)
-    fun detail_preview_visibly_moves_at_full_size_in_both_motion_themes() {
-        for (theme in listOf(MotionTheme.Classic, MotionTheme.Calm)) {
+    fun detail_preview_stays_opaque_and_respects_each_motion_theme() {
+        for (theme in listOf(MotionTheme.Classic, MotionTheme.Calm, MotionTheme.Cinema)) {
             val probe = NavigationProbe(initialRoutes = listOf("library", "plain-detail"), visual = true, theme = theme)
             launchMainActivityForInput().use { scenario ->
                 installNavigation(scenario, probe)
@@ -203,8 +203,7 @@ class DetailBackNavigationInstrumentedTest {
                             PREVIEW_DETAIL,
                             frame.getPixel(detailX, y),
                         )
-                        // A full-height stripe retains its thickness under translation. A scale
-                        // or a competing handler that never previews fails this pixel check.
+                        // Classic/Cinema shrink by 4% over a complete gesture; Calm stays full size.
                         val stripeY = frame.height / 3
                         var stripeWidth = 0
                         for (x in 0 until frame.width) if (frame.getPixel(x, stripeY) == PREVIEW_STRIPE) stripeWidth++
@@ -214,10 +213,11 @@ class DetailBackNavigationInstrumentedTest {
                                 "detail-back-${theme.name}-$edge.png",
                             )
                         file.outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                        // A fractional layer translation can antialias one boundary pixel.
+                        val expectedWidth = probe.stripeWidth.get() * if (theme == MotionTheme.Calm) 1f else 0.984f
+                        // Fractional translation/scaling can antialias the two boundary pixels.
                         assertTrue(
-                            "$theme/$edge: the detail must not shrink (expected ${probe.stripeWidth.get()}, got $stripeWidth)",
-                            kotlin.math.abs(probe.stripeWidth.get() - stripeWidth) <= 1,
+                            "$theme/$edge: wrong preview scale (expected $expectedWidth, got $stripeWidth)",
+                            kotlin.math.abs(expectedWidth - stripeWidth) <= 2,
                         )
                     } finally {
                         frame.recycle()
@@ -249,40 +249,50 @@ class DetailBackNavigationInstrumentedTest {
     }
 
     @Test(timeout = 60_000L)
-    fun ordinary_back_animates_each_settled_cinema_hero_back_to_its_poster() {
+    fun ordinary_back_slides_nested_cinema_details_without_reversing_the_poster_morph() {
         val probe = NavigationProbe(initialRoutes = listOf("library"), posterPath = true, theme = MotionTheme.Cinema)
         launchMainActivityForInput().use { scenario ->
             installNavigation(scenario, probe)
             awaitComposedRoute("library", probe)
             tapPoster(probe)
             awaitComposedRoute("detail-a", probe)
+            awaitCondition("The first poster did not expand into the detail") {
+                probe.sharedOpeningRoute.get() ==
+                    "detail-a"
+            }
             awaitCondition("The first poster's forward morph did not settle") { !probe.transitionActive.get() }
             tapPoster(probe)
             awaitComposedRoute("detail-b", probe)
+            awaitCondition("The nested poster did not expand into the detail") {
+                probe.sharedOpeningRoute.get() ==
+                    "detail-b"
+            }
             awaitCondition("The nested poster's forward morph did not settle") { !probe.transitionActive.get() }
             probe.sharedReturningRoute.set(null)
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             awaitComposedRoute("detail-a", probe)
-            awaitCondition(
-                "The nested hero never ran a shared return",
-            ) { probe.sharedReturningRoute.get() == "detail-b" }
-            awaitCondition("The nested poster return did not settle") { !probe.transitionActive.get() }
+            awaitCondition("The nested side return did not settle") { probe.routeSettled.get() }
+            assertEquals(null, probe.sharedReturningRoute.get())
             assertStack(scenario, probe, listOf("library", "detail-a"), pops = 1)
             probe.sharedReturningRoute.set(null)
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             awaitComposedRoute("library", probe)
-            awaitCondition(
-                "The first hero never ran a shared return",
-            ) { probe.sharedReturningRoute.get() == "detail-a" }
-            awaitCondition("The library poster return did not settle") { !probe.transitionActive.get() }
+            awaitCondition("The library side return did not settle") { probe.routeSettled.get() }
+            assertEquals(null, probe.sharedReturningRoute.get())
             assertStack(scenario, probe, listOf("library"), pops = 2)
             assertFalse("Ordinary back showed a predictive preview", probe.previewSeen.get())
         }
     }
 
     @Test(timeout = 60_000L)
-    fun cinema_system_back_seeks_the_shared_hero_and_can_cancel_then_commit_from_either_edge() {
-        val probe = NavigationProbe(initialRoutes = listOf("library"), posterPath = true, theme = MotionTheme.Cinema)
+    fun cinema_system_back_slides_the_whole_detail_and_can_cancel_then_commit_from_either_edge() {
+        val probe =
+            NavigationProbe(
+                initialRoutes = listOf("library"),
+                posterPath = true,
+                visual = true,
+                theme = MotionTheme.Cinema,
+            )
         launchMainActivityForInput().use { scenario ->
             installNavigation(scenario, probe)
             awaitComposedRoute("library", probe)
@@ -291,9 +301,10 @@ class DetailBackNavigationInstrumentedTest {
             awaitCondition("The poster entry did not settle") { !probe.transitionActive.get() }
             for (edge in listOf(BackEventCompat.EDGE_LEFT, BackEventCompat.EDGE_RIGHT)) {
                 predictiveGesture(scenario, cancel = true, edge = edge) {
-                    awaitCondition("The system gesture never sought the shared hero") { probe.sharedMoving.get() }
+                    assertOpaqueSidePreview()
+                    assertFalse("Back must not seek the shared hero", probe.sharedMoving.get())
                 }
-                awaitCondition("The cancelled hero did not settle") {
+                awaitCondition("The cancelled detail did not settle") {
                     !probe.sharedMoving.get() &&
                         probe.routeSettled.get()
                 }
@@ -301,10 +312,11 @@ class DetailBackNavigationInstrumentedTest {
             }
             probe.sharedReturningRoute.set(null)
             predictiveGesture(scenario, cancel = false, edge = BackEventCompat.EDGE_RIGHT) {
-                awaitCondition("The committed gesture did not animate the hero") { probe.sharedMoving.get() }
+                assertOpaqueSidePreview()
+                assertFalse("Commit must not restart the shared hero", probe.sharedMoving.get())
             }
             awaitComposedRoute("library", probe)
-            assertEquals("detail-a", probe.sharedReturningRoute.get())
+            assertEquals(null, probe.sharedReturningRoute.get())
             assertStack(scenario, probe, listOf("library"), pops = 1)
         }
     }
@@ -629,6 +641,7 @@ class DetailBackNavigationInstrumentedTest {
                                 OfficialNavDisplay(
                                     backStack = probe.routes.toList(),
                                     contentKey = { it },
+                                    isDetail = { it != "library" },
                                     onBack = {
                                         probe.pops.incrementAndGet()
                                         if (probe.routes.size > 1) probe.routes.removeAt(probe.routes.lastIndex)
@@ -646,6 +659,12 @@ class DetailBackNavigationInstrumentedTest {
                                         transition.currentState == EnterExitState.Visible &&
                                             transition.targetState == EnterExitState.Visible
                                     SideEffect {
+                                        if (sharedMoving &&
+                                            visible &&
+                                            transition.targetState == EnterExitState.Visible
+                                        ) {
+                                            probe.sharedOpeningRoute.set(route)
+                                        }
                                         if (sharedMoving && transition.targetState == EnterExitState.PostExit) {
                                             probe.sharedReturningRoute.set(route)
                                         }
@@ -762,6 +781,18 @@ class DetailBackNavigationInstrumentedTest {
         injectPointer(MotionEvent.ACTION_DOWN, poster.center.x, poster.center.y, down)
         SystemClock.sleep(40L)
         injectPointer(MotionEvent.ACTION_UP, poster.center.x, poster.center.y, down)
+    }
+
+    private fun assertOpaqueSidePreview() {
+        SystemClock.sleep(100L)
+        val frame = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+        try {
+            val row = IntArray(frame.width) { frame.getPixel(it, frame.height * 4 / 5) }
+            assertTrue("Side preview must reveal the list", row.count { it == PREVIEW_UNDERLAY } > frame.width / 20)
+            assertTrue("The detail must remain opaque", row.count { it == PREVIEW_DETAIL } > frame.width / 20)
+        } finally {
+            frame.recycle()
+        }
     }
 
     private fun predictiveGesture(
@@ -1072,6 +1103,7 @@ class DetailBackNavigationInstrumentedTest {
         val transitionActive = AtomicBoolean()
         val sharedMoving = AtomicBoolean()
         val sharedReturningRoute = AtomicReference<String?>()
+        val sharedOpeningRoute = AtomicReference<String?>()
         val previewActive = AtomicBoolean()
         val previewSeen = AtomicBoolean()
         val routeSettled = AtomicBoolean()

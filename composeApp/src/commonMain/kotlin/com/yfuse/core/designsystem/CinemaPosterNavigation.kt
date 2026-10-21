@@ -62,11 +62,12 @@ internal fun Modifier.cinemaDetailArrival(): Modifier {
         return this
     }
     if (LocalSharedTransitionScope.current == null) return this
+    val sideReturn = LocalDetailSideReturn.current
     val progress =
         LocalNavAnimatedContentScope.current.transition.animateFloat(
             transitionSpec = { Motion.tween(CinemaMotion.POSTER_PAGE) },
             label = "cinemaDetailWords",
-        ) { if (it == EnterExitState.Visible) 1f else 0f }
+        ) { if (it == EnterExitState.Visible || (sideReturn && it == EnterExitState.PostExit)) 1f else 0f }
     return graphicsLayer {
         val shown = cinemaDetailReveal(progress.value)
         alpha = shown

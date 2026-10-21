@@ -252,6 +252,8 @@ internal class ZoomBackNavHost(
 
     /** Something else has the finger: a lift menu is up, a screen reader is on. */
     var blocked: () -> Boolean = { false }
+    var detailPreview = false
+    var onSideStarted: () -> Unit = {}
 
     /** What NavDisplay is given in place of the activity's dispatcher. */
     val displayOwner: NavigationEventDispatcherOwner get() = navigation.owner
@@ -359,11 +361,14 @@ internal class ZoomBackNavHost(
     private fun systemStarted(event: NavigationEvent) {
         val top = stack.lastOrNull()
         systemStack = stack.toList()
+        // A side return also cancels an unfinished poster entry when NavDisplay must
+        // handle the preview itself (for example with a screen reader enabled).
+        if (visible && stack.size > 1 && controller.canStartSide) onSideStarted()
         system =
             when {
                 !visible || !controller.canStartSide -> SystemRoute.Ignored
                 top != null && stack.size > 1 && !blocked() && beginGesture(top, useOrigin = false) -> {
-                    if (controller.startSide(BACK_NAVIGATION_TOWARD, event.progress)) {
+                    if (controller.startSide(BACK_NAVIGATION_TOWARD, event.progress, detailPreview)) {
                         navigation.started(
                             NavigationEvent(
                                 swipeEdge = event.swipeEdge,
@@ -518,6 +523,7 @@ private fun ConfigureZoomBack(controller: ZoomBackController) {
         controller.tips = tips
         controller.artLayer = artLayer
         with(density) {
+            controller.detailCornerPx = DetailBackCorner.toPx()
             controller.cornerAtFullPx = ZoomBackCorner.toPx()
             controller.landingCornerPx = Dimens.medium.toPx()
         }

@@ -63,6 +63,10 @@ sealed interface TraktSettingsIntent {
 
     data object ImportHistory : TraktSettingsIntent
 
+    data object SyncLibrary : TraktSettingsIntent
+
+    data object CancelLibrarySync : TraktSettingsIntent
+
     /** 播放上报. */
     data class SetScrobbling(
         val enabled: Boolean,
@@ -127,6 +131,8 @@ class TraktSettingsStoreFactory(
                 TraktSettingsIntent.Disconnect -> repository.disconnect()
                 TraktSettingsIntent.ImportWatchlist -> repository.importWatchlist()
                 TraktSettingsIntent.ImportHistory -> repository.importHistory()
+                TraktSettingsIntent.SyncLibrary -> repository.syncLibrary()
+                TraktSettingsIntent.CancelLibrarySync -> repository.cancelLibrarySync()
                 is TraktSettingsIntent.SetScrobbling -> repository.setScrobbling(intent.enabled)
                 TraktSettingsIntent.RetryPending -> repository.retryPending()
             }

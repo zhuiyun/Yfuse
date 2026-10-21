@@ -72,6 +72,7 @@ internal class ZoomBackController(
     var tips: TipsState? = null
     var cornerAtFullPx = 0f
     var landingCornerPx = 0f
+    var detailCornerPx = 0f
 
     /** The overlay layer the landing artwork is drawn through, so its opacity is the card's own. */
     var artLayer: GraphicsLayer? = null
@@ -101,6 +102,8 @@ internal class ZoomBackController(
     private var toward by mutableFloatStateOf(1f)
     private var armed = false
     private var sideOrigin = ZoomCard.resting(Size.Zero)
+    private var detailSide = false
+    private var sideOriginUnder = 0f
 
     // Fixed at release; read while the card settles.
     private var from = ZoomCard.resting(Size.Zero)
@@ -226,14 +229,17 @@ internal class ZoomBackController(
     fun startSide(
         toward: Float,
         progress: Float,
+        detailPreview: Boolean = false,
     ): Boolean {
         if (!canStartSide || page.width <= 0f || page.height <= 0f) return false
         // A second swipe can catch a cancelling page at the exact position currently drawn.
         // Waiting for the old spring to finish used to silently swallow that new gesture.
         sideOrigin = card()
+        sideOriginUnder = if (idle) 0f else underlay()
         job?.cancel()
         job = null
         side = true
+        detailSide = detailPreview
         caught = null
         this.toward = toward
         this.progress = 0f
@@ -296,7 +302,7 @@ internal class ZoomBackController(
                 ZoomBackPhase.Following ->
                     caught?.let { it.copy(bounds = it.bounds.translate(drag)) }
                         ?: if (side) {
-                            zoomBackCommitCard(sideOrigin, page, toward, progress)
+                            sideCard(sideOrigin, page, progress)
                         } else {
                             zoomBackPullCard(page, pivot, drag, progress, cornerAtFullPx)
                         }
@@ -316,7 +322,7 @@ internal class ZoomBackController(
                     ).continuingFrom(from, settleProgress, landing = false)
                 ZoomBackPhase.Fading -> zoomBackFadeCard(from, settleProgress, shrink = !still)
                 ZoomBackPhase.Sliding ->
-                    zoomBackCommitCard(from, page, toward, settleProgress)
+                    sideCard(from, page, settleProgress)
                 ZoomBackPhase.Done -> from.copy(contentAlpha = 0f, artAlpha = 0f)
             }
         }
@@ -325,11 +331,34 @@ internal class ZoomBackController(
     fun underlay(): Float =
         when (phase) {
             ZoomBackPhase.Idle, ZoomBackPhase.Done -> 1f
-            ZoomBackPhase.Following -> progress.coerceIn(0f, 1f)
+            ZoomBackPhase.Following ->
+                if (side) {
+                    sideOriginUnder + (1f - sideOriginUnder) *
+                        progress.coerceIn(
+                            0f,
+                            1f,
+                        )
+                } else {
+                    progress.coerceIn(0f, 1f)
+                }
             ZoomBackPhase.Flying, ZoomBackPhase.Fading, ZoomBackPhase.Sliding ->
                 releasedUnder + (1f - releasedUnder) * settleProgress.coerceIn(0f, 1f)
             ZoomBackPhase.Returning -> releasedUnder * (1f - settleProgress.coerceIn(0f, 1f))
         }
+
+    private fun sideCard(
+        from: ZoomCard,
+        page: Size,
+        fraction: Float,
+    ): ZoomCard =
+        if (detailSide) {
+            detailBackCard(from, page, toward, fraction, detailCornerPx)
+        } else {
+            zoomBackCommitCard(from, page, toward, fraction)
+        }
+
+    fun underlayTranslation(width: Float): Float =
+        if (side && detailSide && !still) -toward * width * DETAIL_BACK_PARALLAX * (1f - underlay()) else 0f
 
     /** Back to rest without telling anyone: the host has already taken the page away, or kept it. */
     fun reset() {
@@ -357,7 +386,7 @@ internal class ZoomBackController(
     /** [speed] turns how the card was moving into flights a second along the way it is sent. */
     private fun commit(speed: (Rect, Rect) -> Float) {
         val start = card()
-        // Side back translates at full size and opacity. Poster morphing is
+        // Side back keeps the page opaque. Poster morphing is
         // reserved for the explicit pull-down gesture; a system back must not turn into a fade.
         val target = if (still || side) null else resolveTarget()
         from = start
@@ -383,13 +412,22 @@ internal class ZoomBackController(
                 if (still) {
                     settle.snapTo(1f)
                 } else if (side) {
-                    val end = zoomBackSideCard(page, 1f, toward)
+                    val end = sideCard(start, page, 1f)
+                    val velocity = speed(start.bounds, end.bounds).coerceAtLeast(0f)
+                    val duration = detailBackReleaseDuration(releasedUnder)
                     settle.animateTo(
                         targetValue = 1f,
                         animationSpec =
-                            androidx.compose.animation.core
-                                .spring(dampingRatio = 1f, stiffness = 600f),
-                        initialVelocity = speed(start.bounds, end.bounds).coerceAtLeast(0f),
+                            if (detailSide) {
+                                androidx.compose.animation.core.tween(
+                                    duration,
+                                    easing = detailBackReleaseEasing(velocity, duration),
+                                )
+                            } else {
+                                androidx.compose.animation.core
+                                    .spring(dampingRatio = 1f, stiffness = 600f)
+                            },
+                        initialVelocity = velocity,
                     )
                 } else if (target != null) {
                     target.art?.hidden = true
@@ -576,6 +614,7 @@ internal fun Modifier.zoomBackLayers(
                         }
                     scaleX = scale
                     scaleY = scale
+                    translationX = controller.underlayTranslation(size.width)
                 }
                 ZoomBackRole.None -> Unit
             }

@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,7 +47,8 @@ internal enum class TvSettingsPage(
     SyncStatus("同步状态", "个人数据合并、播放进度与冲突恢复"),
     Handoff("设备接力", "把当前观看转到另一台在线设备"),
     PhoneRemote("手机遥控", "用同一账号的手机遥控这台电视"),
-    Trakt("Trakt", "授权、导入观看历史与想看、播放上报"),
+    Trakt("Trakt", "播放记录、收藏与待看一键同步"),
+    Stremio("Stremio 插件", "插件管理、目录、搜索、选集与播放"),
     Account("账号与同步", "登录、加密同步与云端数据"),
     AccountSessions("设备会话", "在其他设备上的登录状态"),
     Playback("播放", "播放行为、进度与片头片尾"),
@@ -67,9 +70,11 @@ internal enum class TvSettingsPage(
 internal fun TvSettingsPageScaffold(
     page: TvSettingsPage,
     status: String? = null,
+    state: LazyListState = rememberLazyListState(),
     content: LazyListScope.() -> Unit,
 ) {
     LazyColumn(
+        state = state,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = TvSafeVertical, bottom = TvSafeVertical),
         verticalArrangement = Arrangement.spacedBy(12.dp),

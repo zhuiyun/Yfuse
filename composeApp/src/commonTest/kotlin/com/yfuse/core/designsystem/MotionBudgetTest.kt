@@ -7,10 +7,10 @@ import kotlin.test.assertTrue
 
 class MotionBudgetTest {
     @Test
-    fun power_saving_heat_or_little_memory_each_draw_as_calm() {
+    fun power_saving_and_little_memory_draw_as_calm_but_heat_does_not() {
         assertEquals(MotionTheme.Classic, effectiveMotionTheme(MotionTheme.Classic, MotionBudget()))
         assertEquals(MotionTheme.Calm, effectiveMotionTheme(MotionTheme.Classic, MotionBudget(powerSave = true)))
-        assertEquals(MotionTheme.Calm, effectiveMotionTheme(MotionTheme.Classic, MotionBudget(thermal = true)))
+        assertEquals(MotionTheme.Classic, effectiveMotionTheme(MotionTheme.Classic, MotionBudget(thermal = true)))
         assertEquals(MotionTheme.Calm, effectiveMotionTheme(MotionTheme.Classic, MotionBudget(lowRam = true)))
     }
 
@@ -21,12 +21,18 @@ class MotionBudgetTest {
     }
 
     @Test
-    fun heat_counts_from_moderate_as_android_defines_it() {
-        assertFalse(thermallyConstrained(0))
-        assertFalse(thermallyConstrained(1))
-        assertTrue(thermallyConstrained(THERMAL_STATUS_MODERATE))
-        assertTrue(thermallyConstrained(6))
+    fun reported_heat_keeps_every_motion_theme_available() {
+        assertFalse(isDeviceWarm(0))
+        assertFalse(isDeviceWarm(1))
+        assertTrue(isDeviceWarm(THERMAL_STATUS_MODERATE))
+        assertTrue(isDeviceWarm(6))
         assertFalse(MotionBudget().reduced)
-        assertTrue(MotionBudget(thermal = true).reduced)
+        for (status in 0..6) {
+            val budget = MotionBudget(thermal = isDeviceWarm(status))
+            assertFalse(budget.reduced)
+            for (theme in MotionTheme.entries) {
+                assertEquals(theme, effectiveMotionTheme(theme, budget))
+            }
+        }
     }
 }

@@ -22,6 +22,7 @@ fun LibraryScreen(component: LibraryComponent) {
         contentKey = { routeKey(it.configuration) },
         modifier = Modifier.fillMaxSize(),
         isLauncher = { it.instance is LibraryComponent.Child.Player },
+        isDetail = { it.instance is LibraryComponent.Child.Detail },
     ) { entry ->
         val instance = entry.instance
         when (instance) {

@@ -57,6 +57,7 @@ internal fun TvSettingsScreen(
     val pageStates = rememberSaveableStateHolder()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val travel = with(LocalDensity.current) { TvPageMotion.travel.roundToPx() }
+    val account by component.account.state.collectAsState()
 
     BackHandler(enabled = page != TvSettingsPage.Root) {
         page = TvSettingsPage.Root
@@ -76,8 +77,8 @@ internal fun TvSettingsScreen(
         val pageRequester = remember { FocusRequester() }
         // A page swap leaves focus on a row that no longer exists, which strands the remote.
         // Pulling focus to the new page's first row keeps every transition navigable.
-        LaunchedEffect(Unit) {
-            if (shown != TvSettingsPage.Root) pageRequester.requestFocusWhenAttached()
+        RequestTvSettingsPageFocus(shown, shown == page, account) {
+            pageRequester.requestFocusWhenAttached()
         }
         pageStates.SaveableStateProvider(shown.name) {
             TvSettingsPageContent(
@@ -138,6 +139,7 @@ private fun TvSettingsPageContent(
         TvSettingsPage.SyncStatus,
         TvSettingsPage.Handoff,
         TvSettingsPage.Trakt,
+        TvSettingsPage.Stremio,
         ->
             TvProductSettingsPage(
                 page = page,
@@ -330,6 +332,7 @@ private fun TvSettingsRootPage(
             TvSettingsPage.Handoff,
             TvSettingsPage.PhoneRemote,
             TvSettingsPage.Trakt,
+            TvSettingsPage.Stremio,
         ).filter { it.availableInCurrentBuild() }.forEach { target ->
             item(key = "settings-product:${target.name}") {
                 TvSettingRow(
@@ -595,7 +598,7 @@ private val tvSettingsKeywords: Map<TvSettingsPage, String> =
         TvSettingsPage.SyncStatus to "同步 状态 重试 合并 冲突 恢复",
         TvSettingsPage.Handoff to "接力 设备 手机 平板 电视 转移",
         TvSettingsPage.PhoneRemote to "手机 遥控 遥控器 允许 信任 断开 配对",
-        TvSettingsPage.Trakt to "trakt 历史 想看 授权 导入 上报",
+        TvSettingsPage.Trakt to "trakt 历史 想看 待看 收藏 同步 授权 导入 上报",
         TvSettingsPage.Account to "登录 注册 同步 云端 密码 会话",
         TvSettingsPage.AccountSessions to "设备 退出 撤销 登录记录",
         TvSettingsPage.Playback to "进度 续播 片头 片尾 跳过 选源 隐私",

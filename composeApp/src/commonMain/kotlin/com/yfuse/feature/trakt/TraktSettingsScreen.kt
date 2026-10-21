@@ -30,6 +30,9 @@ import com.yfuse.core.trakt.TraktOperation
 import com.yfuse.core.trakt.TraktRepository
 import com.yfuse.feature.profile.SettingsPage
 import com.yfuse.feature.profile.rememberComposedPageStore
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun TraktSettingsScreen(
@@ -131,6 +134,34 @@ fun TraktSettingsScreen(
                 Section(title = "导入与同步") {
                     SettingsCard {
                         SettingRow(
+                            "一键同步全部",
+                            if (state.operation == TraktOperation.FullSync) {
+                                state.message.orEmpty()
+                            } else {
+                                "播放记录 · 收藏 · 待看列表"
+                            },
+                            embedded = true,
+                            loading = state.operation == TraktOperation.FullSync,
+                            onClick = if (state.busy) null else ({ store.accept(TraktSettingsIntent.SyncLibrary) }),
+                        )
+                        if (state.operation == TraktOperation.FullSync) {
+                            SettingsDivider()
+                            SettingRow("停止同步", "已完成内容会保留", embedded = true, onClick = {
+                                store.accept(TraktSettingsIntent.CancelLibrarySync)
+                            })
+                        }
+                        state.lastLibrarySyncAt?.let { time ->
+                            SettingsDivider()
+                            SettingRow(
+                                "上次完成同步",
+                                remember(
+                                    time,
+                                ) { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(time)) },
+                                embedded = true,
+                            )
+                        }
+                        SettingsDivider()
+                        SettingRow(
                             "导入想看单",
                             if (state.busy && state.operation == TraktOperation.Watchlist) "正在导入想看单…" else "合并到当前资料",
                             embedded = true,
@@ -170,9 +201,20 @@ fun TraktSettingsScreen(
         item {
             Section(title = "同步范围") {
                 ThemeText(
-                    "观看历史与想看单导入当前家庭资料，并保留已有选择。播放上报可单独开启，不会覆盖媒体服务器的观看进度。",
+                    "一键同步会双向合并当前家庭资料的收藏与待看列表；已同步条目的新增、取消也会同步。初次合并保留本机删除决定，冲突时优先保留本次本机修改。" +
+                        "观看历史仅合并有影片标识的已看电影与单集，不上传未看完的记录，不向 Trakt 删除历史，也不覆盖本机或媒体服务器的续播进度。" +
+                        "播放上报可单独开启。仅有服务器内部编号、无法匹配或 Trakt 不支持的条目会跳过。",
                     style = AppTypography.caption.regular,
                     color = palette.sub2,
+                )
+            }
+        }
+        state.syncResults.forEach { result ->
+            item {
+                ThemeText(
+                    result.summary,
+                    color = if (result.error == null) palette.sub2 else palette.error,
+                    modifier = Modifier.padding(horizontal = Dimens.pageHorizontal).contentHandoff(result).liveStatus(),
                 )
             }
         }

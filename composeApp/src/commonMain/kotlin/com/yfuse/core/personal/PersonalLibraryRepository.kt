@@ -54,6 +54,7 @@ class PersonalLibraryRepository(
     }
 
     val scopeToken: String get() = synchronized(lock) { "$accountId:$activeId:$generation" }
+    val externalSyncOwner: String get() = synchronized(lock) { "$accountId:$activeId" }
     val activeProfileId: String get() = synchronized(lock) { activeId }
     val storageNamespace: String get() = synchronized(lock) { "${accountId.ifEmpty { "anonymous" }}.$activeId" }
 
@@ -316,6 +317,32 @@ class PersonalLibraryRepository(
                     ),
                 )
             }
+        }
+
+    /** Compare and merge an external library result without overwriting an edit made in flight. */
+    fun externalEntryMatches(
+        expectedScopeToken: String,
+        expected: PersonalEntry,
+    ): Boolean =
+        synchronized(lock) {
+            expectedScopeToken == scopeToken && findEntry(expected.collection, expected.media) == expected
+        }
+
+    fun mergeExternalEntry(
+        expectedScopeToken: String,
+        expected: PersonalEntry?,
+        incoming: PersonalEntry,
+    ): PersonalEntry =
+        synchronized(lock) {
+            if (expectedScopeToken != scopeToken) throw CancellationException("Personal profile changed")
+            require(incoming.profileId == activeId && !policy.value.child)
+            val current = findEntry(incoming.collection, incoming.media)
+            check(current == expected) { "同步期间条目已修改，请重试" }
+            require(incoming.media.serverId == null || canAccessServer(incoming.media.serverId))
+            val replacement = incoming.copy(stamp = nextStamp())
+            // Unlike a button callback, sync must propagate persistence/validation failures to its caller.
+            putEntry(replacement)
+            replacement
         }
 
     fun followedSeries(): List<FollowedSeries> =

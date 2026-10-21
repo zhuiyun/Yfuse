@@ -171,6 +171,14 @@ internal data class SettingsSearchDestination(
 private val SettingsSearchDestinations =
     listOf(
         SettingsSearchDestination(
+            "Stremio 插件",
+            "安装、浏览目录与播放",
+            "stremio 插件 addon 目录",
+            ProfilePage.Stremio,
+            icon = AppIcons.Grid,
+            tint = SettingTint.servers,
+        ),
+        SettingsSearchDestination(
             "账号与同步",
             "登录、会话与加密同步",
             "账号 登录 会话 同步",
@@ -220,8 +228,8 @@ private val SettingsSearchDestinations =
         ),
         SettingsSearchDestination(
             "Trakt",
-            "授权、导入与播放上报",
-            "trakt 导入 上报",
+            "播放记录、收藏与待看一键同步",
+            "trakt 导入 上报 同步 收藏 待看 历史",
             ProfilePage.Trakt,
             icon = AppIcons.Refresh,
             tint = SettingTint.account,
@@ -621,6 +629,10 @@ fun ProfileScreen(component: ProfileComponent) {
                                 .TraktSettingsScreen(traktPage.store, component::closePage)
                         }
 
+                    ProfilePage.Stremio ->
+                        com.yfuse.feature.stremio
+                            .StremioScreen(component.personal, component::closePage)
+
                     ProfilePage.Root ->
                         SkeletonHandoff(
                             loading = !state.initialized,
@@ -717,6 +729,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                         onOpenFamily = { component.openPage(ProfilePage.Family) },
                                         onOpenHandoff = { component.openPage(ProfilePage.Handoff) },
                                         onOpenTrakt = { component.openPage(ProfilePage.Trakt) },
+                                        onOpenStremio = { component.openPage(ProfilePage.Stremio) },
                                     )
                                 }
 

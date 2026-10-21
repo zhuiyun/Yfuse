@@ -1,8 +1,5 @@
 package com.yfuse.tv.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
@@ -10,7 +7,6 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,7 +21,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.account.AccountDeviceSession
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.feature.profile.ProfileComponent
@@ -299,112 +294,6 @@ internal fun TvAccountSettingsPage(
                         enabled = !busy,
                         navigationRequester = navigationRequester,
                     )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun TvAccountSessionsPage(
-    component: ProfileComponent,
-    focusMemory: TvUiFocusMemory,
-    navigationRequester: FocusRequester,
-    firstRowRequester: FocusRequester,
-) {
-    val scope = rememberCoroutineScope()
-    val focusScope = "settings:sessions"
-    var sessions by remember { mutableStateOf<List<AccountDeviceSession>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var status by remember { mutableStateOf<String?>(null) }
-    var revision by remember { mutableStateOf(0) }
-
-    LaunchedEffect(revision) {
-        loading = true
-        component.account
-            .sessions()
-            .fold(
-                onSuccess = {
-                    sessions = it
-                    status = null
-                },
-                onFailure = { status = "读取设备会话失败：${it.message ?: "请稍后重试"}" },
-            )
-        loading = false
-    }
-
-    TvSettingsPageScaffold(page = TvSettingsPage.AccountSessions, status = status) {
-        if (loading) {
-            item(key = "sessions-loading") { TvSettingsNote("正在读取…") }
-        }
-        if (!loading && sessions.isEmpty()) {
-            item(key = "sessions-empty") { TvSettingsNote("没有其他已登录的设备。") }
-        }
-        sessions.forEachIndexed { index, session ->
-            item(key = "session:${session.id}") {
-                TvSettingRow(
-                    title = session.deviceName.ifBlank { "未命名设备" },
-                    value = if (session.current) "本机" else "撤销",
-                    stableId = "session:${session.id}",
-                    focusMemory = focusMemory,
-                    onClick = {
-                        if (session.current) return@TvSettingRow
-                        scope.launch {
-                            component.account
-                                .revokeSession(session.id)
-                                .fold(
-                                    onSuccess = {
-                                        status = "已撤销 ${session.deviceName}"
-                                        revision++
-                                    },
-                                    onFailure = { status = "撤销失败：${it.message ?: "请稍后重试"}" },
-                                )
-                        }
-                    },
-                    icon = if (session.current) AppIcons.Check else AppIcons.Close,
-                    focusScope = focusScope,
-                    subtitle = "最近活动 ${formatEpoch(session.lastSeenAtEpochMs)}",
-                    enabled = !session.current,
-                    selected = session.current,
-                    focusRequester = if (index == 0) firstRowRequester else null,
-                    navigationRequester = navigationRequester,
-                )
-            }
-        }
-        if (sessions.any { !it.current }) {
-            item(key = "sessions-revoke-others") {
-                TvSettingRow(
-                    title = "撤销其他所有设备",
-                    value = "",
-                    stableId = "session:revoke-others",
-                    focusMemory = focusMemory,
-                    onClick = {
-                        scope.launch {
-                            component.account
-                                .revokeOtherSessions()
-                                .fold(
-                                    onSuccess = {
-                                        status = "其他设备已全部退出"
-                                        revision++
-                                    },
-                                    onFailure = { status = "撤销失败：${it.message ?: "请稍后重试"}" },
-                                )
-                        }
-                    },
-                    icon = AppIcons.Lock,
-                    focusScope = focusScope,
-                    subtitle = "本机保持登录",
-                    navigationRequester = navigationRequester,
-                )
-            }
-        }
-        item(key = "sessions-refresh") {
-            Row(
-                Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Column {
-                    TvSettingsNote("撤销后，该设备下次访问云端时会被要求重新登录。")
                 }
             }
         }

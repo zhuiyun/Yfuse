@@ -1,5 +1,6 @@
 package com.yfuse.core.trakt
 
+import com.yfuse.core.personal.PersonalCollection
 import com.yfuse.core.security.SECURE_STORE_MAX_VALUE_BYTES
 import com.yfuse.core.security.SecureStore
 import com.yfuse.core.security.SecureStoreException
@@ -40,7 +41,7 @@ interface TraktImportSink {
     suspend fun importHistory(item: TraktListItem): Boolean
 }
 
-enum class TraktOperation { Authorize, Watchlist, History }
+enum class TraktOperation { Authorize, Watchlist, History, FullSync }
 
 data class TraktUiState(
     val signedIn: Boolean = false,
@@ -53,6 +54,9 @@ data class TraktUiState(
     val pending: Int = 0,
     val message: String? = null,
     val error: String? = null,
+    val syncResults: List<TraktSyncResult> = emptyList(),
+    val lastLibrarySyncAt: Long? = null,
+    val libraryRetryAtEpochMs: Long = 0,
 )
 
 @Serializable
@@ -77,6 +81,9 @@ internal data class TraktLocalState(
     val historyPage: Int = 1,
     val historyEndAt: String? = null,
     val watchlistPage: Int = 1,
+    val syncIdentity: String = "",
+    val lastLibrarySyncAt: Long? = null,
+    val libraryRetryAtEpochMs: Long = 0,
 )
 
 /** Local encrypted credentials/outbox, isolated by the active account AND personal profile. */
@@ -103,6 +110,7 @@ class TraktRepository(
     private var activeScope: CoroutineScope? = null
     private var lifetime: Job? = null
     private var authJob: Job? = null
+    private var libraryJob: Job? = null
     private val refreshMutex = Mutex()
     private val flushMutex = Mutex()
     private var nextWriteAtEpochMs = 0L
@@ -117,6 +125,7 @@ class TraktRepository(
                     playbackGeneration++
                     authorizationGeneration++
                     currentOwner = identity
+                    nextWriteAtEpochMs = 0L
                     local = TraktLocalState()
                     _state.value = TraktUiState(signedIn = identity != null)
                     if (identity == null) return@collectLatest
@@ -264,8 +273,9 @@ class TraktRepository(
         // Local opt-out is immediate even if remote revoke fails; no queued data can leave afterwards.
         val generation = ++authorizationGeneration
         authJob?.cancel()
+        libraryJob?.cancel()
         save(identity, TraktLocalState())
-        _state.update { it.copy(busy = false, challenge = null, operation = null) }
+        _state.update { it.copy(busy = false, challenge = null, operation = null, syncResults = emptyList()) }
         activeScope?.launch {
             try {
                 auth.revoke(token.accessToken)
@@ -285,8 +295,166 @@ class TraktRepository(
 
     fun importHistory() = importItems(history = true)
 
+    fun syncLibrary() {
+        val identity = currentOwner ?: return
+        val currentScope = activeScope ?: return
+        val sink = importSink as? TraktLibrarySink ?: return
+        if (_state.value.busy || local.token == null) return
+        if (local.libraryRetryAtEpochMs > now()) {
+            _state.update { it.copy(error = "Trakt 请求过于频繁，请等待限流时间结束后重试") }
+            return
+        }
+        val generation = authorizationGeneration
+        _state.update {
+            it.copy(
+                busy = true,
+                operation = TraktOperation.FullSync,
+                error = null,
+                message = "正在准备同步…",
+                syncResults = emptyList(),
+            )
+        }
+        libraryJob =
+            currentScope.launch {
+                try {
+                    flushMutex.withLock {
+                        ensureAuthorization(identity, generation)
+                        if (local.syncIdentity.isEmpty()) {
+                            save(
+                                identity,
+                                local.copy(syncIdentity = UUID.randomUUID().toString()),
+                            )
+                        }
+                        val endAt = Instant.ofEpochMilli(now()).toString()
+                        val sync =
+                            TraktLibrarySync(
+                                sink = sink,
+                                checkpoint =
+                                    TraktSyncCheckpoint(
+                                        secureStore,
+                                        "${storageKey(identity)}:library:${local.syncIdentity}",
+                                    ),
+                                readPage = { collection, page ->
+                                    libraryRequest(identity, generation) { token ->
+                                        when (collection) {
+                                            PersonalCollection.Favorite -> api.favorites(local.clientId, token, page)
+                                            PersonalCollection.WatchLater -> api.watchlist(local.clientId, token, page)
+                                            PersonalCollection.History ->
+                                                api.history(
+                                                    local.clientId,
+                                                    token,
+                                                    page,
+                                                    endAt,
+                                                )
+                                        }
+                                    }
+                                },
+                                activity = {
+                                    libraryRequest(
+                                        identity,
+                                        generation,
+                                    ) { api.libraryActivity(local.clientId, it) }
+                                },
+                                write = { collection, media, remove, watchedAt, beforeWrite ->
+                                    val wait = nextWriteAtEpochMs - now()
+                                    if (wait > 0) delay(wait)
+                                    ensureAuthorization(identity, generation)
+                                    nextWriteAtEpochMs = now() + 1_000
+                                    try {
+                                        libraryRequest(identity, generation) {
+                                            beforeWrite()
+                                            api.writeLibrary(local.clientId, it, collection, media, remove, watchedAt)
+                                        }
+                                    } catch (failure: TraktApiException) {
+                                        nextWriteAtEpochMs =
+                                            maxOf(nextWriteAtEpochMs, now() + failure.retryAfterSeconds * 1_000L)
+                                        throw failure
+                                    }
+                                },
+                                ensureCurrent = { ensureAuthorization(identity, generation) },
+                                pendingHistory = { media ->
+                                    local.events.any {
+                                        it.action == TraktPlaybackAction.Stop &&
+                                            it.progress > 80f &&
+                                            TraktLibraryMedia(
+                                                it.media.type,
+                                                it.media.ids,
+                                            ).aliases().any(media.aliases()::contains)
+                                    }
+                                },
+                                progress = { message -> _state.update { it.copy(message = message) } },
+                            )
+                        val results = mutableListOf<TraktSyncResult>()
+                        for (collection in PersonalCollection.entries) {
+                            results += sync.sync(collection)
+                            ensureAuthorization(identity, generation)
+                            _state.update { it.copy(syncResults = results.toList()) }
+                        }
+                        val complete = results.all { it.error == null }
+                        if (complete) save(identity, local.copy(lastLibrarySyncAt = now()))
+                        _state.update {
+                            it.copy(
+                                message =
+                                    when {
+                                        !complete -> "部分同步未完成，重试会先核对云端，避免重复写入"
+                                        results.any { it.skipped > 0 } -> "三项同步已处理，请查看跳过的条目数量"
+                                        else -> "三项同步完成"
+                                    },
+                                error = if (complete) null else "请查看各项同步结果后重试",
+                            )
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    if (isAuthorizationCurrent(identity, generation)) {
+                        _state.update { it.copy(message = "同步已停止，已完成内容保留") }
+                    }
+                    throw cancelled
+                } catch (failure: Exception) {
+                    if (isAuthorizationCurrent(
+                            identity,
+                            generation,
+                        )
+                    ) {
+                        _state.update { it.copy(error = syncFailure(failure)) }
+                    }
+                } finally {
+                    if (isAuthorizationCurrent(
+                            identity,
+                            generation,
+                        )
+                    ) {
+                        _state.update { it.copy(busy = false, operation = null) }
+                    }
+                }
+            }
+    }
+
+    fun cancelLibrarySync() {
+        libraryJob?.cancel()
+    }
+
     /** Captured once per mounted playback session so late callbacks cannot enter another profile. */
-    fun capturePlaybackOwner(): String? = currentOwner?.takeIf { it == owner.value }?.let { "$it:$playbackGeneration" }
+    fun capturePlaybackOwner(): String? =
+        currentOwner?.takeIf { isAuthorizationCurrent(it, authorizationGeneration) }?.let { "$it:$playbackGeneration" }
+
+    private suspend fun <T> libraryRequest(
+        identity: String,
+        generation: Long,
+        block: suspend (String) -> T,
+    ): T {
+        ensureAuthorization(identity, generation)
+        val remaining = local.libraryRetryAtEpochMs - now()
+        if (remaining > 0) throw TraktApiException(429, ((remaining + 999) / 1000).toInt())
+        try {
+            return authorized(identity, generation, block)
+        } catch (failure: TraktApiException) {
+            if (failure.status == 429 && isAuthorizationCurrent(identity, generation)) {
+                val retryAt = now() + failure.retryAfterSeconds.coerceAtLeast(60) * 1000L
+                save(identity, local.copy(libraryRetryAtEpochMs = retryAt))
+            }
+            throw failure
+        }
+    }
 
     private fun importItems(history: Boolean) {
         val identity = currentOwner ?: return
@@ -413,7 +581,13 @@ class TraktRepository(
     }
 
     private suspend fun flush(identity: String) {
-        if (!local.scrobbling || local.token == null || !flushMutex.tryLock()) return
+        if (!local.scrobbling ||
+            local.token == null ||
+            _state.value.operation == TraktOperation.FullSync ||
+            !flushMutex.tryLock()
+        ) {
+            return
+        }
         val generation = authorizationGeneration
         try {
             val event = local.events.firstOrNull() ?: return
@@ -552,13 +726,16 @@ class TraktRepository(
                 connected = local.token != null,
                 scrobbling = local.scrobbling,
                 pending = local.events.size,
+                lastLibrarySyncAt = local.lastLibrarySyncAt,
+                libraryRetryAtEpochMs = local.libraryRetryAtEpochMs,
             )
         }
     }
 
     private fun ensureOwner(identity: String) {
         if (identity != currentOwner ||
-            identity != owner.value
+            identity != owner.value ||
+            (importSink is TraktLibrarySink && importSink.ownerIdentity != identity)
         ) {
             throw CancellationException("Trakt profile changed")
         }
@@ -567,7 +744,11 @@ class TraktRepository(
     private fun isAuthorizationCurrent(
         identity: String,
         generation: Long,
-    ): Boolean = identity == currentOwner && identity == owner.value && generation == authorizationGeneration
+    ): Boolean =
+        identity == currentOwner &&
+            identity == owner.value &&
+            generation == authorizationGeneration &&
+            (importSink !is TraktLibrarySink || importSink.ownerIdentity == identity)
 
     private fun ensureAuthorization(
         identity: String,

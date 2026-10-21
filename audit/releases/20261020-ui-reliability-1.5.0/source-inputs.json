@@ -1,0 +1,353 @@
+{
+  "sourceCommit": "cd6b82a3d1a639593ade65eea60964b822a7d322",
+  "files": [
+    {
+      "path": ".github/mdk-distribution-approval.json",
+      "sha256": "d066de0650f05f904b829ff751d62575166157bd98778533f8cddbc2a5395a67"
+    },
+    {
+      "path": "composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/app/DetailBackNavigationInstrumentedTest.kt",
+      "sha256": "1b3a9c0e7438eceb3179812e6392e03d22fb88438e5f365f8f031f336afb4ea5"
+    },
+    {
+      "path": "composeApp/src/androidMain/baseline-prof.txt",
+      "sha256": "7fb05ad3f254ed70ea659537ef3bb6e67bcef28d4b22e22e89f0165bbb31f590"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/designsystem/MotionBudget.android.kt",
+      "sha256": "a8ff59997e259579c339519c581ff54f7c63bd8662526ad0659203a879d96b6e"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/playback/PlaybackRuntimeEnvironment.android.kt",
+      "sha256": "b93b59caf57a9951635306696224150161d66d429d2a0492b09d0d2ee733137f"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt",
+      "sha256": "0796072971257fe584428597e7d79c019ff3211369907476a3f94fa05490ddfa"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAnime4KOutput.kt",
+      "sha256": "ef6b5e74e0e5a60d3316dd43903e57af65d09fc50d7bf72d7d120a927a65a0c1"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2MediaProbe.kt",
+      "sha256": "51d9c61f228441868b59c729d7a2350557d19785aba382e0f2b4b78cc7ef6357"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/AndroidDolbyVisionRuntime.android.kt",
+      "sha256": "3536560f18c5c64c71fd4b5b7f2401ecb1d7272f5a45da789b1e911c38a30868"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt",
+      "sha256": "6f2cce49c7aa93e0e9754792ef293bcd9fc89acabc47fe8da5f3b876dfae47bf"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRootSurface.kt",
+      "sha256": "19a958e32e8350c2bd37cc0b0983ad22267f561c15f1c6f0cd89f0b5c6b078db"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/AndroidDolbyVisionRuntimeTest.kt",
+      "sha256": "a9801d273b96fa9f396174f5965aa02b5bc61f3a2620d16c005bbb1c89d812a2"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/CinemaPosterNavigation.kt",
+      "sha256": "1d317196856b303ad176fcf946304435534296f5dd307673416a43059132e0d7"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DetailBackMotion.kt",
+      "sha256": "1163c68ec0c82e235c00ac667c6880750f3e8d4369fe9599751ca0ba20bd61ea"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/MotionBudget.kt",
+      "sha256": "3d71ad4ac5f3eb722591068158f21cb17f7df42c053a8645553de6a6ebff7a45"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/MotionTheme.kt",
+      "sha256": "0d352fae2060eafdc83a0f3c87b18bfb779535c0015cc6809a3de625f4935900"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/OfficialNavDisplay.kt",
+      "sha256": "1c4e17ba785e8cd6c97f2c2ef8454da43ca41a1088daaa502d1fa1c2750ee7b4"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Theme.kt",
+      "sha256": "0e0644ff3a2aa53a064e1cd0170503d5de661faadc0c27ae7b702a608fc05911"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ZoomBack.kt",
+      "sha256": "d2c2c64ad5547e3ebc013f232c19ba428dffc51ef43ee92209e4f36ea9285da9"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/ZoomBackNavigation.kt",
+      "sha256": "c966ecb98279d281fe83eb8a29bf0d09f9f9b9583855af01713f4d1bdd9c1381"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/personal/PersonalLibraryRepository.kt",
+      "sha256": "99b53ae771698db336e572a844ba46541efb1a48960d1d74764509d23e95567d"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/playback/PlaybackRuntimeEnvironment.kt",
+      "sha256": "03f831fa5cfd0e34d739ae27c70bea12caf4f31a9aa991659da382f598360060"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/stremio/StremioClient.kt",
+      "sha256": "4a38b042b935c7b7b7744bd977951f7d7d9c3e1525077d435f0c44cf3b4983fb"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/stremio/StremioModels.kt",
+      "sha256": "54b3ecbd692a508fc7c3324cd20d54f205c9dd7e2bf0037b11ef029b92e9a67c"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/stremio/StremioRepository.kt",
+      "sha256": "c341f27662e0f52e3c03db3995b263a56dbbfd22347d81f070d2538fcdca773a"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/stremio/StremioUrls.kt",
+      "sha256": "ef4f59893c7aa025b0cadbb91d7c9784bea75b892b9608c579ec18fb6b817b22"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/trakt/PersonalTraktImportSink.kt",
+      "sha256": "58f033ec82695a68ef49d102afd7017d0c97a2fd6dae47803d6ece552ec86ee2"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/trakt/TraktApi.kt",
+      "sha256": "afbf257d8d16e7c5871fcc71851d66eca12198884dc7aa8e8a704e862162ebbd"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/trakt/TraktLibraryModels.kt",
+      "sha256": "607a36edd04f81abb8bbd2605bb08163d92cd6de59f30af9150fa0833e54a77c"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/trakt/TraktLibrarySync.kt",
+      "sha256": "86954dd6fc436c6f4895377f0422dd97400933ee1007b40cd92f91d55228f175"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/trakt/TraktRepository.kt",
+      "sha256": "9290650822c34c372c4bf3ffcf2398d87f40272627aa904a833568dec5dbfb39"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/trakt/TraktSyncCheckpoint.kt",
+      "sha256": "d0fb0ccb5dea92818070f8ab53cc7340c1b11ef455014717db624713fef06f2c"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core2/learning/YPlaybackLearning.kt",
+      "sha256": "8087327a95c13e618b170c92261f51f929ee29bcd7f07d888b4235741f7c42aa"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/di/AppModule.kt",
+      "sha256": "a294353770a6f2275adb80e6dc3dd812e4b8c70cb90109ca6d253f8084fffa60"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/di/StremioModule.kt",
+      "sha256": "f8778778f80512ea706ee48b35198ea3b34b4b3cd7f327c133ff6dca5dc561fa"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/filesource/FileSourcesController.kt",
+      "sha256": "ab2b684c42394eb149bfb31d0382fb84b0dfd599ea4d5a653f19bb7fe69676e6"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/home/HomeTabScreen.kt",
+      "sha256": "99f3d0453b723daa33735f31a4630f3dfa3f16daa08ca382387c3b3198d6e69c"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryScreen.kt",
+      "sha256": "cc837e236b92a310c0c725a6cb0912888697ef9b95453269844df2281840be06"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/CinemaPlaybackEntrance.kt",
+      "sha256": "3e213bac9700aedf1f55f2f23f1f2ae61f31d2e22d35b9ba455d44a8714c1343"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/CinemaPlaybackEntranceMotion.kt",
+      "sha256": "22b6d601d8b6bdaf035c0cb6e083d2f0304cb7f682f96c685a0b14eb7fc2e80a"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/CinemaPlaybackMotion.kt",
+      "sha256": "837b622cea20cf0f5dc1babcdc7433bb2aed22bd034f2e010aad3eed5a0882c5"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackExperienceOverlay.kt",
+      "sha256": "91b1b64932d8f9bddd138ec08b46c7338c5146eea2ea24e76b6ffe9324b0dc75"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackReportingTarget.kt",
+      "sha256": "92b90af02bc165d74cc9e85341b37a9a3743aa21a5b252f436df682a93fafe34"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/contract/VideoEngine.kt",
+      "sha256": "1f13ae41e26c76d99a38aacec39ac4800cf1598b33f4b4bd0e092e66ea559afe"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/PersonalHomeScreen.kt",
+      "sha256": "f0ff950a5a731b4bd82cad31a1e377bebea75ed9c9d3d1abc68c60f6da25ef45"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfilePages.kt",
+      "sha256": "aaa1065eeb9b18a367b54d00e8602b161adef764117eb0804fc5a34151254d13"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "sha256": "6fa0c4729440f02310e3686838154011a6828c214efa3e5f6eb1bcacfcc846b1"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/search/SearchScreen.kt",
+      "sha256": "921bfb5cdb2a55f6cc558de81693bbe0ed81e878253ea20f0a215a4881de8801"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/stremio/StremioCatalogViews.kt",
+      "sha256": "731599b5f709a18a190dd5e6cc5aac841fea2d52bbeb4fdfa620239ac2e73b07"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/stremio/StremioController.kt",
+      "sha256": "7c36d147e2ca6ee2a9759541eaba9cc9e311fe2d7714086048162ac979d22f86"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/stremio/StremioDetailViews.kt",
+      "sha256": "fc7a72362bae69995836dee66a4c60625edc2351529b6a2b77e963bce9873940"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/stremio/StremioManagement.kt",
+      "sha256": "d0f16d3dcb4f67488fe3de77a588ecfeebe5fb76ef1dd5241d84db8df08ddccc"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/stremio/StremioPlayback.kt",
+      "sha256": "4bf04d62137c16c2619a73d976b4bb18bbfdd07d2e53e308e04e1304acc80c96"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/stremio/StremioScreen.kt",
+      "sha256": "0a7705584c53cccebea1257b28e709aaff8030163ef8c5c9251b562578cee6d1"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "sha256": "6e4656048bc273df522271630105b4a2865b4959608d040688f1442cf3d1da56"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsStore.kt",
+      "sha256": "381b05f2e4096a29b798b1cb755b56dbdf27b4d3da79c63def9b7c407455b32c"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/CinemaMotionTest.kt",
+      "sha256": "dca942fb126a177312045b3fb0693203f6d62f7c19a7f43011fe66f80ce6bec3"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/DetailBackMotionTest.kt",
+      "sha256": "2a8096102b4ded30a62626c87c5c805e829fb7ec49e2358ea4102f5a6b71f748"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/MotionBudgetTest.kt",
+      "sha256": "e27483313316f34bb4e11421c9eceb38f0726ae7fb89825a6b285243ddacc4af"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/playback/PlaybackOptimizationRecoveryTest.kt",
+      "sha256": "23b1167d577d2991f0a48b9877c7af3786ee14cba14af159c23d3bef37644d79"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/playback/PlaybackRuntimeEnvironmentTest.kt",
+      "sha256": "37f4def61eab3ab3d3fbd77c98f4ee3d1a7ac174bc3f7bc43d3d472e2dff5314"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/stremio/StremioClientTest.kt",
+      "sha256": "08e374276ca71dd17af0a05f52c5077b4140d73e42ef94a2d38d8b30cd1500b2"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/stremio/StremioProtocolTest.kt",
+      "sha256": "173b153387be38aae84c526fa577e8db99de8e8be442b80d808104a7246c06eb"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/stremio/StremioRepositoryTest.kt",
+      "sha256": "4c80260c93bcb3b423c4192b9a7dafb9238059d76f50ed4549a4df61722d1b92"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/trakt/TraktFullSyncRepositoryTest.kt",
+      "sha256": "cfe213c3848dad294391e81dfaf4ebc6990cd9390cf525899986723ad939ebb6"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/trakt/TraktLibraryApiTest.kt",
+      "sha256": "560ec9bd9723ac37cdb6a86ea8c0fc1b6f2479c8e2581bdc140fd4cff21cc51e"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/trakt/TraktLibrarySyncTest.kt",
+      "sha256": "411fc5a84626593365adb0b676ff417376a8b3778b479d14c2fa1de6b2662420"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core2/learning/YPlaybackLearningTest.kt",
+      "sha256": "578af00baf1bc9ab042155e1ef264dfd1fbcb6d413b97311a8f9b1a3774ddbfa"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/di/AppModuleGraphTest.kt",
+      "sha256": "91ab01805c1f1a79a5d4b31de683e35aae2824c8c744f2bc68b45f8cb32f5a49"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/filesource/FileSourcePlaybackCancellationTest.kt",
+      "sha256": "e162a66e896446b37f2b61813c228ceedf713e5ef2392d2d5dcfbfb26283cd49"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/CinemaPlaybackEntranceCompositionTest.kt",
+      "sha256": "076107b065f67ba61b74fea0a8647acd6214f26f6795a37724a3c611eda824da"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/CinemaPlaybackEntranceTest.kt",
+      "sha256": "5be1943ca5d0044ff6449f3515215c124460027a032ec82d8a153244f5f5518a"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/stremio/StremioControllerTest.kt",
+      "sha256": "14cc8eda682c196fd80567bee4fd2bd075f341fdd24a4fa017f60beb73b6e1c7"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/stremio/StremioListStateTest.kt",
+      "sha256": "159b2678c264d2758bb8e45de933b2953fab7112f0a9d192f4fa2f8f756b9e9e"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/stremio/StremioPlaybackTest.kt",
+      "sha256": "04209215ab6a4c01cd7eb282b47fc3b51fcccd28ae7fe642553d7c3b7504bc6e"
+    },
+    {
+      "path": "release-notes.txt",
+      "sha256": "fea7e65ecd719d6d4b345f2a0ea79505ec905f9a2d1f2b2d93ca61b80e3eae71"
+    },
+    {
+      "path": "scripts/supply_chain_check.py",
+      "sha256": "7e6c4a733cfdcbd59cfb1581e86a61143eb41c32438c9fdcb9a5e3b70c58c636"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountScreens.kt",
+      "sha256": "38fed36cc9f9dfdd7454da8ff9d291b97e9f0e1e83529a59dd961e50948b642a"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountSessionsController.kt",
+      "sha256": "33a489d46b346fded9a932cbca3e9ad6e89792b1df23a601a477ac56b492783a"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountSessionsPage.kt",
+      "sha256": "ccaf718266c26938d79440dc7d93d1dbc7c7a81d7f63f34518fa356b33d13b5b"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvProductSettingsPages.kt",
+      "sha256": "eae012fda3443a3066a3e0d341e826f7dac1c6c5af2e748c5f6bf8031d1baba5"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsPageFocus.kt",
+      "sha256": "c8a1a710b5ef9f11ae6fa252e2d906987cc5f68e03e1a58e7f8fe9b1e61a19c7"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScaffold.kt",
+      "sha256": "c75aa857de3a12074b18e51d99d3b0c40198a44a4de03b5fed2663e9ae55c933"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "sha256": "4d97eabd191b4cb7cb17327bd00bd9b33c616eaa2cd0168ef0da63ecda0022a0"
+    },
+    {
+      "path": "tvApp/src/androidUnitTest/kotlin/com/yfuse/tv/ui/TvAccountSessionsControllerTest.kt",
+      "sha256": "7e08d98a03f0e7fdbc3710a2cbf37fbf9a4ac0803bd7cdf34f86f09b0d3f53d7"
+    },
+    {
+      "path": "tvApp/src/androidUnitTest/kotlin/com/yfuse/tv/ui/TvSettingsPageFocusTest.kt",
+      "sha256": "b092ee6466fc53e7d6e84c07aea979cb70462dcfe4ff160dad2fb02c43d468d0"
+    },
+    {
+      "path": "version.properties",
+      "sha256": "594ab360f34d33dfd6987dcf2951f862899c48fcf4c4229184e32a07d1f3e8ec"
+    }
+  ]
+}

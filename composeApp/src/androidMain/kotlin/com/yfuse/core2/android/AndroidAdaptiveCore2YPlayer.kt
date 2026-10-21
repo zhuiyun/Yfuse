@@ -68,7 +68,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -182,16 +181,6 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val audioManager = context.applicationContext.getSystemService(AudioManager::class.java)
     private val batteryManager = context.applicationContext.getSystemService(BatteryManager::class.java)
     private val powerManager = context.applicationContext.getSystemService(PowerManager::class.java)
-    private val thermalMonitor =
-        scope.launch {
-            var severe = currentThermalStatus() >= SEVERE_THERMAL_STATUS
-            while (isActive) {
-                delay(THERMAL_POLL_INTERVAL_MS)
-                val nextSevere = currentThermalStatus() >= SEVERE_THERMAL_STATUS
-                if (nextSevere && !severe) commands.trySend(Command.ThermalPressure)
-                severe = nextSevere
-            }
-        }
     private val audioCallbackHandler = Handler(Looper.getMainLooper())
     private val audioRouteChangeQueued = AtomicBoolean(false)
     private val deferredAudioRouteChange = AtomicBoolean(false)
@@ -877,7 +866,6 @@ internal class AndroidAdaptiveCore2YPlayer(
             val hint = nextPreparationBoundary.get()?.takeIf { it.itemId == currentItem.id }
             if (hint?.enabled == false || !nextItemSourceEligible(item)) return
             val nowMs = System.nanoTime() / 1_000_000L
-            val forcePowerSaver = currentThermalStatus() >= SEVERE_THERMAL_STATUS
             val preferTunnel =
                 !anime4KRequestedFor(item) &&
                     item.allExternalSubtitles.isEmpty() &&
@@ -886,7 +874,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     kotlin.math.abs(speed - 1f) <= TUNNEL_SPEED_EPSILON
             if (nextItemPreloadJob?.isActive == true ||
                 nowMs < nextPreloadRetryAfterMs ||
-                preloadedNextRoute?.matches(nextIndex, item, preferTunnel, allowAudioPassthrough, forcePowerSaver) ==
+                preloadedNextRoute?.matches(nextIndex, item, preferTunnel, allowAudioPassthrough) ==
                 true
             ) {
                 return
@@ -914,7 +902,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                             activeChild === preloadChild &&
                             nextPreparationRevision.get() == preparationRevision &&
                             hint()?.enabled != false &&
-                            currentThermalStatus() < SEVERE_THERMAL_STATUS &&
                             nextItemNetworkAllowed(context, hint()?.allowMeteredNetwork == true)
 
                     fun healthy(): Boolean = allowed() && snapshot()?.let(::nextItemPlaybackHealthy) == true
@@ -955,7 +942,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     item,
                                     preferTunnel,
                                     preloadPassthrough,
-                                    forcePowerSaver,
                                     prepareSourceForPlayback = true,
                                     budget = budget,
                                 )
@@ -979,7 +965,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 item,
                                 preferTunnel,
                                 preloadPassthrough,
-                                forcePowerSaver,
                                 decision,
                                 sources,
                             )
@@ -1315,7 +1300,6 @@ internal class AndroidAdaptiveCore2YPlayer(
             positionMs: Long,
             target: YAdaptivePlaybackTarget?,
             tunnelAllowed: Boolean,
-            forcePowerSaver: Boolean,
         ): PreloadedNextRoute? {
             val warmedRoute =
                 preloadedNextRoute?.takeIf { warmed ->
@@ -1326,7 +1310,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                             item = item,
                             preferTunnel = tunnelAllowed,
                             allowAudioPassthrough = allowAudioPassthrough,
-                            forcePowerSaver = forcePowerSaver,
                         )
                 }
             if (warmedRoute == null) videoHandoff.close()
@@ -1400,7 +1383,6 @@ internal class AndroidAdaptiveCore2YPlayer(
             adaptiveTarget = target
             val item = target?.let { rootItem.copy(uri = it.uri) } ?: rootItem
             pendingInputHdrType = item.hintedHdrType()
-            val forcePowerSaver = currentThermalStatus() >= SEVERE_THERMAL_STATUS
             val tunnelAllowed =
                 allowTunnel &&
                     !anime4KRequestedFor(item) &&
@@ -1431,7 +1413,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 return createForcedEnhancedChild(item, singleRequest)
             }
 
-            val warmedRoute = adoptPreloadedRoute(item, positionMs, target, tunnelAllowed, forcePowerSaver)
+            val warmedRoute = adoptPreloadedRoute(item, positionMs, target, tunnelAllowed)
             // A route this device already rendered for exactly this media skips the probes and
             // starts at planning; the device-side gates below still run on it.
             val adoptedCurrentItem =
@@ -1473,7 +1455,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                         item,
                         preferTunnel = tunnelAllowed,
                         allowAudioPassthrough = allowAudioPassthrough,
-                        forcePowerSaver = forcePowerSaver,
                         rememberedProbe = rememberedProbe,
                         budget = budget,
                     )
@@ -1511,7 +1492,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                         item,
                         preferTunnel = false,
                         allowAudioPassthrough = allowAudioPassthrough,
-                        forcePowerSaver = forcePowerSaver,
                         rememberedProbe = rememberedProbe,
                         budget = budget,
                     ) ?: return createInconclusiveSourceRoute(item, singleRequest)
@@ -2309,7 +2289,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                 }
                 is Command.NextItemPreloaded -> acceptPreloadedNextRoute(command)
                 Command.AudioRouteChanged -> followAudioRouteChange()
-                Command.ThermalPressure -> relieveThermalPressure()
                 is Command.FallbackFromTunnel -> fallBackFromTunnel(command)
                 is Command.RecoverSameRoute -> recoverSameRoute(command)
                 is Command.FallbackToEnhanced -> fallBackToEnhanced(command)
@@ -2575,25 +2554,6 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
         }
 
-        private suspend fun relieveThermalPressure() {
-            if (mutableState.value.phase in setOf(YPlaybackPhase.Ended, YPlaybackPhase.Failed)) return
-            discardNextPreparation()
-            val activeRoute =
-                child
-                    ?.state
-                    ?.value
-                    ?.diagnostics
-                    ?.route
-            if (
-                activeRoute == YPlaybackRoute.GpuEnhanced ||
-                activeRoute == YPlaybackRoute.SoftwareFallback
-            ) {
-                pendingPositionMs =
-                    if (child != null) globalChildPosition() else mutableState.value.positionMs
-                rebuild(pendingPositionMs)
-            }
-        }
-
         private suspend fun fallBackFromTunnel(command: Command.FallbackFromTunnel) {
             if (
                 command.index == currentIndex &&
@@ -2801,8 +2761,6 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         data object AudioRouteChanged : Command
 
-        data object ThermalPressure : Command
-
         data class NextItemPreloaded(
             val fromChild: YPlayer,
             val route: PreloadedNextRoute,
@@ -2878,7 +2836,6 @@ internal class AndroidAdaptiveCore2YPlayer(
         val sourceItem: YMediaItem,
         val preferTunnel: Boolean,
         val allowAudioPassthrough: Boolean,
-        val forcePowerSaver: Boolean,
         val decision: YCore2RouteDecision,
         val sources: AndroidNextItemSources,
         val preparedAtNs: Long = System.nanoTime(),
@@ -2888,7 +2845,6 @@ internal class AndroidAdaptiveCore2YPlayer(
             item: YMediaItem,
             preferTunnel: Boolean,
             allowAudioPassthrough: Boolean,
-            forcePowerSaver: Boolean,
         ): Boolean =
             this.index == index &&
                 System.nanoTime() - preparedAtNs < 30_000_000_000L &&
@@ -2896,8 +2852,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 sourceItem.sourceHints == item.sourceHints &&
                 sourceItem.allExternalSubtitles == item.allExternalSubtitles &&
                 this.preferTunnel == preferTunnel &&
-                this.allowAudioPassthrough == allowAudioPassthrough &&
-                this.forcePowerSaver == forcePowerSaver
+                this.allowAudioPassthrough == allowAudioPassthrough
     }
 }
 
@@ -2928,8 +2883,6 @@ private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlaye
 
 private const val TUNNEL_SPEED_EPSILON = 0.001f
 private const val NO_PENDING_SEEK_MS = -1L
-private const val THERMAL_POLL_INTERVAL_MS = 30_000L
-private const val SEVERE_THERMAL_STATUS = 3
 private const val RELEASE_JOIN_TIMEOUT_MS = 5_000L
 private const val NANOS_PER_MILLISECOND = 1_000_000L
 

@@ -149,6 +149,7 @@ fun SearchScreen(component: SearchComponent) {
         contentKey = { routeKey(it.configuration) },
         modifier = Modifier.fillMaxSize(),
         isLauncher = { it.instance is SearchComponent.Child.Player },
+        isDetail = { it.instance is SearchComponent.Child.Detail },
     ) { entry ->
         val instance = entry.instance
         when (instance) {
