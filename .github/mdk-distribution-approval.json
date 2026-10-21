@@ -1,10 +1,10 @@
 {
-  "versionName": "1.5.0",
-  "versionCode": 302,
+  "versionName": "1.5.2",
+  "versionCode": 304,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-20T10:27:26.244118+00:00",
+  "confirmedAt": "2026-10-21T02:52:51.882784+00:00",
   "confirmedBy": "release owner",
-  "confirmationBasis": "The release owner requested fixing the UI reliability audit findings and packaging on 2026-10-20. Standing authorization covers the unchanged pinned MDK and production-signed full ARM64 package-only local delivery."
+  "confirmationBasis": "The release owner requested unified subtitle black-bar preference across engines, dual subtitles and ambient light, regression validation and signed packaging on 2026-10-21. Standing authorization covers the unchanged pinned MDK and production-signed full ARM64 package-only local delivery."
 }

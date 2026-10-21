@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -94,6 +95,14 @@ internal fun PlayerRootSurface(
     // Each host places this above its surface and below its subtitle overlays: bars an engine
     // paints inside its own surface are lit, and captions placed in the letterbox stay legible.
     // The picture rectangle is clipped out, so it never draws over the frame.
+    val nativeCaptions =
+        engine is MdkVideoEngine ||
+            (
+                engine is MpvVideoEngine &&
+                    !engine.subtitleText
+                        .collectAsState()
+                        .value.stacked
+            )
     val ambientLayer: @Composable () -> Unit = {
         AmbientLightLayer(
             light = ambient.light,
@@ -101,6 +110,11 @@ internal fun PlayerRootSurface(
             videoSize = ambient.videoSize,
             scaleMode = choices.scaleMode,
             modifier = Modifier.fillMaxSize(),
+            protectNativeSubtitles =
+                nativeCaptions &&
+                    (state.subtitleTracks.any { it.selected } || presentationSubtitleControls.secondaryTrackId != null),
+            // A primary ASS track may contain top titles too; native glyph bounds are unavailable.
+            protectSecondarySubtitles = nativeCaptions,
         )
     }
     // The continuity artwork and the two status strings are built here, outside the timeline
@@ -192,6 +206,7 @@ internal fun PlayerRootSurface(
                     secondarySubtitleScale = presentationSubtitleControls.secondaryScale,
                     subtitleBrightness = presentationSubtitleControls.brightness,
                     subtitlePosition = presentationSubtitleControls.position,
+                    subtitleRegion = presentationSubtitleControls.region,
                     subtitleAppearance = presentationSubtitleControls.appearance,
                     modifier = pictureModifier,
                     visible = !inPictureInPicture,
@@ -204,6 +219,9 @@ internal fun PlayerRootSurface(
                     pictureModifier,
                     ambientSampler = ambient.sampler,
                     ambientLayer = ambientLayer,
+                    scaleMode = choices.scaleMode,
+                    videoSize = ambient.videoSize,
+                    subtitleControls = presentationSubtitleControls,
                 )
             is MpvVideoEngine ->
                 MpvSurface(
@@ -211,7 +229,8 @@ internal fun PlayerRootSurface(
                     pictureModifier,
                     ambientSampler = ambient.sampler,
                     ambientLayer = ambientLayer,
-                    subtitlesInsidePicture = ambient.enabled,
+                    scaleMode = choices.scaleMode,
+                    videoSize = ambient.videoSize,
                     subtitleControls = presentationSubtitleControls,
                 )
             is ExoVideoEngine ->
@@ -222,6 +241,8 @@ internal fun PlayerRootSurface(
                     secondarySubtitleScale = presentationSubtitleControls.secondaryScale,
                     subtitleBrightness = presentationSubtitleControls.brightness,
                     subtitlePosition = presentationSubtitleControls.position,
+                    subtitleRegion = presentationSubtitleControls.region,
+                    videoSize = ambient.videoSize,
                     subtitleAppearance = presentationSubtitleControls.appearance,
                     modifier = pictureModifier,
                     ambientSampler = ambient.sampler,

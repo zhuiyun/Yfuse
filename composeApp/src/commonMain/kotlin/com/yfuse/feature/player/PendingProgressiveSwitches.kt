@@ -7,32 +7,34 @@ package com.yfuse.feature.player
  * Exo, mpv and MDK each keep one, next to their other per-entry sets.
  */
 internal class PendingProgressiveSwitches {
-    private val indices = mutableSetOf<Int>()
+    /** Identity, rather than index alone, distinguishes retries of the same queue entry. */
+    class Attempt internal constructor(
+        internal val index: Int,
+    )
 
-    operator fun contains(index: Int): Boolean = index in indices
+    private val attempts = mutableMapOf<Int, Attempt>()
+
+    operator fun contains(index: Int): Boolean = index in attempts
 
     /** The step onto the MP4 for [index] has begun: its HLS encoder is being stopped. */
-    fun start(index: Int) {
-        indices += index
-    }
+    fun start(index: Int): Attempt = Attempt(index).also { attempts[index] = it }
 
     /**
-     * The encoder stop for [index] has returned: the entry stops being pending whatever happens
-     * next. True when the MP4 switch goes ahead, which it does only while [stillCurrent]. The MP4
-     * of an entry the viewer has left never loads, and a mark kept for it would answer every later
-     * failure of that entry with "switching".
+     * An old completion cannot clear a newer attempt, even after clear/start on the same index.
+     * A moved entry loses its pending mark but cannot apply a callback holding its old index.
      */
     fun settle(
-        index: Int,
+        attempt: Attempt,
         stillCurrent: Boolean,
     ): Boolean {
-        indices -= index
-        return stillCurrent
+        val entry = attempts.entries.firstOrNull { it.value === attempt } ?: return false
+        attempts.remove(entry.key)
+        return stillCurrent && entry.key == attempt.index
     }
 
     /** Nothing counts as switching any more: the engine switched items or retried. */
     fun clear() {
-        indices.clear()
+        attempts.clear()
     }
 
     /** Keeps each mark with its entry when the queue around it changes from [previous] to [updated]. */
@@ -40,8 +42,14 @@ internal class PendingProgressiveSwitches {
         previous: List<PlayerMediaItem>,
         updated: List<PlayerMediaItem>,
     ) {
-        val remapped = remapPlaybackQueueIndices(indices, previous, updated)
-        indices.clear()
-        indices.addAll(remapped)
+        val remapped =
+            attempts.entries
+                .mapNotNull { (index, attempt) ->
+                    remapPlaybackQueueIndices(setOf(index), previous, updated)
+                        .singleOrNull()
+                        ?.let { it to attempt }
+                }.toMap()
+        attempts.clear()
+        attempts.putAll(remapped)
     }
 }

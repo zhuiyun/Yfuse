@@ -11,7 +11,10 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yfuse.core.data.PlaybackPreferences
 import org.koin.core.context.GlobalContext
@@ -25,7 +28,14 @@ fun MdkSurface(
     ambientSampler: AmbientFrameSampler? = null,
     /** Drawn above the surface. libmdk renders its captions inside the surface, under this layer. */
     ambientLayer: @Composable () -> Unit = {},
+    scaleMode: VideoScaleMode = VideoScaleMode.Fit,
+    videoSize: IntSize = IntSize.Zero,
+    subtitleControls: SubtitleControlState = SubtitleControlState(),
 ) {
+    var container by remember { mutableStateOf(IntSize.Zero) }
+    val picture = core2SurfaceSize(container, videoSize, scaleMode)
+    val region = nativeSubtitleRegion(container, picture, subtitleControls)
+    LaunchedEffect(engine, region) { engine.setSubtitleRegion(region.useBlackBar, region.margin) }
     val preferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
     val frameRatePreference by preferences.frameRateMatch.collectAsState()
     // Only the reported content frame rate belongs to this surface; the whole PlaybackState put
@@ -48,7 +58,7 @@ fun MdkSurface(
     DisposableEffect(Unit) {
         onDispose { surface.value?.let(::clearSurfaceFrameRate) }
     }
-    Box(modifier) {
+    Box(modifier.onSizeChanged { container = it }) {
         AndroidView(
             factory = { context ->
                 SurfaceView(context).apply {

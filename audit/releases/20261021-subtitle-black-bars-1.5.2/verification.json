@@ -1,0 +1,101 @@
+{
+  "versionName": "1.5.2",
+  "versionCode": 304,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "sourceCommit": "32804f7c653dde5e39fd6140cc7591ac2ba95596",
+  "treeDirtyAtBuild": true,
+  "buildInputsRecheckedAfterBuild": true,
+  "sourceSnapshot": "sourceCommit is the baseline; build-inputs and source-inputs.json include all modified and new production/test sources.",
+  "file": "Yfuse-1.5.2-full-arm64.apk",
+  "bytes": 30110487,
+  "sha256": "41e218ea440903b12125fe17500fed22cd23b17e6dd2d624bf0beeb1f3c82be3",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "zipAlignment16K": true,
+  "dexVerified": true,
+  "dexClasses": 14397,
+  "dexMethodsWithCode": 63278,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "dexFiles": {
+    "classes.dex": "ffe3dfd92daf599c3fd44211fab395061a4c8e5251522fb601ef64bb2779ebdd",
+    "classes2.dex": "7d7e5a7203f246fa391f488c18bf6e7ceb8abb537fcc448978f27dea082a0917"
+  },
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1195544,
+      "sha256": "c889a8704465ce7cbfc48d302da7e2482b4d59afe1eaacbd9c49eee150197203"
+    }
+  },
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "previousActualVersionName": "1.5.1",
+  "previousActualVersionCode": 303,
+  "sourceRegression": {
+    "modules": {
+      "phoneShared": {
+        "suites": 898,
+        "tests": 5123,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tvShared": {
+        "suites": 25,
+        "tests": 129,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "watchTogetherProtocol": {
+        "suites": 3,
+        "tests": 25,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "yfuseBackendClient": {
+        "suites": 9,
+        "tests": 43,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "watchTogetherServer": {
+        "suites": 42,
+        "tests": 279,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "total": {
+      "tests": 5599,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 977
+    },
+    "deviceTestsExecuted": false,
+    "instrumentedTestsCompiled": true,
+    "scripts": {
+      "pythonRoot": 70,
+      "pythonScripts": 112,
+      "castReceiver": 5,
+      "failures": 0
+    }
+  },
+  "deviceTestsExecuted": false,
+  "sourcePushed": false,
+  "apkUploaded": false,
+  "verifiedAtUtc": "2026-10-21T03:17:55.722438+00:00",
+  "nativeLibrariesVerified": 20,
+  "nativeLoadAlignment16K": true,
+  "allNativeComponentsUnchanged": true
+}

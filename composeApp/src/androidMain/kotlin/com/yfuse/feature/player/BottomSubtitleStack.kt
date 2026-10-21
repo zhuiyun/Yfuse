@@ -36,7 +36,22 @@ internal fun BottomSubtitleStack(
     primary: @Composable () -> Unit,
     /** Null while only one track is running; its presence is what the stack's height follows. */
     secondary: (@Composable () -> Unit)? = null,
+    pictureSize: androidx.compose.ui.unit.IntSize? = null,
+    region: SubtitleRegion = SubtitleRegion.PreferBlackBars,
 ) {
+    if (pictureSize != null) {
+        SubtitleRegionLayout(pictureSize, region, position) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                primary()
+                secondary?.invoke()
+            }
+        }
+        return
+    }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // 字幕位置 is a slider, and a preset jumps it across a third of the screen; the lines used

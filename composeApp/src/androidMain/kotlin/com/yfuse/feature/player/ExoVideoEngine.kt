@@ -1371,7 +1371,7 @@ class ExoVideoEngine(
         failureHistory.remove(index)
         // The entry starts over, so a failure from here on gets an answer from the ladder, not the
         // "switching" of an MP4 switch begun before (MDK clears it here too).
-        pendingProgressiveSwitches.clear()
+        cancelPendingRecovery()
         clearActiveOutputEvidence()
         _state.update {
             it.copy(
@@ -1392,7 +1392,7 @@ class ExoVideoEngine(
 
     override fun retry() {
         // As in selectItem: a failure after the retry gets an answer from the ladder.
-        pendingProgressiveSwitches.clear()
+        cancelPendingRecovery()
         clearActiveOutputEvidence()
         _state.update {
             it.copy(
@@ -1406,6 +1406,14 @@ class ExoVideoEngine(
         }
         player.prepare()
         player.playWhenReady = true
+    }
+
+    private fun cancelPendingRecovery() {
+        retryJob?.cancel()
+        retryJob = null
+        fallbackJob?.cancel()
+        fallbackJob = null
+        pendingProgressiveSwitches.clear()
     }
 
     override fun release() {
@@ -1659,6 +1667,8 @@ class ExoVideoEngine(
         item: PlayerMediaItem,
         reason: String?,
     ): Boolean {
+        retryJob?.cancel()
+        retryJob = null
         transcodedIndices += index
         val position = player.currentPosition
         val fallbackReason = failureChainReason(index, reason ?: "直放失败，已切换服务器转码")
@@ -1698,7 +1708,6 @@ class ExoVideoEngine(
         secondarySubtitles.replaceMediaItem(index, player.getMediaItemAt(index))
         player.prepare()
         player.seekTo(index, position)
-        player.playWhenReady = true
         return true
     }
 
@@ -1796,8 +1805,10 @@ class ExoVideoEngine(
         index: Int,
         item: PlayerMediaItem,
     ): Boolean {
+        retryJob?.cancel()
+        retryJob = null
         transcodedIndices += index
-        pendingProgressiveSwitches.start(index)
+        val attempt = pendingProgressiveSwitches.start(index)
         val position = player.currentPosition
         val fallbackReason = failureChainReason(index, "HLS 转码不可用，已改用 MP4 转码")
         clearActiveOutputEvidence()
@@ -1839,7 +1850,7 @@ class ExoVideoEngine(
                     item.playSessionId.isBlank() ||
                         withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
                 val stillCurrent = !released && player.currentMediaItemIndex == index
-                if (!pendingProgressiveSwitches.settle(index, stillCurrent)) return@launch
+                if (!pendingProgressiveSwitches.settle(attempt, stillCurrent)) return@launch
                 if (!cleaned) {
                     AppLog.warning(
                         category = "player.exo",
@@ -1870,7 +1881,6 @@ class ExoVideoEngine(
                 secondarySubtitles.replaceMediaItem(index, player.getMediaItemAt(index))
                 player.prepare()
                 player.seekTo(index, position)
-                player.playWhenReady = true
             }
         return true
     }
@@ -1919,8 +1929,8 @@ class ExoVideoEngine(
             scope.launch {
                 delay(PlaybackFallbackLadder.transientRetryDelayMs(nextAttempt))
                 if (released || player.currentMediaItemIndex != index) return@launch
+                // prepare preserves the latest playWhenReady, including a pause during backoff.
                 player.prepare()
-                player.playWhenReady = true
             }
         return true
     }

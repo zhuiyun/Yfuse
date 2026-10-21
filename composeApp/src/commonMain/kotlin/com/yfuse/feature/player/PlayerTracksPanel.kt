@@ -192,7 +192,16 @@ internal fun TracksPanel(
         } else {
             UnsupportedSubtitleControl(subtitleControls.unavailableReason)
         }
-        GroupLabel("字幕位置")
+        GroupLabel("字幕区域")
+        SubtitleRegion.entries.forEach { region ->
+            OptionRow(region.label, subtitleControls.region == region, onClick = { subtitleActions.onRegion(region) })
+        }
+        Text(
+            "黑边不足时回到画面内；部分图片、定位与特效字幕保留原排版。",
+            style = AppTypography.caption.medium,
+            color = Color.White.copy(alpha = 0.68f),
+        )
+        GroupLabel("画面内字幕位置")
         if (subtitleControls.positionAvailable) {
             listOf(0.76f to "靠上", 0.88f to "居中偏下", 0.92f to "标准", 0.96f to "靠下")
                 .forEach { (position, label) ->

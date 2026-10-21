@@ -20,3 +20,16 @@ internal fun mpvCanStackSubtitles(
 
 private val MPV_TEXT_SUBTITLE_CODECS =
     setOf("ass", "ssa", "srt", "subrip", "text", "mov_text", "webvtt", "ttml", "microdvd")
+
+internal fun mpvShouldOverlaySubtitles(
+    tracks: List<EngineTrack>,
+    primary: String?,
+    secondary: String?,
+    preferBlackBars: Boolean,
+): Boolean {
+    if (mpvCanStackSubtitles(tracks, primary, secondary)) return true
+    if (!preferBlackBars || primary == null || secondary != null) return false
+    // Keep ASS effects, positioned WebVTT/TTML and image captions in their native renderer.
+    return tracks.firstOrNull { it.id == primary }?.codec?.lowercase() in
+        setOf("srt", "subrip", "text", "mov_text", "microdvd")
+}

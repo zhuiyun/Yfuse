@@ -4,6 +4,7 @@ import com.russhwolf.settings.MapSettings
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.sync.WatchTogetherClient
+import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.legacy.LegacyYPlayerAdapter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.test.Test
@@ -164,6 +165,35 @@ class PreparingPlaybackGateTest {
         assertTrue(engine.playbackRequested)
     }
 
+    @Test
+    fun manual_selection_explicitly_plays_a_player_whose_selection_preserves_pause() {
+        val engine = IntentEngine(playing = false, requested = false)
+        var selections = 0
+        val player =
+            object : YPlayer by LegacyYPlayerAdapter(engine) {
+                override fun selectItem(index: Int) {
+                    selections++
+                    assertFalse(playbackRequested)
+                }
+            }
+        assertTrue(gate(player).selectItem(0))
+        assertEquals(1, selections)
+        assertTrue(player.playbackRequested)
+    }
+
+    @Test
+    fun a_denied_manual_selection_neither_selects_nor_resumes_a_paused_player() {
+        val engine = IntentEngine(playing = false, requested = false)
+        val player =
+            object : YPlayer by LegacyYPlayerAdapter(engine) {
+                override fun selectItem(index: Int) = error("Selection must pass playback admission")
+
+                override fun play() = error("Play must pass playback admission")
+            }
+        assertFalse(gate(player, onPlayRequested = { false }).selectItem(0))
+        assertFalse(player.playbackRequested)
+    }
+
     private fun preparing(requested: Boolean) =
         PreparingVideoEngine(
             PlaybackEngineInput(listOf(item), PlaybackHandoverSnapshot(0, 25L, requested, 1f)),
@@ -221,7 +251,7 @@ class PreparingPlaybackGateTest {
     }
 
     private fun gate(
-        player: LegacyYPlayerAdapter,
+        player: YPlayer,
         onPauseRequested: () -> Unit = {},
         onPlayRequested: () -> Boolean = { true },
     ) = WatchGatedPlayback(

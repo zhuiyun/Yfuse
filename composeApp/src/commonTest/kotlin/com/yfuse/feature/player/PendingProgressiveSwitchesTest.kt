@@ -28,11 +28,11 @@ class PendingProgressiveSwitchesTest {
     @Test
     fun a_switch_under_way_answers_switching_until_it_goes_ahead() {
         val switches = PendingProgressiveSwitches()
-        switches.start(3)
+        val attempt = switches.start(3)
         assertEquals(PlaybackStreamStep.InProgress, switches.nextStepFor(3))
         assertEquals(PlaybackStreamStep.InProgress, switches.exoNextStepFor(3))
         assertEquals(PlaybackStreamStep.Progressive, switches.nextStepFor(4))
-        assertTrue(switches.settle(3, stillCurrent = true))
+        assertTrue(switches.settle(attempt, stillCurrent = true))
         assertFalse(3 in switches)
     }
 
@@ -41,8 +41,8 @@ class PendingProgressiveSwitchesTest {
         // The viewer moved on before the HLS encoder stopped, so the MP4 never loaded. Left
         // marked, the entry answered "switching" to every later failure and never moved on.
         val switches = PendingProgressiveSwitches()
-        switches.start(3)
-        assertFalse(switches.settle(3, stillCurrent = false))
+        val attempt = switches.start(3)
+        assertFalse(switches.settle(attempt, stillCurrent = false))
         assertFalse(3 in switches)
         assertEquals(PlaybackStreamStep.Progressive, switches.nextStepFor(3))
         assertEquals(PlaybackStreamStep.Progressive, switches.exoNextStepFor(3))
@@ -69,5 +69,57 @@ class PendingProgressiveSwitchesTest {
         // An entry that leaves the queue takes its switch with it.
         switches.remap(listOf(c, b, a), listOf(c, b))
         assertFalse(2 in switches)
+    }
+
+    @Test
+    fun a_cleared_attempt_cannot_reload_the_same_item_after_retry() {
+        val switches = PendingProgressiveSwitches()
+        val old = switches.start(0)
+        switches.clear()
+        assertFalse(switches.settle(old, stillCurrent = true))
+    }
+
+    @Test
+    fun an_old_completion_cannot_clear_a_new_attempt_on_the_same_index() {
+        val switches = PendingProgressiveSwitches()
+        val old = switches.start(0)
+        switches.clear()
+        val replacement = switches.start(0)
+        assertFalse(switches.settle(old, stillCurrent = true))
+        assertTrue(0 in switches)
+        assertTrue(switches.settle(replacement, stillCurrent = true))
+    }
+
+    @Test
+    fun starting_again_supersedes_the_previous_attempt_even_without_clear() {
+        val switches = PendingProgressiveSwitches()
+        val old = switches.start(0)
+        val replacement = switches.start(0)
+        assertFalse(switches.settle(old, stillCurrent = true))
+        assertTrue(switches.settle(replacement, stillCurrent = true))
+        assertFalse(switches.settle(replacement, stillCurrent = true))
+    }
+
+    @Test
+    fun a_moved_attempt_is_retired_without_loading_its_old_index() {
+        val (a, b) = listOf("a", "b").map { ladderItem().copy(id = it) }
+        val switches = PendingProgressiveSwitches()
+        val old = switches.start(0)
+        switches.remap(listOf(a, b), listOf(b, a))
+        val other = switches.start(0)
+        assertFalse(switches.settle(old, stillCurrent = true))
+        assertFalse(1 in switches)
+        assertTrue(0 in switches)
+        assertTrue(switches.settle(other, stillCurrent = true))
+    }
+
+    @Test
+    fun an_unchanged_entry_keeps_its_attempt_after_queue_enrichment() {
+        val a = ladderItem().copy(id = "a")
+        val b = ladderItem().copy(id = "b")
+        val switches = PendingProgressiveSwitches()
+        val attempt = switches.start(0)
+        switches.remap(listOf(a), listOf(a, b))
+        assertTrue(switches.settle(attempt, stillCurrent = true))
     }
 }

@@ -243,6 +243,8 @@ class MpvVideoEngine(
     @Volatile
     private var mpv: MPVLib? = null
     private var subtitleUseMargins = true
+    private var subtitlePosition = DEFAULT_SUBTITLE_POSITION
+    private var subtitleOverlayPreferred = false
 
     @Volatile
     private var released = false
@@ -313,7 +315,7 @@ class MpvVideoEngine(
         primary: String?,
         secondary: String?,
     ) {
-        val stack = mpvCanStackSubtitles(tracks, primary, secondary)
+        val stack = mpvShouldOverlaySubtitles(tracks, primary, secondary, subtitleOverlayPreferred)
         if (mutableSubtitleText.value.stacked != stack) {
             instance.setPropertyString("sub-visibility", if (stack) "no" else "yes")
             instance.setPropertyString("secondary-sub-visibility", if (stack) "no" else "yes")
@@ -885,7 +887,7 @@ class MpvVideoEngine(
 
             instance.setPropertyDouble("speed", startSpeed.toDouble())
             instance.setPropertyBoolean("pause", !playRequested)
-            instance.setPropertyString("sub-use-margins", if (subtitleUseMargins) "yes" else "no")
+            applySubtitleRegion(instance)
 
             mpv = instance
             instance.addObserver(observer)
@@ -1145,23 +1147,34 @@ class MpvVideoEngine(
             )
         }
 
-    override fun setSubtitlePosition(position: Float): Boolean =
-        withMpvResult { instance ->
-            val percent = position.coerceIn(0.60f, 0.96f) * 100.0
-            instance.setPropertyDouble("sub-pos", percent)
-            instance.setPropertyDouble("secondary-sub-pos", percent)
-        }
+    override fun setSubtitlePosition(position: Float): Boolean {
+        subtitlePosition = position.coerceIn(0.60f, 0.96f)
+        return withMpvResult { applySubtitleRegion(it) }
+    }
 
     /**
-     * Whether captions may sit in the black borders. 氛围光 paints those borders from a layer
-     * above the surface, so while it is on the captions stay inside the picture. Remembered for
-     * the next mpv instance as well.
+     * The surface chooses a usable bar; ambient drawing excludes native caption margins.
+     * Remember this before attachment and reapply it to every new mpv instance.
      */
-    fun setSubtitleUseMargins(useMargins: Boolean): Boolean {
+    fun setSubtitleUseMargins(
+        useMargins: Boolean,
+        preferOverlay: Boolean = false,
+    ): Boolean {
+        val layoutChanged = subtitleOverlayPreferred != preferOverlay
         subtitleUseMargins = useMargins
-        return withMpvResult { instance ->
-            instance.setPropertyString("sub-use-margins", if (useMargins) "yes" else "no")
+        subtitleOverlayPreferred = preferOverlay
+        return withMpvResult {
+            applySubtitleRegion(it)
+            if (layoutChanged) readTracks()
         }
+    }
+
+    private fun applySubtitleRegion(instance: MPVLib) {
+        instance.setPropertyString("sub-use-margins", if (subtitleUseMargins) "yes" else "no")
+        instance.setPropertyString("sub-ass-force-margins", if (subtitleUseMargins) "yes" else "no")
+        val percent = if (subtitleUseMargins) 100.0 else subtitlePosition * 100.0
+        instance.setPropertyDouble("sub-pos", percent)
+        instance.setPropertyDouble("secondary-sub-pos", percent)
     }
 
     override fun setSubtitleAppearance(appearance: SubtitleAppearance): Boolean =
@@ -1208,6 +1221,8 @@ class MpvVideoEngine(
         resetFrameEvidence()
         // The entry starts over, so a failure from here on gets an answer from the ladder, not the
         // "switching" of an MP4 switch begun before (MDK clears it here too).
+        fallbackJob?.cancel()
+        fallbackJob = null
         pendingProgressiveSwitches.clear()
         playRequested = true
         pendingSeekMs = 0L
@@ -1251,6 +1266,8 @@ class MpvVideoEngine(
     override fun retry() {
         resetFrameEvidence()
         // As in selectItem: a failure after the retry gets an answer from the ladder.
+        fallbackJob?.cancel()
+        fallbackJob = null
         pendingProgressiveSwitches.clear()
         val position = _state.value.positionMs
         playRequested = true
@@ -1400,15 +1417,19 @@ class MpvVideoEngine(
                 progressivePending = index in pendingProgressiveSwitches,
             )
         val next = PlaybackFallbackLadder.nextStreamStep(rung, item, reason)
-        when (next) {
-            PlaybackStreamStep.InProgress -> return true
-            PlaybackStreamStep.Exhausted -> return false
-            PlaybackStreamStep.Transcode -> transcodedIndices += index
-            PlaybackStreamStep.Progressive -> {
-                transcodedIndices += index
-                pendingProgressiveSwitches.start(index)
+        val attempt =
+            when (next) {
+                PlaybackStreamStep.InProgress -> return true
+                PlaybackStreamStep.Exhausted -> return false
+                PlaybackStreamStep.Transcode -> {
+                    transcodedIndices += index
+                    null
+                }
+                PlaybackStreamStep.Progressive -> {
+                    transcodedIndices += index
+                    pendingProgressiveSwitches.start(index)
+                }
             }
-        }
         // Resume where the failure happened rather than from the top; a codec the device
         // can't handle usually fails on the first frame, but a mid-file failure shouldn't
         // cost the user their place.
@@ -1449,7 +1470,7 @@ class MpvVideoEngine(
                     ),
             )
         }
-        if (next == PlaybackStreamStep.Transcode) {
+        if (attempt == null) {
             loadFileOrFail(currentUrl())
             return true
         }
@@ -1465,7 +1486,7 @@ class MpvVideoEngine(
                         withTimeoutOrNull(5_000L) { stopEncoding(item.playSessionId) } == true
                 synchronized(this@MpvVideoEngine) {
                     val stillCurrent = !released && _state.value.currentIndex == index
-                    if (!pendingProgressiveSwitches.settle(index, stillCurrent)) return@launch
+                    if (!pendingProgressiveSwitches.settle(attempt, stillCurrent)) return@launch
                     if (!cleaned) {
                         _state.update {
                             it.copy(

@@ -8,7 +8,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -26,6 +31,8 @@ internal fun ExoSurface(
     subtitleBrightness: Float,
     subtitlePosition: Float,
     subtitleAppearance: SubtitleAppearance,
+    subtitleRegion: SubtitleRegion = SubtitleRegion.PreferBlackBars,
+    videoSize: IntSize = IntSize.Zero,
     modifier: Modifier = Modifier,
     /** 氛围光 reads PlayerView's own SurfaceView, which RESIZE_MODE_FIT sizes to the picture. */
     ambientSampler: AmbientFrameSampler? = null,
@@ -36,7 +43,12 @@ internal fun ExoSurface(
     ambientLayer: @Composable () -> Unit = {},
 ) {
     val channels by engine.subtitleChannels.collectAsState()
-    Box(modifier) {
+    var container by remember { mutableStateOf(IntSize.Zero) }
+    val picture = core2SurfaceSize(container, videoSize, scaleMode)
+    val overlay =
+        channels.dual ||
+            (subtitleRegion == SubtitleRegion.PreferBlackBars && channels.primary.cues.all(::exoCanPlaceInBlackBar))
+    Box(modifier.onSizeChanged { container = it }) {
         AndroidView(
             factory = { context ->
                 PlayerView(context).apply {
@@ -51,7 +63,7 @@ internal fun ExoSurface(
                 if (view.player !== engine.player) view.player = engine.player
                 (view.videoSurfaceView as? SurfaceView)?.let { ambientSampler?.attach(it) }
                 view.subtitleView?.apply {
-                    visibility = if (channels.dual) View.INVISIBLE else View.VISIBLE
+                    visibility = if (overlay) View.INVISIBLE else View.VISIBLE
                     setFractionalTextSize(0.0533f * subtitleScale.coerceIn(0.6f, 1.8f))
                     setBottomPaddingFraction((1f - subtitlePosition.coerceIn(0.60f, 0.96f)).coerceIn(0.04f, 0.40f))
                     val appearance = subtitleAppearance.withBrightness(subtitleBrightness)
@@ -87,12 +99,25 @@ internal fun ExoSurface(
             modifier = Modifier.fillMaxSize(),
         )
         ambientLayer()
-        if (channels.dual) {
+        if (overlay) {
             val appearance = subtitleAppearance.withBrightness(subtitleBrightness)
             BottomSubtitleStack(
                 subtitlePosition,
-                primary = { ExoSubtitleBlock(channels.primary.cues, subtitleScale, appearance) },
-                secondary = { ExoSubtitleBlock(channels.secondary.cues, secondarySubtitleScale, appearance) },
+                primary = { ExoSubtitleBlock(exoBottomCueOrder(channels.primary.cues), subtitleScale, appearance) },
+                secondary =
+                    if (channels.dual) {
+                        {
+                            ExoSubtitleBlock(
+                                exoBottomCueOrder(channels.secondary.cues),
+                                secondarySubtitleScale,
+                                appearance,
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                pictureSize = picture,
+                region = subtitleRegion,
             )
         }
     }

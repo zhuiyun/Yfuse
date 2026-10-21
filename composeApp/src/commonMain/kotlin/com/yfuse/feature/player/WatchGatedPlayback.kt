@@ -94,6 +94,9 @@ class WatchGatedPlayback(
         if (index !in items().indices) return false
         return gated(requestsPlay = { true }) { player ->
             player.selectItem(index)
+            // Core2 also uses selectItem for paused timeline synchronization. A manual choice,
+            // after playback admission, must explicitly request play before publishing it.
+            player.play()
             observedIndex = index
             publish(index = index, positionMs = 0L, paused = false)
         }

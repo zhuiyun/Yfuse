@@ -135,6 +135,7 @@ data class SeriesPlaybackPreference(
     val secondarySubtitleOffsetMs: Long = 0L,
     val subtitleBrightness: Float = 1f,
     val subtitlePosition: Float = 0.92f,
+    val subtitlePreferBlackBars: Boolean = true,
     val subtitleStylePreset: String = "Standard",
     val subtitleTextColorArgb: Long = 0xFFFFFFFFL,
     val subtitleBackgroundColorArgb: Long = 0x00000000L,

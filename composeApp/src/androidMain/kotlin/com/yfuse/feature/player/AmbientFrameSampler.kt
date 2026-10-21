@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntRect
@@ -333,6 +334,8 @@ internal fun AmbientLightLayer(
     videoSize: IntSize,
     scaleMode: VideoScaleMode,
     modifier: Modifier = Modifier,
+    protectNativeSubtitles: Boolean = false,
+    protectSecondarySubtitles: Boolean = false,
 ) {
     var container by remember { mutableStateOf(IntSize.Zero) }
     val picture = core2SurfaceSize(container, videoSize, scaleMode)
@@ -384,14 +387,36 @@ internal fun AmbientLightLayer(
                         content = insetRect
                         fades = insetFalloffs
                     }
-                    drawAmbientLight(
-                        current,
-                        content,
-                        size,
-                        guard.roundToInt().toFloat(),
-                        fades,
-                        sideBars = ambientLightsSideBars(picture),
-                    )
+                    // Native captions share the video Surface. Leave their bars untouched;
+                    // Compose captions are above this layer and need no exclusion.
+                    clipRect(
+                        top =
+                            if (protectNativeSubtitles &&
+                                protectSecondarySubtitles
+                            ) {
+                                content.top.coerceAtLeast(0f)
+                            } else {
+                                0f
+                            },
+                        bottom =
+                            if (protectNativeSubtitles) {
+                                content.bottom.coerceIn(
+                                    0f,
+                                    size.height,
+                                )
+                            } else {
+                                size.height
+                            },
+                    ) {
+                        drawAmbientLight(
+                            current,
+                            content,
+                            size,
+                            guard.roundToInt().toFloat(),
+                            fades,
+                            sideBars = ambientLightsSideBars(picture),
+                        )
+                    }
                 }
             },
     )

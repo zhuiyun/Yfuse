@@ -95,6 +95,14 @@ internal fun PlayerSeriesRestoreEffects(
                 secondaryOffsetMs = remembered?.secondarySubtitleOffsetMs ?: 0L,
                 brightness = remembered?.subtitleBrightness ?: 1f,
                 position = remembered?.subtitlePosition ?: DEFAULT_SUBTITLE_POSITION,
+                region =
+                    if (remembered?.subtitlePreferBlackBars !=
+                        false
+                    ) {
+                        SubtitleRegion.PreferBlackBars
+                    } else {
+                        SubtitleRegion.Picture
+                    },
                 stylePreset =
                     remembered
                         ?.subtitleStylePreset

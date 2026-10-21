@@ -33,15 +33,11 @@ fun MpvSurface(
     ambientSampler: AmbientFrameSampler? = null,
     /** Drawn above the surface and below the stacked captions. */
     ambientLayer: @Composable () -> Unit = {},
-    /**
-     * mpv places captions in the black borders by default; while the light fills them, captions
-     * are kept inside the picture so the layer above the surface cannot cover them.
-     */
-    subtitlesInsidePicture: Boolean = false,
+    scaleMode: VideoScaleMode = VideoScaleMode.Fit,
+    videoSize: IntSize = IntSize.Zero,
     subtitleControls: SubtitleControlState = SubtitleControlState(),
 ) {
     val playbackPreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
-    LaunchedEffect(engine, subtitlesInsidePicture) { engine.setSubtitleUseMargins(!subtitlesInsidePicture) }
     val frameRatePreference by playbackPreferences.frameRateMatch.collectAsState()
     // Only the reported content frame rate belongs to this surface. Reading the whole
     // PlaybackState re-ran the AndroidView update — and the caption stack under it — on every
@@ -52,6 +48,14 @@ fun MpvSurface(
     val surfaceState = remember { mutableStateOf<Surface?>(null) }
     val frameRateMode = frameRatePreference.toPlayerMode()
     var layoutSize by remember { mutableStateOf(IntSize.Zero) }
+    val picture = core2SurfaceSize(layoutSize, videoSize, scaleMode)
+    val nativeRegion = nativeSubtitleRegion(layoutSize, picture, subtitleControls)
+    LaunchedEffect(engine, nativeRegion, subtitleControls.region) {
+        engine.setSubtitleUseMargins(
+            nativeRegion.useBlackBar,
+            subtitleControls.region == SubtitleRegion.PreferBlackBars,
+        )
+    }
 
     LaunchedEffect(
         surfaceState.value,
@@ -124,7 +128,14 @@ fun MpvSurface(
             BottomSubtitleStack(
                 subtitleControls.position,
                 primary = { BottomSubtitleText(subtitles.primary, subtitleControls.scale, appearance) },
-                secondary = { BottomSubtitleText(subtitles.secondary, subtitleControls.secondaryScale, appearance) },
+                secondary =
+                    if (subtitleControls.secondaryTrackId != null) {
+                        { BottomSubtitleText(subtitles.secondary, subtitleControls.secondaryScale, appearance) }
+                    } else {
+                        null
+                    },
+                pictureSize = picture,
+                region = subtitleControls.region,
             )
         }
         DiscNavigationOverlay(engine = engine, layoutSize = layoutSize)

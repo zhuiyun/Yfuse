@@ -647,6 +647,15 @@ internal fun PlayerRootControls(
                                 )
                             }
                         },
+                        onRegion = { region ->
+                            choices.subtitleControls = choices.subtitleControls.copy(region = region)
+                            rememberSeriesPlayback {
+                                it.copy(
+                                    subtitlePreferBlackBars =
+                                        region == SubtitleRegion.PreferBlackBars,
+                                )
+                            }
+                        },
                         onStylePreset = { preset ->
                             choices.subtitleControls =
                                 choices.subtitleControls.copy(

@@ -1,0 +1,149 @@
+{
+  "sourceCommit": "32804f7c653dde5e39fd6140cc7591ac2ba95596",
+  "files": [
+    {
+      "path": ".github/mdk-distribution-approval.json",
+      "sha256": "ea3020adc9b34b51f933ab44679bb7d2266bb1871933b845d9aba8bed9969f98"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/AmbientFrameSampler.kt",
+      "sha256": "ef45f6083e958bff70a76e9c7edcb0f997a435b6193f6be3ea21bcc1d0b83cb6"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/BottomSubtitleStack.kt",
+      "sha256": "de2bb6cc67a54957f17acf1b797a5595f139fe7acf00385969753560cf394ef3"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/Core2SubtitlePlacement.kt",
+      "sha256": "2ce33b54801b125cb7615f6b8b6c8b9b78a907cd41cf1fb0397127bd425c9567"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/Core2Surface.kt",
+      "sha256": "3400a40abdcde521c8f4069941686692f659a5135bfb16f609e0377acbdee0fe"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/ExoSubtitlePlacement.kt",
+      "sha256": "49328cb1391f028488ed52470a0fac4e91d55762bec9eea5f6169792a3b3c391"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/ExoSurface.kt",
+      "sha256": "e20e6e805b1a0d064f1c49e6fb650ea1ab8b1c183118949ed2b714ce3c000cb9"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/ExoVideoEngine.kt",
+      "sha256": "b65e3f4c936b5ba126f33ed8b5bdb7ff6f979872ea49b0e655f1cb42651f4d95"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MdkPendingSeek.kt",
+      "sha256": "4282f3ad293e8fa7d5adb4f92527218cf00e68fec572cf43ca110c783f673aed"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MdkSurface.kt",
+      "sha256": "66ef5e40781748e830f4b30276b1e6ab9cec69b6a6c0bf711f40c6a7d7c1fd66"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MdkVideoEngine.kt",
+      "sha256": "9bab2c4195eac012eb7bf0bc3077ba1bc6c5e3c62715e06659e2215663bb070b"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvSubtitleText.kt",
+      "sha256": "9cdd13caf7dda763f471539479bbb7d8dc083990e9a69ae3d2307ef71b4920d9"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvSurface.kt",
+      "sha256": "34b837df055b844b32cac4b74df91838bafb54c48f4bf5c0820fb53bf8eee7e4"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvVideoEngine.kt",
+      "sha256": "de0c7bddea4663ac5a0f3368e54f404af6d78f191dc789f671555139db38c5df"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeSubtitleRegion.kt",
+      "sha256": "57a0dee3a24a6833e989bc89a93537583d75703df81812a754bd183714a3c4e1"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRootControls.kt",
+      "sha256": "825616a8a81b6db003ae7296ec661109f045f63439d5a732bd2cebc230d70717"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRootSurface.kt",
+      "sha256": "b5147c6858d3dd0d85dc70be298d2b771ff108421d37a17c43c6baaa7ccd6873"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRootTracks.kt",
+      "sha256": "6ed9ee7ef22514b9c37928a736ab4a303c6c71b322f5a635c39cc6da7884841c"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/feature/player/SubtitleRegionLayout.kt",
+      "sha256": "c348c8263f2d86c0b776bdbed7ec97c36c7bb77b1d86fecf1b7495818aa0c3d6"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/ExoRecoveryIntentTest.kt",
+      "sha256": "ad91e800f857bfdaf2471f2025451486ba1d6a820f98016b012f06f55312684e"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/MdkDeferredControlsTest.kt",
+      "sha256": "6f43c3c1a6f88473cc88695203575d5caafa52c596a2403210ed8e4add8d7925"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/MdkPendingSeekTest.kt",
+      "sha256": "1597e201775107d686c3f111fb3bc0d125ebe42d9c4c748aa9d1aad4004c3cdb"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/MpvSubtitleTextTest.kt",
+      "sha256": "f2e8f67d8f13e0087105ccd2a92b5d1d1e4776b2be521220d782cd8f4d43177f"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/PreparingPlaybackGateTest.kt",
+      "sha256": "3c12fbbbc44276ba38b39ad1bd192c3d7d766266e8f0fde4c656c57541cffe12"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/feature/player/SubtitleRendererPlacementTest.kt",
+      "sha256": "9d4c1b694db1844ba4f69a614f6af67ddab687dcb68ff3be3bfce22b87033d63"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/PlaybackPreferences.kt",
+      "sha256": "8a9fae44b92d3bcbc23a465e468e9f3823c5ed0a75b79ce1b04d3200876a71cd"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PendingProgressiveSwitches.kt",
+      "sha256": "09ab4c45f726398564a8e887ae1d08ad9a006cbe5df497c7057105a61cee1c9f"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerPanelState.kt",
+      "sha256": "b8a4bf7107ae86e32eeb84ee029b6d31acd0892d67ad8c8799d2c71322be44d0"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerTracksPanel.kt",
+      "sha256": "84f4874e947ed4f7bb7fafcd4994f653897fb4a6893495a8e86a5ec87b789784"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/SubtitlePlacement.kt",
+      "sha256": "18c817b0c59acc292b33ee866b34240ef98ca66288fa3db59b91ce423d0b382b"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/WatchGatedPlayback.kt",
+      "sha256": "d49c1b6b79e4dcf0d8d0f9de45689a1123ae2af49059dacf5b9e8731b0718c9b"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/SubtitleRegionPreferenceTest.kt",
+      "sha256": "2d8a4e7649461f74f3cd0f3cc0d83a66282b0f8be6c6c8569a09229535cf4c0b"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PendingProgressiveSwitchesTest.kt",
+      "sha256": "b5592b2ebfa9fd5cc090dd518be8d80cbb19ecc9989cb1ad2afa452cc86be55c"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/SubtitlePlacementTest.kt",
+      "sha256": "054970870ee687c18b5790f216c4c6485ce321115be85e2e0c2cf750b4f46b85"
+    },
+    {
+      "path": "release-notes.txt",
+      "sha256": "18c91e78aef5512f4d3f6abbb3b48d8922d25a0c21b13588620d85811944bfc4"
+    },
+    {
+      "path": "version.properties",
+      "sha256": "ca9c6cdb841fc2f9ec1ca75d02abaa107db38975be319c46c964bb5bde6f4c11"
+    }
+  ]
+}

@@ -214,7 +214,7 @@ class MdkVideoEngine(
     startIndex: Int,
     startPositionMs: Long,
     startPlaybackRequested: Boolean,
-    private val startSpeed: Float,
+    startSpeed: Float,
     private val decoderMode: DecoderMode,
     private val autoNext: Boolean,
     private val customUserAgent: String,
@@ -314,7 +314,7 @@ class MdkVideoEngine(
         get() = playRequested && !_state.value.ended
 
     private var attachedView: SurfaceView? = null
-    private var pendingSeekMs = startPositionMs.coerceAtLeast(0L)
+    private val pendingSeek = MdkPendingSeek(startPositionMs)
     private var tracksLoadedForIndex = -1
     private var endHandled = false
     private val endStateGate = MdkEndStateGate()
@@ -323,6 +323,8 @@ class MdkVideoEngine(
     private var secondarySubtitleOrdinal = -1
     private var subtitleScale = 1f
     private var subtitleBrightness = 1f
+    private var subtitleBlackBars = false
+    private var subtitleMargin = 10
 
     @Volatile
     private var pauseAtEndOfCurrentItem = false
@@ -341,7 +343,7 @@ class MdkVideoEngine(
                         playing = current.playing,
                         buffering = current.buffering,
                         pendingWork =
-                            pendingSeekMs >= 0L ||
+                            pendingSeek.positionMs >= 0L ||
                                 fallbackJob?.isActive == true ||
                                 (playRequested && !current.ended),
                     )
@@ -427,20 +429,22 @@ class MdkVideoEngine(
     }
 
     override fun seekTo(positionMs: Long) {
-        pendingSeekMs = -1L
+        val target = positionMs.coerceAtLeast(0L)
+        pendingSeek.request(target)
         _state.update {
             it.copy(
-                positionMs = positionMs,
-                bufferedPositionMs = positionMs.coerceAtLeast(0L),
+                positionMs = target,
+                bufferedPositionMs = target,
                 ended = false,
             )
         }
-        runMdk { it.seek(positionMs.coerceAtLeast(0L)) }
+        // The sampling lane applies it once media is loaded, including before Surface attach.
+        nativeEventSignals.trySend(Unit)
     }
 
     override fun setSpeed(speed: Float) {
-        runMdk { it.setPlaybackRate(speed) }
         _state.update { it.copy(speed = speed) }
+        runMdk { it.setPlaybackRate(speed) }
     }
 
     override fun selectAudioTrack(id: String) {
@@ -498,6 +502,22 @@ class MdkVideoEngine(
         }
     }
 
+    /** SDK 0.37 subtitle.size renders both selected tracks in the window instead of the video frame. */
+    fun setSubtitleRegion(
+        useBlackBars: Boolean,
+        margin: Int,
+    ): Boolean {
+        subtitleBlackBars = useBlackBars
+        subtitleMargin = margin.coerceAtLeast(0)
+        val instance = player ?: return true
+        return runMdkResult(instance, ::applySubtitleRegion)
+    }
+
+    private fun applySubtitleRegion(instance: MDKPlayer) {
+        instance.setProperty("subtitle.size", if (subtitleBlackBars) "window" else "video")
+        instance.setProperty("subtitle.margin.y", if (subtitleBlackBars) subtitleMargin.toString() else "10")
+    }
+
     override fun setPauseAtEndOfCurrentItem(enabled: Boolean) {
         pauseAtEndOfCurrentItem = enabled
     }
@@ -534,7 +554,7 @@ class MdkVideoEngine(
         fallbackJob?.cancel()
         fallbackJob = null
         pendingProgressiveSwitches.clear()
-        pendingSeekMs = 0L
+        pendingSeek.reset(0L)
         tracksLoadedForIndex = -1
         endHandled = false
         primarySubtitleOrdinal = 0
@@ -590,7 +610,7 @@ class MdkVideoEngine(
         fallbackJob?.cancel()
         fallbackJob = null
         pendingProgressiveSwitches.clear()
-        pendingSeekMs = _state.value.positionMs
+        pendingSeek.reset(_state.value.positionMs)
         tracksLoadedForIndex = -1
         endHandled = false
         _state.update {
@@ -674,9 +694,10 @@ class MdkVideoEngine(
                     instance.setProperty("avio.user_agent", value)
                 }
                 instance.setFill(fill)
-                instance.setPlaybackRate(startSpeed)
+                instance.setPlaybackRate(_state.value.speed)
                 instance.setProperty("subtitle.scale", subtitleScale.toString())
                 instance.setProperty("subtitle.color", subtitleBrightnessRgba(subtitleBrightness))
+                applySubtitleRegion(instance)
                 player = instance
             }
         }.onFailure {
@@ -775,14 +796,7 @@ class MdkVideoEngine(
             val bufferEvent = buffering && !wasBuffering
             wasBuffering = buffering
 
-            if (loaded && pendingSeekMs > 0L) {
-                val target = pendingSeekMs
-                pendingSeekMs = -1L
-                instance.seek(target)
-                return
-            } else if (loaded && pendingSeekMs == 0L) {
-                pendingSeekMs = -1L
-            }
+            if (pendingSeek.applyIfLoaded(loaded) { instance.seek(it) }) return
 
             if (loaded && tracksLoadedForIndex != _state.value.currentIndex) {
                 refreshTracks(instance)
@@ -964,7 +978,7 @@ class MdkVideoEngine(
         // Resume where the failure happened rather than from the top; a codec the device
         // can't handle usually fails on the first frame, but a mid-file failure shouldn't
         // cost the user their place.
-        pendingSeekMs = _state.value.positionMs.coerceAtLeast(0L)
+        pendingSeek.reset(_state.value.positionMs)
         tracksLoadedForIndex = -1
         endHandled = false
         AppLog.info(
@@ -1017,7 +1031,7 @@ class MdkVideoEngine(
             return true
         }
 
-        pendingProgressiveSwitches.start(index)
+        val attempt = pendingProgressiveSwitches.start(index)
         runMdk { it.setState(MDKPlayer.STATE_STOPPED) }
         fallbackJob?.cancel()
         fallbackJob =
@@ -1028,7 +1042,7 @@ class MdkVideoEngine(
                 synchronized(this@MdkVideoEngine) {
                     val stillCurrent =
                         !released && _state.value.currentIndex == index && loadStateGate.isCurrent(epoch)
-                    if (!pendingProgressiveSwitches.settle(index, stillCurrent)) return@launch
+                    if (!pendingProgressiveSwitches.settle(attempt, stillCurrent)) return@launch
                     if (!cleaned) {
                         _state.update {
                             it.copy(

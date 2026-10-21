@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.structuralEqualityPolicy
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,6 +82,7 @@ internal fun Core2Surface(
     secondarySubtitleScale: Float = subtitleScale,
     subtitleBrightness: Float,
     subtitlePosition: Float,
+    subtitleRegion: SubtitleRegion = SubtitleRegion.PreferBlackBars,
     subtitleAppearance: SubtitleAppearance,
     modifier: Modifier = Modifier,
     /**
@@ -159,7 +161,16 @@ internal fun Core2Surface(
             position = subtitlePosition,
             appearance = subtitleAppearance,
             visible = visible,
-            modifier = surfaceModifier,
+            region = subtitleRegion,
+            pictureSize = surfaceSize,
+            modifier =
+                if (subtitleRegion ==
+                    SubtitleRegion.PreferBlackBars
+                ) {
+                    Modifier.fillMaxSize()
+                } else {
+                    surfaceModifier
+                },
         )
         DiscNavigationOverlay(engine = engine, layoutSize = layoutSize)
     }
@@ -178,6 +189,8 @@ private fun Core2SubtitleOverlay(
     position: Float,
     appearance: SubtitleAppearance,
     visible: Boolean,
+    region: SubtitleRegion,
+    pictureSize: IntSize,
     modifier: Modifier,
 ) {
     // Narrow projections of the player state. Read whole, it put this overlay — and therefore
@@ -233,7 +246,12 @@ private fun Core2SubtitleOverlay(
                     secondaryAss.activeAt((clock.positionMs - secondaryOffsetMs) * MICROS_PER_MILLISECOND)
             )
     BoxWithConstraints(modifier) {
-        val viewport = DpSize(maxWidth, maxHeight)
+        val viewport =
+            if (region == SubtitleRegion.PreferBlackBars && pictureSize != IntSize.Zero) {
+                with(LocalDensity.current) { DpSize(pictureSize.width.toDp(), pictureSize.height.toDp()) }
+            } else {
+                DpSize(maxWidth, maxHeight)
+            }
         val channel: @Composable (Boolean) -> Unit = { secondary ->
             Core2SubtitleChannel(
                 textWidth = textWidth,
@@ -249,11 +267,26 @@ private fun Core2SubtitleOverlay(
                 appearance = appearance,
                 secondary = secondary,
                 dual = dual,
+                preferBlackBars = region == SubtitleRegion.PreferBlackBars,
                 viewport = viewport,
-                modifier = if (dual) Modifier.fillMaxWidth() else Modifier.fillMaxSize(),
+                modifier =
+                    if (dual ||
+                        region == SubtitleRegion.PreferBlackBars
+                    ) {
+                        Modifier.fillMaxWidth()
+                    } else {
+                        Modifier.fillMaxSize()
+                    },
             )
         }
-        if (dual) {
+        if (region == SubtitleRegion.PreferBlackBars) {
+            SubtitleRegionLayout(pictureSize, region, position) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    channel(false)
+                    if (dual) channel(true)
+                }
+            }
+        } else if (dual) {
             // Measure both tracks in one stack: multiline text and bitmap display sets reserve
             // their real height before the other channel is placed. The secondary stays lowest.
             Column(
@@ -288,6 +321,7 @@ private fun Core2SubtitleChannel(
     appearance: SubtitleAppearance,
     secondary: Boolean,
     dual: Boolean,
+    preferBlackBars: Boolean,
     viewport: DpSize,
     modifier: Modifier,
 ) {
@@ -340,10 +374,25 @@ private fun Core2SubtitleChannel(
     val bitmapPayloads = remember(activeCues) { activeCues.mapNotNull { it.payload as? YSubtitlePayload.BitmapArgb } }
     val hasAss = activeCues.any { it.payload is YSubtitlePayload.AssEvent }
     val bitmapFrames = rememberSubtitleBitmapFrames(assRenderer, bitmapPayloads, hasAss)
-    val bitmapContent: @Composable () -> Unit = {
-        SubtitleBitmapCanvas(bitmapFrames, scale, dual, viewport, position, brightness, appearance)
+    val authoredPlacement = remember(cues) { core2HasAuthoredSubtitlePosition(cues) }
+    // Pixel/alpha-only ASS frames invalidate drawing, not composition or region measurement.
+    val bottomBitmaps by remember(bitmapFrames) {
+        derivedStateOf(structuralEqualityPolicy()) {
+            bitmapFrames.value.all { it.payload.y >= it.payload.canvasHeight / 2 }
+        }
     }
-    if (dual) {
+    val compact =
+        dual ||
+            (
+                preferBlackBars &&
+                    !authoredPlacement &&
+                    activeText.all { it.style.alignment <= 3 } &&
+                    bottomBitmaps
+            )
+    val bitmapContent: @Composable () -> Unit = {
+        SubtitleBitmapCanvas(bitmapFrames, scale, compact, viewport, position, brightness, appearance)
+    }
+    if (compact) {
         Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
             bitmapContent()
             run {
@@ -358,7 +407,7 @@ private fun Core2SubtitleChannel(
             }
         }
     } else {
-        Box(modifier) {
+        Box(modifier.requiredSize(viewport.width, viewport.height)) {
             bitmapContent()
             val groupedText = activeText.groupBy { core2SubtitleAlignment(it.style.alignment, secondary, dual) }
             val alignments = remember { mutableSetOf<Int>() }
