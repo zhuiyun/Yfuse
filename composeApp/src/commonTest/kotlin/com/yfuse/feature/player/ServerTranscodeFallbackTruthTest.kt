@@ -19,7 +19,7 @@ class ServerTranscodeFallbackTruthTest {
                 serverTranscodeSupported = false,
             )
 
-        assertFalse(item.allowsServerTranscodeFallback("解码失败"))
+        assertFalse(item.allowsServerTranscodeFallback(viewerRequested = false))
     }
 
     @Test
@@ -33,7 +33,7 @@ class ServerTranscodeFallbackTruthTest {
                 serverTranscodeSupported = true,
             )
 
-        assertTrue(item.allowsServerTranscodeFallback("解码失败"))
+        assertTrue(item.allowsServerTranscodeFallback(viewerRequested = false))
     }
 
     @Test
@@ -47,7 +47,7 @@ class ServerTranscodeFallbackTruthTest {
                 playMethod = PlaybackMethod.Transcode,
             )
 
-        assertTrue(item.allowsServerTranscodeFallback("解码失败"))
+        assertTrue(item.allowsServerTranscodeFallback(viewerRequested = false))
     }
 
     @Test
@@ -62,6 +62,6 @@ class ServerTranscodeFallbackTruthTest {
                 serverTranscodeSupported = true,
             )
 
-        assertFalse(item.allowsServerTranscodeFallback("解码失败"))
+        assertFalse(item.allowsServerTranscodeFallback(viewerRequested = false))
     }
 }

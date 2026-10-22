@@ -101,6 +101,8 @@ class VaultCrypto internal constructor(
 
     fun generateVaultKey(): ByteArray = primitives.randomBytes(AES_KEY_SIZE_BYTES)
 
+    fun randomBytes(size: Int): ByteArray = primitives.randomBytes(size)
+
     fun sha256(value: ByteArray): ByteArray = primitives.sha256(value)
 
     fun encrypt(
@@ -218,6 +220,88 @@ class VaultCrypto internal constructor(
         }
     }
 
+    /**
+     * Account protocol 2: stretches the password once and splits the result into the key the
+     * account service verifies ([AccountKeys.authKey]) and the one that wraps the vault key
+     * ([AccountKeys.wrapKey]), which never leaves the device.
+     */
+    fun deriveAccountKeys(
+        password: CharArray,
+        salt: ByteArray,
+        iterations: Int,
+    ): AccountKeys {
+        val master = deriveRecoveryKey(password, salt, iterations)
+        return try {
+            AccountKeys(
+                authKey = hkdfExpandSha256(master, ACCOUNT_AUTH_INFO, AES_KEY_SIZE_BYTES),
+                wrapKey = hkdfExpandSha256(master, ACCOUNT_WRAP_INFO, AES_KEY_SIZE_BYTES),
+            )
+        } finally {
+            master.fill(0)
+        }
+    }
+
+    fun wrapAccountVaultKey(
+        vaultKey: ByteArray,
+        wrapKey: ByteArray,
+        keyVersion: Int,
+    ): AesGcmPayload {
+        requireAesKey(vaultKey)
+        return encrypt(wrapKey, vaultKey, accountVaultAad(keyVersion))
+    }
+
+    fun unwrapAccountVaultKey(
+        wrapped: AesGcmPayload,
+        wrapKey: ByteArray,
+        keyVersion: Int,
+    ): ByteArray = decrypt(wrapKey, wrapped, accountVaultAad(keyVersion)).also(::requireAesKey)
+
+    /** RFC 2104 over the platform SHA-256, for keys up to one block (all of ours are 32 bytes). */
+    fun hmacSha256(
+        key: ByteArray,
+        message: ByteArray,
+    ): ByteArray {
+        val block = if (key.size > HMAC_BLOCK_SIZE_BYTES) sha256(key) else key.copyOf()
+        val padded = block.copyOf(HMAC_BLOCK_SIZE_BYTES)
+        val innerPad = ByteArray(HMAC_BLOCK_SIZE_BYTES) { (padded[it].toInt() xor 0x36).toByte() }
+        val outerPad = ByteArray(HMAC_BLOCK_SIZE_BYTES) { (padded[it].toInt() xor 0x5c).toByte() }
+        val inner = sha256(innerPad + message)
+        return try {
+            sha256(outerPad + inner)
+        } finally {
+            block.fill(0)
+            padded.fill(0)
+            innerPad.fill(0)
+            outerPad.fill(0)
+            inner.fill(0)
+        }
+    }
+
+    /** RFC 5869 HKDF-Expand; [prk] is already a uniformly random key, so Extract is skipped. */
+    fun hkdfExpandSha256(
+        prk: ByteArray,
+        info: ByteArray,
+        length: Int,
+    ): ByteArray {
+        require(length in 1..255 * SHA256_SIZE_BYTES)
+        val output = ByteArray(length)
+        var previous = ByteArray(0)
+        var offset = 0
+        var counter = 1
+        while (offset < length) {
+            val block = hmacSha256(prk, previous + info + byteArrayOf(counter.toByte()))
+            previous.fill(0)
+            block.copyInto(output, offset, 0, minOf(block.size, length - offset))
+            offset += block.size
+            previous = block
+            counter++
+        }
+        previous.fill(0)
+        return output
+    }
+
+    private fun accountVaultAad(keyVersion: Int): ByteArray = "yfuse-vault:v2:$keyVersion".encodeToByteArray()
+
     private fun requireAesKey(key: ByteArray) {
         require(key.size == AES_KEY_SIZE_BYTES) {
             "AES-256 key must be $AES_KEY_SIZE_BYTES bytes"
@@ -263,6 +347,23 @@ class VaultCrypto internal constructor(
         const val MIN_PBKDF2_ITERATIONS = 100_000
         const val MAX_PBKDF2_ITERATIONS = 2_000_000
 
+        private const val HMAC_BLOCK_SIZE_BYTES = 64
+        private const val SHA256_SIZE_BYTES = 32
         private val RECOVERY_AAD_PREFIX = "yfuse-recovery-key-v1".encodeToByteArray()
+        private val ACCOUNT_AUTH_INFO = "yfuse-auth-v2".encodeToByteArray()
+        private val ACCOUNT_WRAP_INFO = "yfuse-wrap-v2".encodeToByteArray()
     }
+}
+
+/** Both halves are secrets; call [wipe] once they have been used. */
+class AccountKeys(
+    val authKey: ByteArray,
+    val wrapKey: ByteArray,
+) {
+    fun wipe() {
+        authKey.fill(0)
+        wrapKey.fill(0)
+    }
+
+    override fun toString(): String = "AccountKeys(<redacted>)"
 }

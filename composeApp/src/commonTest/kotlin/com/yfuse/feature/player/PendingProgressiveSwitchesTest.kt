@@ -19,11 +19,11 @@ class PendingProgressiveSwitchesTest {
 
     /** The answer mpv and MDK get for a failure of that entry. */
     private fun PendingProgressiveSwitches.nextStepFor(index: Int): PlaybackStreamStep =
-        PlaybackFallbackLadder.nextStreamStep(rungOf(index), item, reason = null)
+        PlaybackFallbackLadder.nextStreamStep(rungOf(index), item, viewerRequested = false)
 
     /** The answer Exo gets for a failure of that entry. */
     private fun PendingProgressiveSwitches.exoNextStepFor(index: Int): PlaybackStreamStep =
-        PlaybackFallbackLadder.nextExoStreamStep(rungOf(index), item, reason = null)
+        PlaybackFallbackLadder.nextExoStreamStep(rungOf(index), item, viewerRequested = false)
 
     @Test
     fun a_switch_under_way_answers_switching_until_it_goes_ahead() {

@@ -122,4 +122,41 @@ class WatchProtocolTest {
         assertTrue(WatchProtocol.isValidPlaylistRevision(0L))
         assertFalse(WatchProtocol.isValidPlaylistRevision(-1L))
     }
+
+    @Test
+    fun secrets_never_print_with_a_message() {
+        val message =
+            WatchWireMessage(
+                type = "reauthenticate",
+                credential = WatchWireCredential(accessToken = "account-secret", pairingToken = "pairing-secret"),
+            )
+        assertFalse("account-secret" in message.toString())
+        assertFalse("pairing-secret" in message.toString())
+    }
+
+    @Test
+    fun retryable_errors_follow_the_flag_and_fall_back_to_the_code() {
+        assertTrue(WatchProtocol.isRetryableError(WatchWireMessage(type = "error", errorCode = "join_rate_limited")))
+        assertFalse(WatchProtocol.isRetryableError(WatchWireMessage(type = "error", errorCode = "room_not_found")))
+        assertFalse(
+            WatchProtocol.isRetryableError(
+                WatchWireMessage(type = "error", errorCode = "room_full", retryable = false),
+            ),
+        )
+        assertTrue(
+            WatchProtocol.isRetryableError(WatchWireMessage(type = "error", errorCode = "new_code", retryable = true)),
+        )
+    }
+
+    @Test
+    fun new_capabilities_are_advertised_and_reauthenticate_is_a_client_message() {
+        assertTrue(WatchProtocol.CAPABILITY_ROOM_REVISION in WatchProtocol.SERVER_CAPABILITIES)
+        assertTrue(WatchProtocol.CAPABILITY_REAUTHENTICATE in WatchProtocol.SERVER_CAPABILITIES)
+        assertTrue(WatchProtocol.CAPABILITY_REMOTE_PAIRING_TOKEN in WatchProtocol.SERVER_CAPABILITIES)
+        assertTrue("reauthenticate" in WatchProtocol.CLIENT_MESSAGE_TYPES)
+        assertTrue(WatchProtocol.isValidDeclaredCapabilities(WatchProtocol.SERVER_CAPABILITIES.takeLast(3)))
+        assertTrue(WatchProtocol.isValidAccessToken("a".repeat(43)))
+        assertFalse(WatchProtocol.isValidAccessToken("has space"))
+        assertFalse(WatchProtocol.isValidAccessToken("a".repeat(WatchProtocol.MAX_ACCESS_TOKEN_BYTES + 1)))
+    }
 }

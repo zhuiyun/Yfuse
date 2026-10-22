@@ -191,6 +191,24 @@ class PlaybackSyncStoreServerDatesTest {
     }
 
     @Test
+    fun vault_rotation_reuploads_local_sessions_with_legacy_server_labels() {
+        watchedHere("film", positionMs = 20_000L, durationMs = 600_000L)
+        val legacy =
+            requireNotNull(store.find("emby:film", serverId = "server"))
+                .copy(mutationId = "server-absorb-legacy", dirty = false)
+        val settings = MapSettings()
+        settings.putString("playback.cross_platform.documents.v1", Json.encodeToString(listOf(legacy)))
+        val reloaded = PlaybackSyncStore(settings) { now }
+
+        assertFalse(reloaded.bindVaultKey(1))
+        assertTrue(reloaded.bindVaultKey(2))
+        val pending = reloaded.pending().single()
+        assertEquals(20_000L, pending.document.state.positionMs)
+        assertEquals(legacy.document.history, pending.document.history)
+        assertTrue(pending.mutationId.startsWith("rekey"))
+    }
+
+    @Test
     fun imported_items_take_the_servers_date_and_never_crowd_out_local_progress() {
         repeat(10) { index ->
             now += 1_000L

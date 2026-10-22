@@ -12,10 +12,44 @@ import com.yfuse.feature.player.VideoEngine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class LegacyYPlayerAdapterTest {
+    @Test
+    fun background_audio_capability_and_video_suspension_follow_the_active_backend() {
+        assertFalse(LegacyYPlayerAdapter(FakeVideoEngine()).supportsBackgroundAudio)
+        var supported = true
+        val suspensions = mutableListOf<Boolean>()
+        val backend =
+            object : VideoEngine by FakeVideoEngine() {
+                override val supportsBackgroundAudio: Boolean get() = supported
+
+                override fun setVideoSuspended(suspended: Boolean) {
+                    suspensions += suspended
+                }
+            }
+        val adapter = LegacyYPlayerAdapter(backend)
+        assertTrue(adapter.supportsBackgroundAudio)
+        adapter.setVideoSuspended(true)
+        adapter.setVideoSuspended(false)
+        assertEquals(listOf(true, false), suspensions)
+        supported = false
+        assertFalse(adapter.supportsBackgroundAudio)
+    }
+
+    @Test
+    fun `the secondary subtitle a legacy engine shows is part of the unified state`() {
+        val engine = FakeVideoEngine()
+        val player = LegacyYPlayerAdapter(engine)
+        engine.mutableState.value =
+            PlaybackState(secondarySubtitleTrackId = "3", secondarySubtitleOffsetMs = -250L)
+
+        assertEquals("3", player.state.value.secondarySubtitleTrackId)
+        assertEquals(-250L, player.state.value.secondarySubtitleOffsetMs)
+    }
+
     @Test
     fun `legacy state is exposed through the unified player contract`() {
         val engine = FakeVideoEngine()

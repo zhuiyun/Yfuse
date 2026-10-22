@@ -55,7 +55,7 @@ class WatchRoomChatTest {
         val first = assertIs<RoomChatResult.Accepted>(room.acceptChat(session, "host", "original", "same", now))
         now = 300_001L
         assertNull(receipts.find("account", "host", "same"))
-        val member = room.memberships.getValue("host")
+        val member = room.memberships.getValue(memberKey("account", "host"))
         member.chatMutedUntilMs = Long.MAX_VALUE
         val pool = Executors.newFixedThreadPool(4)
         try {
@@ -93,7 +93,7 @@ class WatchRoomChatTest {
         assertEquals(
             2,
             room.memberships
-                .getValue("host")
+                .getValue(memberKey("account", "host"))
                 .chatSentAtMs.size,
         )
         assertNull(receipts.find("account", "host", "first"))
@@ -107,7 +107,7 @@ class WatchRoomChatTest {
         assertIs<RoomChatResult.Accepted>(room.acceptChat(host, "host", "original", "same", now))
         now = 300_001L
         val guest = unusedSession()
-        room.memberships["guest"] = Membership("guest", "other-account", ByteArray(32))
+        room.memberships[memberKey("other-account", "guest")] = Membership("guest", "other-account", ByteArray(32))
         room.participants["guest"] = Participant("guest", "Guest", 0, guest, now, "other-account")
 
         assertIs<RoomChatResult.Accepted>(room.acceptChat(guest, "guest", "other", "same", now))
@@ -135,7 +135,7 @@ class WatchRoomChatTest {
             assertEquals(
                 1,
                 room.memberships
-                    .getValue("host")
+                    .getValue(memberKey("account", "host"))
                     .chatSentAtMs.size,
             )
             assertIs<RoomChatResult.StaleSession>(room.acceptChat(unusedSession(), "host", "text", "new", 5_000))
@@ -143,6 +143,22 @@ class WatchRoomChatTest {
         } finally {
             pool.shutdownNow()
         }
+    }
+
+    @Test
+    fun recycledClientIdDoesNotAcknowledgeAnotherAccountsHistory() {
+        val room = room()
+        val originalSession = room.participants.getValue("host").session
+        assertIs<RoomChatResult.Accepted>(room.acceptChat(originalSession, "host", "first", "same", 0))
+        val replacement = unusedSession()
+        room.memberships[memberKey("replacement", "host")] = Membership("host", "replacement", ByteArray(32))
+        room.participants["host"] = Participant("host", "Replacement", 0, replacement, 0, "replacement")
+
+        val accepted = assertIs<RoomChatResult.Accepted>(room.acceptChat(replacement, "host", "second", "same", 1))
+        assertEquals("second", accepted.message.text)
+        assertEquals(2, room.chatHistory.size)
+        assertEquals(2, room.chatHistorySenderKeys.size)
+        assertIs<RoomChatResult.StaleSession>(room.acceptChat(originalSession, "host", "old", "third", 2))
     }
 
     private fun room(receipts: WatchChatReceipts = WatchChatReceipts()): Room =
@@ -155,7 +171,7 @@ class WatchRoomChatTest {
             timeline = Timeline("media", 0, 0),
             chatReceipts = receipts,
         ).apply {
-            memberships["host"] = Membership("host", "account", ByteArray(32))
+            memberships[memberKey("account", "host")] = Membership("host", "account", ByteArray(32))
             participants["host"] = Participant("host", "Host", 0, unusedSession(), 0, "account")
         }
 

@@ -28,7 +28,7 @@ internal interface FallbackLadders {
     fun exoNext(
         sets: StreamSets,
         item: PlayerMediaItem?,
-        reason: String?,
+        viewerRequested: Boolean,
     ): PlaybackStreamStep
 
     fun exoProgressive(
@@ -44,13 +44,13 @@ internal interface FallbackLadders {
     fun mpvNext(
         sets: StreamSets,
         item: PlayerMediaItem?,
-        reason: String?,
+        viewerRequested: Boolean,
     ): PlaybackStreamStep
 
     fun mdkNext(
         sets: StreamSets,
         item: PlayerMediaItem?,
-        reason: String?,
+        viewerRequested: Boolean,
     ): PlaybackStreamStep
 
     val transientRetryLimit: Int
@@ -84,32 +84,34 @@ internal object ConvergedFallbackLadders : FallbackLadders {
     override fun exoNext(
         sets: StreamSets,
         item: PlayerMediaItem?,
-        reason: String?,
-    ) = PlaybackFallbackLadder.nextExoStreamStep(sets.rung, item, reason)
+        viewerRequested: Boolean,
+    ) = PlaybackFallbackLadder.nextExoStreamStep(sets.rung, item, viewerRequested)
 
     override fun exoProgressive(
         sets: StreamSets,
         item: PlayerMediaItem?,
     ) = PlaybackFallbackLadder.progressiveStreamStep(sets.rung, item)
 
-    // ExoVideoEngine.advanceFallback is switchToTranscode() without a reason.
+    // ExoVideoEngine.advanceFallback is switchToTranscode() without the viewer asking.
     override fun exoAfterTransportFailure(
         sets: StreamSets,
         item: PlayerMediaItem?,
-    ) = PlaybackFallbackLadder.nextExoStreamStep(sets.rung, item, reason = null)
+    ) = PlaybackFallbackLadder.nextExoStreamStep(sets.rung, item, viewerRequested = false)
 
     // mpv and MDK give up on a missing entry before they ask the ladder.
     override fun mpvNext(
         sets: StreamSets,
         item: PlayerMediaItem?,
-        reason: String?,
-    ) = item?.let { PlaybackFallbackLadder.nextStreamStep(sets.rung, it, reason) } ?: PlaybackStreamStep.Exhausted
+        viewerRequested: Boolean,
+    ) = item?.let { PlaybackFallbackLadder.nextStreamStep(sets.rung, it, viewerRequested) }
+        ?: PlaybackStreamStep.Exhausted
 
     override fun mdkNext(
         sets: StreamSets,
         item: PlayerMediaItem?,
-        reason: String?,
-    ) = item?.let { PlaybackFallbackLadder.nextStreamStep(sets.rung, it, reason) } ?: PlaybackStreamStep.Exhausted
+        viewerRequested: Boolean,
+    ) = item?.let { PlaybackFallbackLadder.nextStreamStep(sets.rung, it, viewerRequested) }
+        ?: PlaybackStreamStep.Exhausted
 
     override val transientRetryLimit = PlaybackFallbackLadder.TRANSIENT_RETRY_LIMIT
 

@@ -53,6 +53,7 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core2.android.AndroidAssSubtitleRenderer
 import com.yfuse.core2.android.AndroidSurfaceVideoOutput
+import com.yfuse.core2.android.detachVideoOutputAwaiting
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import com.yfuse.core2.subtitle.YSubtitleClockAnchor
@@ -691,14 +692,25 @@ private class Core2SurfaceView(
     }
 
     fun unbind() {
-        detachOutput()
+        // The callback goes with it, so surfaceDestroyed will not run for this player: wait here.
+        detachOutput(awaitDecoder = true)
         player = null
         holder.removeCallback(this)
     }
 
-    private fun detachOutput() {
+    /**
+     * [awaitDecoder] blocks, at most VIDEO_OUTPUT_DETACH_WAIT_MS, until the decoder has stopped
+     * rendering into the Surface. YCore detaches through its worker, and a codec still releasing an
+     * output buffer for rendering into a Surface that is already destroyed fails on some devices.
+     */
+    private fun detachOutput(awaitDecoder: Boolean = false) {
         attached = null
-        player?.setVideoOutput(null)
+        val target = player ?: return
+        if (awaitDecoder) {
+            detachVideoOutputAwaiting(target)
+        } else {
+            target.setVideoOutput(null)
+        }
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -715,7 +727,8 @@ private class Core2SurfaceView(
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        detachOutput()
+        // The Surface is destroyed as soon as this returns.
+        detachOutput(awaitDecoder = true)
     }
 
     private fun attachCurrentSurface() {

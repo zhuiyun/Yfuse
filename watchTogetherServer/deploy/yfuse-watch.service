@@ -19,9 +19,14 @@ Environment=ACCOUNT_MAX_USERS=100
 Environment=ACCOUNT_INVITE_ISSUER_USERNAMES=zhuiyun
 Environment=ACCOUNT_ISSUED_INVITE_TTL_HOURS=24
 Environment=MIGRATION_RELAY_DB_PATH=/var/lib/yfuse/migration-relay.db
+Environment=WATCH_STATE_DB_PATH=/var/lib/yfuse/watch-state.db
 EnvironmentFile=/etc/yfuse-watch/environment
 Environment=WATCH_TRUST_PROXY_HEADERS=true
-Environment="JAVA_OPTS=-Xms32m -Xmx256m"
+# An OutOfMemoryError leaves a JVM limping with half its threads dead; exit instead and let
+# Restart= bring up a clean one. One heap dump is kept: the JVM never overwrites an existing
+# file, so repeated failures cannot fill the disk. It holds secrets in memory at the time —
+# read it on the box or encrypt it before it leaves, and delete it once diagnosed.
+Environment="JAVA_OPTS=-Xms32m -Xmx256m -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/var/lib/yfuse/watch-oom.hprof"
 ExecStart=/opt/yfuse-watch/current/bin/watchTogetherServer
 ExecStartPost=/usr/bin/curl --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 --retry-max-time 30 --connect-timeout 1 http://127.0.0.1:8080/health
 Restart=on-failure
@@ -42,14 +47,27 @@ ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
 LockPersonality=true
 RestrictSUIDSGID=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+# The JVM and Ktor's CIO engine stay within @system-service; a call outside it fails with EPERM
+# instead of killing the process. MemoryDenyWriteExecute is deliberately absent: the JIT writes
+# and then executes code.
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 ReadOnlyPaths=/srv/yfuse-update /opt/yfuse-watch
 StateDirectory=yfuse
-StateDirectoryMode=0700
+# Group-readable for yfuse-backup only (see the deploy guide); nothing else is in the group.
+StateDirectoryMode=0750
 ReadWritePaths=/var/lib/yfuse
-UMask=0077
+UMask=0027
 
 [Install]
 WantedBy=multi-user.target

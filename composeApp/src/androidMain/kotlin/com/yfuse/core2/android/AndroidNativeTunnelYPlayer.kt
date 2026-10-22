@@ -17,6 +17,7 @@ import com.yfuse.core2.api.invalidateOutputEvidence
 import com.yfuse.core2.demux.shownVideoSize
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -49,7 +50,8 @@ internal class AndroidNativeTunnelYPlayer(
     private val allowAudioPassthrough: Boolean = true,
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
 ) : YPlayer,
-    AndroidSerializedPlayerRelease {
+    AndroidSerializedPlayerRelease,
+    AndroidVideoOutputDetach {
     private val mutableState =
         MutableStateFlow(
             YPlayerState(
@@ -102,6 +104,12 @@ internal class AndroidNativeTunnelYPlayer(
         if (released || output != null && output !is AndroidSurfaceVideoOutput) return false
         send(Command.SetVideoOutput(output as AndroidSurfaceVideoOutput?))
         return true
+    }
+
+    override fun detachVideoOutput(detached: CompletableDeferred<Unit>) {
+        confirmVideoDetachAfterWorkerRelease(worker, this, detached)
+        if (released) return
+        send(Command.SetVideoOutput(null, detached))
     }
 
     override fun play() {
@@ -206,7 +214,10 @@ internal class AndroidNativeTunnelYPlayer(
 
     override fun retry() = send(Command.Prepare)
 
-    override val releaseCompleted: Boolean get() = worker.isCompleted
+    @Volatile
+    private var cleanupCompleted = false
+
+    override val releaseCompleted: Boolean get() = worker.isCompleted && cleanupCompleted
 
     override suspend fun releaseAndJoin() {
         release()
@@ -216,7 +227,8 @@ internal class AndroidNativeTunnelYPlayer(
                     worker.join()
                     true
                 }
-            } == true,
+            } == true &&
+                cleanupCompleted,
         ) {
             "Previous tunneled decoder did not finish releasing; replacement was not started"
         }
@@ -226,11 +238,14 @@ internal class AndroidNativeTunnelYPlayer(
         if (released) return
         releasedAtMs = System.nanoTime() / 1_000_000L
         released = true
-        activeSession?.cancelPendingRead()
-        commands.close()
-        wakeSignal.trySend(Unit)
-        worker.cancel()
-        scope.cancel()
+        try {
+            activeSession?.cancelPendingRead()
+        } finally {
+            commands.close()
+            wakeSignal.trySend(Unit)
+            worker.cancel()
+            scope.cancel()
+        }
         mutableState.update { current ->
             current.copy(
                 phase = YPlaybackPhase.Idle,
@@ -247,6 +262,20 @@ internal class AndroidNativeTunnelYPlayer(
         wakeSignal.trySend(Unit)
     }
 
+    private fun publishRebufferStats(rebufferTracker: com.yfuse.core2.api.YRebufferTracker) {
+        val stats = rebufferTracker.stop(releasedAtMs ?: System.nanoTime() / 1_000_000L)
+        mutableState.updateState {
+            it.copy(
+                diagnostics =
+                    it.diagnostics.copy(
+                        bufferEvents = stats.events,
+                        rebufferDurationMs = stats.durationMs,
+                        longestRebufferMs = stats.longestMs,
+                    ),
+            )
+        }
+    }
+
     private suspend fun runLoop() {
         val session = AndroidNativeTunnelSession(appContext, frameRateSwitchMode = frameRateSwitchMode)
         activeSession = session
@@ -261,19 +290,7 @@ internal class AndroidNativeTunnelYPlayer(
         var lastPublishNs = 0L
         var nativeDolbyVisionRoute = false
 
-        fun finishRebuffer() {
-            val stats = rebufferTracker.stop(releasedAtMs ?: System.nanoTime() / 1_000_000L)
-            mutableState.updateState {
-                it.copy(
-                    diagnostics =
-                        it.diagnostics.copy(
-                            bufferEvents = stats.events,
-                            rebufferDurationMs = stats.durationMs,
-                            longestRebufferMs = stats.longestMs,
-                        ),
-                )
-            }
-        }
+        fun finishRebuffer() = publishRebufferStats(rebufferTracker)
 
         fun publishFailure(failure: Throwable) {
             if (failure is CancellationException) throw failure
@@ -530,7 +547,7 @@ internal class AndroidNativeTunnelYPlayer(
                                         } else {
                                             mutableState.value.positionMs * MICROS_PER_MILLISECOND
                                         }
-                                    session.close()
+                                    session.close().also { command.detached?.complete(Unit) }
                                     prepared = false
                                     mutableState.updateState {
                                         it.copy(
@@ -600,9 +617,13 @@ internal class AndroidNativeTunnelYPlayer(
                 }
             }
         } finally {
-            finishRebuffer()
-            session.release()
-            activeSession = null
+            try {
+                finishRebuffer()
+            } finally {
+                session.release()
+                activeSession = null
+                cleanupCompleted = true
+            }
         }
     }
 
@@ -619,6 +640,8 @@ internal class AndroidNativeTunnelYPlayer(
 
         data class SetVideoOutput(
             val output: AndroidSurfaceVideoOutput?,
+            /** Completed once the session no longer renders into the previous Surface. */
+            val detached: CompletableDeferred<Unit>? = null,
         ) : Command
 
         data class SelectItem(

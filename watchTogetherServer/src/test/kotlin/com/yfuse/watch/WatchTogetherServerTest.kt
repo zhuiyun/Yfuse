@@ -1611,19 +1611,23 @@ class WatchTogetherServerTest {
             }
             val socketClient = createClient { install(WebSockets) }
 
-            suspend fun joinError(ip: String): String? {
+            suspend fun joinError(
+                ip: String,
+                clientId: String = "guest",
+            ): String? {
                 var code: String? = null
                 socketClient.webSocket("/watch?testIp=$ip") {
-                    send("""{"type":"hello","protocolVersion":5,"clientId":"guest","roomCode":"ZZZZZZ"}""")
+                    send("""{"type":"hello","protocolVersion":5,"clientId":"$clientId","roomCode":"ZZZZZZ"}""")
                     val error = (incoming.receive() as Frame.Text).readText().asJson()
                     code = error["errorCode"]?.jsonPrimitive?.content
                 }
                 return code
             }
-            assertNull(joinError("guesser"))
-            assertNull(joinError("guesser"))
+            assertEquals("room_not_found", joinError("guesser"))
+            assertEquals("room_not_found", joinError("guesser"))
             assertEquals("join_rate_limited", joinError("guesser"))
-            assertNull(joinError("bystander"))
+            // Another address with another (test) account is unaffected.
+            assertEquals("room_not_found", joinError("bystander", clientId = "bystander"))
         }
 
     @Test

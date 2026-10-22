@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -34,7 +35,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -55,7 +58,18 @@ import kotlinx.coroutines.isActive
 import kotlin.math.max
 import com.yfuse.core.designsystem.ThemeText as Text
 
-private const val MAX_CACHED_DANMAKU_ENTRIES = 2_048
+/**
+ * Laid-out lines kept between windows. Past it, all but the current window's own are let go; a
+ * layout holds far more than the width this cache used to keep.
+ */
+private const val MAX_CACHED_DANMAKU_LAYOUTS = 512
+
+/**
+ * The most comments one lane carries at a time. Short lines clear the screen's edge so quickly
+ * that a busy moment could otherwise stack dozens in a single lane, every one drawn every frame.
+ * At the standard size a lane packed with four-character lines stays under it on a phone.
+ */
+private const val MAX_DANMAKU_PER_LANE = 16
 private const val FIXED_DURATION_MS = 4_000L
 private const val POSITION_RESET_THRESHOLD_MS = 1_000L
 private const val WINDOW_BUCKET_MS = 1_000L
@@ -170,6 +184,9 @@ private data class LaneTail(
  * keeps its lane, or stays dropped, however the list around it changes. A comment admitted among
  * ones that already have lanes (a block undone, 合并重复 switched off, a line just sent) has to
  * clear the one that follows it in a lane as well as the one before.
+ *
+ * A lane already carrying [maxPerLane] comments at a comment's moment is occupied as well. The cap
+ * is on admission: a comment let in among placed ones is not held to the moments after its own.
  */
 internal fun allocateDanmakuLanes(
     inputs: List<DanmakuLayoutInput>,
@@ -178,6 +195,7 @@ internal fun allocateDanmakuLanes(
     scrollDurationMs: Long,
     fixedDurationMs: Long = FIXED_DURATION_MS,
     laneCache: MutableMap<DanmakuKey, Int>? = null,
+    maxPerLane: Int = Int.MAX_VALUE,
 ): List<DanmakuLanePlacement> {
     if (laneCount <= 0 || viewportWidth <= 0f) return emptyList()
     val tails = arrayOfNulls<LaneTail>(laneCount)
@@ -196,6 +214,20 @@ internal fun allocateDanmakuLanes(
         }
     }
 
+    // When each lane's comments leave the screen, in the order they entered it: those gone by a
+    // comment's moment are stepped past from the front, and the rest are what [maxPerLane] counts.
+    val leaving = Array(laneCount) { ArrayList<Long>() }
+    val gone = IntArray(laneCount)
+
+    fun crowded(
+        lane: Int,
+        atMs: Long,
+    ): Boolean {
+        val ends = leaving[lane]
+        while (gone[lane] < ends.size && ends[gone[lane]] <= atMs) gone[lane]++
+        return ends.size - gone[lane] >= maxPerLane
+    }
+
     fun tailOf(input: DanmakuLayoutInput) =
         LaneTail(
             startedAtMs = input.comment.timeMs,
@@ -207,8 +239,10 @@ internal fun allocateDanmakuLanes(
         inputs.forEachIndexed { position, input ->
             val cachedLane = cached[position]
             if (cachedLane >= 0) {
+                val tail = tailOf(input)
                 upcoming[cachedLane] = nextInLane[position]
-                tails[cachedLane] = tailOf(input)
+                tails[cachedLane] = tail
+                leaving[cachedLane].add(tail.startedAtMs + tail.durationMs)
                 add(DanmakuLanePlacement(input, cachedLane))
                 return@forEachIndexed
             }
@@ -223,12 +257,13 @@ internal fun allocateDanmakuLanes(
             val lane =
                 laneOrder.firstOrNull { candidate ->
                     val following = upcoming[candidate]
-                    canEnterLane(
-                        previous = tails[candidate],
-                        next = input,
-                        viewportWidth = viewportWidth,
-                        scrollDurationMs = scrollDurationMs,
-                    ) &&
+                    !crowded(candidate, input.comment.timeMs) &&
+                        canEnterLane(
+                            previous = tails[candidate],
+                            next = input,
+                            viewportWidth = viewportWidth,
+                            scrollDurationMs = scrollDurationMs,
+                        ) &&
                         (
                             following == NO_INPUT ||
                                 canEnterLane(
@@ -245,6 +280,7 @@ internal fun allocateDanmakuLanes(
             }
             laneCache?.put(input.key, lane)
             tails[lane] = tail
+            leaving[lane].add(tail.startedAtMs + tail.durationMs)
             add(DanmakuLanePlacement(input, lane))
         }
     }
@@ -295,6 +331,22 @@ internal fun danmakuHeldAlpha(
     val edge = minOf(elapsedMs, durationMs - elapsedMs)
     return (edge.toFloat() / fadeMs).coerceIn(0f, 1f)
 }
+
+/**
+ * How opaque a flying comment is drawn [elapsedMs] into its [durationMs]: wholly while it is on
+ * screen and not at all either side of that, or on [danmakuHeldAlpha]'s fade when 减弱动态效果
+ * holds it still.
+ */
+internal fun danmakuDrawAlpha(
+    elapsedMs: Long,
+    durationMs: Long,
+    reduceMotion: Boolean,
+): Float =
+    when {
+        reduceMotion -> danmakuHeldAlpha(elapsedMs, durationMs, Motion.REDUCED_FADE.toLong())
+        elapsedMs in 0L..durationMs -> 1f
+        else -> 0f
+    }
 
 internal fun lowerBoundDanmaku(
     comments: List<DanmakuComment>,
@@ -445,11 +497,14 @@ internal fun DanmakuOverlay(
                 }
             val laneHeight = (textSize + 10f).dp
             val laneCount = (maxHeight / laneHeight).toInt().coerceAtLeast(1)
-            // Widths by the text drawn and lanes by the comment, not by list position, so neither is
-            // lost when a block, 合并重复 or a refetch hands over a new list.
-            val widthCache =
-                remember(textStyle, density) {
-                    HashMap<String, Float>()
+            val viewportWidth = maxWidth.value
+            // Layouts by the text drawn and lanes by the comment, not by list position, so neither is
+            // lost when a block, 合并重复 or a refetch hands over a new list. A line is laid out once
+            // and drawn from that layout on every frame after, and the width its lane is dealt by is
+            // that layout's own, so what is drawn and what a finger is tested against cannot differ.
+            val layoutCache =
+                remember(textStyle, density, textMeasurer) {
+                    HashMap<String, TextLayoutResult>()
                 }
             val laneCache =
                 remember(
@@ -465,16 +520,17 @@ internal fun DanmakuOverlay(
             val timeBucket by remember {
                 derivedStateOf { renderedPositionMs.floorDiv(WINDOW_BUCKET_MS) }
             }
-            val placements =
+            // The two caches carry the text style and density: a new one of either deals again.
+            val window =
                 remember(
                     comments,
                     timeBucket,
                     speed,
                     laneCount,
                     maxWidth,
-                    textStyle,
-                    density,
                     reduceMotion,
+                    laneCache,
+                    layoutCache,
                 ) {
                     val bucketStart = timeBucket * WINDOW_BUCKET_MS
                     val maxDuration = max(speed.durationMs, FIXED_DURATION_MS)
@@ -483,102 +539,93 @@ internal fun DanmakuOverlay(
                     val from = lowerBoundDanmaku(comments, windowStartMs)
                     val until = lowerBoundDanmaku(comments, windowEndMs)
                     // Only the window's lanes are ever read, so the rest are forgotten as it moves
-                    // on; clearing them all would re-deal the comments still crossing. Measuring is
-                    // the costly part of a width, and a reset only repeats it.
+                    // on; clearing them all would re-deal the comments still crossing.
                     laneCache.keys.removeAll { it.timeMs < windowStartMs || it.timeMs >= windowEndMs }
-                    if (widthCache.size > MAX_CACHED_DANMAKU_ENTRIES) widthCache.clear()
+                    // Past the cap, every layout but the window's own goes: laying a line out is the
+                    // costly part, and the window's lines are drawn again on the very next frame.
+                    if (layoutCache.size > MAX_CACHED_DANMAKU_LAYOUTS) {
+                        val inWindow = (from until until).mapTo(HashSet()) { comments[it].displayText }
+                        layoutCache.keys.retainAll(inWindow)
+                    }
                     val keys = danmakuKeysIn(comments, from, until)
-                    val inputs =
-                        (from until until).map { index ->
-                            val comment = comments[index]
-                            val measuredWidth =
-                                widthCache.getOrPut(comment.displayText) {
-                                    with(density) {
-                                        textMeasurer
-                                            .measure(
-                                                text = AnnotatedString(comment.displayText),
-                                                style = textStyle,
-                                                maxLines = 1,
-                                            ).size.width
-                                            .toDp()
-                                            .value
-                                    }
-                                }
+                    val layouts = ArrayList<TextLayoutResult>(until - from)
+                    val inputs = ArrayList<DanmakuLayoutInput>(until - from)
+                    for (index in from until until) {
+                        val comment = comments[index]
+                        val text = comment.displayText
+                        val layout =
+                            layoutCache.getOrPut(text) {
+                                textMeasurer.measure(
+                                    text = AnnotatedString(text),
+                                    style = textStyle,
+                                    maxLines = 1,
+                                )
+                            }
+                        val width = with(density) { layout.size.width.toDp() }
+                        layouts.add(layout)
+                        inputs.add(
                             DanmakuLayoutInput(
                                 index = index,
                                 comment = comment.heldStill(reduceMotion),
-                                width = measuredWidth,
+                                width = width.value,
                                 key = keys[index - from],
-                            )
-                        }
-                    allocateDanmakuLanes(
-                        inputs = inputs,
-                        laneCount = laneCount,
-                        viewportWidth = maxWidth.value,
-                        scrollDurationMs = speed.durationMs,
-                        laneCache = laneCache,
-                    )
+                            ),
+                        )
+                    }
+                    val placements =
+                        allocateDanmakuLanes(
+                            inputs = inputs,
+                            laneCount = laneCount,
+                            viewportWidth = viewportWidth,
+                            scrollDurationMs = speed.durationMs,
+                            laneCache = laneCache,
+                            maxPerLane = MAX_DANMAKU_PER_LANE,
+                        )
+                    DanmakuWindow(placements, placements.map { layouts[it.input.index - from] })
                 }
 
             SideEffect {
                 picker?.density = density.density
                 picker?.state?.layout =
                     DanmakuPickLayout(
-                        placements = placements,
+                        placements = window.placements,
                         laneHeight = laneHeight.value,
-                        viewportWidth = maxWidth.value,
+                        viewportWidth = viewportWidth,
                         scrollDurationMs = speed.durationMs,
                         fixedDurationMs = FIXED_DURATION_MS,
                     )
             }
             val holds = picker?.state?.holds.orEmpty()
 
-            placements.forEach { placement ->
-                // A stopped comment is drawn by its hold below, from where it stopped.
-                if (holds.any { it.isFor(placement) }) return@forEach
-                val comment = placement.input.comment
-                val duration =
-                    if (comment.kind == DanmakuKind.Scroll) {
-                        speed.durationMs
-                    } else {
-                        FIXED_DURATION_MS
-                    }
-                key(placement.input.key) {
-                    val measuredWidth = placement.input.width.dp
-                    val y = laneHeight * placement.lane.toFloat()
-                    Text(
-                        text = comment.displayText,
-                        maxLines = 1,
-                        color =
-                            Color(0xFF000000 or comment.color)
-                                .copy(alpha = opacity.alpha),
-                        style = textStyle,
-                        // Offsetting in the layout phase keeps each frame's move from
-                        // re-measuring the text; only placement changes.
-                        modifier =
-                            Modifier
-                                .offset {
-                                    val elapsed = renderedPositionMs - comment.timeMs
-                                    val x =
-                                        danmakuLeft(
-                                            kind = comment.kind,
-                                            elapsedMs = elapsed,
-                                            durationMs = duration,
-                                            viewportWidth = maxWidth.value,
-                                            width = measuredWidth.value,
-                                        )
-                                    IntOffset(x.dp.roundToPx(), y.roundToPx())
-                                }.graphicsLayer {
-                                    val elapsed = renderedPositionMs - comment.timeMs
-                                    alpha =
-                                        if (reduceMotion) {
-                                            danmakuHeldAlpha(elapsed, duration, Motion.REDUCED_FADE.toLong())
-                                        } else if (elapsed in 0..duration) {
-                                            1f
-                                        } else {
-                                            0f
-                                        }
-                                },
+            // Every flying comment on one canvas, from the window's layouts. A Text apiece, each with
+            // its own layer and blurred shadow, made a busy moment hundreds of nodes to place and
+            // record on every frame; reading the clock only here keeps a frame to drawing alone.
+            Canvas(Modifier.fillMaxSize()) {
+                val nowMs = renderedPositionMs
+                val placements = window.placements
+                for (position in placements.indices) {
+                    val placement = placements[position]
+                    // A stopped comment is drawn by its hold below, from where it stopped.
+                    if (holds.isNotEmpty() && holds.any { it.isFor(placement) }) continue
+                    val comment = placement.input.comment
+                    val duration = if (comment.kind == DanmakuKind.Scroll) speed.durationMs else FIXED_DURATION_MS
+                    val elapsed = nowMs - comment.timeMs
+                    val fade = danmakuDrawAlpha(elapsed, duration, reduceMotion)
+                    if (fade <= 0f) continue
+                    val left = danmakuLeft(comment.kind, elapsed, duration, viewportWidth, placement.input.width)
+                    drawText(
+                        window.layouts[position],
+                        color = Color(0xFF000000 or comment.color).copy(alpha = opacity.alpha),
+                        // On whole pixels, where each comment's own layout node used to be placed.
+                        topLeft =
+                            Offset(
+                                left.dp.roundToPx().toFloat(),
+                                (laneHeight * placement.lane.toFloat()).roundToPx().toFloat(),
+                            ),
+                        alpha = fade,
+                        // A layer's alpha faded the shadow along with the text; drawn straight onto
+                        // the canvas, the shadow has to be faded with it by hand.
+                        shadow = if (fade < 1f) textStyle.shadow?.fadedTo(fade) else null,
                     )
                 }
             }
@@ -588,6 +635,16 @@ internal fun DanmakuOverlay(
         }
     }
 }
+
+/** One window's placed comments, each beside the layout it is drawn from. */
+private class DanmakuWindow(
+    val placements: List<DanmakuLanePlacement>,
+    val layouts: List<TextLayoutResult>,
+)
+
+/** This shadow at [fraction] of its own opacity, for a comment faded as a whole. */
+private fun Shadow.fadedTo(fraction: Float): Shadow =
+    Shadow(color = color.copy(alpha = color.alpha * fraction), offset = offset, blurRadius = blurRadius)
 
 /**
  * The comment 点弹幕 stopped: still, opaque and on a plate while its menu is open, then flying

@@ -957,7 +957,10 @@ class MdkVideoEngine(
      * and report the failure.
      */
     @Synchronized
-    override fun switchToTranscode(reason: String?): Boolean {
+    override fun switchToTranscode(
+        reason: String?,
+        viewerRequested: Boolean,
+    ): Boolean {
         if (released) return false
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return false
@@ -968,7 +971,7 @@ class MdkVideoEngine(
                 progressivePending = index in pendingProgressiveSwitches,
             )
         val progressive =
-            when (PlaybackFallbackLadder.nextStreamStep(rung, item, reason)) {
+            when (PlaybackFallbackLadder.nextStreamStep(rung, item, viewerRequested)) {
                 PlaybackStreamStep.Exhausted -> return false
                 PlaybackStreamStep.InProgress -> return true
                 PlaybackStreamStep.Transcode -> false
@@ -1023,6 +1026,7 @@ class MdkVideoEngine(
                             } else {
                                 "直放失败，已切换服务器转码"
                             },
+                        viewerRequestedTranscode = viewerRequested,
                         bufferedDurationMs = 0L,
                     ),
             )

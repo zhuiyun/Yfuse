@@ -167,8 +167,7 @@ internal fun PlayerDolbyDiagnostics(
     ) {
         val version = activeDolbyVersion ?: return@LaunchedEffect
         val p7 = version.dolbyVisionP7Output(state.diagnostics)
-        val explicitServerTranscode =
-            state.diagnostics.fallbackReason?.startsWith("用户手动") == true
+        val explicitServerTranscode = state.diagnostics.viewerRequestedTranscode
         val attributes =
             mapOf(
                 "itemIndex" to state.currentIndex.toString(),

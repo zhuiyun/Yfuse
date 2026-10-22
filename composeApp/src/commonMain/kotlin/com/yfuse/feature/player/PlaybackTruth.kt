@@ -22,15 +22,21 @@ internal val PlayerMediaVersion.requiresLocalDolbyPipeline: Boolean
 internal val PlayerMediaItem.requiresLocalDolbyPipeline: Boolean
     get() = activeVersion?.requiresLocalDolbyPipeline == true
 
-/** Automatic decoder/network recovery may use only a server-approved, concrete fallback stream. */
-internal fun PlayerMediaItem.allowsServerTranscodeFallback(reason: String?): Boolean {
+/** What diagnostics show for the viewer's own 转码播放; only ever displayed, never parsed. */
+internal const val VIEWER_TRANSCODE_REASON = "用户手动选择服务器转码"
+
+/**
+ * Automatic decoder/network recovery may use only a server-approved, concrete fallback stream. A local
+ * Dolby title leaves its original file only when [viewerRequested] it (转码播放).
+ */
+internal fun PlayerMediaItem.allowsServerTranscodeFallback(viewerRequested: Boolean): Boolean {
     val serverApproved =
         serverTranscodeSupported ||
             activeVersion?.serverTranscodeSupported == true ||
             playMethod == PlaybackMethod.Transcode
     val fallbackAvailable = transcodeUrl.isNotBlank() || fallbackTranscodeUrl.isNotBlank()
     val dolbyPolicyAllowsFallback =
-        !requiresLocalDolbyPipeline || reason?.startsWith("用户手动") == true
+        !requiresLocalDolbyPipeline || viewerRequested
     return serverApproved && fallbackAvailable && dolbyPolicyAllowsFallback
 }
 
@@ -80,13 +86,17 @@ internal fun PlayerMediaItem.initialFallbackReason(): String? =
     }
 
 /** Selects the server output before a backend can render an unsupported source frame. */
-internal fun PlayerMediaItem.withForcedServerTranscode(reason: String): PlayerMediaItem {
+internal fun PlayerMediaItem.withForcedServerTranscode(
+    reason: String,
+    byViewer: Boolean = false,
+): PlayerMediaItem {
     val preparedUrl = transcodeUrl.ifBlank { fallbackTranscodeUrl }
     if (preparedUrl.isBlank()) return this
     return copy(
         transcodeUrl = preparedUrl,
         playMethod = PlaybackMethod.Transcode,
         forcedTranscodeReason = reason,
+        forcedTranscodeByViewer = byViewer,
     )
 }
 
@@ -190,7 +200,7 @@ internal fun PlaybackDiagnostics.hasActiveDolbyAtmosOutput(): Boolean =
 
 /** Both native outputs must be live in this exact playback session; source flags do not qualify. */
 internal fun PlaybackDiagnostics.hasNativeDualDolbyOutput(): Boolean =
-    !engine.startsWith("远程投屏") &&
+    !remoteCast &&
         videoReadiness == PlaybackOutputReadiness.Rendering &&
         audioReadiness == PlaybackOutputReadiness.Rendering &&
         dolbyVisionOutput &&
@@ -198,7 +208,7 @@ internal fun PlaybackDiagnostics.hasNativeDualDolbyOutput(): Boolean =
 
 /** Includes iOS-style Atmos-source PCM spatialization while preserving bitstream truth separately. */
 internal fun PlaybackDiagnostics.hasNativeDualDolbyPresentationOutput(): Boolean =
-    !engine.startsWith("远程投屏") &&
+    !remoteCast &&
         videoReadiness == PlaybackOutputReadiness.Rendering &&
         audioReadiness == PlaybackOutputReadiness.Rendering &&
         dolbyVisionOutput &&
@@ -239,6 +249,7 @@ internal fun initialPlaybackDiagnostics(
         dynamicRange = item?.sourceDynamicRange(transcoding).orEmpty(),
         audioFormat = item?.sourceAudioFormat(transcoding).orEmpty(),
         fallbackReason = item?.initialFallbackReason(),
+        viewerRequestedTranscode = item?.forcedTranscodeReason != null && item.forcedTranscodeByViewer,
         bitrateBitsPerSecond =
             item
                 ?.activeVersion

@@ -3,52 +3,20 @@ package com.yfuse.watch
 import com.yfuse.watch.protocol.WatchProtocol
 import com.yfuse.watch.protocol.WatchWireChatMessage
 import com.yfuse.watch.protocol.WatchWireMessage
-import com.yfuse.watch.protocol.WatchWireParticipant
 import com.yfuse.watch.protocol.WatchWirePlaylistEntry
 import io.ktor.websocket.WebSocketSession
 import io.ktor.websocket.send
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 
-/**
- * Wire protocol v6, wire-compatible with authenticated v5 for a rolling server-first upgrade.
- * The DTO and its validation limits live in `:watchTogetherProtocol`, so client and relay cannot
- * silently drift. Version 5 requires an authenticated Yfuse account for
- * every room connection and binds membership to its immutable account id. Room-scoped resume and
- * host capabilities continue to protect reconnection and host authority; public client ids never
- * authenticate either operation.
- *
- * The core change from v1 is that the server is the **timeline authority**: instead of the
- * host broadcasting its position once a second and guests correcting toward a moving
- * target, the host tells the room "here is the new anchor" only when something actually
- * changes (play/pause/seek/rate/media), and everyone else extrapolates
- * `anchorPositionMs + (serverNow - anchorAtMs) * rate` locally between anchors. This is both
- * cheaper (near-zero traffic while steady-state playing) and more precise (no 1-second
- * quantization) — see [Timeline].
- *
- * [serverAtMs] is stamped on every outgoing message for diagnostics and future extensions.
- * Clock samples use `pong` specifically, because only it echoes the correlation id needed
- * to measure round-trip latency with the client's monotonic clock.
- */
 internal val watchWireJson =
     Json {
         ignoreUnknownKeys = true
         encodeDefaults = false
     }
-
-/**
- * A member whose socket cannot take a broadcast within this window is dropped. Broadcasts
- * run on the sender's read loop, so a stalled receiver used to freeze the whole room.
- */
-private const val BROADCAST_SEND_TIMEOUT_MS = 2_000L
+private const val TRAILING_SYNC_DELAY_MS = 1_000L
 
 internal enum class PlaylistMutationResult {
     Changed,
@@ -60,6 +28,7 @@ internal enum class PlaylistMutationResult {
     IndexInvalid,
     Unchanged,
     RevisionExhausted,
+    RateLimited,
 }
 
 internal fun Room.mutatePlaylist(
@@ -90,6 +59,9 @@ internal fun Room.welcomeMessage(
     protocolVersion: Int,
 ): WatchWireMessage =
     synchronized(this) {
+        // Its own revision: a room update taken before it, still on its way, is older than this.
+        val revision = nextRoomRevision()
+        participants[clientId]?.playlistRevisionSent = playlistRevision
         WatchWireMessage(
             type = "welcome",
             protocolVersion = protocolVersion,
@@ -111,22 +83,14 @@ internal fun Room.welcomeMessage(
             rate = timeline.rate,
             seq = timeline.seq,
             anchorAtMs = timeline.anchorAtServerMs,
+            roomRevision = revision,
         )
     }
 
 internal suspend fun WebSocketSession.sendMessage(message: WatchWireMessage) {
-    send(
-        watchWireJson.encodeToString(
-            WatchWireMessage.serializer(),
-            message.copy(
-                protocolVersion = message.protocolVersion ?: WatchProtocol.VERSION,
-                serverAtMs = System.currentTimeMillis(),
-            ),
-        ),
-    )
+    send(encodeWatchMessage(message))
 }
 
-/** Which part of a `playbackStatus` report changed, and therefore how urgently it is fanned out. */
 internal enum class PlaybackStatusChange {
     /** Ready, buffering, media or duration changed: the room's start gate depends on it. */
     Readiness,
@@ -136,45 +100,10 @@ internal enum class PlaybackStatusChange {
     None,
 }
 
-/**
- * Sends [message] to one member for a broadcast, dropping the member instead of waiting on
- * a socket that will not take it. The broadcaster's read loop is what runs this, so a slow
- * receiver otherwise stalls every other member's commands behind it.
- */
-private suspend fun Participant.deliverBroadcast(message: WatchWireMessage): Boolean {
-    val delivered =
-        withTimeoutOrNull(BROADCAST_SEND_TIMEOUT_MS) {
-            runCatching { session.sendMessage(message) }.isSuccess
-        } ?: false
-    if (!delivered) {
-        WatchMetrics.broadcastDrops.incrementAndGet()
-        ServerLog.warn("broadcast_member_dropped", "reason" to "send_timeout")
-        // Cancelling the session job runs the handler's cleanup, which removes the member.
-        runCatching { session.cancel(CancellationException("broadcast timed out")) }
-    }
-    return delivered
-}
-
-/** Fans one payload per member out concurrently, bounded by [BROADCAST_SEND_TIMEOUT_MS] overall. */
-private suspend fun broadcastTo(
-    members: List<Participant>,
-    payloadFor: (Participant) -> WatchWireMessage,
-) {
-    if (members.isEmpty()) return
-    coroutineScope {
-        members
-            .map { member -> async { member.deliverBroadcast(payloadFor(member)) } }
-            .awaitAll()
-    }
-}
-
-/**
- * Coalesces latency/drift-only updates: the first report arms one delayed room update, and
- * every further report inside the window rides on it.
- */
 internal fun CoroutineScope.schedulePresenceBroadcast(
     room: Room,
     intervalMs: Long,
+    broadcastRoomUpdate: suspend (Room) -> Unit,
 ) {
     val armed =
         synchronized(room) {
@@ -197,9 +126,31 @@ internal fun CoroutineScope.schedulePresenceBroadcast(
     }
 }
 
+internal fun CoroutineScope.scheduleTrailingSync(room: Room) {
+    val armed =
+        synchronized(room) {
+            if (room.trailingSyncPending) {
+                false
+            } else {
+                room.trailingSyncPending = true
+                true
+            }
+        }
+    if (!armed) return
+    launch {
+        try {
+            delay(TRAILING_SYNC_DELAY_MS)
+        } finally {
+            synchronized(room) { room.trailingSyncPending = false }
+        }
+        val timeline = synchronized(room) { room.timeline.takeIf { room.participants.isNotEmpty() } }
+        if (timeline != null) broadcastSync(room, timeline)
+    }
+}
+
 internal suspend fun WebSocketSession.sendError(
     message: String,
-    errorCode: String? = null,
+    errorCode: String,
     clientMessageId: String? = null,
 ) {
     sendMessage(
@@ -207,6 +158,7 @@ internal suspend fun WebSocketSession.sendError(
             type = "error",
             message = message,
             errorCode = errorCode,
+            retryable = WatchProtocol.isRetryableErrorCode(errorCode),
             clientMessageId = clientMessageId,
         ),
     )
@@ -215,6 +167,7 @@ internal suspend fun WebSocketSession.sendError(
 internal suspend fun WebSocketSession.finishPlaylistMutation(
     room: Room,
     result: PlaylistMutationResult,
+    broadcastRoomUpdate: suspend (Room) -> Unit,
 ) {
     if (result == PlaylistMutationResult.Changed) {
         broadcastRoomUpdate(room)
@@ -233,6 +186,8 @@ internal suspend fun WebSocketSession.finishPlaylistMutation(
             PlaylistMutationResult.Unchanged -> "播放列表没有变化" to "playlist_unchanged"
             PlaylistMutationResult.RevisionExhausted ->
                 "播放列表版本已耗尽" to "playlist_revision_exhausted"
+            PlaylistMutationResult.RateLimited ->
+                "播放列表操作太频繁，请稍后再试" to "playlist_rate_limited"
             PlaylistMutationResult.Changed -> error("handled above")
         }
     val snapshot = synchronized(room) { room.playlist.toList() to room.playlistRevision }
@@ -241,118 +196,43 @@ internal suspend fun WebSocketSession.finishPlaylistMutation(
             type = "error",
             message = message,
             errorCode = errorCode,
+            retryable = WatchProtocol.isRetryableErrorCode(errorCode),
             playlist = snapshot.first,
             playlistRevision = snapshot.second,
         ),
     )
 }
 
-/** Membership or host changed; every member gets the current timeline too so a client that missed a `sync` can resync from this alone. */
-internal suspend fun broadcastRoomUpdate(room: Room) {
-    val snapshot =
-        synchronized(room) {
-            RoomBroadcastSnapshot(
-                members = room.participants.values.toList(),
-                participants = room.wireParticipants(),
-                timeline = room.timeline,
-                hostId = room.hostId,
-                controlMode = room.controlMode,
-                playlist = room.playlist.toList(),
-                playlistRevision = room.playlistRevision,
-                canControlIds =
-                    room.participants.keys
-                        .filterTo(linkedSetOf()) { id ->
-                            room.participants[id]?.let(room::canControl) == true
-                        },
-            )
-        }
-    broadcastTo(snapshot.members) { member ->
-        WatchWireMessage(
-            type = "roomUpdate",
-            roomCode = room.code,
-            isHost = member.id == snapshot.hostId,
-            canControl = member.id in snapshot.canControlIds,
-            controlMode = snapshot.controlMode.wireValue,
-            participantCount = snapshot.members.size,
-            participants = snapshot.participants,
-            playlist = snapshot.playlist,
-            playlistRevision = snapshot.playlistRevision,
-            mediaKey = snapshot.timeline.mediaKey,
-            positionMs = snapshot.timeline.anchorPositionMs,
-            paused = snapshot.timeline.paused,
-            rate = snapshot.timeline.rate,
-            seq = snapshot.timeline.seq,
-            anchorAtMs = snapshot.timeline.anchorAtServerMs,
-        )
-    }
-}
-
-private data class RoomBroadcastSnapshot(
-    val members: List<Participant>,
-    val participants: List<WatchWireParticipant>,
-    val timeline: Timeline,
-    val hostId: String,
-    val controlMode: ControlMode,
-    val playlist: List<WatchWirePlaylistEntry>,
-    val playlistRevision: Long,
-    val canControlIds: Set<String>,
-)
-
-private fun Room.wireParticipants(): List<WatchWireParticipant> =
-    participants.values.map { participant ->
-        WatchWireParticipant(
-            clientId = participant.id,
-            name = participant.name,
-            avatarId = participant.avatarId,
-            isHost = participant.id == hostId,
-            statusKnown = participant.statusKnown,
-            ready = participant.ready,
-            buffering = participant.buffering,
-            mediaAvailable = participant.mediaAvailable,
-            latencyMs = participant.latencyMs,
-            syncDriftMs = participant.syncDriftMs,
-            durationMs = participant.durationMs,
-            canControl = canControl(participant),
-            isModerator = participant.id in moderatorIds,
-        )
-    }
-
 internal suspend fun broadcastChat(
     room: Room,
     chat: WatchWireChatMessage,
 ) {
-    val members = synchronized(room) { room.participants.values.toList() }
-    val payload = WatchWireMessage(type = "chat", chat = chat)
-    broadcastTo(members) { payload }
+    broadcastToRoom(room, WatchWireMessage(type = "chat", chat = chat))
 }
 
-/**
- * Reactions are not kept anywhere: no history, no replay on join. Someone who was not in
- * the room when it happened has missed it, which is the whole idea.
- */
 internal suspend fun broadcastReaction(
     room: Room,
     clientId: String,
     name: String,
     reaction: String,
 ) {
-    val members = synchronized(room) { room.participants.values.toList() }
-    val payload =
+    broadcastToRoom(
+        room,
         WatchWireMessage(
             type = "reaction",
             clientId = clientId,
             name = name,
             reaction = reaction,
-        )
-    broadcastTo(members) { payload }
+        ),
+    )
 }
 
 internal suspend fun broadcastSync(
     room: Room,
     timeline: Timeline,
 ) {
-    val members = synchronized(room) { room.participants.values.toList() }
-    val payload =
+    broadcastToRoom(
+        room,
         WatchWireMessage(
             type = "sync",
             roomCode = room.code,
@@ -362,6 +242,6 @@ internal suspend fun broadcastSync(
             rate = timeline.rate,
             seq = timeline.seq,
             anchorAtMs = timeline.anchorAtServerMs,
-        )
-    broadcastTo(members) { payload }
+        ),
+    )
 }

@@ -266,8 +266,9 @@ internal fun MorePanel(
                         }
                     }
                     if (disc.menuSupported) {
+                        val menuSlow by ActiveDiscNavigation.menuSlow.collectAsState()
                         OptionRow(
-                            "打开光盘菜单",
+                            if (menuSlow) "光盘菜单读取中…" else "打开光盘菜单",
                             disc.menuActive,
                             onClick = {
                                 if (
@@ -319,6 +320,13 @@ internal fun MorePanel(
                     label = "自动播放下一集",
                     checked = autoNextEnabled,
                     onToggle = onToggleAutoNext,
+                )
+                // The same switch as 设置 → 播放 as well; it decides what the next screen-off does.
+                val backgroundAudio by animePreferences.backgroundAudio.collectAsState()
+                PopupToggleHeader(
+                    label = "熄屏继续播放声音",
+                    checked = backgroundAudio,
+                    onToggle = { animePreferences.setBackgroundAudio(!backgroundAudio) },
                 )
                 shortDramaMode?.let { mode ->
                     GroupLabel("短剧模式")

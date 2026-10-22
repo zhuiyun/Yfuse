@@ -33,6 +33,24 @@ internal fun resolveAccountClientIdentity(
         ?: ClientIdentityResolution.InvalidForwardedFor
 }
 
+/**
+ * The key rate limits count against. One IPv6 subscriber is handed a whole /64 (and often much
+ * more), so counting single addresses let one machine walk through fresh limits at will; IPv6
+ * clients are counted by their /64. IPv4 addresses stay whole: carrier NAT already puts many
+ * people behind one.
+ */
+internal fun rateLimitIdentity(identity: String): String {
+    if (':' !in identity) return identity
+    val bytes = runCatching { InetAddress.getByName(identity).address }.getOrNull() ?: return identity
+    if (bytes.size != IPV6_BYTES) return identity
+    val groups =
+        (0 until 4).map { group ->
+            ((bytes[group * 2].toInt() and 0xff) shl 8) or
+                (bytes[group * 2 + 1].toInt() and 0xff)
+        }
+    return groups.joinToString(":") { it.toString(16) } + "::/64"
+}
+
 internal fun isLoopbackHost(raw: String): Boolean {
     val normalized = normalizeSocketPeer(raw)
     if (normalized == "localhost") return true
@@ -70,5 +88,6 @@ private fun normalizeIpv4(raw: String): String? {
 }
 
 private const val MAX_FORWARDED_IP_CHARS = 64
+private const val IPV6_BYTES = 16
 private const val MAX_SOCKET_PEER_CHARS = 128
 private val IPV6_LITERAL_CHARS = ('0'..'9') + ('a'..'f') + ('A'..'F') + setOf(':', '.')

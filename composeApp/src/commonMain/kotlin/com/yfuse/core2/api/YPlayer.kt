@@ -73,6 +73,16 @@ interface YPlayer {
     fun setPauseAtEndOfCurrentItem(enabled: Boolean) = Unit
 
     /**
+     * Audio-only playback with the screen off: stop decoding video until [suspended] is false.
+     * Only routes advertising [supportsBackgroundAudio] may keep playing without a visible output;
+     * unsupported routes keep the default no-op and must be paused by the lifecycle policy.
+     */
+    fun setVideoSuspended(suspended: Boolean) = Unit
+
+    /** True only while the active backend can keep audio playing without a visible video output. */
+    val supportsBackgroundAudio: Boolean get() = false
+
+    /**
      * UI-resolved credits boundary; null uses natural duration. This never initiates a skip.
      *
      * [allowMeteredNetwork] lets the next item prepare on mobile data (never under Data Saver).

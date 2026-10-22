@@ -149,6 +149,12 @@ class MpvVideoEngine(
     private val dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
     private val videoCacheBytes: Long = 0L,
+    /**
+     * Whether two text subtitles are hidden in mpv and drawn by [MpvSurface] from [subtitleText].
+     * YCore's compatibility route presents through Core2Surface, which never reads that text, so
+     * there mpv keeps drawing both itself.
+     */
+    private val stackTextSubtitlesInOverlay: Boolean = true,
 ) : VideoEngine,
     AndroidSerializedPlayerRelease {
     @Volatile
@@ -247,6 +253,9 @@ class MpvVideoEngine(
     private var subtitlePosition = DEFAULT_SUBTITLE_POSITION
     private var subtitleOverlayPreferred = false
 
+    /** False until the first Surface creates the libmpv instance; property calls before it are dropped. */
+    internal val nativeInstanceReady: Boolean get() = mpv != null
+
     @Volatile
     private var released = false
 
@@ -316,7 +325,9 @@ class MpvVideoEngine(
         primary: String?,
         secondary: String?,
     ) {
-        val stack = mpvShouldOverlaySubtitles(tracks, primary, secondary, subtitleOverlayPreferred)
+        val stack =
+            stackTextSubtitlesInOverlay &&
+                mpvShouldOverlaySubtitles(tracks, primary, secondary, subtitleOverlayPreferred)
         if (mutableSubtitleText.value.stacked != stack) {
             instance.setPropertyString("sub-visibility", if (stack) "no" else "yes")
             instance.setPropertyString("secondary-sub-visibility", if (stack) "no" else "yes")
@@ -891,6 +902,7 @@ class MpvVideoEngine(
             applySubtitleRegion(instance)
 
             mpv = instance
+            if (videoSuspended) setVideoSuspended(true)
             instance.addObserver(observer)
             instance.addLogObserver(logObserver)
             instance.observeProperty("time-pos", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
@@ -1191,6 +1203,31 @@ class MpvVideoEngine(
         pauseAtEndOfCurrentItem = enabled
     }
 
+    /** The video track mpv played before 熄屏继续播放声音 turned it off; null while it plays. */
+    @Volatile
+    private var suspendedVideoTrack: String? = null
+
+    override val supportsBackgroundAudio: Boolean get() = true
+
+    @Volatile
+    private var videoSuspended = false
+
+    override fun setVideoSuspended(suspended: Boolean) {
+        videoSuspended = suspended
+        withMpv { instance ->
+            if (suspended) {
+                if (suspendedVideoTrack == null) {
+                    suspendedVideoTrack = instance.getPropertyString("vid")?.takeUnless { it == "no" } ?: "auto"
+                }
+                instance.setPropertyString("vid", "no")
+            } else {
+                val track = suspendedVideoTrack ?: return@withMpv
+                suspendedVideoTrack = null
+                instance.setPropertyString("vid", track)
+            }
+        }
+    }
+
     override fun appendItems(items: List<PlayerMediaItem>): Boolean =
         updateQueue(this.items + items, _state.value.currentIndex)
 
@@ -1407,7 +1444,10 @@ class MpvVideoEngine(
      * and report the failure.
      */
     @Synchronized
-    override fun switchToTranscode(reason: String?): Boolean {
+    override fun switchToTranscode(
+        reason: String?,
+        viewerRequested: Boolean,
+    ): Boolean {
         val index = _state.value.currentIndex
         resetFrameEvidence()
         val item = items.getOrNull(index) ?: return false
@@ -1417,7 +1457,7 @@ class MpvVideoEngine(
                 progressive = index in progressiveIndices,
                 progressivePending = index in pendingProgressiveSwitches,
             )
-        val next = PlaybackFallbackLadder.nextStreamStep(rung, item, reason)
+        val next = PlaybackFallbackLadder.nextStreamStep(rung, item, viewerRequested)
         val attempt =
             when (next) {
                 PlaybackStreamStep.InProgress -> return true
@@ -1466,6 +1506,7 @@ class MpvVideoEngine(
                             } else {
                                 "HLS 转码不可用，已改用 MP4 转码"
                             },
+                        viewerRequestedTranscode = viewerRequested,
                         bufferedDurationMs = 0L,
                         outputEvidence = it.diagnostics.outputEvidence.nextLoadAttempt(PlaybackVideoRenderApi.OpenGl),
                     ),
@@ -1566,6 +1607,7 @@ class MpvVideoEngine(
                 val language = instance.getPropertyString("track-list/$i/lang")
                 val title = instance.getPropertyString("track-list/$i/title")
                 val codec = instance.getPropertyString("track-list/$i/codec")
+                val forced = if (type == "sub") instance.getPropertyBoolean("track-list/$i/forced") else null
                 val bucket = if (type == "audio") audio else subtitles
                 bucket +=
                     EngineTrack(
@@ -1576,6 +1618,7 @@ class MpvVideoEngine(
                         language = language,
                         selected = id.toString() == if (type == "audio") selectedAudio else selectedSubtitle,
                         codec = codec,
+                        forced = forced,
                     )
             }
 

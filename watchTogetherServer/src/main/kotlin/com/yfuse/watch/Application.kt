@@ -12,7 +12,6 @@ import com.yfuse.watch.migration.migrationRelayRoutes
 import com.yfuse.watch.protocol.WatchProtocol
 import com.yfuse.watch.protocol.WatchWireMessage
 import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
@@ -43,7 +42,9 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import java.io.File
 
@@ -86,6 +87,12 @@ private const val MAX_CONFIGURED_WATCH_CONNECTIONS = 10_000
 private const val MAX_PARTICIPANTS_PER_ROOM = 12
 private const val MAX_MEMBERSHIPS_PER_ROOM = 64
 private const val MAX_MESSAGES_PER_WINDOW = 240
+
+/** Rooms that emptied past their grace are released this often even when nobody says hello. */
+private const val ROOM_SWEEP_INTERVAL_MS = 60_000L
+
+/** A paced-out `sync` reaches the room as one trailing timeline broadcast after this. */
+private const val TRAILING_SYNC_DELAY_MS = 1_000L
 private const val RATE_WINDOW_MS = 10_000L
 
 /**
@@ -244,8 +251,17 @@ internal fun Application.watchTogetherModule(
     calendarScheduleSigner: CalendarScheduleSigner? = CalendarScheduleSigner.fromEnvironment(),
     /** Shared schedule database; user Emby credentials never enter this store. */
     calendarScheduleStore: CalendarScheduleStore = NoOpCalendarScheduleStore,
+    /** Durable room state and 手机遥控 pairing tokens; null keeps both in memory only, as tests do. */
+    roomStateStore: WatchStateStore? = null,
     /** 手机遥控's pairings; injectable so tests can look at them. */
-    remoteControlRelay: RemoteControlRelay<WebSocketSession> = RemoteControlRelay(),
+    remoteControlRelay: RemoteControlRelay<WebSocketSession> =
+        RemoteControlRelay(pairingTokens = RemotePairingTokens(roomStateStore)),
+    /** How long a renewable socket waits for a fresh token after its own was revoked or replaced. */
+    watchAuthRenewalGraceMs: Long = WATCH_REAUTH_RENEWAL_GRACE_MS,
+    /** Injectable so tests can observe coalescing without waiting. */
+    roomUpdateMinIntervalMs: Long = ROOM_UPDATE_MIN_INTERVAL_MS,
+    /** Injectable so tests can see an emptied room released without a `hello`. */
+    roomSweepIntervalMs: Long = ROOM_SWEEP_INTERVAL_MS,
 ) {
     require(roomGraceMs >= 0L) { "roomGraceMs must not be negative" }
     require(watchInitialAuthTimeoutMs > 0L) { "watchInitialAuthTimeoutMs must be positive" }
@@ -265,8 +281,34 @@ internal fun Application.watchTogetherModule(
     // Outlives any one socket, which is what a delayed host handover needs: the connection
     // whose loss starts the clock is precisely the one that can't run the timer.
     val appScope: CoroutineScope = this
-    val roomCleanup = appScope.launchRoomCleanup(roomStore, roomCleanupIntervalMs)
-    monitor.subscribe(ApplicationStopping) { roomCleanup.cancel() }
+    val roomUpdates = RoomUpdateBroadcaster(appScope, roomUpdateMinIntervalMs)
+    val broadcastRoomUpdate: suspend (Room) -> Unit = roomUpdates::request
+    val roomPersister = roomStateStore?.let(::RoomStatePersister)
+    if (roomPersister != null) {
+        // Rooms used to live only in memory, so every deploy ended every room. Members whose
+        // saved capabilities still match rejoin the same room once the relay is back.
+        runCatching { roomStore.restore(roomPersister.restore()) }
+            .onSuccess { restored ->
+                restored.forEach { room -> appScope.scheduleHostHandover(room, hostGraceMs, broadcastRoomUpdate) }
+                if (restored.isNotEmpty()) ServerLog.info("watch_rooms_restored", "rooms" to restored.size)
+            }.onFailure { failure -> ServerLog.error("watch_rooms_restore_failed", throwable = failure) }
+        monitor.subscribe(ApplicationStopped) {
+            try {
+                roomPersister.sync(roomStore.allRooms(), everything = true)
+            } catch (failure: Exception) {
+                ServerLog.error("watch_rooms_save_failed", throwable = failure)
+            } finally {
+                roomStateStore.close()
+            }
+        }
+    }
+    val roomMaintenance =
+        appScope.launchRoomMaintenance(
+            roomStore,
+            roomPersister,
+            minOf(roomSweepIntervalMs, roomCleanupIntervalMs),
+        )
+    monitor.subscribe(ApplicationStopping) { roomMaintenance.cancel() }
     // Import the previous JSON publication exactly once when a production database is empty.
     if (calendarScheduleStore !== NoOpCalendarScheduleStore) {
         runCatching {
@@ -318,12 +360,11 @@ internal fun Application.watchTogetherModule(
             )
         }
     }
+    // Account, migration and QoE handlers set `no-store` themselves; the calendar feed is the one
+    // `/api` response meant to be cached, so no blanket prefix rule belongs here.
     intercept(ApplicationCallPipeline.Plugins) {
         call.response.header("X-Content-Type-Options", "nosniff")
         call.response.header("Referrer-Policy", "no-referrer")
-        if (call.request.path().startsWith("/account")) {
-            call.response.header(HttpHeaders.CacheControl, "no-store")
-        }
     }
     routing {
         calendarScheduleRoutes(calendarScheduleSigner, calendarScheduleStore)
@@ -424,16 +465,21 @@ internal fun Application.watchTogetherModule(
                 return@webSocket
             }
             if (!requireWatchAuthentication) connectionLease.promote()
+            val socketAuth =
+                WatchSocketAuth(
+                    initialToken = accessToken.orEmpty(),
+                    account = authenticatedAccount,
+                    revalidator = watchAccountRevalidator,
+                    retryDelayMs = watchAuthRetryDelayMs,
+                    clock = watchAuthClock,
+                    revalidationMs = watchAuthRevalidationMs,
+                    renewalGraceMs = watchAuthRenewalGraceMs,
+                )
+            // Revocation is still enforced on silent sockets; a socket whose client renews in-band
+            // simply keeps going past its first token's expiry.
             val authWatchdog =
                 if (requireWatchAuthentication) {
-                    launchWatchAccountRevalidation(
-                        account = authenticatedAccount,
-                        accessToken = checkNotNull(accessToken),
-                        revalidator = watchAccountRevalidator,
-                        revalidationMs = watchAuthRevalidationMs,
-                        retryDelayMs = watchAuthRetryDelayMs,
-                        clock = watchAuthClock,
-                    )
+                    launch { close(socketAuth.watch { notice -> sendMessage(notice) }) }
                 } else {
                     null
                 }
@@ -441,6 +487,7 @@ internal fun Application.watchTogetherModule(
             var joinedClientId: String? = null
             var windowStartedAtMs = System.currentTimeMillis()
             var messagesInWindow = 0
+            val pacer = WatchMessagePacer()
             val recentReactionAtMs = ArrayDeque<Long>()
             var lastProfileUpdateAtMs = 0L
             try {
@@ -481,6 +528,19 @@ internal fun Application.watchTogetherModule(
 
                     if (message.type !in WatchProtocol.CLIENT_MESSAGE_TYPES) {
                         return@consumeEach sendError("消息类型无效", "message_type_invalid")
+                    }
+                    // Account renewal belongs to the socket, whatever it is used for.
+                    if (requireWatchAuthentication &&
+                        WatchProtocol.CAPABILITY_REAUTHENTICATE in message.capabilities.orEmpty()
+                    ) {
+                        socketAuth.declareRenewable()?.let { sendMessage(it) }
+                    }
+                    if (message.type == "reauthenticate") {
+                        if (!requireWatchAuthentication) {
+                            return@consumeEach sendError("当前连接无需续期登录", "reauth_unsupported")
+                        }
+                        sendMessage(socketAuth.reauthenticate(message.credential?.accessToken))
+                        return@consumeEach
                     }
                     // 手机遥控 sockets are their own kind: hosting or controlling never joins a room,
                     // and a room member never carries a remote.
@@ -632,7 +692,8 @@ internal fun Application.watchTogetherModule(
                                     if (!WatchProtocol.isValidRoomCode(requestedRoomCode)) {
                                         return@consumeEach sendError("房间码无效", "room_code_invalid")
                                     }
-                                    if (joinFailureLimiter.isPenalized(clientIp)) {
+                                    val failureKeys = joinFailureKeys(clientIp, membershipAccountUserId)
+                                    if (failureKeys.any { key -> joinFailureLimiter.isPenalized(key) }) {
                                         WatchMetrics.joinsRejected.incrementAndGet()
                                         return@consumeEach sendError(
                                             "加入失败次数过多，请稍后再试",
@@ -641,12 +702,20 @@ internal fun Application.watchTogetherModule(
                                     }
                                     roomStore.find(requestedRoomCode)
                                         ?: run {
-                                            if (joinFailureLimiter.recordFailure(clientIp)) {
+                                            // Both keys count every miss; no short-circuit.
+                                            val penalized =
+                                                failureKeys.map { key ->
+                                                    joinFailureLimiter.recordFailure(key)
+                                                }
+                                            if (true in penalized) {
                                                 ServerLog.warn("room_join_penalized", "ip" to clientIp)
                                             }
-                                            return@consumeEach sendError("房间不存在或已关闭")
+                                            return@consumeEach sendError("房间不存在或已关闭", "room_not_found")
                                         }
                                 }
+
+                            val wantsRoomDeltas =
+                                WatchProtocol.CAPABILITY_ROOM_REVISION in message.capabilities.orEmpty()
                             var joinRejected: RoomJoinRejection? = null
                             var staleSession: WebSocketSession? = null
                             var issuedResumeCapability: String? = null
@@ -664,7 +733,7 @@ internal fun Application.watchTogetherModule(
                                             maxMemberships = MAX_MEMBERSHIPS_PER_ROOM,
                                         )
                                     if (joinRejected != null) return@mutateIfCurrent
-                                    val membership = room.memberships[clientId]
+                                    val membership = room.memberships[memberKey(membershipAccountUserId, clientId)]
                                     val isHost = clientId == room.hostId
                                     staleSession = room.participants[clientId]?.session
                                     val activeMembership =
@@ -673,7 +742,7 @@ internal fun Application.watchTogetherModule(
                                             clientId = clientId,
                                             accountUserId = membershipAccountUserId,
                                         ).let { (createdMembership, capability) ->
-                                            room.memberships[clientId] = createdMembership
+                                            room.memberships[createdMembership.key] = createdMembership
                                             issuedResumeCapability = capability
                                             createdMembership
                                         }
@@ -687,6 +756,7 @@ internal fun Application.watchTogetherModule(
                                             sessionGeneration = activeMembership.sessionGeneration,
                                             accountUserId = membershipAccountUserId,
                                             authorizedHostEpoch = if (isHost) room.hostEpoch else null,
+                                            roomDeltas = wantsRoomDeltas,
                                         )
                                     room.participants[clientId] = participant
                                     room.emptySinceMs = null
@@ -700,31 +770,40 @@ internal fun Application.watchTogetherModule(
                                         }
                                     } else if (
                                         !room.participants.containsKey(room.hostId) &&
-                                        room.hostGraceExpired(hostGraceMs)
+                                        room.hostGraceExpired(hostGraceMs) &&
+                                        membership?.predates(room.hostAbsentSinceMs) == true
                                     ) {
                                         // The host slot points at someone who left and did not
-                                        // come back in time. Whoever joins now takes it, rather
-                                        // than leaving the room locked to a host who may never
-                                        // return.
+                                        // come back in time. A member who was already here when
+                                        // the host left takes it, rather than leaving the room
+                                        // locked to a host who may never return. Someone who
+                                        // only now found the code does not inherit the room.
                                         issuedHostCapability = room.transferHostTo(participant)
                                     }
                                 }
                             if (!roomStillCurrent) {
-                                return@consumeEach sendError("房间不存在或已关闭")
+                                return@consumeEach sendError("房间不存在或已关闭", "room_not_found")
                             }
                             joinRejected?.let { rejection ->
                                 sendError(rejection.message, rejection.code)
                                 rejection.closeReason?.let { reason ->
-                                    close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, reason))
+                                    val code =
+                                        if (rejection.retryLater) {
+                                            CloseReason.Codes.TRY_AGAIN_LATER
+                                        } else {
+                                            CloseReason.Codes.VIOLATED_POLICY
+                                        }
+                                    close(CloseReason(code, reason))
                                 }
                                 return@consumeEach
                             }
-                            // Only an admitted member has demonstrated a legitimate join.
-                            // Finding a known code must not reset failed room-code guesses.
-                            joinFailureLimiter.clear(clientIp)
+                            // Only an admission forgives, and only the address: see the limiter.
+                            if (message.roomCode != null) joinFailureLimiter.clear(joinFailureAddressKey(clientIp))
                             staleSession?.let {
-                                runCatching {
-                                    it.close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "reconnected"))
+                                withTimeoutOrNull(BROADCAST_SEND_TIMEOUT_MS) {
+                                    runCatching {
+                                        it.close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "reconnected"))
+                                    }
                                 }
                             }
 
@@ -773,14 +852,14 @@ internal fun Application.watchTogetherModule(
                                     Timeline(
                                         mediaKey = message.mediaKey ?: room.timeline.mediaKey,
                                         anchorPositionMs = message.positionMs!!,
-                                        anchorAtServerMs = System.currentTimeMillis(),
+                                        anchorAtServerMs = WatchClock.nowMs(),
                                         rate = message.rate!!,
                                         paused = message.paused!!,
                                         seq = room.timeline.seq + 1,
                                     ).also { room.timeline = it }
                                 }
                             if (controlDenied) {
-                                sendError("当前没有播放控制权限")
+                                sendError("当前没有播放控制权限", "control_denied")
                                 return@consumeEach
                             }
                             if (timeline == null &&
@@ -803,7 +882,13 @@ internal fun Application.watchTogetherModule(
                                 )
                             }
                             if (timeline == null) return@consumeEach
-                            broadcastSync(room, timeline)
+                            // The anchor is already the room's; past the pace only its broadcast waits,
+                            // and goes out once for everything that arrived meanwhile.
+                            if (pacer.admit(PacedAction.Sync)) {
+                                broadcastSync(room, timeline)
+                            } else {
+                                appScope.scheduleTrailingSync(room)
+                            }
                         }
 
                         // Control handoff. Guests used to have no way to ask for the
@@ -812,6 +897,7 @@ internal fun Application.watchTogetherModule(
                         "requestControl" -> {
                             val room = joinedRoom ?: return@consumeEach
                             val clientId = joinedClientId ?: return@consumeEach
+                            if (!pacer.admit(PacedAction.Control)) return@consumeEach
                             val (hostSession, askerName) =
                                 synchronized(room) {
                                     val participant =
@@ -822,17 +908,13 @@ internal fun Application.watchTogetherModule(
                                     room.participants[room.hostId]?.session to
                                         room.participants[clientId]?.name
                                 }
-                            hostSession?.let { session ->
-                                runCatching {
-                                    session.sendMessage(
-                                        WatchWireMessage(
-                                            type = "controlRequested",
-                                            clientId = clientId,
-                                            name = askerName,
-                                        ),
-                                    )
-                                }
-                            }
+                            hostSession?.deliverDirect(
+                                WatchWireMessage(
+                                    type = "controlRequested",
+                                    clientId = clientId,
+                                    name = askerName,
+                                ),
+                            )
                         }
 
                         "grantControl" -> {
@@ -840,6 +922,9 @@ internal fun Application.watchTogetherModule(
                             val target =
                                 normalizeClientId(message.targetClientId)
                                     ?: return@consumeEach
+                            if (!pacer.admit(PacedAction.Control)) {
+                                return@consumeEach sendError("操作太频繁，请稍后再试", "control_rate_limited")
+                            }
                             var grantedHostCapability: String? = null
                             val handed =
                                 synchronized(room) {
@@ -861,7 +946,9 @@ internal fun Application.watchTogetherModule(
                                     synchronized(room) {
                                         room.participants[target]?.session
                                     }
-                                targetSession?.sendMessage(
+                                // The target may be gone or stalled; that is its problem, not the granting
+                                // host's, whose read loop an exception here used to end.
+                                targetSession?.deliverDirect(
                                     WatchWireMessage(
                                         type = "hostCapabilityGranted",
                                         hostCapability = grantedHostCapability,
@@ -887,11 +974,7 @@ internal fun Application.watchTogetherModule(
                                         room.participants[target]?.session
                                     }
                                 }
-                            targetSession?.let { session ->
-                                runCatching {
-                                    session.sendMessage(WatchWireMessage(type = "controlDenied"))
-                                }
-                            }
+                            targetSession?.deliverDirect(WatchWireMessage(type = "controlDenied"))
                         }
 
                         "setControlMode" -> {
@@ -903,6 +986,9 @@ internal fun Application.watchTogetherModule(
                                         "控制权限模式无效",
                                         "control_mode_invalid",
                                     )
+                            if (!pacer.admit(PacedAction.Control)) {
+                                return@consumeEach sendError("操作太频繁，请稍后再试", "control_rate_limited")
+                            }
                             val changed =
                                 synchronized(room) {
                                     val actor =
@@ -927,23 +1013,27 @@ internal fun Application.watchTogetherModule(
                                 normalizeClientId(message.targetClientId)
                                     ?: return@consumeEach
                             val enabled = message.moderator ?: return@consumeEach
+                            if (!pacer.admit(PacedAction.Control)) {
+                                return@consumeEach sendError("操作太频繁，请稍后再试", "control_rate_limited")
+                            }
                             val changed =
                                 synchronized(room) {
                                     val actor =
                                         room.participants[clientId]
                                             ?.takeIf { it.session === this }
+                                    val targetMember = room.participants[target]
                                     if (
                                         actor == null ||
                                         !room.isAuthorizedHost(actor) ||
                                         target == room.hostId ||
-                                        !room.participants.containsKey(target)
+                                        targetMember == null
                                     ) {
                                         return@synchronized false
                                     }
                                     if (enabled) {
-                                        room.moderatorIds.add(target)
+                                        room.moderatorKeys.add(targetMember.memberKey)
                                     } else {
-                                        room.moderatorIds.remove(target)
+                                        room.moderatorKeys.remove(targetMember.memberKey)
                                     }
                                 }
                             if (changed) broadcastRoomUpdate(room)
@@ -963,6 +1053,13 @@ internal fun Application.watchTogetherModule(
                                 return@consumeEach sendError(
                                     "播放列表新增请求无效",
                                     "playlist_invalid",
+                                )
+                            }
+                            if (!pacer.admit(PacedAction.Playlist)) {
+                                return@consumeEach finishPlaylistMutation(
+                                    room,
+                                    PlaylistMutationResult.RateLimited,
+                                    broadcastRoomUpdate,
                                 )
                             }
                             val result =
@@ -988,7 +1085,7 @@ internal fun Application.watchTogetherModule(
                                         }
                                     }
                                 }
-                            finishPlaylistMutation(room, result)
+                            finishPlaylistMutation(room, result, broadcastRoomUpdate)
                         }
 
                         "playlistUpdate" -> {
@@ -1008,6 +1105,13 @@ internal fun Application.watchTogetherModule(
                                     "playlist_invalid",
                                 )
                             }
+                            if (!pacer.admit(PacedAction.Playlist)) {
+                                return@consumeEach finishPlaylistMutation(
+                                    room,
+                                    PlaylistMutationResult.RateLimited,
+                                    broadcastRoomUpdate,
+                                )
+                            }
                             val result =
                                 room.mutatePlaylist(
                                     clientId = clientId,
@@ -1024,7 +1128,7 @@ internal fun Application.watchTogetherModule(
                                         }
                                     }
                                 }
-                            finishPlaylistMutation(room, result)
+                            finishPlaylistMutation(room, result, broadcastRoomUpdate)
                         }
 
                         "playlistRemove" -> {
@@ -1044,6 +1148,13 @@ internal fun Application.watchTogetherModule(
                                     "playlist_invalid",
                                 )
                             }
+                            if (!pacer.admit(PacedAction.Playlist)) {
+                                return@consumeEach finishPlaylistMutation(
+                                    room,
+                                    PlaylistMutationResult.RateLimited,
+                                    broadcastRoomUpdate,
+                                )
+                            }
                             val result =
                                 room.mutatePlaylist(
                                     clientId = clientId,
@@ -1058,7 +1169,7 @@ internal fun Application.watchTogetherModule(
                                         PlaylistMutationResult.Changed
                                     }
                                 }
-                            finishPlaylistMutation(room, result)
+                            finishPlaylistMutation(room, result, broadcastRoomUpdate)
                         }
 
                         "playlistReorder" -> {
@@ -1077,6 +1188,13 @@ internal fun Application.watchTogetherModule(
                                 return@consumeEach sendError(
                                     "播放列表排序请求无效",
                                     "playlist_invalid",
+                                )
+                            }
+                            if (!pacer.admit(PacedAction.Playlist)) {
+                                return@consumeEach finishPlaylistMutation(
+                                    room,
+                                    PlaylistMutationResult.RateLimited,
+                                    broadcastRoomUpdate,
                                 )
                             }
                             val result =
@@ -1098,7 +1216,7 @@ internal fun Application.watchTogetherModule(
                                         }
                                     }
                                 }
-                            finishPlaylistMutation(room, result)
+                            finishPlaylistMutation(room, result, broadcastRoomUpdate)
                         }
 
                         "kickParticipant" -> {
@@ -1107,6 +1225,9 @@ internal fun Application.watchTogetherModule(
                             val target =
                                 normalizeClientId(message.targetClientId)
                                     ?: return@consumeEach
+                            if (!pacer.admit(PacedAction.Control)) {
+                                return@consumeEach sendError("操作太频繁，请稍后再试", "control_rate_limited")
+                            }
                             var denied = false
                             var removalLimitReached = false
                             val removedParticipants =
@@ -1139,19 +1260,22 @@ internal fun Application.watchTogetherModule(
                             }
                             removedParticipants?.forEach { participant ->
                                 val session = participant.session
-                                runCatching {
-                                    session.sendMessage(
-                                        WatchWireMessage(
-                                            type = "kicked",
-                                            message = "你已被房主移出当前房间",
-                                        ),
-                                    )
-                                    session.close(
-                                        CloseReason(
-                                            CloseReason.Codes.VIOLATED_POLICY,
-                                            "removed by host",
-                                        ),
-                                    )
+                                session.deliverDirect(
+                                    WatchWireMessage(
+                                        type = "kicked",
+                                        message = "你已被房主移出当前房间",
+                                        errorCode = "removed_by_host",
+                                    ),
+                                )
+                                withTimeoutOrNull(BROADCAST_SEND_TIMEOUT_MS) {
+                                    runCatching {
+                                        session.close(
+                                            CloseReason(
+                                                CloseReason.Codes.VIOLATED_POLICY,
+                                                "removed by host",
+                                            ),
+                                        )
+                                    }
                                 }
                             }
                             if (!removedParticipants.isNullOrEmpty()) broadcastRoomUpdate(room)
@@ -1245,9 +1369,23 @@ internal fun Application.watchTogetherModule(
                                     }
                                 }
                             when (change) {
-                                PlaybackStatusChange.Readiness -> broadcastRoomUpdate(room)
+                                // Past the pace a readiness flip still lands, on the coalesced presence update.
+                                PlaybackStatusChange.Readiness ->
+                                    if (pacer.admit(PacedAction.Readiness)) {
+                                        broadcastRoomUpdate(room)
+                                    } else {
+                                        appScope.schedulePresenceBroadcast(
+                                            room,
+                                            presenceBroadcastIntervalMs,
+                                            broadcastRoomUpdate,
+                                        )
+                                    }
                                 PlaybackStatusChange.Presence ->
-                                    appScope.schedulePresenceBroadcast(room, presenceBroadcastIntervalMs)
+                                    appScope.schedulePresenceBroadcast(
+                                        room,
+                                        presenceBroadcastIntervalMs,
+                                        broadcastRoomUpdate,
+                                    )
                                 PlaybackStatusChange.None -> Unit
                             }
                         }
@@ -1366,8 +1504,10 @@ internal fun Application.watchTogetherModule(
                         joinedClientId = joinedClientId,
                         session = this@webSocket,
                         connectionLease = connectionLease,
-                        broadcastRoomUpdate = ::broadcastRoomUpdate,
-                        scheduleHostHandover = { room -> appScope.scheduleHostHandover(room, hostGraceMs) },
+                        broadcastRoomUpdate = broadcastRoomUpdate,
+                        scheduleHostHandover = { room ->
+                            appScope.scheduleHostHandover(room, hostGraceMs, broadcastRoomUpdate)
+                        },
                     )
                 }
             }

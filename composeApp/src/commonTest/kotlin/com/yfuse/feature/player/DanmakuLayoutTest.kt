@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.data.DanmakuComment
 import com.yfuse.core.data.DanmakuKind
+import com.yfuse.core.designsystem.Motion
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -35,6 +36,61 @@ class DanmakuLayoutTest {
         assertEquals(1f, danmakuHeldAlpha(elapsedMs = 2_000L, durationMs = 4_000L, fadeMs = 150L))
         assertEquals(0.5f, danmakuHeldAlpha(elapsedMs = 3_925L, durationMs = 4_000L, fadeMs = 150L))
         assertEquals(0f, danmakuHeldAlpha(elapsedMs = 4_001L, durationMs = 4_000L, fadeMs = 150L))
+    }
+
+    @Test
+    fun a_flying_comment_is_drawn_only_while_it_crosses_and_fades_when_held_still() {
+        assertEquals(0f, danmakuDrawAlpha(elapsedMs = -1L, durationMs = 8_000L, reduceMotion = false))
+        assertEquals(1f, danmakuDrawAlpha(elapsedMs = 0L, durationMs = 8_000L, reduceMotion = false))
+        assertEquals(1f, danmakuDrawAlpha(elapsedMs = 8_000L, durationMs = 8_000L, reduceMotion = false))
+        assertEquals(0f, danmakuDrawAlpha(elapsedMs = 8_001L, durationMs = 8_000L, reduceMotion = false))
+        assertEquals(
+            danmakuHeldAlpha(elapsedMs = 75L, durationMs = 4_000L, fadeMs = Motion.REDUCED_FADE.toLong()),
+            danmakuDrawAlpha(elapsedMs = 75L, durationMs = 4_000L, reduceMotion = true),
+        )
+    }
+
+    @Test
+    fun a_lane_takes_no_more_comments_at_once_than_its_cap() {
+        // Lines this narrow clear the screen's edge in under 80 ms: only the cap keeps a lane from filling.
+        val narrow =
+            listOf(0L, 100L, 200L, 300L, 400L, 8_000L).mapIndexed { index, timeMs ->
+                DanmakuLayoutInput(index = index, comment = DanmakuComment(timeMs, "$index"), width = 10f)
+            }
+
+        val oneLane =
+            allocateDanmakuLanes(
+                inputs = narrow,
+                laneCount = 1,
+                viewportWidth = 1_000f,
+                scrollDurationMs = 8_000L,
+                maxPerLane = 3,
+            )
+        // The fourth and fifth find the lane full; by 8 s the first has gone and makes room.
+        assertEquals(listOf(0, 1, 2, 5), oneLane.map { it.input.index })
+
+        val twoLanes =
+            allocateDanmakuLanes(
+                inputs = narrow,
+                laneCount = 2,
+                viewportWidth = 1_000f,
+                scrollDurationMs = 8_000L,
+                maxPerLane = 3,
+            )
+        assertEquals(listOf(0, 0, 0, 1, 1, 0), twoLanes.map { it.lane })
+    }
+
+    @Test
+    fun a_comment_dropped_at_a_full_lane_stays_dropped() {
+        val cache = HashMap<DanmakuKey, Int>()
+        val narrow = (0 until 3).map { DanmakuLayoutInput(it, DanmakuComment(it * 100L, "$it"), width = 10f) }
+        val first =
+            allocateDanmakuLanes(narrow, 1, 1_000f, 8_000L, laneCache = cache, maxPerLane = 2)
+        assertEquals(listOf(0, 1), first.map { it.input.index })
+        // A rebuilt list without the first leaves room, but the third would appear mid-flight.
+        val rebuilt =
+            allocateDanmakuLanes(narrow.drop(1), 1, 1_000f, 8_000L, laneCache = cache, maxPerLane = 2)
+        assertEquals(listOf(1), rebuilt.map { it.input.index })
     }
 
     @Test

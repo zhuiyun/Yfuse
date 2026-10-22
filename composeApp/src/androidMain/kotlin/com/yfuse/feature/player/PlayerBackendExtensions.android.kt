@@ -67,10 +67,14 @@ internal class PlayerBackendExtensions(
      * Set by the player screen: restarts the session at the same position with the current entry
      * transcoded, for an engine that cannot switch an open source in place.
      */
-    var transcodeRebuild: ((String?) -> Boolean)? = null
+    var transcodeRebuild: ((reason: String?, viewerRequested: Boolean) -> Boolean)? = null
 
-    fun switchToTranscode(reason: String? = null): Boolean =
-        engine.switchToTranscode(reason) || transcodeRebuild?.invoke(reason) == true
+    fun switchToTranscode(
+        reason: String? = null,
+        viewerRequested: Boolean = false,
+    ): Boolean =
+        engine.switchToTranscode(reason, viewerRequested) ||
+            transcodeRebuild?.invoke(reason, viewerRequested) == true
 
     fun appendItems(items: List<PlayerMediaItem>): Boolean = engine.appendItems(items)
 
@@ -99,7 +103,11 @@ internal class PlayerBackendExtensions(
     fun selectDiscChapter(index: Int): Boolean =
         ActiveDiscNavigation.selectChapter(index) || engine.selectDiscChapter(index)
 
-    fun showDiscMenu(): Boolean =
-        ActiveDiscNavigation.sendMenuCommand(PlaybackDiscMenuCommand.ShowMenu) ||
-            engine.sendDiscMenuCommand(PlaybackDiscMenuCommand.ShowMenu)
+    /** Off the main thread: both the disc runtime and the engine's native menu can block on reads. */
+    fun showDiscMenu(): Boolean {
+        val engineMenu = { engine.sendDiscMenuCommand(PlaybackDiscMenuCommand.ShowMenu) }
+        if (ActiveDiscNavigation.sendMenuCommand(PlaybackDiscMenuCommand.ShowMenu, fallback = engineMenu)) return true
+        // Work handed to the menu worker cannot report back, so an engine without a disc menu says so here.
+        return engine.state.value.discNavigation.menuSupported && ActiveDiscNavigation.dispatchMenuWork(engineMenu)
+    }
 }

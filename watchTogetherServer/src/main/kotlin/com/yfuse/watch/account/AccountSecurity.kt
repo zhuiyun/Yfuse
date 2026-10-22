@@ -77,6 +77,13 @@ internal class Pbkdf2PasswordHasher(
 
     companion object {
         internal const val PRODUCTION_ITERATIONS = 600_000
+
+        /**
+         * Protocol 2 sends a key the device already stretched with 600,000 rounds, so the stored
+         * verifier only has to stop a leaked database from being replayed as a login; keeping it
+         * cheap is what stops logins from being a lever on this server's CPU.
+         */
+        internal const val AUTH_KEY_VERIFIER_ITERATIONS = 10_000
         private const val ALGORITHM = "PBKDF2WithHmacSHA256"
         private const val SALT_BYTES = 16
         private const val HASH_BITS = 256

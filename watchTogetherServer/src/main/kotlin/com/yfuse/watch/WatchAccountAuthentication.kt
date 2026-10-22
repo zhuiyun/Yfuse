@@ -22,7 +22,7 @@ private const val ACCOUNT_AUTH_ATTEMPT_TIMEOUT_MS = 10_000L
 private const val ACCOUNT_INITIAL_AUTH_MAX_TRANSIENT_FAILURES = 8
 internal const val WATCH_INITIAL_AUTH_TIMEOUT_MS = 15_000L
 
-private sealed interface WatchAccountAuthentication {
+internal sealed interface WatchAccountAuthentication {
     data class Accepted(
         val account: AuthenticatedAccount,
     ) : WatchAccountAuthentication
@@ -34,7 +34,7 @@ private sealed interface WatchAccountAuthentication {
     data object Failed : WatchAccountAuthentication
 }
 
-private suspend fun authenticateWatchAccount(
+internal suspend fun authenticateWatchAccount(
     authenticator: suspend (String) -> AuthenticatedAccount,
     accessToken: String,
 ): WatchAccountAuthentication =
@@ -58,7 +58,7 @@ private suspend fun authenticateWatchAccount(
         WatchAccountAuthentication.Failed
     }
 
-private fun nextWatchAuthFailureCount(current: Int): Int =
+internal fun nextWatchAuthFailureCount(current: Int): Int =
     (current + 1).coerceAtMost(ACCOUNT_AUTH_RETRY_MAX_EXPONENT + 1)
 
 /** Full-jitter exponential retry, bounded so an account outage cannot create a retry storm. */

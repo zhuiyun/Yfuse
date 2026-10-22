@@ -102,5 +102,11 @@ internal class PlayerSourceChoices {
 
     // Entry id -> why the server has to transcode it, for an engine that cannot rewrite an open source
     // in place (YCore). The session restarts at the same position with that entry transcoded.
-    var forcedTranscodes: Map<String, String> by mutableStateOf(emptyMap())
+    var forcedTranscodes: Map<String, ForcedTranscode> by mutableStateOf(emptyMap())
 }
+
+/** Why an entry is restarted on the server's transcode, and whether the viewer asked for it. */
+internal data class ForcedTranscode(
+    val reason: String,
+    val byViewer: Boolean,
+)

@@ -74,6 +74,8 @@ internal class WatchJoinFailureLimiter(
         }
     }
 
+    internal fun trackedKeys(): Int = trackedKeyCount()
+
     internal fun trackedKeyCount(): Int = synchronized(lock) { failuresByKey.size + penalizedUntilByKey.size }
 
     private fun atCapacityLocked(nowMs: Long): Boolean {
@@ -116,3 +118,11 @@ internal class WatchJoinFailureLimiter(
         const val CLEANUP_INTERVAL_MS = 30_000L
     }
 }
+
+/** An address may be shared, while an account must keep its own guess budget. */
+internal fun joinFailureKeys(
+    clientIp: String,
+    accountUserId: String,
+): List<String> = listOf(joinFailureAddressKey(clientIp), "account:$accountUserId")
+
+internal fun joinFailureAddressKey(clientIp: String): String = "ip:$clientIp"

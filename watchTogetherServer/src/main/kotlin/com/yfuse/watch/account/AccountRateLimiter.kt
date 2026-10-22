@@ -6,6 +6,9 @@ import java.util.PriorityQueue
 data class AccountRateLimitPolicy(
     val credentialAttemptsPerWindow: Int = 10,
     val credentialWindowMs: Long = 60_000L,
+    /** Every protocol 2 login and registration asks first; answering costs one lookup. */
+    val preloginAttemptsPerWindow: Int = 30,
+    val preloginWindowMs: Long = 60_000L,
     val refreshAttemptsPerWindow: Int = 30,
     val refreshWindowMs: Long = 60_000L,
     val logoutAttemptsPerWindow: Int = 30,
@@ -35,6 +38,8 @@ data class AccountRateLimitPolicy(
     init {
         require(credentialAttemptsPerWindow > 0)
         require(credentialWindowMs > 0L)
+        require(preloginAttemptsPerWindow > 0)
+        require(preloginWindowMs > 0L)
         require(refreshAttemptsPerWindow > 0)
         require(refreshWindowMs > 0L)
         require(logoutAttemptsPerWindow > 0)
@@ -83,6 +88,7 @@ class AccountRateLimiter(
             val limit =
                 when (bucket) {
                     AccountRateLimitBucket.Credentials -> policy.credentialAttemptsPerWindow
+                    AccountRateLimitBucket.Prelogin -> policy.preloginAttemptsPerWindow
                     AccountRateLimitBucket.Refresh -> policy.refreshAttemptsPerWindow
                     AccountRateLimitBucket.Logout -> policy.logoutAttemptsPerWindow
                     AccountRateLimitBucket.ProfileRead -> policy.profileReadAttemptsPerWindow
@@ -96,6 +102,7 @@ class AccountRateLimiter(
             val windowMs =
                 when (bucket) {
                     AccountRateLimitBucket.Credentials -> policy.credentialWindowMs
+                    AccountRateLimitBucket.Prelogin -> policy.preloginWindowMs
                     AccountRateLimitBucket.Refresh -> policy.refreshWindowMs
                     AccountRateLimitBucket.Logout -> policy.logoutWindowMs
                     AccountRateLimitBucket.ProfileRead,
@@ -232,6 +239,7 @@ class AccountRateLimiter(
 
 internal enum class AccountRateLimitBucket {
     Credentials,
+    Prelogin,
     Refresh,
     Logout,
     ProfileRead,

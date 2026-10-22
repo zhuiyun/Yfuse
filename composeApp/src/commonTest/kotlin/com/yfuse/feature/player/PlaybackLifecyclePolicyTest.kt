@@ -10,6 +10,8 @@ class PlaybackLifecyclePolicyTest {
     fun closing_player_rejects_play_even_before_the_exit_animation_finishes() {
         assertFalse(playAllowed(stopping = true))
         assertFalse(playAllowed(stopping = true, pictureInPicture = true))
+        assertFalse(playAllowed(stopping = true, backgroundAudio = true))
+        assertFalse(playAllowed(stopping = true, screenInteractive = false, backgroundAudio = true))
     }
 
     @Test
@@ -25,13 +27,23 @@ class PlaybackLifecyclePolicyTest {
         assertTrue(playAllowed(hasStarted = false, started = false))
     }
 
+    @Test
+    fun background_audio_accepts_play_and_focus_recovery_when_the_picture_is_hidden() {
+        assertTrue(playAllowed(started = false, backgroundAudio = true))
+        assertTrue(playAllowed(started = false, screenInteractive = false, backgroundAudio = true))
+        assertTrue(
+            playAllowed(started = false, screenInteractive = false, pictureInPicture = true, backgroundAudio = true),
+        )
+    }
+
     private fun playAllowed(
         screenInteractive: Boolean = true,
         hasStarted: Boolean = true,
         started: Boolean = true,
         pictureInPicture: Boolean = false,
         stopping: Boolean = false,
-    ) = playerPlaybackAllowed(screenInteractive, hasStarted, started, pictureInPicture, stopping)
+        backgroundAudio: Boolean = false,
+    ) = playerPlaybackAllowed(screenInteractive, hasStarted, started, pictureInPicture, stopping, backgroundAudio)
 
     @Test
     fun fullscreen_player_pauses_when_sent_to_background() {
@@ -107,6 +119,42 @@ class PlaybackLifecyclePolicyTest {
                 inPictureInPicture = false,
                 pictureInPictureWasVisible = false,
                 changingConfigurations = true,
+            ),
+        )
+    }
+
+    @Test
+    fun background_audio_keeps_the_sound_where_the_player_would_pause() {
+        listOf(
+            // The screen going off, even over a PiP window.
+            Triple(false, true, true),
+            Triple(false, false, false),
+            // The app going to the background.
+            Triple(true, false, false),
+        ).forEach { (screenInteractive, inPictureInPicture, pictureInPictureWasVisible) ->
+            assertEquals(
+                PlayerStopAction.KeepPlayingAudio,
+                playerStopAction(
+                    screenInteractive = screenInteractive,
+                    inPictureInPicture = inPictureInPicture,
+                    pictureInPictureWasVisible = pictureInPictureWasVisible,
+                    changingConfigurations = false,
+                    backgroundAudio = true,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun background_audio_still_lets_a_closed_picture_in_picture_close_the_player() {
+        assertEquals(
+            PlayerStopAction.FinishClosedPictureInPicture,
+            playerStopAction(
+                screenInteractive = true,
+                inPictureInPicture = false,
+                pictureInPictureWasVisible = true,
+                changingConfigurations = false,
+                backgroundAudio = true,
             ),
         )
     }

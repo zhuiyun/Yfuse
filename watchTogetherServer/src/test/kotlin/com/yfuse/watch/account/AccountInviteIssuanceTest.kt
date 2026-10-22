@@ -72,6 +72,47 @@ class AccountInviteIssuanceTest {
         }
 
     @Test
+    fun aConfiguredNameRegisteredAgainAfterDeletionDoesNotInheritTheCapability() {
+        val database = Files.createTempDirectory("yfuse-invite-pin").resolve("account.db").toFile()
+        try {
+            testApplication {
+                application { watchTogetherModule(accountBackend = backend(database)) }
+                val original = register("zhuiyun")
+                assertTrue("invite:issue" in original.userCapabilities())
+                val deleted =
+                    client.delete("/api/v1/account") {
+                        secure(original.token())
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"password":"Invite-Test-42"}""")
+                    }
+                assertEquals(HttpStatusCode.NoContent, deleted.status)
+
+                assertTrue(register("zhuiyun").userCapabilities().isEmpty())
+            }
+            // Taking the name out of the configuration and back in names whoever holds it then.
+            AccountBackend
+                .sqliteForTests(
+                    database,
+                    registrationPolicy = AccountRegistrationPolicy(enabled = true),
+                ).close()
+            testApplication {
+                application { watchTogetherModule(accountBackend = backend(database)) }
+                val signedIn =
+                    client
+                        .post("/api/v1/auth/login") {
+                            secure()
+                            contentType(ContentType.Application.Json)
+                            setBody("""{"username":"zhuiyun","password":"Invite-Test-42"}""")
+                        }.bodyAsText()
+                        .json()
+                assertTrue("invite:issue" in signedIn.userCapabilities())
+            }
+        } finally {
+            database.parentFile.deleteRecursively()
+        }
+    }
+
+    @Test
     fun issuedInviteIsPersistedAsDigestAndRedeemsOnceAcrossRestart() {
         val database = Files.createTempDirectory("yfuse-invite-test").resolve("account.db").toFile()
         lateinit var code: String

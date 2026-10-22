@@ -60,7 +60,8 @@ class WatchMultiDeviceTest {
                     headers.append(HttpHeaders.Authorization, "Bearer ${other.accessToken}")
                 }
             conflicting.send("""{"type":"hello","protocolVersion":5,"clientId":"phone","roomCode":"$room"}""")
-            assertEquals("account_membership_conflict", conflicting.receiveType("error").string("errorCode"))
+            // The host's device id is online under another account: refused for now, not bound for good.
+            assertEquals("client_id_in_use", conflicting.receiveType("error").string("errorCode"))
 
             val replacement =
                 sockets.webSocketSession("/watch") {

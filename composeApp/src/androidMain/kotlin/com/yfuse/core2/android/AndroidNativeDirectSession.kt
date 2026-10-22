@@ -266,7 +266,7 @@ internal class AndroidNativeDirectSession(
             is Command.SetSpeed -> updateSpeed(command.speed)
             is Command.SetAudioDelay -> updateAudioDelay(command.delayMs)
             is Command.SetAudioEffect -> updateAudioEffect(command.effect)
-            is Command.SetVideoOutput -> setSurface(command.output)
+            is Command.SetVideoOutput -> setSurface(command.output).also { command.detached?.complete(Unit) }
             is Command.SelectAudioTrack -> selectAudioTrack(command.trackIndex)
             is Command.SelectSubtitleTrack ->
                 selectSubtitleTrack(command.trackIndex, command.externalTrackId, command.secondary)

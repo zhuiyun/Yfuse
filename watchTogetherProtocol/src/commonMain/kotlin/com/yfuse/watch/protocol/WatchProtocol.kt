@@ -76,7 +76,43 @@ data class WatchWireMessage(
      * television that asked for one — see [RemoteSignInServer].
      */
     val signInServer: RemoteSignInServer? = null,
+    /**
+     * Room snapshots (`welcome`, `roomUpdate`), under [WatchProtocol.CAPABILITY_ROOM_REVISION]: grows
+     * with every snapshot the relay takes of the room, in the order it took them. Broadcasts to one
+     * member can overtake each other on the way, so a client keeps the newest revision it has seen
+     * on a connection and ignores the room state of an older snapshot. Absent means accept.
+     */
+    val roomRevision: Long? = null,
+    /**
+     * `error`: true when the same request can succeed later without the client changing anything —
+     * a rate limit or a full service — so a client waits and retries instead of giving up the room.
+     * An older relay leaves it out; [WatchProtocol.isRetryableError] answers from the code then.
+     */
+    val retryable: Boolean? = null,
+    /**
+     * Under [WatchProtocol.CAPABILITY_REAUTHENTICATE]: when the socket's account access lapses, on
+     * the relay's clock (compare with [serverAtMs] of the same message). `reauthenticated` carries it.
+     */
+    val authExpiresAtMs: Long? = null,
+    /** Secrets a message carries: never printed, see [WatchWireCredential]. */
+    val credential: WatchWireCredential? = null,
 )
+
+/**
+ * Secrets on the wire, kept apart so that printing a message never prints them.
+ *
+ * `reauthenticate` carries a fresh account [accessToken] for a socket that is already open, under
+ * [WatchProtocol.CAPABILITY_REAUTHENTICATE]. Under [WatchProtocol.CAPABILITY_REMOTE_PAIRING_TOKEN],
+ * `remoteAdmitted` hands a phone the [pairingToken] its television's admission was bound to, and the
+ * phone presents it on every later `remoteJoin` of that television.
+ */
+@Serializable
+data class WatchWireCredential(
+    val accessToken: String? = null,
+    val pairingToken: String? = null,
+) {
+    override fun toString(): String = "WatchWireCredential(redacted)"
+}
 
 /**
  * 手机遥控's keys by their wire names. A phone sends one per press; the television replays it as a
@@ -214,6 +250,35 @@ object WatchProtocol {
      */
     const val CAPABILITY_REMOTE_SIGN_IN = "remoteSignIn"
 
+    /**
+     * Room snapshots carry [WatchWireMessage.roomRevision]. A client that lists this among the
+     * [WatchWireMessage.capabilities] of its `hello` also gets `roomUpdate`s without the playlist
+     * (and its revision) whenever the playlist has not changed since the last snapshot sent to it.
+     * A client that does not list it gets the whole playlist every time, as before.
+     */
+    const val CAPABILITY_ROOM_REVISION = "roomRevision"
+
+    /**
+     * A socket stays open across account token refreshes. A client that lists this among the
+     * capabilities of its first message (`hello`, `remoteHost` or `remoteJoin`) hears
+     * `reauthenticated` with [WatchWireMessage.authExpiresAtMs], and sends `reauthenticate` with a
+     * fresh token of the same account session before that time; each one is answered with
+     * `reauthenticated` again, or an `error` whose code starts with `reauth_`. Without a valid one
+     * the socket is closed at expiry with `account_auth_expired`, as it always was. If the relay
+     * finds the socket's token revoked or replaced it sends `error` `reauth_required` first and
+     * waits briefly for a fresh token. A client that says nothing keeps the old behaviour.
+     */
+    const val CAPABILITY_REAUTHENTICATE = "reauthenticate"
+
+    /**
+     * 手机遥控: the relay enforces a television's admission itself, and binds it to a token. A phone
+     * that lists this among the capabilities of its `remoteJoin` receives a
+     * [WatchWireCredential.pairingToken] with `remoteAdmitted`, and presents it on later joins of
+     * that television. A phone that claims an id with a token on record but cannot present it is
+     * named to the television as an unknown phone, so the television asks again.
+     */
+    const val CAPABILITY_REMOTE_PAIRING_TOKEN = "remotePairingToken"
+
     val SERVER_CAPABILITIES =
         listOf(
             CAPABILITY_REACTIONS,
@@ -226,6 +291,53 @@ object WatchProtocol {
             CAPABILITY_REMOTE_CONTROL,
             CAPABILITY_REMOTE_PAIRING,
             CAPABILITY_REMOTE_SIGN_IN,
+            CAPABILITY_ROOM_REVISION,
+            CAPABILITY_REAUTHENTICATE,
+            CAPABILITY_REMOTE_PAIRING_TOKEN,
+        )
+
+    /**
+     * `error` codes that describe a passing condition rather than a wrong request: pacing, a full
+     * service or room, a store that is briefly unavailable. Stable, so clients may switch on them.
+     */
+    val RETRYABLE_ERROR_CODES =
+        setOf(
+            "join_rate_limited",
+            "room_full",
+            "room_service_full",
+            "room_ip_limit",
+            "chat_rate_limited",
+            "chat_muted",
+            "sync_rate_limited",
+            "playlist_rate_limited",
+            "control_rate_limited",
+            "reauth_unavailable",
+            "reauth_required",
+            "reauth_rate_limited",
+            "client_id_in_use",
+            "remote_not_admitted",
+            "remote_service_full",
+            "remote_busy",
+            "remote_rate_limited",
+            "remote_unavailable",
+        )
+
+    /** [WatchWireMessage.retryable] when present, else what the code is known to mean. */
+    fun isRetryableError(message: WatchWireMessage): Boolean =
+        message.retryable ?: (message.errorCode in RETRYABLE_ERROR_CODES)
+
+    fun isRetryableErrorCode(code: String?): Boolean = code in RETRYABLE_ERROR_CODES
+
+    /** An account bearer as `reauthenticate` may carry it: the shape the `Authorization` header allows. */
+    const val MAX_ACCESS_TOKEN_BYTES = 512
+
+    /** A pairing token is a capability: 32 random bytes, base64url without padding. */
+    fun isValidPairingToken(value: String?): Boolean = isValidCapability(value)
+
+    fun isValidAccessToken(value: String?): Boolean =
+        isBoundedOpaqueId(
+            value = value,
+            maxBytes = MAX_ACCESS_TOKEN_BYTES,
         )
 
     fun isSupportedVersion(version: Int?): Boolean = version != null && version in MIN_SUPPORTED_VERSION..VERSION
@@ -360,6 +472,7 @@ object WatchProtocol {
             "playlistRemove",
             "playlistReorder",
             "ping",
+            "reauthenticate",
         ) + REMOTE_CLIENT_MESSAGE_TYPES
 
     fun isValidRoomCode(value: String?): Boolean =

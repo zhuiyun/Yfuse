@@ -25,13 +25,37 @@ internal class PlaybackProxyConnections(
     internal fun release() = permits.release()
 }
 
+/**
+ * A proxy's playback slots. A connection takes one of [maximumConnections] - and one of the
+ * process's - only once its request line names a route the proxy handed out ([tryAcquire]). Until
+ * then it holds one of [maximumPending] triage slots ([tryAcquirePending]), so sockets that never
+ * send a valid request, from anything on the device that can reach loopback, cannot occupy the
+ * slots the player's own requests need.
+ *
+ * There are several triage slots per playback slot. The player sends its request line as soon as
+ * it connects, so its sockets hold one for moments; with only as many as there are playback slots,
+ * a few idle sockets would turn the player away before it said what it wanted.
+ */
 internal class PlaybackProxyAdmission(
     val maximumConnections: Int = 16,
     private val process: PlaybackProxyConnections = processConnections,
+    val maximumPending: Int = maximumConnections * PENDING_SLOTS_PER_CONNECTION,
 ) {
     private val permits = Semaphore(maximumConnections.also { require(it > 0) })
+    private val pendingPermits = Semaphore(maximumPending.also { require(it > 0) })
 
     val activeConnections: Int get() = maximumConnections - permits.availablePermits()
+
+    val pendingConnections: Int get() = maximumPending - pendingPermits.availablePermits()
+
+    /** An accepted socket whose request has not been read yet; see the class comment. */
+    fun tryAcquirePending(): Closeable? {
+        if (!pendingPermits.tryAcquire()) return null
+        val released = AtomicBoolean(false)
+        return Closeable {
+            if (released.compareAndSet(false, true)) pendingPermits.release()
+        }
+    }
 
     fun tryAcquire(): Closeable? {
         if (!permits.tryAcquire()) return null
@@ -48,11 +72,14 @@ internal class PlaybackProxyAdmission(
         }
     }
 
-    /** No queued sockets can be orphaned by shutdownNow; rejection returns ownership to the caller. */
+    /**
+     * No queued sockets can be orphaned by shutdownNow; rejection returns ownership to the caller.
+     * One worker per playback slot and per triage slot: a socket holds one or the other.
+     */
     fun workers(name: String): ExecutorService =
         ThreadPoolExecutor(
             0,
-            maximumConnections,
+            maximumConnections + maximumPending,
             60L,
             TimeUnit.SECONDS,
             SynchronousQueue(),
@@ -129,6 +156,7 @@ internal class PlaybackProxyHeaderReader(
 }
 
 internal const val PLAYBACK_PROXY_HEADER_TIMEOUT_MS = 10_000L
+private const val PENDING_SLOTS_PER_CONNECTION = 4
 private const val MAX_PROXY_HEADER_LINE_BYTES = 8 * 1024
 private const val MAX_PROXY_HEADER_COUNT = 64
 private const val MAX_PROXY_HEADERS_BYTES = 64 * 1024

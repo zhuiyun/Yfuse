@@ -1,6 +1,5 @@
 package com.yfuse.feature.player
 
-import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -80,12 +79,7 @@ internal fun PlayerEngineReconciliation(
                         "failure" to localState.error.orEmpty(),
                     ),
             )
-            Toast
-                .makeText(
-                    context,
-                    core2NativeOnlyFailureToast(localState.errorKind),
-                    Toast.LENGTH_SHORT,
-                ).show()
+            PlayerNotices.show(core2NativeOnlyFailureToast(localState.errorKind))
             return@LaunchedEffect
         }
         build.resume =
@@ -109,7 +103,7 @@ internal fun PlayerEngineReconciliation(
                     "failure" to localState.error.orEmpty(),
                 ),
         )
-        Toast.makeText(context, "YCore 2.0 播放失败，已切回兼容内核", Toast.LENGTH_SHORT).show()
+        PlayerNotices.show("原生内核播放失败，已切换到兼容内核")
     }
     var appliedCapabilityRevision by remember { mutableLongStateOf(capabilityRevision) }
     var appliedOptimizationMode by remember { mutableStateOf(effectiveOptimizationMode) }

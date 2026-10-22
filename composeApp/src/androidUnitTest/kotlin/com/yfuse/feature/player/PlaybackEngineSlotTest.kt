@@ -127,9 +127,10 @@ class PlaybackEngineSlotTest {
         }
 
     @Test
-    fun a_failed_release_never_allows_manual_retry_to_build_another_engine() =
+    fun a_failed_release_keeps_its_decoder_lease_even_after_the_stuck_deadline() =
         runTest {
-            val retirements = PlaybackEngineRetirements(backgroundScope, { error("native destroy failed") })
+            val retirements =
+                PlaybackEngineRetirements(backgroundScope, { error("native destroy failed") }, stuckAfterMs = 1_000L)
             retirements.retire(SlotTestEngine(input()))
             val slot = PlaybackEngineSlot(input(), this, retirements)
             var built = false
@@ -140,12 +141,59 @@ class PlaybackEngineSlotTest {
                 },
             )
             runCurrent()
-            assertNotNull(slot.binding.value.engine.state.value.error)
+            assertFalse(built)
             slot.binding.value.engine
                 .retry()
             runCurrent()
             assertFalse(built)
-            assertNotNull(slot.binding.value.engine.state.value.error)
+            assertFalse(retirements.stuck.value)
+
+            advanceTimeBy(1_001L)
+            runCurrent()
+
+            assertFalse(built)
+            assertTrue(retirements.stuck.value)
+            slot.binding.value.engine
+                .retry()
+            runCurrent()
+            assertFalse(built) // A retry or a new timeout cannot grant a second decoder lease.
+            slot.close()
+        }
+
+    @Test
+    fun a_hung_release_that_finishes_after_all_is_no_longer_stuck() =
+        runTest {
+            val finish = CompletableDeferred<Unit>()
+            val hung = SlotTestEngine(input())
+            val retirements =
+                PlaybackEngineRetirements(backgroundScope, { if (it === hung) finish.await() }, stuckAfterMs = 1_000L)
+            retirements.retire(hung)
+            advanceTimeBy(1_001L)
+            runCurrent()
+            assertTrue(retirements.stuck.value)
+
+            finish.complete(Unit)
+            runCurrent()
+
+            assertFalse(retirements.stuck.value)
+        }
+
+    @Test
+    fun a_slot_failure_shows_the_players_words_never_the_exceptions() =
+        runTest {
+            val retirements = PlaybackEngineRetirements(backgroundScope, {})
+            val slot = PlaybackEngineSlot(input(), this, retirements)
+            slot.request(
+                PlaybackEngineRequest(
+                    input(),
+                ) { _, _ -> error("YCore 2.0 router did not finish releasing its decoder") },
+            )
+            runCurrent()
+
+            assertEquals(
+                PlaybackSlotFailure.ConstructionFailed.message,
+                slot.binding.value.engine.state.value.error,
+            )
             slot.close()
         }
 

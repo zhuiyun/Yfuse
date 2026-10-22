@@ -8,6 +8,7 @@ import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -104,8 +105,20 @@ internal class AndroidYCoreBluRayPlayer(
     private val nativeId: Long,
     private val unregisterSource: (Long) -> Unit = FfmpegNativeBridge::unregisterBluRaySource,
 ) : YPlayer by delegate,
-    AndroidSerializedPlayerRelease {
+    AndroidSerializedPlayerRelease,
+    AndroidVideoOutputDetach {
     private val serializedDelegate = checkNotNull(delegate as? AndroidSerializedPlayerRelease)
+
+    override fun detachVideoOutput(detached: CompletableDeferred<Unit>) {
+        val target = delegate as? AndroidVideoOutputDetach
+        if (target != null) {
+            target.detachVideoOutput(detached)
+        } else {
+            delegate.setVideoOutput(null)
+            detached.complete(Unit)
+        }
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     override val state: StateFlow<YPlayerState> =
         combine(delegate.state, navigation) { player, navigation ->

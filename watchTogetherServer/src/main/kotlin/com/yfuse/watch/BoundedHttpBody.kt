@@ -1,6 +1,8 @@
 package com.yfuse.watch
 
+import java.io.FilterInputStream
 import java.io.IOException
+import java.io.InputStream
 import java.net.http.HttpResponse
 import java.nio.ByteBuffer
 import java.util.concurrent.CompletionStage
@@ -12,6 +14,37 @@ internal fun boundedStringBodyHandler(maxBytes: Int): HttpResponse.BodyHandler<S
     val strings = HttpResponse.BodyHandlers.ofString()
     return HttpResponse.BodyHandler { info ->
         BoundedHttpBodySubscriber(strings.apply(info), maxBytes)
+    }
+}
+
+/** Fails a read once more than [maxBytes] have come through, however the body is consumed. */
+internal class BoundedInputStream(
+    source: InputStream,
+    private val maxBytes: Long,
+) : FilterInputStream(source) {
+    private var consumed = 0L
+
+    override fun read(): Int {
+        val value = super.read()
+        if (value >= 0) count(1)
+        return value
+    }
+
+    override fun read(
+        buffer: ByteArray,
+        offset: Int,
+        length: Int,
+    ): Int {
+        val read = super.read(buffer, offset, length)
+        if (read > 0) count(read)
+        return read
+    }
+
+    override fun skip(n: Long): Long = super.skip(n).also { if (it > 0) count(it) }
+
+    private fun count(bytes: Number) {
+        consumed += bytes.toLong()
+        if (consumed > maxBytes) throw IOException("Calendar upstream response exceeds $maxBytes bytes")
     }
 }
 

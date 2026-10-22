@@ -181,7 +181,7 @@ private fun AndroidNativeDirectYPlayer.Command.canBeReplacedBy(next: AndroidNati
         is AndroidNativeDirectYPlayer.Command.SetAudioEffect ->
             next is AndroidNativeDirectYPlayer.Command.SetAudioEffect
         is AndroidNativeDirectYPlayer.Command.SetVideoOutput ->
-            next is AndroidNativeDirectYPlayer.Command.SetVideoOutput
+            next is AndroidNativeDirectYPlayer.Command.SetVideoOutput && detached == null
         is AndroidNativeDirectYPlayer.Command.SelectAudioTrack ->
             next is AndroidNativeDirectYPlayer.Command.SelectAudioTrack
         is AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack ->

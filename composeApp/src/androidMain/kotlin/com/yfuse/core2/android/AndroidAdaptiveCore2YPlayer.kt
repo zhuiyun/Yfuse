@@ -45,6 +45,8 @@ import com.yfuse.core2.learning.YPlaybackLearningEngine
 import com.yfuse.core2.learning.YPlaybackLearningKey
 import com.yfuse.core2.learning.YPlaybackObservation
 import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
+import com.yfuse.core2.legacy.YNativeSubtitleStyle
+import com.yfuse.core2.legacy.YNativeSubtitleStyleTarget
 import com.yfuse.core2.quirk.YCore2FailureKey
 import com.yfuse.core2.quirk.YCore2FailureLedger
 import com.yfuse.core2.quirk.penalizesCore2Route
@@ -59,6 +61,7 @@ import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -118,6 +121,8 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val verifiedRouteMemory: AndroidYCoreVerifiedRouteMemory = AndroidYCoreVerifiedRouteMemory(context),
     private val onRelease: () -> Unit = {},
 ) : YPlayer,
+    YNativeSubtitleStyleTarget,
+    AndroidVideoOutputDetach,
     AndroidSerializedPlayerRelease {
     private val nativeOnly = fallbackRouteFactory == null
     private val queueLock = Any()
@@ -261,6 +266,14 @@ internal class AndroidAdaptiveCore2YPlayer(
         return true
     }
 
+    /** The detach travels the command loop to the child, which confirms once its codec let go. */
+    override fun detachVideoOutput(detached: CompletableDeferred<Unit>) {
+        confirmVideoDetachAfterWorkerRelease(worker, this, detached)
+        if (released) return
+        requestedVideoOutput = null
+        commands.trySend(Command.SetVideoOutput(null, detached))
+    }
+
     override fun play() {
         if (released) return
         mutableState.updateState { it.copy(playbackRequested = true, error = null, errorCategory = null) }
@@ -349,6 +362,21 @@ internal class AndroidAdaptiveCore2YPlayer(
     @Volatile
     private var pauseAtEndOfCurrentItem = false
 
+    /**
+     * 熄屏继续播放声音. YCore's own routes drop their video decoder with the Surface; the libmpv
+     * compatibility child would keep decoding video, so it is told, and so is every child attached
+     * while it holds.
+     */
+    @Volatile
+    private var videoSuspended = false
+
+    override val supportsBackgroundAudio: Boolean get() = activeChild?.supportsBackgroundAudio ?: true
+
+    override fun setVideoSuspended(suspended: Boolean) {
+        videoSuspended = suspended
+        activeChild?.setVideoSuspended(suspended)
+    }
+
     override fun setPauseAtEndOfCurrentItem(enabled: Boolean) {
         pauseAtEndOfCurrentItem = enabled
     }
@@ -424,20 +452,45 @@ internal class AndroidAdaptiveCore2YPlayer(
 
     override fun currentPositionMs(): Long = mutableState.value.positionMs
 
-    override val supportsAudioDelay: Boolean get() = true
+    /**
+     * Whether the active child honours a setting. A NativeTunnel child counts as honouring what the
+     * router provides by rebuilding off the tunnel. Before any child exists the router keeps the
+     * value and hands it to the child that attaches; every route it builds accepts these.
+     */
+    private inline fun activeChildHonors(capability: (YPlayer) -> Boolean): Boolean {
+        val child = activeChild ?: return true
+        return capability(child) || child.state.value.diagnostics.route == YPlaybackRoute.NativeTunnel
+    }
+
+    override val supportsAudioDelay: Boolean get() = activeChildHonors { it.supportsAudioDelay }
 
     override fun setAudioDelayMs(delayMs: Long): Boolean {
         if (released) return false
-        commands.trySend(Command.SetAudioDelay(delayMs.coerceIn(-5_000L, 5_000L)))
-        return true
+        val bounded = delayMs.coerceIn(-5_000L, 5_000L)
+        // Kept even when the active child refuses it, so the next route that can honours it.
+        commands.trySend(Command.SetAudioDelay(bounded))
+        return bounded == 0L || supportsAudioDelay
     }
 
-    override val supportsAudioEffects: Boolean get() = true
+    override val supportsAudioEffects: Boolean get() = activeChildHonors { it.supportsAudioEffects }
 
     override fun setAudioEffect(effect: YAudioEffect): Boolean {
         if (released) return false
         commands.trySend(Command.SetAudioEffect(effect))
-        return true
+        return effect == YAudioEffect.Off || supportsAudioEffects
+    }
+
+    /** The viewer's subtitle style for a child that draws subtitles itself; see [YNativeSubtitleStyle]. */
+    @Volatile
+    private var nativeSubtitleStyle: YNativeSubtitleStyle? = null
+
+    override fun setNativeSubtitleStyle(style: YNativeSubtitleStyle): Boolean {
+        if (released) return false
+        // Written before the child is read: either this call reaches the child that is attaching,
+        // or its attach reads this value (both volatile), and applying the same style twice is
+        // harmless.
+        nativeSubtitleStyle = style
+        return (activeChild as? YNativeSubtitleStyleTarget)?.setNativeSubtitleStyle(style) != false
     }
 
     override fun retry() {
@@ -1567,8 +1620,10 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
 
             next.setSpeed(speed)
-            next.setAudioDelayMs(audioDelayMs)
-            next.setAudioEffect(audioEffect)
+            if (!next.setAudioDelayMs(audioDelayMs)) reportRejectedSetting(next, "audioDelay")
+            if (!next.setAudioEffect(audioEffect)) reportRejectedSetting(next, "audioEffect")
+            nativeSubtitleStyle?.let { style -> (next as? YNativeSubtitleStyleTarget)?.setNativeSubtitleStyle(style) }
+            if (videoSuspended) next.setVideoSuspended(true)
             // NativeDirect gets the caller's newest output rather than the command copy, which may
             // still be queued behind this very start (see requestedVideoOutput): before prepare()
             // it only records the Surface and then configures its decoder with it. The enhanced
@@ -2355,7 +2410,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                 pendingPositionMs = globalChildPosition()
                 rebuild(pendingPositionMs)
             } else {
-                child?.setAudioDelayMs(audioDelayMs)
+                child?.let { active ->
+                    if (!active.setAudioDelayMs(audioDelayMs)) reportRejectedSetting(active, "audioDelay")
+                }
             }
         }
 
@@ -2372,8 +2429,30 @@ internal class AndroidAdaptiveCore2YPlayer(
                 pendingPositionMs = globalChildPosition()
                 rebuild(pendingPositionMs)
             } else {
-                child?.setAudioEffect(audioEffect)
+                child?.let { active ->
+                    if (!active.setAudioEffect(audioEffect)) reportRejectedSetting(active, "audioEffect")
+                }
             }
+        }
+
+        /**
+         * A setting the active child refused. The value stays with the router for the next child;
+         * the player screen learns of the refusal from the capability, which now follows the child.
+         */
+        private fun reportRejectedSetting(
+            active: YPlayer,
+            setting: String,
+        ) {
+            AppLog.warning(
+                category = "player.core2",
+                event = "child_setting_rejected",
+                message = "The active YCore route did not accept a playback setting",
+                attributes =
+                    mapOf(
+                        "setting" to setting,
+                        "route" to active.state.value.diagnostics.route.name,
+                    ),
+            )
         }
 
         private suspend fun changeTrack(command: Command.SelectTrack) {
@@ -2439,8 +2518,15 @@ internal class AndroidAdaptiveCore2YPlayer(
         private suspend fun updateVideoOutput(command: Command.SetVideoOutput) {
             output = command.output
             val active = child
+            val detached = command.detached
             if (active != null) {
-                // The attach may already have handed this very output over.
+                // Even repeated null outputs need a worker acknowledgement: an earlier detach
+                // may still be queued in the child while the router already records null.
+                if (output == null && detached != null && active is AndroidVideoOutputDetach) {
+                    active.detachVideoOutput(detached)
+                    childVideoOutput = null
+                    return
+                }
                 if (output != childVideoOutput) {
                     active.setVideoOutput(output)
                     childVideoOutput = output
@@ -2451,6 +2537,11 @@ internal class AndroidAdaptiveCore2YPlayer(
                 mutableState.value.phase != YPlaybackPhase.Failed
             ) {
                 rebuild(pendingPositionMs)
+            }
+            // A removed child may still own the old Surface while serial retirement completes.
+            if (detached != null) {
+                releaseBarrier.await()
+                detached.complete(Unit)
             }
         }
 
@@ -2788,6 +2879,8 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         data class SetVideoOutput(
             val output: YVideoOutput?,
+            /** Completed once the old output can no longer be rendered into; see [detachVideoOutput]. */
+            val detached: CompletableDeferred<Unit>? = null,
         ) : Command
 
         data class SelectItem(

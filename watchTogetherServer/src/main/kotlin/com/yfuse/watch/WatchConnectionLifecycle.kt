@@ -64,6 +64,7 @@ internal suspend fun cleanupSocket(
 internal fun CoroutineScope.scheduleHostHandover(
     room: Room,
     graceMs: Long,
+    broadcastRoomUpdate: suspend (Room) -> Unit,
 ) {
     launch {
         delay(graceMs)
@@ -76,7 +77,11 @@ internal fun CoroutineScope.scheduleHostHandover(
                 ) {
                     null
                 } else {
-                    val nextHost = room.participants.values.firstOrNull()
+                    val leftAtMs = room.hostAbsentSinceMs
+                    val nextHost =
+                        room.participants.values.firstOrNull { participant ->
+                            room.memberships[participant.memberKey]?.predates(leftAtMs) == true
+                        }
                     if (nextHost == null) {
                         null
                     } else {
@@ -86,14 +91,12 @@ internal fun CoroutineScope.scheduleHostHandover(
                 }
             }
         if (newHost != null) {
-            runCatching {
-                newHost.session.sendMessage(
-                    WatchWireMessage(
-                        type = "hostCapabilityGranted",
-                        hostCapability = grantedCapability,
-                    ),
-                )
-            }
+            newHost.session.deliverDirect(
+                WatchWireMessage(
+                    type = "hostCapabilityGranted",
+                    hostCapability = grantedCapability,
+                ),
+            )
             broadcastRoomUpdate(room)
         }
     }

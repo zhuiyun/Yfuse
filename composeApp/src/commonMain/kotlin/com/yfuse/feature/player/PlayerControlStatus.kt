@@ -183,6 +183,12 @@ internal fun BoxScope.PlayerPictureStatus(
         episodeSwipe = episodeSwipe,
     )
 
+    // What used to go out as a system toast - engine switches, recoveries, refusals - below the
+    // top bar, clear of the subtitles and of the gesture HUD in the middle.
+    PlayerNoticeLine(
+        modifier = Modifier.align(Alignment.TopCenter).padding(start = 24.dp, top = 76.dp, end = 24.dp),
+    )
+
     // Where the title bar sits — it has stepped aside for the hold — and clear of the
     // subtitles at the bottom and the gesture HUD in the middle.
     SpeedBoostPill(
@@ -204,7 +210,7 @@ internal fun BoxScope.PlayerPictureStatus(
     // track, this is the only readout there is. Only the 播放 and 暂停 those keys already say are left
     // out ([gestureHudLine]).
     PlayerGestureHud(
-        hud = { gestureState.hud },
+        hud = { gestureState.reading },
         centreKeysShown = showPausedKey || showEndedKeys,
         modifier = Modifier.align(Alignment.Center),
     )
@@ -260,12 +266,19 @@ internal fun PlayerErrorLayer(
                 .mapIndexedNotNull { index, (label, selected) ->
                     if (selected) null else label to { sourceActions.onSelectEngine(index) }
                 }.take(MAX_ERROR_ALTERNATIVES)
+        // Saves the position and restarts the app's process: the only way to get back a decoder that
+        // a previous player never released.
+        val restart =
+            listOfNotNull(
+                ("重启播放组件" to sourceActions.onRestartPlaybackComponents)
+                    .takeIf { source.playbackComponentsStuck },
+            )
         PlaybackErrorOverlay(
             message = message,
             onRetry = onRetry,
             onExternalPlayer = sourceActions.onExternalPlayer,
             onBack = onBack,
-            alternatives = otherVersions + otherEngines,
+            alternatives = restart + otherVersions + otherEngines,
             onExplain = { showProblem = true },
         )
     }

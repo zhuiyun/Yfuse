@@ -19,11 +19,17 @@ internal fun Application.productionWatchTogetherModule(
         CalendarScheduleStore.sqlite(
             File(System.getenv("CALENDAR_DB_PATH") ?: "/var/lib/yfuse/calendar.db"),
         )
+    // Rooms and 手机遥控 pairings survive a deploy; the file is closed when the module stops.
+    val watchStateStore =
+        SqliteWatchStateStore.sqlite(
+            File(System.getenv("WATCH_STATE_DB_PATH") ?: "/var/lib/yfuse/watch-state.db"),
+        )
     watchTogetherModule(
         accountBackend = accountBackend,
         migrationRelayBackend = migrationRelayBackend,
         requireWatchAuthentication = requireWatchAuthentication,
         calendarScheduleStore = calendarScheduleStore,
+        roomStateStore = watchStateStore,
     )
     val backend =
         QoeAggregateBackend.sqlite(

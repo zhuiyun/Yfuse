@@ -2,9 +2,9 @@
 
 Every APK built with `tmdb.token` carries a TMDB read token in `BuildConfig.TMDB_TOKEN`, and
 anything in an APK can be extracted. The account server (`watchTogetherServer`) already holds a
-TMDB token for calendar ingestion, so a signed-in account reads TMDB through it and the app needs
-its own token only for signed-out use. Removing that last use is a separate decision, described
-at the end.
+TMDB token for calendar ingestion, so apps read TMDB through it: signed-in accounts with their
+access token, and — since the anonymous mode below — signed-out apps without any token, so a
+release APK no longer needs one. Removing it is still the owner's decision, described at the end.
 
 ## Server
 
@@ -12,7 +12,9 @@ at the end.
 
 - **Authentication** is exactly that of the other account routes: HTTPS (or loopback with
   `X-Forwarded-Proto: https`), the per-IP limit, then `Authorization: Bearer <account access
-  token>`. Anything else is `401`.
+  token>`. A request with **no** `Authorization` header is a signed-out read (see *Anonymous
+  mode*); a header that is present but not a valid session is `401`, so a signed-in app renews
+  its session instead of silently reading as anonymous.
 - **Allowlist** (`TmdbProxyAllowlist.kt`): only the reads the app makes, each with its own
   parameters and value patterns. Any other path, parameter, repeated parameter or value is
   refused with `403 tmdb_request_not_allowed`; nothing is trimmed and forwarded.
@@ -48,6 +50,27 @@ at the end.
   `502 tmdb_unavailable`. A refused server token is never reported as `401`, which the app would
   read as its own session failing.
 - **No token**: `503 tmdb_unconfigured`, logged once as `tmdb_proxy_unconfigured`.
+
+### Anonymous mode
+
+Signed-out apps call the same route without `Authorization`. The contract:
+
+- **Same reads**: the same allowlist (`403 tmdb_request_not_allowed` otherwise), the same
+  upstream handling and status mapping, and the **same shared cache** as signed-in reads, so a
+  popular chart or title costs TMDB one read for everybody.
+- **Per client**: 120 requests a minute (`TMDB_ANONYMOUS_PER_CLIENT_PER_MINUTE`), keyed by the
+  client's IPv4 address or, for IPv6, by its **/64** (one subscriber's usual allocation; single
+  IPv6 addresses would let one client rotate through billions). The client address comes from
+  the socket, or from Caddy's overwritten `X-Forwarded-For` as for every account route. At most
+  20,000 clients are tracked; past that, new ones wait for a slot like any other limit here.
+- **Shared budget**: cache misses from all signed-out clients together are limited to 600 a minute
+  (`TMDB_ANONYMOUS_MISSES_PER_MINUTE`), which protects the token's allowance that signed-in
+  users and calendar ingestion share. Cache hits do not count against it.
+- **When limited**: `429 tmdb_rate_limited` with `Retry-After` in seconds, in the account API's
+  error shape. A TMDB `429` pauses misses for everybody exactly as for signed-in reads.
+- **Off switch**: `TMDB_ANONYMOUS=off` makes a request without `Authorization` a `401` again, as
+  before this mode existed.
+- Signed-in requests are unchanged: their per-account budget and status mapping are as above.
 - **Logs** (`tmdb_proxy_upstream_failed`, `tmdb_proxy_upstream_limited`) carry the endpoint label
   (`person/{id}`, never the id), the status or exception type, and never the token, the query or
   the body. The request log records the path without the query, as for every route.
@@ -62,7 +85,8 @@ built into an APK; see the last section.
 After deploying, from any machine:
 
 ```bash
-# 401 means the route exists; 404 means the running build predates it.
+# 200 (or 429) means the route and anonymous mode are live; 401 means anonymous mode is off or
+# the build predates it; 404 means the running build predates the proxy.
 curl -s -o /dev/null -w '%{http_code}\n' https://47.112.219.60/api/v1/tmdb/movie/603
 ```
 
@@ -94,7 +118,7 @@ address to `TMDB_BASE`:
 
 ## Rollout order
 
-1. Deploy the server with `TMDB_TOKEN` set, and check the `401` above.
+1. Deploy the server with `TMDB_TOKEN` set, and check the `200` above.
 2. Publish the app. Installed older versions keep using their own token and never call the
    proxy.
 
@@ -109,7 +133,8 @@ Nothing here removes the token from release builds. That takes two steps, both t
 
 1. Build releases without `tmdb.token`: the release workflow currently requires the `TMDB_TOKEN`
    secret and writes it to `local.properties` (`.github/workflows/publish-android.yml`). Signed-in
-   users are unaffected; **signed-out users lose TMDB features** (recommendations, the calendar,
-   TMDB pages and 其他作品) and see the existing empty and error states.
+   users are unaffected. Signed-out users keep TMDB features through the anonymous mode once the
+   app routes signed-out reads to the proxy without a bearer (an app change); until then they
+   lose them and see the existing empty and error states.
 2. Revoke the token that shipped in earlier APKs, since those stay extractable forever, and give
    the server a new one. Older installed versions then lose direct TMDB access.

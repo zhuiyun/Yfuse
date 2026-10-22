@@ -667,7 +667,7 @@ private fun PersonalPinDialog(
             if (setting) {
                 YfFormField(next, {
                     next = it.filter(Char::isDigit).take(12)
-                }, label = "新 PIN（4–12 位）", visualTransformation = PasswordVisualTransformation())
+                }, label = "新 PIN（6–12 位）", visualTransformation = PasswordVisualTransformation())
             }
             error?.let { PersonalDialogError(it) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {

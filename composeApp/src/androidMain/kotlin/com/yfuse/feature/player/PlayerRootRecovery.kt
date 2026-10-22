@@ -1,7 +1,6 @@
 package com.yfuse.feature.player
 
 import android.os.SystemClock
-import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableIntState
@@ -225,12 +224,7 @@ internal fun rememberPlayerSourceSwitching(
                                     "playSessionId" to oldSessionId,
                                 ),
                         )
-                        Toast
-                            .makeText(
-                                context,
-                                "切换版本失败：无法清理旧的服务器转码，请稍后重试",
-                                Toast.LENGTH_LONG,
-                            ).show()
+                        PlayerNotices.show("切换版本失败：无法清理旧的服务器转码，请稍后重试", longer = true)
                         return@launch
                     }
 
@@ -318,12 +312,7 @@ internal fun rememberPlayerSourceSwitching(
                     if (operation != serverSwitchNonce) return@launch
                     if (preparation == PlaybackSourceSwitchPreparation.Superseded) return@launch
                     if (preparation == PlaybackSourceSwitchPreparation.CleanupRejected) {
-                        Toast
-                            .makeText(
-                                context,
-                                "切换服务器失败：无法清理旧的服务器转码，请稍后重试",
-                                Toast.LENGTH_LONG,
-                            ).show()
+                        PlayerNotices.show("切换服务器失败：无法清理旧的服务器转码，请稍后重试", longer = true)
                         return@launch
                     }
 
@@ -545,7 +534,7 @@ internal fun PlayerRuntimeFaultRecovery(
                             "attempt" to longBufferRecoveryAttempts.toString(),
                         ),
                 )
-                Toast.makeText(context, "网络数据长时间未到达，正在重新连接", Toast.LENGTH_SHORT).show()
+                PlayerNotices.show("网络数据长时间未到达，正在重新连接")
             }
 
             PlaybackRuntimeFaultStep.RestartNativePipeline -> {
@@ -576,12 +565,7 @@ internal fun PlayerRuntimeFaultRecovery(
                             "attempt" to nativeOnlyRecoveryAttempts.toString(),
                         ),
                 )
-                Toast
-                    .makeText(
-                        context,
-                        "YCore 正在重建本地解码链路",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                PlayerNotices.show("原生内核正在重建解码链路")
             }
 
             PlaybackRuntimeFaultStep.NativeRestartsSpent -> {
@@ -596,12 +580,7 @@ internal fun PlayerRuntimeFaultRecovery(
                             "fault" to fault.kind.name,
                         ),
                 )
-                Toast
-                    .makeText(
-                        context,
-                        "YCore 本地恢复失败，未切换兼容内核或服务器解码",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                PlayerNotices.show("原生内核恢复失败；纯原生模式不会改用兼容内核或服务器解码")
             }
 
             PlaybackRuntimeFaultStep.LeaveCore2Trial -> {
@@ -625,7 +604,7 @@ internal fun PlayerRuntimeFaultRecovery(
                             "fault" to fault.kind.name,
                         ),
                 )
-                Toast.makeText(context, "试用内核输出异常，已切回兼容内核", Toast.LENGTH_SHORT).show()
+                PlayerNotices.show("原生内核画面输出异常，已切换到兼容内核")
             }
 
             is PlaybackRuntimeFaultStep.Engine,
@@ -884,7 +863,7 @@ internal fun PlaybackFailureRecovery(
                             "positionMs" to positionMs.toString(),
                         ),
                 )
-                Toast.makeText(context, "当前线路播放失败，已切换服务器", Toast.LENGTH_SHORT).show()
+                PlayerNotices.show("当前线路播放失败，已切换服务器")
             }
 
             PlaybackRecoveryStep.Exhausted -> Unit

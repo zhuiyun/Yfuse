@@ -1,7 +1,6 @@
 package com.yfuse.feature.player
 
 import android.content.Context
-import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -436,25 +435,13 @@ internal fun rememberPlayerDanmakuController(
     )
 }
 
-/**
- * Past this many characters the 弹幕 key's toast stays up the long time: a line saying why no
- * comments show is read, not glanced at. Twelve, as the app's own toasts start lengthening.
- */
-private const val DANMAKU_TOAST_GLANCE_CHARS = 12
-
-/** The 弹幕 key's toast, one at a time: a new line takes the place of the one still showing. */
+/** The 弹幕 key's notices, one at a time: a new line takes the place of the one still showing. */
 internal class DanmakuKeyToastSlot {
-    private var shown: Toast? = null
-
     fun show(
-        context: Context,
+        @Suppress("UNUSED_PARAMETER") context: Context,
         message: String,
     ) {
-        shown?.cancel()
-        val length = if (message.length > DANMAKU_TOAST_GLANCE_CHARS) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
-        val toast = Toast.makeText(context, message, length)
-        toast.show()
-        shown = toast
+        PlayerNotices.show(message)
     }
 }
 

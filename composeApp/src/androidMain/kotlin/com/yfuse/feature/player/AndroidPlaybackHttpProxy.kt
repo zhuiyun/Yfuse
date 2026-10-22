@@ -129,21 +129,22 @@ internal class AndroidPlaybackHttpProxy(
         while (!closed.get()) {
             val socket = runCatching { server.accept() }.getOrNull() ?: break
             val acceptedAtNs = System.nanoTime()
-            val admission = connectionAdmission.tryAcquire()
-            if (admission == null) {
+            // A triage slot only: the playback slot is taken once serve() has read a valid request.
+            val pending = connectionAdmission.tryAcquirePending()
+            if (pending == null) {
                 runCatching { socket.close() }
                 continue
             }
             val request = requests.register(socket)
             if (request == null) {
-                admission.close()
+                pending.close()
                 continue
             }
             runCatching {
                 workers.execute {
                     try {
                         request.ensureOpen()
-                        serve(request, acceptedAtNs)
+                        serve(request, acceptedAtNs, pending)
                     } catch (error: Exception) {
                         if (!request.isCancelled) {
                             AppLog.warning(
@@ -157,7 +158,7 @@ internal class AndroidPlaybackHttpProxy(
                         try {
                             requests.finish(request)
                         } finally {
-                            admission.close()
+                            pending.close()
                         }
                     }
                 }
@@ -165,7 +166,7 @@ internal class AndroidPlaybackHttpProxy(
                 try {
                     requests.finish(request)
                 } finally {
-                    admission.close()
+                    pending.close()
                 }
             }
         }
@@ -174,6 +175,7 @@ internal class AndroidPlaybackHttpProxy(
     private fun serve(
         request: PlaybackProxyRequest,
         acceptedAtNs: Long,
+        pending: Closeable,
     ) {
         val socket = request.socket
         val reader = PlaybackProxyHeaderReader(socket, headerTimeoutMs, acceptedAtNs)
@@ -186,19 +188,24 @@ internal class AndroidPlaybackHttpProxy(
             return
         }
 
-        val requestHeaders = reader.readHeaders()
-        request.ensureOpen()
-
         val lease = routeId?.let(routes::acquire)
         if (lease == null) {
             writeSimpleResponse(socket, 404, "Not Found")
             return
         }
         lease.use {
-            if (method == "GET" && lease.route.cacheable && cacheHandle != null) {
-                serveCached(request, lease.route, requestHeaders)
-            } else {
-                servePlatform(request, lease, method, requestHeaders)
+            // A request for a route this proxy handed out: only now does it take a playback slot.
+            val admission = connectionAdmission.tryAcquire()
+            pending.close()
+            if (admission == null) return
+            admission.use {
+                val requestHeaders = reader.readHeaders()
+                request.ensureOpen()
+                if (method == "GET" && lease.route.cacheable && cacheHandle != null) {
+                    serveCached(request, lease.route, requestHeaders)
+                } else {
+                    servePlatform(request, lease, method, requestHeaders)
+                }
             }
         }
     }

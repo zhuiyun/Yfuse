@@ -326,7 +326,7 @@ internal fun PlayerControls(
     LaunchedEffect(remoteChromeState?.seekTargetMs, remoteChromeState?.seeking) {
         val target = remoteChromeState?.seekTargetMs ?: return@LaunchedEffect
         if (remoteChromeState.seeking) {
-            gestureState.say("跳转 ${target.asClock()} / ${state.durationMs.asClock()}")
+            gestureState.say("跳转 ${target.asClock()} / ${state.durationMs.asClock()}", GestureHudKind.Seek)
         }
     }
 
@@ -549,7 +549,7 @@ internal fun PlayerControls(
                 val mute = muteToggle(latestVolume(), keyboard.mutedFrom)
                 keyboard.mutedFrom = mute.restoreTo
                 latestOnVolume(mute.volume)
-                gestureState.say(mute.message)
+                gestureState.say(mute.message, if (mute.volume > 0f) GestureHudKind.Volume else GestureHudKind.Message)
             }
             is PlayerKeyAction.Say -> gestureState.say(action.message)
             PlayerKeyAction.Pass -> Unit

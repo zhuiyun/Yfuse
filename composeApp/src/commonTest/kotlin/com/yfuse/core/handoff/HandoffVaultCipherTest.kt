@@ -25,6 +25,7 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
@@ -55,11 +56,16 @@ class HandoffVaultCipherTest {
             val accountClient =
                 createAccountClient(
                     MockEngine { request ->
-                        check(request.url.encodedPath == "/api/v1/auth/register")
-                        respond(
-                            Json.encodeToString(auth),
-                            headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
-                        )
+                        if (request.url.encodedPath == "/api/v1/auth/prelogin") {
+                            // A service from before account protocol 2.
+                            respond("", HttpStatusCode.NotFound)
+                        } else {
+                            check(request.url.encodedPath == "/api/v1/auth/register")
+                            respond(
+                                Json.encodeToString(auth),
+                                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+                            )
+                        }
                     },
                 )
             val embyClient = HttpClient(MockEngine { error("No media access expected") })

@@ -188,6 +188,7 @@ internal fun PlaybackSettingsScreen(
     mediaVersionPreference: MediaVersionPreference,
     autoNext: Boolean,
     detailThemeSong: Boolean,
+    backgroundAudio: Boolean,
     smartCrossServerSource: Boolean,
     progressSyncEnabled: Boolean,
     anonymousQoeSharing: Boolean,
@@ -201,6 +202,7 @@ internal fun PlaybackSettingsScreen(
     onOpenAdvanced: () -> Unit,
     onAutoNext: (Boolean) -> Unit,
     onDetailThemeSong: (Boolean) -> Unit,
+    onBackgroundAudio: (Boolean) -> Unit,
     onSmartCrossServerSource: (Boolean) -> Unit,
     onProgressSync: (Boolean) -> Unit,
     onAnonymousQoeSharing: (Boolean) -> Unit,
@@ -285,6 +287,16 @@ internal fun PlaybackSettingsScreen(
                         iconTint = SettingTint.audio,
                         description = "服务器有主题曲时，在详情页轻声播放；进入播放器即停",
                         onChange = onDetailThemeSong,
+                    )
+                    SettingsDivider()
+                    SwitchRow(
+                        "熄屏继续播放声音",
+                        backgroundAudio,
+                        true,
+                        icon = AppIcons.Volume,
+                        iconTint = SettingTint.audio,
+                        description = "关闭屏幕或切到后台时只播放声音，回到播放器时恢复画面",
+                        onChange = onBackgroundAudio,
                     )
                     SettingsDivider()
                     SwitchRow(

@@ -22,6 +22,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.io.File
+import java.io.InputStream
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -87,7 +88,10 @@ private class CalendarIngestionRuntime(
             val domesticDiscovery = discoverShows(config, today)
             val domesticDiscoveredShows = domesticDiscovery.shows
             val overseasDiscoveredShows =
-                loadOverseasDiscovery(config.overseas, today) { url -> fetchText(url, MAX_TVMAZE_SCHEDULE_CHARS) }
+                loadOverseasDiscoveryStream(
+                    config.overseas,
+                    today,
+                ) { url -> openStream(url, MAX_TVMAZE_SCHEDULE_BYTES) }
             val discoveredShows = domesticDiscoveredShows + overseasDiscoveredShows
             CalendarIngestionHealth.discovered(
                 domestic = domesticDiscoveredShows.size,
@@ -902,6 +906,41 @@ private class CalendarIngestionRuntime(
             ) {
                 return response.body()
             }
+            val retryable = response == null || response.statusCode() == 429 || response.statusCode() >= 500
+            if (!retryable || attempt == SOURCE_FETCH_ATTEMPTS - 1) return null
+            try {
+                Thread.sleep(SOURCE_FETCH_RETRY_BASE_MS * (attempt + 1L))
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return null
+            }
+        }
+        return null
+    }
+
+    /**
+     * Like [fetchText], but hands over the body as it arrives, capped at [maxBytes]; retries only
+     * while no body has been read. The caller closes the stream.
+     */
+    private fun openStream(
+        url: String,
+        maxBytes: Long,
+    ): InputStream? {
+        val uri = runCatching { requireHttps(url) }.getOrNull() ?: return null
+        repeat(SOURCE_FETCH_ATTEMPTS) { attempt ->
+            val request =
+                HttpRequest
+                    .newBuilder(uri)
+                    .timeout(Duration.ofSeconds(12))
+                    .header("User-Agent", "YfuseCalendarBot/1.1 (+official-schedule-evidence)")
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build()
+            val response = runCatching { http.send(request, HttpResponse.BodyHandlers.ofInputStream()) }.getOrNull()
+            if (response != null && response.statusCode() in 200..299) {
+                return BoundedInputStream(response.body(), maxBytes)
+            }
+            response?.body()?.close()
             val retryable = response == null || response.statusCode() == 429 || response.statusCode() >= 500
             if (!retryable || attempt == SOURCE_FETCH_ATTEMPTS - 1) return null
             try {

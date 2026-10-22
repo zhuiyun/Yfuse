@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check server.mjs && node --check render-scheduler.mjs && node --check network-policy.mjs && node --check capture-session.mjs",
+    "check": "node --check server.mjs && node --check render-scheduler.mjs && node --check network-policy.mjs && node --check network-guard.mjs && node --check capture-session.mjs",
     "capture-session": "node capture-session.mjs",
     "test": "node --test *.test.mjs"
   },

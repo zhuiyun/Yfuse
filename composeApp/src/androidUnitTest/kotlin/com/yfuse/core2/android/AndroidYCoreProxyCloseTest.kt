@@ -27,6 +27,28 @@ import kotlin.test.assertTrue
 
 class AndroidYCoreProxyCloseTest {
     @Test
+    fun an_early_emitted_segment_remains_reachable_after_a_long_vod_route_batch() {
+        val upstream =
+            object : RecordingTransport() {
+                override suspend fun open(request: YMediaTransportRequest) =
+                    YMediaTransportResponse(200, contentLength = 0L)
+            }
+        withProxy({ upstream }) { proxy ->
+            val first = proxy.localUrl("https://media.test/segment-0.ts", cacheable = false, cacheIdentity = null)
+            repeat(9_000) { index ->
+                proxy.localUrl("https://media.test/segment-${index + 1}.ts", cacheable = false, cacheIdentity = null)
+            }
+            val connection = URL(first).openConnection() as HttpURLConnection
+            connection.readTimeout = 3_000
+            try {
+                assertEquals(200, connection.responseCode)
+            } finally {
+                connection.disconnect()
+            }
+        }
+    }
+
+    @Test
     fun retrying_a_source_does_not_inherit_its_previous_denial() {
         val status = AtomicInteger(403)
         val upstream =

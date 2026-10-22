@@ -33,8 +33,13 @@ class WatchRoomAdmissionTest {
 
         assertEquals(setOf("guest-phone", "guest-tv"), removed.map(Participant::id).toSet())
         assertEquals(setOf("host-phone", "other-tablet"), room.participants.keys)
-        assertEquals(setOf("host-phone", "other-tablet"), room.memberships.keys)
-        assertEquals(setOf("other-tablet"), room.moderatorIds)
+        assertEquals(
+            setOf("host-phone", "other-tablet"),
+            room.memberships.values
+                .map(Membership::clientId)
+                .toSet(),
+        )
+        assertEquals(setOf(memberKey("other-account", "other-tablet")), room.moderatorKeys)
         assertTrue(room.isAuthorizedHost(host))
         assertTrue(room.canControl(retainedModerator))
         assertEquals(RoomJoinRejection.Removed, room.admissionFor("new-guest-device", "guest-account"))
@@ -67,7 +72,7 @@ class WatchRoomAdmissionTest {
         moderator: Boolean = false,
     ): Participant {
         val member = newMembership(code, clientId, accountUserId).first
-        memberships[clientId] = member
+        memberships[member.key] = member
         val participant =
             Participant(
                 id = clientId,
@@ -78,7 +83,7 @@ class WatchRoomAdmissionTest {
                 accountUserId = accountUserId,
             )
         if (online) participants[clientId] = participant
-        if (moderator) moderatorIds.add(clientId)
+        if (moderator) moderatorKeys.add(member.key)
         return participant
     }
 

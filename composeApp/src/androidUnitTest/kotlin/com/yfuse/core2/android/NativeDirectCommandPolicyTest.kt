@@ -73,4 +73,13 @@ class NativeDirectCommandPolicyTest {
             compacted,
         )
     }
+
+    @Test
+    fun a_detach_someone_waits_for_is_never_replaced() {
+        val detached = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val confirmed = AndroidNativeDirectYPlayer.Command.SetVideoOutput(null, detached)
+        val later = AndroidNativeDirectYPlayer.Command.SetVideoOutput(null)
+
+        assertEquals(listOf(confirmed, later), coalesceNativeDirectCommands(listOf(confirmed, later)))
+    }
 }

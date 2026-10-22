@@ -87,6 +87,131 @@ internal fun parseExternalStreamUrl(input: String): ExternalStreamUrl {
 private fun String.isValidPort(): Boolean = length in 1..5 && all { it in '0'..'9' } && toInt() in 1..65_535
 
 /**
+ * Whether an http(s) [url] points at this device or the local network: loopback, private and
+ * link-local addresses, and names only a LAN resolves (`nas`, `*.local`, `*.lan`, `*.home.arpa`).
+ *
+ * Typed by the viewer, such an address is what they meant. Handed over by another app it is a
+ * request to make Yfuse fetch from inside the network on that app's behalf - a router page, another
+ * app's loopback server - so the viewer is asked first.
+ */
+internal fun externalStreamTargetsLocalNetwork(url: String): Boolean {
+    val host = externalStreamHost(url)?.lowercase()?.trimEnd('.') ?: return false
+    if (host.isEmpty()) return false
+    if (host == "localhost" || host.endsWith(".localhost")) return true
+    host.toIpv4Octets()?.let { return it.isLocalIpv4() }
+    if (':' in host) return host.isLocalIpv6()
+    return '.' !in host || LOCAL_NAME_SUFFIXES.any { host.endsWith(it) }
+}
+
+private val LOCAL_NAME_SUFFIXES = listOf(".local", ".lan", ".home", ".internal", ".intranet", ".home.arpa")
+
+/** The host of an http(s) address, without brackets, user info or port; null when there is none. */
+private fun externalStreamHost(url: String): String? {
+    val separator = url.indexOf("://")
+    if (separator <= 0) return null
+    val remainder = url.substring(separator + 3)
+    val authorityEnd = remainder.indexOfFirst { it == '/' || it == '?' || it == '#' }
+    val authority = if (authorityEnd < 0) remainder else remainder.substring(0, authorityEnd)
+    val hostAndPort = authority.substringAfterLast('@')
+    return if (hostAndPort.startsWith("[")) {
+        hostAndPort.substring(1).substringBefore(']')
+    } else {
+        hostAndPort.substringBefore(':')
+    }
+}
+
+private fun String.toIpv4Octets(): List<Int>? {
+    val parts = split('.')
+    if (parts.size != 4) return null
+    return parts.map { part -> part.toIntOrNull()?.takeIf { part.isNotEmpty() && it in 0..255 } ?: return null }
+}
+
+private fun List<Int>.isLocalIpv4(): Boolean {
+    val (a, b) = this
+    return a == 0 ||
+        a == 10 ||
+        a == 127 ||
+        (a == 100 && b in 64..127) ||
+        (a == 169 && b == 254) ||
+        (a == 172 && b in 16..31) ||
+        (a == 192 && b == 168)
+}
+
+private fun String.isLocalIpv6(): Boolean {
+    val words = ipv6Words() ?: return false
+    if (words.take(7).all { it == 0 } && words[7] in 0..1) return true
+    // IPv4-mapped addresses may spell their last 32 bits in dotted decimal or hexadecimal.
+    if (words.take(5).all { it == 0 } && words[5] == 0xFFFF) {
+        return listOf(words[6] ushr 8, words[6] and 0xFF, words[7] ushr 8, words[7] and 0xFF).isLocalIpv4()
+    }
+    // fc00::/7 unique local, fe80::/10 link local.
+    return (words[0] and 0xFE00) == 0xFC00 || (words[0] and 0xFFC0) == 0xFE80
+}
+
+/** Expands the literal only; this does not resolve host names or make network requests. */
+private fun String.ipv6Words(): List<Int>? {
+    var address = substringBefore('%')
+    if ('.' in address) {
+        val octets = address.substringAfterLast(':').toIpv4Octets() ?: return null
+        address =
+            address.substringBeforeLast(':') + ":" +
+            ((octets[0] shl 8) or octets[1]).toString(16) + ":" +
+            ((octets[2] shl 8) or octets[3]).toString(16)
+    }
+    val halves = address.split("::")
+    if (halves.size > 2) return null
+
+    fun words(part: String): List<Int>? {
+        if (part.isEmpty()) return emptyList()
+        return part.split(':').map { word ->
+            if (word.length !in 1..4 || word.any { it !in "0123456789abcdef" }) return null
+            word.toInt(16)
+        }
+    }
+    val left = words(halves[0]) ?: return null
+    if (halves.size == 1) return left.takeIf { it.size == 8 }
+    val right = words(halves[1]) ?: return null
+    val zeroCount = 8 - left.size - right.size
+    if (zeroCount < 1) return null
+    return left + List(zeroCount) { 0 } + right
+}
+
+/**
+ * Whether a media address carries a sign-in credential: an Emby/Jellyfin `api_key`, a Plex token,
+ * an access token, or a user name and password in the address itself. Handing it to another app
+ * hands over the account with it.
+ */
+internal fun mediaUrlCarriesCredential(url: String): Boolean {
+    val separator = url.indexOf("://")
+    if (separator > 0) {
+        val remainder = url.substring(separator + 3)
+        val authorityEnd = remainder.indexOfFirst { it == '/' || it == '?' || it == '#' }
+        val authority = if (authorityEnd < 0) remainder else remainder.substring(0, authorityEnd)
+        if ('@' in authority) return true
+    }
+    val query = url.substringAfter('?', missingDelimiterValue = "").substringBefore('#')
+    if (query.isEmpty()) return false
+    return query.split('&').any { parameter ->
+        val name = parameter.substringBefore('=').lowercase()
+        name in CREDENTIAL_QUERY_NAMES && parameter.substringAfter('=', missingDelimiterValue = "").isNotEmpty()
+    }
+}
+
+private val CREDENTIAL_QUERY_NAMES =
+    setOf(
+        "api_key",
+        "apikey",
+        "x-emby-token",
+        "x-mediabrowser-token",
+        "x-plex-token",
+        "access_token",
+        "accesstoken",
+        "token",
+        "auth",
+        "authorization",
+    )
+
+/**
  * The first `http(s)://` address inside shared text, or null.
  *
  * Share sheets rarely send a bare link: a title comes first, or 复制打开 follows without a space.

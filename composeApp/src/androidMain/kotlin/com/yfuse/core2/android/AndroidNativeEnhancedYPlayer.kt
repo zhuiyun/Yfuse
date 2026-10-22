@@ -32,6 +32,7 @@ import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -70,6 +71,7 @@ internal class AndroidNativeEnhancedYPlayer(
     private val initialProbeBudget: AndroidProbeBudget? = null,
 ) : YPlayer,
     AndroidSerializedPlayerRelease,
+    AndroidVideoOutputDetach,
     YPlaybackFailureReporter {
     @Volatile
     override var lastPlaybackFailure: Throwable? = null
@@ -181,6 +183,12 @@ internal class AndroidNativeEnhancedYPlayer(
         if (output != null && output !is AndroidSurfaceVideoOutput) return false
         submit(Command.SetVideoOutput(output as AndroidSurfaceVideoOutput?))
         return true
+    }
+
+    override fun detachVideoOutput(detached: CompletableDeferred<Unit>) {
+        confirmVideoDetachAfterWorkerRelease(worker, this, detached)
+        if (released) return
+        submit(Command.SetVideoOutput(null, detached))
     }
 
     override fun play() {
@@ -348,14 +356,17 @@ internal class AndroidNativeEnhancedYPlayer(
         if (released) return
         releasedAtMs = System.nanoTime() / 1_000_000L
         released = true
-        activeProbeBudget?.cancel("released")
-        activeSession?.cancelPendingRead()
-        proxy?.close()
-        commands.close()
-        wakeSignal.trySend(Unit)
-        worker.invokeOnCompletion { playbackDispatcher.close() }
-        worker.cancel()
-        scope.cancel()
+        try {
+            activeProbeBudget?.cancel("released")
+            activeSession?.cancelPendingRead()
+            proxy?.close()
+        } finally {
+            commands.close()
+            wakeSignal.trySend(Unit)
+            worker.invokeOnCompletion { playbackDispatcher.close() }
+            worker.cancel()
+            scope.cancel()
+        }
         mutableState.update { current ->
             current.copy(
                 phase = YPlaybackPhase.Idle,
@@ -1036,6 +1047,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                     } else if (!prepared) {
                                         prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
                                     }
+                                    command.detached?.complete(Unit)
                                 }
                                 is Command.SelectAudioTrack -> {
                                     if (prepared) {
@@ -1190,6 +1202,8 @@ internal class AndroidNativeEnhancedYPlayer(
 
         data class SetVideoOutput(
             val output: AndroidSurfaceVideoOutput?,
+            /** Completed once the session no longer renders into the previous Surface. */
+            val detached: CompletableDeferred<Unit>? = null,
         ) : Command
 
         data class SelectAudioTrack(
@@ -1261,8 +1275,9 @@ private fun AndroidNativeEnhancedYPlayer.Command.canBeReplacedBy(next: AndroidNa
             next is AndroidNativeEnhancedYPlayer.Command.SetAudioDelay
         is AndroidNativeEnhancedYPlayer.Command.SetAudioEffect ->
             next is AndroidNativeEnhancedYPlayer.Command.SetAudioEffect
+        // A confirmed detach is never dropped: someone is waiting for it.
         is AndroidNativeEnhancedYPlayer.Command.SetVideoOutput ->
-            next is AndroidNativeEnhancedYPlayer.Command.SetVideoOutput
+            next is AndroidNativeEnhancedYPlayer.Command.SetVideoOutput && detached == null
         is AndroidNativeEnhancedYPlayer.Command.SelectAudioTrack ->
             next is AndroidNativeEnhancedYPlayer.Command.SelectAudioTrack
         is AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack ->

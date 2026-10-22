@@ -2,8 +2,10 @@ package com.yfuse.feature.player
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class MissedLineRewindTest {
     private fun track(
@@ -34,6 +36,17 @@ class MissedLineRewindTest {
         assertEquals("s-zh", missedLineSubtitleTrack(subtitles, mandarin)?.id)
         val cantonese = listOf(track("a", "yue", selected = true))
         assertEquals("s-zh", missedLineSubtitleTrack(subtitles, cantonese)?.id)
+    }
+
+    @Test
+    fun the_containers_forced_flag_decides_over_the_tracks_label() {
+        val flagged = EngineTrack(id = "f", label = "English", language = "en", selected = false, forced = true)
+        val namedOnly =
+            EngineTrack(id = "n", label = "Forced Narrative", language = "en", selected = false, forced = false)
+
+        assertTrue(flagged.isForcedSubtitle())
+        assertFalse(namedOnly.isForcedSubtitle())
+        assertEquals("n", missedLineSubtitleTrack(listOf(flagged, namedOnly), englishAudio)?.id)
     }
 
     @Test

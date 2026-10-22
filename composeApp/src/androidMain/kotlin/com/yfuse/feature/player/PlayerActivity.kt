@@ -249,6 +249,14 @@ class PlayerActivity :
     private var stopRequested = false
     private var activityStarted = false
     private var activityHasStarted = false
+
+    /** 熄屏继续播放声音 is carrying playback: the picture is suspended, the sound plays on. */
+    private var backgroundAudioActive = false
+    private var backgroundAudioUnavailable = false
+    private val backgroundLocks by lazy { PlaybackBackgroundLocks(applicationContext) }
+    private val backgroundAudioSetting by lazy {
+        runCatching { GlobalContext.get().get<PlaybackPreferences>().backgroundAudio }.getOrNull()
+    }
     private var screenStateReceiverRegistered = false
     private var playbackKeepAliveRequested = false
     private var playbackKeepAliveStartDeferred = false
@@ -286,7 +294,7 @@ class PlayerActivity :
                 intent: Intent?,
             ) {
                 when (intent?.action) {
-                    Intent.ACTION_SCREEN_OFF -> pausePlaybackForLifecycle("screen_off")
+                    Intent.ACTION_SCREEN_OFF -> enterBackgroundAudio("screen_off")
                     AudioManager.ACTION_AUDIO_BECOMING_NOISY -> pausePlaybackForNoisyOutput()
                 }
             }
@@ -809,7 +817,7 @@ class PlayerActivity :
                 player = { activePlayer },
                 onLocked = {
                     runOnUiThread {
-                        Toast.makeText(this, "当前由房主控制播放", Toast.LENGTH_SHORT).show()
+                        PlayerNotices.show("当前由房主控制播放")
                     }
                 },
                 onPauseRequested = audioFocusController::cancelResume,
@@ -924,6 +932,8 @@ class PlayerActivity :
                             playbackGate = playbackController,
                             onPlayerAttached = { player, appendItems, updateQueue ->
                                 activePlayer = player
+                                // A player built while the sound plays on alone starts without its picture.
+                                if (backgroundAudioActive) player.setVideoSuspended(true)
                                 activeQueueAppender = appendItems
                                 activeQueueUpdater = updateQueue
                                 applyPendingEnrichment()
@@ -959,14 +969,12 @@ class PlayerActivity :
                                 }
                                 updateMediaSession(state)
                                 updatePictureInPictureParams()
+                                if (backgroundAudioActive && activePlayer?.supportsBackgroundAudio == false) {
+                                    pauseUnsupportedBackgroundAudio("route_background_audio_unsupported")
+                                }
+                                if (backgroundAudioActive) backgroundLocks.update(held = state.playing)
                                 if (
-                                    (state.playing || state.buffering) &&
-                                    (
-                                        !isScreenInteractive() ||
-                                            activityHasStarted &&
-                                            !activityStarted &&
-                                            !isInPictureInPictureMode
-                                    )
+                                    (state.playing || state.buffering) && !playbackAllowedByLifecycle()
                                 ) {
                                     pausePlaybackForLifecycle("state_resumed_while_hidden")
                                 } else if (state.playing) {
@@ -1045,7 +1053,7 @@ class PlayerActivity :
         PendingPlayerLaunchRegistry.readFrom(intent)?.let { pendingId ->
             val replacement = PendingPlayerLaunchRegistry.consume(pendingId)
             if (replacement == null) {
-                Toast.makeText(this, "新的播放会话已过期，继续当前播放", Toast.LENGTH_SHORT).show()
+                PlayerNotices.show("新的播放会话已过期，继续当前播放")
                 return
             }
             stopRequested = true
@@ -1102,12 +1110,7 @@ class PlayerActivity :
                     event = "replacement_launch_expired",
                     message = "Replacement player launch data was missing or expired",
                 )
-                Toast
-                    .makeText(
-                        this,
-                        "新的播放会话已过期，继续当前播放",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                PlayerNotices.show("新的播放会话已过期，继续当前播放")
             }
         }
     }
@@ -1118,6 +1121,11 @@ class PlayerActivity :
         activityStarted = true
         activityHasStarted = true
         PlayerForegroundRegistry.setVisible(true)
+        exitBackgroundAudio()
+        if (backgroundAudioUnavailable) {
+            backgroundAudioUnavailable = false
+            PlayerNotices.show("当前内核不支持后台音频，已暂停播放", longer = true)
+        }
         if (activeState.playing) startPlaybackKeepAliveService()
         refreshEpisodes()
     }
@@ -1185,9 +1193,11 @@ class PlayerActivity :
                 inPictureInPicture = isInPictureInPictureMode,
                 pictureInPictureWasVisible = pipWasVisible,
                 changingConfigurations = isChangingConfigurations,
+                backgroundAudio = backgroundAudioEnabled(),
             )
         ) {
             PlayerStopAction.Pause -> pausePlaybackForLifecycle("activity_stopped")
+            PlayerStopAction.KeepPlayingAudio -> enterBackgroundAudio("activity_stopped")
             PlayerStopAction.KeepPlaying,
             PlayerStopAction.IgnoreConfigurationChange,
             -> Unit
@@ -1214,6 +1224,7 @@ class PlayerActivity :
         outputRenegotiationJob?.cancel()
         ActivePlayback.clear()
         stopPlaybackKeepAliveService()
+        backgroundLocks.release()
         abandonAudioFocus()
         if (::notificationController.isInitialized) {
             // The television plays on after the player closes, so a cast's live update stays with the
@@ -2030,6 +2041,7 @@ class PlayerActivity :
             activityStarted = activityStarted,
             inPictureInPicture = isInPictureInPictureMode,
             stopping = stopRequested || isFinishing || isDestroyed,
+            backgroundAudio = backgroundAudioActive,
         )
 
     private fun rememberPlaybackResume(
@@ -2044,6 +2056,50 @@ class PlayerActivity :
             positionMs = player.currentPositionMs(),
             requested = player.playbackRequested && !state.ended,
         )
+    }
+
+    private fun backgroundAudioEnabled(): Boolean = backgroundAudioSetting?.value == true
+
+    /**
+     * 熄屏继续播放声音, or the old pause where it is off. The picture stops - the engine is told to stop
+     * decoding it, YCore lets go of its decoder with the Surface - while the MediaSession, the
+     * playback service and audio focus stay as they are, and the wake and Wi-Fi locks are held for
+     * as long as sound plays.
+     */
+    private fun enterBackgroundAudio(reason: String) {
+        if (!backgroundAudioEnabled() || stopRequested) {
+            pausePlaybackForLifecycle(reason)
+            return
+        }
+        if (activePlayer?.supportsBackgroundAudio != true) {
+            pauseUnsupportedBackgroundAudio(reason)
+            return
+        }
+        if (backgroundAudioActive) return
+        backgroundAudioActive = true
+        activePlayer?.setVideoSuspended(true)
+        backgroundLocks.update(held = activeState.playing)
+        AppLog.info(
+            category = "feature.player",
+            event = "background_audio_started",
+            message = "Playback continues with sound only while the player is hidden",
+            attributes = mapOf("reason" to reason, "playing" to activeState.playing.toString()),
+        )
+    }
+
+    private fun pauseUnsupportedBackgroundAudio(reason: String) {
+        backgroundAudioActive = false
+        backgroundAudioUnavailable = true
+        backgroundLocks.release()
+        pausePlaybackForLifecycle(reason)
+    }
+
+    /** The player is visible again: the picture comes back where the sound has got to. */
+    private fun exitBackgroundAudio() {
+        if (!backgroundAudioActive) return
+        backgroundAudioActive = false
+        activePlayer?.setVideoSuspended(false)
+        backgroundLocks.release()
     }
 
     /**

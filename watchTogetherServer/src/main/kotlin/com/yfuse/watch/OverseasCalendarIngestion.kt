@@ -1,15 +1,19 @@
 package com.yfuse.watch
 
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.DecodeSequenceMode
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeToSequence
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.io.InputStream
 import java.security.MessageDigest
 import java.time.LocalDate
 import java.time.OffsetDateTime
@@ -34,12 +38,24 @@ internal object OverseasScheduleParser {
         body: String,
         today: LocalDate,
         config: OverseasCalendarConfig,
+    ): List<CalendarIngestionShow> = discoverTvmazeShows(body.byteInputStream(), today, config)
+
+    /**
+     * Reads the schedule one episode at a time. The full TVmaze schedule runs to tens of
+     * megabytes; reading it into one String and then into a JSON tree held several copies of it
+     * at once in a heap the watch rooms share. Only episodes inside the window are kept.
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    fun discoverTvmazeShows(
+        schedule: InputStream,
+        today: LocalDate,
+        config: OverseasCalendarConfig,
     ): List<CalendarIngestionShow> {
-        val root = overseasJson.parseToJsonElement(body).jsonArray
+        val episodes =
+            overseasJson.decodeToSequence(schedule, JsonElement.serializer(), DecodeSequenceMode.ARRAY_WRAPPED)
         val earliest = today.minusDays(config.pastDays.toLong())
         val latest = today.plusDays(config.futureDays.toLong())
-        return root
-            .asSequence()
+        return episodes
             .mapNotNull { episodeNode ->
                 // Bad provider structure is a failed full snapshot, not a show filtered out by
                 // the calendar's date/type/region policy. Failing here preserves the old revision.

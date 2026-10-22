@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -14,6 +15,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -104,7 +106,13 @@ class ExternalPlaybackActivity : Activity() {
                     }
                     externalPlaybackTitle(offeredTitle, externalFileTitle(uri.lastPathSegment))
                 }
-                ExternalPlaybackSource.Web -> externalPlaybackTitle(offeredTitle, externalStreamTitle(target.uri))
+                ExternalPlaybackSource.Web -> {
+                    if (externalStreamTargetsLocalNetwork(target.uri) && !confirmLocalNetworkTarget()) {
+                        logRefusal(action, target.uri, reason = "local_network_declined")
+                        return null
+                    }
+                    externalPlaybackTitle(offeredTitle, externalStreamTitle(target.uri))
+                }
             }
         val preferences = runCatching { GlobalContext.get().get<ThemePreferences>() }.getOrNull()
         scope.ensureActive()
@@ -146,6 +154,29 @@ class ExternalPlaybackActivity : Activity() {
                 ),
         )
         return null
+    }
+
+    /**
+     * Another app asked Yfuse to open an address on this device or the local network. Fetching it
+     * would reach inside the network on that app's behalf - a router page, another app's loopback
+     * server - so the viewer decides. Dismissing the question declines.
+     */
+    private suspend fun confirmLocalNetworkTarget(): Boolean {
+        val answer = CompletableDeferred<Boolean>()
+        val dialog =
+            AlertDialog
+                .Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("打开本机或局域网中的视频？")
+                .setMessage("另一个应用请 Yfuse 打开一个指向这台设备或局域网的链接。只有在你信任这个应用时才继续。")
+                .setPositiveButton("打开") { _, _ -> answer.complete(true) }
+                .setNegativeButton("取消") { _, _ -> answer.complete(false) }
+                .setOnCancelListener { answer.complete(false) }
+                .show()
+        return try {
+            answer.await()
+        } finally {
+            dialog.dismiss()
+        }
     }
 
     /**

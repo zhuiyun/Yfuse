@@ -21,7 +21,7 @@ internal const val MAX_EVIDENCE_PER_SERIES = 20
 // UTF-8 uses at most three bytes per UTF-16 code unit. HTTP reads also cap bytes at
 // three times these character limits, before buffering/decoding a whole response.
 internal const val MAX_SOURCE_CHARS = 4_000_000
-internal const val MAX_TVMAZE_SCHEDULE_CHARS = 32_000_000
+internal const val MAX_TVMAZE_SCHEDULE_BYTES = 96L * 1024 * 1024
 internal val TVMAZE_SHOW_TYPES =
     setOf("Scripted", "Animation", "Documentary", "Reality", "Talk Show", "Game Show", "News", "Sports", "Variety")
 internal const val SOURCE_FETCH_ATTEMPTS = 3

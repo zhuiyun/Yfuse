@@ -32,6 +32,8 @@ sealed interface AccountState {
         val syncing: Boolean = false,
         val lastSyncedAtEpochMs: Long? = null,
         val message: String? = null,
+        /** Only an explicit upgrade may retire protocol 1 clients. */
+        val encryptionUpgradeAvailable: Boolean = false,
     ) : AccountState
 }
 

@@ -27,10 +27,17 @@ class PlayerMicroMotionTest {
 
     @Test
     fun numeric_gesture_updates_share_one_motion_surface() {
-        assertEquals("volume", gestureHudMotionKey("音量 20%"))
-        assertEquals("volume", gestureHudMotionKey("音量 85%"))
-        assertEquals("brightness", gestureHudMotionKey("亮度 42%"))
-        assertEquals("seek", gestureHudMotionKey("01:20 / 42:10"))
+        assertEquals("volume", gestureHudMotionKey(GestureHudReading("音量 20%", GestureHudKind.Volume)))
+        assertEquals("volume", gestureHudMotionKey(GestureHudReading("音量 85%", GestureHudKind.Volume)))
+        assertEquals("brightness", gestureHudMotionKey(GestureHudReading("亮度 42%", GestureHudKind.Brightness)))
+        assertEquals("seek", gestureHudMotionKey(GestureHudReading("01:20 / 42:10", GestureHudKind.Seek)))
         assertEquals("hidden", gestureHudMotionKey(null))
+    }
+
+    @Test
+    fun the_motion_follows_the_kind_never_the_wording() {
+        // A track or chapter title may well start with 音量 or contain " / ".
+        assertEquals("音轨 · 音量增强 / 杜比", gestureHudMotionKey(GestureHudReading("音轨 · 音量增强 / 杜比")))
+        assertEquals("seek", gestureHudMotionKey(GestureHudReading("跳转 01:00", GestureHudKind.Seek)))
     }
 }

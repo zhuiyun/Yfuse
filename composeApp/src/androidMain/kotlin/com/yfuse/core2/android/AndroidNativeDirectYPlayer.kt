@@ -25,6 +25,7 @@ import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.recovery.YPlaybackFailureReporter
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
@@ -64,6 +65,7 @@ internal class AndroidNativeDirectYPlayer(
     private val videoHandoff: AndroidVideoDecoderHandoff? = null,
 ) : YPlayer,
     AndroidSerializedPlayerRelease,
+    AndroidVideoOutputDetach,
     YPlaybackFailureReporter {
     private val sessionControl = NativeDirectSessionControl()
 
@@ -132,6 +134,14 @@ internal class AndroidNativeDirectYPlayer(
         submit(Command.SetVideoOutput(output as AndroidSurfaceVideoOutput?))
         return true
     }
+
+    override fun detachVideoOutput(detached: CompletableDeferred<Unit>) {
+        confirmVideoDetachAfterWorkerRelease(worker, this, detached)
+        if (sessionControl.released) return
+        submit(Command.SetVideoOutput(null, detached))
+    }
+
+    override val supportsBackgroundAudio: Boolean get() = true
 
     override fun play() {
         if (sessionControl.released) return
@@ -289,7 +299,10 @@ internal class AndroidNativeDirectYPlayer(
         submit(Command.Prepare)
     }
 
-    override val releaseCompleted: Boolean get() = worker.isCompleted
+    @Volatile
+    private var cleanupCompleted = false
+
+    override val releaseCompleted: Boolean get() = worker.isCompleted && cleanupCompleted
 
     override suspend fun releaseAndJoin() {
         release()
@@ -300,7 +313,7 @@ internal class AndroidNativeDirectYPlayer(
                     true
                 }
             }
-        check(completed == true) {
+        check(completed == true && cleanupCompleted) {
             "Previous direct decoder did not finish releasing; replacement was not started"
         }
     }
@@ -403,6 +416,7 @@ internal class AndroidNativeDirectYPlayer(
         } finally {
             session.releaseAll()
             activeSession = null
+            cleanupCompleted = true
         }
     }
 
@@ -527,6 +541,8 @@ internal class AndroidNativeDirectYPlayer(
 
         data class SetVideoOutput(
             val output: AndroidSurfaceVideoOutput?,
+            /** Completed once the decoder no longer renders into the previous Surface. */
+            val detached: CompletableDeferred<Unit>? = null,
         ) : Command
 
         data class SelectAudioTrack(

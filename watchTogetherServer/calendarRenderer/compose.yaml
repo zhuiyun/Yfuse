@@ -11,9 +11,21 @@ services:
       YFUSE_RENDERER_HOST: 0.0.0.0
       YFUSE_RENDERER_PORT: 8091
       YFUSE_RENDERER_STORAGE_STATE: /var/lib/yfuse-renderer/storage-state.json
+      # The root filesystem is read-only; Chromium's profile and font caches live in /tmp.
+      HOME: /tmp
     volumes:
       - ./renderer-state:/var/lib/yfuse-renderer:ro
     shm_size: 256mb
     mem_limit: 768m
+    # Chromium keeps its own sandbox (no --no-sandbox): it needs the user namespaces that
+    # Playwright's seccomp profile allows, and nothing else. No capabilities, no writes outside
+    # the tmpfs mounts, no privilege gain.
+    user: pwuser
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=320m,mode=1777
     security_opt:
       - no-new-privileges:true
+      - seccomp=./seccomp_profile.json

@@ -86,7 +86,7 @@ internal fun Room.acceptChat(
         val sender =
             participants[clientId]?.takeIf { it.session === session }
                 ?: return@synchronized RoomChatResult.StaleSession
-        val member = memberships[clientId] ?: return@synchronized RoomChatResult.StaleSession
+        val member = memberships[sender.memberKey] ?: return@synchronized RoomChatResult.StaleSession
         chatReceipts.find(member.accountUserId, clientId, clientMessageId)?.let {
             return@synchronized RoomChatResult.Duplicate(it)
         }
@@ -95,7 +95,9 @@ internal fun Room.acceptChat(
         if (clientMessageId != null) {
             chatHistory
                 .firstOrNull {
-                    it.clientId == clientId && it.clientMessageId == clientMessageId
+                    it.clientId == clientId &&
+                        it.clientMessageId == clientMessageId &&
+                        chatHistorySenderKeys[it.id] == sender.memberKey
                 }?.let { return@synchronized RoomChatResult.Duplicate(it) }
         }
         val admission =
@@ -119,7 +121,10 @@ internal fun Room.acceptChat(
                 clientMessageId = clientMessageId,
             )
         chatHistory.addLast(message)
-        while (chatHistory.size > MAX_CHAT_HISTORY) chatHistory.removeFirst()
+        chatHistorySenderKeys[message.id] = sender.memberKey
+        while (chatHistory.size > MAX_CHAT_HISTORY) {
+            chatHistorySenderKeys.remove(chatHistory.removeFirst().id)
+        }
         chatReceipts.record(member.accountUserId, message)
         RoomChatResult.Accepted(message)
     }

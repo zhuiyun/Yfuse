@@ -70,6 +70,8 @@ class AccountRepositoryStateTest {
                                     json.encodeToString(authResponse(refreshToken = "refresh-before-change")),
                                 )
                             SYNC_PATH -> respondAccountJson(json.encodeToString(SyncResponse(version = 5)))
+                            // A service from before account protocol 2 re-wraps the key in place.
+                            PRELOGIN_PATH -> respond("", HttpStatusCode.NotFound)
                             PASSWORD_PATH -> {
                                 capturedChange =
                                     json.decodeFromString(
@@ -824,6 +826,7 @@ class AccountRepositoryStateTest {
         const val REFRESH_PATH = "/api/v1/auth/refresh"
         const val SYNC_PATH = "/api/v1/account/sync"
         const val PASSWORD_PATH = "/api/v1/account/password"
+        const val PRELOGIN_PATH = "/api/v1/auth/prelogin"
         const val INVITES_PATH = "/api/v1/account/invites"
     }
 }

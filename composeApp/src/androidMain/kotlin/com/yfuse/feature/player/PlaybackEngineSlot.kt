@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,11 +21,16 @@ import kotlinx.coroutines.withTimeout
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
 
-/** Retirement outlives the UI that requested it. A timeout never grants a new decoder lease. */
+/**
+ * Retirement outlives the UI that requested it. A replacement waits for the outgoing decoder.
+ * Slow or failed cleanup retains its lease; [stuck] offers an explicit process restart without
+ * allowing a second decoder to be constructed alongside an unfinished retirement.
+ */
 internal class PlaybackEngineRetirements(
     private val scope: CoroutineScope,
     private val release: suspend (VideoEngine) -> Unit,
     private val completed: (VideoEngine) -> Boolean? = { null },
+    private val stuckAfterMs: Long = RETIREMENT_STUCK_MS,
 ) {
     private class ReleaseAttempt(
         val number: Int = 1,
@@ -32,6 +38,8 @@ internal class PlaybackEngineRetirements(
         val result = CompletableDeferred<Unit>()
 
         @Volatile var started = false
+
+        @Volatile var failure: Throwable? = null
     }
 
     private class Retirement {
@@ -41,6 +49,11 @@ internal class PlaybackEngineRetirements(
 
     private val pending = linkedMapOf<VideoEngine, Retirement>()
     private var construction: CompletableDeferred<Unit>? = null
+    private val stalled = mutableSetOf<VideoEngine>()
+    private val mutableStuck = MutableStateFlow(false)
+
+    /** A retired engine still owns resources beyond the normal cleanup deadline. */
+    val stuck: StateFlow<Boolean> = mutableStuck.asStateFlow()
 
     @Synchronized
     fun retire(
@@ -67,9 +80,10 @@ internal class PlaybackEngineRetirements(
                 attempt.started = true
                 release(engine)
                 check(completed(engine) != false) { "Previous playback resources are still releasing" }
-                notifyReleased(retirement)
+                notifyReleased(engine, retirement)
                 attempt.result.complete(Unit)
             } catch (error: Throwable) {
+                attempt.failure = error
                 AppLog.error(
                     category = "player",
                     event = "engine_release_failed",
@@ -84,6 +98,34 @@ internal class PlaybackEngineRetirements(
                 attempt.result.completeExceptionally(error)
             }
         }
+        scope.launch {
+            delay(stuckAfterMs)
+            markStuckIfUnreleased(engine, retirement)
+        }
+    }
+
+    private fun markStuckIfUnreleased(
+        engine: VideoEngine,
+        retirement: Retirement,
+    ) {
+        synchronized(this) {
+            if (pending[engine] !== retirement || completed(engine) == true) return
+            val attempt = retirement.attempt
+            if (attempt.result.isCompleted && !attempt.result.isCancelled) return
+            stalled += engine
+            mutableStuck.value = true
+        }
+        AppLog.error(
+            category = "player.engine",
+            event = "engine_retirement_stalled",
+            message = "Playback cleanup is still pending; the decoder lease remains reserved",
+            throwable = retirement.attempt.failure,
+            attributes =
+                mapOf(
+                    "engine" to (engine::class.simpleName ?: "VideoEngine"),
+                    "waitedMs" to stuckAfterMs.toString(),
+                ),
+        )
     }
 
     suspend fun await() {
@@ -123,7 +165,7 @@ internal class PlaybackEngineRetirements(
                 }
             if (!attempt.started || completed(entry.first) != true) attempt.result.await()
             check(completed(entry.first) != false) { "Previous playback resources are still releasing" }
-            notifyReleased(entry.second)
+            notifyReleased(entry.first, entry.second)
             synchronized(this) { pending.remove(entry.first) }
         }
     }
@@ -139,8 +181,16 @@ internal class PlaybackEngineRetirements(
         }
     }
 
-    private fun notifyReleased(retirement: Retirement) {
-        val callbacks = synchronized(this) { retirement.callbacks.toList().also { retirement.callbacks.clear() } }
+    private fun notifyReleased(
+        engine: VideoEngine,
+        retirement: Retirement,
+    ) {
+        val callbacks =
+            synchronized(this) {
+                stalled.remove(engine)
+                mutableStuck.value = stalled.isNotEmpty()
+                retirement.callbacks.toList().also { retirement.callbacks.clear() }
+            }
         callbacks.forEach { runCatching(it) }
     }
 }
@@ -148,6 +198,25 @@ internal class PlaybackEngineRetirements(
 private fun VideoEngine.serializedRelease(): AndroidSerializedPlayerRelease? =
     this as? AndroidSerializedPlayerRelease
         ?: (this as? YPlayerVideoEngineAdapter)?.player as? AndroidSerializedPlayerRelease
+
+/** Longer than the engine release join (5 s); expiry only offers recovery, never frees its lease. */
+private const val RETIREMENT_STUCK_MS = 10_000L
+
+/**
+ * Why the presentation slot could not put a playback engine in place. The wording is the player's;
+ * the exception behind it goes to the diagnostics only.
+ */
+internal enum class PlaybackSlotFailure(
+    val message: String,
+) {
+    PreviousStillReleasing("上一个播放器仍在释放资源，请稍后重试"),
+    QueueChanged("播放列表已改变，请重试切换播放器"),
+    ConstructionFailed("播放器切换未完成，请重试"),
+}
+
+private class PlaybackSlotException(
+    val failure: PlaybackSlotFailure,
+) : IllegalStateException(failure.name)
 
 internal object AndroidPlaybackEngineRetirements {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -249,8 +318,8 @@ internal class PlaybackEngineSlot(
                     val latest = preparing.snapshot()
                     if (latest != snapshot) {
                         if (latest.items != snapshot.items) {
-                            check(created.updateQueue(latest.items, latest.handover.itemIndex)) {
-                                "播放列表已改变，请重试切换播放器"
+                            if (!created.updateQueue(latest.items, latest.handover.itemIndex)) {
+                                throw PlaybackSlotException(PlaybackSlotFailure.QueueChanged)
                             }
                         } else if (latest.handover.itemIndex != snapshot.handover.itemIndex) {
                             created.selectItem(latest.handover.itemIndex)
@@ -265,16 +334,17 @@ internal class PlaybackEngineSlot(
                 } catch (cancelled: CancellationException) {
                     if (closed || generation != token || !coroutineContext[Job]!!.isActive) throw cancelled
                     logFailure(cancelled, failureStage, input)
-                    preparing.failed("上一个播放器仍在释放资源，请稍后重试")
+                    preparing.failed(PlaybackSlotFailure.PreviousStillReleasing)
                 } catch (error: Throwable) {
                     logFailure(error, failureStage, input)
-                    preparing.failed(
-                        if (failureStage == "retirement") {
-                            "上一个播放器资源清理未完成，请重试"
-                        } else {
-                            error.message ?: "播放器切换未完成，请重试"
-                        },
-                    )
+                    val failure =
+                        (error as? PlaybackSlotException)?.failure
+                            ?: if (failureStage == "retirement") {
+                                PlaybackSlotFailure.PreviousStillReleasing
+                            } else {
+                                PlaybackSlotFailure.ConstructionFailed
+                            }
+                    preparing.failed(failure)
                 } finally {
                     try {
                         if (!published) {
@@ -366,8 +436,8 @@ internal class PreparingVideoEngine(
             ),
         )
 
-    fun failed(message: String) {
-        mutableState.update { it.copy(buffering = false, error = message, automaticFallbackBlocked = true) }
+    fun failed(failure: PlaybackSlotFailure) {
+        mutableState.update { it.copy(buffering = false, error = failure.message, automaticFallbackBlocked = true) }
     }
 
     override fun play() {

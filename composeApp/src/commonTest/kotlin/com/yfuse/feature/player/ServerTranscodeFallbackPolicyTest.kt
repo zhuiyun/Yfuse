@@ -19,8 +19,8 @@ class ServerTranscodeFallbackPolicyTest {
                 serverTranscodeSupported = false,
             )
 
-        assertFalse(item.allowsServerTranscodeFallback("解码失败"))
-        assertFalse(item.allowsServerTranscodeFallback("用户手动选择服务器转码"))
+        assertFalse(item.allowsServerTranscodeFallback(viewerRequested = false))
+        assertFalse(item.allowsServerTranscodeFallback(viewerRequested = true))
     }
 
     @Test
@@ -36,7 +36,7 @@ class ServerTranscodeFallbackPolicyTest {
                 serverTranscodeSupported = true,
             )
 
-        assertTrue(item.allowsServerTranscodeFallback("解码失败"))
+        assertTrue(item.allowsServerTranscodeFallback(viewerRequested = false))
     }
 
     @Test
@@ -51,6 +51,6 @@ class ServerTranscodeFallbackPolicyTest {
                 serverTranscodeSupported = true,
             )
 
-        assertFalse(item.allowsServerTranscodeFallback("解码失败"))
+        assertFalse(item.allowsServerTranscodeFallback(viewerRequested = false))
     }
 }

@@ -2,7 +2,7 @@
 
 package com.yfuse.feature.player
 
-import android.widget.Toast
+import android.app.Activity
 import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
@@ -136,6 +136,7 @@ internal fun PlayerRootControls(
     val castState by castStateSource
     val watchState by watchStateSource
     val controlOwner = gestures.contextKey
+    val playbackComponentsStuck by AndroidPlaybackEngineRetirements.registry.stuck.collectAsState()
     PlayerControls(
         playback = livePlayback,
         transport =
@@ -296,7 +297,7 @@ internal fun PlayerRootControls(
                     rememberSeriesPlayback { remembered ->
                         remembered.copy(aspectMode = choices.scaleMode.name)
                     }
-                    Toast.makeText(context, "画面：${choices.scaleMode.label}", Toast.LENGTH_SHORT).show()
+                    PlayerNotices.show("画面：${choices.scaleMode.label}")
                 },
                 // 捏合填充 and F: the same state and series memory as the 画面 button, set to a mode
                 // rather than cycled. The controls' HUD says which, so no toast.
@@ -414,7 +415,7 @@ internal fun PlayerRootControls(
                                 choices.sessionEngineSelection == PlaybackEngineSelection.Auto &&
                                 !core2NativeOnlyActive
                             ) {
-                                "调整后将自动切换到支持该功能的播放内核。"
+                                "当前内核不支持此项；调整后会先询问是否本集改用兼容内核。"
                             } else if (core2NativeOnlyActive) {
                                 "YCore Native 纯内核模式不允许兼容内核接管此项调节。"
                             } else {
@@ -462,9 +463,7 @@ internal fun PlayerRootControls(
                                 rememberSeriesPlayback { remembered ->
                                     remembered.copy(audioDelayMs = corrected)
                                 }
-                                Toast
-                                    .makeText(context, "已校准音画同步：$corrected ms", Toast.LENGTH_SHORT)
-                                    .show()
+                                PlayerNotices.show("已校准音画同步：$corrected ms")
                             }
                         },
                         onEnhancement = {
@@ -597,7 +596,7 @@ internal fun PlayerRootControls(
                         onLanguagePair = { pair ->
                             val selected = selectDualSubtitleLanguagePair(state.subtitleTracks, pair)
                             if (selected == null) {
-                                Toast.makeText(context, "当前视频缺少该语言组合的字幕", Toast.LENGTH_SHORT).show()
+                                PlayerNotices.show("当前视频缺少该语言组合的字幕")
                             } else {
                                 applySubtitlePair(selected.first, selected.second)
                             }
@@ -758,15 +757,11 @@ internal fun PlayerRootControls(
                                 state.subtitleTracks.firstOrNull { it.id == id }
                                     ?: return@secondary
                             if (track.selected) {
-                                Toast
-                                    .makeText(context, "主字幕和副字幕不能选择同一轨", Toast.LENGTH_SHORT)
-                                    .show()
+                                PlayerNotices.show("主字幕和副字幕不能选择同一轨")
                                 return@secondary
                             }
                             if (!backendExtensions.selectSecondarySubtitleTrack(id)) {
-                                Toast
-                                    .makeText(context, "当前播放器内核不支持副字幕", Toast.LENGTH_SHORT)
-                                    .show()
+                                PlayerNotices.show("当前播放器内核不支持副字幕")
                                 return@secondary
                             }
                             choices.handoverItemId = currentItem?.id
@@ -825,9 +820,11 @@ internal fun PlayerRootControls(
                             } == true
                     },
                 transcodeActive = state.transcoding,
+                playbackComponentsStuck = playbackComponentsStuck,
             ),
         sourceActions =
             PlayerSourceActions(
+                onRestartPlaybackComponents = { (context as? Activity)?.let(::restartPlaybackComponents) },
                 onSelectSource = { serverId ->
                     gestures.invalidate()
                     selectServer(serverId)
@@ -840,24 +837,20 @@ internal fun PlayerRootControls(
                     packagedEngineStrategies().getOrNull(index)?.let { selection ->
                         gestures.invalidate()
                         selectEngineStrategy(selection)
-                        Toast
-                            .makeText(context, "仅覆盖当前视频；全局播放策略未更改", Toast.LENGTH_SHORT)
-                            .show()
+                        PlayerNotices.show("仅覆盖当前视频；全局播放策略未更改")
                     }
                 },
                 onTranscode = {
                     if (!core2NativeOnlyActive && !state.transcoding) {
                         gestures.invalidate()
-                        backendExtensions.switchToTranscode("用户手动选择服务器转码")
+                        backendExtensions.switchToTranscode(VIEWER_TRANSCODE_REASON, viewerRequested = true)
                     }
                 },
                 onResetAdaptiveLearning = {
                     failureMemory.clear()
                     performanceMemory.clear()
                     resetYCoreLearning(context)
-                    Toast
-                        .makeText(context, "YCore 学习数据已重置", Toast.LENGTH_SHORT)
-                        .show()
+                    PlayerNotices.show("原生内核学习数据已重置")
                 },
                 // A disc jump changes nothing the eye can read — the picture keeps playing and
                 // the settings row is behind the finger. Name the destination the way the
@@ -867,9 +860,7 @@ internal fun PlayerRootControls(
                     if (disc.titleCount > 1) {
                         val next = (disc.selectedTitleIndex + 1) % disc.titleCount
                         if (backendExtensions.selectDiscTitle(next)) {
-                            Toast
-                                .makeText(context, discTitleToast(disc, next), Toast.LENGTH_SHORT)
-                                .show()
+                            PlayerNotices.show(discTitleToast(disc, next))
                         }
                     }
                 },
@@ -878,9 +869,7 @@ internal fun PlayerRootControls(
                     if (disc.chapterCount > 1) {
                         val next = (disc.selectedChapterIndex + 1) % disc.chapterCount
                         if (backendExtensions.selectDiscChapter(next)) {
-                            Toast
-                                .makeText(context, discChapterToast(disc, next), Toast.LENGTH_SHORT)
-                                .show()
+                            PlayerNotices.show(discChapterToast(disc, next))
                         }
                     }
                 },
@@ -904,18 +893,16 @@ internal fun PlayerRootControls(
                                             "User-Agent" to it,
                                         )
                                     }.orEmpty()
-                            if (!openExternalPlayer(
-                                    context = context,
-                                    mediaUrl = mediaUrl,
-                                    title = item.title,
-                                    positionMs = livePlayback.value.positionMs,
-                                    headers = handoverHeaders,
-                                )
-                            ) {
-                                Toast
-                                    .makeText(context, "未找到可处理此视频的外部播放器", Toast.LENGTH_SHORT)
-                                    .show()
-                            }
+                            openExternalPlayerConfirmingCredential(
+                                context = context,
+                                mediaUrl = mediaUrl,
+                                title = item.title,
+                                positionMs = livePlayback.value.positionMs,
+                                headers = handoverHeaders,
+                                onUnavailable = {
+                                    PlayerNotices.show("未找到可处理此视频的外部播放器")
+                                },
+                            )
                         }
                     },
             ),

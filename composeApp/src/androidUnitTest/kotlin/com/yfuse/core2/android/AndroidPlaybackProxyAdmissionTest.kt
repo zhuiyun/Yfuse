@@ -23,12 +23,20 @@ class AndroidPlaybackProxyAdmissionTest {
                 val legacyUri = URI(legacy.localUrl("https://media.test/movie.mp4"))
                 val coreUri =
                     URI(core.localUrl("https://media.test/movie.mp4", cacheable = false, cacheIdentity = null))
-                Socket(legacyUri.host, legacyUri.port).use {
+                Socket(legacyUri.host, legacyUri.port).use { legacyClient ->
+                    legacyClient.sendRequestLine(legacyUri)
                     awaitConnections(legacyAdmission, 1)
-                    Socket(coreUri.host, coreUri.port).use {
+                    Socket(coreUri.host, coreUri.port).use { coreClient ->
+                        coreClient.sendRequestLine(coreUri)
                         awaitConnections(coreAdmission, 1)
-                        Socket(legacyUri.host, legacyUri.port).use(::assertDisconnected)
-                        Socket(coreUri.host, coreUri.port).use(::assertAnsweredBusy)
+                        Socket(legacyUri.host, legacyUri.port).use { client ->
+                            client.sendRequestLine(legacyUri)
+                            assertDisconnected(client)
+                        }
+                        Socket(coreUri.host, coreUri.port).use { client ->
+                            client.sendRequestLine(coreUri)
+                            assertAnsweredBusy(client)
+                        }
                         assertEquals(1, legacyAdmission.activeConnections)
                         assertEquals(1, coreAdmission.activeConnections)
                     }
@@ -38,6 +46,38 @@ class AndroidPlaybackProxyAdmissionTest {
                 awaitConnections(legacyAdmission, 0)
                 awaitConnections(coreAdmission, 0)
             }
+        }
+    }
+
+    @Test
+    fun a_connection_that_sends_no_request_takes_no_playback_slot() {
+        val coreAdmission = PlaybackProxyAdmission(1, PlaybackProxyConnections(4))
+        withCoreProxy(admission = coreAdmission) { core ->
+            val coreUri = URI(core.localUrl("https://media.test/movie.mp4", cacheable = false, cacheIdentity = null))
+            Socket(coreUri.host, coreUri.port).use {
+                awaitPending(coreAdmission, 1)
+                assertEquals(0, coreAdmission.activeConnections)
+                // The player's own request still gets the one playback slot.
+                Socket(coreUri.host, coreUri.port).use { player ->
+                    player.sendRequestLine(coreUri)
+                    awaitConnections(coreAdmission, 1)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun a_request_for_an_unknown_route_is_refused_without_a_playback_slot() {
+        val coreAdmission = PlaybackProxyAdmission(1, PlaybackProxyConnections(4))
+        withCoreProxy(admission = coreAdmission) { core ->
+            val coreUri = URI(core.localUrl("https://media.test/movie.mp4", cacheable = false, cacheIdentity = null))
+            Socket(coreUri.host, coreUri.port).use { client ->
+                client.getOutputStream().write("GET /not-a-route HTTP/1.1\r\n\r\n".encodeToByteArray())
+                client.soTimeout = 2_000
+                val response = client.getInputStream().readBytes().decodeToString()
+                assertTrue(response.startsWith("HTTP/1.1 404 "), response)
+            }
+            assertEquals(0, coreAdmission.activeConnections)
         }
     }
 
@@ -98,6 +138,23 @@ class AndroidPlaybackProxyAdmissionTest {
                 true
             }
         assertTrue(eof, "Rejected or expired connection must close without opening an upstream")
+    }
+
+    /** A request line for a route the proxy handed out, with its headers still to come. */
+    private fun Socket.sendRequestLine(uri: URI) {
+        getOutputStream().apply {
+            write("GET ${uri.rawPath} HTTP/1.1\r\n".encodeToByteArray())
+            flush()
+        }
+    }
+
+    private fun awaitPending(
+        admission: PlaybackProxyAdmission,
+        expected: Int,
+    ) {
+        val deadline = System.nanoTime() + 2_000_000_000L
+        while (admission.pendingConnections != expected && System.nanoTime() < deadline) Thread.sleep(1L)
+        assertEquals(expected, admission.pendingConnections)
     }
 
     private fun awaitConnections(

@@ -26,7 +26,7 @@ internal fun settingsControlDestinations(): List<SettingsSearchDestination> =
                         "自动播放下一集" -> AppIcons.Next to SettingTint.playback
                         "竖屏视频" -> AppIcons.RotationUnlocked to SettingTint.playback
                         "默认倍速" -> AppIcons.Forward to SettingTint.playback
-                        "详情页主题曲", "音频直通" -> AppIcons.Volume to SettingTint.audio
+                        "详情页主题曲", "音频直通", "熄屏继续播放声音" -> AppIcons.Volume to SettingTint.audio
                         "智能跨服选源" -> AppIcons.PlaybackSource to SettingTint.servers
                         "片头片尾" -> AppIcons.SkipMarkers to SettingTint.playback
                         "视频版本偏好", "显示帧率" -> AppIcons.Movie to SettingTint.playback
@@ -65,6 +65,7 @@ internal fun settingsControlDestinations(): List<SettingsSearchDestination> =
                         label + " " +
                             when (label) {
                                 "音频直通" -> "音频输出 透传 passthrough"
+                                "熄屏继续播放声音" -> "后台播放 锁屏 熄屏 音频 background audio"
                                 "播放内核" -> "播放器 引擎 MDK MPV YCore2 YCore 2.0 Native 原生 纯内核 自动模式"
                                 "YCore 2.0 播放内核（仅自动模式）" -> "YCore2 YCore 2.0 自动模式"
                                 "YCore Native 纯内核（自动模式/开发中）" -> "YCore2 Native 原生 纯内核 自动模式"
@@ -93,6 +94,7 @@ internal fun settingsControlDestinations(): List<SettingsSearchDestination> =
             "竖屏视频",
             "默认倍速",
             "详情页主题曲",
+            "熄屏继续播放声音",
             "智能跨服选源",
             "视频缓存大小",
             "起播预热",

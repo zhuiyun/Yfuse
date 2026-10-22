@@ -1,6 +1,7 @@
 package com.yfuse.watch
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -19,6 +20,32 @@ internal fun CoroutineScope.launchRoomCleanup(
         while (isActive) {
             delay(intervalMs)
             roomStore.sweepExpiredRooms(clock())
+        }
+    }
+}
+
+internal fun CoroutineScope.launchRoomMaintenance(
+    roomStore: RoomStore,
+    persister: RoomStatePersister?,
+    sweepIntervalMs: Long,
+): Job {
+    require(sweepIntervalMs > 0L)
+    return launch(Dispatchers.IO) {
+        val intervalMs = if (persister != null) minOf(ROOM_PERSIST_INTERVAL_MS, sweepIntervalMs) else sweepIntervalMs
+        var lastSweepAtMs = monotonicMs()
+        while (isActive) {
+            delay(intervalMs)
+            if (monotonicMs() - lastSweepAtMs >= sweepIntervalMs) {
+                roomStore.sweepExpiredRooms()
+                lastSweepAtMs = monotonicMs()
+            }
+            if (persister != null) {
+                try {
+                    persister.sync(roomStore.allRooms())
+                } catch (failure: Exception) {
+                    ServerLog.warn("watch_rooms_save_failed", "reason" to failure::class.simpleName)
+                }
+            }
         }
     }
 }
