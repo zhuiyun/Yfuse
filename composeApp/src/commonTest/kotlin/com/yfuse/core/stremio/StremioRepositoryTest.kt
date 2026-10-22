@@ -8,6 +8,7 @@ import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
+import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -86,10 +87,11 @@ class StremioRepositoryTest {
     @Test
     fun disabled_plugins_are_not_requested_and_one_failure_keeps_other_streams() =
         runTest {
-            val hosts = mutableListOf<String>()
+            // MockEngine handlers run concurrently, just like the plugin requests they record.
+            val hosts = ConcurrentLinkedQueue<String>()
             HttpClient(
                 MockEngine { request ->
-                    hosts += request.url.host
+                    hosts.add(request.url.host)
                     when (request.url.host) {
                         "bad.example" -> respond("unavailable", HttpStatusCode.ServiceUnavailable)
                         else -> respond("""{"streams":[{"url":"https://cdn.example/movie.m3u8"}]}""")
