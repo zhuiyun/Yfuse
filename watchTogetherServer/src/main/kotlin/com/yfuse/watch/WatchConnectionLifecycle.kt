@@ -27,10 +27,13 @@ internal suspend fun cleanupSocket(
             // has already reconnected on a new session: only the session currently
             // on record for `clientId` is allowed to remove it.
             var hostWentAbsent = false
+            var announcedMemberLeft = false
             val removedNow =
                 synchronized(room) {
-                    val isActiveSession = room.participants[clientId]?.session === session
+                    val participant = room.participants[clientId]
+                    val isActiveSession = participant?.session === session
                     if (isActiveSession) {
+                        announcedMemberLeft = participant?.readyForBroadcast == true
                         room.participants.remove(clientId)
                         if (room.hostId == clientId) {
                             // The host keeps the room while it is away. Handing over the
@@ -49,7 +52,12 @@ internal suspend fun cleanupSocket(
             if (hostWentAbsent) {
                 scheduleHostHandover(room)
             }
-            if (removedNow && room.participants.isNotEmpty()) broadcastRoomUpdate(room)
+            if (removedNow &&
+                announcedMemberLeft &&
+                synchronized(room) { room.participants.values.any { it.readyForBroadcast } }
+            ) {
+                broadcastRoomUpdate(room)
+            }
         }
     } finally {
         connectionLease.close()

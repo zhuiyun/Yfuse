@@ -251,8 +251,8 @@ class PlayerActivity :
     private var activityHasStarted = false
 
     /** 熄屏继续播放声音 is carrying playback: the picture is suspended, the sound plays on. */
-    private var backgroundAudioActive = false
-    private var backgroundAudioUnavailable = false
+    private val backgroundAudioLifecycle = BackgroundAudioLifecycle()
+    private val backgroundAudioActive: Boolean get() = backgroundAudioLifecycle.active
     private val backgroundLocks by lazy { PlaybackBackgroundLocks(applicationContext) }
     private val backgroundAudioSetting by lazy {
         runCatching { GlobalContext.get().get<PlaybackPreferences>().backgroundAudio }.getOrNull()
@@ -1121,9 +1121,7 @@ class PlayerActivity :
         activityStarted = true
         activityHasStarted = true
         PlayerForegroundRegistry.setVisible(true)
-        exitBackgroundAudio()
-        if (backgroundAudioUnavailable) {
-            backgroundAudioUnavailable = false
+        if (exitBackgroundAudio()) {
             PlayerNotices.show("当前内核不支持后台音频，已暂停播放", longer = true)
         }
         if (activeState.playing) startPlaybackKeepAliveService()
@@ -2076,8 +2074,7 @@ class PlayerActivity :
             return
         }
         if (backgroundAudioActive) return
-        backgroundAudioActive = true
-        activePlayer?.setVideoSuspended(true)
+        backgroundAudioLifecycle.activate { activePlayer?.setVideoSuspended(true) }
         backgroundLocks.update(held = activeState.playing)
         AppLog.info(
             category = "feature.player",
@@ -2088,18 +2085,17 @@ class PlayerActivity :
     }
 
     private fun pauseUnsupportedBackgroundAudio(reason: String) {
-        backgroundAudioActive = false
-        backgroundAudioUnavailable = true
         backgroundLocks.release()
-        pausePlaybackForLifecycle(reason)
+        backgroundAudioLifecycle.pauseUnsupported(
+            pausePlayback = { pausePlaybackForLifecycle(reason) },
+            restoreVideo = { activePlayer?.setVideoSuspended(false) },
+        )
     }
 
-    /** The player is visible again: the picture comes back where the sound has got to. */
-    private fun exitBackgroundAudio() {
-        if (!backgroundAudioActive) return
-        backgroundAudioActive = false
-        activePlayer?.setVideoSuspended(false)
+    /** Restores the picture without changing the viewer's paused/playing intent. */
+    private fun exitBackgroundAudio(): Boolean {
         backgroundLocks.release()
+        return backgroundAudioLifecycle.foreground { activePlayer?.setVideoSuspended(false) }
     }
 
     /**

@@ -106,7 +106,7 @@ internal suspend fun broadcastToRoom(
     room: Room,
     message: WatchWireMessage,
 ) {
-    val members = synchronized(room) { room.participants.values.toList() }
+    val members = synchronized(room) { room.participants.values.filter { it.readyForBroadcast } }
     if (members.isEmpty()) return
     val frame = encodeWatchMessage(message).encodeToByteArray()
     val bytes = broadcastFrames(members) { frame }
@@ -290,7 +290,7 @@ internal class RoomUpdateBroadcaster(
     private fun Room.takeUpdateSnapshot(): RoomUpdateSnapshot {
         val revision = nextRoomRevision()
         val variants =
-            participants.values.associateWith { member ->
+            participants.values.filter { it.readyForBroadcast }.associateWith { member ->
                 // Older clients expect the playlist in every snapshot; newer ones only when it moved.
                 val withPlaylist = !member.roomDeltas || member.playlistRevisionSent != playlistRevision
                 member.playlistRevisionSent = playlistRevision
@@ -313,8 +313,8 @@ internal class RoomUpdateBroadcaster(
 }
 
 /** Must run under the room lock. */
-internal fun Room.wireParticipants(): List<WatchWireParticipant> =
-    participants.values.map { participant ->
+internal fun Room.wireParticipants(includeClientId: String? = null): List<WatchWireParticipant> =
+    participants.values.filter { it.readyForBroadcast || it.id == includeClientId }.map { participant ->
         WatchWireParticipant(
             clientId = participant.id,
             name = participant.name,

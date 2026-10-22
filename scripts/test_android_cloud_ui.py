@@ -141,8 +141,13 @@ class NavigationContractTest(unittest.TestCase):
     def test_dock_selectors_match_the_current_application_destinations(self):
         source = (Path(__file__).resolve().parents[1] /
                   "composeApp/src/commonMain/kotlin/com/yfuse/app/App.kt").read_text()
-        dock = source.split("private val tabs =", 1)[1].split("/**", 1)[0]
-        self.assertEqual(dict(re.findall(r'TabItem\(Tab\.(\w+), "([^"]+)"', dock)), cloud.TAB_LABELS)
+        definition = re.search(r'internal fun navigationTabs\(.*?\nprivate val LocalNavigationTabs', source, re.DOTALL)
+        self.assertIsNotNone(definition, "The application must define the current navigation tabs")
+        dock = definition.group(0)
+        # The smoke visits the four persistent destinations; CustomHome is the extra, hideable tab.
+        self.assertEqual(dict(re.findall(r'TabItem\(Tab\.(\w+), "([^"]+)"', dock)),
+                         {**cloud.TAB_LABELS, "CustomHome": "自定义首页"})
+        self.assertRegex(dock, r'\.filter\s*\{\s*customHomeVisible \|\| it\.tab != Tab\.CustomHome\s*\}')
 
     def test_smoke_uses_page_markers_not_only_persistent_dock_labels(self):
         session = Recorder()

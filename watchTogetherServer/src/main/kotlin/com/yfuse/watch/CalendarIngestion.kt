@@ -938,7 +938,7 @@ private class CalendarIngestionRuntime(
                     .build()
             val response = runCatching { http.send(request, HttpResponse.BodyHandlers.ofInputStream()) }.getOrNull()
             if (response != null && response.statusCode() in 200..299) {
-                return BoundedInputStream(response.body(), maxBytes)
+                return BoundedInputStream(DeadlineInputStream(response.body(), timeoutMs = 12_000L), maxBytes)
             }
             response?.body()?.close()
             val retryable = response == null || response.statusCode() == 429 || response.statusCode() >= 500

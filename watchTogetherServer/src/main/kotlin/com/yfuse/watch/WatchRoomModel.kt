@@ -39,6 +39,8 @@ internal class Participant(
     val roomDeltas: Boolean = false,
     /** The playlist revision last sent to this member in a snapshot; -1 before any. */
     var playlistRevisionSent: Long = -1L,
+    /** Set only after welcome reaches the outgoing channel; no broadcast may overtake that handshake. */
+    var readyForBroadcast: Boolean = false,
     var statusKnown: Boolean = false,
     var ready: Boolean = false,
     var buffering: Boolean = false,

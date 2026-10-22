@@ -3,10 +3,64 @@ package com.yfuse.watch
 import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
+import java.net.SocketTimeoutException
 import java.net.http.HttpResponse
 import java.nio.ByteBuffer
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.Flow
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+
+private val bodyDeadlines =
+    ScheduledThreadPoolExecutor(1) { task -> Thread(task, "calendar-body-deadline").apply { isDaemon = true } }
+        .apply { removeOnCancelPolicy = true }
+
+/** HttpRequest.timeout ends at the headers for ofInputStream; close the body to unblock a stalled read. */
+internal class DeadlineInputStream(
+    source: InputStream,
+    timeoutMs: Long,
+) : FilterInputStream(source) {
+    private val expired = AtomicBoolean(false)
+    private val deadline =
+        bodyDeadlines.schedule(
+            {
+                expired.set(true)
+                runCatching { source.close() }
+            },
+            timeoutMs.also { require(it > 0L) },
+            TimeUnit.MILLISECONDS,
+        )
+
+    override fun read(): Int = beforeDeadline { `in`.read() }
+
+    override fun read(
+        buffer: ByteArray,
+        offset: Int,
+        length: Int,
+    ): Int = beforeDeadline { `in`.read(buffer, offset, length) }
+
+    override fun skip(n: Long): Long = beforeDeadline { `in`.skip(n) }
+
+    override fun close() {
+        deadline.cancel(false)
+        super.close()
+    }
+
+    private inline fun <T> beforeDeadline(read: () -> T): T {
+        if (expired.get()) throw SocketTimeoutException("Calendar upstream body timed out")
+        try {
+            return read().also {
+                if (expired.get()) throw SocketTimeoutException("Calendar upstream body timed out")
+            }
+        } catch (failure: IOException) {
+            if (expired.get() && failure !is SocketTimeoutException) {
+                throw SocketTimeoutException("Calendar upstream body timed out").apply { initCause(failure) }
+            }
+            throw failure
+        }
+    }
+}
 
 /** Caps bytes as they arrive, including chunked/error responses, before the string collector copies them. */
 internal fun boundedStringBodyHandler(maxBytes: Int): HttpResponse.BodyHandler<String> {

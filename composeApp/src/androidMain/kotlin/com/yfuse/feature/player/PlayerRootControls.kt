@@ -249,7 +249,7 @@ internal fun PlayerRootControls(
                             casting = cast.hasActiveSession || cast.status == CastPlaybackStatus.Connecting,
                         )
                     if (refusal != null) {
-                        Toast.makeText(context, refusal, Toast.LENGTH_SHORT).show()
+                        PlayerNotices.show(refusal)
                     }
                     applyRememberedPlaybackSpeed(
                         speed = newSpeed,

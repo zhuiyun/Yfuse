@@ -809,15 +809,17 @@ internal fun Application.watchTogetherModule(
 
                             joinedRoom = room
                             joinedClientId = clientId
-                            sendMessage(
-                                room.welcomeMessage(
+                            if (
+                                sendRoomWelcome(
+                                    room = room,
                                     clientId = clientId,
                                     resumeCapability = issuedResumeCapability,
                                     hostCapability = issuedHostCapability,
                                     protocolVersion = negotiatedProtocolVersion,
-                                ),
-                            )
-                            broadcastRoomUpdate(room)
+                                )
+                            ) {
+                                broadcastRoomUpdate(room)
+                            }
                         }
 
                         "sync" -> {

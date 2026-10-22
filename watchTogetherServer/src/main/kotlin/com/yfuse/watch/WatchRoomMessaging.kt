@@ -61,7 +61,7 @@ internal fun Room.welcomeMessage(
     synchronized(this) {
         // Its own revision: a room update taken before it, still on its way, is older than this.
         val revision = nextRoomRevision()
-        participants[clientId]?.playlistRevisionSent = playlistRevision
+        val visibleParticipants = wireParticipants(includeClientId = clientId)
         WatchWireMessage(
             type = "welcome",
             protocolVersion = protocolVersion,
@@ -72,8 +72,8 @@ internal fun Room.welcomeMessage(
             isHost = hostId == clientId,
             canControl = participants[clientId]?.let(::canControl) ?: false,
             controlMode = controlMode.wireValue,
-            participantCount = participants.size,
-            participants = wireParticipants(),
+            participantCount = visibleParticipants.size,
+            participants = visibleParticipants,
             chatHistory = chatHistory.toList(),
             playlist = playlist.toList(),
             playlistRevision = playlistRevision,
@@ -86,6 +86,39 @@ internal fun Room.welcomeMessage(
             roomRevision = revision,
         )
     }
+
+/** Publishes this session only once its initial snapshot and capabilities have been queued first. */
+internal suspend fun WebSocketSession.sendRoomWelcome(
+    room: Room,
+    clientId: String,
+    resumeCapability: String?,
+    hostCapability: String?,
+    protocolVersion: Int,
+): Boolean {
+    val welcome = room.welcomeMessage(clientId, resumeCapability, hostCapability, protocolVersion)
+    sendMessage(welcome)
+    var lastChatId = welcome.chatHistory?.maxOfOrNull { it.id } ?: -1L
+    while (true) {
+        val pending =
+            synchronized(room) {
+                val participant = room.participants[clientId]?.takeIf { it.session === this } ?: return false
+                val messages = room.chatHistory.filter { it.id > lastChatId }
+                if (messages.isEmpty()) {
+                    participant.readyForBroadcast = true
+                    // The first update catches playlist edits made while welcome was suspended.
+                    participant.playlistRevisionSent = -1L
+                    return true
+                }
+                messages
+            }
+        // Replay the bounded gap as normal chat messages before admitting live broadcasts.
+        // Replacing history in a later snapshot could erase a newer message already received.
+        for (message in pending) {
+            sendMessage(WatchWireMessage(type = "chat", chat = message))
+            lastChatId = maxOf(lastChatId, message.id)
+        }
+    }
+}
 
 internal suspend fun WebSocketSession.sendMessage(message: WatchWireMessage) {
     send(encodeWatchMessage(message))
