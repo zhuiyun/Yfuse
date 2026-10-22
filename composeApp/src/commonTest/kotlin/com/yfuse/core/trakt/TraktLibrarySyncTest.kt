@@ -2,8 +2,11 @@ package com.yfuse.core.trakt
 
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.personal.PersonalCollection
+import com.yfuse.core.personal.PersonalEntry
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.personal.PersonalMediaRef
+import com.yfuse.core.personal.PersonalSnapshot
+import com.yfuse.core.personal.PersonalStamp
 import com.yfuse.core.security.TestSecureStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
@@ -272,7 +275,7 @@ class TraktLibrarySyncTest {
             assertEquals(2, f.remote.size)
         }
 
-    @Test fun fullPersonalLibraryReportsCapacityAndRetainsRemoteAndLocalContents() =
+    @Test fun fullCuratedLibraryReportsCapacityAndRetainsRemoteAndLocalContents() =
         runTest {
             val f = Fixture()
             f.personal.mergeRemote(
@@ -281,7 +284,7 @@ class TraktLibrarySyncTest {
                         (1..1000).map {
                             com.yfuse.core.personal.PersonalEntry(
                                 "default",
-                                PersonalCollection.History,
+                                PersonalCollection.WatchLater,
                                 ref(it),
                                 com.yfuse.core.personal
                                     .PersonalStamp(it.toLong(), "device"),
@@ -304,6 +307,44 @@ class TraktLibrarySyncTest {
                 f.personal.state.value.favorites
                     .isEmpty(),
             )
+        }
+
+    @Test fun oldestHistoryMakesRoomForTraktImportWithoutRepeatedImports() =
+        runTest {
+            val f = Fixture()
+            f.personal.mergeRemote(
+                PersonalSnapshot(
+                    entries =
+                        (1..1000).map {
+                            PersonalEntry(
+                                "default",
+                                PersonalCollection.History,
+                                ref(it),
+                                PersonalStamp(it.toLong(), "device"),
+                            )
+                        },
+                ),
+            )
+            f.remote += movie(1001)
+            val result = f.sync(PersonalCollection.Favorite)
+            assertNull(result.error)
+            assertEquals(1, result.imported)
+            val entries = f.personal.snapshot().entries
+            assertEquals(1000, entries.size)
+            assertEquals(
+                (2..1000).map { ref(it).identity }.toSet(),
+                entries.filter { it.collection == PersonalCollection.History }.map { it.media.identity }.toSet(),
+            )
+            assertEquals(
+                ref(1001).identity,
+                entries.single { it.collection == PersonalCollection.Favorite }.media.identity,
+            )
+            assertEquals(1, f.remote.size)
+            assertTrue(f.writes.isEmpty())
+            val repeated = f.sync(PersonalCollection.Favorite)
+            assertNull(repeated.error)
+            assertEquals(0, repeated.imported)
+            assertEquals(entries, f.personal.snapshot().entries)
         }
 
     private class Fixture {
