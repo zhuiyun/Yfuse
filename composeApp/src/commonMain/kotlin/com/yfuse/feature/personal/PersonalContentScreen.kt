@@ -185,7 +185,13 @@ private fun PersonalContentHeader(
         SettingsBackButton(onBack)
         Column(Modifier.weight(1f)) {
             Text("我的片单", style = AppTypography.section.strong, color = palette.text)
-            Text(profileName, style = AppTypography.caption.regular, color = palette.sub2)
+            Text(
+                profileName,
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         ContentIconButton(
             if (searching) AppIcons.Close else AppIcons.Search,

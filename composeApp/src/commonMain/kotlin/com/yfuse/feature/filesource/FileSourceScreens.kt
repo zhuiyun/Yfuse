@@ -321,8 +321,8 @@ private fun FileSourceActionsDialog(
     onRemove: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
         Row(
             Modifier.fillMaxWidth().padding(bottom = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),

@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -26,9 +29,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.systemNavigationContentInset
@@ -68,9 +74,8 @@ import com.yfuse.core.designsystem.flatGlass as glass
 /**
  * 追剧日历 — broadcasts by day, each marked with what this library has.
  *
- * Ordered oldest-first including the past week, because the question people open this for
- * is "what have I missed", and a list that starts at today puts that answer above the
- * scroll line where it will never be seen.
+ * Keeps the past week available in chronological order, while the first viewport opens
+ * today's broadcasts. The week navigator jumps between dates without discarding older entries.
  */
 @Composable
 fun CalendarScreen(component: CalendarComponent) {
@@ -94,6 +99,7 @@ fun CalendarScreen(component: CalendarComponent) {
     var scheduleChanges by remember(state.loading, state.days) {
         mutableStateOf(component.scheduleChanges())
     }
+    var changesExpanded by remember { mutableStateOf(false) }
     var dialogEntry by remember { mutableStateOf<CalendarEntry?>(null) }
     var dialogSeriesDays by remember { mutableStateOf<List<CalendarDay>?>(null) }
     var dialogRefreshing by remember { mutableStateOf(false) }
@@ -135,7 +141,7 @@ fun CalendarScreen(component: CalendarComponent) {
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = Dimens.pageHorizontal)
-                    .padding(top = Dimens.contentTop, bottom = 14.dp),
+                    .padding(top = 6.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -156,6 +162,7 @@ fun CalendarScreen(component: CalendarComponent) {
                     style = AppTypography.section.strong,
                     color = palette.text,
                     modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center,
                 )
                 // The schedule is cached for the day, so nothing else re-reads it; a new
                 // download landing is exactly when someone wants 未入库 → 可播放 checked
@@ -188,39 +195,63 @@ fun CalendarScreen(component: CalendarComponent) {
             )
             Spacer(Modifier.height(12.dp))
 
-            if (scheduleChanges.isNotEmpty()) {
+            if (scheduleChanges.isNotEmpty() && state.section == CalendarSection.Schedule) {
                 Column(
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = Dimens.pageHorizontal)
                         .glass(AppShapes.card, palette.card2, palette.border)
-                        .padding(horizontal = 13.dp, vertical = 10.dp),
+                        .padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text(
-                        "官方排期有调整",
-                        style = AppTypography.body.strong,
-                        color = palette.text,
-                    )
-                    scheduleChanges.take(3).forEach { change ->
+                    Row(
+                        Modifier.fillMaxWidth().pressable { changesExpanded = !changesExpanded }.heightIn(min = 48.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(AppIcons.WatchCalendar, null, tint = accent.accent, modifier = Modifier.size(17.dp))
                         Text(
-                            "${change.title} · ${change.displayMessage}",
-                            style = AppTypography.caption.regular,
-                            color = palette.sub,
+                            "排期更新 · ${scheduleChanges.size} 条调整",
+                            style = AppTypography.caption.strong,
+                            color = palette.text,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Icon(
+                            if (changesExpanded) AppIcons.ChevronDown else AppIcons.ChevronRight,
+                            contentDescription = if (changesExpanded) "收起排期调整" else "展开排期调整",
+                            tint = accent.accent,
+                            modifier = Modifier.size(15.dp),
                         )
                     }
-                    Text(
-                        "知道了",
-                        style = AppTypography.caption.strong,
-                        color = accent.accent,
-                        modifier =
-                            Modifier
-                                .align(Alignment.End)
-                                .pressable {
-                                    component.acknowledgeScheduleChanges()
-                                    scheduleChanges = emptyList()
-                                }.touchTarget(),
-                    )
+                    DisclosureContent(changesExpanded, rememberDisclosureProgress(changesExpanded)) {
+                        Column(
+                            Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            scheduleChanges.forEach { change ->
+                                Text(
+                                    "${change.title} · ${change.displayMessage}",
+                                    style = AppTypography.caption.regular,
+                                    color = palette.sub,
+                                )
+                            }
+                        }
+                        Text(
+                            "知道了",
+                            style = AppTypography.caption.strong,
+                            color = accent.accent,
+                            modifier =
+                                Modifier
+                                    .align(Alignment.End)
+                                    .pressable {
+                                        component.acknowledgeScheduleChanges()
+                                        scheduleChanges = emptyList()
+                                        changesExpanded = false
+                                    }.touchTarget(),
+                        )
+                    }
                 }
                 Spacer(Modifier.height(10.dp))
             }
@@ -390,11 +421,18 @@ private fun CalendarSectionBar(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val indicator = rememberSegmentIndicator(CalendarSection.entries.indexOf(selected), accent.accent, underline = true)
+    val indicator =
+        rememberSegmentIndicator(
+            CalendarSection.entries.indexOf(selected),
+            accent.container,
+            Color.White.copy(alpha = 0.8f),
+        )
     Row(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = Dimens.pageHorizontal)
+            .glass(AppShapes.pill, palette.card2, palette.border)
+            .padding(4.dp)
             .selectableGroup()
             .then(indicator.container),
     ) {
@@ -403,7 +441,7 @@ private fun CalendarSectionBar(
             Box(
                 Modifier
                     .weight(1f)
-                    .height(44.dp)
+                    .heightIn(min = 44.dp)
                     .then(indicator.item(CalendarSection.entries.indexOf(section)))
                     .pressable(role = Role.RadioButton) { onSelect(section) }
                     .semantics { this.selected = active }
@@ -414,6 +452,7 @@ private fun CalendarSectionBar(
                     section.label,
                     style = AppTypography.body.strong,
                     color = selectionColor(if (active) accent.accent else palette.sub),
+                    maxLines = 1,
                 )
             }
         }

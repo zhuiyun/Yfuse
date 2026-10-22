@@ -294,7 +294,7 @@ internal fun WatchChatPanel(
                         Text(
                             "还没有消息\n发一句开始聊天吧",
                             style = AppTypography.caption.medium,
-                            color = Color.White.copy(alpha = 0.42f),
+                            color = Color.White.copy(alpha = 0.66f),
                         )
                     }
                 } else {
@@ -373,7 +373,7 @@ internal fun WatchChatPanel(
                         Text(
                             if (sendingEnabled) "说点什么…" else "重连后可发送",
                             style = AppTypography.caption.medium,
-                            color = Color.White.copy(alpha = 0.35f),
+                            color = Color.White.copy(alpha = 0.66f),
                         )
                     }
                     BasicTextField(
@@ -400,7 +400,7 @@ internal fun WatchChatPanel(
                 Text(
                     "${draft.graphemeCount()}/$MAX_CHAT_GRAPHEMES",
                     style = AppTypography.caption.medium,
-                    color = Color.White.copy(alpha = 0.3f),
+                    color = Color.White.copy(alpha = 0.66f),
                     modifier = Modifier.align(Alignment.End),
                 )
             }

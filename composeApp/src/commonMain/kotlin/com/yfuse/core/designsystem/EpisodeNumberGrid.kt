@@ -3,6 +3,7 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -115,6 +116,8 @@ fun EpisodeNumberGrid(
     modifier: Modifier = Modifier,
     rangeSize: Int = EPISODE_RANGE_SIZE,
     focusCurrent: Boolean = false,
+    /** Optional persistent selection edge; null keeps the original player/grid appearance. */
+    selectionBorder: Color? = null,
 ) {
     val ranges = remember(cells.size, rangeSize) { episodeRanges(cells.size, rangeSize) }
     if (ranges.isEmpty()) return
@@ -146,6 +149,7 @@ fun EpisodeNumberGrid(
                             label = episodeRangeLabel(ranges[index]) { cells[it].number },
                             selected = index == selectedRange,
                             colors = colors,
+                            selectionBorder = selectionBorder,
                             onClick = { selectedRange = index },
                         )
                     }
@@ -173,6 +177,7 @@ fun EpisodeNumberGrid(
                         NumberCell(
                             cell = cells[position],
                             colors = colors,
+                            selectionBorder = selectionBorder,
                             focusRequester = currentFocus.takeIf { position == currentPosition },
                             onClick = { onPick(position) },
                         )
@@ -191,6 +196,7 @@ private fun RangeTab(
     onClick: () -> Unit,
     clickLabel: String = "查看第 $label 集",
     role: Role = Role.Tab,
+    selectionBorder: Color? = null,
 ) {
     // The pill is about 30dp tall in a 48dp slot: the press and the focus ring follow the pill.
     val focusShape = remember { TouchTargetFocusShape(AppShapes.chip) }
@@ -211,7 +217,15 @@ private fun RangeTab(
                 .touchTarget(focus = focusShape)
                 .clip(AppShapes.chip)
                 .background(if (selected) colors.accent else colors.cellFill)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .then(
+                    if (selected &&
+                        selectionBorder != null
+                    ) {
+                        Modifier.border(2.5.dp, selectionBorder, AppShapes.chip)
+                    } else {
+                        Modifier
+                    },
+                ).padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }
 
@@ -221,6 +235,7 @@ private fun NumberCell(
     colors: EpisodeGridColors,
     focusRequester: FocusRequester?,
     onClick: () -> Unit,
+    selectionBorder: Color? = null,
 ) {
     val started = cell.progress?.takeIf { !cell.watched && !cell.current && it > 0f }
     val state =
@@ -242,7 +257,16 @@ private fun NumberCell(
             .size(width = 52.dp, height = 40.dp)
             .cinemaSelectionTarget(cell.key, cell.current)
             .clip(AppShapes.thumb)
-            .background(if (cell.current) colors.accent else colors.cellFill),
+            .background(if (cell.current) colors.accent else colors.cellFill)
+            .then(
+                if (cell.current &&
+                    selectionBorder != null
+                ) {
+                    Modifier.border(2.5.dp, selectionBorder, AppShapes.thumb)
+                } else {
+                    Modifier
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Text(

@@ -2,6 +2,7 @@ package com.yfuse.feature.calendar
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -28,6 +29,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.motionItem
@@ -57,6 +59,7 @@ internal fun CalendarResourcesPane(
     bottomContentInset: androidx.compose.ui.unit.Dp,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     var enrichedDays by remember(days) { mutableStateOf(days) }
     var enriching by remember(days) { mutableStateOf(days.isNotEmpty()) }
     var enrichmentError by remember(days) { mutableStateOf<String?>(null) }
@@ -127,6 +130,16 @@ internal fun CalendarResourcesPane(
             ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        motionItem {
+            Column(Modifier.padding(vertical = 4.dp)) {
+                Text("${summaries.size} 部剧集的资源", style = AppTypography.section.strong, color = palette.text)
+                Text(
+                    "${summaries.sumOf { it.availableCount }} 集已入库 · ${summaries.sumOf { it.missingCount }} 集待补齐",
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                )
+            }
+        }
         if (enriching || enrichmentError != null) {
             motionItem {
                 Text(
@@ -152,6 +165,12 @@ internal fun CalendarResourcesPane(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Box(
+                    Modifier.size(34.dp).glass(AppShapes.thumb, accent.container, palette.border),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(AppIcons.Series, null, tint = accent.accent, modifier = Modifier.size(18.dp))
+                }
                 Column(Modifier.weight(1f)) {
                     Text(
                         summary.title,
@@ -162,10 +181,10 @@ internal fun CalendarResourcesPane(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "${summary.episodeCount} 集排期 · Emby 已入库 ${summary.availableCount} 集" +
+                        "${summary.episodeCount} 集排期 · 已入库 ${summary.availableCount} 集" +
                             if (summary.missingCount > 0) " · ${summary.missingCount} 集待入库" else "",
                         style = AppTypography.caption.regular,
-                        color = if (summary.missingCount > 0) palette.error else palette.sub2,
+                        color = palette.sub2,
                     )
                     val sources = (summary.servers + summary.qualities).take(5).joinToString(" · ")
                     if (sources.isNotBlank()) {

@@ -4,11 +4,13 @@ import com.yfuse.core.model.AudioTrackInfo
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.MediaRating
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.PlaybackChapter
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlaybackSegmentType
+import com.yfuse.core.model.RatingSource
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.SourceInfo
 import com.yfuse.core.model.SubtitleTrackInfo
@@ -17,6 +19,7 @@ import com.yfuse.core.model.VideoStreamInfo
 import com.yfuse.core.model.episodeOwnName
 import com.yfuse.core.model.languageDisplayName
 import com.yfuse.core.model.namedPlaybackChapters
+import com.yfuse.core.model.validRatings
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import kotlinx.serialization.Serializable
 
@@ -309,6 +312,8 @@ data class BaseItemDto(
     val Genres: List<String>? = null,
     val RunTimeTicks: Long? = null,
     val CommunityRating: Double? = null,
+    val CriticRating: Double? = null,
+    @kotlinx.serialization.Transient val supplementalRatings: List<MediaRating> = emptyList(),
     val OfficialRating: String? = null,
     val People: List<PersonDto>? = null,
     val ImageTags: Map<String, String>? = null,
@@ -461,6 +466,12 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         year = ProductionYear,
         genres = Genres ?: emptyList(),
         runtimeMinutes = runtimeMinutesOf(RunTimeTicks),
+        ratings =
+            (
+                supplementalRatings.ifEmpty {
+                    listOfNotNull(CommunityRating?.let { MediaRating(RatingSource.Library, it) })
+                } + listOfNotNull(CriticRating?.let { MediaRating(RatingSource.LibraryCritics, it) })
+            ).validRatings(),
         officialRating = OfficialRating,
         communityRating = CommunityRating,
         posterItemId = posterId,

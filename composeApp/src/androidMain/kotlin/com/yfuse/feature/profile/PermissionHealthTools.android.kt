@@ -76,7 +76,7 @@ actual fun PermissionHealthTools() {
             title = "通知",
             healthy = snapshot.notifications,
             healthyLabel = "已允许",
-            unavailableLabel = "仅在开启提醒或后台播放时需要 ›",
+            unavailableLabel = "仅在开启提醒或后台播放时需要",
             onClick = {
                 if (Build.VERSION.SDK_INT >= 33) {
                     requestPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -90,7 +90,7 @@ actual fun PermissionHealthTools() {
             title = "精确追剧提醒",
             healthy = snapshot.exactAlarms,
             healthyLabel = "可精确提醒",
-            unavailableLabel = "当前使用约时提醒 ›",
+            unavailableLabel = "当前使用约时提醒",
             onClick = { openSettings(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM) },
         )
         SettingsDivider()
@@ -98,7 +98,7 @@ actual fun PermissionHealthTools() {
             title = "局域网访问",
             healthy = snapshot.localNetwork,
             healthyLabel = if (Build.VERSION.SDK_INT < 36) "当前系统无需授权" else "已允许",
-            unavailableLabel = "连接家庭服务器、扫描和投屏时需要 ›",
+            unavailableLabel = "连接家庭服务器、扫描和投屏时需要",
             onClick = {
                 localNetworkRuntimePermission()?.let { requestPermission.launch(it) }
             },
@@ -108,7 +108,7 @@ actual fun PermissionHealthTools() {
             title = "扫码导入",
             healthy = snapshot.camera,
             healthyLabel = "已允许",
-            unavailableLabel = "也可从相册导入 ›",
+            unavailableLabel = "也可从相册导入",
             onClick = { requestPermission.launch(Manifest.permission.CAMERA) },
         )
         SettingsDivider()
@@ -116,7 +116,7 @@ actual fun PermissionHealthTools() {
             title = "应用内更新安装",
             healthy = snapshot.packageInstall,
             healthyLabel = "已允许",
-            unavailableLabel = "安装更新时再授权 ›",
+            unavailableLabel = "安装更新时再授权",
             onClick = { openSettings(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES) },
         )
     }

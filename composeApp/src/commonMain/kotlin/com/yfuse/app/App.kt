@@ -163,7 +163,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 
-private data class TabItem(
+internal data class TabItem(
     val tab: Tab,
     val label: String,
     val icon: ImageVector,
@@ -192,13 +192,16 @@ internal fun navigationGlassVisuals(
  * The four persistent destinations. Discovery opens from the watching tab;
  * [SearchButton] remains a separate control beside the capsule.
  */
-private val tabs =
+internal fun navigationTabs(customHomeVisible: Boolean = true) =
     listOf(
         TabItem(Tab.Browse, "媒体库", AppIcons.TabLibrary),
+        TabItem(Tab.CustomHome, "自定义首页", AppIcons.TabHome),
         TabItem(Tab.Watching, "观看", AppIcons.TabWatching),
         TabItem(Tab.Servers, "服务器", AppIcons.TabServers),
         TabItem(Tab.Profile, "我的", AppIcons.TabProfile),
-    )
+    ).filter { customHomeVisible || it.tab != Tab.CustomHome }
+
+private val LocalNavigationTabs = androidx.compose.runtime.compositionLocalOf { navigationTabs() }
 
 /** 搜索 as the collapsed key carries it, while the search page is where the user is. */
 private val searchKeyItem = TabItem(Tab.Search, "搜索", AppIcons.SearchTab)
@@ -206,6 +209,7 @@ private val searchKeyItem = TabItem(Tab.Search, "搜索", AppIcons.SearchTab)
 @Composable
 fun App(root: RootComponent) {
     BindBackgroundServices(root)
+    val customHomeVisible by root.themePreferences.customHomeVisible.collectAsState()
     val pulseSweep by root.themePreferences.pulseSweep.collectAsState()
     val navCollapseOnScroll by root.themePreferences.navCollapseOnScroll.collectAsState()
     val backgroundImage by root.themePreferences.backgroundImage.collectAsState()
@@ -222,6 +226,9 @@ fun App(root: RootComponent) {
             permissionScope.launch { root.dependencies.serverHealthMonitor.refreshAll() }
         }
         val active by root.activeTab.subscribeAsState()
+        LaunchedEffect(customHomeVisible, active) {
+            if (!customHomeVisible && active == Tab.CustomHome) root.selectTab(Tab.Browse)
+        }
         val homeStack by root.home.stack.subscribeAsState()
         val browseStack by root.browse.stack.subscribeAsState()
         val watchingStack by root.watching.stack.subscribeAsState()
@@ -302,7 +309,7 @@ fun App(root: RootComponent) {
                 Tab.Browse -> browseStack.active.instance is LibraryComponent.Child.Home
                 Tab.Watching -> watchingStack.items.size == 1
                 // 服务器 is a single screen: it has no stack that could be anywhere but its root.
-                Tab.Servers -> true
+                Tab.Servers, Tab.CustomHome -> true
                 Tab.Search -> searchStack.active.instance is SearchComponent.Child.Home
                 Tab.Profile -> profileStack.active.instance is ProfileTabComponent.Child.Home
             }
@@ -422,6 +429,9 @@ fun App(root: RootComponent) {
                                                     com.yfuse.feature.personal.PersonalDiscoveryGuard(
                                                         onOpenLibrary = root::returnFromDiscovery,
                                                     ) { HomeTabScreen(root.home) }
+                                                Tab.CustomHome ->
+                                                    com.yfuse.feature.widgets
+                                                        .CustomHomeScreen()
                                                 Tab.Browse -> LibraryScreen(root.browse)
                                                 Tab.Watching -> LibraryScreen(root.watching)
                                                 Tab.Servers -> ServersTabScreen(root.servers)
@@ -515,23 +525,25 @@ fun App(root: RootComponent) {
                             // Still composed while it slides away, but no longer the bar: a tap on the
                             // current tab in those 280ms popped the page that had just been pushed.
                             val dockWanted by rememberUpdatedState(dockShown)
-                            BottomNavigationDock(
-                                active = active,
-                                collapsed = navCollapsed.value,
-                                onSelect = { if (dockWanted) onSelectTab(it) },
-                                onExpand = {
-                                    if (dockWanted) {
-                                        // A tap during a fling is explicit navigation intent. Keep the
-                                        // expanded dock pinned until that fling finishes or the user
-                                        // starts a new direct scroll gesture.
-                                        navCollapseGuard.onManualExpand()
-                                        navCollapsed.value = false
-                                    }
-                                },
-                                onSearch = { if (dockWanted) onSelectTab(Tab.Search) },
-                                backdrop = backdrop,
-                                cueKey = pendingInvite?.roomCode,
-                            )
+                            CompositionLocalProvider(LocalNavigationTabs provides navigationTabs(customHomeVisible)) {
+                                BottomNavigationDock(
+                                    active = active,
+                                    collapsed = navCollapsed.value,
+                                    onSelect = { if (dockWanted) onSelectTab(it) },
+                                    onExpand = {
+                                        if (dockWanted) {
+                                            // A tap during a fling is explicit navigation intent. Keep the
+                                            // expanded dock pinned until that fling finishes or the user
+                                            // starts a new direct scroll gesture.
+                                            navCollapseGuard.onManualExpand()
+                                            navCollapsed.value = false
+                                        }
+                                    },
+                                    onSearch = { if (dockWanted) onSelectTab(Tab.Search) },
+                                    backdrop = backdrop,
+                                    cueKey = pendingInvite?.roomCode,
+                                )
+                            }
                         }
                         // One slot above the tab bar, and the two things that can occupy it
                         // never coexist: while a player is alive the mini player carries the
@@ -1144,6 +1156,7 @@ private fun CollapsedNavButton(
     onClick: () -> Unit,
 ) {
     val accent = LocalAccentColors.current
+    val tabs = LocalNavigationTabs.current
     val item = tabs.firstOrNull { it.tab == active } ?: searchKeyItem.takeIf { active == Tab.Search } ?: tabs.first()
     Box(
         Modifier
@@ -1305,6 +1318,7 @@ internal fun GlassTabBar(
     val navigationGlass = navigationGlassVisuals(palette, accent)
     // -1 while 搜索 is open: it is not one of the cells any more, so the pill has nowhere to
     // be and is not drawn rather than parking under 首页 and claiming the user is there.
+    val tabs = LocalNavigationTabs.current
     val selectedIndex = tabs.indexOfFirst { it.tab == active }
     val hasSelection = selectedIndex >= 0
     val enhanced = LocalPulseSweepEnabled.current

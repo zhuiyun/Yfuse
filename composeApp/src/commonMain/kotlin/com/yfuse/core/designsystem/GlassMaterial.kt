@@ -146,16 +146,40 @@ data class GlassMaterial(
         return (lighter + 0.05f) / (darker + 0.05f)
     }
 
-    /** Ink is independent of the source preset; retain the app theme's storage identity. */
+    /** Resolve content against the painted surface; recipe selection stays in LocalGlassAppearance. */
     fun contentPalette(
         palette: Palette,
         opaque: Boolean = false,
-    ): Palette =
-        when (resolvedInk(palette, opaque)) {
-            GlassInk.Theme -> palette
-            GlassInk.Light -> if (palette.isDark) palette else DarkPalette.copy(isDark = false)
-            GlassInk.Dark -> if (palette.isDark) LightPalette.copy(isDark = true) else palette
-        }
+    ): Palette {
+        val surface = perceivedSurface(palette, opaque)
+        val base =
+            when (resolvedInk(palette, opaque)) {
+                GlassInk.Theme -> palette
+                GlassInk.Light -> DarkPalette
+                GlassInk.Dark -> LightPalette
+            }
+        val text = readableSurfaceInk(base.text, surface, 7f)
+        // Inner glass must move away from the resolved ink, even when a custom tint
+        // switches the text polarity relative to the saved application theme.
+        val controls = if (text.luminance() > surface.luminance()) DarkPalette else LightPalette
+        return base.copy(
+            background = surface,
+            card = controls.card,
+            card2 = controls.card2,
+            card3 = controls.card3,
+            border = controls.border,
+            reducedFill = controls.reducedFill,
+            text = text,
+            body = readableSurfaceInk(base.dialogBody, surface),
+            sub = readableSurfaceInk(base.dialogSub, surface),
+            sub2 = readableSurfaceInk(base.dialogSub2, surface),
+            hint = readableSurfaceInk(base.dialogHint, surface),
+            error = readableSurfaceInk(base.error, surface),
+            success = readableSurfaceInk(base.success, surface),
+            warning = readableSurfaceInk(base.warning, surface),
+            isDark = text.luminance() > surface.luminance(),
+        )
+    }
 
     /**
      * Named fields, so a recipe written by a build with one more knob still restores everything

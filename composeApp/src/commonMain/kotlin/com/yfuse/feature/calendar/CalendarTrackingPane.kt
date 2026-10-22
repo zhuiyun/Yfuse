@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +39,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
@@ -47,6 +50,7 @@ import com.yfuse.core.designsystem.UndoWindow
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.rememberUndoWindow
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.sharedMediaOnClick
@@ -113,6 +117,7 @@ internal fun CalendarTrackingPane(
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun CalendarTrackingList(
     followedSeries: List<FollowedSeries>,
     calendarDays: List<CalendarDay>,
@@ -126,6 +131,7 @@ private fun CalendarTrackingList(
     var refreshingTmdbId by remember { mutableStateOf<Int?>(null) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
     var confirmUnfollowAll by remember { mutableStateOf(false) }
+    var bulkExpanded by remember { mutableStateOf(false) }
     val schedulePosterUrls =
         remember(calendarDays) {
             calendarDays
@@ -165,51 +171,73 @@ private fun CalendarTrackingList(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         motionItem {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .glass(AppShapes.card, palette.card2, palette.border)
-                    .padding(horizontal = 13.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "全部开启提醒",
-                    style = AppTypography.caption.strong,
-                    color = accent.accent,
-                    modifier =
+            Column {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("已追 ${followedSeries.size} 部", style = AppTypography.section.strong, color = palette.text)
+                        Text(
+                            "${followedSeries.count { it.reminderMode != CalendarReminderMode.Off }} 部已开启提醒",
+                            style = AppTypography.caption.regular,
+                            color = palette.sub2,
+                        )
+                    }
+                    Text(
+                        if (bulkExpanded) "完成" else "管理",
+                        style = AppTypography.body.strong,
+                        color = accent.accent,
+                        modifier =
+                            Modifier
+                                .pressable {
+                                    bulkExpanded = !bulkExpanded
+                                    confirmUnfollowAll = false
+                                }.touchTarget(),
+                    )
+                }
+                DisclosureContent(bulkExpanded, rememberDisclosureProgress(bulkExpanded)) {
+                    FlowRow(
                         Modifier
-                            .pressable {
-                                confirmUnfollowAll = false
-                                component.setReminderForAll(CalendarReminderMode.BeforeAndAtBroadcast)
-                            }.touchTarget(),
-                )
-                Text(
-                    "全部关闭提醒",
-                    style = AppTypography.caption.strong,
-                    color = palette.sub,
-                    modifier =
-                        Modifier
-                            .pressable {
-                                confirmUnfollowAll = false
-                                component.setReminderForAll(CalendarReminderMode.Off)
-                            }.touchTarget(),
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    if (confirmUnfollowAll) "确认取消全部" else "取消全部",
-                    style = AppTypography.caption.strong,
-                    color = palette.error,
-                    modifier =
-                        Modifier
-                            .pressable {
-                                if (confirmUnfollowAll) {
-                                    component.unfollowAll()
-                                } else {
-                                    confirmUnfollowAll = true
-                                }
-                            }.touchTarget(),
-                )
+                            .fillMaxWidth()
+                            .glass(
+                                AppShapes.card,
+                                palette.card2,
+                                palette.border,
+                            ).padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Text(
+                            "全部开启提醒",
+                            style = AppTypography.caption.strong,
+                            color = accent.accent,
+                            modifier =
+                                Modifier
+                                    .pressable {
+                                        confirmUnfollowAll = false
+                                        component.setReminderForAll(CalendarReminderMode.BeforeAndAtBroadcast)
+                                    }.touchTarget(),
+                        )
+                        Text(
+                            "全部关闭提醒",
+                            style = AppTypography.caption.strong,
+                            color = palette.sub,
+                            modifier =
+                                Modifier
+                                    .pressable {
+                                        confirmUnfollowAll = false
+                                        component.setReminderForAll(CalendarReminderMode.Off)
+                                    }.touchTarget(),
+                        )
+                        Text(
+                            if (confirmUnfollowAll) "确认取消全部" else "取消全部",
+                            style = AppTypography.caption.strong,
+                            color = palette.error,
+                            modifier =
+                                Modifier
+                                    .pressable {
+                                        if (confirmUnfollowAll) component.unfollowAll() else confirmUnfollowAll = true
+                                    }.touchTarget(),
+                        )
+                    }
+                }
             }
         }
         actionMessage?.let { message ->
@@ -223,6 +251,7 @@ private fun CalendarTrackingList(
             }
         }
         motionItems(followedSeries, key = FollowedSeries::tmdbId) { series ->
+            var rowActionsExpanded by remember { mutableStateOf(false) }
             var resolvedPosters by remember(
                 series.serverId,
                 series.seriesItemId,
@@ -266,8 +295,8 @@ private fun CalendarTrackingList(
                     modifier =
                         Modifier
                             .sharedMediaArtwork(sharedKey, sourceShape = AppShapes.thumb, sourceUrls = posterUrls)
-                            .width(48.dp)
-                            .height(68.dp)
+                            .width(46.dp)
+                            .height(64.dp)
                             .clip(AppShapes.thumb)
                             .background(palette.card2),
                 )
@@ -285,70 +314,72 @@ private fun CalendarTrackingList(
                         style = AppTypography.caption.regular,
                         color = palette.sub2,
                     )
-                    Spacer(Modifier.height(7.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            if (refreshingTmdbId == series.tmdbId) "刷新中…" else "单剧刷新",
-                            style = AppTypography.caption.strong,
-                            color = accent.accent,
-                            modifier =
-                                Modifier
-                                    .pressable(
-                                        enabled = refreshingTmdbId == null,
-                                        onClickLabel = "刷新${series.title}排期",
-                                    ) {
-                                        refreshingTmdbId = series.tmdbId
-                                        actionMessage = null
-                                        scope.launch {
-                                            component
-                                                .refreshSeries(series)
-                                                .onSuccess { refreshed ->
-                                                    component.store.accept(
-                                                        CalendarIntent.ApplySeriesRefresh(
-                                                            tmdbId = series.tmdbId,
-                                                            days = refreshed,
-                                                        ),
-                                                    )
-                                                }.onFailure {
-                                                    actionMessage = "${series.title}刷新失败：${it.message ?: "未知错误"}"
-                                                }
-                                            refreshingTmdbId = null
-                                        }
-                                    }.touchTarget(),
-                        )
-                        Text(
-                            "切换提醒",
-                            style = AppTypography.caption.strong,
-                            color = palette.sub,
-                            modifier =
-                                Modifier
-                                    .pressable {
-                                        component.setReminder(
-                                            series.tmdbId,
-                                            nextTrackingReminder(series.reminderMode),
-                                            series.remindBeforeMinutes,
-                                        )
-                                    }.touchTarget(),
-                        )
-                        Text(
-                            "取消追剧",
-                            style = AppTypography.caption.strong,
-                            color = palette.error,
-                            modifier =
-                                Modifier
-                                    .pressable { onUnfollow(series) }
-                                    .touchTarget(),
-                        )
+                    DisclosureContent(rowActionsExpanded, rememberDisclosureProgress(rowActionsExpanded)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(
+                                if (refreshingTmdbId == series.tmdbId) "刷新中…" else "单剧刷新",
+                                style = AppTypography.caption.strong,
+                                color = accent.accent,
+                                modifier =
+                                    Modifier
+                                        .pressable(
+                                            enabled = refreshingTmdbId == null,
+                                            onClickLabel = "刷新${series.title}排期",
+                                        ) {
+                                            refreshingTmdbId = series.tmdbId
+                                            actionMessage = null
+                                            scope.launch {
+                                                component
+                                                    .refreshSeries(series)
+                                                    .onSuccess { refreshed ->
+                                                        component.store.accept(
+                                                            CalendarIntent.ApplySeriesRefresh(
+                                                                tmdbId = series.tmdbId,
+                                                                days = refreshed,
+                                                            ),
+                                                        )
+                                                    }.onFailure {
+                                                        actionMessage = "${series.title}刷新失败：${it.message ?: "未知错误"}"
+                                                    }
+                                                refreshingTmdbId = null
+                                            }
+                                        }.touchTarget(),
+                            )
+                            Text(
+                                "切换提醒",
+                                style = AppTypography.caption.strong,
+                                color = palette.sub,
+                                modifier =
+                                    Modifier
+                                        .pressable {
+                                            component.setReminder(
+                                                series.tmdbId,
+                                                nextTrackingReminder(series.reminderMode),
+                                                series.remindBeforeMinutes,
+                                            )
+                                        }.touchTarget(),
+                            )
+                            Text(
+                                "取消追剧",
+                                style = AppTypography.caption.strong,
+                                color = palette.error,
+                                modifier =
+                                    Modifier
+                                        .pressable { onUnfollow(series) }
+                                        .touchTarget(),
+                            )
+                        }
                     }
                 }
-                if (series.seriesItemId != null) {
-                    Icon(
-                        AppIcons.ChevronRight,
-                        contentDescription = null,
-                        tint = palette.sub2,
-                        modifier = Modifier.size(14.dp),
-                    )
-                }
+                Icon(
+                    AppIcons.More,
+                    contentDescription = if (rowActionsExpanded) "收起${series.title}操作" else "管理${series.title}",
+                    tint = accent.accent,
+                    modifier =
+                        Modifier.pressable { rowActionsExpanded = !rowActionsExpanded }.touchTarget().size(
+                            17.dp,
+                        ),
+                )
             }
         }
     }

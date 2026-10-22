@@ -994,9 +994,9 @@ private fun ServerSheet(
     onOpenUnified: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
-    val themeAccent = LocalAccentColors.current
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
+        val themeAccent = LocalAccentColors.current
         OverlayHeader(
             title = "切换服务器",
             subtitle = "已登录 ${servers.size} 个 · 切换后重新载入媒体库",

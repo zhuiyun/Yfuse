@@ -1,5 +1,7 @@
 package com.yfuse.harmony.entry
 
+import com.yfuse.harmony.entry.design.DesignTokens
+
 import ohos.base.*
 import ohos.component.*
 import ohos.state_manage.*
@@ -42,44 +44,44 @@ class ConnectedMediaScreen {
                 } else {
                     Scroll {
                         Column {
-                            Text(if (mode == 2) { "我的服务器" } else if (mode == 3) { "搜索" } else { "媒体库" })
+                            Text(if (mode == 2) { "我的服务器" } else if (mode == 3) { "搜索" } else { "媒体库" }).fontColor(Color(DesignTokens.darkText))
                                 .fontSize(26).fontWeight(FontWeight.Bold)
                             if (mode == 0 && session.route == 0) {
                                 Row {
-                                    Button("影视资料").onClick({ => onOpenTmdb() })
-                                    Button("追剧日历").onClick({ => onOpenCalendar() })
+                                    Button("影视资料").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick({ => onOpenTmdb() })
+                                    Button("追剧日历").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick({ => onOpenCalendar() })
                                 }
                             }
-                            if (!session.error.isEmpty()) { Text(session.error) }
-                            if (session.loading) { Text("正在加载…") }
+                            if (!session.error.isEmpty()) { Text(session.error).fontColor(Color(DesignTokens.darkText)) }
+                            if (session.loading) { Text("正在加载…").fontColor(Color(DesignTokens.darkText)) }
                             if (session.route == 1) {
-                                Button("返回媒体库").onClick({ => session.back() })
+                                Button("返回媒体库").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick({ => session.back() })
                                 if (let Some(detail) <- session.selected) {
-                                    Text(detail.item.title).fontSize(22).fontWeight(FontWeight.Bold)
-                                    Text(detail.item.subtitle)
-                                    Text(detail.item.overview)
-                                    Button("播放 / 继续观看").enabled(!session.loading).onClick({ => session.play() })
+                                    Text(detail.item.title).fontColor(Color(DesignTokens.darkText)).fontSize(22).fontWeight(FontWeight.Bold)
+                                    Text(detail.item.subtitle).fontColor(Color(DesignTokens.darkText))
+                                    Text(detail.item.overview).fontColor(Color(DesignTokens.darkText))
+                                    Button("播放 / 继续观看").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).enabled(!session.loading).onClick({ => session.play() })
                                 }
                             } else {
                                 if (mode == 2 || session.registry.servers.isEmpty()) { LoginForm() }
                                 ForEach(session.registry.servers.toArray(), { server: SavedServer =>
-                                    Button(server.serverName + " · " + server.userName)
+                                    Button(server.serverName + " · " + server.userName).backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall)
                                         .onClick({ => session.chooseServer(server) })
                                 })
                                 if (mode != 2) {
-                                    TextInput(text: query, placeholder: "搜索当前服务器")
+                                    TextInput(text: query, placeholder: "搜索当前服务器").backgroundColor(Color(DesignTokens.darkSurface)).fontColor(Color(DesignTokens.darkText)).placeholderColor(Color(DesignTokens.darkSecondary))
                                         .onChange({ value => query = value })
                                     Row {
-                                        Button("搜索").enabled(!session.loading).onClick({ => session.load(query) })
-                                        Button("刷新").enabled(!session.loading).onClick({ => session.load("") })
+                                        Button("搜索").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).enabled(!session.loading).onClick({ => session.load(query) })
+                                        Button("刷新").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).enabled(!session.loading).onClick({ => session.load("") })
                                     }
                                     ForEach(session.items.toArray(), { item: MediaItemModel =>
-                                        Button(item.title + " · " + item.subtitle).width(100.percent)
+                                        Button(item.title + " · " + item.subtitle).backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).width(100.percent)
                                             .onClick({ => session.open(item) })
                                     })
-                                    if (!session.loading && session.items.isEmpty()) { Text("暂无媒体，请选择服务器或调整搜索词") }
+                                    if (!session.loading && session.items.isEmpty()) { Text("暂无媒体，请选择服务器或调整搜索词").fontColor(Color(DesignTokens.darkText)) }
                                     if (session.hasMore) {
-                                        Button("加载更多").enabled(!session.loading).onClick({ => session.more() })
+                                        Button("加载更多").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).enabled(!session.loading).onClick({ => session.more() })
                                     }
                                 }
                             }
@@ -87,17 +89,17 @@ class ConnectedMediaScreen {
                     }.layoutWeight(1)
                 }
             }
-        }.width(100.percent).height(100.percent)
+        }.width(100.percent).height(100.percent).backgroundColor(Color(DesignTokens.darkBackground))
     }
     @Builder
     func LoginForm() {
         Column {
-            Text("添加服务器").fontSize(20)
-            Button(if (jellyfin) { "类型：Jellyfin" } else { "类型：Emby" }).onClick({ => jellyfin = !jellyfin })
-            TextInput(text: endpoint, placeholder: "https://媒体服务器").onChange({ value => endpoint = value })
-            TextInput(text: userName, placeholder: "用户名").onChange({ value => userName = value })
-            TextInput(text: password, placeholder: "密码").type(InputType.Password).onChange({ value => password = value })
-            Button("登录并保存").enabled(session.ready && !session.loading).onClick({ =>
+            Text("添加服务器").fontColor(Color(DesignTokens.darkText)).fontSize(20)
+            Button(if (jellyfin) { "类型：Jellyfin" } else { "类型：Emby" }).backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick({ => jellyfin = !jellyfin })
+            TextInput(text: endpoint, placeholder: "https://媒体服务器").backgroundColor(Color(DesignTokens.darkSurface)).fontColor(Color(DesignTokens.darkText)).placeholderColor(Color(DesignTokens.darkSecondary)).onChange({ value => endpoint = value })
+            TextInput(text: userName, placeholder: "用户名").backgroundColor(Color(DesignTokens.darkSurface)).fontColor(Color(DesignTokens.darkText)).placeholderColor(Color(DesignTokens.darkSecondary)).onChange({ value => userName = value })
+            TextInput(text: password, placeholder: "密码").backgroundColor(Color(DesignTokens.darkSurface)).fontColor(Color(DesignTokens.darkText)).placeholderColor(Color(DesignTokens.darkSecondary)).type(InputType.Password).onChange({ value => password = value })
+            Button("登录并保存").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).enabled(session.ready && !session.loading).onClick({ =>
                 let submitted = password; password = ""
                 session.login(if (jellyfin) { ProviderKind.Jellyfin } else { ProviderKind.Emby },
                     endpoint, userName, submitted, false)

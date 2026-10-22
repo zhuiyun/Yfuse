@@ -483,7 +483,8 @@ private fun SeasonRow(
             ).background(
                 selectionColor(accent.copy(alpha = if (selected) 0.12f else 0f)),
                 AppShapes.chip,
-            ).heightIn(min = 52.dp)
+            ).detailSelectionOutline(selected, accent, AppShapes.chip)
+            .heightIn(min = 52.dp)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -626,6 +627,7 @@ internal fun EpisodeSection(
                     rowActions?.play(episode, onPlayEpisode) ?: onPlayEpisode(episode)
                 },
                 colors = EpisodeGridColors.themed(),
+                selectionBorder = detailSelectionHighlight(accent),
                 modifier =
                     Modifier
                         .contentHandoff(listedSeasonId.orEmpty())
@@ -735,7 +737,7 @@ private fun EpisodeCard(
 ) {
     val palette = LocalPalette.current
     val stateColors = detailStateColors(accent, palette.background, palette.isDark)
-    val selectedHighlight = Color.White
+    val selectedHighlight = detailSelectionHighlight(accent)
     val watching = (episode.playedPercentage ?: 0.0) > 0.0
     val still = remember { LiftAnchor() }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -754,6 +756,7 @@ private fun EpisodeCard(
                 transformOrigin = TransformOrigin(0.5f, 1f)
             }.liftable(menu = liftMenu, anchor = still)
             .pressable(enabled = enabled, onClick = onPlay)
+            .semantics { this.selected = selected }
             .solidGlass(
                 shape = AppShapes.card,
                 fill =
@@ -767,7 +770,7 @@ private fun EpisodeCard(
                 border = Color.Transparent,
             ).then(
                 if (selected) {
-                    Modifier.border(3.dp, selectedHighlight, AppShapes.card)
+                    Modifier.detailSelectionOutline(true, accent)
                 } else {
                     Modifier
                 },

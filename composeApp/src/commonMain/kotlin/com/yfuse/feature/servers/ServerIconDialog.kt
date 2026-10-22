@@ -26,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -44,6 +43,7 @@ import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.ServerIconTints
 import com.yfuse.core.designsystem.YfFormField
+import com.yfuse.core.designsystem.contentColorForSurface
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.serverTintColor
@@ -66,13 +66,13 @@ internal fun ServerIconDialog(
     onSave: (String?, Long?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
     var emoji by remember(server.id) { mutableStateOf(server.iconEmoji.orEmpty()) }
     var tint by remember(server.id) { mutableStateOf(server.iconTint) }
     val preview = serverTintColor(server.id, tint)
 
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
+        val accent = LocalAccentColors.current
         OverlayHeader(title = "图标与颜色", subtitle = server.serverName, onClose = onDismiss)
         Row(
             Modifier.fillMaxWidth(),
@@ -85,7 +85,7 @@ internal fun ServerIconDialog(
                     .clip(AppShapes.thumb)
                     .background(
                         Brush.linearGradient(
-                            listOf(lerp(preview, Color.White, 0.14f), preview),
+                            listOf(preview, preview),
                         ),
                     ),
                 contentAlignment = Alignment.Center,
@@ -93,7 +93,7 @@ internal fun ServerIconDialog(
                 Text(
                     emoji.ifBlank { server.serverName.take(1).uppercase() },
                     style = AppTypography.section.strong,
-                    color = if (emoji.isBlank()) Color.White else Color.Unspecified,
+                    color = if (emoji.isBlank()) contentColorForSurface(preview) else Color.Unspecified,
                 )
             }
             Column(Modifier.weight(1f)) {
@@ -146,7 +146,7 @@ internal fun ServerIconDialog(
                                     if (selected) {
                                         Modifier.border(
                                             width = 2.dp,
-                                            color = palette.text,
+                                            color = contentColorForSurface(swatch),
                                             shape = AppShapes.control,
                                         )
                                     } else {
@@ -159,7 +159,7 @@ internal fun ServerIconDialog(
                                 Icon(
                                     AppIcons.Check,
                                     contentDescription = null,
-                                    tint = Color.White,
+                                    tint = contentColorForSurface(swatch),
                                     modifier = Modifier.size(15.dp),
                                 )
                             }

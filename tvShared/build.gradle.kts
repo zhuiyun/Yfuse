@@ -37,6 +37,8 @@ kotlin {
             kotlin.srcDirs("../composeApp/src/androidMain/kotlin", "../tvApp/src/androidMain/kotlin")
             dependencies {
                 api(project.dependencies.platform(libs.okhttp.bom))
+                implementation(libs.widget.quickjs)
+                implementation(libs.widget.jsoup)
                 compileOnly(project(":mdkAndroid"))
                 compileOnly(files("../composeApp/libs/libmpv-release.aar"))
                 compileOnly(libs.bundles.shared.android)

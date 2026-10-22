@@ -521,6 +521,7 @@ private fun RowScope.SeasonTabs(
                             bounds.widths[index] = it.size.width.toFloat()
                         }.semantics { this.selected = selected }
                         .pressable(onClickLabel = "查看${season.second}") { onTab(index) }
+                        .detailSelectionOutline(selected, accent, AppShapes.pill)
                         .padding(horizontal = 12.dp, vertical = 7.dp),
             )
         }
@@ -580,11 +581,12 @@ private fun EpisodeRow(
 ) {
     val palette = LocalPalette.current
     val stateColors = detailStateColors(accent, palette.background, palette.isDark)
-    val selectedHighlight = Color.White
+    val selectedHighlight = detailSelectionHighlight(accent)
     Row(
         modifier
             .fillMaxWidth()
             .pressable(onClick = onPlay)
+            .semantics { selected = current }
             .clip(AppShapes.card)
             .background(
                 if (current) {
@@ -594,7 +596,7 @@ private fun EpisodeRow(
                 },
             ).then(
                 if (current) {
-                    Modifier.border(3.dp, selectedHighlight, AppShapes.card)
+                    Modifier.detailSelectionOutline(true, accent)
                 } else {
                     Modifier
                 },

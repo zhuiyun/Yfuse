@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.LookaheadScope
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.floatingNavigationContentInset
@@ -63,6 +64,7 @@ import com.yfuse.core.designsystem.ThemeText as Text
 /** Two on a 360dp phone; wider windows fill with more cards rather than stretching them. */
 private val ServerCardMinWidth = 146.dp
 internal val ServerHeaderCircleSize = 42.dp
+internal const val SERVER_LARGE_TEXT_SCALE = 1.3f
 
 /** How often 「上次观看」 re-reads the clock, so 「刚刚看过」 becomes 「1 分钟前」 on its own. */
 private const val AGE_TICK_MS = 30_000L
@@ -90,6 +92,7 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
     val lastWatched by component.activity.lastWatched.collectAsState()
     val serverStats by component.stats.stats.collectAsState()
     val layout by component.layout.collectAsState()
+    val largeText = LocalDensity.current.fontScale >= SERVER_LARGE_TEXT_SCALE
     val listFilter by component.listFilter.collectAsState()
     val managementState by component.management.collectAsState()
     val access by component.access.collectAsState()
@@ -203,7 +206,7 @@ internal fun ServersGridScreen(component: ServersTabComponent) {
                         // the grid card shows is worth showing in a row too, and two implementations
                         // of the same thing drift apart on the next change to either.
                         columns =
-                            if (layout == ServerLayout.List) {
+                            if (layout == ServerLayout.List || largeText) {
                                 GridCells.Fixed(1)
                             } else {
                                 GridCells.Adaptive(ServerCardMinWidth)

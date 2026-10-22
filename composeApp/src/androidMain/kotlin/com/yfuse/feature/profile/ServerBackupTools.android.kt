@@ -44,10 +44,10 @@ import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.core.content.ContextCompat
 import com.yfuse.backend.BackendAccess
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.ExclusiveUiOperation
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OperationFeedback
 import com.yfuse.core.designsystem.OperationTone
@@ -463,15 +463,15 @@ actual fun ServerBackupTools(
                     .size(42.dp)
                     .glass(
                         CircleShape,
-                        Brand.Primary.copy(alpha = 0.14f),
-                        Brand.Primary.copy(alpha = 0.24f),
+                        LocalAccentColors.current.accent.copy(alpha = 0.14f),
+                        LocalAccentColors.current.accent.copy(alpha = 0.24f),
                     ),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     AppIcons.Server,
                     contentDescription = null,
-                    tint = Brand.Primary,
+                    tint = LocalAccentColors.current.accent,
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -722,19 +722,19 @@ actual fun ServerBackupTools(
                 contentDescription = "服务器迁移二维码",
                 modifier = Modifier.fillMaxWidth(),
             )
-            Row(
+            Column(
                 Modifier.fillMaxWidth().padding(top = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 OverlayButton(
                     label = "关闭",
                     onClick = { showQr = false },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 OverlayButton(
                     label = "保存二维码",
                     onClick = { saveQr.launch("Yfuse-servers-qr.png") },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                     tone = OverlayButtonTone.Primary,
                 )
             }
@@ -779,7 +779,7 @@ private fun MigrationLink(
     Text(
         label,
         style = mr(10.5f, 650),
-        color = if (enabled) Brand.Primary else LocalPalette.current.sub2,
+        color = if (enabled) LocalAccentColors.current.accent else LocalPalette.current.sub2,
         modifier =
             modifier
                 .pressable(enabled = enabled, onClick = onClick)

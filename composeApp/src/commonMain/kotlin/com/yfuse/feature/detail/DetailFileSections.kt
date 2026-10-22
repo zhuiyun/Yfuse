@@ -41,6 +41,7 @@ import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.RecommendBadge
 import com.yfuse.core.designsystem.SectionHeader
+import com.yfuse.core.designsystem.contentColorForSurface
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
@@ -518,9 +519,10 @@ private fun TrackChipRow(
                                 } else {
                                     Color.White.copy(alpha = 0.20f)
                                 },
-                            border = if (active) stateColors.border else Color.Transparent,
+                            border = Color.Transparent,
                             sheen = 0.7f,
-                        ).padding(horizontal = 12.dp, vertical = 7.dp),
+                        ).detailSelectionOutline(active, accent, AppShapes.chip)
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
             )
         }
     }
@@ -556,7 +558,7 @@ private fun VersionCard(
                 border = Color.Transparent,
             ).then(
                 if (selected) {
-                    Modifier.border(1.5.dp, stateColors.border, AppShapes.card)
+                    Modifier.detailSelectionOutline(true, accent)
                 } else {
                     Modifier
                 },
@@ -722,7 +724,7 @@ private fun SourceCard(
                 border = Color.Transparent,
             ).then(
                 if (selected) {
-                    Modifier.border(1.5.dp, stateColors.border, AppShapes.card)
+                    Modifier.detailSelectionOutline(true, accent)
                 } else {
                     Modifier
                 },
@@ -744,7 +746,7 @@ private fun SourceCard(
                 Text(
                     entry.serverName.take(1).uppercase(),
                     style = AppTypography.caption.strong,
-                    color = Color.White,
+                    color = contentColorForSurface(serverTint(entry.serverId)),
                 )
             }
             Text(

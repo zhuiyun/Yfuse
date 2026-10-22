@@ -11,3 +11,16 @@ import androidx.compose.runtime.Composable
  */
 @Composable
 internal expect fun DialogTouchPassThrough(enabled: Boolean)
+
+internal data class DialogSystemBarStyle(
+    val statusBarDarkIcons: Boolean,
+    val navigationBarDarkIcons: Boolean,
+)
+
+/** Capture the owning window before entering the new dialog's composition. */
+@Composable
+internal expect fun rememberDialogSystemBarStyle(fallbackDarkIcons: Boolean): DialogSystemBarStyle
+
+/** The full-window Compose scrim owns dimming; Android system bars remain transparent over it. */
+@Composable
+internal expect fun DialogSystemBars(style: DialogSystemBarStyle)

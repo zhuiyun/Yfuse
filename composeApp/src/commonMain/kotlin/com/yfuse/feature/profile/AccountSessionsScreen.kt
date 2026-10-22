@@ -48,6 +48,8 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.PageLoadingSkeleton
+import com.yfuse.core.designsystem.SettingIconTile
+import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.formDivider
@@ -386,13 +388,8 @@ private fun SessionsHeader(
                     ).size(44.dp),
             contentAlignment = Alignment.Center,
         ) {
-            InlineLoadingContent(loading = loading, slotSize = 20.dp, orbSize = 18.dp, color = palette.sub2) {
-                Icon(
-                    imageVector = AppIcons.Refresh,
-                    contentDescription = null,
-                    tint = palette.text,
-                    modifier = Modifier.size(20.dp),
-                )
+            InlineLoadingContent(loading = loading, slotSize = 32.dp, orbSize = 18.dp, color = palette.sub2) {
+                SettingIconTile(AppIcons.Refresh, SettingTint.sync)
             }
         }
     }
@@ -423,25 +420,7 @@ private fun SessionDeviceRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .size(38.dp)
-                .liquidGlass(
-                    shape = AppShapes.control,
-                    fill = if (current) Brand.Online.copy(alpha = 0.14f) else palette.card2,
-                    border = null,
-                    over = palette.card,
-                    sheen = 0.38f,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = AppIcons.Lock,
-                contentDescription = null,
-                tint = if (current) Brand.Online else palette.text,
-                modifier = Modifier.size(18.dp),
-            )
-        }
+        SettingIconTile(AppIcons.Lock, if (current) Brand.Online else SettingTint.account, size = 38.dp)
         Column(Modifier.weight(1f)) {
             Text(
                 session.deviceName.ifBlank { "未命名设备" },
@@ -541,7 +520,7 @@ private fun BulkSessionActions(
         )
         SessionDivider()
         BulkSessionActionRow(
-            icon = AppIcons.Close,
+            icon = AppIcons.Remove,
             title = "全部设备退出",
             detail = "包括当前设备",
             onClick = onRevokeAll,
@@ -576,7 +555,7 @@ private fun BulkSessionActionRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(20.dp))
+        SettingIconTile(icon, if (destructive) palette.error else SettingTint.general)
         Column(Modifier.weight(1f)) {
             Text(title, style = AppTypography.body.strong, color = contentColor)
             Spacer(Modifier.height(2.dp))

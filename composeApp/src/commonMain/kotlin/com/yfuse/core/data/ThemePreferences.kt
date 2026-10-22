@@ -9,6 +9,7 @@ import com.yfuse.core.designsystem.GlassMaterial
 import com.yfuse.core.designsystem.GlassMaterials
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.LoadingAnimation
+import com.yfuse.core.designsystem.MIN_BACKGROUND_DIM
 import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.ParticleLight
 import com.yfuse.core.designsystem.ParticleStyle
@@ -47,6 +48,7 @@ class ThemePreferences(
         const val KEY_NAV_COLLAPSE_ON_SCROLL = "appearance.navCollapseOnScroll"
         const val KEY_SPLASH_ANIMATION = "appearance.splashAnimation"
         const val KEY_SPLASH_VARIANT = "appearance.splashVariant.v3"
+        const val KEY_CUSTOM_HOME = "appearance.customHomeVisible"
         const val KEY_STARTUP_TAB = "appearance.startupTab"
         const val KEY_DIALOG_ANIMATION = "appearance.dialogAnimation"
         const val KEY_GLASS_STYLE = "appearance.glassStyle"
@@ -148,6 +150,14 @@ class ThemePreferences(
     private val _splashAnimation = MutableStateFlow(settings.getBoolean(KEY_SPLASH_ANIMATION, true))
     val splashAnimation: StateFlow<Boolean> = _splashAnimation.asStateFlow()
 
+    private val _customHomeVisible = MutableStateFlow(settings.getBoolean(KEY_CUSTOM_HOME, true))
+    val customHomeVisible: StateFlow<Boolean> = _customHomeVisible.asStateFlow()
+
+    fun setCustomHomeVisible(value: Boolean) {
+        _customHomeVisible.value = value
+        settings.putBoolean(KEY_CUSTOM_HOME, value)
+    }
+
     private val _startupTab =
         MutableStateFlow(
             load(KEY_STARTUP_TAB, StartupTab.entries, StartupTab.Automatic).let {
@@ -227,7 +237,7 @@ class ThemePreferences(
 
     private val _backgroundDim =
         MutableStateFlow(
-            settings.getFloat(KEY_BACKGROUND_DIM, DEFAULT_BACKGROUND_DIM).coerceIn(0f, 1f),
+            settings.getFloat(KEY_BACKGROUND_DIM, DEFAULT_BACKGROUND_DIM).coerceIn(MIN_BACKGROUND_DIM, 1f),
         )
     val backgroundDim: StateFlow<Float> = _backgroundDim.asStateFlow()
 
@@ -283,7 +293,7 @@ class ThemePreferences(
     }
 
     fun setBackgroundDim(value: Float) {
-        val clamped = value.coerceIn(0f, 1f)
+        val clamped = value.coerceIn(MIN_BACKGROUND_DIM, 1f)
         _backgroundDim.value = clamped
         settings.putFloat(KEY_BACKGROUND_DIM, clamped)
     }

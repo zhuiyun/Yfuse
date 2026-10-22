@@ -40,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.DecorativeTints
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
@@ -114,7 +113,7 @@ internal fun DetailMoreActionsDialog(
                 DetailQuickAction(
                     icon = AppIcons.Download,
                     label = "下载到本地",
-                    color = DecorativeTints.teal,
+                    color = LocalAccentColors.current.accent,
                     onClick = onDownload,
                 ),
             )
@@ -123,7 +122,7 @@ internal fun DetailMoreActionsDialog(
                     DetailQuickAction(
                         icon = AppIcons.WatchCalendar,
                         label = "追更日历",
-                        color = DecorativeTints.coral,
+                        color = LocalAccentColors.current.accent,
                         onClick = onCalendar,
                     ),
                 )
@@ -132,7 +131,7 @@ internal fun DetailMoreActionsDialog(
                 DetailQuickAction(
                     icon = AppIcons.Check,
                     label = if (played) "标记未看" else "标记已看",
-                    color = DecorativeTints.emerald,
+                    color = LocalAccentColors.current.accent,
                     onClick = onTogglePlayed,
                 ),
             )
@@ -141,7 +140,7 @@ internal fun DetailMoreActionsDialog(
                     DetailQuickAction(
                         icon = AppIcons.Share,
                         label = "分享",
-                        color = DecorativeTints.plum,
+                        color = LocalAccentColors.current.accent,
                         onClick = onShare,
                     ),
                 )
@@ -161,7 +160,7 @@ internal fun DetailMoreActionsDialog(
         animation = DialogAnimation.Slide,
     ) {
         val palette = LocalPalette.current
-        val lavender = resolveAccentColors(DecorativeTints.lavender, palette.isDark)
+        val lavender = resolveAccentColors(LocalAccentColors.current.accent, palette.isDark)
         Column(
             Modifier
                 .fillMaxSize()
@@ -185,7 +184,7 @@ internal fun DetailMoreActionsDialog(
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                DetailMoreSectionLabel(label = "观看", color = DecorativeTints.teal)
+                DetailMoreSectionLabel(label = "观看", color = LocalAccentColors.current.accent)
                 if (watchAvailable) {
                     DetailWatchTogetherAction(
                         active = watchActive,
@@ -195,7 +194,7 @@ internal fun DetailMoreActionsDialog(
                 DetailQuickActionStrip(actions = quickActions)
 
                 Spacer(Modifier.height(2.dp))
-                DetailMoreSectionLabel(label = "收藏", color = DecorativeTints.coral)
+                DetailMoreSectionLabel(label = "收藏", color = LocalAccentColors.current.accent)
                 DetailCollectionActions(
                     serverFavoriteAvailable = serverFavoriteAvailable,
                     serverFavorite = serverFavorite,
@@ -207,7 +206,7 @@ internal fun DetailMoreActionsDialog(
                 )
 
                 Spacer(Modifier.height(2.dp))
-                DetailMoreSectionLabel(label = "管理", color = DecorativeTints.plum)
+                DetailMoreSectionLabel(label = "管理", color = LocalAccentColors.current.accent)
                 // Each of these closes the sheet, several to open another: the sheet leaves first, so
                 // the next panel rises over the page instead of replacing this one in a single frame.
                 DetailManagementActions(
@@ -238,7 +237,11 @@ private fun DetailMoreHero(
             .height(DetailMoreHeroHeight)
             .background(
                 Brush.linearGradient(
-                    listOf(DecorativeTints.plum, DecorativeTints.teal, DecorativeTints.coral),
+                    listOf(
+                        LocalAccentColors.current.accent,
+                        LocalAccentColors.current.accent,
+                        LocalAccentColors.current.accent,
+                    ),
                 ),
             ),
     ) {
@@ -264,7 +267,7 @@ private fun DetailMoreHero(
                 .background(
                     Brush.verticalGradient(
                         0f to Color.Black.copy(alpha = 0.16f),
-                        0.46f to DecorativeTints.plum.copy(alpha = 0.2f),
+                        0.46f to LocalAccentColors.current.accent.copy(alpha = 0.2f),
                         1f to Color.Black.copy(alpha = 0.76f),
                     ),
                 ),
@@ -344,7 +347,7 @@ private fun DetailWatchTogetherAction(
 ) {
     val palette = LocalPalette.current
     val artwork = LocalAccentColors.current
-    val plum = resolveAccentColors(DecorativeTints.plum, palette.isDark)
+    val plum = LocalAccentColors.current
     val iconFill = lerp(plum.container, artwork.container, 0.46f)
     Row(
         Modifier
@@ -486,7 +489,7 @@ private fun DetailCollectionActions(
                 icon = if (serverFavorite) AppIcons.HeartFilled else AppIcons.Heart,
                 label = "服务器收藏",
                 description = "保存在当前服务器的收藏中",
-                color = DecorativeTints.coral,
+                color = LocalAccentColors.current.accent,
                 checked = serverFavorite,
                 onClick = onToggleServerFavorite,
             )
@@ -496,7 +499,7 @@ private fun DetailCollectionActions(
             icon = if (serverWatchLater) AppIcons.Check else AppIcons.Bookmark,
             label = "服务器稍后看",
             description = if (serverWatchLaterMutating) "正在同步到服务器…" else "加入当前服务器的稍后观看",
-            color = DecorativeTints.amber,
+            color = LocalAccentColors.current.accent,
             checked = serverWatchLater,
             onClick = { if (!serverWatchLaterMutating) onToggleServerWatchLater() },
         )
@@ -506,7 +509,7 @@ private fun DetailCollectionActions(
                 icon = if (lists.favorite) AppIcons.HeartFilled else AppIcons.Heart,
                 label = "收藏到个人清单",
                 description = if (lists.allowed) "只属于当前资料，跨服务器同步" else "当前资料无权访问此服务器",
-                color = DecorativeTints.coral,
+                color = LocalAccentColors.current.accent,
                 checked = lists.favorite,
                 onClick = lists.toggleFavorite,
             )
@@ -515,7 +518,7 @@ private fun DetailCollectionActions(
                 icon = if (lists.wanted) AppIcons.Check else AppIcons.Bookmark,
                 label = "加入个人想看",
                 description = if (lists.allowed) "只属于当前资料，跨服务器同步" else "当前资料无权访问此服务器",
-                color = DecorativeTints.teal,
+                color = LocalAccentColors.current.accent,
                 checked = lists.wanted,
                 onClick = lists.toggleWanted,
             )
@@ -550,7 +553,7 @@ private fun DetailManagementActions(
                 icon = AppIcons.Bell,
                 label = if (followed) "已加入追更" else "加入追更",
                 description = if (followed) "追剧中心优先显示并接收更新提醒" else "关注排期和新集入库",
-                color = DecorativeTints.teal,
+                color = LocalAccentColors.current.accent,
                 checked = followed,
                 onClick = onToggleFollow,
             )
@@ -562,7 +565,7 @@ private fun DetailManagementActions(
             icon = AppIcons.Grid,
             label = "加入合集或播放列表",
             description = "选择服务器上已有的容器",
-            color = DecorativeTints.amber,
+            color = LocalAccentColors.current.accent,
             onClick = onOrganization,
         )
         DetailManagementDivider()
@@ -570,7 +573,7 @@ private fun DetailManagementActions(
             icon = AppIcons.Edit,
             label = "编辑元数据与图片",
             description = "修改标题、简介或选择海报",
-            color = DecorativeTints.plum,
+            color = LocalAccentColors.current.accent,
             onClick = onEditMetadata,
         )
         DetailManagementDivider()
@@ -578,7 +581,7 @@ private fun DetailManagementActions(
             icon = AppIcons.Refresh,
             label = "刷新服务器元数据",
             description = "保留已锁定字段与现有图片",
-            color = DecorativeTints.coral,
+            color = LocalAccentColors.current.accent,
             onClick = onRefresh,
         )
         if (isPlex) {
@@ -587,7 +590,7 @@ private fun DetailManagementActions(
                 icon = AppIcons.Cloud,
                 label = "分析 Plex 媒体",
                 description = "重新分析文件、音视频轨与章节",
-                color = DecorativeTints.plum,
+                color = LocalAccentColors.current.accent,
                 onClick = onAnalyze,
             )
         }

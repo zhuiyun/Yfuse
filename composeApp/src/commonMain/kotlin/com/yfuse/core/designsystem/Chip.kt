@@ -67,8 +67,11 @@ fun YfChip(
                 }.touchTarget(focus = focusShape)
                 .glass(
                     shape = AppShapes.chip,
-                    fill = selectionColor(if (selected) accent.container else palette.card2),
-                    border = selectionColor(if (selected) accent.border else palette.border),
+                    fill = selectionColor(if (selected) accent.container else palette.controlSurface),
+                    border =
+                        selectionColor(
+                            if (selected) glassControlHighlight(accent, palette.isDark) else palette.controlBorder,
+                        ),
                 ).alpha(if (enabled) 1f else 0.4f)
                 .padding(horizontal = Dimens.space.md, vertical = Dimens.space.sm),
         horizontalArrangement = Arrangement.spacedBy(Dimens.space.xs),

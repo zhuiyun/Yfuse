@@ -64,7 +64,6 @@ internal fun OfflineDownloadDialog(
     onConfirm: (OfflineDownloadSelection) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     val versions = detail.versions
     val episode = detail.seriesId != null
     val batchModes = offlineBatchModes(episode, episodes.size)
@@ -108,6 +107,7 @@ internal fun OfflineDownloadDialog(
         )
 
     GlassDialog(liquidButtons = false, onDismiss = onDismiss) {
+        val palette = LocalPalette.current
         OverlayHeader(
             title = "智能离线",
             subtitle =
@@ -371,8 +371,8 @@ internal fun OrganizationContainerDialog(
     onAdd: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     GlassDialog(liquidButtons = false, onDismiss = onDismiss, scrollable = false) {
+        val palette = LocalPalette.current
         OverlayHeader(
             title = "加入合集或播放列表",
             subtitle = "使用服务器上已有的容器",

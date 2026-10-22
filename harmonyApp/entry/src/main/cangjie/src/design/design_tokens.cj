@@ -7,6 +7,10 @@ public class DesignTokens {
     public static let lightText: UInt32 = 0xFF151A22
     public static let darkBackground: UInt32 = 0xFF080D17
     public static let darkText: UInt32 = 0xFFEEF0F3
+    public static let darkSurface: UInt32 = 0xFF182235
+    public static let darkSecondary: UInt32 = 0xFFBAC7DC
+    public static let darkAccent: UInt32 = 0xFF90B4FF
+    public static let darkOnAccent: UInt32 = 0xFF080D17
     public static let playerBackgroundTop: UInt32 = 0xFF2C3B57
     public static let playerBackgroundBottom: UInt32 = 0xFF0C1018
     public static let playerProgressFallback: UInt32 = 0xFF6F9FEA

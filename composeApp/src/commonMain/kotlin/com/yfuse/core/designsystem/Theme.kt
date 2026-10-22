@@ -135,7 +135,6 @@ data class AccentColors(
 
 private const val MINIMUM_ACCENT_CONTRAST = 4.5f
 private val DarkAccentSurface = Color(0xFF182235)
-private val DarkAccentInk = Color(0xFF0B111C)
 
 private fun contrastRatio(
     first: Color,
@@ -150,9 +149,9 @@ private fun contrastRatio(
 fun resolveAccentColors(
     base: Color,
     dark: Boolean,
+    surface: Color = if (dark) DarkAccentSurface else Color.White,
 ): AccentColors {
-    val surface = if (dark) DarkAccentSurface else Color.White
-    val adjustmentTarget = if (dark) Color.White else Color.Black
+    val adjustmentTarget = contentColorForSurface(surface)
     val containerBlend = if (dark) 0.14f else 0.08f
     val accent =
         (0..20).firstNotNullOfOrNull { step ->
@@ -163,10 +162,11 @@ fun resolveAccentColors(
                     contrastRatio(it, container) >= MINIMUM_ACCENT_CONTRAST
             }
         } ?: adjustmentTarget
-    val container = lerp(surface, accent, containerBlend)
-    val onAccent =
-        listOf(Color.White, DarkAccentInk)
-            .maxBy { contrastRatio(it, accent) }
+    val container =
+        lerp(surface, accent, containerBlend).takeIf {
+            contrastRatio(accent, it) >= MINIMUM_ACCENT_CONTRAST
+        } ?: surface
+    val onAccent = contentColorForSurface(accent)
     return AccentColors(
         accent = accent,
         onAccent = onAccent,
@@ -256,7 +256,7 @@ private fun darkScheme(accent: AccentColors) =
         onSurface = DarkPalette.text,
         surfaceVariant = Color(0xFF232833),
         onSurfaceVariant = DarkPalette.sub2,
-        outline = Color(0xFF2A2F3A),
+        outline = DarkPalette.controlBorder,
         outlineVariant = Color(0xFF20242D),
         error = DarkPalette.error,
         onError = DarkPalette.onError,
@@ -281,7 +281,7 @@ private fun lightScheme(accent: AccentColors) =
         onSurface = LightPalette.text,
         surfaceVariant = Color(0xFFE2E5EB),
         onSurfaceVariant = LightPalette.sub2,
-        outline = Color(0xFFD0D5DE),
+        outline = LightPalette.controlBorder,
         outlineVariant = Color(0xFFE1E4EA),
         error = LightPalette.error,
         onError = LightPalette.onError,
@@ -332,6 +332,7 @@ fun YfuseTheme(
         LocalAccessibilityOptions provides accessibility,
         LocalGlassStyle provides glassStyle,
         LocalGlassMaterials provides glassMaterials,
+        LocalGlassAppearance provides dark,
         // Under 静息 柔和浮起 draws as a fade and a short rise, not its own scale: see [dialogMotion].
         LocalDialogAnimation provides if (calm) DialogAnimation.Lift else dialogAnimation,
         LocalLoadingAnimation provides if (calm) CalmLoadingAnimation else loadingAnimation,

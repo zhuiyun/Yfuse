@@ -129,8 +129,14 @@ class GlassMaterialTest {
         assertTrue(mist.all { it.refraction == 0f })
         val smoke = GlassMaterialPreset.Smoke.material(false).contentPalette(LightPalette)
         assertEquals(DarkPalette.text, smoke.text)
-        assertEquals(false, smoke.isDark)
-        assertEquals(LightPalette, GlassMaterialPreset.SoftMist.material(false).contentPalette(LightPalette))
+        assertEquals(true, smoke.isDark)
+        assertEquals(
+            false,
+            GlassMaterialPreset.SoftMist
+                .material(false)
+                .contentPalette(LightPalette)
+                .isDark,
+        )
     }
 
     @Test
@@ -221,7 +227,7 @@ class GlassMaterialTest {
         val darkTintInLight = GlassMaterial.defaults(false).copy(tintRgb = 0x101820, opacity = 0.92f)
         assertEquals(GlassInk.Light, darkTintInLight.resolvedInk(LightPalette))
         assertEquals(DarkPalette.text, darkTintInLight.contentPalette(LightPalette).text)
-        assertEquals(false, darkTintInLight.contentPalette(LightPalette).isDark)
+        assertEquals(true, darkTintInLight.contentPalette(LightPalette).isDark)
 
         val paleTintInDark = GlassMaterial.defaults(true).copy(tintRgb = 0xF2F4F8, opacity = 0.95f)
         assertEquals(GlassInk.Dark, paleTintInDark.resolvedInk(DarkPalette))

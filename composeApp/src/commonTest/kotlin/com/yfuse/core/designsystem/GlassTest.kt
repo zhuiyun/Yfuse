@@ -21,12 +21,12 @@ class GlassTest {
     }
 
     @Test
-    fun dark_or_semantic_material_borders_are_removed() {
+    fun semantic_selection_borders_are_preserved() {
         val darkAccent = Color(0xFF244A9A)
         val error = Color(0xFFB4232E)
 
-        assertNull(resolveGlassMaterialBorder(darkAccent, LightPalette))
-        assertNull(resolveGlassMaterialBorder(error, DarkPalette))
+        assertEquals(darkAccent, resolveGlassMaterialBorder(darkAccent, LightPalette))
+        assertEquals(error, resolveGlassMaterialBorder(error, DarkPalette))
     }
 
     @Test

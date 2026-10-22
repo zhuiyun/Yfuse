@@ -1,6 +1,10 @@
 package com.yfuse.feature.trakt
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -12,12 +16,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
+import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OperationFeedback
+import com.yfuse.core.designsystem.OperationTone
 import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingsCard
@@ -42,6 +52,7 @@ fun TraktSettingsScreen(
     val settings by store.states.collectAsState(store.state)
     val state = settings.trakt
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     val uriHandler = LocalUriHandler.current
     val clipboard = LocalClipboardManager.current
     var copiedCode by remember(state.challenge) { mutableStateOf(false) }
@@ -49,7 +60,7 @@ fun TraktSettingsScreen(
         store.accept(TraktSettingsIntent.PageShown)
         onDispose { store.accept(TraktSettingsIntent.PageHidden) }
     }
-    SettingsPage(title = "Trakt", onBack = onBack) {
+    SettingsPage(title = "Trakt", subtitle = "账号连接、观看记录与清单同步", onBack = onBack) {
         item {
             Section(title = "账号连接") {
                 SettingsCard {
@@ -62,6 +73,8 @@ fun TraktSettingsScreen(
                             else -> "未连接"
                         },
                         embedded = true,
+                        icon = AppIcons.User,
+                        iconTint = accent.accent,
                     )
                     if (!state.connected && state.challenge == null) {
                         SettingsDivider()
@@ -69,6 +82,8 @@ fun TraktSettingsScreen(
                             "连接 Trakt",
                             "打开授权",
                             embedded = true,
+                            icon = AppIcons.Refresh,
+                            iconTint = accent.accent,
                             loading = state.busy && state.operation == TraktOperation.Authorize,
                             onClick =
                                 if (settings.canConnect) {
@@ -84,13 +99,25 @@ fun TraktSettingsScreen(
                     }
                     if (state.configuration?.let { !it.deviceAvailable && !it.oauthAvailable } == true) {
                         SettingsDivider()
-                        SettingRow("接入状态", "服务尚未配置，暂时无法授权", embedded = true)
+                        SettingRow(
+                            "接入状态",
+                            "服务尚未配置，暂时无法授权",
+                            embedded = true,
+                            icon = AppIcons.Info,
+                            iconTint = accent.accent,
+                        )
                     }
                     if (state.connected) {
                         SettingsDivider()
-                        SettingRow("断开 Trakt", "解除当前资料的连接", embedded = true, onClick = {
-                            store.accept(TraktSettingsIntent.Disconnect)
-                        })
+                        SettingRow(
+                            "断开 Trakt",
+                            "解除当前资料的连接",
+                            embedded = true,
+                            icon = AppIcons.Close,
+                            iconTint = palette.error,
+                            destructive = true,
+                            onClick = { store.accept(TraktSettingsIntent.Disconnect) },
+                        )
                     }
                 }
             }
@@ -99,18 +126,42 @@ fun TraktSettingsScreen(
             item {
                 Section(title = "完成授权") {
                     SettingsCard {
-                        SettingRow(
-                            "授权",
-                            challenge.userCode?.let { "授权码：" + it + " · " + challenge.verificationUrl }
-                                ?: "在 Trakt 网页确认授权后返回",
-                            embedded = true,
-                        )
+                        Column(
+                            Modifier.fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            ThemeText(
+                                if (challenge.userCode == null) "在 Trakt 网页确认授权后返回" else "在 Trakt 网页输入下方授权码，确认后返回",
+                                style = AppTypography.body.medium,
+                                color = palette.text,
+                            )
+                            challenge.userCode?.let { code ->
+                                SelectionContainer {
+                                    ThemeText(
+                                        code,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        style = AppTypography.section.strong.copy(fontFamily = FontFamily.Monospace),
+                                        color = accent.accent,
+                                    )
+                                }
+                                ThemeText(
+                                    challenge.verificationUrl,
+                                    style = AppTypography.caption.regular,
+                                    color = palette.sub2,
+                                )
+                            }
+                        }
                         challenge.userCode?.let { code ->
                             SettingsDivider()
-                            SettingRow("复制授权码", if (copiedCode) "已复制" else code, embedded = true, onClick = {
-                                clipboard.setText(AnnotatedString(code))
-                                copiedCode = true
-                            })
+                            SettingRow(
+                                "复制授权码",
+                                if (copiedCode) "已复制到剪贴板" else "用于 Trakt 设备授权",
+                                embedded = true,
+                                onClick = {
+                                    clipboard.setText(AnnotatedString(code))
+                                    copiedCode = true
+                                },
+                            )
                         }
                         settings.verificationPage?.let { page ->
                             SettingsDivider()
@@ -201,8 +252,8 @@ fun TraktSettingsScreen(
         item {
             Section(title = "同步范围") {
                 ThemeText(
-                    "一键同步会双向合并当前家庭资料的收藏与待看列表；已同步条目的新增、取消也会同步。初次合并保留本机删除决定，冲突时优先保留本次本机修改。" +
-                        "观看历史仅合并有影片标识的已看电影与单集，不上传未看完的记录，不向 Trakt 删除历史，也不覆盖本机或媒体服务器的续播进度。" +
+                    "一键同步会双向合并当前家庭资料的收藏与待看列表；已同步条目的新增、取消也会同步。初次合并保留本机删除决定，冲突时优先保留本次本机修改。\n\n" +
+                        "观看历史仅合并有影片标识的已看电影与单集，不上传未看完的记录，不向 Trakt 删除历史，也不覆盖本机或媒体服务器的续播进度。\n\n" +
                         "播放上报可单独开启。仅有服务器内部编号、无法匹配或 Trakt 不支持的条目会跳过。",
                     style = AppTypography.caption.regular,
                     color = palette.sub2,
@@ -213,6 +264,7 @@ fun TraktSettingsScreen(
             item {
                 ThemeText(
                     result.summary,
+                    style = AppTypography.body.regular,
                     color = if (result.error == null) palette.sub2 else palette.error,
                     modifier = Modifier.padding(horizontal = Dimens.pageHorizontal).contentHandoff(result).liveStatus(),
                 )
@@ -220,10 +272,15 @@ fun TraktSettingsScreen(
         }
         listOfNotNull(state.message, state.error).forEach { notice ->
             item {
-                ThemeText(
+                OperationFeedback(
                     notice,
-                    color = if (notice == state.error) palette.error else palette.success,
-                    modifier = Modifier.padding(horizontal = Dimens.pageHorizontal).contentHandoff(notice).liveStatus(),
+                    tone =
+                        when {
+                            notice == state.error -> OperationTone.Error
+                            state.busy -> OperationTone.Working
+                            else -> OperationTone.Info
+                        },
+                    modifier = Modifier.padding(horizontal = Dimens.pageHorizontal).contentHandoff(notice),
                 )
             }
         }

@@ -7,13 +7,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -26,12 +23,19 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import com.yfuse.core.data.AsyncServerSessionStartup
 import com.yfuse.core.data.SessionStartupPhase
+import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.ThemeMode
+import com.yfuse.core.designsystem.YfButton
+import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.core.designsystem.resolveDark
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.koin.core.context.GlobalContext
 
 /** Application installs this before any account or server-dependent work starts. Main-thread owned. */
 object ServerSessionRecovery {
@@ -84,8 +88,19 @@ object ServerSessionRecovery {
                     SessionStartupPhase.Restoring -> Unit
                 }
             }
-            MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
-                Surface(Modifier.fillMaxSize()) {
+            val mode =
+                remember {
+                    runCatching {
+                        GlobalContext
+                            .get()
+                            .get<ThemePreferences>()
+                            .mode.value
+                    }.getOrDefault(
+                        ThemeMode.Dark,
+                    )
+                }
+            YfuseTheme(dark = mode.resolveDark(isSystemInDarkTheme())) {
+                Surface(Modifier.fillMaxSize(), color = LocalPalette.current.background) {
                     Column(
                         modifier = Modifier.fillMaxSize().padding(32.dp),
                         verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
@@ -96,9 +111,7 @@ object ServerSessionRecovery {
                         if (restoring) {
                             CircularProgressIndicator()
                         } else {
-                            Button(onClick = pending::start, modifier = Modifier.focusRequester(retryFocus)) {
-                                Text("重试")
-                            }
+                            YfButton("重试", onClick = pending::start, modifier = Modifier.focusRequester(retryFocus))
                         }
                     }
                 }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -45,11 +46,13 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.rankServerSources
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.LiftMenu
+import com.yfuse.core.designsystem.RatingBadges
 import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaTrailer
+import com.yfuse.core.model.displayRatings
 import com.yfuse.core.model.episodePositionForNumber
 import com.yfuse.core.model.episodeRangeIndex
 import com.yfuse.core.model.episodeRangeLabel
@@ -70,6 +73,7 @@ import com.yfuse.feature.detail.episodeLiftMenu
 import com.yfuse.feature.detail.episodeStillUrl
 import com.yfuse.feature.detail.relatedLiftMenu
 import com.yfuse.feature.detail.rememberEpisodeRowActions
+import com.yfuse.feature.detail.rememberRatedDetail
 import com.yfuse.feature.detail.seriesProgressConfirmMessage
 import com.yfuse.feature.extras.DetailThemeSong
 import com.yfuse.feature.extras.TrailerLaunchEffect
@@ -88,7 +92,7 @@ internal fun TvDetailScreen(
 ) {
     val state by component.store.states.collectAsState(component.store.state)
     val store = component.store
-    val detail = state.detail
+    val detail = rememberRatedDetail(state.detail, state.server?.id)
     val server = state.server
     val playRequester = remember { FocusRequester() }
     val secondaryNavigationRequester = remember { FocusRequester() }
@@ -587,7 +591,7 @@ private fun TvDetailHero(
         Modifier
             .tvKeepWholeInView()
             .fillMaxWidth()
-            .height(475.dp)
+            .heightIn(min = 550.dp)
             .background(TvPlaceholder)
             .onFocusChanged { heroFocused = it.hasFocus },
     ) {
@@ -596,18 +600,18 @@ private fun TvDetailHero(
             // Silent: the title is written over it, and the backdrop read it a second time.
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.matchParentSize(),
         )
         TvHeroTrailerPreview(
             previewKey = preview?.let { "detail:$serverId:${detail.id}" },
             focused = heroFocused,
             lookup = { preview },
             suspended = busy,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.matchParentSize(),
         )
         Box(
             Modifier
-                .fillMaxSize()
+                .matchParentSize()
                 .background(
                     Brush.horizontalGradient(
                         0f to Color.Black.copy(alpha = 0.93f),
@@ -626,7 +630,7 @@ private fun TvDetailHero(
             Modifier
                 .align(Alignment.CenterStart)
                 .width(650.dp)
-                .padding(start = TvSafeHorizontal),
+                .padding(start = TvSafeHorizontal, top = 32.dp, bottom = 32.dp),
         ) {
             TvActionButton(
                 label = "返回",
@@ -649,11 +653,12 @@ private fun TvDetailHero(
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(9.dp))
+            RatingBadges(detail.displayRatings(), onArtwork = true, large = true)
+            Spacer(Modifier.height(10.dp))
             Text(
                 listOfNotNull(
                     detail.year?.toString(),
                     detail.runtimeMinutes?.let { "$it 分钟" },
-                    detail.communityRating?.let { "%.1f 分".format(it) },
                     detail.officialRating,
                     detail.genres
                         .take(3)

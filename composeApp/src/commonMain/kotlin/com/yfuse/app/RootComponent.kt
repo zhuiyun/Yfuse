@@ -48,7 +48,7 @@ class RootComponent(
     private val syncManager: ServerSyncManager,
     val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
-    enum class Tab { Home, Browse, Watching, Servers, Search, Profile }
+    enum class Tab { Home, Browse, CustomHome, Watching, Servers, Search, Profile }
 
     // Where a cold start lands. [StartupTab.Automatic]: someone who has already connected a
     // server opens the app to watch what is on it, and someone who has not opens it on 服务器,
@@ -58,7 +58,9 @@ class RootComponent(
     // A restored process is not a cold start. Every tab's own stack comes back through its
     // serializer, so without the saved tab the shell reopened on the startup tab while the page
     // the user had actually been on — and its scroll position — sat stranded in another one.
-    private val savedTab = restoredTab(stateKeeper.consume(ACTIVE_TAB_STATE_KEY, String.serializer()))
+    private val savedTab =
+        restoredTab(stateKeeper.consume(ACTIVE_TAB_STATE_KEY, String.serializer()))
+            ?.takeUnless { it == Tab.CustomHome && !themePreferences.customHomeVisible.value }
     private val restoredLaunch = savedTab != null
 
     /**
@@ -270,6 +272,10 @@ class RootComponent(
     }
 
     fun selectTab(tab: Tab) {
+        if (tab == Tab.CustomHome && !themePreferences.customHomeVisible.value) {
+            selectTab(Tab.Browse)
+            return
+        }
         if (_activeTab.value != tab) {
             // Clear the previous tab's replayed event before NavDisplay composes the new
             // branch. A very fast second tap can then be replayed safely to that new subscriber.
@@ -320,7 +326,7 @@ class RootComponent(
             Tab.Browse -> browse.popToRoot()
             Tab.Watching -> watching.popToRoot()
             // 服务器 has no pushed routes — its add/edit surfaces are modals over the grid.
-            Tab.Servers -> Unit
+            Tab.Servers, Tab.CustomHome -> Unit
             Tab.Search -> search.popToRoot()
             Tab.Profile -> profile.popToRoot()
         }
@@ -358,7 +364,7 @@ class RootComponent(
                                 ?.size ?: 1
                         ) - 1
                 // Server forms and file browsing keep their own UI handlers.
-                Tab.Servers -> 1
+                Tab.Servers, Tab.CustomHome -> 1
             }
         return RootBackNavigation(tab, depth, depth > 1 || tab != startTab)
     }
@@ -381,7 +387,7 @@ class RootComponent(
                         profile.navigateBack()
                     }
                 }
-                Tab.Servers -> Unit
+                Tab.Servers, Tab.CustomHome -> Unit
             }
         } else {
             if (state.tab == Tab.Home) returnFromDiscovery() else selectTab(startTab)
@@ -430,7 +436,7 @@ class RootComponent(
     }
 
     /** A search asked for from another tab: switch over and run it. */
-    private fun openSearch(query: String) {
+    internal fun openSearch(query: String) {
         selectTab(Tab.Search)
         search.search(query)
     }

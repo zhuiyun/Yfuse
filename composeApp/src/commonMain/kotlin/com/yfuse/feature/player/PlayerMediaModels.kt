@@ -213,6 +213,8 @@ data class PlayerMediaItem(
     val durationMsHint: Long = 0L,
     /** In-memory credentials for direct SMB/WebDAV/HTTP sources; diagnostics remain redacted. */
     val transportCredentials: YTransportCredentials? = null,
+    /** In-memory component headers, scoped to the original stream origin by the transport. */
+    val customHeaders: PlayerCustomHeaders? = null,
     /** Stable persistence identity for per-series settings; external-provider based when known. */
     val seriesKey: String? = null,
     /** Item-owned provider ids. Episode reporting must not substitute the parent series' ids. */

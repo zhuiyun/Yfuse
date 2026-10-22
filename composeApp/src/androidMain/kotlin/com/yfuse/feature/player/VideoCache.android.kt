@@ -37,6 +37,7 @@ internal fun PlayerMediaItem.persistentPlaybackCacheUrl(
     val version = activeVersion
     val source = url.trim()
     if (
+        customHeaders?.values?.isNotEmpty() == true ||
         usingServerTranscode ||
         playMethod == PlaybackMethod.Transcode ||
         version?.playMethod == PlaybackMethod.Transcode ||

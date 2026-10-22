@@ -68,7 +68,7 @@ internal class EmbyDetailService(
                         parameter("Limit", limit)
                         parameter(
                             "Fields",
-                            "ProductionYear,CommunityRating,BackdropImageTags,ParentBackdropItemId," +
+                            "ProductionYear,CommunityRating,CriticRating,BackdropImageTags,ParentBackdropItemId," +
                                 "ParentBackdropImageTags,SeriesPrimaryImageTag",
                         )
                         parameter("EnableImageTypes", "Primary,Backdrop")
@@ -352,7 +352,8 @@ internal class EmbyDetailService(
                                 parameter("Ids", chunk.joinToString(","))
                                 parameter(
                                     "Fields",
-                                    "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags," +
+                                    "ProductionYear,CommunityRating,CriticRating,Overview," +
+                                        "ProviderIds,BackdropImageTags," +
                                         "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag," +
                                         "RunTimeTicks,UserData",
                                 )
@@ -378,7 +379,7 @@ internal class EmbyDetailService(
                     parameter("UserId", server.userId)
                     parameter(
                         "Fields",
-                        "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags," +
+                        "ProductionYear,CommunityRating,CriticRating,Overview,ProviderIds,BackdropImageTags," +
                             "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks,UserData",
                     )
                     parameter("EnableImageTypes", "Primary,Backdrop")

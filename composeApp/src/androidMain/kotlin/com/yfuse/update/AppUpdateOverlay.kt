@@ -38,6 +38,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.BurstIcon
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
@@ -189,7 +190,7 @@ fun AppUpdateOverlay(
                     enter = fadeIn(Motion.tween(sectionMs)) + expandVertically(Motion.tween(sectionMs)),
                     exit = fadeOut(Motion.tween(sectionMs)) + shrinkVertically(Motion.tween(sectionMs)),
                 ) {
-                    Text(paused?.message.orEmpty(), style = sc(11.5f, 500), color = Brand.Danger)
+                    Text(paused?.message.orEmpty(), style = sc(11.5f, 500), color = LocalPalette.current.error)
                 }
             }
         }
@@ -202,7 +203,7 @@ fun AppUpdateOverlay(
             Text(
                 error?.message.orEmpty(),
                 style = sc(11.5f, 500),
-                color = Brand.Danger,
+                color = LocalPalette.current.error,
                 modifier = Modifier.padding(bottom = 10.dp),
             )
         }
@@ -289,7 +290,7 @@ private fun UpdateProgressTrack(
             periodMillis = Motion.DOWNLOAD_FLOW,
             label = "updateFlow",
         )
-    val accent = Brand.Primary
+    val accent = LocalAccentColors.current.accent
     Box(
         Modifier.fillMaxWidth().height(4.dp).drawWithCache {
             val radius = CornerRadius(size.height / 2f)

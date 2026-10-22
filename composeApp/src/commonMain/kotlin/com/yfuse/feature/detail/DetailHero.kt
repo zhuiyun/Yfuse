@@ -79,7 +79,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PressFeedback
-import com.yfuse.core.designsystem.RollingNumber
+import com.yfuse.core.designsystem.RatingBadges
 import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.cssLinearGradient
@@ -100,6 +100,7 @@ import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaVersion
+import com.yfuse.core.model.displayRatings
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -627,16 +628,13 @@ internal fun TitleBlock(
                 modifier = Modifier.oneTakeArrival(arrival, row++),
             )
         }
-        if (detail.communityRating != null || detail.officialRating != null) {
+        if (detail.displayRatings().isNotEmpty() || detail.officialRating != null) {
             Spacer(Modifier.height(9.dp))
-            Row(
+            Column(
                 Modifier.oneTakeArrival(arrival, row++),
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
-                detail.communityRating?.let {
-                    RatingFigure((it * 10).toInt() / 10.0, accent)
-                }
+                RatingBadges(detail.displayRatings(), onArtwork = true)
                 detail.officialRating?.let { CertificationBadge(it) }
             }
         }
@@ -817,26 +815,6 @@ internal fun primaryActionContentColor(accent: Color): Color {
 private val ArtworkInk = Color.White
 private val ArtworkInkSub = Color.White.copy(alpha = 0.94f)
 private val ArtworkInkFaint = Color.White.copy(alpha = 0.84f)
-
-/** `TMDB` in the secondary ink, the figure itself large and in the accent. */
-@Composable
-private fun RatingFigure(
-    rating: Double,
-    accent: () -> Color,
-) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("TMDB", style = AppTypography.body.strong, color = ArtworkInkSub)
-        // Rolls when fresher data brings a new score while the page is up; shown as-is on arrival.
-        RollingNumber(
-            text = rating.toString(),
-            style = AppTypography.section.strong,
-            colorProducer = { lerp(accent(), Color.White, 0.38f) },
-        )
-    }
-}
 
 /** 分级 is a classification, not a score — it gets a neutral outline, not a brand colour. */
 @Composable

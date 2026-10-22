@@ -286,7 +286,7 @@ private fun SkipTimeField(
                             Text(
                                 "mm:ss / hh:mm:ss",
                                 style = AppTypography.body.medium,
-                                color = Color.White.copy(alpha = 0.34f),
+                                color = Color.White.copy(alpha = 0.66f),
                             )
                         }
                         field()

@@ -72,8 +72,6 @@ fun AddServerDialog(
     onDismiss: () -> Unit,
 ) {
     val sendIntent = rememberServerConnectionIntent(state, onIntent)
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
     val form = state.form
     val uriHandler = LocalUriHandler.current
     val editing = state.editingServerId != null
@@ -100,6 +98,8 @@ fun AddServerDialog(
             !holdsInput
         },
     ) {
+        val palette = LocalPalette.current
+        val accent = LocalAccentColors.current
         OverlayHeader(
             title =
                 when {

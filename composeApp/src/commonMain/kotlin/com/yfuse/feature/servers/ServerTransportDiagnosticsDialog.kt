@@ -47,9 +47,9 @@ internal fun ServerTransportDiagnosticsDialog(
     onProbe: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     val diagnostics = remember(server) { diagnoseServerTransport(server) }
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
         OverlayHeader(
             title = "HTTPS 诊断",
             subtitle = server.serverName,

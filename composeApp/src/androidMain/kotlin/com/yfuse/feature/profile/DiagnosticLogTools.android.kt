@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -26,10 +25,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.DiagnosticPreferences
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.SettingRow
+import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.mr
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.sc
@@ -235,12 +236,12 @@ actual fun DiagnosticLogTools() {
         Text(
             it,
             style = mr(10.5f, 600),
-            color = Brand.Primary,
+            color = LocalAccentColors.current.accent,
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp)
-                    .background(Brand.Primary.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+                    .background(LocalAccentColors.current.accent.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
                     .padding(horizontal = 11.dp, vertical = 8.dp),
         )
     }
@@ -274,25 +275,13 @@ private fun DiagnosticToggleRow(
     checked: Boolean,
     onChange: (Boolean) -> Unit,
 ) {
-    val palette = LocalPalette.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .pressable { onChange(!checked) }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = sc(12.5f, 550), color = palette.text)
-            Spacer(Modifier.height(2.dp))
-            Text(subtitle, style = mr(10f, 400), color = palette.sub2)
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = null,
-        )
-    }
+    SwitchRow(
+        title = title,
+        checked = checked,
+        embedded = true,
+        description = subtitle,
+        onChange = onChange,
+    )
 }
 
 @Composable
@@ -319,7 +308,7 @@ private fun DiagnosticActionRow(
                 color =
                     when {
                         !enabled -> palette.sub2
-                        destructive -> Brand.Danger
+                        destructive -> LocalPalette.current.error
                         else -> palette.text
                     },
             )
@@ -335,15 +324,12 @@ private fun DiagnosticValueRow(
     title: String,
     value: String,
 ) {
-    val palette = LocalPalette.current
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(title, style = mr(10.5f, 400), color = palette.sub2, modifier = Modifier.weight(1f))
-        Text(value, style = mr(10.5f, 600), color = palette.text)
-    }
+    SettingRow(
+        title = title,
+        value = value,
+        embedded = true,
+        showChevron = false,
+    )
 }
 
 private fun String?.shortRevision(): String = this?.take(12)?.takeIf(String::isNotBlank) ?: "未提供"

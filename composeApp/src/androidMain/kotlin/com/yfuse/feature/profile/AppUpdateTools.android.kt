@@ -43,15 +43,15 @@ actual fun AppUpdateTools() {
     val state by manager.state.collectAsState()
     val value =
         when (val current = state) {
-            UpdateState.Idle -> "检测升级 ›"
+            UpdateState.Idle -> "检测升级"
             UpdateState.Checking -> "正在检查…"
-            UpdateState.Current -> "暂无可用更新 ›"
-            is UpdateState.Available -> "发现 ${current.manifest.versionName} ›"
+            UpdateState.Current -> "暂无可用更新"
+            is UpdateState.Available -> "发现 ${current.manifest.versionName}"
             is UpdateState.Downloading ->
-                "后台下载 ${(current.progress * 100).toInt()}% ›"
-            is UpdateState.Paused -> "已暂停 ${(current.progress * 100).toInt()}%，继续 ›"
-            is UpdateState.Ready -> "立即安装 ›"
-            is UpdateState.Error -> "检查失败，点击重试 ›"
+                "后台下载 ${(current.progress * 100).toInt()}%"
+            is UpdateState.Paused -> "已暂停 ${(current.progress * 100).toInt()}%，继续"
+            is UpdateState.Ready -> "立即安装"
+            is UpdateState.Error -> "检查失败，点击重试"
         }
     // A download in flight belongs to the dialog, which shows its progress and can pause
     // it; only an idle row starts a fresh check.

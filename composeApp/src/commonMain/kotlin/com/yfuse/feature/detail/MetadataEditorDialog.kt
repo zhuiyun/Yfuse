@@ -72,7 +72,6 @@ internal fun MetadataEditorDialog(
     var notice by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
-    val palette = LocalPalette.current
 
     suspend fun operation(block: suspend () -> Unit) {
         error = null
@@ -107,6 +106,7 @@ internal fun MetadataEditorDialog(
             !unsaved
         },
     ) {
+        val palette = LocalPalette.current
         OverlayHeader("编辑元数据", "修改将保存到 ${server.serverName}，需要服务器编辑权限")
         if (original != null) {
             MetadataField("标题", draft.title, 500, true, busy) { draft = draft.copy(title = it) }
@@ -165,14 +165,9 @@ internal fun MetadataEditorDialog(
                                 .flatGlass(
                                     AppShapes.card,
                                     palette.card2,
-                                    if (selected ==
-                                        artwork
-                                    ) {
-                                        palette.text
-                                    } else {
-                                        palette.border
-                                    },
-                                ).padding(6.dp),
+                                    palette.border,
+                                ).detailSelectionOutline(selected == artwork)
+                                .padding(6.dp),
                         ) {
                             FallbackImage(listOf(preview), artwork.label, Modifier.fillMaxWidth().height(145.dp))
                             Text(

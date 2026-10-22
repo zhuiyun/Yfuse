@@ -1,6 +1,5 @@
 package com.yfuse.feature.personal
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,7 +7,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -41,6 +39,7 @@ import com.yfuse.core.designsystem.OperationFeedback
 import com.yfuse.core.designsystem.OperationTone
 import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.SettingRow
+import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.SettingsCard
 import com.yfuse.core.designsystem.SettingsDivider
 import com.yfuse.core.designsystem.SwitchRow
@@ -63,6 +62,9 @@ import com.yfuse.core.sync.SyncMutationKind
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.feature.profile.SettingsPage
 import com.yfuse.feature.profile.rememberComposedPageStore
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import com.yfuse.core.designsystem.ThemeText as Text
 
 enum class PersonalCenterTab(
@@ -191,12 +193,18 @@ private fun PersonalCenterPage(
                 OperationFeedback(
                     "正在保存更改…",
                     OperationTone.Working,
-                    Modifier.padding(horizontal = 16.dp),
+                    Modifier.padding(horizontal = Dimens.pageHorizontal),
                 )
             }
         }
         state.message?.let { notice ->
-            item { OperationFeedback(notice, OperationTone.Success, Modifier.padding(horizontal = 16.dp)) }
+            item {
+                OperationFeedback(
+                    notice,
+                    OperationTone.Success,
+                    Modifier.padding(horizontal = Dimens.pageHorizontal),
+                )
+            }
         }
         state.failure?.let { failed ->
             item {
@@ -221,6 +229,7 @@ private fun PersonalCenterPage(
                                 if (library.activeProfile.child) "请切换至成人资料" else "添加家庭成员",
                                 embedded = true,
                                 icon = AppIcons.User,
+                                iconTint = SettingTint.account,
                                 onClick =
                                     if (library.activeProfile.child ||
                                         state.busy
@@ -239,6 +248,8 @@ private fun PersonalCenterPage(
                                 if (library.hasGuardianPin) "修改家长 PIN" else "设置家长 PIN",
                                 "儿童资料与切换保护",
                                 embedded = true,
+                                icon = AppIcons.Lock,
+                                iconTint = SettingTint.account,
                                 onClick =
                                     if (state.busy) {
                                         null
@@ -264,10 +275,14 @@ private fun PersonalCenterPage(
                                     "已关联 " + profile.serverIds.size + " 个服务器用户"
                                 },
                                 embedded = true,
+                                icon = AppIcons.Server,
+                                iconTint = SettingTint.servers,
                             )
                             SettingsDivider()
                             SettingRow(
                                 "当前资料",
+                                icon = AppIcons.User,
+                                iconTint = SettingTint.account,
                                 modifier = Modifier.returnLocator(profile.id == library.activeProfile.id),
                                 loading = state.busy && profile.id != library.activeProfile.id,
                                 value =
@@ -295,14 +310,25 @@ private fun PersonalCenterPage(
                             )
                             if (!library.activeProfile.child) {
                                 SettingsDivider()
-                                SettingRow("编辑资料", "名称、类型与服务器权限", embedded = true, onClick = {
-                                    onIntent(PersonalCenterIntent.EditProfile(profile))
-                                })
+                                SettingRow(
+                                    "编辑资料",
+                                    "名称、类型与服务器权限",
+                                    embedded = true,
+                                    icon = AppIcons.Edit,
+                                    iconTint = SettingTint.account,
+                                    onClick = { onIntent(PersonalCenterIntent.EditProfile(profile)) },
+                                )
                                 if (profile.id != DEFAULT_PERSONAL_PROFILE && profile.id != library.activeProfile.id) {
                                     SettingsDivider()
-                                    SettingRow("移除资料", "移除此家庭成员", embedded = true, onClick = {
-                                        onIntent(PersonalCenterIntent.AskRemoveProfile(profile))
-                                    })
+                                    SettingRow(
+                                        "移除资料",
+                                        "移除此家庭成员",
+                                        embedded = true,
+                                        icon = AppIcons.Remove,
+                                        iconTint = LocalPalette.current.error,
+                                        destructive = true,
+                                        onClick = { onIntent(PersonalCenterIntent.AskRemoveProfile(profile)) },
+                                    )
                                 }
                             }
                         }
@@ -327,9 +353,10 @@ private fun PersonalCenterPage(
                                 SettingRow(
                                     "最近成功",
                                     library.lastSyncedAtEpochMs?.let {
-                                        java.time.Instant
+                                        Instant
                                             .ofEpochMilli(it)
-                                            .toString()
+                                            .atZone(ZoneId.systemDefault())
+                                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
                                     }
                                         ?: "暂无同步记录",
                                     embedded = true,
@@ -341,6 +368,7 @@ private fun PersonalCenterPage(
                                     value = if (!state.signedIn) "请先登录鱼服账号" else "合并个人数据并重试",
                                     embedded = true,
                                     icon = AppIcons.Refresh,
+                                    iconTint = SettingTint.sync,
                                     onClick =
                                         if (!state.signedIn ||
                                             library.syncing
@@ -371,9 +399,10 @@ private fun PersonalCenterPage(
                                 SettingRow(
                                     "最近成功",
                                     playbackState.lastSyncedAtEpochMs?.let {
-                                        java.time.Instant
+                                        Instant
                                             .ofEpochMilli(it)
-                                            .toString()
+                                            .atZone(ZoneId.systemDefault())
+                                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
                                     }
                                         ?: "暂无同步记录",
                                     embedded = true,
@@ -385,6 +414,7 @@ private fun PersonalCenterPage(
                                     value = "拉取最新播放进度",
                                     embedded = true,
                                     icon = AppIcons.Refresh,
+                                    iconTint = SettingTint.sync,
                                     onClick =
                                         if (playbackState.syncing ||
                                             !state.signedIn
@@ -426,6 +456,7 @@ private fun PersonalCenterPage(
                                 "重新提交待处理更改",
                                 embedded = true,
                                 icon = AppIcons.Refresh,
+                                iconTint = SettingTint.sync,
                                 loading =
                                     state.serverStatuses
                                         .any {
@@ -571,7 +602,7 @@ private fun PersonalProfileEditor(
     var name by remember(profile?.id) { mutableStateOf(profile?.name.orEmpty()) }
     var child by remember(profile?.id) { mutableStateOf(profile?.child ?: false) }
     var ids by remember(profile?.id) { mutableStateOf(profile?.serverIds.orEmpty()) }
-    GlassDialog(onDismiss = onDismiss) {
+    GlassDialog(onDismiss = onDismiss, contentPadding = 0.dp) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 if (profile ==
@@ -605,9 +636,9 @@ private fun PersonalProfileEditor(
                 }
             }
             error?.let { PersonalDialogError(it) }
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PersonalButton("保存", { onSave(name, child, ids) })
-                PersonalButton("取消", onDismiss)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                YfButton("取消", onDismiss, modifier = Modifier.weight(1f), tone = YfButtonTone.Secondary)
+                YfButton("保存", { onSave(name, child, ids) }, modifier = Modifier.weight(1f))
             }
         }
     }
@@ -624,7 +655,7 @@ private fun PersonalPinDialog(
 ) {
     var pin by remember { mutableStateOf("") }
     var next by remember { mutableStateOf("") }
-    GlassDialog(onDismiss = onDismiss) {
+    GlassDialog(onDismiss = onDismiss, contentPadding = 0.dp) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, style = AppTypography.section.strong, color = LocalPalette.current.text)
             YfFormField(
@@ -639,9 +670,9 @@ private fun PersonalPinDialog(
                 }, label = "新 PIN（4–12 位）", visualTransformation = PasswordVisualTransformation())
             }
             error?.let { PersonalDialogError(it) }
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PersonalButton("确认", { onSubmit(pin, next) })
-                PersonalButton("取消", onDismiss)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                YfButton("取消", onDismiss, modifier = Modifier.weight(1f), tone = YfButtonTone.Secondary)
+                YfButton("确认", { onSubmit(pin, next) }, modifier = Modifier.weight(1f))
             }
         }
     }
@@ -656,13 +687,4 @@ private fun PersonalDialogError(text: String) {
         color = LocalPalette.current.error,
         modifier = Modifier.liveStatus(assertive = true),
     )
-}
-
-@Composable
-private fun PersonalButton(
-    label: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-) {
-    YfButton(label, onClick, enabled = enabled, tone = YfButtonTone.Secondary)
 }

@@ -380,7 +380,6 @@ internal fun DetailCastSheet(
     detailLine: String?,
     onPick: (DetailCastRequest) -> Unit,
 ) {
-    val palette = LocalPalette.current
     // Until the manager reports the scan running, an empty list still means "searching" rather
     // than "nothing found" — and a scan that never starts (a prompt left unanswered) must not
     // leave the list saying it is searching.
@@ -395,6 +394,7 @@ internal fun DetailCastSheet(
     }
     val searching = cast.discovering || scanStarting
     GlassDialog(onDismiss = cast::close, liquidButtons = false) {
+        val palette = LocalPalette.current
         OverlayHeader(title = "投屏", subtitle = detailCastSubtitle(resumeTicks, detailLine), onClose = cast::close)
         cast.targets.forEach { target ->
             key(target.kind, target.id) {

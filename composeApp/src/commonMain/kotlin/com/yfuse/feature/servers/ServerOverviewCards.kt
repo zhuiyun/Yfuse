@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -48,7 +49,9 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.contentColorForSurface
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.refreshAction
@@ -255,6 +258,7 @@ internal fun CurrentServerHero(
     val badgeColor = serverTintColor(server.id, server.iconTint)
     val latencyColor =
         latencySeverityColor(health?.latencySeverity ?: LatencySeverity.Unknown)
+    val largeText = LocalDensity.current.fontScale >= SERVER_LARGE_TEXT_SCALE
 
     Column(
         modifier
@@ -271,7 +275,7 @@ internal fun CurrentServerHero(
             ).liquidGlass(
                 shape = AppShapes.card,
                 fill = lerp(palette.card, accent.container, if (palette.isDark) 0.26f else 0.22f),
-                border = accent.border.copy(alpha = 0.72f),
+                border = glassControlHighlight(accent, palette.isDark),
                 over = palette.background,
                 sheen = 0.66f,
             ).padding(18.dp),
@@ -296,7 +300,7 @@ internal fun CurrentServerHero(
                 Text(
                     server.iconEmoji ?: server.serverName.take(1).uppercase(),
                     style = AppTypography.section.strong,
-                    color = if (server.iconEmoji == null) Color.White else Color.Unspecified,
+                    color = if (server.iconEmoji == null) contentColorForSurface(badgeColor) else Color.Unspecified,
                 )
             }
             Column(Modifier.weight(1f)) {
@@ -356,49 +360,63 @@ internal fun CurrentServerHero(
             Row(
                 Modifier
                     .pressable(onClickLabel = "进入服务器", onClick = onOpen)
-                    .heightIn(min = 42.dp)
-                    .glass(AppShapes.pill, accent.accent, accent.border)
-                    .padding(horizontal = 14.dp),
+                    .heightIn(min = MinTouchTarget)
+                    .liquidGlass(AppShapes.pill, accent.container, glassControlHighlight(accent, palette.isDark))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("进入", style = AppTypography.body.strong, color = accent.onAccent)
+                Text("进入", style = AppTypography.body.strong, color = accent.accent)
                 Icon(
                     AppIcons.ChevronRight,
                     contentDescription = null,
-                    tint = accent.onAccent,
+                    tint = accent.accent,
                     modifier = Modifier.size(12.dp),
                 )
             }
         }
 
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            HeroMetric(
-                icon = AppIcons.User,
-                value = serverCount.toString(),
-                label = "已连接",
-                color = accent.accent,
-                modifier = Modifier.weight(1f),
-            )
-            Box(Modifier.size(1.dp, 42.dp).background(palette.border))
-            HeroMetric(
-                icon = AppIcons.Server,
-                value = onlineCount.toString(),
-                label = "在线",
-                color = Semantic.Success,
-                modifier = Modifier.weight(1f),
-            )
-            Box(Modifier.size(1.dp, 42.dp).background(palette.border))
-            HeroMetric(
-                icon = AppIcons.Refresh,
-                value = health?.latencyMs?.let { "$it ms" } ?: "未测速",
-                label = health?.latencySeverity?.label ?: "延迟",
-                color = latencyColor,
-                modifier = Modifier.weight(1f),
-            )
+        if (largeText) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                HeroMetric(AppIcons.User, serverCount.toString(), "已连接", accent.accent, Modifier.fillMaxWidth())
+                HeroMetric(AppIcons.Server, onlineCount.toString(), "在线", Semantic.Success, Modifier.fillMaxWidth())
+                HeroMetric(
+                    AppIcons.Refresh,
+                    health?.latencyMs?.let { "$it ms" } ?: "未测速",
+                    health?.latencySeverity?.label ?: "延迟",
+                    latencyColor,
+                    Modifier.fillMaxWidth(),
+                )
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                HeroMetric(
+                    icon = AppIcons.User,
+                    value = serverCount.toString(),
+                    label = "已连接",
+                    color = accent.accent,
+                    modifier = Modifier.weight(1f),
+                )
+                Box(Modifier.size(1.dp, 42.dp).background(palette.border))
+                HeroMetric(
+                    icon = AppIcons.Server,
+                    value = onlineCount.toString(),
+                    label = "在线",
+                    color = Semantic.Success,
+                    modifier = Modifier.weight(1f),
+                )
+                Box(Modifier.size(1.dp, 42.dp).background(palette.border))
+                HeroMetric(
+                    icon = AppIcons.Refresh,
+                    value = health?.latencyMs?.let { "$it ms" } ?: "未测速",
+                    label = health?.latencySeverity?.label ?: "延迟",
+                    color = latencyColor,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
@@ -433,8 +451,6 @@ private fun HeroMetric(
                 value,
                 style = AppTypography.body.strong,
                 color = if (label == "延迟") palette.text else palette.statusText(color),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 label,
@@ -558,7 +574,7 @@ internal fun ServerCard(
                         .clip(AppShapes.thumb)
                         .background(
                             Brush.linearGradient(
-                                listOf(lerp(badgeColor, Color.White, 0.14f), badgeColor),
+                                listOf(badgeColor, badgeColor),
                             ),
                         ),
                     contentAlignment = Alignment.Center,
@@ -569,7 +585,7 @@ internal fun ServerCard(
                     Text(
                         server.iconEmoji ?: server.serverName.take(1).uppercase(),
                         style = AppTypography.body.strong,
-                        color = if (server.iconEmoji == null) Color.White else Color.Unspecified,
+                        color = if (server.iconEmoji == null) contentColorForSurface(badgeColor) else Color.Unspecified,
                     )
                 }
                 Spacer(Modifier.width(9.dp))
@@ -703,13 +719,20 @@ internal fun ServerCard(
  */
 @Composable
 private fun ServerCountsRow(stats: ServerStats?) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ServerCount(AppIcons.Movie, "电影", stats?.movieCount, Modifier.weight(1f))
-        ServerCount(AppIcons.Series, "剧集", stats?.seriesCount, Modifier.weight(1f))
+    if (LocalDensity.current.fontScale >= SERVER_LARGE_TEXT_SCALE) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ServerCount(AppIcons.Movie, "电影", stats?.movieCount, Modifier.fillMaxWidth())
+            ServerCount(AppIcons.Series, "剧集", stats?.seriesCount, Modifier.fillMaxWidth())
+        }
+    } else {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ServerCount(AppIcons.Movie, "电影", stats?.movieCount, Modifier.weight(1f))
+            ServerCount(AppIcons.Series, "剧集", stats?.seriesCount, Modifier.weight(1f))
+        }
     }
 }
 
@@ -736,8 +759,6 @@ private fun ServerCount(
             formatServerCount(value),
             style = AppTypography.caption.medium,
             color = if (value == null) palette.sub2 else palette.text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
         )
     }
 }

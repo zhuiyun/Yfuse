@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -34,8 +35,8 @@ internal fun ParticleLightSheet(
     onSelect: (ParticleLight) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
         OverlayHeader("粒子光效", "只在操作时出现，播放画面保持安静", onClose = onDismiss)
         ParticleLight.entries.forEach { mode ->
             OverlayOptionRow(
@@ -63,11 +64,11 @@ internal fun ParticleLightSheet(
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .heightIn(min = 48.dp)
                         .lightFeedback(light)
                         .pressable(lightFeedback = false, onClick = { light.emit(effect) })
                         .flatGlass(AppShapes.chip, palette.card2, palette.border)
-                        .padding(horizontal = 16.dp),
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(

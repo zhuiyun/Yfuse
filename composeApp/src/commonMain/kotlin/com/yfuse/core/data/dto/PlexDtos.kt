@@ -71,6 +71,9 @@ data class PlexMetadataDto(
     val originallyAvailableAt: String? = null,
     val contentRating: String? = null,
     val audienceRating: Double? = null,
+    val audienceRatingImage: String? = null,
+    val ratingImage: String? = null,
+    val Rating: List<PlexRatingDto> = emptyList(),
     val rating: Double? = null,
     val leafCount: JsonPrimitive? = null,
     val viewedLeafCount: JsonPrimitive? = null,
@@ -172,4 +175,11 @@ data class PlexMarkerDto(
     val type: String? = null,
     val startTimeOffset: Long? = null,
     val endTimeOffset: Long? = null,
+)
+
+@Serializable
+data class PlexRatingDto(
+    val image: String? = null,
+    val value: Double? = null,
+    val type: String? = null,
 )

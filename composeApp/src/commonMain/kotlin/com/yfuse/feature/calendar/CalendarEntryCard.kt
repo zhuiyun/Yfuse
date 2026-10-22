@@ -31,6 +31,7 @@ import com.yfuse.core.designsystem.LiftAnchor
 import com.yfuse.core.designsystem.LiftMenu
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.liftAnchor
 import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.pressable
@@ -61,7 +62,9 @@ internal fun AccordionCalendarEntry(
     Row(
         Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = if (expanded) 108.dp else 82.dp)
+            .padding(vertical = 4.dp)
+            .defaultMinSize(minHeight = if (expanded) 88.dp else 78.dp)
+            .glass(AppShapes.card, palette.card2, palette.border)
             .liftable(
                 menu = liftMenu?.let { build -> { build().withArtwork(posterUrls.filterNotNull()) } },
                 anchor = artwork,
@@ -74,9 +77,9 @@ internal fun AccordionCalendarEntry(
                         "展开${entry.episode.showTitle}"
                     },
                 onClick = onOpen,
-            ).padding(horizontal = 12.dp, vertical = if (expanded) 10.dp else 8.dp),
+            ).padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.Bottom,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         FallbackImage(
             urls = posterUrls,
@@ -84,8 +87,8 @@ internal fun AccordionCalendarEntry(
             modifier =
                 Modifier
                     .liftAnchor(artwork)
-                    .width(if (expanded) 62.dp else 44.dp)
-                    .height(if (expanded) 88.dp else 62.dp)
+                    .width(if (expanded) 50.dp else 44.dp)
+                    .height(if (expanded) 70.dp else 62.dp)
                     .clip(AppShapes.thumb)
                     .background(palette.card),
         )

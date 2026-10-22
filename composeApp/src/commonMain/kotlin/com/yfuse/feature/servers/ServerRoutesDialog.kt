@@ -92,7 +92,6 @@ internal fun ServerRoutesDialog(
     onProbe: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     val latestServer by rememberUpdatedState(server)
     val latestSave by rememberUpdatedState(onSave)
     // 删除线路, 先做，给 5 秒撤销 (see [UndoWindow]): the route leaves the list at once and the server
@@ -128,6 +127,7 @@ internal fun ServerRoutesDialog(
     val atCapacity = routes.size >= ServerRoute.MAX_ROUTES
 
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
         OverlayHeader(
             title = "线路",
             subtitle = "同一台服务器的多个地址；无法连接时会自动切到可用线路",

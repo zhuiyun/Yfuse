@@ -188,7 +188,7 @@ fun DetailScreen(component: DetailComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val playbackSelection by PlaybackSelection.state.collectAsState()
     val palette = LocalPalette.current
-    val detail = state.detail
+    val detail = rememberRatedDetail(state.detail, state.server?.id)
     val cinemaArtwork = rememberCinemaDetailArtwork(state.server?.id ?: component.serverId, component.itemId)
     LaunchedEffect(component, detail != null) {
         if (detail != null) {

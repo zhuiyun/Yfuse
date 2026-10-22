@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -376,7 +377,7 @@ fun Poster(
     title: String? = null,
     year: String? = null,
     shape: Shape = AppShapes.card,
-    /** Community score rendered as a compact badge at the artwork's top-left. */
+    /** Community score rendered as an unboxed source icon and number over the artwork. */
     rating: Double? = null,
     /** 0f..1f — draws the 3px `#5B7FD1` resume bar along the bottom edge. */
     progress: Float? = null,
@@ -478,23 +479,38 @@ fun Poster(
             Row(
                 Modifier
                     .align(Alignment.TopStart)
-                    .padding(7.dp)
-                    .clip(AppShapes.chip)
-                    .background(Color.Black.copy(alpha = 0.64f))
-                    .semantics { this.contentDescription = "评分 $label" }
-                    .padding(horizontal = 7.dp, vertical = 4.dp),
+                    .padding(vertical = 10.dp)
+                    // Preserve the usual inset when it fits. Dense tiles give that space
+                    // back to the score before any text is clipped or its font is reduced.
+                    .layout { measurable, constraints ->
+                        val placeable = measurable.measure(constraints.copy(minWidth = 0))
+                        val inset =
+                            minOf(
+                                9.dp.roundToPx(),
+                                (constraints.maxWidth - placeable.width).coerceAtLeast(0) / 2,
+                            )
+                        layout(placeable.width + inset * 2, placeable.height) {
+                            placeable.placeRelative(inset, 0)
+                        }
+                    }.semantics { this.contentDescription = "评分 $label，满分 10" },
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    AppIcons.StarFilled,
-                    contentDescription = null,
-                    tint = Brand.Imdb,
-                    modifier = Modifier.size(11.dp),
-                )
+                Box(Modifier.size(12.dp)) {
+                    Icon(
+                        AppIcons.StarFilled,
+                        contentDescription = null,
+                        tint = Color.Black.copy(alpha = 0.75f),
+                        modifier = Modifier.size(12.dp).graphicsLayer { translationY = 0.5.dp.toPx() },
+                    )
+                    Icon(AppIcons.StarFilled, null, tint = Color.White, modifier = Modifier.size(12.dp))
+                }
                 Text(
                     label,
-                    style = AppTypography.caption.strong,
+                    style =
+                        AppTypography.caption.strong.copy(
+                            shadow = Shadow(Color.Black.copy(alpha = 0.9f), Offset(0f, 1f), 4f),
+                        ),
                     color = Color.White,
                     maxLines = 1,
                 )

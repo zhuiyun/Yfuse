@@ -54,6 +54,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -88,7 +89,7 @@ private val CloseKeySize = 28.dp
 private val ButtonOrbSize = 16.dp
 private val CheckBadgeSize = 20.dp
 private val CheckGlyphSize = 12.dp
-private val SelectionRingWidth = 2.dp
+private val SelectionRingWidth = 1.25.dp
 
 /** The close key's visible circle, centred in its 48dp target: the focus ring outlines what is seen. */
 private object CloseKeyFocusShape : Shape {
@@ -228,6 +229,7 @@ fun GlassDialog(
     animation: DialogAnimation? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val parentSystemBarStyle = rememberDialogSystemBarStyle(fallbackDarkIcons = !LocalPalette.current.isDark)
     val parentMotionHost = LocalDialogMotionHost.current
     var leaving by remember { mutableStateOf(false) }
     var afterExit by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -284,7 +286,9 @@ fun GlassDialog(
         // The panel is on its way out; a tap meant for the page should reach the page.
         DialogTouchPassThrough(enabled = leaving)
         val palette = LocalPalette.current
-        val material = LocalGlassMaterials.current.forTheme(palette.isDark).normalized(palette.isDark)
+        val materialDark = LocalGlassAppearance.current ?: palette.isDark
+        val recipePalette = if (materialDark) DarkPalette else LightPalette
+        val material = LocalGlassMaterials.current.forTheme(materialDark).normalized(materialDark)
         val scrimColor = palette.scrim.copy(alpha = material.scrim)
         // The grey pane is not the page: `body` and `sub2` were measured against `background`
         // and landed at about 3:1 on the light dialog. Every dialog reads the recalibrated pair
@@ -292,13 +296,7 @@ fun GlassDialog(
         val opaqueGlass = LocalAccessibilityOptions.current.reduceTransparency || !backdropBlurAvailable()
         val dialogPalette =
             remember(palette, material, opaqueGlass) {
-                val surfacePalette = material.contentPalette(palette, opaqueGlass)
-                surfacePalette.copy(
-                    body = surfacePalette.dialogBody,
-                    sub = surfacePalette.dialogSub,
-                    sub2 = surfacePalette.dialogSub2,
-                    hint = surfacePalette.dialogHint,
-                )
+                material.contentPalette(recipePalette.copy(background = palette.background), opaqueGlass)
             }
         val selectedAnimation = LocalDialogAnimation.current
         val chosenAnimation = remember { animation ?: selectedAnimation }
@@ -322,6 +320,9 @@ fun GlassDialog(
                     exitsCompleted++
                 }
             }
+        if (!properties.decorFitsSystemWindows && !properties.usePlatformDefaultWidth) {
+            DialogSystemBars(style = parentSystemBarStyle)
+        }
         val paneTitle = remember { mutableStateOf<String?>(null) }
         // The owner is expected to take the dialog out of composition in [onDismiss]. One that
         // declines — it is still loading or saving, or its request failed — used to leave the
@@ -352,7 +353,7 @@ fun GlassDialog(
         val phaseLights = rememberPhaseLightCount(lightMoving && simpleLightStyle)
         val shownTitle = paneTitle.value
         CompositionLocalProvider(
-            LocalPalette provides dialogPalette,
+            LocalGlassAppearance provides materialDark,
             LocalOverlayDismiss provides requestDismiss,
             LocalOverlayLiquidButtons provides liquidButtons,
             LocalMutedGlass provides true,
@@ -364,53 +365,55 @@ fun GlassDialog(
             // A dialog opened from inside this one belongs to it, not to this one's owner.
             LocalDialogPresence provides null,
         ) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .trackDialogOrigin(LocalDialogMotionHost.current)
-                    .pointerInput(requestDismiss) { detectTapGestures { requestDismiss() } },
-                contentAlignment = alignment,
-            ) {
+            SurfaceContentTheme(dialogPalette) {
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .drawBehind {
-                            // The theme carries the user's per-mode glass scrim.
-                            drawRect(scrimColor, alpha = progress().coerceIn(0f, 1f))
-                        },
-                )
-                val panelScrollState = rememberScrollState()
-                Column(
-                    Modifier
-                        .safeDrawingPadding()
-                        // Only the padding, never [imeNestedScroll]: that one drives the keyboard
-                        // from leftover scroll. Scrolling a panel with nothing to type into must
-                        // never summon an empty keyboard.
-                        .imePadding()
-                        .padding(windowPadding)
-                        .widthIn(max = maxWidth)
-                        .fillMaxWidth()
-                        // TalkBack announces the pane by the title its [OverlayHeader] publishes.
-                        .semantics { shownTitle?.let { this.paneTitle = it } }
-                        .dialogMotion(
-                            chosenAnimation,
-                            progress = progress,
-                        ).shadow(Shadows.sheet, shape)
-                        .mutedGlassPanel(shape)
-                        .dialogInteriorMotion(chosenAnimation, progress)
-                        .phaseLightEdge(progress, phaseLights)
-                        .pointerInput(Unit) { detectTapGestures { } }
-                        .then(modifier)
-                        .padding(contentPadding)
-                        .then(
-                            if (scrollable) {
-                                Modifier.verticalScroll(panelScrollState)
-                            } else {
-                                Modifier
-                            },
-                        ),
+                        .trackDialogOrigin(LocalDialogMotionHost.current)
+                        .pointerInput(requestDismiss) { detectTapGestures { requestDismiss() } },
+                    contentAlignment = alignment,
                 ) {
-                    content()
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .drawBehind {
+                                // The theme carries the user's per-mode glass scrim.
+                                drawRect(scrimColor, alpha = progress().coerceIn(0f, 1f))
+                            },
+                    )
+                    val panelScrollState = rememberScrollState()
+                    Column(
+                        Modifier
+                            .safeDrawingPadding()
+                            // Only the padding, never [imeNestedScroll]: that one drives the keyboard
+                            // from leftover scroll. Scrolling a panel with nothing to type into must
+                            // never summon an empty keyboard.
+                            .imePadding()
+                            .padding(windowPadding)
+                            .widthIn(max = maxWidth)
+                            .fillMaxWidth()
+                            // TalkBack announces the pane by the title its [OverlayHeader] publishes.
+                            .semantics { shownTitle?.let { this.paneTitle = it } }
+                            .dialogMotion(
+                                chosenAnimation,
+                                progress = progress,
+                            ).shadow(Shadows.sheet, shape)
+                            .mutedGlassPanel(shape, dark = materialDark)
+                            .dialogInteriorMotion(chosenAnimation, progress)
+                            .phaseLightEdge(progress, phaseLights)
+                            .pointerInput(Unit) { detectTapGestures { } }
+                            .then(modifier)
+                            .padding(contentPadding)
+                            .then(
+                                if (scrollable) {
+                                    Modifier.verticalScroll(panelScrollState)
+                                } else {
+                                    Modifier
+                                },
+                            ),
+                    ) {
+                        content()
+                    }
                 }
             }
         }
@@ -638,7 +641,8 @@ fun OverlayButton(
                 focusShape = AppShapes.control,
                 onClickLabel = label,
                 onClick = onClick,
-            ).liquidGlass(
+            ).shadow(glassButtonLift(palette), AppShapes.control)
+            .liquidGlass(
                 shape = AppShapes.control,
                 fill = visuals.fill,
                 border = visuals.border,
@@ -705,8 +709,8 @@ fun ConfirmDialog(
     destructive: Boolean = false,
     liquidButtons: Boolean = true,
 ) {
-    val palette = LocalPalette.current
     GlassDialog(onDismiss = onDismiss, liquidButtons = liquidButtons) {
+        val palette = LocalPalette.current
         // Named for TalkBack the way [OverlayHeader] names its dialog; confirmations opened untitled.
         val paneTitle = LocalDialogPaneTitle.current
         if (paneTitle != null) SideEffect { paneTitle.value = title }
@@ -750,11 +754,18 @@ fun OverlayOptionRow(
      * TalkBack read 「关闭，单选按钮，未选中」.
      */
     role: Role = Role.RadioButton,
+    selectionBorderColor: Color? = null,
+    selectionBorderWidth: Dp = SelectionRingWidth,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val choice = role != Role.Button
-    val fill = if (destructive) palette.errorContainer.copy(alpha = 0.52f) else palette.card2
+    val fill =
+        when {
+            destructive -> palette.errorContainer.copy(alpha = 0.52f)
+            selected -> accent.container
+            else -> palette.card2
+        }
     val materialBorder = if (selected || destructive) null else palette.border
     val ink =
         when {
@@ -787,7 +798,11 @@ fun OverlayOptionRow(
                 },
             ).then(
                 if (selected) {
-                    Modifier.border(SelectionRingWidth, accent.border, AppShapes.chip)
+                    Modifier.border(
+                        selectionBorderWidth,
+                        selectionBorderColor ?: glassControlHighlight(accent, palette.isDark),
+                        AppShapes.chip,
+                    )
                 } else {
                     Modifier
                 },

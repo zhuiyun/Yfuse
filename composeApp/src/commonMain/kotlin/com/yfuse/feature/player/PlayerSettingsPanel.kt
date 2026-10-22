@@ -405,7 +405,7 @@ internal fun SourcePickerPopup(
             Text(
                 "切换不改变播放进度",
                 style = AppTypography.caption.medium,
-                color = Color.White.copy(alpha = 0.44f),
+                color = Color.White.copy(alpha = 0.66f),
             )
         }
         CinemaSelectionGroup(accent.accent) {
@@ -440,7 +440,7 @@ internal fun SourcePickerPopup(
                             Text(
                                 if (selected) "当前线路" else "可用线路",
                                 style = AppTypography.caption.medium,
-                                color = Color.White.copy(alpha = 0.44f),
+                                color = Color.White.copy(alpha = 0.66f),
                                 modifier = Modifier.padding(top = 3.dp),
                             )
                         }
@@ -451,7 +451,7 @@ internal fun SourcePickerPopup(
         Text(
             "播放失败时会自动切换到下一条可用线路",
             style = AppTypography.caption.medium,
-            color = Color.White.copy(alpha = 0.40f),
+            color = Color.White.copy(alpha = 0.66f),
             modifier = Modifier.padding(horizontal = 2.dp, vertical = 9.dp),
         )
     }
@@ -481,7 +481,7 @@ internal fun SpeedPickerPopup(
         Text(
             "选择后立即生效",
             style = AppTypography.caption.medium,
-            color = Color.White.copy(alpha = 0.40f),
+            color = Color.White.copy(alpha = 0.66f),
             modifier = Modifier.padding(horizontal = 2.dp, vertical = 9.dp),
         )
     }

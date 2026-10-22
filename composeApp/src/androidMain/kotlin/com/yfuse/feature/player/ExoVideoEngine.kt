@@ -181,7 +181,14 @@ class ExoVideoEngine(
     val player: ExoPlayer =
         run {
             val httpFactory =
-                PlaybackHttpDataSource.factory(customUserAgent)
+                PlaybackHttpDataSource.factory(
+                    customUserAgent,
+                    PlaybackHttpDataSource.client
+                        .newBuilder()
+                        .addNetworkInterceptor(
+                            WidgetPlaybackHeadersInterceptor { items.getOrNull(_state.value.currentIndex) },
+                        ).build(),
+                )
 
             val selector =
                 MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->

@@ -111,8 +111,8 @@ private fun TrailerListDialog(
     onOpen: (MediaTrailer) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
         OverlayHeader(title = "预告片", subtitle = title.ifBlank { null }, onClose = onDismiss)
         Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
             trailers.forEach { trailer ->

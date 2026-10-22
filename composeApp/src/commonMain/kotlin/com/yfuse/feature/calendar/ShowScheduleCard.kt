@@ -79,6 +79,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.Palette
+import com.yfuse.core.designsystem.RatingBadges
 import com.yfuse.core.designsystem.TOAST_UNDO_WINDOW_MS
 import com.yfuse.core.designsystem.artworkPageSurface
 import com.yfuse.core.designsystem.calmMotion
@@ -98,6 +99,8 @@ import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
+import com.yfuse.core.model.MediaRating
+import com.yfuse.core.model.RatingSource
 import com.yfuse.core.model.upcomingScheduleDays
 import com.yfuse.core.util.isoWeekdayLabel
 import com.yfuse.core.util.posterCardRating
@@ -579,26 +582,11 @@ private fun SchedulePlatformBadge(
     }
 }
 
-/** The score as the detail page names it: the server's community rating, from TMDB. */
+/** Community ratings do not declare an external source, so retain the media-library mark. */
 @Composable
 private fun ScheduleRating(rating: String) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Dimens.space.xs),
-    ) {
-        Text(
-            "TMDB",
-            style = AppTypography.caption.strong,
-            color = accent.accent,
-            modifier =
-                Modifier
-                    .clip(AppShapes.micro)
-                    .background(accent.container)
-                    .padding(horizontal = Dimens.space.xs, vertical = 1.dp),
-        )
-        Text(rating, style = AppTypography.body.strong, color = palette.sub)
+    rating.toDoubleOrNull()?.let { value ->
+        RatingBadges(listOf(MediaRating(RatingSource.Library, value)))
     }
 }
 
@@ -845,7 +833,7 @@ private fun ScheduleDayCell(
     val labelColor =
         selectionColor(
             if (selected) {
-                accent.onAccent
+                palette.text
             } else if (updated) {
                 accent.accent
             } else {
@@ -885,7 +873,17 @@ private fun ScheduleDayCell(
                 }
             }.clip(ScheduleDayShape)
             .background(fill)
-            .padding(vertical = 2.dp),
+            .then(
+                if (selected) {
+                    Modifier.border(
+                        1.5.dp,
+                        Color.White.copy(alpha = 0.9f),
+                        ScheduleDayShape,
+                    )
+                } else {
+                    Modifier
+                },
+            ).padding(vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
@@ -1275,7 +1273,8 @@ private fun ScheduleReminderPicker(
     onMinutes: (Int) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val reminder = resolveAccentColors(DecorativeTints.coral, palette.isDark)
+    val reminder = LocalAccentColors.current
+    val selectionEdge = Color.White.copy(alpha = 0.9f)
     Column(
         Modifier
             .fillMaxWidth()
@@ -1301,8 +1300,10 @@ private fun ScheduleReminderPicker(
                     .fillMaxWidth()
                     .pressable(haptic = HapticSignal.Select, role = Role.RadioButton) { onSelect(mode) }
                     .semantics { this.selected = active }
+                    .touchTarget()
                     .clip(AppShapes.chip)
                     .background(if (active) reminder.container else Color.Transparent)
+                    .then(if (active) Modifier.border(1.5.dp, selectionEdge, AppShapes.chip) else Modifier)
                     .padding(horizontal = 10.dp, vertical = Dimens.space.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -1337,9 +1338,20 @@ private fun ScheduleReminderPicker(
                                     .pressable(haptic = HapticSignal.Select, role = Role.RadioButton) {
                                         onMinutes(minutes)
                                     }.semantics { this.selected = minuteActive }
+                                    .touchTarget()
                                     .clip(CircleShape)
                                     .background(if (minuteActive) reminder.container else palette.card3)
-                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                    .then(
+                                        if (minuteActive) {
+                                            Modifier.border(
+                                                1.5.dp,
+                                                selectionEdge,
+                                                CircleShape,
+                                            )
+                                        } else {
+                                            Modifier
+                                        },
+                                    ).padding(horizontal = 10.dp, vertical = 7.dp),
                         )
                     }
                 }

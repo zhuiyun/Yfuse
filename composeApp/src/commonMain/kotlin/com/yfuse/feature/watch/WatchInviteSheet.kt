@@ -75,9 +75,9 @@ fun WatchInviteSheet(
     onSearchByName: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
+        val accent = LocalAccentColors.current
         OverlayHeader(
             title = "一起看邀请",
             subtitle = "房间码 $roomCode · 视频仍由你自己的服务器播放",
@@ -244,9 +244,9 @@ fun WatchInviteShareSheet(
     onStartPlayback: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
     GlassDialog(onDismiss = onDismiss, liquidButtons = false) {
+        val palette = LocalPalette.current
+        val accent = LocalAccentColors.current
         OverlayHeader(
             title = "邀请一起看",
             subtitle =

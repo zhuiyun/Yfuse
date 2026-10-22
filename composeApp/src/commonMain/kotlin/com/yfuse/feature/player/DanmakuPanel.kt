@@ -469,7 +469,7 @@ internal fun DanmakuSearchPanel(
                         Text(
                             "最近搜索",
                             style = AppTypography.caption.medium,
-                            color = Color.White.copy(alpha = 0.42f),
+                            color = Color.White.copy(alpha = 0.66f),
                             modifier = Modifier.padding(vertical = 2.dp),
                         )
                         current.recent.forEach { keyword ->
@@ -613,7 +613,7 @@ private fun SearchField(
                 Text(
                     placeholder,
                     style = AppTypography.body.medium,
-                    color = Color.White.copy(alpha = 0.38f),
+                    color = Color.White.copy(alpha = 0.66f),
                     maxLines = 1,
                 )
             }

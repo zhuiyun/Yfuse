@@ -4,6 +4,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,6 +15,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +37,7 @@ import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -139,68 +143,93 @@ internal fun PhoneRemoteScreen(
             is PhoneRemoteState.Failed -> current.message
             else -> "正在连接"
         }
-    Column(
+    val fontScale = LocalDensity.current.fontScale
+    val scrollState = rememberScrollState()
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .imePadding()
             .padding(top = SettingsHeaderTop, bottom = systemNavigationContentInset()),
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = SettingsBackInset, end = Dimens.pageHorizontal),
-            verticalAlignment = Alignment.CenterVertically,
+        // IME and landscape can leave less room than the fixed controls need. In that case
+        // keep the touchpad bounded and let every control scroll into reach.
+        val scrollControls = maxHeight < 460.dp * fontScale.coerceAtLeast(1f)
+        Column(
+            Modifier.fillMaxSize().let { if (scrollControls) it.verticalScroll(scrollState) else it },
         ) {
-            SettingsBackButton(onBack)
-            Column(Modifier.padding(start = 10.dp)) {
-                ThemeText("遥控器", style = AppTypography.section.strong, color = palette.text)
-                ThemeText(
-                    "$televisionName · $status",
-                    style = AppTypography.caption.regular,
-                    color = if (state is PhoneRemoteState.Failed) palette.error else palette.sub2,
-                    modifier = Modifier.contentHandoff(status).liveStatus(assertive = state is PhoneRemoteState.Failed),
+            Row(
+                Modifier.fillMaxWidth().padding(start = SettingsBackInset, end = Dimens.pageHorizontal),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SettingsBackButton(onBack)
+                Column(Modifier.padding(start = 10.dp)) {
+                    ThemeText("遥控器", style = AppTypography.section.strong, color = palette.text)
+                    ThemeText(
+                        "$televisionName · $status",
+                        style = AppTypography.caption.regular,
+                        color = if (state is PhoneRemoteState.Failed) palette.error else palette.sub2,
+                        modifier =
+                            Modifier
+                                .contentHandoff(
+                                    status,
+                                ).liveStatus(assertive = state is PhoneRemoteState.Failed),
+                    )
+                }
+            }
+            RemoteTouchpad(
+                enabled = connected,
+                waiting = state == PhoneRemoteState.Waiting,
+                onKey = send,
+                modifier =
+                    Modifier
+                        .then(if (scrollControls) Modifier.height(220.dp) else Modifier.weight(1f))
+                        .fillMaxWidth()
+                        .padding(horizontal = Dimens.pageHorizontal, vertical = Dimens.space.lg),
+            )
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.space.md),
+            ) {
+                RemoteButton(
+                    "返回",
+                    AppIcons.ChevronLeft,
+                    connected,
+                    { send(RemoteControlKey.Back) },
+                    Modifier.weight(1f),
+                )
+                RemoteButton("主页", AppIcons.Home, connected, { send(RemoteControlKey.Home) }, Modifier.weight(1f))
+                RemoteButton(
+                    "播放/暂停",
+                    AppIcons.Play,
+                    connected,
+                    { send(RemoteControlKey.PlayPause) },
+                    Modifier.weight(1f),
                 )
             }
-        }
-        RemoteTouchpad(
-            enabled = connected,
-            waiting = state == PhoneRemoteState.Waiting,
-            onKey = send,
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = Dimens.pageHorizontal, vertical = Dimens.space.lg),
-        )
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
-            horizontalArrangement = Arrangement.spacedBy(Dimens.space.md),
-        ) {
-            RemoteButton("返回", AppIcons.ChevronLeft, connected, { send(RemoteControlKey.Back) }, Modifier.weight(1f))
-            RemoteButton("主页", AppIcons.Home, connected, { send(RemoteControlKey.Home) }, Modifier.weight(1f))
-            RemoteButton("播放/暂停", AppIcons.Play, connected, { send(RemoteControlKey.PlayPause) }, Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(Dimens.space.lg))
-        YfFormField(
-            value = text,
-            onValueChange = { value ->
-                // The relay takes a search box's worth; past that the field simply stops growing.
-                if (WatchProtocol.isValidRemoteText(value)) {
-                    text = value
-                    client.updateText(value)
-                }
-            },
-            label = "输入文字",
-            placeholder = "打在电视的输入框或搜索里",
-            modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-        )
-        (state as? PhoneRemoteState.Failed)?.takeIf { it.retryable }?.let {
-            Spacer(Modifier.height(Dimens.space.md))
-            OverlayButton(
-                label = "重新连接",
-                onClick = { client.connect(televisionSessionId) },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
-                tone = OverlayButtonTone.Primary,
+            Spacer(Modifier.height(Dimens.space.lg))
+            YfFormField(
+                value = text,
+                onValueChange = { value ->
+                    // The relay takes a search box's worth; past that the field simply stops growing.
+                    if (WatchProtocol.isValidRemoteText(value)) {
+                        text = value
+                        client.updateText(value)
+                    }
+                },
+                label = "输入文字",
+                placeholder = "打在电视的输入框或搜索里",
+                modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
             )
+            (state as? PhoneRemoteState.Failed)?.takeIf { it.retryable }?.let {
+                Spacer(Modifier.height(Dimens.space.md))
+                OverlayButton(
+                    label = "重新连接",
+                    onClick = { client.connect(televisionSessionId) },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
+                    tone = OverlayButtonTone.Primary,
+                )
+            }
         }
     }
 }

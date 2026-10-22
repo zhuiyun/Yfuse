@@ -102,7 +102,8 @@ internal object AndroidCore2TrialFactory {
                                             .takeIf(String::isNotEmpty)
                                             ?.let { mapOf(USER_AGENT_HEADER to it) }
                                             .orEmpty() +
-                                            embyPlaybackHeaders(upstreamUrl) { AppBuildConfig.VERSION_NAME },
+                                            embyPlaybackHeaders(upstreamUrl) { AppBuildConfig.VERSION_NAME } +
+                                            item.customHeaders?.values.orEmpty(),
                                     credentials = item.transportCredentials,
                                     cacheable = cacheable,
                                     cacheIdentity = item.yCoreCacheIdentity(),
@@ -398,7 +399,7 @@ private fun PlayerMediaItem.toCore2MediaItem(
             url
         }
     val localizedUri = localize(this, upstreamUri)
-    val upstreamHeaders = headers + embyPlaybackHeaders(upstreamUri, appVersion)
+    val upstreamHeaders = headers + embyPlaybackHeaders(upstreamUri, appVersion) + customHeaders?.values.orEmpty()
     return YMediaItem(
         id = id,
         uri = localizedUri,
@@ -416,7 +417,14 @@ private fun PlayerMediaItem.toCore2MediaItem(
         playbackSessionId = playSessionId,
         allowNextItemPreparation = canPreloadSource && !usingServerTranscode,
         cacheIdentity = yCoreCacheIdentity(),
-        cacheMaximumBytes = cacheMaximumBytes.coerceAtLeast(0L),
+        cacheMaximumBytes =
+            if (customHeaders?.values?.isNotEmpty() ==
+                true
+            ) {
+                0L
+            } else {
+                cacheMaximumBytes.coerceAtLeast(0L)
+            },
         drmConfiguration = drmConfiguration ?: version?.drmConfiguration,
         sourceHints =
             version

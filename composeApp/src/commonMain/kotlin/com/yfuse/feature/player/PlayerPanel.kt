@@ -42,13 +42,16 @@ import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.DialogContentMotion
 import com.yfuse.core.designsystem.DialogDragHandle
 import com.yfuse.core.designsystem.DialogDragHandleHeight
+import com.yfuse.core.designsystem.GlassInk
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalDialogAnimation
 import com.yfuse.core.designsystem.LocalDialogContentMotion
+import com.yfuse.core.designsystem.LocalGlassMaterials
 import com.yfuse.core.designsystem.LocalMutedGlass
 import com.yfuse.core.designsystem.LocalOverlayComplete
 import com.yfuse.core.designsystem.LocalOverlayDismiss
@@ -56,6 +59,7 @@ import com.yfuse.core.designsystem.LocalOverlayEntrance
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
 import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.SurfaceContentTheme
 import com.yfuse.core.designsystem.dialogInteriorMotion
 import com.yfuse.core.designsystem.dialogMotion
 import com.yfuse.core.designsystem.mutedGlassPanel
@@ -263,8 +267,17 @@ internal fun PlayerSidePanel(
                     animateDrawer(dismiss, velocity)
                 },
             ).shadow(Shadows.playerSheet, PlayerPanelShape)
-            .mutedGlassPanel(PlayerPanelShape, samplePage = false, dark = true)
-            .semantics { shownPaneTitle?.let { this.paneTitle = it } }
+            .mutedGlassPanel(
+                PlayerPanelShape,
+                samplePage = false,
+                dark = true,
+                materialOverride =
+                    LocalGlassMaterials.current.dark.copy(
+                        tintRgb = 0x191E27,
+                        opacity = 1f,
+                        ink = GlassInk.Light,
+                    ),
+            ).semantics { shownPaneTitle?.let { this.paneTitle = it } }
             // Taps inside the panel must not reach the catcher behind it.
             .pointerInput(Unit) { detectTapGestures { } }
             // Padding only; see [GlassDialog] for why the keyboard is not driven by scroll.
@@ -283,7 +296,7 @@ internal fun PlayerSidePanel(
                 },
                 LocalPanelPresence provides null,
                 LocalOverlayEntrance provides openFraction,
-            ) { content() }
+            ) { SurfaceContentTheme(DarkPalette.copy(background = Color(0xFF191E27))) { content() } }
         },
     )
 }
@@ -445,8 +458,17 @@ internal fun PlayerPopupPanel(
                 min = (if (compact) PlayerPopupCompactMinHeight else PlayerPopupMinHeight) + handleHeight,
                 max = (if (compact) PlayerPopupCompactMaxHeight else PlayerPopupMaxHeight) + handleHeight,
             ).shadow(Shadows.playerSheet, AppShapes.sheet)
-            .mutedGlassPanel(AppShapes.sheet, samplePage = false, dark = true)
-            .dialogInteriorMotion(animation, progress)
+            .mutedGlassPanel(
+                AppShapes.sheet,
+                samplePage = false,
+                dark = true,
+                materialOverride =
+                    LocalGlassMaterials.current.dark.copy(
+                        tintRgb = 0x191E27,
+                        opacity = 1f,
+                        ink = GlassInk.Light,
+                    ),
+            ).dialogInteriorMotion(animation, progress)
             .semantics { shownPaneTitle?.let { this.paneTitle = it } }
             // Taps inside the popup must not reach the dismiss catcher behind it.
             .pointerInput(Unit) { detectTapGestures { } }
@@ -468,8 +490,14 @@ internal fun PlayerPopupPanel(
                 },
                 LocalPanelPresence provides null,
             ) {
-                if (animation == DialogAnimation.MagneticDrag) DialogDragHandle(drag, !reduceMotionByUser && !leaving)
-                content()
+                SurfaceContentTheme(DarkPalette.copy(background = Color(0xFF191E27))) {
+                    if (animation ==
+                        DialogAnimation.MagneticDrag
+                    ) {
+                        DialogDragHandle(drag, !reduceMotionByUser && !leaving)
+                    }
+                    content()
+                }
             }
         },
     )

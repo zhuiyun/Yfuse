@@ -20,6 +20,7 @@ import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Semantic
+import com.yfuse.core.designsystem.controlBorder
 import com.yfuse.core.designsystem.resolveAccentColors
 
 // ---------------------------------------------------------------- colour
@@ -33,8 +34,8 @@ import com.yfuse.core.designsystem.resolveAccentColors
 // is asked not to either.
 
 internal val TvBackground: Color = DarkPalette.background
-internal val TvSurface: Color = DarkPalette.reducedFill.card2
-internal val TvSurfaceFocused: Color = DarkPalette.reducedFill.card3
+internal val TvSurface: Color = Color(0xFF243247)
+internal val TvSurfaceFocused: Color = Color(0xFF31435F)
 
 /** Behind artwork that has not loaded, or never will. */
 internal val TvPlaceholder: Color = DarkPalette.reducedFill.glass
@@ -42,7 +43,7 @@ internal val TvOnSurface: Color = DarkPalette.text
 internal val TvOnSurfaceMuted: Color = DarkPalette.body
 
 /** A resting surface's edge; focus and selection replace it — see [TvFocusMotion]. */
-internal val TvHairline: Color = DarkPalette.border.copy(alpha = 0.08f)
+internal val TvHairline: Color = DarkPalette.controlBorder
 
 /** The brand emphasis as the dark theme resolves it: 4.5:1 on a dark surface, dark ink on top. */
 internal val TvAccent: Color = resolveAccentColors(Brand.Primary, dark = true).accent // design-system: brand-identity

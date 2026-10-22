@@ -230,12 +230,13 @@ class MdkVideoEngine(
     private val memoryBudgetBytes = context?.let(::playbackMemoryBudgetBytes) ?: 32L * 1024L * 1024L
     private var appliedBufferRange: String? = null
     private val networkProxy =
-        if (context != null && videoCacheBytes > 0L) {
+        if (context != null && (videoCacheBytes > 0L || items.any { it.customHeaders != null })) {
             runCatching {
                 AndroidPlaybackHttpProxy(
                     context = context.applicationContext,
                     userAgent = customUserAgent,
                     videoCacheBytes = videoCacheBytes,
+                    widgetMedia = { this.items.getOrNull(_state.value.currentIndex) },
                 )
             }.onFailure { error ->
                 AppLog.warning(
@@ -734,8 +735,8 @@ class MdkVideoEngine(
             val cacheable =
                 item.persistentPlaybackCacheUrl(usingServerTranscode) == upstreamUrl.trim()
             val transportUrl =
-                if (cacheable) {
-                    networkProxy?.localUrl(upstreamUrl, cacheable = true) ?: upstreamUrl
+                if (cacheable || item.customHeaders != null) {
+                    networkProxy?.localUrl(upstreamUrl, cacheable = cacheable) ?: upstreamUrl
                 } else {
                     upstreamUrl
                 }

@@ -259,7 +259,6 @@ private fun HandoffRequestDialog(
     request: HandoffRequest,
     controller: HandoffController,
 ) {
-    val palette = LocalPalette.current
     var rejecting by remember(request.id) { mutableStateOf(false) }
     var rejectFailure by remember(request.id) { mutableStateOf<String?>(null) }
     val errorBeforeReject = remember(request.id) { arrayOfNulls<String>(1) }
@@ -291,6 +290,7 @@ private fun HandoffRequestDialog(
             false
         },
     ) {
+        val palette = LocalPalette.current
         ThemeText("接收播放接力？", style = AppTypography.section.strong, color = palette.text)
         Spacer(Modifier.height(Dimens.space.sm))
         ThemeText(

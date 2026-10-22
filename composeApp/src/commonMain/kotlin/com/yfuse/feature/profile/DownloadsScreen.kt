@@ -86,6 +86,7 @@ import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.SelectionAction
 import com.yfuse.core.designsystem.SelectionActionBar
 import com.yfuse.core.designsystem.SelectionMark
+import com.yfuse.core.designsystem.SettingIconTile
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.SettingsCard
@@ -542,8 +543,8 @@ internal fun DownloadsScreen(
                                     value = policy.storageLabel ?: "应用内部存储",
                                     embedded = true,
                                     onClick = pickStorageDirectory,
-                                    icon = AppIcons.Download,
-                                    iconTint = SettingTint.downloads,
+                                    icon = AppIcons.Folder,
+                                    iconTint = SettingTint.library,
                                 )
                                 if (policy.storageTreeUri != null) {
                                     SettingsDivider()
@@ -568,8 +569,8 @@ internal fun DownloadsScreen(
                                     "看完自动删除",
                                     policy.autoDeleteWatched,
                                     embedded = true,
-                                    icon = AppIcons.Close,
-                                    iconTint = SettingTint.downloads,
+                                    icon = AppIcons.Remove,
+                                    iconTint = SettingTint.cache,
                                     onChange = manager::setAutoDeleteWatched,
                                 )
                                 SettingsDivider()
@@ -578,7 +579,7 @@ internal fun DownloadsScreen(
                                     policy.autoDownloadEnabled,
                                     embedded = true,
                                     icon = AppIcons.Refresh,
-                                    iconTint = SettingTint.downloads,
+                                    iconTint = SettingTint.sync,
                                     onChange = manager::setAutoDownloadEnabled,
                                 )
                                 if (autoDownloadRuleCount > 0) {
@@ -742,7 +743,7 @@ internal fun DownloadsScreen(
                             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 52.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            Icon(AppIcons.Download, null, tint = palette.hint, modifier = Modifier.size(30.dp))
+                            SettingIconTile(AppIcons.Download, SettingTint.downloads, size = 42.dp)
                             Spacer(Modifier.height(10.dp))
                             Text(
                                 when {
@@ -1057,7 +1058,7 @@ private fun DownloadTaskRow(
                     item.title,
                     style = AppTypography.body.strong,
                     color = palette.text,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 val statusColor =
@@ -1081,6 +1082,8 @@ private fun DownloadTaskRow(
                                 style = AppTypography.caption.medium,
                                 color = statusColor,
                                 maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
                             )
                             DownloadPercent(item.progress, color = statusColor)
                         }

@@ -48,11 +48,12 @@ fun Modifier.mutedGlassPanel(
     shape: Shape = AppShapes.sheet,
     samplePage: Boolean = true,
     dark: Boolean = LocalPalette.current.isDark,
+    materialOverride: GlassMaterial? = null,
 ): Modifier {
     // In-window player panels must never sample a root layer that contains themselves.
     val backdrop = LocalDialogBackdrop.current.takeIf { samplePage }
     val opaque = LocalAccessibilityOptions.current.reduceTransparency || backdrop?.active != true
-    val material = LocalGlassMaterials.current.forTheme(dark).normalized(dark)
+    val material = (materialOverride ?: LocalGlassMaterials.current.forTheme(dark)).normalized(dark)
     // One definition of the fill, shared with the ink decision in [GlassMaterial.resolvedInk], so
     // the text colour is always chosen against the surface that is actually painted.
     val body = material.panelBody(dark, opaque)
@@ -113,14 +114,13 @@ internal fun Modifier.mutedGlassControl(
     border: Color?,
 ): Modifier {
     val palette = LocalPalette.current
-    val reduceTransparency = LocalAccessibilityOptions.current.reduceTransparency
-    val body =
-        if (reduceTransparency) palette.mutedControl else fill.copy(alpha = fill.alpha.coerceAtMost(0.10f))
+    val body = modalControlFill(fill, palette, LocalAccessibilityOptions.current.reduceTransparency)
+    val edge = modalControlBorder(border, palette)
     return clip(shape)
         .background(body)
         .then(
-            if (border != null) {
-                Modifier.border(0.5.dp, Color.White.copy(alpha = 0.10f), shape)
+            if (edge != null) {
+                Modifier.border(0.5.dp, edge, shape)
             } else {
                 Modifier
             },

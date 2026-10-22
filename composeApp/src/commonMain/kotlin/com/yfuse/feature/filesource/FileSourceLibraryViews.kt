@@ -91,13 +91,13 @@ fun FileSourceTitleSheet(
     val first = copies.firstOrNull() ?: return
     val title = shelf.title(first)
     val files = remember(copies) { shelf.files(copies) }
-    val palette = LocalPalette.current
     // Held open while a file is prepared: the spinner is on its row, and a share that will not
     // answer says so here, where the tap was, rather than after the sheet has gone.
     GlassDialog(onDismiss = {
         player.dismissNotice()
         onDismiss()
     }) {
+        val palette = LocalPalette.current
         OverlayHeader(
             title = first.item.title,
             subtitle =

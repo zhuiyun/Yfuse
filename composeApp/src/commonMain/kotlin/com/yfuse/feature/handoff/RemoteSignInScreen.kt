@@ -232,8 +232,8 @@ private fun RemoteSignInConfirmDialog(
     onSend: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     GlassDialog(onDismiss = onCancel) {
+        val palette = LocalPalette.current
         val cancel = overlayDismiss(onCancel)
         val send = overlayAction(onSend)
         ThemeText("发送到「$televisionName」？", style = AppTypography.section.strong, color = palette.text)

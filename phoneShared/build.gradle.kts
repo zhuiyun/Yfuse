@@ -36,6 +36,8 @@ kotlin {
             kotlin.srcDirs("../composeApp/src/androidMain/kotlin")
             dependencies {
                 api(project.dependencies.platform(libs.okhttp.bom))
+                implementation(libs.widget.quickjs)
+                implementation(libs.widget.jsoup)
                 compileOnly(project(":mdkAndroid"))
                 compileOnly(files("../composeApp/libs/libmpv-release.aar"))
                 compileOnly(libs.bundles.shared.android)
@@ -97,6 +99,16 @@ androidComponents {
 tasks.withType<Test>().configureEach {
     workingDir(rootProject.file("composeApp"))
 }
+
+configurations
+    .matching {
+        it.name.contains("HostTest", ignoreCase = true) && it.name.endsWith("RuntimeClasspath")
+    }.configureEach {
+        resolutionStrategy.dependencySubstitution {
+            substitute(module("io.github.dokar3:quickjs-kt-android"))
+                .using(module("io.github.dokar3:quickjs-kt-jvm:1.0.15"))
+        }
+    }
 
 tasks.matching { it.name.startsWith("test") }.configureEach {
     dependsOn(":composeApp:verifyBehavioralTestBoundaries")

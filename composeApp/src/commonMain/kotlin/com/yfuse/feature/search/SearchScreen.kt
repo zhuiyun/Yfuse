@@ -6,14 +6,17 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -45,11 +49,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -69,7 +76,6 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LiftAnchor
 import com.yfuse.core.designsystem.LiftMenu
@@ -82,12 +88,9 @@ import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OrbProgressDefaults
-import com.yfuse.core.designsystem.OverlayActionRow
-import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.OverlayOptionRow
-import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.RatingBadges
 import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SettingRow
@@ -95,13 +98,17 @@ import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.YfChip
+import com.yfuse.core.designsystem.controlBorder
+import com.yfuse.core.designsystem.controlSurface
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.liftAnchor
 import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.mediaLazyItemKey
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.motionItemsIndexed
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDelayedBusy
 import com.yfuse.core.designsystem.rememberDisclosureProgress
@@ -112,6 +119,8 @@ import com.yfuse.core.designsystem.skeletonFill
 import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.MediaRating
+import com.yfuse.core.model.RatingSource
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.util.PosterCardSharer
 import com.yfuse.core.util.rememberPosterCardSharer
@@ -125,6 +134,9 @@ import com.yfuse.feature.library.posterShareCard
 import com.yfuse.feature.library.shareLiftAction
 import com.yfuse.feature.person.PersonScreen
 import com.yfuse.feature.player.PlayerScreen
+import com.yfuse.feature.widgets.WidgetPrimaryButton
+import com.yfuse.feature.widgets.WidgetSecondaryButton
+import com.yfuse.feature.widgets.WidgetSheet
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -575,129 +587,227 @@ private fun SearchFilterSheet(
     onIntent: (SearchIntent) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    GlassDialog(onDismiss = onDismiss) {
-        OverlayHeader(title = "筛选", onClose = onDismiss)
-        if (state.serverOptions.size > 1) {
-            SearchFilterLabel("服务器")
-            Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
-                OverlayOptionRow(
-                    label = "全部服务器",
-                    selected = state.serverId == null,
-                    onClick = { onIntent(SearchIntent.SetServer(null)) },
-                )
-                state.serverOptions.forEach { option ->
-                    OverlayOptionRow(
-                        label = option.label,
-                        selected = state.serverId == option.id,
-                        onClick = { onIntent(SearchIntent.SetServer(option.id)) },
+    WidgetSheet("筛选", onDismiss, Modifier.fillMaxHeight(0.82f)) {
+        Text(
+            if (state.filterCount == 0) "全部内容 · 选择后即时生效" else "已选 ${state.filterCount} 项 · 更改即时生效",
+            color = LocalPalette.current.sub2,
+            style = AppTypography.caption.regular,
+            modifier = Modifier.fillMaxWidth().padding(start = 2.dp, bottom = 16.dp),
+        )
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            contentPadding = PaddingValues(bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            item(key = "type") {
+                SearchFilterLabel("内容类型", state.type.label)
+                SearchFilterChips {
+                    SearchType.entries.forEach { type ->
+                        SearchFilterChoice(type.label, state.type == type, { onIntent(SearchIntent.SetType(type)) })
+                    }
+                }
+            }
+            item(key = "watch-status") {
+                SearchFilterLabel("观看状态", state.watchStatus.label)
+                SearchFilterChips {
+                    SearchWatchStatus.entries.forEach { status ->
+                        SearchFilterChoice(
+                            label = status.label,
+                            selected = state.watchStatus == status,
+                            onClick = { onIntent(SearchIntent.SetWatchStatus(status)) },
+                        )
+                    }
+                }
+            }
+            item(key = "sort") {
+                SearchFilterLabel("排序", state.sort.label)
+                SearchFilterChips {
+                    SearchSort.entries.forEach { sort ->
+                        SearchFilterChoice(sort.label, state.sort == sort, { onIntent(SearchIntent.SetSort(sort)) })
+                    }
+                }
+            }
+            if (state.serverOptions.size > 1) {
+                item(key = "server") {
+                    SearchFilterLabel(
+                        "服务器",
+                        state.serverOptions.firstOrNull { it.id == state.serverId }?.label ?: "全部服务器",
                     )
+                    SearchFilterGrid(state.serverOptions, state.serverId, "全部服务器") {
+                        onIntent(SearchIntent.SetServer(it))
+                    }
+                }
+            }
+            if (state.libraryOptions.isNotEmpty()) {
+                item(key = "library") {
+                    SearchFilterLabel(
+                        "媒体库",
+                        state.libraryOptions.firstOrNull { it.id == state.libraryId }?.label ?: "全部媒体库",
+                    )
+                    SearchFilterGrid(state.libraryOptions, state.libraryId, "全部媒体库") {
+                        onIntent(SearchIntent.SetLibrary(it))
+                    }
+                }
+            }
+            item(key = "year") {
+                SearchFilterLabel("年份", state.year?.toString() ?: "不限")
+                LazyRow(
+                    modifier = Modifier.selectableGroup(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // Keep the scroll anchor stable when another year is added to the list.
+                    item(key = "year-any", contentType = "year-choice") {
+                        SearchFilterChoice("不限", state.year == null, { onIntent(SearchIntent.SetYear(null)) })
+                    }
+                    items(state.yearOptions, key = { year -> "year-$year" }, contentType = { "year-choice" }) { year ->
+                        SearchFilterChoice(
+                            year.toString(),
+                            state.year == year,
+                            { onIntent(SearchIntent.SetYear(year)) },
+                        )
+                    }
+                }
+            }
+            if (state.genreOptions.isNotEmpty()) {
+                item(key = "genre") {
+                    SearchFilterLabel("风格", state.genre ?: "全部")
+                    SearchFilterChips {
+                        SearchFilterChoice("全部", state.genre == null, { onIntent(SearchIntent.SetGenre(null)) })
+                        state.genreOptions.forEach { genre ->
+                            SearchFilterChoice(genre, state.genre == genre, { onIntent(SearchIntent.SetGenre(genre)) })
+                        }
+                    }
                 }
             }
         }
-        if (state.libraryOptions.isNotEmpty()) {
-            SearchFilterLabel("媒体库")
-            SearchFilterChips {
-                SearchFilterChoice(
-                    label = "全部",
-                    selected = state.libraryId == null,
-                    onClick = { onIntent(SearchIntent.SetLibrary(null)) },
-                )
-                state.libraryOptions.forEach { option ->
-                    SearchFilterChoice(
-                        label = option.label,
-                        selected = state.libraryId == option.id,
-                        onClick = { onIntent(SearchIntent.SetLibrary(option.id)) },
-                    )
-                }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            WidgetSecondaryButton(
+                onClick = { onIntent(SearchIntent.ClearFilters) },
+                modifier = Modifier.weight(1f),
+                enabled = state.filterCount > 0,
+            ) { Text("重置筛选") }
+            WidgetPrimaryButton(
+                onClick = overlayDismiss(onDismiss),
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("完成")
             }
-        }
-        SearchFilterLabel("观看状态")
-        SearchFilterChips {
-            SearchWatchStatus.entries.forEach { status ->
-                SearchFilterChoice(
-                    label = status.label,
-                    selected = state.watchStatus == status,
-                    onClick = { onIntent(SearchIntent.SetWatchStatus(status)) },
-                )
-            }
-        }
-        SearchFilterLabel("排序")
-        SearchFilterChips {
-            SearchSort.entries.forEach { sort ->
-                SearchFilterChoice(
-                    label = sort.label,
-                    selected = state.sort == sort,
-                    onClick = { onIntent(SearchIntent.SetSort(sort)) },
-                )
-            }
-        }
-        SearchFilterLabel("年份")
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            // Keyed by year, not position: a new year is prepended, which would otherwise shift
-            // every chip's identity and move the row's scroll anchor to a different year.
-            item(key = "year-any", contentType = "year-choice") {
-                SearchFilterChoice(
-                    label = "不限",
-                    selected = state.year == null,
-                    onClick = { onIntent(SearchIntent.SetYear(null)) },
-                )
-            }
-            items(state.yearOptions, key = { year -> "year-$year" }, contentType = { "year-choice" }) { year ->
-                SearchFilterChoice(
-                    label = year.toString(),
-                    selected = state.year == year,
-                    onClick = { onIntent(SearchIntent.SetYear(year)) },
-                )
-            }
-        }
-        if (state.genreOptions.isNotEmpty()) {
-            SearchFilterLabel("风格")
-            SearchFilterChips {
-                SearchFilterChoice(
-                    label = "全部",
-                    selected = state.genre == null,
-                    onClick = { onIntent(SearchIntent.SetGenre(null)) },
-                )
-                state.genreOptions.forEach { genre ->
-                    SearchFilterChoice(
-                        label = genre,
-                        selected = state.genre == genre,
-                        onClick = { onIntent(SearchIntent.SetGenre(genre)) },
-                    )
-                }
-            }
-        }
-        if (state.filterCount > 0) {
-            Spacer(Modifier.height(12.dp))
-            OverlayActionRow(label = "清除筛选", onClick = { onIntent(SearchIntent.ClearFilters) })
         }
     }
 }
 
 @Composable
-private fun SearchFilterLabel(text: String) {
-    Text(
-        text,
-        style = AppTypography.caption.strong,
-        color = LocalPalette.current.sub2,
-        modifier = Modifier.padding(top = 14.dp, bottom = 8.dp),
-    )
+private fun SearchFilterLabel(
+    text: String,
+    value: String,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, style = AppTypography.body.strong, color = LocalPalette.current.text)
+        Text(
+            value,
+            modifier = Modifier.weight(1f),
+            style = AppTypography.caption.regular,
+            color = LocalPalette.current.sub2,
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
-/** Each group picks one value, so a chip is announced as a choice among its neighbours. */
+/** Long server/library labels retain their full Text semantics even when visually ellipsized. */
+@Composable
+private fun SearchFilterGrid(
+    options: List<SearchOption>,
+    selectedId: String?,
+    allLabel: String,
+    onSelect: (String?) -> Unit,
+) {
+    val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val columns = if (maxWidth >= 280.dp * fontScale) 2 else 1
+        val choices = listOf<SearchOption?>(null) + options
+        Column(
+            Modifier.fillMaxWidth().selectableGroup(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            choices.chunked(columns).forEach { choicesInRow ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    choicesInRow.forEach { option ->
+                        SearchFilterChoice(
+                            label = option?.label ?: allLabel,
+                            selected = selectedId == option?.id,
+                            onClick = { onSelect(option?.id) },
+                            modifier = Modifier.weight(1f),
+                            weightedLabel = true,
+                        )
+                    }
+                    repeat(columns - choicesInRow.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+/** All filter families share the same light glass, small check and 48 dp touch target. */
 @Composable
 private fun SearchFilterChoice(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    weightedLabel: Boolean = false,
 ) {
-    YfChip(label = label, selected = selected, onClick = onClick, role = Role.RadioButton)
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val fill =
+        if (selected) {
+            accent.accent.copy(alpha = if (palette.isDark) 0.12f else 0.07f).compositeOver(palette.controlSurface)
+        } else {
+            palette.controlSurface
+        }
+    Row(
+        modifier
+            .widthIn(min = 64.dp)
+            .heightIn(min = 48.dp)
+            .pressable(role = Role.RadioButton, onClick = onClick)
+            .semantics(mergeDescendants = true) { this.selected = selected }
+            .glass(AppShapes.chip, fill, if (selected) null else palette.controlBorder)
+            .then(
+                if (selected) {
+                    Modifier.border(1.5.dp, glassControlHighlight(accent, palette.isDark), AppShapes.chip)
+                } else {
+                    Modifier
+                },
+            ).padding(horizontal = 10.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            modifier = if (weightedLabel) Modifier.weight(1f, fill = false) else Modifier,
+            style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
+            color = palette.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) {
+            if (selected) Icon(AppIcons.Check, null, tint = accent.accent, modifier = Modifier.size(14.dp))
+        }
+    }
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun SearchFilterChips(content: @Composable () -> Unit) {
     FlowRow(
+        modifier = Modifier.fillMaxWidth().selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) { content() }
@@ -732,7 +842,7 @@ internal fun SearchField(
             // Keep the shadow stable while loading feedback animates inside the intact field.
             .shadow(Shadows.searchBarFocused, shape)
             .then(motion)
-            .glass(shape, palette.card3, accent.border)
+            .glass(shape, palette.card3, glassControlHighlight(accent, palette.isDark))
             // The conditional clear action already owns a 48dp touch target. Vertical padding
             // here would add to that real layout height and make the field jump when text appears.
             .padding(horizontal = 16.dp),
@@ -1363,8 +1473,8 @@ private fun SkeletonResultRow(
  * film, two cuts of one title), and the two lines that say what the thing actually is
  * were only available by opening each one in turn.
  *
- * Both lines are optional and the row stays the poster's height either way, so a library
- * whose items carry no synopsis is not a page of ragged rows.
+ * Both lines are optional. The row is at least the poster's height and can grow with its
+ * metadata, including the rating displayed beside the artwork.
  */
 @Composable
 private fun ResultRow(
@@ -1386,6 +1496,7 @@ private fun ResultRow(
     val open = sharedMediaOnClick(sharedKey, onClick = onClick)
     val artwork = remember { LiftAnchor() }
     val posterUrl = EmbyImages.poster(baseUrl, item, maxHeight = 360, accessToken = accessToken)
+    val rating = item.communityRating?.let { MediaRating(RatingSource.Library, it) }?.takeIf { it.valid }
     Row(
         modifier
             .liftable(
@@ -1399,7 +1510,6 @@ private fun ResultRow(
     ) {
         Poster(
             url = posterUrl,
-            rating = item.communityRating,
             // Results are grouped per server, and the same server added under two
             // accounts is two groups holding the same item ids. A shared-element key
             // repeated within one screen leaves one of its copies undrawn, so the group
@@ -1480,6 +1590,10 @@ private fun ResultRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+            rating?.let {
+                Spacer(Modifier.height(4.dp))
+                RatingBadges(listOf(it))
             }
             item.overview?.takeIf { !compact && it.isNotBlank() }?.let { overview ->
                 Spacer(Modifier.height(6.dp))

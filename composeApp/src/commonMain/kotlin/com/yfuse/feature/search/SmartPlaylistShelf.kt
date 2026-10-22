@@ -99,6 +99,7 @@ fun SmartPlaylistShelf(
         }
         if (naming && state != null) {
             GlassDialog(onDismiss = { naming = false }) {
+                val palette = LocalPalette.current
                 OverlayHeader("保存智能片单", "保存当前关键词、服务器及筛选条件，每次打开重新查询")
                 BasicTextField(
                     name,
@@ -117,6 +118,7 @@ fun SmartPlaylistShelf(
         // presence, it still leaves the way it came instead of vanishing in a frame.
         DialogPresence(editing) { rule ->
             GlassDialog(onDismiss = { editing = null }) {
+                val palette = LocalPalette.current
                 OverlayHeader(rule.name, "按保存的条件获取最新结果")
                 OverlayActionRow(
                     "打开放映片单",

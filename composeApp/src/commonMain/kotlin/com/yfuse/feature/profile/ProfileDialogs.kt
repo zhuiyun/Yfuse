@@ -71,10 +71,10 @@ internal fun UserAgentDialog(
 ) {
     var draft by remember(current) { mutableStateOf(current) }
     val normalized = draft.trim()
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
 
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
+        val accent = LocalAccentColors.current
         OverlayHeader(
             title = "自定义 User-Agent",
             subtitle = "应用于服务器 API 与视频取流请求；留空时使用应用默认值。",
@@ -162,12 +162,12 @@ internal fun DanmakuSourceDialog(
     onRemove: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     // Non-null while one entry is being written. Its id is null for a new source.
     var draft by remember { mutableStateOf<DanmakuSourceDraft?>(null) }
     val active = sources.activeOr(activeSourceId)
 
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
         OverlayHeader(
             title = if (draft == null) "弹幕链接" else "编辑弹幕源",
             subtitle =
@@ -303,10 +303,10 @@ internal fun DanmakuBlockedDialog(
     onRemove: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     var draft by remember { mutableStateOf("") }
 
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
         OverlayHeader(
             title = "弹幕屏蔽词",
             subtitle = "含有这些词的弹幕不会显示。区分不了大小写，按包含匹配。",
@@ -485,9 +485,8 @@ internal fun SkipSegmentDialog(
     onSelectSkipMode: (SkipMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
-
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
         OverlayHeader(
             title = "片头片尾",
             subtitle = "默认的跳过方式",
@@ -542,10 +541,10 @@ internal fun WatchJoinDialog(
     val parsed = remember(draft) { WatchInvite.parseFromText(draft) }
     val code = parsed?.roomCode ?: WatchInvite.normalizeCode(draft)
     val unsupportedEndpoint = parsed?.unsupportedEndpoint
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
 
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
+        val accent = LocalAccentColors.current
         OverlayHeader(
             title = if (connected) "一起看" else "加入一起看",
             subtitle =
@@ -678,10 +677,10 @@ internal fun WatchProfileDialog(
     var draft by remember(currentName) { mutableStateOf(currentName) }
     var selectedAvatar by remember(currentAvatarId) { mutableStateOf(currentAvatarId) }
     val normalized = draft.replace('\r', ' ').replace('\n', ' ').trim()
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
 
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
+        val accent = LocalAccentColors.current
         OverlayHeader(
             title = "一起看资料",
             subtitle = "昵称和头像只会显示给同一房间的成员，并保存在当前设备。",

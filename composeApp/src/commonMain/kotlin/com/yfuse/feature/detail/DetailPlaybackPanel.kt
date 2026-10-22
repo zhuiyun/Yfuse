@@ -21,6 +21,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.PlaybackTrackRequest
@@ -220,9 +223,9 @@ internal fun PlaybackVersionDialog(
         version?.audioTracks?.takeIf { it.size > 1 }?.let { tracks ->
             GroupLabel("音轨")
             Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
-                OverlayOptionRow("文件默认", selectedAudioLanguage == null, onClick = { onSelectAudio(null) })
+                DetailTrackOptionRow("文件默认", selectedAudioLanguage == null, onClick = { onSelectAudio(null) })
                 tracks.forEach { track ->
-                    OverlayOptionRow(
+                    DetailTrackOptionRow(
                         track.label,
                         track.language == selectedAudioLanguage,
                         onClick = { onSelectAudio(track.language) },
@@ -233,12 +236,12 @@ internal fun PlaybackVersionDialog(
         version?.subtitleTracks?.takeIf { it.isNotEmpty() }?.let { tracks ->
             GroupLabel("字幕")
             Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
-                OverlayOptionRow("文件默认", selectedSubtitleLanguage == null, onClick = { onSelectSubtitle(null) })
-                OverlayOptionRow("关闭字幕", selectedSubtitleLanguage == PlaybackTrackRequest.SUBTITLES_OFF, onClick = {
+                DetailTrackOptionRow("文件默认", selectedSubtitleLanguage == null, onClick = { onSelectSubtitle(null) })
+                DetailTrackOptionRow("关闭字幕", selectedSubtitleLanguage == PlaybackTrackRequest.SUBTITLES_OFF, onClick = {
                     onSelectSubtitle(PlaybackTrackRequest.SUBTITLES_OFF)
                 })
                 tracks.forEach { track ->
-                    OverlayOptionRow(track.label, track.language == selectedSubtitleLanguage, onClick = {
+                    DetailTrackOptionRow(track.label, track.language == selectedSubtitleLanguage, onClick = {
                         onSelectSubtitle(track.language)
                     })
                 }
@@ -303,12 +306,14 @@ private fun ComparisonCard(
     Column(
         Modifier
             .width(ComparisonCardWidth)
-            .pressable(onClick = onClick)
+            .pressable(role = Role.RadioButton, onClick = onClick)
+            .semantics { this.selected = selected }
             .glass(
                 shape = AppShapes.card,
                 fill = selectionColor(if (selected) accent.container else palette.card2),
-                border = selectionColor(if (selected) accent.border else palette.border),
-            ).padding(12.dp),
+                border = selectionColor(if (selected) Color.Transparent else palette.border),
+            ).detailSelectionOutline(selected)
+            .padding(12.dp),
     ) {
         Row(
             Modifier.fillMaxWidth().height(20.dp),
@@ -420,5 +425,20 @@ private fun GroupLabel(text: String) {
         // nobody could read.
         color = LocalPalette.current.sub2,
         modifier = Modifier.padding(bottom = 8.dp),
+    )
+}
+
+@Composable
+private fun DetailTrackOptionRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    OverlayOptionRow(
+        label,
+        selected,
+        onClick,
+        selectionBorderColor = detailSelectionHighlight(),
+        selectionBorderWidth = DetailSelectionBorderWidth,
     )
 }

@@ -3,6 +3,8 @@ package com.yfuse.core.data
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.AiringEpisode
 import com.yfuse.core.model.AiringKind
+import com.yfuse.core.model.MediaRating
+import com.yfuse.core.model.RatingSource
 import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.model.TmdbDetail
 import com.yfuse.core.model.TmdbHome
@@ -412,6 +414,22 @@ class TmdbRepository(
     private class TmdbHttpStatusException(
         val status: Int,
     ) : Exception("HTTP $status")
+
+    /** Fetch only the score for an exact external ID; no title matching or extra credits request. */
+    suspend fun rating(
+        mediaType: String,
+        id: Int,
+    ): Result<MediaRating?> =
+        try {
+            require(mediaType == "movie" || mediaType == "tv")
+            require(id > 0)
+            val dto = client.get("$TMDB_BASE/$mediaType/$id").body<TmdbDetailDto>()
+            Result.success(dto.voteAverage?.let { MediaRating(RatingSource.Tmdb, it) }?.takeIf { it.valid })
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
 
     suspend fun detail(
         item: TmdbItem,

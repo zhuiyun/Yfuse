@@ -95,6 +95,7 @@ import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.OverlayPage
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.PrimaryGradient
+import com.yfuse.core.designsystem.RatingBadges
 import com.yfuse.core.designsystem.RefreshIndicator
 import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
@@ -140,6 +141,8 @@ import com.yfuse.core.designsystem.zoomBackAnchor
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.MediaRating
+import com.yfuse.core.model.RatingSource
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.model.showsReleaseDate
@@ -1301,17 +1304,9 @@ private fun HeroCaption(
             item.rating
                 ?.takeIf { it > 0.0 }
                 ?.let { rating ->
-                    Icon(
-                        AppIcons.StarFilled,
-                        contentDescription = "评分",
-                        tint = Brand.Imdb,
-                        modifier = Modifier.size(12.dp),
-                    )
-                    Text(
-                        ((rating * 10).toInt() / 10.0).toString(),
-                        style = AppTypography.caption.strong.copy(shadow = HeroTextShadow),
-                        color = Color.White,
-                        maxLines = 1,
+                    RatingBadges(
+                        ratings = listOf(MediaRating(RatingSource.Tmdb, rating)),
+                        onArtwork = true,
                     )
                 }
             val facts =

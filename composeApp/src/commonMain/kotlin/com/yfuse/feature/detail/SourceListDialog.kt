@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +18,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
@@ -31,6 +35,7 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.RecommendBadge
 import com.yfuse.core.designsystem.cinemaMotion
 import com.yfuse.core.designsystem.cinemaSelectionTarget
+import com.yfuse.core.designsystem.contentColorForSurface
 import com.yfuse.core.designsystem.overlayActionBeforeExit
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.solidGlass
@@ -62,7 +67,6 @@ internal fun SourceListDialog(
     onDismiss: () -> Unit,
     presentation: SourceSelectionPresentation? = null,
 ) {
-    val palette = LocalPalette.current
     // Order is the caller's, which ranks on what each server holds before the selected entry
     // is restated in terms of the chosen version. Filtering preserves it.
     val available =
@@ -81,6 +85,7 @@ internal fun SourceListDialog(
             }
 
     GlassDialog(liquidButtons = false, onDismiss = onDismiss) {
+        val palette = LocalPalette.current
         OverlayHeader(
             title = "资源比较",
             subtitle = "${available.size} 个媒体库有这个片子 · 再点已选项即可播放",
@@ -157,7 +162,8 @@ private fun SourceRow(
         Modifier
             .fillMaxWidth()
             .cinemaSelectionTarget(entry.serverId to entry.itemId, selected)
-            .pressable(onClick = onSelect)
+            .pressable(role = Role.RadioButton, onClick = onSelect)
+            .semantics { this.selected = selected }
             .solidGlass(
                 shape = AppShapes.card,
                 fill =
@@ -169,7 +175,7 @@ private fun SourceRow(
                 border = null,
             ).then(
                 if (selected) {
-                    Modifier.border(0.75.dp, accent.copy(alpha = 0.65f), AppShapes.card)
+                    Modifier.detailSelectionOutline(true, accent)
                 } else {
                     Modifier
                 },
@@ -188,7 +194,7 @@ private fun SourceRow(
                 Text(
                     entry.serverName.take(1).uppercase(),
                     style = AppTypography.caption.strong,
-                    color = Color.White,
+                    color = contentColorForSurface(serverTint(entry.serverId)),
                 )
             }
             Text(
@@ -199,7 +205,11 @@ private fun SourceRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
-            if (cinemaMotion()) CinemaSelectionCheck(selected, accent)
+            if (cinemaMotion()) {
+                CinemaSelectionCheck(selected, accent)
+            } else if (selected) {
+                Icon(AppIcons.Check, "已选择", tint = accent, modifier = Modifier.size(16.dp))
+            }
             if (best) {
                 RecommendBadge()
             }
@@ -211,10 +221,11 @@ private fun SourceRow(
                 maxLines = 1,
             )
         }
-        Row(
+        FlowRow(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
         ) {
             if (source?.dolbyVision == true) {
                 DolbyChip("VISION", if (selected) accent else palette.sub)
@@ -223,7 +234,6 @@ private fun SourceRow(
             }
             source?.bitrate?.let { FactChip(it) }
             source?.frameRate?.let { FactChip(it) }
-            Spacer(Modifier.weight(1f))
             CountFact(AppIcons.Volume, source?.audioTrackCount ?: 0)
             CountFact(AppIcons.Subtitle, source?.subtitleTrackCount ?: 0)
         }

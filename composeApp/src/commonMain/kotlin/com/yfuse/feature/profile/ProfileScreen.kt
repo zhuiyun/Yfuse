@@ -2,6 +2,8 @@ package com.yfuse.feature.profile
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -23,6 +26,9 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -39,11 +45,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -77,6 +88,7 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.LocalSettingsLocator
+import com.yfuse.core.designsystem.MIN_BACKGROUND_DIM
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.OfficialNavDisplay
@@ -100,12 +112,15 @@ import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.SwitchRow
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.WindowWidthTier
-import com.yfuse.core.designsystem.YfFormField
+import com.yfuse.core.designsystem.controlBorder
+import com.yfuse.core.designsystem.controlSurface
+import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.readableSurfaceInk
 import com.yfuse.core.designsystem.settingsSearchAnchor
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
@@ -192,7 +207,7 @@ private val SettingsSearchDestinations =
             "个人清单 最近观看 历史 收藏 想看",
             ProfilePage.Personal,
             icon = AppIcons.Bookmark,
-            tint = SettingTint.account,
+            tint = SettingTint.library,
         ),
         SettingsSearchDestination(
             "观影统计",
@@ -200,7 +215,7 @@ private val SettingsSearchDestinations =
             "观影 统计 时长 天数 电影 剧集 日历 趋势 回顾",
             ProfilePage.ViewingStatistics,
             icon = AppIcons.WatchCalendar,
-            tint = SettingTint.account,
+            tint = SettingTint.general,
         ),
         SettingsSearchDestination(
             "家庭资料",
@@ -216,14 +231,14 @@ private val SettingsSearchDestinations =
             "同步 状态 恢复",
             ProfilePage.Sync,
             icon = AppIcons.Refresh,
-            tint = SettingTint.account,
+            tint = SettingTint.sync,
         ),
         SettingsSearchDestination(
             "设备接力",
             "在另一台设备继续观看",
             "设备 接力",
             ProfilePage.Handoff,
-            icon = AppIcons.Play,
+            icon = AppIcons.Cast,
             tint = SettingTint.playback,
         ),
         SettingsSearchDestination(
@@ -232,7 +247,7 @@ private val SettingsSearchDestinations =
             "trakt 导入 上报 同步 收藏 待看 历史",
             ProfilePage.Trakt,
             icon = AppIcons.Refresh,
-            tint = SettingTint.account,
+            tint = SettingTint.sync,
         ),
         SettingsSearchDestination(
             "服务器",
@@ -245,9 +260,9 @@ private val SettingsSearchDestinations =
         SettingsSearchDestination(
             "外观与主题",
             "主题、背景、动效与辅助功能",
-            "外观 主题 背景 库页 轮播图 海报 玻璃 字体 粒子 光效 动效 弹窗 动画 浮起 展开 回弹 透视 全息 扫描 空间 折叠 能量 边框 分层 悬浮 光圈 数字 重构 科幻",
+            "外观 主题 背景 库页 轮播图 海报 玻璃 字体 粒子 光效 动效 弹窗 动画 浮起 展开 回弹 透视 全息 扫描 空间 折叠 能量 边框 分层 悬浮 光圈 数字 重构 科幻 首页 Tab 组件 widget 布局",
             ProfilePage.Appearance,
-            icon = AppIcons.Grid,
+            icon = AppIcons.Star,
             tint = SettingTint.appearance,
         ),
         SettingsSearchDestination(
@@ -255,8 +270,8 @@ private val SettingsSearchDestinations =
             "底色、透明度与背景遮罩",
             "玻璃 材质 底色 透明度 遮罩 预览",
             ProfilePage.GlassMaterial,
-            icon = AppIcons.Grid,
-            tint = SettingTint.appearance,
+            icon = AppIcons.AspectFill,
+            tint = SettingTint.components,
         ),
         SettingsSearchDestination(
             "播放",
@@ -287,13 +302,14 @@ private val SettingsSearchDestinations =
             "网络兼容、备份、缓存与诊断",
             "高级 网络 备份 缓存 诊断",
             ProfilePage.DataAndDiagnostics,
-            icon = AppIcons.Info,
+            icon = AppIcons.Menu,
             tint = SettingTint.advanced,
         ),
     )
 
 @Composable
 fun ProfileScreen(component: ProfileComponent) {
+    val focusManager = LocalFocusManager.current
     val state by component.store.states.collectAsState(component.store.state)
     val prefs = component.themePreferences
     val mode by prefs.mode.collectAsState()
@@ -303,6 +319,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val pulseSweep by prefs.pulseSweep.collectAsState()
     val motionTheme by prefs.motionTheme.collectAsState()
     val libraryCarousel by prefs.libraryCarousel.collectAsState()
+    val customHomeVisible by prefs.customHomeVisible.collectAsState()
     val navCollapseOnScroll by prefs.navCollapseOnScroll.collectAsState()
     val particleLight by prefs.particleLight.collectAsState()
     val decoder by prefs.decoder.collectAsState()
@@ -514,6 +531,8 @@ fun ProfileScreen(component: ProfileComponent) {
 
                     ProfilePage.Appearance ->
                         AppearanceSettingsScreen(
+                            customHomeVisible = customHomeVisible,
+                            onCustomHomeVisible = prefs::setCustomHomeVisible,
                             libraryCarousel = libraryCarousel,
                             onLibraryCarousel = prefs::setLibraryCarousel,
                             navCollapseOnScroll = navCollapseOnScroll,
@@ -640,7 +659,7 @@ fun ProfileScreen(component: ProfileComponent) {
                             skeleton = { PageLoadingSkeleton() },
                         ) {
                             LazyColumn(
-                                modifier = Modifier.fillMaxSize().statusBarsPadding(),
+                                modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding(),
                                 state = mainListState,
                                 contentPadding =
                                     PaddingValues(
@@ -653,12 +672,21 @@ fun ProfileScreen(component: ProfileComponent) {
                                 // sections comes and goes, and index keys would shift every section after it,
                                 // dropping their state and replaying animateItem and skeleton arrival.
                                 motionItem(key = "settings-search", contentType = "settings-search") {
-                                    YfFormField(
-                                        value = settingsQuery,
-                                        onValueChange = { settingsQuery = it.take(60) },
-                                        label = "搜索设置",
-                                        modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
-                                    )
+                                    Column(
+                                        Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        Text(
+                                            "设置",
+                                            style = AppTypography.display.medium,
+                                            color = LocalPalette.current.text,
+                                            modifier = Modifier.semantics { heading() },
+                                        )
+                                        SettingsSearchField(
+                                            value = settingsQuery,
+                                            onValueChange = { settingsQuery = it.take(60) },
+                                        )
+                                    }
                                 }
                                 if (settingsQuery.isNotBlank()) {
                                     motionItem(
@@ -668,6 +696,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                         SettingsSearchResults(
                                             query = settingsQuery,
                                             onOpen = { page, anchor ->
+                                                focusManager.clearFocus()
                                                 settingsLocatorPage = page
                                                 settingsLocator =
                                                     anchor?.let {
@@ -679,7 +708,10 @@ fun ProfileScreen(component: ProfileComponent) {
                                                     }
                                                 component.openPage(page)
                                             },
-                                            onOpenServers = component.onOpenServers,
+                                            onOpenServers = {
+                                                focusManager.clearFocus()
+                                                component.onOpenServers()
+                                            },
                                         )
                                     }
                                 }
@@ -696,7 +728,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                                             AccountState.Restoring -> "正在恢复"
                                                             is AccountState.RestoreFailed -> "连接失败 · 点此重试"
                                                             AccountState.SignedOut -> "未登录"
-                                                            is AccountState.SignedIn -> "${account.session.user.nickname} · 加密同步"
+                                                            is AccountState.SignedIn -> account.session.user.nickname
                                                         },
                                                     embedded = true,
                                                     onClick = { component.openPage(ProfilePage.Account) },
@@ -756,10 +788,9 @@ fun ProfileScreen(component: ProfileComponent) {
                                             SettingsDivider()
                                             SettingRow(
                                                 "更多外观与辅助",
-                                                "弹窗动画 · 背景 · 辅助功能",
                                                 embedded = true,
                                                 onClick = { component.openPage(ProfilePage.Appearance) },
-                                                icon = AppIcons.Info,
+                                                icon = AppIcons.Star,
                                                 iconTint = SettingTint.appearance,
                                             )
                                         }
@@ -804,7 +835,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                             SettingsDivider()
                                             SettingRow(
                                                 "打开链接",
-                                                if (personalPolicy.child) "儿童资料不可用" else "粘贴 http(s) 视频地址直接播放",
+                                                if (personalPolicy.child) "儿童资料不可用" else "",
                                                 embedded = true,
                                                 onClick = { openLinkDialog = true },
                                                 icon = AppIcons.PlaybackSource,
@@ -821,9 +852,8 @@ fun ProfileScreen(component: ProfileComponent) {
                                             SettingRow(
                                                 "弹幕设置",
                                                 when (danmakuSources.size) {
-                                                    0 -> "来源 · 关键词屏蔽 · 显示"
-                                                    1 -> "1 个来源 · 关键词屏蔽"
-                                                    else -> "${danmakuSources.size} 个来源 · 关键词屏蔽"
+                                                    0 -> "未添加来源"
+                                                    else -> "${danmakuSources.size} 个来源"
                                                 },
                                                 embedded = true,
                                                 onClick = { component.openPage(ProfilePage.Danmaku) },
@@ -854,16 +884,15 @@ fun ProfileScreen(component: ProfileComponent) {
                                 motionItem(key = "sync-and-data", contentType = "settings-section") {
                                     Section(title = "同步与数据") {
                                         SettingsCard {
-                                            SettingRow("同步状态与恢复", "个人内容 · 播放进度 · 服务器状态", embedded = true, onClick = {
+                                            SettingRow("同步状态与恢复", embedded = true, onClick = {
                                                 component.openPage(ProfilePage.Sync)
-                                            }, icon = AppIcons.Refresh, iconTint = SettingTint.account)
+                                            }, icon = AppIcons.Refresh, iconTint = SettingTint.sync)
                                             SettingsDivider()
                                             SettingRow(
                                                 "高级设置",
-                                                "网络兼容 · 备份 · 缓存 · 诊断",
                                                 embedded = true,
                                                 onClick = { component.openPage(ProfilePage.DataAndDiagnostics) },
-                                                icon = AppIcons.Server,
+                                                icon = AppIcons.Menu,
                                                 iconTint = SettingTint.advanced,
                                             )
                                         }
@@ -1317,6 +1346,69 @@ fun ProfileScreen(component: ProfileComponent) {
 }
 
 @Composable
+private fun SettingsSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val focusManager = LocalFocusManager.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused by interactionSource.collectIsFocusedAsState()
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = AppTypography.body.regular.copy(color = palette.text),
+        cursorBrush = SolidColor(accent.accent),
+        interactionSource = interactionSource,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .flatGlass(AppShapes.control, palette.controlSurface, palette.controlBorder)
+                .border(1.dp, if (focused) accent.border else Color.Transparent, AppShapes.control)
+                .semantics { contentDescription = "搜索设置" },
+        decorationBox = { innerTextField ->
+            Row(
+                Modifier.heightIn(min = 48.dp).padding(start = 14.dp, end = if (value.isEmpty()) 14.dp else 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(AppIcons.SearchTab, null, tint = palette.sub2, modifier = Modifier.size(20.dp))
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (value.isEmpty()) {
+                        Text(
+                            "搜索设置",
+                            style = AppTypography.body.regular,
+                            color = readableSurfaceInk(palette.hint, palette.controlSurface),
+                            maxLines = 1,
+                        )
+                    }
+                    innerTextField()
+                }
+                if (value.isNotEmpty()) {
+                    Box(
+                        Modifier
+                            .size(48.dp)
+                            .pressable(
+                                label = "清除搜索",
+                                onClickLabel = "清除搜索",
+                                onClick = { onValueChange("") },
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(AppIcons.Close, null, tint = palette.sub2, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+        },
+    )
+}
+
+@Composable
 internal fun SettingsPage(
     title: String,
     subtitle: String? = null,
@@ -1339,7 +1431,7 @@ internal fun SettingsPage(
         }
     }
     LazyColumn(
-        modifier = modifier.fillMaxSize().statusBarsPadding(),
+        modifier = modifier.fillMaxSize().statusBarsPadding().imePadding(),
         state = state,
         contentPadding = PaddingValues(top = SettingsHeaderTop, bottom = effectiveBottomInset),
         verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -1372,7 +1464,7 @@ private fun SettingsPageHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (showBackButton) SettingsBackButton(onBack)
-        Column(Modifier.padding(start = if (showBackButton) 10.dp else 0.dp)) {
+        Column(Modifier.weight(1f).padding(start = if (showBackButton) 10.dp else 0.dp)) {
             Text(title, style = AppTypography.section.strong, color = palette.text)
             subtitle?.let { Text(it, style = AppTypography.caption.regular, color = palette.sub2) }
         }
@@ -1415,13 +1507,15 @@ private fun SettingsSearchResults(
     val palette = LocalPalette.current
     val needle = query.trim().lowercase()
     val results =
-        (settingsControlDestinations() + SettingsSearchDestinations)
-            .filter { it.page?.availableInCurrentBuild() != false }
-            .filter { destination ->
-                listOf(destination.title, destination.summary, destination.keywords)
-                    .any { needle in it.lowercase() }
-            }
-    Section(title = "搜索结果") {
+        remember(needle) {
+            (SettingsSearchDestinations + settingsControlDestinations())
+                .filter { it.page?.availableInCurrentBuild() != false }
+                .filter { destination ->
+                    listOf(destination.title, destination.summary, destination.keywords)
+                        .any { needle in it.lowercase() }
+                }
+        }
+    Section(title = if (results.isEmpty()) "搜索结果" else "搜索结果 · ${results.size} 项") {
         SettingsCard {
             if (results.isEmpty()) {
                 Text(
@@ -1434,7 +1528,7 @@ private fun SettingsSearchResults(
                 results.forEachIndexed { index, destination ->
                     SettingRow(
                         title = destination.title,
-                        value = destination.summary,
+                        supporting = destination.summary,
                         embedded = true,
                         onClick = {
                             if (destination.opensServers) {
@@ -1655,7 +1749,6 @@ private fun BackgroundImageSheet(
     onDim: (Float) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     val pick =
         rememberBackgroundImagePicker { uri ->
             if (uri != null) {
@@ -1664,6 +1757,7 @@ private fun BackgroundImageSheet(
             }
         }
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
         OverlayHeader(title = "背景图", subtitle = "整个应用的背景；正文仍然画在主题自己的底色上", onClose = onDismiss)
         Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
             OverlayOptionRow(
@@ -1694,7 +1788,7 @@ private fun BackgroundImageSheet(
             ) {
                 Text("遮罩", style = AppTypography.caption.strong, color = palette.sub2)
                 Text(
-                    "${(dim * 100).toInt()}%",
+                    "${(dim.coerceIn(MIN_BACKGROUND_DIM, 1f) * 100).toInt()}%",
                     style = AppTypography.caption.medium,
                     color = palette.text,
                     modifier = Modifier.weight(1f),
@@ -1703,12 +1797,12 @@ private fun BackgroundImageSheet(
             }
             Spacer(Modifier.height(6.dp))
             GlassSlider(
-                value = dim,
+                value = dim.coerceIn(MIN_BACKGROUND_DIM, 1f),
                 onValueChange = onDim,
-                valueRange = 0.3f..1f,
+                valueRange = MIN_BACKGROUND_DIM..1f,
                 modifier = Modifier.semantics { contentDescription = "背景图遮罩" },
             )
-            Text("越低，背景图越清晰；越高，文字越容易读", style = AppTypography.caption.regular, color = palette.sub2)
+            Text("保留安全遮罩，保证深浅壁纸上的文字都清晰", style = AppTypography.caption.regular, color = palette.sub2)
         }
     }
 }
@@ -1723,6 +1817,7 @@ internal fun SettingSegmentRow(
     iconTint: Color = Color.Unspecified,
 ) {
     val palette = LocalPalette.current
+    val fontScale = LocalDensity.current.fontScale
     BoxWithConstraints(
         Modifier
             .fillMaxWidth()
@@ -1730,7 +1825,7 @@ internal fun SettingSegmentRow(
             .heightIn(min = MinTouchTarget)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        val stacked = options.size > 2 && windowWidthTier(maxWidth) == WindowWidthTier.Compact
+        val stacked = fontScale >= 1.3f || windowWidthTier(maxWidth) == WindowWidthTier.Compact
         if (stacked) {
             Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 Row(
@@ -1740,9 +1835,9 @@ internal fun SettingSegmentRow(
                     if (icon != null) SettingIconTile(icon, iconTint)
                     Text(
                         title,
+                        modifier = Modifier.weight(1f),
                         style = AppTypography.body.medium,
                         color = palette.text,
-                        maxLines = 2,
                     )
                 }
                 SettingSegmentControl(
@@ -1762,7 +1857,6 @@ internal fun SettingSegmentRow(
                     title,
                     style = AppTypography.body.medium,
                     color = palette.text,
-                    maxLines = 2,
                     modifier = Modifier.weight(1f),
                 )
                 SettingSegmentControl(

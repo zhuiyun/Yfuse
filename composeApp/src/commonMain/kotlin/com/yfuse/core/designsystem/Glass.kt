@@ -146,24 +146,11 @@ private fun reducedTransparencyBorder(
         else -> border
     }
 
-/**
- * Glass owns a neutral luminous edge, never a semantic/dark outline.
- *
- * Callers may still decide whether an edge is present, but its colour is resolved here so
- * accent, error and artwork colours cannot turn a translucent surface into an outlined card.
- * Focus and selection rings are separate interaction modifiers and are intentionally not
- * routed through this material resolver.
- */
+/** Requested interaction edges must survive every glass material. */
 internal fun resolveGlassMaterialBorder(
     requested: Color?,
     palette: Palette,
-): Color? =
-    when {
-        requested == null -> null
-        requested == palette.border || requested == palette.tabbarBorder -> requested
-        requested.luminance() >= 0.72f -> requested
-        else -> null
-    }
+): Color? = requested
 
 internal data class FrostedMaterialTones(
     val top: Color,
@@ -568,7 +555,7 @@ fun AppBackdrop(
         Box(
             Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = if (imageUri == null) 1f else dim }
+                .graphicsLayer { alpha = if (imageUri == null) 1f else dim.coerceIn(MIN_BACKGROUND_DIM, 1f) }
                 .drawBehind { layers.forEach { drawRect(it) } },
         )
         content()
@@ -579,6 +566,7 @@ fun AppBackdrop(
  * Enough of the page's ground over a wallpaper to keep body copy on a surface it was
  * designed for, while the picture still reads as a picture.
  */
+const val MIN_BACKGROUND_DIM: Float = 0f
 const val DEFAULT_BACKGROUND_DIM: Float = 0.72f
 
 /** `rgba(0,0,0,.06)` divider used inside stacked form cards. */
@@ -705,16 +693,15 @@ fun Modifier.liquidGlass(
                 muted -> {
                     drawOutline(
                         outline,
-                        if (reduceTransparency) {
-                            palette.mutedControl
-                        } else {
-                            body.copy(alpha = body.alpha.coerceAtMost(0.10f))
-                        },
+                        modalControlFill(body, palette, reduceTransparency),
                     )
                     if (requestedBorder !=
                         null
                     ) {
-                        drawOutline(outline, Color.White.copy(alpha = 0.10f), style = mutedStroke)
+                        modalControlBorder(
+                            requestedBorder,
+                            palette,
+                        )?.let { drawOutline(outline, it, style = mutedStroke) }
                     }
                 }
                 reduceTransparency -> {

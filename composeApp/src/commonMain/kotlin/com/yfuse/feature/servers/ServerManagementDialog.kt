@@ -45,9 +45,9 @@ internal fun ServerManagementDialog(
     onSwitchHomeUser: (String, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     var plexHomePin by remember(server.id, (state as? ServerManagementUiState.Ready)?.sessionId) { mutableStateOf("") }
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
         OverlayHeader(
             title = "服务器管理",
             subtitle = server.serverName,

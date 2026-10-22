@@ -648,6 +648,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                     "合集"
                 }
             GlassDialog(onDismiss = { component.store.accept(GridIntent.CancelRemove) }) {
+                val palette = LocalPalette.current
                 OverlayHeader(
                     title = "从$containerLabel 移除？",
                     subtitle = item.title,

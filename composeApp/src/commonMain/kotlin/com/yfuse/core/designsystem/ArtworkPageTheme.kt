@@ -93,8 +93,8 @@ fun ArtworkPageTheme(
     val resolvedArtwork = artworkAccent ?: inheritedArtwork
     val inheritedAccent = LocalAccentColors.current
     val accentColors =
-        remember(resolvedArtwork, palette.isDark, inheritedAccent) {
-            resolvedArtwork?.let { resolveAccentColors(it, dark = palette.isDark) } ?: inheritedAccent
+        remember(resolvedArtwork, palette, inheritedAccent) {
+            resolveAccentColors(resolvedArtwork ?: inheritedAccent.accent, palette.isDark, palette.background)
         }
     val outerScheme = MaterialTheme.colorScheme
     val surface = palette.card.compositeOver(palette.background)
@@ -123,7 +123,7 @@ fun ArtworkPageTheme(
                     onSurface = palette.text,
                     surfaceVariant = surfaceVariant,
                     onSurfaceVariant = palette.sub2,
-                    outline = palette.border,
+                    outline = palette.controlBorder,
                     outlineVariant = palette.tabbarBorder,
                     error = palette.error,
                     onError = palette.onError,

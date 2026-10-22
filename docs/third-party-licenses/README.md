@@ -5,6 +5,8 @@ It is not a substitute for a release-time legal review or the generated SBOM.
 
 | Component | Pinned artifact | Upstream license/source reference | Notes |
 | --- | --- | --- | --- |
+| QuickJS-KT | `io.github.dokar3:quickjs-kt:1.0.15` | [Upstream](https://github.com/dokar3/quickjs-kt), Apache-2.0 | JS component runtime; license ships in `assets/widget-licenses/quickjs-kt-Apache-2.0.txt`. Its native dependencies QuickJS and c-vector carry the accompanying MIT notices. |
+| jsoup | `org.jsoup:jsoup:1.23.2` | [Upstream](https://github.com/jhy/jsoup/tree/jsoup-1.23.2), MIT | Component HTML parsing; license ships in `assets/widget-licenses/jsoup-MIT.txt`. |
 | Anime4K Original | Vendored `Anime4K_Upscale_Original_x2.glsl` | [Upstream](https://github.com/bloc97/Anime4K), MIT | Shader notices and full LICENSE ship in `assets/anime4k/`; native GLES port preserves the six Original passes. |
 | libmpv Android | `libmpv-android` v1.0.0 | <https://github.com/jarnedemeulemeester/libmpv-android> | Bundles mpv and FFmpeg-family native libraries. Preserve upstream notices and comply with the licenses of the exact build configuration. |
 | libbluray | `7d94f2660af5bfc16015291a03539329135c18f1` (1.4.1) | <https://code.videolan.org/videolan/libbluray/-/tree/7d94f2660af5bfc16015291a03539329135c18f1> | LGPL-2.1-or-later; see [LGPL-2.1.txt](LGPL-2.1.txt). The Yfuse build disables BD-J. |

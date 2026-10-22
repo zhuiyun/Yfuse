@@ -3,6 +3,7 @@ package com.yfuse.feature.profile
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -36,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -49,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
+import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.account.IssuedInviteCode
@@ -68,8 +72,9 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
+import com.yfuse.core.designsystem.SettingIconTile
 import com.yfuse.core.designsystem.SettingRow
-import com.yfuse.core.designsystem.TabBarInset
+import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
@@ -109,11 +114,11 @@ internal fun AccountSettingsScreen(
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().statusBarsPadding(),
+            modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding(),
             contentPadding =
                 PaddingValues(
                     top = SettingsHeaderTop,
-                    bottom = TabBarInset,
+                    bottom = systemNavigationContentInset(),
                     start = Dimens.pageHorizontal,
                     end = Dimens.pageHorizontal,
                 ),
@@ -123,6 +128,7 @@ internal fun AccountSettingsScreen(
             onOpenSyncStatus?.let { open ->
                 motionItem {
                     YfButton("个人数据与播放同步状态", open)
+                    Spacer(Modifier.height(8.dp))
                     Text(
                         "个人清单与历史合并同步；下面的服务器与设置备份仍需手动操作。",
                         style = AppTypography.caption.regular,
@@ -141,7 +147,12 @@ internal fun AccountSettingsScreen(
                             ) {
                                 OrbProgress(size = 22.dp)
                                 Spacer(Modifier.width(10.dp))
-                                Text("正在安全恢复账号…", style = AppTypography.body.medium, color = palette.sub)
+                                Text(
+                                    "正在安全恢复账号…",
+                                    modifier = Modifier.weight(1f, fill = false),
+                                    style = AppTypography.body.medium,
+                                    color = palette.sub,
+                                )
                             }
                         }
                     }
@@ -208,7 +219,7 @@ private fun SignedOutAccountCard(account: AccountRepository) {
             color = palette.text,
         )
         Spacer(Modifier.height(5.dp))
-        Text("账号服务：IP 直连 · HTTPS", style = AppTypography.caption.regular, color = palette.sub2)
+        Text("登录后同步个人内容与播放进度", style = AppTypography.caption.regular, color = palette.sub2)
         Spacer(Modifier.height(16.dp))
         YfFormField(
             value = username,
@@ -397,7 +408,7 @@ private fun SignedInAccountCard(
             onSelect = { avatarId = it },
         )
         Spacer(Modifier.height(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        AccountActionGroup(actionCount = 2) { actionModifier ->
             YfButton(
                 label = "保存资料",
                 onClick = {
@@ -411,7 +422,7 @@ private fun SignedInAccountCard(
                         busy = false
                     }
                 },
-                modifier = Modifier.weight(1f),
+                modifier = actionModifier,
                 enabled = !busy && !state.syncing && nickname.isNotBlank(),
                 loading = busy && !state.syncing && !uploading && !downloading,
             )
@@ -424,7 +435,7 @@ private fun SignedInAccountCard(
                     confirmPassword = ""
                     localError = null
                 },
-                modifier = Modifier.weight(1f),
+                modifier = actionModifier,
                 enabled = !busy && !state.syncing,
                 tone = YfButtonTone.Secondary,
             )
@@ -509,6 +520,7 @@ private fun SignedInAccountCard(
     AccountSectionCard(
         title = "访问与安全",
         icon = AppIcons.Lock,
+        iconTint = SettingTint.general,
     ) {
         if (user.canIssueInvites()) {
             SettingRow(
@@ -544,6 +556,7 @@ private fun SignedInAccountCard(
     AccountSectionCard(
         title = "数据与隐私",
         icon = AppIcons.Download,
+        iconTint = SettingTint.downloads,
     ) {
         SettingRow(
             title = "安全导出账号数据",
@@ -575,6 +588,7 @@ private fun SignedInAccountCard(
     AccountSectionCard(
         title = "端到端加密同步",
         icon = AppIcons.Cloud,
+        iconTint = SettingTint.sync,
         status = if (state.syncing) "同步中" else "已就绪",
     ) {
         Text(
@@ -593,15 +607,13 @@ private fun SignedInAccountCard(
                     else -> palette.sub2
                 },
             minLines = 2,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AccountActionGroup(actionCount = 3) { actionModifier ->
             OverlayButton(
                 label = "上传本机",
                 onClick = { confirmUpload = true },
-                modifier = Modifier.weight(1f),
+                modifier = actionModifier,
                 tone = OverlayButtonTone.Primary,
                 enabled = !busy && !state.syncing,
                 loading = uploading,
@@ -609,17 +621,16 @@ private fun SignedInAccountCard(
             OverlayButton(
                 label = "恢复云端",
                 onClick = { confirmDownload = true },
-                modifier = Modifier.weight(1f),
+                modifier = actionModifier,
                 tone = OverlayButtonTone.Primary,
                 enabled = !busy && !state.syncing && state.cloudHasData,
                 loading = downloading,
             )
             OverlayButton(
-                // What it clears is the cloud copy, not a server. Four characters like its
-                // neighbours: a third of the row cuts a six-character label off on most phones.
+                // Clearing the cloud copy keeps its own destructive action and confirmation.
                 label = "清空云端",
                 onClick = { confirmClearRemote = true },
-                modifier = Modifier.weight(1f),
+                modifier = actionModifier,
                 tone = OverlayButtonTone.Destructive,
                 enabled = !busy && !state.syncing && state.cloudHasData,
             )
@@ -730,6 +741,7 @@ private fun SignedInAccountCard(
             deletePassword = ""
             confirmDeleteAccount = false
         }) {
+            val palette = LocalPalette.current
             Text("永久删除账号？", style = AppTypography.section.strong, color = palette.text)
             Spacer(Modifier.height(8.dp))
             Text(
@@ -788,8 +800,6 @@ internal fun InviteCredentialSheet(
     onCopyAndClose: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
     var keepingOpen by remember(invite.code) { mutableStateOf(false) }
 
     GlassDialog(
@@ -805,6 +815,8 @@ internal fun InviteCredentialSheet(
                 securePolicy = SecureFlagPolicy.SecureOn,
             ),
     ) {
+        val palette = LocalPalette.current
+        val accent = LocalAccentColors.current
         Column(Modifier.fillMaxWidth()) {
             Box(
                 Modifier
@@ -819,27 +831,8 @@ internal fun InviteCredentialSheet(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    modifier =
-                        Modifier
-                            .size(42.dp)
-                            .liquidGlass(
-                                shape = AppShapes.control,
-                                fill = accent.accent.copy(alpha = 0.13f),
-                                border = null,
-                                over = palette.card,
-                                sheen = 0.4f,
-                            ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = AppIcons.Lock,
-                        contentDescription = null,
-                        tint = accent.accent,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                Column {
+                SettingIconTile(AppIcons.Lock, SettingTint.general, size = 42.dp)
+                Column(Modifier.weight(1f)) {
                     Text("邀请码已生成", style = AppTypography.section.strong, color = palette.text)
                     Spacer(Modifier.height(2.dp))
                     Text("一次性安全凭证", style = AppTypography.caption.medium, color = palette.sub2)
@@ -925,15 +918,15 @@ private fun InvitePrimaryAction(
                 ).touchTarget()
                 .liquidGlass(
                     shape = AppShapes.control,
-                    fill = accent.accent.copy(alpha = 0.90f),
+                    fill = accent.accent,
                     border = null,
                     over = palette.card,
-                    sheen = 0.50f,
+                    sheen = 0f,
                 ).padding(horizontal = 18.dp, vertical = 13.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = AppTypography.body.strong, color = Color.White)
+        Text(label, style = AppTypography.body.strong, color = accent.onAccent)
     }
 }
 
@@ -991,10 +984,36 @@ internal fun formatSessionActivity(
  * It is the warning that used to sit *under* the two buttons, which is where a warning about
  * what a button does goes unread. Standing it in the slot the buttons report into means it is
  * the thing you are already looking at when you reach for them, and it keeps that slot from
- * being empty — see the card for why the height has to be constant.
+ * being empty. The explanation can grow with the user's font size.
  */
 private const val SYNC_IDLE_HINT =
     "清单、历史与追剧自动合并；服务器与设置不会自动同步，上传覆盖云端，恢复覆盖本机。"
+
+@Composable
+private fun AccountActionGroup(
+    actionCount: Int,
+    content: @Composable (Modifier) -> Unit,
+) {
+    val fontScale = LocalDensity.current.fontScale
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val stacked = maxWidth < 96.dp * fontScale * actionCount + 8.dp * (actionCount - 1)
+        if (stacked) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                content(Modifier.fillMaxWidth())
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                content(Modifier.weight(1f))
+            }
+        }
+    }
+}
 
 @Composable
 private fun AccountHeader(onBack: () -> Unit) {
@@ -1007,9 +1026,9 @@ private fun AccountHeader(onBack: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         SettingsBackButton(onBack)
-        Column(Modifier.padding(start = 10.dp)) {
+        Column(Modifier.weight(1f).padding(start = 10.dp)) {
             Text("账号与同步", style = AppTypography.section.strong, color = palette.text)
-            Text("IP HTTPS · 敏感数据加密同步", style = AppTypography.caption.regular, color = palette.sub2)
+            Text("资料、登录安全与云端同步", style = AppTypography.caption.regular, color = palette.sub2)
         }
     }
 }
@@ -1037,6 +1056,7 @@ private fun AccountCard(content: @Composable ColumnScope.() -> Unit) {
 private fun AccountSectionCard(
     title: String,
     icon: ImageVector,
+    iconTint: Color = SettingTint.account,
     status: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -1044,26 +1064,7 @@ private fun AccountSectionCard(
     val accent = LocalAccentColors.current
     AccountCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier =
-                    Modifier
-                        .size(34.dp)
-                        .liquidGlass(
-                            shape = AppShapes.control,
-                            fill = accent.container.copy(alpha = 0.56f),
-                            border = null,
-                            over = palette.card,
-                            sheen = 0.46f,
-                        ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = accent.accent,
-                    modifier = Modifier.size(17.dp),
-                )
-            }
+            SettingIconTile(icon, iconTint, size = 34.dp)
             Spacer(Modifier.width(10.dp))
             Text(
                 title,
@@ -1131,7 +1132,6 @@ private fun AccountSectionDivider() {
 @Composable
 private fun EncryptionInfoCard() {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
     var expanded by rememberSaveable { mutableStateOf(false) }
     val disclosure = rememberDisclosureProgress(expanded)
     AccountCard {
@@ -1147,26 +1147,7 @@ private fun EncryptionInfoCard() {
                     .padding(vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier =
-                    Modifier
-                        .size(34.dp)
-                        .liquidGlass(
-                            shape = AppShapes.control,
-                            fill = accent.container.copy(alpha = 0.50f),
-                            border = null,
-                            over = palette.card,
-                            sheen = 0.44f,
-                        ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = AppIcons.Lock,
-                    contentDescription = null,
-                    tint = accent.accent,
-                    modifier = Modifier.size(17.dp),
-                )
-            }
+            SettingIconTile(AppIcons.Lock, SettingTint.general, size = 34.dp)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text("加密说明", style = AppTypography.body.strong, color = palette.text)

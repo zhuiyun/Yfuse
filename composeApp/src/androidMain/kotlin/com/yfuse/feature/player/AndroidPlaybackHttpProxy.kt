@@ -42,6 +42,7 @@ internal class AndroidPlaybackHttpProxy(
     videoCacheBytes: Long,
     private val connectionAdmission: PlaybackProxyAdmission = PlaybackProxyAdmission(),
     private val headerTimeoutMs: Long = PLAYBACK_PROXY_HEADER_TIMEOUT_MS,
+    widgetMedia: () -> PlayerMediaItem? = { null },
 ) : Closeable {
     private val routes = PlaybackProxyRoutes()
     private val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
@@ -50,6 +51,7 @@ internal class AndroidPlaybackHttpProxy(
             .newBuilder()
             .connectTimeout(UPSTREAM_CONNECT_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
             .readTimeout(UPSTREAM_READ_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+            .addNetworkInterceptor(WidgetPlaybackHeadersInterceptor(widgetMedia))
             .addNetworkInterceptor { chain ->
                 val original = chain.request()
                 val uri = original.url.toUri()

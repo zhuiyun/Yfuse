@@ -40,6 +40,10 @@ internal data class StremioScreenState(
     val launch: PlayerMediaItem? = null,
 )
 
+/** Series and multi-video titles need a deliberate episode choice; films and live TV do not. */
+internal val StremioMeta.requiresVideoSelection: Boolean
+    get() = type != "tv" && (type == "series" || videos.isNotEmpty())
+
 /** Page-owned requests are cancelled on navigation and profile changes, including subtitle preparation. */
 internal class StremioController(
     val repository: StremioRepository,
@@ -122,6 +126,7 @@ internal class StremioController(
                 items = emptyList(),
                 detail = null,
                 video = null,
+                sources = emptyList(),
                 canLoadMore = false,
                 message = null,
             )
@@ -169,20 +174,48 @@ internal class StremioController(
         detail(meta)
     }
 
-    fun detail(meta: StremioMeta) =
+    fun detail(meta: StremioMeta) {
+        val previousVideo =
+            state.value.video.takeIf {
+                state.value.detail?.let { it.type to it.id } ==
+                    (meta.type to meta.id)
+            }
+        change { copy(detail = meta, video = null, sources = emptyList()) }
         fetch("详情加载失败，请重试") {
             val result = repository.meta(meta)
-            publishRequest { copy(detail = result.values.firstOrNull() ?: meta, failures = result.failures) }
+            val resolved = result.values.firstOrNull() ?: meta
+            val video =
+                if (resolved.requiresVideoSelection) {
+                    resolved.videos.firstOrNull { it.id == previousVideo?.id }
+                } else {
+                    StremioVideo(resolved.id, resolved.name)
+                }
+            // Publish the real detail before waiting for sources. Fetching never launches playback.
+            publishRequest { copy(detail = resolved, video = video, failures = result.failures) }
+            if (video != null) loadSources(resolved, video, result.failures)
         }
+    }
 
     fun selectVideo(video: StremioVideo) {
         val meta = state.value.detail ?: return
         change { copy(video = video, sources = emptyList()) }
-        fetch("播放源加载失败，请重试") {
-            val result = repository.streams(meta.type, video.id)
-            val metaStreams = meta.streams.takeIf { video.id == meta.id }.orEmpty()
-            val embedded = (video.streams + metaStreams).map { StremioSource("详情内置", it) }
-            publishRequest { copy(sources = (embedded + result.values).distinct(), failures = result.failures) }
+        fetch("播放源加载失败，请重试") { loadSources(meta, video) }
+    }
+
+    private suspend fun loadSources(
+        meta: StremioMeta,
+        video: StremioVideo,
+        detailFailures: List<String> = emptyList(),
+    ) {
+        val metaStreams = meta.streams.takeIf { video.id == meta.id }.orEmpty()
+        val embedded = (video.streams + metaStreams).map { StremioSource("详情内置", it) }
+        publishRequest { copy(sources = embedded.distinct(), failures = detailFailures) }
+        val result = repository.streams(meta.type, video.id)
+        publishRequest {
+            copy(
+                sources = (embedded + result.values).distinct(),
+                failures = (detailFailures + result.failures).distinct(),
+            )
         }
     }
 
@@ -220,8 +253,9 @@ internal class StremioController(
         cancelRequest()
         change {
             when {
-                video != null -> copy(video = null, sources = emptyList(), message = null)
-                detail != null -> copy(detail = null, message = null)
+                video != null && detail?.requiresVideoSelection == true ->
+                    copy(video = null, sources = emptyList(), message = null)
+                detail != null -> copy(detail = null, video = null, sources = emptyList(), message = null)
                 else -> copy(catalog = null, items = emptyList(), message = null)
             }
         }

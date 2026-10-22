@@ -30,7 +30,6 @@ internal fun PersonalSettingsSection(
             if (!policy.child) {
                 SettingRow(
                     "Stremio 插件",
-                    "插件管理 · 目录 · 搜索 · 播放",
                     embedded = true,
                     onClick = onOpenStremio,
                     icon = AppIcons.Grid,
@@ -40,20 +39,18 @@ internal fun PersonalSettingsSection(
             }
             SettingRow(
                 "我的片单",
-                "想看 · 收藏 · 观看历史",
                 embedded = true,
                 onClick = onOpenContent,
                 icon = AppIcons.Bookmark,
-                iconTint = SettingTint.account,
+                iconTint = SettingTint.library,
             )
             SettingsDivider()
             SettingRow(
                 "观影统计",
-                "时长 · 日历 · 趋势 · 观影回顾",
                 embedded = true,
                 onClick = onOpenStatistics,
                 icon = AppIcons.WatchCalendar,
-                iconTint = SettingTint.account,
+                iconTint = SettingTint.general,
             )
             SettingsDivider()
             SettingRow(
@@ -68,10 +65,10 @@ internal fun PersonalSettingsSection(
                 SettingsDivider()
                 SettingRow(
                     "设备接力",
-                    "在另一台设备继续观看",
+                    "跨设备继续观看",
                     embedded = true,
                     onClick = onOpenHandoff,
-                    icon = AppIcons.Play,
+                    icon = AppIcons.Cast,
                     iconTint = SettingTint.playback,
                 )
             }
@@ -79,11 +76,11 @@ internal fun PersonalSettingsSection(
                 SettingsDivider()
                 SettingRow(
                     "Trakt",
-                    "播放记录、收藏与待看同步",
+                    "观影记录同步",
                     embedded = true,
                     onClick = onOpenTrakt,
                     icon = AppIcons.Refresh,
-                    iconTint = SettingTint.account,
+                    iconTint = SettingTint.sync,
                 )
             }
         }

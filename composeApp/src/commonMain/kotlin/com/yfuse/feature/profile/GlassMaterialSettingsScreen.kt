@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -26,12 +27,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -167,8 +170,8 @@ internal fun GlassMaterialSettingsScreen(
             val contrast = material.textContrast(themePalette, opaqueGlass)
             if (contrast < GlassMaterial.MIN_TEXT_CONTRAST) {
                 Text(
-                    "正文对比度约 ${(contrast * 10).roundToInt() / 10f}:1（按纯色页面估算），低于 4.5:1。" +
-                        "提高不透明度、加深背景遮罩或更换文字颜色会更清晰。",
+                    "所选文字颜色的基础对比度约 ${(contrast * 10).roundToInt() / 10f}:1（按纯色页面估算）。" +
+                        "系统会自动增强文字对比；提高不透明度或更换文字颜色可减少自动修正。",
                     style = AppTypography.caption.regular,
                     color = palette.warning,
                 )
@@ -195,14 +198,14 @@ internal fun GlassMaterialSettingsScreen(
                     }
                     BoxWithConstraints(Modifier.fillMaxWidth()) {
                         val columns =
-                            if (maxWidth < 320.dp) {
+                            if (maxWidth / density.fontScale < 320.dp) {
                                 1
-                            } else if (maxWidth < 600.dp) {
+                            } else if (maxWidth / density.fontScale < 600.dp) {
                                 2
                             } else {
                                 3
                             }
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             GlassMaterialPreset.selectable.chunked(columns).forEach { row ->
                                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                     row.forEach { preset ->
@@ -271,6 +274,7 @@ internal fun GlassMaterialSettingsScreen(
                                 AdjustmentSlider(it, material, dark, edit)
                             }
                         if (advancedGroup == 1) {
+                            Text("播放器面板保持深色，确保视频场景中的文字与控件清晰。", style = AppTypography.body.regular, color = palette.sub2)
                             Text("文字颜色", style = AppTypography.body.medium, color = palette.text)
                             SettingSegmentControl(
                                 options = listOf("跟随主题", "浅色文字", "深色文字"),
@@ -359,8 +363,13 @@ private fun MaterialPresetCard(
     val accent = LocalAccentColors.current.accent
     Column(
         modifier
-            .pressable(focusShape = AppShapes.control, onClickLabel = "选择${preset.label}", onClick = onClick)
-            .background(if (chosen) accent.copy(alpha = 0.10f) else palette.card, AppShapes.control)
+            .clip(AppShapes.control)
+            .pressable(
+                role = Role.RadioButton,
+                focusShape = AppShapes.control,
+                onClickLabel = "选择${preset.label}",
+                onClick = onClick,
+            ).background(if (chosen) accent.copy(alpha = 0.10f) else palette.card, AppShapes.control)
             .border(1.dp, if (chosen) accent.copy(alpha = 0.65f) else palette.border, AppShapes.control)
             .semantics { selected = chosen }
             .padding(14.dp),

@@ -41,6 +41,8 @@ ktlint-plugin = "14.2.0"
 ktlint = "1.3.1"
 
 [libraries]
+widget-quickjs = { module = "io.github.dokar3:quickjs-kt", version = "1.0.15" }
+widget-jsoup = { module = "org.jsoup:jsoup", version = "1.23.2" }
 # Decompose
 decompose = { module = "com.arkivanov.decompose:decompose", version.ref = "decompose" }
 decompose-compose = { module = "com.arkivanov.decompose:extensions-compose", version.ref = "decompose" }

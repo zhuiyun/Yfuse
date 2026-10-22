@@ -158,7 +158,14 @@ fun TvRoot(component: RootComponent) {
     val selectedTab by component.activeTab.subscribeAsState()
     // The phone-only Watching root has no TV rail item. Restored/shared navigation requests
     // enter the existing TV library, keeping focus requesters attached to a visible rail item.
-    val activeTab = if (selectedTab == RootComponent.Tab.Watching) RootComponent.Tab.Browse else selectedTab
+    val activeTab =
+        if (selectedTab in
+            listOf(RootComponent.Tab.Watching, RootComponent.Tab.CustomHome)
+        ) {
+            RootComponent.Tab.Browse
+        } else {
+            selectedTab
+        }
     LaunchedEffect(selectedTab) {
         if (selectedTab != activeTab) component.selectTab(activeTab)
     }
@@ -191,7 +198,7 @@ fun TvRoot(component: RootComponent) {
     val atRoot =
         when (activeTab) {
             RootComponent.Tab.Home -> homeStack.active.instance is HomeTabComponent.Child.Home
-            RootComponent.Tab.Browse, RootComponent.Tab.Watching ->
+            RootComponent.Tab.Browse, RootComponent.Tab.Watching, RootComponent.Tab.CustomHome ->
                 libraryStack.active.instance is LibraryComponent.Child.Home
             RootComponent.Tab.Servers -> true
             RootComponent.Tab.Search -> searchStack.active.instance is SearchComponent.Child.Home
@@ -212,7 +219,9 @@ fun TvRoot(component: RootComponent) {
             !atRoot ->
                 when (activeTab) {
                     RootComponent.Tab.Home -> component.home.navigateBack()
-                    RootComponent.Tab.Browse, RootComponent.Tab.Watching -> component.browse.navigateBack()
+                    RootComponent.Tab.Browse, RootComponent.Tab.Watching, RootComponent.Tab.CustomHome ->
+                        component.browse
+                            .navigateBack()
                     RootComponent.Tab.Search -> component.search.navigateBack()
                     RootComponent.Tab.Profile -> component.profile.navigateBack()
                     RootComponent.Tab.Servers -> Unit
@@ -237,7 +246,11 @@ fun TvRoot(component: RootComponent) {
         } else {
             when (activeTab) {
                 RootComponent.Tab.Home -> TvPage.pushed(activeTab, homeStack)
-                RootComponent.Tab.Browse, RootComponent.Tab.Watching -> TvPage.pushed(activeTab, libraryStack)
+                RootComponent.Tab.Browse, RootComponent.Tab.Watching, RootComponent.Tab.CustomHome ->
+                    TvPage.pushed(
+                        activeTab,
+                        libraryStack,
+                    )
                 RootComponent.Tab.Search -> TvPage.pushed(activeTab, searchStack)
                 RootComponent.Tab.Profile -> TvPage.pushed(activeTab, profileStack)
                 RootComponent.Tab.Servers -> TvPage.Root
@@ -471,7 +484,7 @@ private fun TvNavigationRail(
 private fun RootComponent.Tab.tvFocusRoute(): String =
     when (this) {
         RootComponent.Tab.Home -> "home"
-        RootComponent.Tab.Browse, RootComponent.Tab.Watching -> "library"
+        RootComponent.Tab.Browse, RootComponent.Tab.Watching, RootComponent.Tab.CustomHome -> "library"
         RootComponent.Tab.Servers -> "servers"
         RootComponent.Tab.Search -> "search"
         RootComponent.Tab.Profile -> "settings"
@@ -560,7 +573,7 @@ private fun TvRootTabPage(
                 }
             }
         }
-        RootComponent.Tab.Browse, RootComponent.Tab.Watching -> {
+        RootComponent.Tab.Browse, RootComponent.Tab.Watching, RootComponent.Tab.CustomHome -> {
             val stack by component.browse.stack.subscribeAsState()
             val child = stack.items.firstNotNullOfOrNull { it.instance as? LibraryComponent.Child.Home }
             child?.let {

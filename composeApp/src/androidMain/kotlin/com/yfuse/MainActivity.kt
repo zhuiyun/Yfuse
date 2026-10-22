@@ -314,6 +314,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun consumeIntent(intent: Intent) {
+        intent.getStringExtra("widget_search_query")?.takeIf { it.isNotBlank() }?.let { query ->
+            rootComponent?.openSearch(query.take(300))
+            intent.removeExtra("widget_search_query")
+        }
         consumeInviteIntent(intent)
         consumeCalendarIntent(intent)
         consumeDownloadIntent(intent)

@@ -187,6 +187,7 @@ class MpvVideoEngine(
                 context = context.applicationContext,
                 userAgent = customUserAgent,
                 videoCacheBytes = videoCacheBytes,
+                widgetMedia = { this.items.getOrNull(_state.value.currentIndex) },
             )
         }.onFailure { error ->
             AppLog.warning(

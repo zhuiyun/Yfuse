@@ -19,12 +19,11 @@ import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.DecorativeTints
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.resolveAccentColors
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.feature.calendar.ShowScheduleDialog
@@ -90,7 +89,7 @@ private fun SeriesIdentityCandidates(
     onSelect: (TmdbSeriesIdentityCandidate) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val plum = resolveAccentColors(DecorativeTints.plum, palette.isDark)
+    val plum = LocalAccentColors.current
     Column(
         Modifier
             .fillMaxWidth()

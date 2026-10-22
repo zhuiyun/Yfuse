@@ -70,7 +70,6 @@ fun WatchRoomInfoDialog(
     onEnter: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     val mediaKey = state.mediaKey?.takeIf { it.isNotBlank() }
 
     var resolution by remember(mediaKey) {
@@ -85,6 +84,7 @@ fun WatchRoomInfoDialog(
     }
 
     GlassDialog(onDismiss = onDismiss) {
+        val palette = LocalPalette.current
         OverlayHeader(
             title = "一起看",
             subtitle = state.roomCode?.let { "房间号 $it" } ?: "未在房间中",

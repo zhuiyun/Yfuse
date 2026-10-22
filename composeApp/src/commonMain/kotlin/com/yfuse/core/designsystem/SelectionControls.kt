@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,12 +40,14 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -61,6 +64,8 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
@@ -87,6 +92,7 @@ fun SwitchRow(
     icon: ImageVector? = null,
     iconTint: Color = Color.Unspecified,
     description: String? = null,
+    enabled: Boolean = true,
     onChange: (Boolean) -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -99,12 +105,14 @@ fun SwitchRow(
             // no press scale, no focus ring, no haptic. It answers like every other control now,
             // and carries the on/off state the toggle used to publish on its own.
             .pressable(
+                enabled = enabled,
                 role = Role.Switch,
                 haptic = HapticSignal.Select,
                 onClick = { onChange(!checked) },
             ).semantics { toggleableState = ToggleableState(checked) }
             .heightIn(min = MinTouchTarget)
-            .padding(horizontal = 16.dp, vertical = 13.dp),
+            .padding(horizontal = 16.dp, vertical = 11.dp)
+            .alpha(if (enabled) 1f else 0.46f),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -115,6 +123,7 @@ fun SwitchRow(
                 style = AppTypography.body.medium,
                 color = palette.text,
                 maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
             description?.takeIf(String::isNotBlank)?.let { copy ->
                 Spacer(Modifier.height(3.dp))
@@ -137,7 +146,6 @@ fun SwitchRow(
                         text,
                         style = AppTypography.caption.regular,
                         color = palette.sub2,
-                        maxLines = 3,
                     )
                 }
             }
@@ -159,7 +167,8 @@ internal fun SettingSegmentControl(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val indicator = rememberSegmentIndicator(selectedIndex, palette.card2, accent.border)
+    val indicator =
+        rememberSegmentIndicator(selectedIndex, accent.container, glassControlHighlight(accent, palette.isDark))
     Row(
         Modifier
             .then(if (expanded) Modifier.fillMaxWidth() else Modifier)
@@ -174,9 +183,7 @@ internal fun SettingSegmentControl(
             Box(
                 Modifier
                     .then(if (expanded) Modifier.weight(1f) else Modifier)
-                    // 36dp of glass; Compose's hit testing widens a target this small towards the
-                    // 48dp minimum where no neighbour is closer, which the pill's 2dp gaps allow.
-                    .heightIn(min = 36.dp)
+                    .heightIn(min = MinTouchTarget)
                     .then(indicator.item(index))
                     .pressable(
                         pressedScale = 0.97f,
@@ -193,7 +200,9 @@ internal fun SettingSegmentControl(
                     label,
                     style = if (isSelected) AppTypography.caption.strong else AppTypography.caption.medium,
                     color = selectionColor(if (isSelected) accent.accent else palette.sub2),
-                    maxLines = 1,
+                    maxLines = 2,
+                    textAlign = TextAlign.Center,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -269,7 +278,7 @@ internal fun PillSwitch(
         animationSpec = Motion.settle<Float>(reduceMotion),
         label = "switchKnob",
     )
-    val offTrack = palette.sub2.copy(alpha = if (palette.isDark) 0.30f else 0.28f)
+    val offTrack = Color(0xFF8190A2).copy(alpha = if (palette.isDark) 0.38f else 0.28f)
     val track by animateColorAsState(
         targetValue = if (checked) activeColor ?: accent.accent else offTrack,
         animationSpec = Motion.settle<Color>(reduceMotion),
@@ -277,14 +286,21 @@ internal fun PillSwitch(
     )
     Box(
         Modifier
-            .width(46.dp)
-            .height(28.dp)
-            .lightOnChange(
-                checked,
-                if (checked) LightEffect.Converge else LightEffect.Node,
-                fractionX = if (checked) 0.7f else 0.3f,
-            ).clip(AppShapes.pill)
-            .background(track),
+            .width(50.dp)
+            .height(30.dp)
+            .clip(AppShapes.pill)
+            .background(track)
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = 0.14f), Color.Transparent, Color.Black.copy(alpha = 0.04f)),
+                ),
+            ).border(
+                0.75.dp,
+                Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = 0.42f), Color.Black.copy(alpha = 0.06f)),
+                ),
+                AppShapes.pill,
+            ),
         contentAlignment = Alignment.CenterStart,
     ) {
         Box(
@@ -293,15 +309,20 @@ internal fun PillSwitch(
                 // Placed rather than composed: the knob moves every frame of the spring, and
                 // the dp overload would recompose the row for each of them.
                 .offset { IntOffset((SwitchTravel.toPx() * progress).roundToInt(), 0) }
-                .size(22.dp)
-                .shadow(GlassLift.control, CircleShape)
+                .size(24.dp)
+                .shadow(CssShadow(0.dp, 1.dp, 4.dp, 0.dp, Color(0xFF17263B).copy(alpha = 0.20f)), CircleShape)
                 .clip(CircleShape)
-                .background(Color.White),
+                .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFEEF2F7))))
+                .border(
+                    0.75.dp,
+                    Brush.verticalGradient(listOf(Color.White, Color.White.copy(alpha = 0.60f))),
+                    CircleShape,
+                ),
         )
     }
 }
 
-private val SwitchTravel = 18.dp
+private val SwitchTravel = 20.dp
 
 /**
  * The continuous control, in the glass language.
@@ -343,7 +364,7 @@ internal fun GlassSlider(
     }
     val focusSource = remember { MutableInteractionSource() }
     val focused by focusSource.collectIsFocusedAsState()
-    val track = palette.sub2.copy(alpha = if (palette.isDark) 0.30f else 0.28f)
+    val track = palette.controlBorder
     val latestChange by rememberUpdatedState(onValueChange)
     // Which stop the value last answered on, so one crossing is one tick rather than one per
     // frame of the drag that crosses it.
@@ -441,7 +462,7 @@ internal fun GlassSlider(
                 .size(SliderThumb)
                 .shadow(GlassLift.control, CircleShape)
                 .clip(CircleShape)
-                .background(Color.White)
+                .background(contentColorForSurface(accent.accent))
                 .then(if (focused) Modifier.border(SliderFocusRing, accent.accent, CircleShape) else Modifier),
         )
     }
@@ -475,19 +496,30 @@ private fun sliderStepIndex(
     steps: Int,
 ): Int = if (steps <= 0) 0 else (fraction * (steps + 1)).roundToInt()
 
-/** The rounded gradient glyph plate a settings row wears in place of a bare icon. */
+/** Stable category colours keep settings recognisable across themes and artwork accents. */
 @Composable
 internal fun SettingIconTile(
     icon: ImageVector,
     tint: Color,
+    modifier: Modifier = Modifier,
+    size: Dp = 32.dp,
 ) {
+    val palette = LocalPalette.current
+    val base = if (tint.isSpecified) tint.copy(alpha = 1f) else SettingTint.general
+    val surface = palette.card2.compositeOver(palette.background)
+    val fill = base.copy(alpha = if (palette.isDark) 0.18f else 0.10f)
+    val resolvedFill = fill.compositeOver(surface)
+    val ink = readableSurfaceInk(base, resolvedFill)
+    val background = if (LocalAccessibilityOptions.current.reduceTransparency) resolvedFill else fill
+    val shape = RoundedCornerShape(size * 0.31f)
     Box(
-        Modifier
-            .size(28.dp)
-            .clip(AppShapes.thumb)
-            .background(Brush.linearGradient(listOf(lerp(tint, Color.White, 0.16f), tint))),
+        modifier
+            .size(size)
+            .clip(shape)
+            .background(background)
+            .border(0.75.dp, ink.copy(alpha = 0.14f), shape),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+        Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(size * 0.58f))
     }
 }

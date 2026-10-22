@@ -33,7 +33,8 @@ fun LibraryScreen(component: LibraryComponent) {
                     onBack = component::navigateBack,
                     onOpenItem = { serverId, itemId -> component.openDetail(serverId, itemId) },
                 )
-            is LibraryComponent.Child.Home -> LibraryHomeScreen(instance.component)
+            is LibraryComponent.Child.Home ->
+                LibraryHomeScreen(instance.component)
             is LibraryComponent.Child.History ->
                 PlaybackHistoryScreen(
                     instance.component,

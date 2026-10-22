@@ -66,7 +66,6 @@ private fun FileSourceFormDialog(
     state: FileSourceFormState,
     controller: FileSourcesController,
 ) {
-    val palette = LocalPalette.current
     val draft = state.draft
     val connect = rememberFileSourceConnection(controller::showNotice)
     val openedDraft = remember(state.editingId) { draft }
@@ -88,6 +87,7 @@ private fun FileSourceFormDialog(
             !holdsInput
         },
     ) {
+        val palette = LocalPalette.current
         OverlayHeader(
             title = if (state.editing) "编辑文件来源" else "添加文件来源",
             subtitle =

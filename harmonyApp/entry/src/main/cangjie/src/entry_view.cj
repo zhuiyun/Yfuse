@@ -1,5 +1,7 @@
 package com.yfuse.harmony.entry
 
+import com.yfuse.harmony.entry.design.DesignTokens
+
 import ohos.base.*
 import ohos.component.*
 import ohos.state_manage.*
@@ -41,7 +43,7 @@ class EntryView {
             }
         }
         .width(100.percent)
-        .height(100.percent)
+        .height(100.percent).backgroundColor(Color(DesignTokens.darkBackground))
     }
 
     @Builder
@@ -72,7 +74,7 @@ class EntryView {
     func SecondaryContent() {
         Column {
             Row {
-                Button("‹ 返回").onClick(() => { popToRoot() })
+                Button("‹ 返回").backgroundColor(Color(DesignTokens.darkAccent)).fontColor(Color(DesignTokens.darkOnAccent)).borderRadius(DesignTokens.radiusSmall).onClick(() => { popToRoot() })
                 Blank()
             }.height(52).padding(left: 12, right: 12)
 
@@ -126,12 +128,12 @@ class EntryView {
                     AccountSessionsScreen()
                 }
             }
-        }.width(100.percent).height(100.percent)
+        }.width(100.percent).height(100.percent).backgroundColor(Color(DesignTokens.darkBackground))
     }
 
     @Builder
     func NavButton(label: String, index: Int64) {
-        Button(label)
+        Button(label).backgroundColor(Color(if (selectedTab == index) { DesignTokens.darkAccent } else { DesignTokens.darkSurface })).fontColor(Color(if (selectedTab == index) { DesignTokens.darkOnAccent } else { DesignTokens.darkText })).borderRadius(DesignTokens.radiusSmall)
             .onClick { event =>
                 if (selectedTab == index) { popToRoot() } else { selectedTab = index }
             }

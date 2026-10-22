@@ -107,6 +107,8 @@ data class MediaDetail(
     val trickplay: TrickplayInfo? = null,
     /** Exact Emby runtime retained so the player can paint its duration before the decoder reports it. */
     val runtimeTicks: Long? = null,
+    /** Scores with explicit provenance; absent providers are not fabricated. */
+    val ratings: List<MediaRating> = emptyList(),
 )
 
 /** A concrete, playable target resolved from a detail item. */

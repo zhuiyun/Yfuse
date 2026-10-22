@@ -13,19 +13,21 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -63,14 +65,14 @@ fun Section(
     Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
         Row(
             Modifier.fillMaxWidth().padding(bottom = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 title,
-                style = AppTypography.body.strong.copy(letterSpacing = 0.5.sp),
+                style = AppTypography.caption.medium,
                 color = palette.sub2,
-                modifier = Modifier.semantics { heading() },
+                modifier = Modifier.weight(1f).semantics { heading() },
             )
             if (action != null) {
                 Text(
@@ -79,7 +81,8 @@ fun Section(
                     color = accent.accent,
                     modifier =
                         Modifier
-                            .pressable(onClick = onAction)
+                            .widthIn(max = 160.dp)
+                            .pressable(role = Role.Button, onClick = onAction)
                             .touchTarget()
                             .liquidGlass(
                                 shape = AppShapes.chip,
@@ -101,7 +104,7 @@ fun SettingsDivider() {
     val palette = LocalPalette.current
     Box(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(1.dp).background(
-            palette.border.copy(alpha = if (palette.isDark) 0.24f else 0.48f),
+            palette.text.copy(alpha = if (palette.isDark) 0.09f else 0.06f),
         ),
     )
 }
@@ -161,6 +164,7 @@ fun SettingRow(
                     // A full-width row scaled to 0.97 read as its words sliding towards the middle;
                     // rows answer with a barely-there scale and their own ink instead.
                     it.pressable(
+                        role = Role.Button,
                         enabled = enabled && !loading,
                         pressedScale = PressFeedback.QUIET,
                         tintOnPress = true,
@@ -175,7 +179,7 @@ fun SettingRow(
             .touchTarget()
             .padding(
                 horizontal = if (compact) 2.dp else 16.dp,
-                vertical = if (compact) 7.dp else 13.dp,
+                vertical = if (compact) 7.dp else 11.dp,
             )
 
     Row(
@@ -183,14 +187,14 @@ fun SettingRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (icon != null) SettingIconTile(icon, iconTint)
+        if (icon != null) SettingIconTile(icon, iconTint, modifier = Modifier.alpha(alpha))
         if (compact) {
             Column(Modifier.weight(1f)) {
                 Text(
                     title,
                     style = AppTypography.body.strong,
                     color = titleColor,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 supporting?.takeIf(String::isNotBlank)?.let {
@@ -199,7 +203,7 @@ fun SettingRow(
                         it,
                         style = AppTypography.caption.regular,
                         color = palette.sub2.copy(alpha = alpha),
-                        maxLines = 1,
+                        maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
@@ -211,6 +215,9 @@ fun SettingRow(
                             text = it,
                             style = AppTypography.caption.strong,
                             color = if (destructive) palette.error else accent.accent,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 112.dp),
                         )
                         Spacer(Modifier.width(6.dp))
                     }
@@ -263,6 +270,15 @@ private fun SettingRowTitleValue(
     modifier: Modifier = Modifier,
 ) {
     val largeText = LocalDensity.current.fontScale >= 1.3f
+    if (value.isBlank()) {
+        Text(
+            title,
+            style = AppTypography.body.medium,
+            color = titleColor,
+            modifier = modifier,
+        )
+        return
+    }
     Layout(
         modifier = modifier,
         content = {
@@ -275,11 +291,11 @@ private fun SettingRowTitleValue(
             )
             Text(
                 value,
-                style = AppTypography.body.regular,
+                style = AppTypography.caption.regular,
                 color = valueColor,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.End,
+                textAlign = TextAlign.Start,
                 modifier = Modifier.contentHandoff(value),
             )
         },
@@ -299,7 +315,7 @@ private fun SettingRowTitleValue(
             }
         } else {
             val gap = 12.dp.roundToPx()
-            val valuePlaceable = valueMeasurable.measure(loose)
+            val valuePlaceable = valueMeasurable.measure(loose.copy(maxWidth = (width * 0.45f).toInt()))
             val titleMaxWidth = (width - valuePlaceable.width - gap).coerceAtLeast(0)
             val titlePlaceable = titleMeasurable.measure(loose.copy(maxWidth = titleMaxWidth))
             val height = maxOf(titlePlaceable.height, valuePlaceable.height)

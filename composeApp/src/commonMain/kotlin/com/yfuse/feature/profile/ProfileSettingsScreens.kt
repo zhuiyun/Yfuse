@@ -3,7 +3,9 @@ package com.yfuse.feature.profile
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.yfuse.backend.BackendAccess
 import com.yfuse.core.data.Anime4KMode
 import com.yfuse.core.data.MediaVersionPreference
@@ -222,6 +224,8 @@ internal fun PlaybackSettingsScreen(
                         title = "进度同步",
                         checked = progressSyncEnabled,
                         embedded = true,
+                        icon = AppIcons.Refresh,
+                        iconTint = SettingTint.sync,
                         description =
                             if (progressSyncEnabled) {
                                 // Jellyfin marks anything under its MinResumeDurationSeconds (300 s
@@ -246,16 +250,39 @@ internal fun PlaybackSettingsScreen(
         motionItem(key = "playback-behavior") {
             Section(title = "播放行为") {
                 SettingsCard {
-                    SwitchRow("自动播放下一集", autoNext, true, onChange = onAutoNext)
+                    SwitchRow(
+                        "自动播放下一集",
+                        autoNext,
+                        true,
+                        icon = AppIcons.Next,
+                        iconTint = SettingTint.playback,
+                        onChange = onAutoNext,
+                    )
                     SettingsDivider()
-                    SettingRow("竖屏视频", portraitVideo.label, true, onPortraitVideo)
+                    SettingRow(
+                        "竖屏视频",
+                        portraitVideo.label,
+                        true,
+                        onPortraitVideo,
+                        icon = AppIcons.RotationUnlocked,
+                        iconTint = SettingTint.playback,
+                    )
                     SettingsDivider()
-                    SettingRow("默认倍速", speedLabel(defaultSpeed), true, onDefaultSpeed)
+                    SettingRow(
+                        "默认倍速",
+                        speedLabel(defaultSpeed),
+                        true,
+                        onDefaultSpeed,
+                        icon = AppIcons.Forward,
+                        iconTint = SettingTint.playback,
+                    )
                     SettingsDivider()
                     SwitchRow(
                         "详情页主题曲",
                         detailThemeSong,
                         true,
+                        icon = AppIcons.Volume,
+                        iconTint = SettingTint.audio,
                         description = "服务器有主题曲时，在详情页轻声播放；进入播放器即停",
                         onChange = onDetailThemeSong,
                     )
@@ -264,14 +291,37 @@ internal fun PlaybackSettingsScreen(
                         "智能跨服选源",
                         smartCrossServerSource,
                         true,
+                        icon = AppIcons.PlaybackSource,
+                        iconTint = SettingTint.servers,
                         onChange = onSmartCrossServerSource,
                     )
                     SettingsDivider()
-                    SettingRow("视频缓存大小", videoCacheSize.label, true, onVideoCache)
+                    SettingRow(
+                        "视频缓存大小",
+                        videoCacheSize.label,
+                        true,
+                        onVideoCache,
+                        icon = AppIcons.Download,
+                        iconTint = SettingTint.cache,
+                    )
                     SettingsDivider()
-                    SettingRow("起播预热", sourcePreheat.label, true, onSourcePreheat)
+                    SettingRow(
+                        "起播预热",
+                        sourcePreheat.label,
+                        true,
+                        onSourcePreheat,
+                        icon = AppIcons.Play,
+                        iconTint = SettingTint.playback,
+                    )
                     SettingsDivider()
-                    SettingRow("片头片尾", skipSegments, true, onSkipSegments)
+                    SettingRow(
+                        "片头片尾",
+                        skipSegments,
+                        true,
+                        onSkipSegments,
+                        icon = AppIcons.SkipMarkers,
+                        iconTint = SettingTint.playback,
+                    )
                 }
             }
         }
@@ -283,6 +333,8 @@ internal fun PlaybackSettingsScreen(
                         mediaVersionPreference.playbackOptionCopy().label,
                         true,
                         onMediaVersionPreference,
+                        icon = AppIcons.Movie,
+                        iconTint = SettingTint.playback,
                     )
                     SettingsDivider()
                     SettingRow(
@@ -290,6 +342,8 @@ internal fun PlaybackSettingsScreen(
                         optimizationMode.simplePlaybackLabel(),
                         true,
                         onPlaybackMode,
+                        icon = AppIcons.Play,
+                        iconTint = SettingTint.playback,
                     )
                 }
             }
@@ -302,6 +356,8 @@ internal fun PlaybackSettingsScreen(
                         "内核、解码与音视频输出",
                         true,
                         onOpenAdvanced,
+                        icon = AppIcons.Menu,
+                        iconTint = SettingTint.advanced,
                     )
                 }
             }
@@ -314,6 +370,8 @@ internal fun PlaybackSettingsScreen(
                             "匿名播放质量分享",
                             anonymousQoeSharing,
                             true,
+                            icon = AppIcons.Lock,
+                            iconTint = SettingTint.general,
                             onChange = onAnonymousQoeSharing,
                         )
                     }
@@ -356,6 +414,8 @@ internal fun AdvancedPlaybackSettingsScreen(
                         optimizationMode.playbackOptionCopy().label,
                         true,
                         onOptimizationMode,
+                        icon = AppIcons.Menu,
+                        iconTint = SettingTint.advanced,
                     )
                     SettingsDivider()
                     SettingRow(
@@ -363,19 +423,32 @@ internal fun AdvancedPlaybackSettingsScreen(
                         engineSelection.playbackOptionCopy().label,
                         true,
                         onEngine,
+                        icon = AppIcons.Menu,
+                        iconTint = SettingTint.advanced,
                     )
                     SettingsDivider()
                     SwitchRow(
                         "YCore 2.0 播放内核（仅自动模式）",
                         core2TrialEnabled,
                         true,
+                        icon = AppIcons.Play,
+                        iconTint = SettingTint.playback,
                         onChange = outputPreferences::setCore2TrialEnabled,
                     )
                     SettingsDivider()
                     SwitchRow(
                         "YCore Native 纯内核（自动模式/开发中）",
                         core2NativeOnlyEnabled,
-                        core2TrialEnabled && engineSelection == PlaybackEngineSelection.Auto,
+                        embedded = true,
+                        icon = AppIcons.Play,
+                        iconTint = SettingTint.playback,
+                        enabled = core2TrialEnabled && engineSelection == PlaybackEngineSelection.Auto,
+                        description =
+                            if (core2TrialEnabled && engineSelection == PlaybackEngineSelection.Auto) {
+                                "在自动模式中使用开发中的原生播放内核"
+                            } else {
+                                "先启用 YCore 2.0，并将播放内核设为自动选择"
+                            },
                         onChange = outputPreferences::setCore2NativeOnlyEnabled,
                     )
                     SettingsDivider()
@@ -384,6 +457,8 @@ internal fun AdvancedPlaybackSettingsScreen(
                         decoder.playbackOptionCopy().label,
                         true,
                         onDecoder,
+                        icon = AppIcons.Menu,
+                        iconTint = SettingTint.advanced,
                     )
                     SettingsDivider()
                     SettingRow(
@@ -391,6 +466,8 @@ internal fun AdvancedPlaybackSettingsScreen(
                         yCoreBufferDuration.label,
                         true,
                         onYCoreBufferDuration,
+                        icon = AppIcons.Download,
+                        iconTint = SettingTint.cache,
                     )
                 }
             }
@@ -402,6 +479,8 @@ internal fun AdvancedPlaybackSettingsScreen(
                         "显示帧率",
                         showFrameRate,
                         true,
+                        icon = AppIcons.Movie,
+                        iconTint = SettingTint.playback,
                         description = "显示页面绘制帧率及播放时的视频帧率",
                         onChange = outputPreferences::setShowFrameRate,
                     )
@@ -411,8 +490,8 @@ internal fun AdvancedPlaybackSettingsScreen(
                         options = Anime4KMode.entries.map { it.label },
                         selectedIndex = Anime4KMode.entries.indexOf(anime4KMode),
                         onSelect = { outputPreferences.setAnime4KMode(Anime4KMode.entries[it]) },
-                        icon = AppIcons.Refresh,
-                        iconTint = SettingTint.advanced,
+                        icon = AppIcons.Star,
+                        iconTint = SettingTint.playback,
                     )
                     SettingsDivider()
                     SettingSegmentRow(
@@ -425,7 +504,7 @@ internal fun AdvancedPlaybackSettingsScreen(
                     )
                     SettingsDivider()
                     if (engineSelection == PlaybackEngineSelection.LockMdk) {
-                        SettingRow("音频直通", "MDK 暂不支持", false, null)
+                        SettingRow("音频直通", "MDK 暂不支持", true, null, icon = AppIcons.Volume, iconTint = SettingTint.audio)
                     } else {
                         SettingSegmentRow(
                             title = "音频直通",
@@ -435,7 +514,7 @@ internal fun AdvancedPlaybackSettingsScreen(
                                 outputPreferences.setAudioPassthrough(PlaybackAudioPassthrough.entries[it])
                             },
                             icon = AppIcons.Volume,
-                            iconTint = SettingTint.advanced,
+                            iconTint = SettingTint.audio,
                         )
                     }
                 }
@@ -460,9 +539,23 @@ internal fun DanmakuSettingsScreen(
         motionItem(key = "danmaku-sources") {
             Section(title = "弹幕设置") {
                 SettingsCard {
-                    SettingRow("弹幕来源", sourceSummary, true, onSources)
+                    SettingRow(
+                        "弹幕来源",
+                        sourceSummary,
+                        true,
+                        onSources,
+                        icon = AppIcons.Danmaku,
+                        iconTint = SettingTint.danmaku,
+                    )
                     SettingsDivider()
-                    SettingRow("屏蔽词", blockedSummary, true, onBlockedWords)
+                    SettingRow(
+                        "屏蔽词",
+                        blockedSummary,
+                        true,
+                        onBlockedWords,
+                        icon = AppIcons.DanmakuOff,
+                        iconTint = SettingTint.danmaku,
+                    )
                 }
             }
         }
@@ -495,18 +588,34 @@ internal fun WatchTogetherSettingsScreen(
                         if (connected) "房间 ${roomCode.orEmpty()} · 查看" else "输入房间码",
                         true,
                         onJoin,
+                        icon = AppIcons.Chat,
+                        iconTint = SettingTint.watchTogether,
                     )
                     SettingsDivider()
-                    SettingRow("一起看资料", nickname, true, onProfile)
+                    SettingRow("一起看资料", nickname, true, onProfile, icon = AppIcons.User, iconTint = SettingTint.account)
                 }
             }
         }
         motionItem(key = "watch-chat") {
             Section(title = "聊天显示") {
                 SettingsCard {
-                    SwitchRow("聊天弹幕", chatDanmaku, true, onChange = onChatDanmaku)
+                    SwitchRow(
+                        "聊天弹幕",
+                        chatDanmaku,
+                        true,
+                        icon = AppIcons.Danmaku,
+                        iconTint = SettingTint.danmaku,
+                        onChange = onChatDanmaku,
+                    )
                     SettingsDivider()
-                    SwitchRow("聊天消息浮层", chatPreview, true, onChange = onChatPreview)
+                    SwitchRow(
+                        "聊天消息浮层",
+                        chatPreview,
+                        true,
+                        icon = AppIcons.Chat,
+                        iconTint = SettingTint.watchTogether,
+                        onChange = onChatPreview,
+                    )
                 }
             }
         }
@@ -517,6 +626,8 @@ internal fun WatchTogetherSettingsScreen(
 internal fun AppearanceSettingsScreen(
     libraryCarousel: Boolean,
     onLibraryCarousel: (Boolean) -> Unit,
+    customHomeVisible: Boolean,
+    onCustomHomeVisible: (Boolean) -> Unit,
     navCollapseOnScroll: Boolean,
     onNavCollapseOnScroll: (Boolean) -> Unit,
     onBack: () -> Unit,
@@ -547,6 +658,16 @@ internal fun AppearanceSettingsScreen(
     onReduceMotion: (Boolean) -> Unit,
     onPulseSweep: (Boolean) -> Unit,
 ) {
+    var manageWidgets by remember { mutableStateOf(false) }
+    if (manageWidgets) {
+        com.yfuse.feature.widgets.WidgetWorkspaceScreen(
+            remember {
+                com.yfuse.core.widget
+                    .widgetRepository()
+            },
+            onClose = { manageWidgets = false },
+        )
+    }
     // Under 静息 the theme decides these; the stored choices wait for 经典.
     val calm = motionTheme == MotionTheme.Calm
     SettingsPage(
@@ -564,6 +685,25 @@ internal fun AppearanceSettingsScreen(
                         icon = AppIcons.Grid,
                         iconTint = SettingTint.library,
                         onChange = onLibraryCarousel,
+                    )
+                    SettingsDivider()
+                    SwitchRow(
+                        "自定义首页 Tab",
+                        customHomeVisible,
+                        true,
+                        icon = AppIcons.Home,
+                        iconTint = SettingTint.components,
+                        description = "在底部导航显示自定义首页，关闭后保留页面和组件",
+                        onChange = onCustomHomeVisible,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "首页与组件管理",
+                        "页面布局、组件与备份",
+                        true,
+                        { manageWidgets = true },
+                        icon = AppIcons.Grid,
+                        iconTint = SettingTint.components,
                     )
                     SettingsDivider()
                     // Two ways to live with the bar: give the screen to reading, or keep navigation up.
@@ -591,8 +731,8 @@ internal fun AppearanceSettingsScreen(
                         brandSummary,
                         true,
                         onBrand,
-                        icon = AppIcons.Bookmark,
-                        iconTint = SettingTint.components,
+                        icon = AppIcons.StarFilled,
+                        iconTint = SettingTint.appearance,
                     )
                     SettingsDivider()
                     SettingRow(
@@ -600,7 +740,7 @@ internal fun AppearanceSettingsScreen(
                         backgroundSummary,
                         true,
                         onBackground,
-                        icon = AppIcons.Download,
+                        icon = AppIcons.AspectFit,
                         iconTint = SettingTint.library,
                     )
                     SettingsDivider()
@@ -694,8 +834,8 @@ internal fun AppearanceSettingsScreen(
                         "减少透明效果",
                         reduceTransparency,
                         true,
-                        icon = AppIcons.Subtitle,
-                        iconTint = SettingTint.subtitle,
+                        icon = AppIcons.AspectFill,
+                        iconTint = SettingTint.components,
                         onChange = onReduceTransparency,
                     )
                     SettingsDivider()
@@ -703,7 +843,7 @@ internal fun AppearanceSettingsScreen(
                         "大号文字",
                         largeText,
                         true,
-                        icon = AppIcons.Info,
+                        icon = AppIcons.Subtitle,
                         iconTint = SettingTint.language,
                         onChange = onLargeText,
                     )

@@ -42,6 +42,8 @@ import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.ThemeSong
 import com.yfuse.core.model.TrickplayInfo
+import com.yfuse.core.model.plexRating
+import com.yfuse.core.model.validRatings
 import com.yfuse.core.network.exemptFromServerCooldown
 import com.yfuse.core.network.normalizeBaseUrl
 import com.yfuse.core.network.suppressEmbyIdentity
@@ -1398,6 +1400,14 @@ internal class PlexMediaServerAdapter(
             Genres = Genre.mapNotNull { it.tag.takeIf(String::isNotBlank) },
             RunTimeTicks = runtimeMs?.timesSafely(10_000L),
             CommunityRating = audienceRating ?: rating,
+            supplementalRatings =
+                (
+                    Rating.mapNotNull { plexRating(it.value, it.image, it.type) } +
+                        listOfNotNull(
+                            plexRating(audienceRating, audienceRatingImage, "audience"),
+                            plexRating(rating, ratingImage, "critic"),
+                        )
+                ).validRatings(),
             OfficialRating = contentRating,
             People =
                 Role.mapNotNull { role ->

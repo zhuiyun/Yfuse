@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -69,7 +70,7 @@ internal fun <T> AnimationCardList(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val cardWidth = minOf(184.dp, maxWidth * 0.76f)
+        val cardWidth = minOf(184.dp * LocalDensity.current.fontScale.coerceAtLeast(1f), maxWidth * 0.88f)
         LazyRow(
             modifier = Modifier.fillMaxWidth().selectableGroup(),
             state = listState,
@@ -130,16 +131,12 @@ internal fun <T> AnimationCardList(
                         label(animation),
                         color = if (chosen) accent.accent else palette.text,
                         style = AppTypography.body.strong,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         description(animation),
                         color = palette.sub,
                         style = AppTypography.caption.regular,
                         minLines = 3,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

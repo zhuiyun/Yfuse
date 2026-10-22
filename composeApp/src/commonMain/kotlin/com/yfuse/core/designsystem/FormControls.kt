@@ -60,7 +60,7 @@ fun YfFormField(
     val focused by interactionSource.collectIsFocusedAsState()
     val still = LocalAccessibilityOptions.current.reduceMotion || !LocalRouteVisible.current
     val focusColor by animateColorAsState(
-        if (focused) accent.border else accent.border.copy(alpha = 0f),
+        if (focused) glassControlHighlight(accent, palette.isDark) else accent.border.copy(alpha = 0f),
         animationSpec = Motion.tween(if (still) 0 else Motion.QUICK),
         label = "field-focus",
     )
@@ -75,9 +75,9 @@ fun YfFormField(
                 .graphicsLayer { alpha = if (enabled) 1f else 0.52f }
                 .flatGlass(
                     shape = AppShapes.control,
-                    fill = palette.card2,
-                    border = palette.border,
-                ).border(2.dp, focusColor, AppShapes.control)
+                    fill = palette.controlSurface,
+                    border = palette.controlBorder,
+                ).border(1.5.dp, focusColor, AppShapes.control)
                 .padding(
                     horizontal = 14.dp,
                     vertical = if (trailingIcon == null) 9.dp else 4.dp,
@@ -108,7 +108,7 @@ fun YfFormField(
                             Text(
                                 text = placeholder,
                                 style = AppTypography.body.regular,
-                                color = palette.hint,
+                                color = readableSurfaceInk(palette.hint, palette.controlSurface),
                                 maxLines = 1,
                             )
                         }
@@ -185,7 +185,8 @@ fun YfButton(
                 focusShape = AppShapes.control,
                 onClickLabel = label,
                 onClick = onClick,
-            ).liquidGlass(
+            ).shadow(glassButtonLift(palette), AppShapes.control)
+            .liquidGlass(
                 shape = AppShapes.control,
                 fill = visuals.fill,
                 border = visuals.border,
@@ -253,7 +254,7 @@ fun YfLinkButton(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val fill = if (destructive) palette.errorContainer.copy(alpha = 0.52f) else palette.card2
-    val border = if (destructive) null else palette.border
+    val border = glassControlHighlight(accent, palette.isDark)
     val content = if (destructive) palette.error else accent.accent
     Row(
         modifier
@@ -266,7 +267,8 @@ fun YfLinkButton(
                 focusShape = AppShapes.control,
                 onClickLabel = label,
                 onClick = onClick,
-            ).liquidGlass(
+            ).shadow(glassButtonLift(palette), AppShapes.control)
+            .liquidGlass(
                 shape = AppShapes.control,
                 fill = fill,
                 border = border,

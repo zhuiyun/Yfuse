@@ -60,8 +60,10 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.RatingBadges
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.contentColorForSurface
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.heroScrollCollapse
 import com.yfuse.core.designsystem.heroTopScrim
@@ -80,6 +82,8 @@ import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.themeBackground
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.waitingPulse
+import com.yfuse.core.model.MediaRating
+import com.yfuse.core.model.RatingSource
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.designsystem.ThemeIcon as Icon
@@ -232,6 +236,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                             .border(2.dp, palette.border, AppShapes.card),
                                 )
                                 Column(Modifier.weight(1f)) {
+                                    RatingBadges(listOfNotNull(item.rating?.let { MediaRating(RatingSource.Tmdb, it) }))
                                     Text(
                                         item.title,
                                         style = AppTypography.section.strong,
@@ -516,6 +521,16 @@ private fun TmdbSourceStrip(
                         shape = AppShapes.thumb,
                         fill = palette.card2,
                         border = palette.border,
+                    ).then(
+                        if (entry.isCurrent) {
+                            Modifier.border(
+                                2.dp,
+                                if (palette.isDark) Color.White.copy(alpha = 0.9f) else accent,
+                                AppShapes.thumb,
+                            )
+                        } else {
+                            Modifier
+                        },
                     ).padding(horizontal = 10.dp, vertical = 7.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -574,27 +589,32 @@ private fun TmdbPlayDock(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .height(46.dp)
+                    .heightIn(min = 48.dp)
                     .pressable(enabled = !resolving, onClick = onPlay)
                     .clip(AppShapes.card)
                     .background(accent)
-                    .waitingPulse(active = resolving, shape = AppShapes.card, color = Color.White)
-                    .border(1.dp, Color.White.copy(alpha = 0.24f), AppShapes.card),
+                    .waitingPulse(active = resolving, shape = AppShapes.card, color = contentColorForSurface(accent))
+                    .border(1.dp, Color.White.copy(alpha = 0.24f), AppShapes.card)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                InlineLoadingContent(loading = resolving, slotSize = 15.dp, color = Color.White) {
-                    Icon(AppIcons.Play, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                InlineLoadingContent(loading = resolving, slotSize = 15.dp, color = contentColorForSurface(accent)) {
+                    Icon(AppIcons.Play, null, tint = contentColorForSurface(accent), modifier = Modifier.size(14.dp))
                 }
                 Spacer(Modifier.width(8.dp))
-                Text("立即播放", style = AppTypography.body.strong, color = Color.White)
+                Text("立即播放", style = AppTypography.body.strong, color = contentColorForSurface(accent))
             }
         } else {
-            Box(Modifier.fillMaxWidth().height(46.dp), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
                 Text(
                     "未加入媒体库 · 以下资料来自 TMDB",
                     style = AppTypography.body.medium,
                     color = palette.sub2,
+                    textAlign = TextAlign.Center,
                 )
             }
         }
