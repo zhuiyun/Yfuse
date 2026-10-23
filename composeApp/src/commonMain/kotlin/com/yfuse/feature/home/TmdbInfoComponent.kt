@@ -98,7 +98,9 @@ class TmdbInfoComponent(
     private fun loadSources(forceRefresh: Boolean = false) {
         sourceJob?.cancel()
         val generation = ++sourceGeneration
-        if (item.id <= 0) {
+        // Widget catalogs may know a title without knowing its TMDB identity. Library lookup
+        // already supports exact title/year/type matching and must not depend on TMDB being up.
+        if (!item.canLookupLibrarySources()) {
             _state.update { it.copy(sourcesLoading = false) }
             return
         }
@@ -114,6 +116,17 @@ class TmdbInfoComponent(
             )
         }
         if (servers.isEmpty()) return
+        AppLog.info(
+            category = "feature.tmdb_detail",
+            event = "source_lookup_started",
+            message = "Looking for library resources from a detail card",
+            attributes =
+                mapOf(
+                    "identity" to if (item.id > 0) "tmdb" else "title",
+                    "mediaType" to item.mediaType,
+                    "serverCount" to servers.size.toString(),
+                ),
+        )
         sourceJob =
             scope.launch {
                 try {
@@ -122,9 +135,9 @@ class TmdbInfoComponent(
                             servers = servers,
                             currentServerId = registry.defaultServer?.id,
                             title = item.title,
-                            tmdbId = item.id,
+                            tmdbId = item.id.takeIf { it > 0 },
                             mediaType = item.mediaType,
-                            year = item.year?.toIntOrNull(),
+                            year = item.year?.toIntOrNull() ?: widgetSourceContext?.media?.detailSearchYear(),
                             forceRefresh = forceRefresh,
                             onSource = sourceReceived@{ source ->
                                 if (generation != sourceGeneration) return@sourceReceived
@@ -313,5 +326,7 @@ class TmdbInfoComponent(
 }
 
 private const val DETAIL_LOAD_FAILED = "影视资料没有加载出来，请检查网络后重试"
+
+internal fun TmdbItem.canLookupLibrarySources(): Boolean = mediaType in setOf("movie", "tv") && title.isNotBlank()
 
 private fun ServerSource.hasLibraryItem(): Boolean = reachable && !itemId.isNullOrBlank()

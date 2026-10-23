@@ -303,7 +303,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             personalState.error?.let { Text(it, style = AppTypography.caption.regular) }
                         }
 
-                        if (item.id > 0) {
+                        if (item.canLookupLibrarySources()) {
                             AnimatedColorContent(themeAccentState) { themeAccent ->
                                 TmdbPlayDock(
                                     playable = state.playable,

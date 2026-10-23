@@ -1,5 +1,6 @@
 package com.yfuse.core.widget
 
+import com.yfuse.core.logging.AppLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -14,8 +15,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 interface WidgetRuntime {
     suspend fun metadata(source: String): String
@@ -474,23 +473,29 @@ class WidgetRepository(
             database.value.widgets.firstOrNull { it.metadata.id == context.widgetId && it.enabled } ?: error("组件不可用")
         val resource = widget.metadata.modules.firstOrNull { it.id == "loadResource" && it.type == "stream" }
         if (resource != null) {
-            val args =
-                JsonObject(
-                    resource.parameterValues(context.params) +
-                        buildJsonObject {
-                            put("id", media.id)
-                            put("type", media.type)
-                            put("mediaType", media.mediaType)
-                            put("link", media.link)
-                            put("videoUrl", media.videoUrl)
-                            put("tmdbId", media.tmdbId)
-                            media.season?.let { put("season", it) }
-                            media.episode?.let { put("episode", it) }
-                        },
-                )
+            val args = context.resourceArguments(resource, media)
+            AppLog.info(
+                category = "widget",
+                event = "resource_lookup_started",
+                message = "Resolving a widget playback resource",
+                attributes =
+                    mapOf(
+                        "widgetId" to context.widgetId,
+                        "mediaType" to args.text("mediaType"),
+                        "hasTitle" to args.text("title").isNotBlank().toString(),
+                        "season" to args.text("season"),
+                        "episode" to args.text("episode"),
+                    ),
+            )
             val routes =
                 parseWidgetMedia(runtime.invoke(widget, resource.functionName, args, resource.timeoutSeconds))
                     .filter { it.videoUrl.isNotBlank() }
+            AppLog.info(
+                category = "widget",
+                event = "resource_lookup_completed",
+                message = "Widget playback resolver returned",
+                attributes = mapOf("widgetId" to context.widgetId, "routeCount" to routes.size.toString()),
+            )
             require(routes.isNotEmpty()) { "组件未返回播放地址" }
             return media.copy(videoUrl = "", children = routes)
         }
@@ -524,6 +529,7 @@ class WidgetRepository(
             headers = media.headers + detail.headers,
             videoUrl = detail.videoUrl.ifBlank { media.videoUrl },
             children = detail.children.ifEmpty { media.children },
+            resourceMetadata = JsonObject(media.resourceMetadata + detail.resourceMetadata),
         )
 
     private suspend fun change(transform: (WidgetDatabase) -> WidgetDatabase) {

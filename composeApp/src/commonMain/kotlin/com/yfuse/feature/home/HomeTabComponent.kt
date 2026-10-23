@@ -19,6 +19,8 @@ import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.navigation.SingleFlightNavigationGuard
 import com.yfuse.core.widget.WidgetSourceContext
+import com.yfuse.core.widget.hasStreamResolver
+import com.yfuse.core.widget.widgetRepository
 import com.yfuse.feature.calendar.CalendarComponent
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
@@ -173,7 +175,9 @@ class HomeTabComponent(
             Config.Info(
                 item,
                 null,
-                preferLibraryDetail = sourceContext?.media?.hasWidgetPlaybackSource() != true,
+                preferLibraryDetail =
+                    sourceContext?.media?.hasWidgetPlaybackSource() != true &&
+                        sourceContext?.hasStreamResolver(widgetRepository().database.value) != true,
                 sourceContext = sourceContext,
             ),
         )

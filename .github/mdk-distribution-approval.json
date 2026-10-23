@@ -1,10 +1,10 @@
 {
-  "versionName": "1.6.5",
-  "versionCode": 317,
+  "versionName": "1.6.6",
+  "versionCode": 318,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-23T09:25:07.830745+00:00",
+  "confirmedAt": "2026-10-24",
   "confirmedBy": "release owner",
-  "confirmationBasis": "Owner explicitly requested production signing and source upload for the verified 21-style backlog implementation. APK distribution remains local package-only; source upload does not publish native binary artifacts. Standing authorization covers the unchanged pinned MDK and unchanged local full ARM64 package-only scope."
+  "confirmationBasis": "Owner requested committing the live-audio and widget-resource fixes and triggering the build. Standing project authorization covers the unchanged pinned MDK in the full ARM64 package. This build is package-only: retain the signed APK as a GitHub Actions artifact without publishing an update."
 }

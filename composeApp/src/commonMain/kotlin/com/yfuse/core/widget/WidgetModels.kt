@@ -103,6 +103,8 @@ data class WidgetMedia(
     /** A confirmed next-up item inside [children], never a positional guess. */
     val nextEpisodeId: String? = null,
     val durationMinutes: Int? = null,
+    /** Source-owned title metadata needed by stream resolvers, separate from browse parameters. */
+    val resourceMetadata: JsonObject = JsonObject(emptyMap()),
 )
 
 @Serializable
@@ -309,7 +311,9 @@ fun parseWidgetItem(
                 .toFloatOrNull()
                 ?.takeIf { it.isFinite() }
                 ?.coerceIn(0f, 1f),
-        season = item.text("seasonNumber", "season_number", "season").toIntOrNull(),
+        season =
+            item.text("seasonNumber", "season_number", "season").toIntOrNull()
+                ?: Regex("第\\s*([0-9]+)\\s*季").find(item.text("seasonInfo"))?.groupValues?.get(1)?.toIntOrNull(),
         episode = item.text("episodeNumber", "episode_number", "episode").toIntOrNull(),
         headers =
             ((item["headers"] as? JsonObject).orEmpty() + (item["customHeaders"] as? JsonObject).orEmpty())
@@ -331,6 +335,15 @@ fun parseWidgetItem(
                 it in
                     1..1440
             },
+        resourceMetadata =
+            JsonObject(
+                item.filterKeys {
+                    it in setOf(
+                        "originalTitle", "seriesName", "episodeName", "seasonInfo", "genreTitle",
+                        "releaseDate", "premiereDate", "tmdbInfo",
+                    )
+                },
+            ),
     )
 }
 

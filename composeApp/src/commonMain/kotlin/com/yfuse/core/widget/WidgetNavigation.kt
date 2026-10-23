@@ -50,16 +50,17 @@ fun WidgetMedia.widgetDetailSeed(): TmdbItem =
         year = year.takeIf(String::isNotBlank),
         mediaType =
             if (isWidgetFilmOrSeries()) {
-                if (mediaType.lowercase() == "movie") "movie" else "tv"
+                if (mediaType.trim().lowercase() == "movie") "movie" else "tv"
             } else {
                 "video"
             },
         rating = rating.toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..10.0 },
     )
 
+/** `url` describes how the source addresses a card, not whether it is a film or series. */
 fun WidgetMedia.isWidgetFilmOrSeries(): Boolean =
     mediaType.trim().lowercase() in setOf("movie", "tv", "series") &&
-        type.trim().lowercase() !in setOf("live", "video", "url")
+        type.trim().lowercase() !in setOf("live", "video")
 
 fun WidgetMedia.requiresWidgetDetailLookup(): Boolean =
     link.isNotBlank() &&
