@@ -1,0 +1,245 @@
+{
+  "versionName": "1.6.5",
+  "versionCode": 317,
+  "packageName": "com.yfuse",
+  "profile": "full",
+  "abi": "arm64-v8a",
+  "file": "Yfuse-1.6.5-full-arm64.apk",
+  "bytes": 38590471,
+  "sha256": "0b8d3eb16c79111fc20c25270f70bf70a819a6e1f5162dcff58cc787238906c2",
+  "certificateSha256": "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84",
+  "signatureV2Verified": true,
+  "zipAlignment16K": true,
+  "nativeLoadAlignment16K": true,
+  "nativeLibrariesVerified": 21,
+  "dexVerified": true,
+  "dexClasses": 15023,
+  "dexMethodsWithCode": 66101,
+  "dexFindings": 0,
+  "dexMethodsNotAnalysable": 0,
+  "dexFiles": {
+    "classes.dex": "025b8055f2237d7c71d9ae3495891b80b44322429b90a765a6e18cb9d3d62a4a",
+    "classes2.dex": "31293d13ec3b29d7b95ae489ccbff981c284c32a9e8445dd9d8854322c546f7c"
+  },
+  "mdkIncluded": true,
+  "mdkLibraries": {
+    "lib/arm64-v8a/libmdk.so": {
+      "bytes": 2072000,
+      "sha256": "1ae87eae1c5633238ac69acc2bba7c44b2c974c8f32c21ac35778376f77ce575"
+    },
+    "lib/arm64-v8a/libyfuse-mdk-jni.so": {
+      "bytes": 1195544,
+      "sha256": "c889a8704465ce7cbfc48d302da7e2482b4d59afe1eaacbd9c49eee150197203"
+    }
+  },
+  "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
+  "bundledWidgets": {
+    "tmdb.js": {
+      "path": "assets/widgets/tmdb.js",
+      "bytes": 18990,
+      "sha256": "5277b7826eb5880d4cdc97a79681bb9b0c2accbe12fa233c09b33c04a446495a",
+      "matchesValidatedSource": true
+    },
+    "movie-recommendations.js": {
+      "path": "assets/widgets/movie-recommendations.js",
+      "bytes": 14581,
+      "sha256": "83995c2837cdc10f6057c512d70bc34a769fd1bc65444e3238774279377640fb",
+      "matchesValidatedSource": true
+    }
+  },
+  "bundledWidgetBootstrapIdentifiersInDex": true,
+  "previousActualVersionName": "1.6.4",
+  "previousActualVersionCode": 316,
+  "sourceCommit": "761961ae704f07bfa68ff5953ed24ca28a610e8a",
+  "buildRevision": "761961ae704f07bfa68ff5953ed24ca28a610e8a-dirty-e3b0c44298fc",
+  "treeDirtyAtBuild": true,
+  "buildInputsRecheckedAfterBuild": true,
+  "sourceFilesChecked": 2830,
+  "sourceInputsSha256": "72962ba5a6ff62170dd4aef31e0335f497d1584c05230ac43d1cfe8752b17046",
+  "buildLogSha256": "a1bee8fc47e3e37d9263543f3cf8cd0ce49c358cea207f570615b8b4cffa4be5",
+  "buildStartSha256": "bbdc34eaa3ef9ad10080d8cf8dc197e345585f1ad8796b530867d035e4c20149",
+  "mappingSha256": "8dfab7709f2b00f2cd721b09f00ce5b5992bcb3552f02c50da624ddda5339c14",
+  "mappingMarkersVerified": [
+    "com.yfuse.core.widget.WidgetFeed",
+    "com.yfuse.core.widget.WidgetSourceContext",
+    "com.yfuse.feature.home.TmdbInfoComponent",
+    "com.yfuse.feature.home.HomeTabComponent$Config$WidgetHome",
+    "com.yfuse.feature.widgets.WidgetBrowsePageKt",
+    "com.yfuse.feature.widgets.WidgetSourceSectionKt",
+    "com.yfuse.feature.widgets.WidgetHomeControlsKt",
+    "com.yfuse.feature.widgets.WidgetEditorialCardsKt",
+    "com.yfuse.core.widget.WidgetStyle",
+    "com.yfuse.feature.widgets.WidgetKineticLayoutsKt",
+    "com.yfuse.feature.widgets.WidgetGalleryLayoutsKt",
+    "com.yfuse.feature.widgets.WidgetEpisodeLayoutsKt"
+  ],
+  "newStyleIdsVerifiedInDex": [
+    "layered-poster",
+    "next-direct",
+    "big-rank",
+    "accordion",
+    "arc-poster",
+    "staggered-columns",
+    "borderless",
+    "season-showcase",
+    "episode-preview",
+    "episode-matrix",
+    "decade-shelf",
+    "poster-waterfall",
+    "book-spine",
+    "mirror-poster",
+    "overlap-info",
+    "double-feature",
+    "floating-poster",
+    "staggered-rail",
+    "banner-stack",
+    "depth-gallery",
+    "folding-gallery"
+  ],
+  "priorRegressionEvidence": {
+    "latestWidgetLayoutCapacity": {
+      "suites": 24,
+      "tests": 159,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "phoneSharedCompile": "passed",
+      "tvSharedCompile": "passed",
+      "record": "audit/widget-backlog-20261023/verification-result.json",
+      "recordSha256": "d542b2c9d224b5b1875ad442a5c3c04637d221be51f5037293acc6638a08cff8",
+      "testsRecord": "audit/widget-backlog-20261023/test-summary.json",
+      "testsRecordSha256": "86f0c8b617bfb0ff919b2a20dc43ae00ad9951099b505619206acea454d7616e",
+      "compileLog": "audit/widget-backlog-20261023/verification.log",
+      "compileLogSha256": "5698aea303df5731ad8a090764f50f72056a674613713e8cbe3768bede04f205",
+      "validatedFiles": 2830,
+      "unchangedValidatedInputs": 2827,
+      "sourceHashes": "audit/widget-backlog-20261023/source-inputs.json",
+      "sourceHashesSha256": "aa43325284b0f8bdd1a40c0dab7f2121f0af5134496d0da96ed58a520431d1bd",
+      "preBumpVerification": "audit/releases/20261023-widget-backlog-1.6.5/pre-bump-verification.json",
+      "preBumpVerificationSha256": "d6447cd30c125107cf99f77c6a7fbebf353421178aeedf5ce94d1b6bec23caf6",
+      "releaseMetadataChanges": [
+        {
+          "path": ".github/mdk-distribution-approval.json",
+          "validatedSha256": "ed92933aadaf5eb034b0b52d576a2618c177bac910f427605dc4691e5397e7c7",
+          "packagedSha256": "fa004c2da4f625716408216f95906402cc2cc174c7454a59374ba9e711113f57"
+        },
+        {
+          "path": "release-notes.txt",
+          "validatedSha256": "72aa7db789ddbe3ef710a22e0aa8ed5e1a10b3007f6003bb09f91f4241c9dba0",
+          "packagedSha256": "9d41ae87ea86e630727493cd095432197e3996efa0341fb6c7c52201e1c1d81f"
+        },
+        {
+          "path": "version.properties",
+          "validatedSha256": "70efb1d7c8d97c5492117b9eb40d332aebf057b36b3e847dc6becda186843e51",
+          "packagedSha256": "25f02ec80f33c9ffafb8799751188e9285313fc885972b0e5a3d3ff36aed2184"
+        }
+      ],
+      "testXml": [
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.BundledWidgetOrderingTest.xml",
+          "sha256": "fe34d259a3aa1c62286336230b6fcfc1548d59cbf578218c6c66bbfcad111246"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.BundledWidgetRepositoryTest.xml",
+          "sha256": "b01eb464ccdb381e51a3e9a74d1f1f94303149e0a444e8c9da7d9347bff28f3e"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.BundledWidgetRuntimeTest.xml",
+          "sha256": "2cc826cf7a8dbae56be8c5a04c59ec80dc8cdaf9f85f4bd068aa605ae91f475c"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.SandboxWidgetRuntimeTest.xml",
+          "sha256": "89b1c73c7309d1e3511f968542fc59a692535c6871a72a2181666132da2ed30e"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.WidgetContractTest.xml",
+          "sha256": "96a58d74a2d3b84e9e6df172d8c9d1625b10d39783f232510919d0083aa495d9"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.WidgetEpisodeDataTest.xml",
+          "sha256": "8f423d77078f167b002ff4cba73cc5a26ea6a7d2c03ede381cdcc2fd0a47575c"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.WidgetFeedTest.xml",
+          "sha256": "362e5c7a61463bcbab3e3866185beaf783c7341f98e212aab66b6b012458d403"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.WidgetHttpTest.xml",
+          "sha256": "e4a586c376533422a45594230af9ecfea035e74d7c08adbcd7462fd7b18a0c70"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.WidgetInstallMetadataTest.xml",
+          "sha256": "2a76c2a61783a7caeb5cc1ac52b639f2da3ce32e8a35fab9adaf2dfd649fe581"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.WidgetNavigationTest.xml",
+          "sha256": "2a181454a85414a953228e8dbeeb8dc933378f13d69b4c2d7b31639766f0cdf6"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.WidgetPlaybackHeadersTest.xml",
+          "sha256": "81f7409e65db8c14010eb29cd8e6439d36c13edad8cd7e7d005675daa579c318"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.WidgetRepositoryTest.xml",
+          "sha256": "7e7c9f2820f5154a6331cfb3cef209e7adb70a5d5212db9798a087cb1c2ee44c"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.WidgetRequestFailuresTest.xml",
+          "sha256": "8c1a69893d03917cfda8edd61fa91c1f06d5e079e9c9ae2d51e7fcdd7f06dfb1"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.WidgetSourcePlaybackTest.xml",
+          "sha256": "5e2e8f62129f57a3cca271b9c1bd2d36f1ddce967d651620d80952426d4ac59d"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.WidgetTitleMatchTest.xml",
+          "sha256": "f8d33bf20028082c0a1520fa3af43297f913af4d3c77c70632977f6a0a5f895f"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.core.widget.WidgetTmdbHttpTest.xml",
+          "sha256": "42bedc1ed3940dc646b2b52a2304f17ad6605ec7e3fd41ce58de1581baefb8e4"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.feature.home.TmdbInfoSourcesTest.xml",
+          "sha256": "d91ee38f0953e2bc2ed33779f075f00cdd35dfe68d5da206f7097603db0f2831"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.feature.home.WidgetDetailRouteTest.xml",
+          "sha256": "7e5288f38f84081d863e0e50fd5636148b221a3861e8ae5ec66bb85fcbbf6834"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.feature.widgets.CustomHomeNavigationTest.xml",
+          "sha256": "d92b68ead7f5615ce196750db588603b3e55418600b126f5a84b1cc11d2b0835"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.feature.widgets.WidgetDocumentTest.xml",
+          "sha256": "b339beffb56b859d8d4a77b3dfdec7d0886a29100e9e0d8662f3e63c27bff07b"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.feature.widgets.WidgetFailureMessageTest.xml",
+          "sha256": "eaf4e50d3869382dba10faa9e0a9cd4292f766aa197b90e03d3d657e9e7f8946"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.feature.widgets.WidgetKineticGeometryTest.xml",
+          "sha256": "806bfe9202d4bc5a4a039c8c96b8c61f24ba41d802b8230371577a391cc21890"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.feature.widgets.WidgetPlaybackTransportTest.xml",
+          "sha256": "0d6b76a136e33cc4e25d821c17d6b927961c5caa82381301736b8e5549a9e823"
+        },
+        {
+          "path": "audit/widget-backlog-20261023/junit/TEST-com.yfuse.feature.widgets.WidgetSourceSectionTest.xml",
+          "sha256": "b5dcdae73e70fc487d324ca236ae89384638dbc14408ad74119ff94c1e2cd163"
+        }
+      ]
+    },
+    "note": "All 2827 non-release-metadata inputs match the latest 2830-file validated snapshot. The only changes are the required version, release notes and pinned MDK confirmation update to 1.6.5/317. Original JUnit XML supports 159 passing tests. Existing tests were not rerun during packaging. Device/network/visual acceptance remains pending."
+  },
+  "nativeVisualQa": "pending; intended OPPO was unavailable during code validation; no device installation or visual acceptance performed during packaging",
+  "exactDouyinPlaybackValidation": "unverified; installed local script and original device unavailable during code validation; packaging does not establish playback compatibility",
+  "deviceTestsExecuted": false,
+  "sourcePushed": false,
+  "apkUploaded": false,
+  "serverDeployed": false,
+  "verifiedAtUtc": "2026-10-23T09:29:39.910211+00:00"
+}
