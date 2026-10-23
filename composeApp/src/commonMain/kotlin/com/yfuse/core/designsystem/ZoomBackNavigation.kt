@@ -1,8 +1,8 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -206,15 +206,11 @@ private enum class SystemRoute { None, Forward, Zoom, Ignored }
 /** Returning always moves the current page out to the right, regardless of the gesture's edge. */
 internal const val BACK_NAVIGATION_TOWARD = 1f
 
-/**
- * The gesture controller owns the geometry; NavDisplay keeps both surfaces fully opaque.
- * Keep a finite transition clock even though alpha does not change: None lets the outgoing
- * entry reach PostExit at zero preview progress, then strands it there when the gesture cancels.
- */
+/** NavDisplay's own transition while a zoom back draws the pages: nothing, for no time at all. */
 internal fun zoomBackRouteTransform(): ContentTransform =
     ContentTransform(
-        targetContentEnter = fadeIn(Motion.tween(Motion.QUICK), initialAlpha = 1f),
-        initialContentExit = fadeOut(Motion.tween(Motion.QUICK), targetAlpha = 1f),
+        targetContentEnter = EnterTransition.None,
+        initialContentExit = ExitTransition.None,
         targetContentZIndex = -1f,
         sizeTransform = null,
     )

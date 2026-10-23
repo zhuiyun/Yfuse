@@ -7,6 +7,7 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -174,6 +175,17 @@ fun <T : Any> OfficialNavDisplay(
                         LocalDetailSideReturn provides isDetail(entryKey),
                     ) {
                         val entryTransition = LocalNavAnimatedContentScope.current.transition
+                        if (zoom != null) {
+                            // The opaque gesture layer supplies all visual movement, so its
+                            // NavDisplay transform has no enter/exit animations. Keep a real,
+                            // nonvisual state animation: otherwise a zero-duration preview can
+                            // reach PostExit and never settle back to Visible after cancellation.
+                            // Unlike an alpha of 1 -> 1, these distinct values register a clock.
+                            entryTransition.animateFloat(
+                                transitionSpec = { Motion.tween(Motion.QUICK) },
+                                label = "opaqueRouteHandoff",
+                            ) { state -> if (state == EnterExitState.Visible) 1f else 0f }
+                        }
                         val returnCandidate = sharedMediaController.returnKey
                         val entrySettled =
                             entryTransition.currentState == EnterExitState.Visible &&
