@@ -88,6 +88,8 @@ import com.yfuse.core.model.MediaRating
 import com.yfuse.core.model.RatingSource
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.TmdbImages
+import com.yfuse.feature.widgets.WidgetRetryButton
+import com.yfuse.feature.widgets.WidgetSourceSection
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -107,6 +109,8 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
             TmdbImages.media(item.backdropPath, "w1280"),
             TmdbImages.poster(item.posterPath, "w780"),
             TmdbImages.media(item.posterPath, "w780"),
+            TmdbImages.backdrop(component.widgetSourceContext?.media?.backdrop),
+            TmdbImages.poster(component.widgetSourceContext?.media?.poster, "w780"),
         )
     val heroUrl = heroUrls.firstOrNull { it != null }
     var resolvedHeroUrl by remember(item.id) { mutableStateOf<String?>(null) }
@@ -229,6 +233,8 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                             TmdbImages.media(item.posterPath),
                                             TmdbImages.backdrop(item.backdropPath, "w780"),
                                             TmdbImages.media(item.backdropPath, "w780"),
+                                            TmdbImages.poster(component.widgetSourceContext?.media?.poster),
+                                            TmdbImages.backdrop(component.widgetSourceContext?.media?.backdrop, "w780"),
                                         ),
                                     modifier =
                                         Modifier
@@ -263,44 +269,56 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             }
                         }
 
-                        val personal =
-                            remember {
-                                org.koin.core.context.GlobalContext
-                                    .get()
-                                    .get<com.yfuse.core.personal.PersonalLibraryRepository>()
+                        if (item.id > 0) {
+                            val personal =
+                                remember {
+                                    org.koin.core.context.GlobalContext
+                                        .get()
+                                        .get<com.yfuse.core.personal.PersonalLibraryRepository>()
+                                }
+                            val personalState by personal.state.collectAsState()
+                            val personalMedia =
+                                remember(item) {
+                                    com.yfuse.core.personal.PersonalMediaRef(
+                                        mediaKey = "tmdb:${item.id}",
+                                        title = item.title,
+                                        mediaType = if (item.mediaType == "tv") "Series" else "Movie",
+                                        tmdbId = item.id,
+                                        year = item.year?.toIntOrNull(),
+                                        posterPath = item.posterPath,
+                                    )
+                                }
+                            val favorite = personalState.favorites.any { it.media.identity == personalMedia.identity }
+                            com.yfuse.feature.library.LibraryAction(
+                                if (favorite) "已加入 Yfuse 收藏 · 移除" else "加入 Yfuse 收藏",
+                            ) {
+                                personal.setFavorite(personalMedia, !favorite)
                             }
-                        val personalState by personal.state.collectAsState()
-                        val personalMedia =
-                            remember(item) {
-                                com.yfuse.core.personal.PersonalMediaRef(
-                                    mediaKey = "tmdb:${item.id}",
-                                    title = item.title,
-                                    mediaType = if (item.mediaType == "tv") "Series" else "Movie",
-                                    tmdbId = item.id,
-                                    year = item.year?.toIntOrNull(),
-                                    posterPath = item.posterPath,
+                            val wanted = personalState.watchLater.any { it.media.identity == personalMedia.identity }
+                            com.yfuse.feature.library.LibraryAction(
+                                if (wanted) "已加入 Yfuse 想看 · 移除" else "加入 Yfuse 想看",
+                            ) {
+                                personal.setWatchLater(personalMedia, !wanted)
+                            }
+                            personalState.error?.let { Text(it, style = AppTypography.caption.regular) }
+                        }
+
+                        if (item.id > 0) {
+                            AnimatedColorContent(themeAccentState) { themeAccent ->
+                                TmdbPlayDock(
+                                    playable = state.playable,
+                                    resolving = state.resolvingPlay,
+                                    sourcesLoading = state.sourcesLoading,
+                                    sourcesError = state.sourcesError,
+                                    accent = themeAccent,
+                                    onPlay = component::play,
+                                    onRetrySources = component::retrySources,
                                 )
                             }
-                        val favorite = personalState.favorites.any { it.media.identity == personalMedia.identity }
-                        com.yfuse.feature.library.LibraryAction(if (favorite) "已加入 Yfuse 收藏 · 移除" else "加入 Yfuse 收藏") {
-                            personal.setFavorite(personalMedia, !favorite)
                         }
-                        val wanted = personalState.watchLater.any { it.media.identity == personalMedia.identity }
-                        com.yfuse.feature.library.LibraryAction(if (wanted) "已加入 Yfuse 想看 · 移除" else "加入 Yfuse 想看") {
-                            personal.setWatchLater(personalMedia, !wanted)
-                        }
-                        personalState.error?.let { Text(it, style = AppTypography.caption.regular) }
+                        component.widgetSourceContext?.let { WidgetSourceSection(it) }
 
-                        AnimatedColorContent(themeAccentState) { themeAccent ->
-                            TmdbPlayDock(
-                                playable = state.playable,
-                                resolving = state.resolvingPlay,
-                                accent = themeAccent,
-                                onPlay = component::play,
-                            )
-                        }
-
-                        if (item.mediaType == "tv") {
+                        if (item.id > 0 && item.mediaType == "tv") {
                             Row(
                                 Modifier
                                     .fillMaxWidth()
@@ -567,8 +585,11 @@ private fun TmdbSourceStrip(
 private fun TmdbPlayDock(
     playable: Boolean,
     resolving: Boolean,
+    sourcesLoading: Boolean,
+    sourcesError: String?,
     accent: Color,
     onPlay: () -> Unit,
+    onRetrySources: () -> Unit,
 ) {
     val palette = LocalPalette.current
     Box(
@@ -601,16 +622,23 @@ private fun TmdbPlayDock(
                 Text("立即播放", style = AppTypography.body.strong, color = contentColorForSurface(accent))
             }
         } else {
-            Box(
+            Row(
                 Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 10.dp),
-                contentAlignment = Alignment.Center,
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                if (sourcesLoading) OrbProgress(Modifier.size(18.dp), color = accent)
                 Text(
-                    "未加入媒体库 · 以下资料来自 TMDB",
+                    when {
+                        sourcesLoading -> "正在查找媒体库资源…"
+                        sourcesError != null -> "部分服务器暂未响应，可重新查找资源。"
+                        else -> "暂未匹配到媒体库资源"
+                    },
+                    Modifier.weight(1f),
                     style = AppTypography.body.medium,
                     color = palette.sub2,
-                    textAlign = TextAlign.Center,
                 )
+                if (sourcesError != null) WidgetRetryButton(onRetrySources, busy = sourcesLoading)
             }
         }
     }

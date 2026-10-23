@@ -41,6 +41,14 @@ internal fun widgetHash(value: String): String =
 
 private val widgetTmdbHttp by lazy { WidgetTmdbHttp(GlobalContext.get().get(named("tmdb-http"))) }
 
+private val processEpisodeData by lazy {
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val koin = GlobalContext.get()
+    WidgetEpisodeData(NativeWidgetEpisodeLibrary(koin.get(), koin.get(), koin.get(), scope), scope)
+}
+
+internal actual fun widgetEpisodeData(): WidgetEpisodeData = processEpisodeData
+
 private val processRepository by lazy {
     val context = checkNotNull(androidAppContext)
     val file = AtomicFile(File(context.filesDir, "widgets-v1.json"))
@@ -275,7 +283,9 @@ actual fun openWidgetVideo(media: WidgetMedia) {
             episodeNumber = media.episode,
             customHeaders =
                 com.yfuse.feature.player
-                    .PlayerCustomHeaders(media.headers),
+                    .PlayerCustomHeaders(
+                        media.headers.filterKeys { !it.equals("X-Forward-Skip-Redirect-Probe", true) },
+                    ),
         )
     val launch =
         PlayerActivity

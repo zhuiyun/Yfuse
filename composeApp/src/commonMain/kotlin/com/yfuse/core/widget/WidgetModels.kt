@@ -68,6 +68,13 @@ data class InstalledWidget(
     val enabled: Boolean = true,
 )
 
+/** Native-only detail identity. Script JSON is never allowed to supply this target. */
+@Serializable
+data class WidgetLibraryTarget(
+    val serverId: String,
+    val itemId: String,
+)
+
 @Serializable
 data class WidgetMedia(
     val id: String,
@@ -90,6 +97,12 @@ data class WidgetMedia(
     val headers: Map<String, String> = emptyMap(),
     val children: List<WidgetMedia> = emptyList(),
     val categoryParams: JsonObject = JsonObject(emptyMap()),
+    val played: Boolean? = null,
+    val available: Boolean? = null,
+    val libraryTarget: WidgetLibraryTarget? = null,
+    /** A confirmed next-up item inside [children], never a positional guess. */
+    val nextEpisodeId: String? = null,
+    val durationMinutes: Int? = null,
 )
 
 @Serializable
@@ -121,6 +134,9 @@ data class WidgetDatabase(
     val pages: List<WidgetPage> = emptyList(),
     val defaultPageId: String? = null,
     val bundledDigests: Map<String, String> = emptyMap(),
+    val bundledStateVersion: Int = 0,
+    val removedBundledWidgets: Set<String> = emptySet(),
+    val removedBundledPages: Set<String> = emptySet(),
 )
 
 internal fun JsonObject.text(vararg keys: String): String =
@@ -249,7 +265,15 @@ fun parseWidgetItem(
         }
     }
     val title = item.text("title", "name").ifBlank { "未命名内容" }.take(300)
-    val link = item.text("link")
+    val link =
+        item.text("link").ifBlank {
+            item
+                .text("id")
+                .takeIf {
+                    item.text("type").equals("url", true) &&
+                        (it.startsWith("https://", true) || it.startsWith("http://", true))
+                }.orEmpty()
+        }
     val video = item.text("videoUrl", "video_url", "url").take(16384)
     val id =
         item
@@ -258,7 +282,7 @@ fun parseWidgetItem(
                 link.ifBlank { video.ifBlank { title } }
             }.take(16384)
     val childArray =
-        listOf("seasons", "episodeItems", "episodes", "playSources", "items")
+        listOf("seasons", "episodeItems", "episodes", "playSources", "childItems", "items")
             .firstNotNullOfOrNull { (item[it] as? JsonArray)?.takeIf { a -> a.isNotEmpty() } }
     require((childArray?.size ?: 0) <= 500) { "季集条目过多" }
     return WidgetMedia(
@@ -269,7 +293,10 @@ fun parseWidgetItem(
         description = item.text("description", "overview").take(8000),
         year = item.text("year", "releaseDate", "release_date").take(10),
         rating = item.text("rating", "vote_average"),
-        mediaType = item.text("mediaType", "media_type").ifBlank { "movie" },
+        mediaType =
+            item.text("mediaType", "media_type").ifBlank {
+                if (item.text("type").lowercase() in setOf("url", "video", "live")) "video" else "movie"
+            },
         type = item.text("type"),
         link = link.take(16384),
         videoUrl = video,
@@ -282,9 +309,12 @@ fun parseWidgetItem(
                 .toFloatOrNull()
                 ?.takeIf { it.isFinite() }
                 ?.coerceIn(0f, 1f),
-        season = item.text("seasonNumber", "season_number").toIntOrNull(),
-        episode = item.text("episodeNumber", "episode_number").toIntOrNull(),
-        headers = (item["customHeaders"] as? JsonObject)?.mapValues { it.value.jsonPrimitive.content }.orEmpty(),
+        season = item.text("seasonNumber", "season_number", "season").toIntOrNull(),
+        episode = item.text("episodeNumber", "episode_number", "episode").toIntOrNull(),
+        headers =
+            ((item["headers"] as? JsonObject).orEmpty() + (item["customHeaders"] as? JsonObject).orEmpty())
+                .mapNotNull { (name, value) -> (value as? JsonPrimitive)?.contentOrNull?.let { name to it } }
+                .toMap(),
         children =
             childArray
                 .orEmpty()
@@ -294,6 +324,13 @@ fun parseWidgetItem(
                     }
                 }.distinctBy { it.id },
         categoryParams = item["params"] as? JsonObject ?: JsonObject(emptyMap()),
+        played = (item["played"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
+        available = (item["available"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
+        durationMinutes =
+            item.text("durationMinutes", "runtimeMinutes", "runtime").toIntOrNull()?.takeIf {
+                it in
+                    1..1440
+            },
     )
 }
 

@@ -19,6 +19,7 @@ import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.componentScope
+import com.yfuse.core.widget.WidgetSourceContext
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.person.PersonPageRequest
@@ -123,6 +124,22 @@ class RootComponent(
             onOpenSearch = ::openSearch,
             onOpenLibrary = ::returnFromDiscovery,
             onOpenProfile = { selectTab(Tab.Profile) },
+        )
+
+    /** Widget details belong to the custom-home stack, so opening them never switches tabs. */
+    val widgetHome =
+        HomeTabComponent(
+            componentContext = childContext(key = "widgetHome"),
+            storeFactory = storeFactory,
+            tmdb = tmdb,
+            repo = repo,
+            registry = registry,
+            calendarRepository = dependencies.calendarRepository,
+            dependencies = dependencies,
+            onOpenSearch = ::openSearch,
+            onOpenLibrary = { selectTab(Tab.CustomHome) },
+            onOpenProfile = { selectTab(Tab.Profile) },
+            widgetRoot = true,
         )
 
     /** 库: the server's own content. */
@@ -327,7 +344,8 @@ class RootComponent(
             Tab.Browse -> browse.popToRoot()
             Tab.Watching -> watching.popToRoot()
             // 服务器 has no pushed routes — its add/edit surfaces are modals over the grid.
-            Tab.Servers, Tab.CustomHome -> Unit
+            Tab.CustomHome -> widgetHome.popToRoot()
+            Tab.Servers -> Unit
             Tab.Search -> search.popToRoot()
             Tab.Profile -> profile.popToRoot()
         }
@@ -338,6 +356,7 @@ class RootComponent(
         listOfNotNull(
             activeTab,
             home.stack,
+            widgetHome.stack,
             browse.stack,
             watching.stack,
             search.stack,
@@ -365,7 +384,8 @@ class RootComponent(
                                 ?.size ?: 1
                         ) - 1
                 // Server forms and file browsing keep their own UI handlers.
-                Tab.Servers, Tab.CustomHome -> 1
+                Tab.CustomHome -> widgetHome.stack.value.items.size
+                Tab.Servers -> 1
             }
         return RootBackNavigation(tab, depth, depth > 1 || tab != startTab)
     }
@@ -388,7 +408,8 @@ class RootComponent(
                         profile.navigateBack()
                     }
                 }
-                Tab.Servers, Tab.CustomHome -> Unit
+                Tab.CustomHome -> widgetHome.navigateBack()
+                Tab.Servers -> Unit
             }
         } else {
             if (state.tab == Tab.Home) returnFromDiscovery() else selectTab(startTab)
@@ -401,11 +422,12 @@ class RootComponent(
         profile.openDownloads()
     }
 
-    /** Widget cards open the existing metadata detail and return to their custom home. */
-    fun openWidgetTitle(item: TmdbItem) {
-        discoveryOrigin = Tab.CustomHome
-        home.openDiscoveryTitle(item, embyItemId = null)
-        selectTab(Tab.Home)
+    /** Widget titles resolve to the full library detail while keeping the custom-home return route. */
+    fun openWidgetTitle(
+        item: TmdbItem,
+        sourceContext: WidgetSourceContext? = null,
+    ) {
+        widgetHome.openWidgetTitle(item, sourceContext)
     }
 
     fun returnFromDiscovery() {

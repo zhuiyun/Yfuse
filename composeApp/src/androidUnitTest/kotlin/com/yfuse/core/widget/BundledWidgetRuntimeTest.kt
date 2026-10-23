@@ -9,6 +9,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.net.SocketException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
@@ -28,10 +29,13 @@ class BundledWidgetRuntimeTest {
         var status = 200
         var publicStatus: Int? = null
         var publicPayload: JsonElement? = null
+        var publicFailure: Exception? = null
+        var hostFailure: Exception? = null
         val runtime =
             SandboxWidgetRuntime(
                 request = { options, tmdb ->
                     calls += Request(options, tmdb)
+                    (if (tmdb) hostFailure else publicFailure)?.let { throw it }
                     val responseStatus = if (tmdb) status else publicStatus ?: status
                     buildJsonObject {
                         put("ok", responseStatus in 200..299)
@@ -270,6 +274,7 @@ class BundledWidgetRuntimeTest {
                     val path = chart.value.jsonPrimitive.content
                     assertEquals("https://recommend.feifeiduck.com/$path", request.options.text("url"))
                     assertEquals("100", request.options["params"]?.jsonObject?.text("limit"))
+                    assertEquals("20000", request.options.text("timeout"))
                     assertFalse("headers" in request.options)
                     assertEquals("12", media.tmdbId)
                     assertEquals("movie", media.mediaType)
@@ -421,5 +426,24 @@ class BundledWidgetRuntimeTest {
             host.payload = widgetJson.parseToJsonElement("""{"results":[],"items":[]}""")
             assertTrue(call(host, widgets.first(), "popular").isEmpty())
             assertTrue(call(host, widgets.last(), "recMovie", chart).isEmpty())
+        }
+
+    @Test fun connection_resets_fall_back_for_tmdb_but_never_replace_recommendation_chart_semantics() =
+        runBlocking {
+            val host = Host(widgetJson.parseToJsonElement("{\"results\":[{\"id\":12,\"title\":\"Movie\"}]}"))
+            val widgets = bundles(host)
+            host.publicFailure = SocketException("Connection reset https://private.invalid/?token=private-fixture")
+            assertEquals("12", call(host, widgets.first(), "popular").single().tmdbId)
+            assertEquals(listOf(false, true), host.calls.map { it.tmdb })
+            host.calls.clear()
+            val recommendation =
+                assertFails {
+                    call(host, widgets.last(), "recTv", buildJsonObject { put("chart", "feed/series-cn-popular") })
+                }
+            assertEquals("推荐服务暂时无法连接，请稍后重试", recommendation.message)
+            assertEquals(listOf(false), host.calls.map { it.tmdb })
+            host.hostFailure = SocketException("Connection reset private-fixture")
+            val tmdb = assertFails { call(host, widgets.first(), "popular") }
+            assertEquals("TMDB 线路暂时不可用，请稍后重试", tmdb.message)
         }
 }

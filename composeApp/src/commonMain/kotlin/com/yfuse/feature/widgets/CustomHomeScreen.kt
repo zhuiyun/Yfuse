@@ -37,7 +37,10 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.widget.WidgetDatabase
 import com.yfuse.core.widget.WidgetPage
+import com.yfuse.core.widget.WidgetSourceContext
+import com.yfuse.core.widget.WidgetStyle
 import com.yfuse.core.widget.widgetRepository
+import com.yfuse.core.widget.withBundledPagesFirst
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Page selection belongs to this tab and never replaces the media-library root. */
@@ -52,12 +55,15 @@ internal fun customHomePage(
 }
 
 @Composable
-fun CustomHomeScreen(onOpenTmdb: (TmdbItem) -> Unit) {
+fun CustomHomeScreen(onOpenTmdb: (TmdbItem, WidgetSourceContext?) -> Unit) {
     val repository = remember { widgetRepository() }
     val database by repository.database.collectAsState()
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     var manager by rememberSaveable { mutableStateOf(false) }
     var choosing by remember { mutableStateOf(false) }
+    val pageStates =
+        androidx.compose.runtime.saveable
+            .rememberSaveableStateHolder()
     val page = customHomePage(database, selected)
     val palette = LocalPalette.current
     com.yfuse.core.designsystem
@@ -68,7 +74,6 @@ fun CustomHomeScreen(onOpenTmdb: (TmdbItem) -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                if (page != null) Text("自定义首页", color = palette.sub2, style = AppTypography.caption.regular)
                 Row(
                     Modifier.defaultMinSize(minHeight = 48.dp).pressable(
                         enabled =
@@ -78,7 +83,7 @@ fun CustomHomeScreen(onOpenTmdb: (TmdbItem) -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        page?.title ?: "自定义首页",
+                        page?.title ?: "我的首页",
                         Modifier.weight(1f, fill = false),
                         color = palette.text,
                         style = AppTypography.section.strong.copy(fontSize = 22.sp),
@@ -97,7 +102,7 @@ fun CustomHomeScreen(onOpenTmdb: (TmdbItem) -> Unit) {
                     }
                 }
             }
-            WidgetIconButton(AppIcons.Edit, "管理自定义首页", { manager = true })
+            WidgetHomeAction(AppIcons.Edit, "编辑首页", { manager = true }, label = "编辑")
         }
         if (page == null) {
             LazyColumn(
@@ -152,7 +157,7 @@ fun CustomHomeScreen(onOpenTmdb: (TmdbItem) -> Unit) {
                 item { WidgetPrimaryButton({ manager = true }, Modifier.fillMaxWidth()) { Text("开始布置首页") } }
                 item {
                     Text(
-                        "支持自选组件与 36 种卡片样式",
+                        "支持自选组件与 ${WidgetStyle.entries.size} 种卡片样式",
                         color = palette.sub2,
                         style = AppTypography.caption.regular,
                         textAlign = TextAlign.Center,
@@ -161,7 +166,9 @@ fun CustomHomeScreen(onOpenTmdb: (TmdbItem) -> Unit) {
             }
         } else {
             Box(Modifier.weight(1f)) {
-                WidgetPageContent(page, repository, onEdit = { manager = true }, onOpenTmdb = onOpenTmdb)
+                pageStates.SaveableStateProvider(page.id) {
+                    WidgetPageContent(page, repository, onEdit = { manager = true }, onOpenTmdb = onOpenTmdb)
+                }
             }
         }
     }
@@ -169,7 +176,7 @@ fun CustomHomeScreen(onOpenTmdb: (TmdbItem) -> Unit) {
     if (choosing) {
         WidgetSheet("切换页面", { choosing = false }) {
             LazyColumn {
-                items(database.pages.filterNot { it.hidden }, key = { it.id }) { item ->
+                items(database.pages.filterNot { it.hidden }.withBundledPagesFirst(), key = { it.id }) { item ->
                     WidgetMenuRow(
                         item.title,
                         {

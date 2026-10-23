@@ -1,5 +1,5 @@
 var WidgetMetadata = {
-  id:'yfuse.demo',title:'Yfuse 卡片示例',version:'1.0.0',author:'Yfuse',description:'离线示例内容，用于体验首页编辑和 36 种展示样式。',
+  id:'yfuse.demo',title:'Yfuse 卡片示例',version:'1.0.0',author:'Yfuse',description:'离线示例内容，用于体验首页编辑和多种展示样式。',
   modules:[{id:'movies',title:'我的精选',functionName:'getMovies',params:[{name:'kind',label:'内容类型',type:'enum',defaultValue:'all',enumOptions:[{title:'全部',value:'all'},{title:'电影',value:'movie'},{title:'剧集',value:'tv'}]}]}]
 };
 async function getMovies(params){

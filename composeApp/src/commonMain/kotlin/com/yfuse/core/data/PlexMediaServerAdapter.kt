@@ -65,9 +65,14 @@ import io.ktor.client.request.put
 import io.ktor.http.ContentType
 import io.ktor.http.encodeURLParameter
 import io.ktor.http.encodeURLPathPart
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.TimeSource
 
 private const val PLEX_PRODUCT = "Yfuse"
@@ -77,6 +82,11 @@ private const val PLEX_TRICKPLAY_SAMPLE_INTERVAL_MS = 10_000L
 private const val PLEX_COLLECTION_TYPE = 18
 private const val PLEX_ARTWORK_PREFIX = "plex:"
 private val PLEX_BROWSABLE_TYPES = setOf("movie", "show", "episode")
+
+/** A retry exemption belongs only to this lookup, never to the shared client or another request. */
+private class PlexSourceRetry : AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<PlexSourceRetry>
+}
 
 /**
  * Native Plex provider boundary.
@@ -1045,66 +1055,68 @@ internal class PlexMediaServerAdapter(
         year: Int?,
         seasonNumber: Int?,
         episodeNumber: Int?,
-    ): ServerSource {
-        val lookup =
-            if (tmdbId != null && mediaType != null) {
-                findByTmdbId(server, tmdbId, mediaType)
-            } else {
-                searchPage(server, title, startIndex = 0, limit = 8).map { page ->
-                    page.items.firstOrNull { item ->
-                        item.title.equals(title, ignoreCase = true) &&
-                            (year == null || item.year == year) &&
-                            when (mediaType) {
-                                "tv" -> item.type == "Series"
-                                "movie" -> item.type == "Movie"
-                                else -> true
-                            }
-                    } ?: page.items.firstOrNull()
-                }
-            }
-        var item = lookup.getOrNull()
-        val series = item
-        if (
-            series?.type == "Series" &&
-            seasonNumber != null &&
-            episodeNumber != null
-        ) {
-            item =
-                episodes(
-                    server,
-                    seriesId = series.id,
-                    seasonId = null,
-                    includeMediaSources = true,
-                    seasonNumber = seasonNumber,
-                ).getOrNull()
-                    ?.firstOrNull { it.indexNumber == episodeNumber }
-                    ?.let { episode ->
-                        MediaItem(
-                            id = episode.id,
-                            title = episode.name,
-                            subtitle = null,
-                            type = "Episode",
-                            posterItemId = series.id,
-                            posterTag = null,
-                            backdropItemId = series.id,
-                            backdropTag = null,
-                            playedPercentage = episode.playedPercentage,
-                            resumePositionTicks = episode.resumePositionTicks,
-                            providerIds = episode.providerIds,
-                            played = episode.played,
-                        )
+        forceRefresh: Boolean = false,
+    ): ServerSource =
+        withContext(if (forceRefresh) PlexSourceRetry() else EmptyCoroutineContext) {
+            val lookup =
+                if (tmdbId != null && mediaType != null) {
+                    findByTmdbId(server, tmdbId, mediaType)
+                } else {
+                    searchPage(server, title, startIndex = 0, limit = 8).map { page ->
+                        page.items.firstOrNull { item ->
+                            item.title.equals(title, ignoreCase = true) &&
+                                (year == null || item.year == year) &&
+                                when (mediaType) {
+                                    "tv" -> item.type == "Series"
+                                    "movie" -> item.type == "Movie"
+                                    else -> true
+                                }
+                        } ?: page.items.firstOrNull()
                     }
+                }
+            var item = lookup.getOrNull()
+            val series = item
+            if (
+                series?.type == "Series" &&
+                seasonNumber != null &&
+                episodeNumber != null
+            ) {
+                item =
+                    episodes(
+                        server,
+                        seriesId = series.id,
+                        seasonId = null,
+                        includeMediaSources = true,
+                        seasonNumber = seasonNumber,
+                    ).getOrNull()
+                        ?.firstOrNull { it.indexNumber == episodeNumber }
+                        ?.let { episode ->
+                            MediaItem(
+                                id = episode.id,
+                                title = episode.name,
+                                subtitle = null,
+                                type = "Episode",
+                                posterItemId = series.id,
+                                posterTag = null,
+                                backdropItemId = series.id,
+                                backdropTag = null,
+                                playedPercentage = episode.playedPercentage,
+                                resumePositionTicks = episode.resumePositionTicks,
+                                providerIds = episode.providerIds,
+                                played = episode.played,
+                            )
+                        }
+            }
+            val detail = item?.let { itemDetail(server, it.id).getOrNull() }
+            ServerSource(
+                serverId = server.id,
+                serverName = server.serverName,
+                isCurrent = server.id == currentServerId,
+                source = detail?.source,
+                reachable = lookup.isSuccess,
+                itemId = item?.id,
+            )
         }
-        val detail = item?.let { itemDetail(server, it.id).getOrNull() }
-        return ServerSource(
-            serverId = server.id,
-            serverName = server.serverName,
-            isCurrent = server.id == currentServerId,
-            source = detail?.source,
-            reachable = lookup.isSuccess,
-            itemId = item?.id,
-        )
-    }
 
     suspend fun trickplayInfo(
         server: SavedServer,
@@ -1299,23 +1311,29 @@ internal class PlexMediaServerAdapter(
         path: String,
         token: String,
         block: HttpRequestBuilder.() -> Unit = {},
-    ): PlexMediaContainerDto =
-        client
+    ): PlexMediaContainerDto {
+        val retryingSource = currentCoroutineContext()[PlexSourceRetry] != null
+        return client
             .get("${normalizeBaseUrl(baseUrl)}${path.withLeadingSlash()}") {
+                if (retryingSource) exemptFromServerCooldown()
                 plexHeaders(token)
                 block()
             }.body<PlexResponseDto>()
             .MediaContainer
+    }
 
     /** [container] for a response read into a shape of its own, such as the extras list. */
     private suspend inline fun <reified T> plexGet(
         server: SavedServer,
         path: String,
-    ): T =
-        client
+    ): T {
+        val retryingSource = currentCoroutineContext()[PlexSourceRetry] != null
+        return client
             .get("${normalizeBaseUrl(server.baseUrl)}${path.withLeadingSlash()}") {
+                if (retryingSource) exemptFromServerCooldown()
                 plexHeaders(server.accessToken)
             }.body()
+    }
 
     private suspend fun machineIdentifier(server: SavedServer): String =
         requireNotNull(container(server, "/identity").machineIdentifier?.takeIf(String::isNotBlank)) {

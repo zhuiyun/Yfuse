@@ -58,6 +58,30 @@ fun WidgetCards(
     compact: Boolean = false,
     onOpen: (WidgetMedia) -> Unit,
 ) {
+    if (items.isEmpty()) return
+    when (style) {
+        WidgetStyle.LayeredPoster, WidgetStyle.Accordion, WidgetStyle.ArcPoster,
+        WidgetStyle.BookSpine, WidgetStyle.DepthGallery, WidgetStyle.FoldingGallery,
+        -> {
+            key(style) { WidgetKineticLayouts(style, items, metadata, compact, onOpen) }
+            return
+        }
+        WidgetStyle.BigRank, WidgetStyle.StaggeredColumns, WidgetStyle.Borderless,
+        WidgetStyle.PosterWaterfall, WidgetStyle.MirrorPoster, WidgetStyle.OverlapInfo,
+        WidgetStyle.DoubleFeature, WidgetStyle.FloatingPoster, WidgetStyle.StaggeredRail,
+        WidgetStyle.BannerStack,
+        -> {
+            key(style) { WidgetGalleryLayouts(style, items, metadata, compact, onOpen) }
+            return
+        }
+        WidgetStyle.NextDirect, WidgetStyle.SeasonShowcase, WidgetStyle.EpisodePreview,
+        WidgetStyle.EpisodeMatrix, WidgetStyle.DecadeShelf,
+        -> {
+            key(style) { WidgetEpisodeLayouts(style, items, metadata, compact, onOpen) }
+            return
+        }
+        else -> Unit
+    }
     val display =
         remember(items, metadata, style) {
             val media =
@@ -185,7 +209,8 @@ private fun widgetRailMetrics(
         val title = bodyLine * 2
         val details = if (metadata) bodyLine + 3.dp else 0.dp
         val description = if (metadata && lines > 0) bodyLine * lines + 3.dp else 0.dp
-        return title + details + description
+        // Leave room for font rounding and custom system-font descenders at the rail edge.
+        return title + details + description + 4.dp
     }
     val pageInset = if (style == WidgetStyle.CenterPoster) minOf(52.dp, available * .15f) else 16.dp
     val preferred =
@@ -204,6 +229,10 @@ private fun widgetRailMetrics(
             WidgetStyle.Collection -> if (compact) 188.dp else 220.dp
             WidgetStyle.Calendar, WidgetStyle.GroupRanks -> if (compact) 204.dp else 236.dp
             WidgetStyle.TextList -> if (compact) 218.dp else 258.dp
+            WidgetStyle.Spotlight, WidgetStyle.CinemaTicket, WidgetStyle.SplitFocus -> if (compact) 280.dp else 320.dp
+            WidgetStyle.CaptionPoster -> if (compact) 144.dp else 176.dp
+            WidgetStyle.DateStamp -> if (compact) 180.dp else 208.dp
+            WidgetStyle.CompactRow -> if (compact) 248.dp else 282.dp
             WidgetStyle.CenterPoster, WidgetStyle.PeekCarousel -> available - pageInset * 2
             else -> if (compact) 270.dp else 310.dp
         }
@@ -222,6 +251,8 @@ private fun widgetRailMetrics(
             WidgetStyle.People -> 90.dp
             WidgetStyle.ImageTop, WidgetStyle.TextTop, WidgetStyle.FeatureList -> (width - 24.dp) / 1.78f
             WidgetStyle.Calendar, WidgetStyle.GroupRanks -> (width - 24.dp) / 1.78f
+            WidgetStyle.CaptionPoster -> width / .667f
+            WidgetStyle.DateStamp -> (width - 24.dp) / 1.78f
             else -> width / 1.78f
         }
     val heroHeight = maxOf(if (compact) 212.dp else 250.dp, sectionLine * 2 + copy(2) + 64.dp)
@@ -245,10 +276,17 @@ private fun widgetRailMetrics(
             WidgetStyle.Tags -> maxOf(48.dp, bodyLine * 2 + 20.dp)
             WidgetStyle.TextList -> copy(2) + 32.dp
             WidgetStyle.ContinueLandscape, WidgetStyle.ContinuePoster -> image + copy() + bodyLine + 16.dp
+            WidgetStyle.Spotlight -> maxOf(if (compact) 218.dp else 256.dp, copy() + 160.dp)
+            WidgetStyle.CinemaTicket -> maxOf(148.dp, copy() + sectionLine + 48.dp)
+            WidgetStyle.SplitFocus -> maxOf(182.dp, copy() + 138.dp)
+            WidgetStyle.CaptionPoster -> maxOf(image, copy() + 190.dp)
+            WidgetStyle.DateStamp -> image + copy() + sectionLine * 2 + 48.dp
+            WidgetStyle.CompactRow -> maxOf(108.dp, copy() + 24.dp)
             WidgetStyle.Landscape, WidgetStyle.Cinema, WidgetStyle.Poster, WidgetStyle.GridTwo,
             WidgetStyle.GridThree, WidgetStyle.PosterStack, WidgetStyle.CenterPoster,
             WidgetStyle.RankRail, WidgetStyle.RankGrid, WidgetStyle.Collection,
             -> image + copy() + 8.dp
+            else -> image + copy() + 8.dp
         }
     return WidgetRailMetrics(width, image, height, pageInset)
 }
@@ -264,9 +302,16 @@ private fun WidgetRailCard(
     modifier: Modifier,
     onOpen: (WidgetMedia) -> Unit,
 ) {
-    // Exactly one click target per entry, including the former expandable/grouped presets.
-    Box(modifier.clip(AppShapes.card).clickable { onOpen(item) }) {
+    // Keep one click target, but let artwork/surfaces own their rounded clips.
+    // Clipping the whole tile cuts the first and last metadata glyphs at its bottom corners.
+    Box(modifier.clickable { onOpen(item) }) {
         when (style) {
+            WidgetStyle.Spotlight -> WidgetSpotlightCard(item, metadata)
+            WidgetStyle.CinemaTicket -> WidgetTicketCard(item, metadata, index)
+            WidgetStyle.SplitFocus -> WidgetSplitCard(item, metadata)
+            WidgetStyle.CaptionPoster -> WidgetCaptionPoster(item, metadata)
+            WidgetStyle.DateStamp -> WidgetDateCard(item, metadata)
+            WidgetStyle.CompactRow -> WidgetCompactRow(item, metadata)
             WidgetStyle.Landscape, WidgetStyle.Cinema ->
                 MediaTile(item, metrics.imageHeight, metadata)
             WidgetStyle.Poster, WidgetStyle.GridTwo, WidgetStyle.GridThree, WidgetStyle.CenterPoster ->
@@ -440,6 +485,7 @@ private fun WidgetRailCard(
                     Text("›", color = LocalPalette.current.sub2, style = AppTypography.section.medium)
                 }
             }
+            else -> MediaTile(item, metrics.imageHeight, metadata)
         }
     }
 }
@@ -575,8 +621,9 @@ private fun MediaTile(
     progress: Boolean = false,
     badge: String? = null,
     poster: Boolean = false,
+    dense: Boolean = false,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(if (dense) 6.dp else 8.dp)) {
         Box(Modifier.fillMaxWidth().height(imageHeight).clip(AppShapes.thumb)) {
             Artwork(item, Modifier.fillMaxSize(), poster = poster)
             badge?.let { Badge(it, Modifier.padding(7.dp)) }
@@ -587,7 +634,7 @@ private fun MediaTile(
                 )
             }
         }
-        MediaCopy(item, metadata = metadata)
+        MediaCopy(item, metadata = metadata, dense = dense)
         if (progress) {
             Text(
                 item.progress?.let { "已看 ${(it.coerceIn(0f, 1f) * 100).toInt()}%" } ?: "未记录进度",
@@ -601,15 +648,28 @@ private fun MediaTile(
 }
 
 @Composable
-private fun MediaCopy(
+internal fun WidgetGridCard(
+    item: WidgetMedia,
+    metadata: Boolean,
+    onOpen: (WidgetMedia) -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth().clickable { onOpen(item) }) {
+        val poster = item.mediaType !in setOf("video", "live")
+        MediaTile(item, if (poster) maxWidth / .667f else maxWidth / 1.3f, metadata, poster = poster, dense = true)
+    }
+}
+
+@Composable
+internal fun MediaCopy(
     item: WidgetMedia,
     modifier: Modifier = Modifier,
     metadata: Boolean = true,
     lines: Int = 0,
     centered: Boolean = false,
+    dense: Boolean = false,
 ) {
     val alignment = if (centered) TextAlign.Center else TextAlign.Start
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(if (dense) 2.dp else 3.dp)) {
         Text(
             item.title,
             Modifier.fillMaxWidth(),
@@ -635,7 +695,7 @@ private fun MediaCopy(
                 meta,
                 Modifier.fillMaxWidth(),
                 color = LocalPalette.current.sub2,
-                style = AppTypography.body.regular,
+                style = if (dense) AppTypography.caption.regular else AppTypography.body.regular,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = alignment,
@@ -758,7 +818,7 @@ internal val widgetPreviewItems =
             id = "preview-$index",
             title = listOf("暮色航线", "山海之间", "星际来信", "雨后小镇", "漫长夏日", "远方的光")[index - 1],
             description = "示例内容，用于预览卡片布局与信息层次。",
-            year = "2026",
+            year = listOf("2026", "2018", "2007", "1998", "1986", "2024")[index - 1],
             rating = "8.$index",
             date = "2026-10-${20 + index}",
             group =
@@ -772,5 +832,24 @@ internal val widgetPreviewItems =
             progress = index / 8f,
             season = 1,
             episode = index,
+            mediaType = if (index % 2 == 1) "tv" else "movie",
+            nextEpisodeId = if (index % 2 == 1) "preview-$index-episode-4" else null,
+            children =
+                if (index % 2 == 1) {
+                    (1..8).map { number ->
+                        WidgetMedia(
+                            id = "preview-$index-episode-$number",
+                            title = "第 $number 集 · 示例剧情",
+                            mediaType = "tv",
+                            season = if (number <= 4) 1 else 2,
+                            episode = if (number <= 4) number else number - 4,
+                            played = number < 3,
+                            progress = if (number == 3) .45f else null,
+                            available = true,
+                        )
+                    }
+                } else {
+                    emptyList()
+                },
         )
     }

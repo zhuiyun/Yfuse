@@ -1,7 +1,12 @@
 package com.yfuse.core.widget
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
@@ -9,9 +14,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class WidgetRepositoryTest {
     private class MemoryPersistence(
         var raw: String? = null,
@@ -50,6 +58,206 @@ class WidgetRepositoryTest {
           {"id":"list","title":"List","functionName":"load","params":[{"name":"page","type":"page"}]}
         ]}
         """.trimIndent()
+
+    @Test fun installed_components_pages_and_sections_round_trip_beyond_previous_count_limits() =
+        runTest {
+            val disk = MemoryPersistence()
+            val repo = WidgetRepository(disk, Runtime(), backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            repeat(48) { index ->
+                val source = metadata.replace("\"id\":\"demo\"", "\"id\":\"widget-$index\"")
+                repo.install(repo.inspect(source, "file:widget-$index.js"))
+            }
+            val sections =
+                (0 until 80).map { index ->
+                    WidgetSection("section-$index", "widget-${index % 48}", "list", "Section $index")
+                }
+            repeat(48) { index ->
+                repo.savePage(WidgetPage("page-$index", "Page $index", if (index == 0) sections else emptyList()))
+            }
+            repo.setDefault("page-0")
+            repo.enable("widget-47", false)
+            val expected = repo.database.value
+            assertEquals(48, expected.widgets.size)
+            assertEquals(48, expected.pages.size)
+            assertEquals(sections, expected.pages.first().sections)
+
+            val restoredDisk = MemoryPersistence()
+            val restored = WidgetRepository(restoredDisk, Runtime(), backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            restored.restore(repo.backup())
+            assertEquals(expected, restored.database.value)
+            val reopened = WidgetRepository(restoredDisk, Runtime(), backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            reopened.awaitReady()
+            assertNull(reopened.error.value)
+            assertEquals(expected, reopened.database.value)
+        }
+
+    @Test fun restored_detail_waits_for_installed_components_to_finish_loading() =
+        runTest {
+            val snapshot = CompletableDeferred<String?>()
+            val disk =
+                object : WidgetPersistence {
+                    override suspend fun read() = snapshot.await()
+
+                    override suspend fun write(value: String) = Unit
+                }
+            val runtime = Runtime()
+            val repo = WidgetRepository(disk, runtime, backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            val widget = repo.inspect(metadata, "file:demo.js")
+            val result =
+                async { repo.detail("demo", WidgetMedia("film", "Film", link = "https://source.example/film")) }
+            runCurrent()
+            assertFalse(result.isCompleted)
+            assertEquals(0, runtime.calls)
+            snapshot.complete(
+                widgetJson.encodeToString(WidgetDatabase.serializer(), WidgetDatabase(widgets = listOf(widget))),
+            )
+            runCurrent()
+            assertEquals(
+                "one",
+                result
+                    .await()
+                    .children
+                    .single()
+                    .id,
+            )
+            assertEquals(1, runtime.calls)
+        }
+
+    @Test fun saved_sections_survive_more_than_48_feeds_and_temporary_browse_entries() =
+        runTest {
+            val runtime = Runtime()
+            val repo = WidgetRepository(MemoryPersistence(), runtime, backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            val widget = repo.inspect(metadata, "file:demo.js")
+            repo.install(widget)
+            val sections =
+                (0 until 80).map { index ->
+                    WidgetSection(
+                        "section-$index",
+                        "demo",
+                        "list",
+                        "Section $index",
+                        params =
+                            JsonObject(
+                                mapOf(
+                                    "topic" to JsonPrimitive(index),
+                                ),
+                            ),
+                    )
+                }
+            val page = WidgetPage("many", "Many", sections)
+            repo.savePage(page)
+            val feeds = sections.map { repo.feed(it).also { feed -> feed.ensureLoaded() } }
+            runCurrent()
+            repeat(60) { repo.feed(sections.first().copy(id = "temporary-$it")) }
+            sections.forEachIndexed { index, section ->
+                assertSame(feeds[index], repo.feed(section))
+                assertEquals(
+                    "one",
+                    feeds[index]
+                        .state.value.items
+                        .single()
+                        .id,
+                )
+                feeds[index].ensureLoaded()
+            }
+            runCurrent()
+            assertEquals(80, runtime.calls)
+
+            val changed = sections.first().copy(params = JsonObject(mapOf("topic" to JsonPrimitive("new"))))
+            repo.savePage(page.copy(sections = listOf(changed) + sections.drop(1)))
+            assertTrue(
+                feeds
+                    .first()
+                    .state.value.items
+                    .isEmpty(),
+            )
+            assertNotSame(feeds.first(), repo.feed(changed))
+            assertSame(feeds.last(), repo.feed(sections.last()))
+            repo.removePage(page.id)
+            assertTrue(
+                feeds
+                    .last()
+                    .state.value.items
+                    .isEmpty(),
+            )
+        }
+
+    @Test fun presentation_edits_keep_cached_content_but_widget_changes_and_restore_invalidate_it() =
+        runTest {
+            val disk = MemoryPersistence()
+            val runtime = Runtime()
+            val repo = WidgetRepository(disk, runtime, backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            val widget = repo.inspect(metadata, "file:demo.js")
+            repo.install(widget)
+            val section = repo.newSection(widget, widget.metadata.modules.single())
+            val page = repo.newPage("Page").copy(sections = listOf(section))
+            repo.savePage(page)
+            val feed = repo.feed(section)
+            feed.ensureLoaded()
+            runCurrent()
+            val edited = section.copy(title = "Edited", style = "poster", limit = 8)
+            repo.savePage(page.copy(title = "Renamed", sections = listOf(edited)))
+            repo.setDefault(page.id)
+            assertSame(feed, repo.feed(edited))
+            assertEquals(1, feed.state.value.items.size)
+            repo.load(edited)
+            assertEquals(1, runtime.calls)
+
+            disk.fail = true
+            assertFailsWith<IllegalStateException> { repo.enable(widget.metadata.id, false) }
+            assertSame(feed, repo.feed(edited))
+            assertEquals(1, feed.state.value.items.size)
+            disk.fail = false
+            val snapshot = repo.backup()
+            repo.restore(snapshot)
+            val restored = repo.feed(edited)
+            assertNotSame(feed, restored)
+            assertTrue(
+                feed.state.value.items
+                    .isEmpty(),
+            )
+            restored.ensureLoaded()
+            runCurrent()
+            assertEquals(2, runtime.calls)
+            repo.enable(widget.metadata.id, false)
+            assertTrue(
+                restored.state.value.items
+                    .isEmpty(),
+            )
+            val disabled = repo.feed(edited)
+            disabled.ensureLoaded()
+            runCurrent()
+            assertTrue(
+                disabled.state.value.error
+                    .orEmpty()
+                    .contains("已停用"),
+            )
+            assertEquals(2, runtime.calls)
+        }
+
+    @Test fun changing_one_widget_does_not_evict_another_widgets_loaded_feed_or_cache() =
+        runTest {
+            val runtime = Runtime()
+            val repo = WidgetRepository(MemoryPersistence(), runtime, backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            val first = repo.inspect(metadata, "file:first.js")
+            val second = repo.inspect(metadata.replace("demo", "other"), "file:second.js")
+            repo.install(first)
+            repo.install(second)
+            val section = repo.newSection(first, first.metadata.modules.single())
+            val feed = repo.feed(section)
+            feed.ensureLoaded()
+            runCurrent()
+            repo.enable(second.metadata.id, false)
+            assertSame(feed, repo.feed(section))
+            repo.load(section)
+            assertEquals(1, runtime.calls)
+            repo.install(repo.inspect(metadata.replace("1.0", "1.1"), "file:first.js"))
+            val updated = repo.feed(section)
+            assertNotSame(feed, updated)
+            updated.ensureLoaded()
+            runCurrent()
+            assertEquals(2, runtime.calls)
+        }
 
     @Test fun updating_a_script_preserves_page_configuration_and_disabled_state() =
         runTest {

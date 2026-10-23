@@ -9,8 +9,9 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -24,8 +25,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class WidgetTmdbHttpTest {
-    @Test fun signed_in_widgets_use_the_existing_proxy_and_keep_authentication_out_of_script_results() =
-        runTest {
+    @Test fun signed_in_widgets_use_the_existing_proxy_and_keep_authentication_out_of_script_results(): Unit =
+        runBlocking {
             var requests = 0
             val engine =
                 MockEngine { request ->
@@ -75,8 +76,8 @@ class WidgetTmdbHttpTest {
             assertEquals(1, requests)
         }
 
-    @Test fun signed_out_widgets_use_only_yfuse_tmdb_authentication() =
-        runTest {
+    @Test fun signed_out_widgets_use_only_yfuse_tmdb_authentication(): Unit =
+        runBlocking {
             val engine =
                 MockEngine { request ->
                     assertEquals("api.themoviedb.org", request.url.host)
@@ -89,8 +90,8 @@ class WidgetTmdbHttpTest {
             }
         }
 
-    @Test fun unsafe_paths_credentials_and_mutations_never_reach_the_network() =
-        runTest {
+    @Test fun unsafe_paths_credentials_and_mutations_never_reach_the_network(): Unit =
+        runBlocking {
             var calls = 0
             HttpClient(
                 MockEngine {
@@ -139,8 +140,8 @@ class WidgetTmdbHttpTest {
             assertEquals(0, calls)
         }
 
-    @Test fun error_statuses_remain_errors_and_responses_are_bounded() =
-        runTest {
+    @Test fun error_statuses_remain_errors_and_responses_are_bounded(): Unit =
+        runBlocking {
             HttpClient(MockEngine { respond("""{"status_message":"missing"}""", HttpStatusCode.NotFound) }) {
                 expectSuccess =
                     true
@@ -155,8 +156,8 @@ class WidgetTmdbHttpTest {
             }
         }
 
-    @Test fun cancellation_is_preserved_and_network_errors_do_not_leak_proxy_details() =
-        runTest {
+    @Test fun cancellation_is_preserved_and_network_errors_do_not_leak_proxy_details(): Unit =
+        runBlocking {
             HttpClient(MockEngine { throw CancellationException("cancelled") }).use { client ->
                 assertFailsWith<CancellationException> {
                     WidgetTmdbHttp(client).request(buildJsonObject { put("url", "/movie/popular") })
@@ -167,6 +168,28 @@ class WidgetTmdbHttpTest {
                     assertFails { WidgetTmdbHttp(client).request(buildJsonObject { put("url", "/movie/popular") }) }
                 assertTrue(error.message.orEmpty().contains("TMDB"))
                 assertFalse(error.message.orEmpty().contains("secret"))
+            }
+        }
+
+    @Test fun the_bridge_timeout_includes_account_routing_and_body_reading(): Unit =
+        runBlocking {
+            HttpClient(
+                MockEngine {
+                    delay(2000)
+                    respond("{\"results\":[]}")
+                },
+            ).use { client ->
+                val error =
+                    assertFailsWith<WidgetRequestException> {
+                        WidgetTmdbHttp(client).request(
+                            buildJsonObject {
+                                put("url", "/movie/popular")
+                                put("timeout", 1000)
+                            },
+                        )
+                    }
+                assertTrue(error.message.orEmpty().contains("TMDB"))
+                assertTrue(error.message.orEmpty().contains("超时"))
             }
         }
 }

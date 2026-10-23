@@ -11,6 +11,7 @@ import com.yfuse.core.model.SourceInfo
 import com.yfuse.core.model.compareSourceInfoBestFirst
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
+import com.yfuse.core.network.exemptFromServerCooldown
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
@@ -113,6 +114,7 @@ internal class EmbySourceService(
         year: Int? = null,
         seasonNumber: Int? = null,
         episodeNumber: Int? = null,
+        forceRefresh: Boolean = false,
     ): List<ServerSource> =
         coroutineScope {
             servers
@@ -131,6 +133,9 @@ internal class EmbySourceService(
                                     suspend fun query(providerMatch: Boolean): ItemsResponseDto =
                                         client
                                             .get("${server.baseUrl}/Users/${embyPath(server.userId)}/Items") {
+                                                // A user retry must reach the server even while the HTTP
+                                                // client's transport/session cooldown is still active.
+                                                if (forceRefresh) exemptFromServerCooldown()
                                                 header("X-Emby-Token", server.accessToken)
                                                 parameter("Recursive", true)
                                                 parameter(

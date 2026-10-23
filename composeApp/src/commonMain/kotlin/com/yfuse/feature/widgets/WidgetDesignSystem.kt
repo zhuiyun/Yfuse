@@ -261,6 +261,12 @@ internal fun WidgetEmptyState(
             color = palette.sub2,
             textAlign = TextAlign.Center,
         )
-        if (action != null) WidgetPrimaryButton(onAction) { Text(action) }
+        if (action ==
+            "重试"
+        ) {
+            WidgetRetryButton(onAction)
+        } else if (action != null) {
+            WidgetPrimaryButton(onAction) { Text(action) }
+        }
     }
 }

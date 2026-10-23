@@ -14,6 +14,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 interface WidgetRuntime {
     suspend fun metadata(source: String): String
@@ -53,11 +55,90 @@ class WidgetRepository(
     private val cacheMutex = Mutex()
 
     private data class Cached(
+        val widgetId: String,
         val expires: Long,
         val items: List<WidgetMedia>,
     )
 
     private val cache = LinkedHashMap<String, Cached>()
+    private val details = LinkedHashMap<Triple<String, String, String>, WidgetMedia>()
+    private var cacheGeneration = 0L
+
+    private data class FeedKey(
+        val sectionId: String,
+        val widgetId: String,
+        val moduleId: String,
+        val params: JsonObject,
+        val digest: String?,
+        val enabled: Boolean?,
+    )
+
+    private val feeds = MutableStateFlow<Map<FeedKey, WidgetFeed>>(emptyMap())
+    private val mutableFeedRevision = MutableStateFlow(0L)
+    val feedRevision = mutableFeedRevision.asStateFlow()
+
+    /** Saved sections retain their data; only temporary browse/preview feeds use the 48-entry LRU. */
+    fun feed(section: WidgetSection): WidgetFeed {
+        val widget = database.value.widgets.firstOrNull { it.metadata.id == section.widgetId }
+        val module = widget?.metadata?.modules?.firstOrNull { it.id == section.moduleId }
+        val key =
+            FeedKey(section.id, section.widgetId, section.moduleId, section.params, widget?.digest, widget?.enabled)
+        while (true) {
+            val previous = feeds.value
+            val entry =
+                previous[key] ?: WidgetFeed(
+                    scope,
+                    now,
+                    module?.cacheDuration ?: 0,
+                    module?.params?.any { it.type == "page" } == true,
+                ) { page, refresh -> load(section, page, refresh) }
+            val next = (previous - key) + (key to entry)
+            val saved = savedFeedKeys(database.value)
+            val expired =
+                next.keys
+                    .filterNot { it in saved }
+                    .dropLast(48)
+                    .toSet()
+            val bounded = next - expired
+            if (feeds.compareAndSet(previous, bounded)) return entry
+            if (previous[key] == null) entry.close()
+        }
+    }
+
+    private fun savedFeedKeys(db: WidgetDatabase): Set<FeedKey> {
+        val widgets = db.widgets.associateBy { it.metadata.id }
+        return db.pages.flatMap { it.sections }.mapTo(mutableSetOf()) { section ->
+            val widget = widgets[section.widgetId]
+            FeedKey(section.id, section.widgetId, section.moduleId, section.params, widget?.digest, widget?.enabled)
+        }
+    }
+
+    private fun pruneChangedSections(
+        before: WidgetDatabase,
+        after: WidgetDatabase,
+    ) {
+        val removedKeys = savedFeedKeys(before) - savedFeedKeys(after)
+        if (removedKeys.isEmpty()) return
+        while (true) {
+            val previous = feeds.value
+            val removed = previous.filterKeys { it in removedKeys }
+            if (feeds.compareAndSet(previous, previous - removed.keys)) {
+                removed.values.forEach { it.close() }
+                return
+            }
+        }
+    }
+
+    private fun invalidateFeeds(ids: Set<String>? = null) {
+        while (true) {
+            val previous = feeds.value
+            val removed = previous.filterKeys { ids == null || it.widgetId in ids }
+            if (feeds.compareAndSet(previous, previous - removed.keys)) {
+                removed.values.forEach { it.close() }
+                return
+            }
+        }
+    }
 
     init {
         scope.launch {
@@ -81,21 +162,104 @@ class WidgetRepository(
 
     suspend fun awaitReady() = ready.await()
 
-    private suspend fun initializeBundles() {
-        try {
-            val bundles = bundledSources().map { source -> source to inspect(source.source, source.origin) }
-            val updated = mergeBundledWidgets(database.value, bundles)
-            if (updated != database.value) {
-                validate(updated)
-                persistence.write(encodeSnapshot(updated))
-                mutableDatabase.value = updated
+    private data class InspectedBundles(
+        val bundles: List<Pair<BundledWidgetSource, InstalledWidget>>,
+        val unavailableNames: List<String>,
+    )
+
+    private suspend fun inspectBundles(ids: Set<String>? = null): InspectedBundles {
+        val sources =
+            try {
+                bundledSources().filter { ids == null || it.id in ids }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return InspectedBundles(emptyList(), listOf("内置组件资源"))
             }
+        val bundles = mutableListOf<Pair<BundledWidgetSource, InstalledWidget>>()
+        val unavailable = mutableListOf<String>()
+        val duplicates =
+            sources
+                .groupingBy { it.id }
+                .eachCount()
+                .filterValues { it > 1 }
+                .keys
+        for (source in sources) {
+            try {
+                require(source.id !in duplicates) { "预置组件 ID 重复" }
+                val widget = inspect(source.source, source.origin)
+                validateBundledWidget(source, widget)
+                validate(WidgetDatabase(widgets = listOf(widget), pages = listOf(source.page)))
+                bundles += source to widget
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                unavailable += source.page.title.ifBlank { source.id }
+            }
+        }
+        ids?.filter { id -> sources.none { it.id == id } }?.let { unavailable += it }
+        return InspectedBundles(bundles, unavailable.distinct())
+    }
+
+    private fun bundleFailureMessage(names: List<String>): String? =
+        names.takeIf { it.isNotEmpty() }?.let {
+            "内置组件暂未就绪：${it.joinToString("、")}。已有内容已保留，可在组件管理中重试恢复。"
+        }
+
+    private suspend fun initializeBundles(afterReady: Boolean = false) {
+        try {
+            val inspected = inspectBundles()
+            if (inspected.bundles.isNotEmpty()) {
+                if (afterReady) {
+                    change { mergeBundledWidgets(it, inspected.bundles) }
+                } else {
+                    val updated = mergeBundledWidgets(database.value, inspected.bundles)
+                    if (updated != database.value) {
+                        validate(updated)
+                        persistence.write(encodeSnapshot(updated))
+                        mutableDatabase.value = updated
+                    }
+                }
+            }
+            mutableBundleError.value = bundleFailureMessage(inspected.unavailableNames)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             // A failed bundled update must not prevent editing or backing up a valid user snapshot.
-            mutableBundleError.value = "预置组件加载失败，已有组件和页面已保留，下次启动时会重试。"
+            mutableBundleError.value = "内置组件保存失败，已有组件和页面已保留，可在组件管理中重试恢复。"
         }
+    }
+
+    /** Explicit user action: restore only selected missing presets, preserving all existing edits. */
+    suspend fun restoreBundledWidgets(ids: Set<String> = BUNDLED_WIDGET_IDS): BundledWidgetRestoreResult {
+        ready.await()
+        check(mutableError.value == null) { mutableError.value.orEmpty() }
+        if (ids.isEmpty()) return BundledWidgetRestoreResult(0, 0)
+        val inspected = inspectBundles(ids)
+        var result = BundledWidgetRestoreResult(0, 0, inspected.unavailableNames)
+        if (inspected.bundles.isNotEmpty()) {
+            change { current ->
+                val updated = mergeBundledWidgets(current, inspected.bundles, restoreMissing = true)
+                val previousWidgetIds = current.widgets.mapTo(mutableSetOf()) { it.metadata.id }
+                val previousPageIds = current.pages.mapTo(mutableSetOf()) { it.id }
+                result =
+                    BundledWidgetRestoreResult(
+                        restoredWidgets = updated.widgets.count { it.metadata.id !in previousWidgetIds },
+                        restoredPages = updated.pages.count { it.id !in previousPageIds },
+                        unavailableNames = inspected.unavailableNames,
+                        incompleteNames =
+                            inspected.bundles.mapNotNull { (source, _) ->
+                                source.page.title.takeIf {
+                                    updated.widgets.none { it.metadata.id == source.id } ||
+                                        updated.pages.none { it.id == source.page.id }
+                                }
+                            },
+                    )
+                updated
+            }
+        }
+        mutableBundleError.value = bundleFailureMessage(result.unavailableNames + result.incompleteNames)
+        return result
     }
 
     suspend fun inspect(
@@ -128,7 +292,19 @@ class WidgetRepository(
 
     /** Keep the person's layout; missing sources have an explicit reinstall/remove state. */
     suspend fun uninstall(id: String) =
-        change { db -> db.copy(widgets = db.widgets.filterNot { it.metadata.id == id }) }
+        change { db ->
+            db.copy(
+                widgets = db.widgets.filterNot { it.metadata.id == id },
+                removedBundledWidgets =
+                    if (id in BUNDLED_WIDGET_IDS ||
+                        id in db.bundledDigests
+                    ) {
+                        db.removedBundledWidgets + id
+                    } else {
+                        db.removedBundledWidgets
+                    },
+            )
+        }
 
     suspend fun savePage(page: WidgetPage) =
         change { db ->
@@ -161,9 +337,12 @@ class WidgetRepository(
 
     suspend fun removePage(id: String) =
         change { db ->
+            val widgetId = id.removePrefix("page-")
+            val bundled = id.startsWith("page-") && (widgetId in BUNDLED_WIDGET_IDS || widgetId in db.bundledDigests)
             db.copy(
                 pages = db.pages.filterNot { it.id == id },
                 defaultPageId = db.defaultPageId?.takeUnless { it == id },
+                removedBundledPages = if (bundled) db.removedBundledPages + id else db.removedBundledPages,
             )
         }
 
@@ -203,11 +382,19 @@ class WidgetRepository(
         ready.await()
         mutex.withLock {
             persistence.write(snapshot)
+            cacheMutex.withLock {
+                cacheGeneration++
+                cache.clear()
+                details.clear()
+            }
+            invalidateFeeds()
             mutableDatabase.value = value
+            mutableFeedRevision.value++
             mutableError.value = null
             mutableBundleError.value = null
-            cacheMutex.withLock { cache.clear() }
         }
+        // Old backups can predate presets; reconcile immediately instead of waiting for a process restart.
+        initializeBundles(afterReady = true)
     }
 
     suspend fun load(
@@ -223,10 +410,13 @@ class WidgetRepository(
         val params = module.parameterValues(section.params, page)
         module.parameterError(section.params)?.let { error(it) }
         val key = "${widget.metadata.id}:${widget.digest}:${module.id}:$params"
-        if (!refresh) cacheMutex.withLock { cache[key]?.takeIf { it.expires > now() } }?.let { return it.items }
+        val (generation, cached) = cacheMutex.withLock { cacheGeneration to cache[key]?.takeIf { it.expires > now() } }
+        if (!refresh && cached != null) return cached.items
         val items = parseWidgetMedia(runtime.invoke(widget, module.functionName, params, module.timeoutSeconds))
         cacheMutex.withLock {
-            cache[key] = Cached(now() + module.cacheDuration * 1000L, items)
+            if (generation == cacheGeneration && database.value.widgets.any { it == widget }) {
+                cache[key] = Cached(widget.metadata.id, now() + module.cacheDuration * 1000L, items)
+            }
             while (cache.size > 48) cache.remove(cache.keys.first())
         }
         return items
@@ -235,10 +425,29 @@ class WidgetRepository(
     suspend fun detail(
         widgetId: String,
         media: WidgetMedia,
+        forceRefresh: Boolean = false,
     ): WidgetMedia {
+        ready.await()
         val widget = database.value.widgets.firstOrNull { it.metadata.id == widgetId && it.enabled } ?: error("组件不可用")
-        if (media.link.isBlank()) return media
-        val raw = runtime.invoke(widget, "loadDetail", JsonPrimitive(media.link), 30)
+        if (!media.requiresWidgetDetailLookup()) return media
+        val detailKey = Triple(widgetId, widget.digest, media.link)
+        val generation = cacheMutex.withLock { cacheGeneration }
+        if (!forceRefresh) cacheMutex.withLock { details[detailKey] }?.let { return mergeDetail(media, it) }
+        val raw =
+            try {
+                runtime.invoke(widget, "loadDetail", JsonPrimitive(media.link), 30)
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                if (failure.message == "组件未提供此函数") {
+                    media.directWidgetLinkOrNull()?.let { return media.copy(videoUrl = it) }
+                }
+                if (failure.message == "组件未提供此函数" &&
+                    widget.metadata.modules.any { it.id == "loadResource" && it.type == "stream" }
+                ) {
+                    return media
+                }
+                throw failure
+            }
         val element = widgetJson.parseToJsonElement(raw)
         val detail =
             when (element) {
@@ -246,16 +455,76 @@ class WidgetRepository(
                 is JsonArray -> media.copy(children = parseWidgetMedia(raw))
                 else -> error("详情函数必须返回详情或播放线路")
             }
-        return detail.copy(
+        cacheMutex.withLock {
+            if (generation == cacheGeneration) {
+                details[detailKey] = detail
+                while (details.size > 24) details.remove(details.keys.first())
+            }
+        }
+        return mergeDetail(media, detail)
+    }
+
+    /** Resolve a stream only after an explicit play tap, so live signatures are not pre-consumed. */
+    suspend fun playback(
+        context: WidgetSourceContext,
+        media: WidgetMedia,
+    ): WidgetMedia {
+        ready.await()
+        val widget =
+            database.value.widgets.firstOrNull { it.metadata.id == context.widgetId && it.enabled } ?: error("组件不可用")
+        val resource = widget.metadata.modules.firstOrNull { it.id == "loadResource" && it.type == "stream" }
+        if (resource != null) {
+            val args =
+                JsonObject(
+                    resource.parameterValues(context.params) +
+                        buildJsonObject {
+                            put("id", media.id)
+                            put("type", media.type)
+                            put("mediaType", media.mediaType)
+                            put("link", media.link)
+                            put("videoUrl", media.videoUrl)
+                            put("tmdbId", media.tmdbId)
+                            media.season?.let { put("season", it) }
+                            media.episode?.let { put("episode", it) }
+                        },
+                )
+            val routes =
+                parseWidgetMedia(runtime.invoke(widget, resource.functionName, args, resource.timeoutSeconds))
+                    .filter { it.videoUrl.isNotBlank() }
+            require(routes.isNotEmpty()) { "组件未返回播放地址" }
+            return media.copy(videoUrl = "", children = routes)
+        }
+        if (media.videoUrl.isNotBlank() &&
+            (!media.requiresWidgetDetailLookup() || media.mediaType.lowercase() in setOf("movie", "tv", "series"))
+        ) {
+            return media
+        }
+        val resolved = detail(context.widgetId, media, forceRefresh = true)
+        require(resolved.videoUrl.isNotBlank() || resolved.children.isNotEmpty()) { "组件未返回播放地址" }
+        return resolved
+    }
+
+    private fun mergeDetail(
+        media: WidgetMedia,
+        detail: WidgetMedia,
+    ): WidgetMedia =
+        detail.copy(
             id = media.id,
             title = detail.title.takeUnless { it == "未命名内容" } ?: media.title,
             poster = detail.poster.ifBlank { media.poster },
             backdrop = detail.backdrop.ifBlank { media.backdrop },
             description = detail.description.ifBlank { media.description },
+            mediaType = media.mediaType,
+            type = media.type,
+            link = media.link,
+            tmdbId = detail.tmdbId.ifBlank { media.tmdbId },
+            year = detail.year.ifBlank { media.year },
+            season = detail.season ?: media.season,
+            episode = detail.episode ?: media.episode,
             headers = media.headers + detail.headers,
             videoUrl = detail.videoUrl.ifBlank { media.videoUrl },
+            children = detail.children.ifEmpty { media.children },
         )
-    }
 
     private suspend fun change(transform: (WidgetDatabase) -> WidgetDatabase) {
         ready.await()
@@ -269,8 +538,24 @@ class WidgetRepository(
             validate(updated)
             val snapshot = encodeSnapshot(updated)
             persistence.write(snapshot)
+            val previousWidgets = database.value.widgets.associateBy { it.metadata.id }
+            val updatedWidgets = updated.widgets.associateBy { it.metadata.id }
+            val changedIds =
+                (previousWidgets.keys + updatedWidgets.keys).filterTo(mutableSetOf()) {
+                    previousWidgets[it] != updatedWidgets[it]
+                }
+            if (changedIds.isNotEmpty()) {
+                cacheMutex.withLock {
+                    cacheGeneration++
+                    cache.entries.removeAll { it.value.widgetId in changedIds }
+                    details.keys.removeAll { it.first in changedIds }
+                }
+                invalidateFeeds(changedIds)
+            }
+            val previousDatabase = database.value
             mutableDatabase.value = updated
-            cacheMutex.withLock { cache.clear() }
+            pruneChangedSections(previousDatabase, updated)
+            if (changedIds.isNotEmpty()) mutableFeedRevision.value++
         }
     }
 
@@ -282,7 +567,13 @@ class WidgetRepository(
 
     private fun validate(db: WidgetDatabase) {
         require(db.schema == 1) { "不支持此备份版本" }
-        require(db.widgets.size <= 24 && db.pages.size <= 32) { "最多安装 24 个组件、创建 32 个页面" }
+        require(db.bundledStateVersion in 0..1) { "不支持此预置组件记录版本" }
+        require(
+            db.removedBundledWidgets.size <= 64 &&
+                db.removedBundledWidgets.all { it.length in 1..160 } &&
+                db.removedBundledPages.size <= 64 &&
+                db.removedBundledPages.all { it.length in 1..200 },
+        ) { "预置组件删除记录无效" }
         require(
             db.bundledDigests.size <= 64 &&
                 db.bundledDigests.all { (id, digest) -> id.length in 1..160 && digest.length in 1..128 },
@@ -302,8 +593,8 @@ class WidgetRepository(
         ) { "页面 ID 重复" }
         db.pages.forEach { page ->
             require(
-                page.title.isNotBlank() && page.title.length <= 80 && page.sections.size <= 40,
-            ) { "页面名称需为 1–80 字，最多 40 个栏目" }
+                page.title.isNotBlank() && page.title.length <= 80,
+            ) { "页面名称需为 1–80 字" }
             require(
                 page.sections
                     .map { it.id }

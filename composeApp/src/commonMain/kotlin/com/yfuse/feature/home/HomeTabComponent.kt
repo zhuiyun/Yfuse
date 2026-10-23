@@ -2,6 +2,7 @@ package com.yfuse.feature.home
 
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.decompose.DelicateDecomposeApi
+import com.arkivanov.decompose.childContext
 import com.arkivanov.decompose.router.stack.ChildStack
 import com.arkivanov.decompose.router.stack.StackNavigation
 import com.arkivanov.decompose.router.stack.childStack
@@ -17,10 +18,14 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.navigation.SingleFlightNavigationGuard
+import com.yfuse.core.widget.WidgetSourceContext
 import com.yfuse.feature.calendar.CalendarComponent
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
+import com.yfuse.feature.widgets.hasWidgetPlaybackSource
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
 
@@ -38,6 +43,7 @@ class HomeTabComponent(
     private val onOpenSearch: () -> Unit,
     private val onOpenLibrary: () -> Unit,
     private val onOpenProfile: () -> Unit,
+    private val widgetRoot: Boolean = false,
 ) : ComponentContext by componentContext {
     // Every route goes on with pushToFront, as in the library tab: Decompose rejects a stack
     // holding two equal configurations, and A → related B → A, reopening a title from an airing
@@ -55,7 +61,7 @@ class HomeTabComponent(
         childStack(
             source = navigation,
             serializer = Config.serializer(),
-            initialConfiguration = Config.Home,
+            initialConfiguration = if (widgetRoot) Config.WidgetHome else Config.Home,
             // The Compose shell owns system back so only the visible tab can pop.
             handleBackButton = false,
             childFactory = ::child,
@@ -64,6 +70,8 @@ class HomeTabComponent(
     @Serializable
     sealed interface Config {
         @Serializable data object Home : Config
+
+        @Serializable data object WidgetHome : Config
 
         @Serializable data class Detail(
             val serverId: String?,
@@ -86,12 +94,16 @@ class HomeTabComponent(
         @Serializable data class Info(
             val item: TmdbItem,
             val embyItemId: String?,
+            val preferLibraryDetail: Boolean = false,
+            val sourceContext: WidgetSourceContext? = null,
         ) : Config
 
         @Serializable data object Calendar : Config
     }
 
     sealed interface Child {
+        data object WidgetHome : Child
+
         class Home(
             val component: HomeComponent,
         ) : Child
@@ -106,6 +118,7 @@ class HomeTabComponent(
 
         class Info(
             val component: TmdbInfoComponent,
+            val libraryDetail: StateFlow<DetailComponent?>,
         ) : Child
 
         class Calendar(
@@ -141,6 +154,29 @@ class HomeTabComponent(
         returnToLibraryOnRoot = true
         popToRoot()
         navigation.pushToFront(Config.Info(item, embyItemId))
+    }
+
+    /** A component card names a title, not a server item: resolve it before choosing its detail route. */
+    fun openWidgetTitle(
+        item: TmdbItem,
+        sourceContext: WidgetSourceContext? = null,
+    ) {
+        returnToLibraryOnRoot = !widgetRoot
+        popToRoot()
+        sourceContext?.media?.libraryTarget?.let { target ->
+            if (target.itemId.isNotBlank() && registry.serverById(target.serverId) != null) {
+                navigation.pushToFront(Config.Detail(target.serverId, target.itemId))
+                return
+            }
+        }
+        navigation.pushToFront(
+            Config.Info(
+                item,
+                null,
+                preferLibraryDetail = sourceContext?.media?.hasWidgetPlaybackSource() != true,
+                sourceContext = sourceContext,
+            ),
+        )
     }
 
     fun openPersonalTitle(media: com.yfuse.core.personal.PersonalMediaRef) {
@@ -223,6 +259,7 @@ class HomeTabComponent(
         context: ComponentContext,
     ): Child =
         when (config) {
+            Config.WidgetHome -> Child.WidgetHome
             Config.Home ->
                 Child.Home(
                     HomeComponent(
@@ -306,7 +343,8 @@ class HomeTabComponent(
                         },
                     ),
                 )
-            is Config.Info ->
+            is Config.Info -> {
+                val libraryDetail = MutableStateFlow<DetailComponent?>(null)
                 Child.Info(
                     TmdbInfoComponent(
                         componentContext = context,
@@ -316,12 +354,44 @@ class HomeTabComponent(
                         item = config.item,
                         followStore = dependencies.calendarFollowStore,
                         embyItemId = config.embyItemId,
+                        preferLibraryDetail = config.preferLibraryDetail,
+                        widgetSourceContext = config.sourceContext,
+                        onOpenLibraryDetail =
+                            if (config.preferLibraryDetail) {
+                                { serverId, itemId ->
+                                    if (libraryDetail.value == null) {
+                                        libraryDetail.value =
+                                            DetailComponent(
+                                                componentContext = context.childContext("matchedLibraryDetail"),
+                                                storeFactory = storeFactory,
+                                                repo = repo,
+                                                registry = registry,
+                                                itemId = itemId,
+                                                serverId = serverId,
+                                                dependencies = dependencies,
+                                                onBack = ::navigateBack,
+                                                onOpenRelated = { relatedServer, relatedId ->
+                                                    navigation.pushToFront(Config.Detail(relatedServer, relatedId))
+                                                },
+                                                onPlay = { targetServer, targetId, ticks, mediaSourceId ->
+                                                    openPlayer(
+                                                        Config.Player(targetServer, targetId, ticks, mediaSourceId),
+                                                    )
+                                                },
+                                            )
+                                    }
+                                }
+                            } else {
+                                null
+                            },
                         onBack = ::navigateBack,
                         onPlayTarget = { serverId, id, ticks ->
                             openPlayer(Config.Player(serverId, id, ticks))
                         },
                     ),
+                    libraryDetail,
                 )
+            }
         }
 }
 

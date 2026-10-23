@@ -31,11 +31,16 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.widget.BUNDLED_RECOMMENDATIONS_ID
+import com.yfuse.core.widget.BUNDLED_TMDB_ID
+import com.yfuse.core.widget.BUNDLED_WIDGET_IDS
+import com.yfuse.core.widget.BundledWidgetRestoreResult
 import com.yfuse.core.widget.InstalledWidget
 import com.yfuse.core.widget.WidgetPage
 import com.yfuse.core.widget.WidgetRepository
 import com.yfuse.core.widget.downloadWidgetSource
 import com.yfuse.core.widget.rememberWidgetBackupFiles
+import com.yfuse.core.widget.withBundledWidgetsFirst
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -83,8 +88,8 @@ fun WidgetWorkspaceScreen(
 
     fun work(block: suspend () -> Unit) {
         if (busy) return
+        busy = true
         scope.launch {
-            busy = true
             message = null
             try {
                 block()
@@ -133,6 +138,45 @@ fun WidgetWorkspaceScreen(
                             item { Text(text, color = palette.sub2, style = AppTypography.body.regular) }
                         }
                         if (busy) item { WidgetProgress(Modifier.fillMaxWidth()) }
+                        listOf(BUNDLED_TMDB_ID to "TMDB", BUNDLED_RECOMMENDATIONS_ID to "影视推荐").forEach { (id, title) ->
+                            val missingWidget = database.widgets.none { it.metadata.id == id }
+                            val missingPage = database.pages.none { it.id == "page-$id" }
+                            if (missingWidget || missingPage) {
+                                item(key = "restore-$id") {
+                                    Panel {
+                                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                            Column(
+                                                Modifier.weight(1f),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                            ) {
+                                                Text(
+                                                    "内置 · $title",
+                                                    color = palette.text,
+                                                    style = AppTypography.body.strong,
+                                                )
+                                                Text(
+                                                    if (missingWidget) "随应用提供，添加后即可使用。" else "组件已安装，可恢复预置首页。",
+                                                    color = palette.sub,
+                                                    style = AppTypography.caption.regular,
+                                                )
+                                            }
+                                            WidgetHomeAction(
+                                                AppIcons.Add,
+                                                "恢复$title",
+                                                label = if (missingWidget) "添加" else "恢复页面",
+                                                enabled = !busy,
+                                                onClick = {
+                                                    work {
+                                                        val result = repository.restoreBundledWidgets(setOf(id))
+                                                        message = result.restorationMessage(title)
+                                                    }
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         if (pagesSelected) {
                             if (database.pages.isEmpty()) {
                                 item {
@@ -186,7 +230,7 @@ fun WidgetWorkspaceScreen(
                                     }
                                 }
                             }
-                            items(database.widgets, key = { it.metadata.id }) { widget ->
+                            items(database.widgets.withBundledWidgetsFirst(), key = { it.metadata.id }) { widget ->
                                 Row(
                                     Modifier
                                         .fillMaxWidth()
@@ -208,7 +252,8 @@ fun WidgetWorkspaceScreen(
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                         Text(
-                                            (if (widget.enabled) "" else "已停用 · ") +
+                                            (if (widget.metadata.id in BUNDLED_WIDGET_IDS) "内置 · " else "") +
+                                                (if (widget.enabled) "" else "已停用 · ") +
                                                 widget.metadata.description.ifBlank {
                                                     "v${widget.metadata.version} · ${widget.metadata.modules.size} 个栏目"
                                                 },
@@ -382,3 +427,11 @@ fun WidgetWorkspaceScreen(
     }
     if (embedded) body() else FullWidgetDialog(onClose = { backRouter.onBack() }, content = body)
 }
+
+private fun BundledWidgetRestoreResult.restorationMessage(title: String): String =
+    when {
+        unavailableNames.isNotEmpty() -> "$title 暂时无法添加，请重试。"
+        incompleteNames.isNotEmpty() -> "已保留现有组件，部分页面与当前脚本不兼容，无法自动恢复。"
+        restoredWidgets + restoredPages > 0 -> "已恢复$title，可从自定义首页切换查看。"
+        else -> "$title 已就绪。"
+    }

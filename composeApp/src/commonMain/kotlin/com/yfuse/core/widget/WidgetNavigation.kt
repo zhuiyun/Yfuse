@@ -36,29 +36,43 @@ fun WidgetMedia.tmdbDetailItemOrNull(): TmdbItem? {
     )
 }
 
-private val canonicalTmdbDetailLink = Regex("([A-Za-z]+)://([^/]+)/(movie|tv)/([1-9][0-9]*)/?")
+/** Film and TV cards always use the app's detail page, regardless of source playback routes. */
+fun WidgetMedia.standardTmdbDetailItemOrNull(): TmdbItem? = tmdbDetailItemOrNull()
 
-/** Standard details cannot carry a widget's playback URLs, child routes, or source-detail loader. */
-fun WidgetMedia.standardTmdbDetailItemOrNull(): TmdbItem? {
-    val item = tmdbDetailItemOrNull() ?: return null
-    if (videoUrl.isNotBlank() || children.isNotEmpty()) return null
-    val detailLink = link.trim()
-    if (detailLink.isEmpty()) return item
-    val match = canonicalTmdbDetailLink.matchEntire(detailLink) ?: return null
-    val defaultPort =
-        when (match.groupValues[1].lowercase()) {
-            "http" -> "80"
-            "https" -> "443"
-            else -> return null
-        }
-    val authority = match.groupValues[2].lowercase()
-    val officialAuthority =
-        authority == "themoviedb.org" ||
-            authority == "www.themoviedb.org" ||
-            authority == "themoviedb.org:$defaultPort" ||
-            authority == "www.themoviedb.org:$defaultPort"
-    if (!officialAuthority) return null
-    return item.takeIf {
-        match.groupValues[3] == it.mediaType && match.groupValues[4].toIntOrNull() == it.id
+/** Unknown identities open the same detail shell; source playback never depends on a TMDB match. */
+fun WidgetMedia.widgetDetailSeed(): TmdbItem =
+    tmdbDetailItemOrNull() ?: TmdbItem(
+        id = 0,
+        title = title,
+        overview = description.takeIf(String::isNotBlank),
+        posterPath = poster.takeIf(String::isNotBlank),
+        backdropPath = backdrop.takeIf(String::isNotBlank),
+        year = year.takeIf(String::isNotBlank),
+        mediaType =
+            if (isWidgetFilmOrSeries()) {
+                if (mediaType.lowercase() == "movie") "movie" else "tv"
+            } else {
+                "video"
+            },
+        rating = rating.toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..10.0 },
+    )
+
+fun WidgetMedia.isWidgetFilmOrSeries(): Boolean =
+    mediaType.trim().lowercase() in setOf("movie", "tv", "series") &&
+        type.trim().lowercase() !in setOf("live", "video", "url")
+
+fun WidgetMedia.requiresWidgetDetailLookup(): Boolean =
+    link.isNotBlank() &&
+        !Regex(
+            "https?://(?:www\\.)?themoviedb\\.org(?::\\d+)?/(?:movie|tv)/[0-9]+(?:[/?#].*)?",
+            RegexOption.IGNORE_CASE,
+        ).matches(link.trim())
+
+/** A declared media-file link can play without a script's optional detail function. */
+internal fun WidgetMedia.directWidgetLinkOrNull(): String? =
+    link.takeIf { value ->
+        (value.startsWith("http://", true) || value.startsWith("https://", true)) &&
+            value.substringBefore('?').substringBefore('#').lowercase().let { path ->
+                listOf(".m3u8", ".mpd", ".flv", ".mp4", ".mkv", ".webm", ".ts").any(path::endsWith)
+            }
     }
-}

@@ -5,7 +5,7 @@
 var WidgetMetadata = {
   "id": "plugin_builtin_movie_recommend",
   "title": "影视推荐",
-  "version": "1.0.0-yfuse.1",
+  "version": "1.0.0-yfuse.2",
   "author": "CapyPlayer · Yfuse 适配",
   "description": "豆瓣、IMDb、番剧动画与流媒体趋势；内容来自在线推荐服务。",
   "website": "https://recommend.feifeiduck.com",
@@ -459,9 +459,16 @@ async function fetchChart(params) {
   }
 
   var base = String(WORKER_BASE || '').replace(/\/+$/, '');
-  var response = await Widget.http.get(base + '/' + chart, {
-    params: requestParams
-  });
+  var response;
+  try {
+    // The host can recover one interrupted read inside this budget; leave time for parsing.
+    response = await Widget.http.get(base + '/' + chart, {
+      params: requestParams,
+      timeout: 20000
+    });
+  } catch (_) {
+    throw new Error('推荐服务暂时无法连接，请稍后重试');
+  }
 
   var payload = unwrapResponse(response);
   var start = (page - 1) * limit;

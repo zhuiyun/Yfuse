@@ -10,6 +10,7 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.io.readByteArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -29,43 +30,42 @@ internal class WidgetTmdbHttp(
         require(params.all { (name, value) -> name.lowercase() !in AUTH_PARAMS && value is JsonPrimitive }) {
             "TMDB 组件参数不支持认证信息或嵌套数据"
         }
+        val timeoutMillis = options.text("timeout").toLongOrNull()?.coerceIn(1000, 30000) ?: 30000
         try {
-            return client
-                .prepareGet("$TMDB_BASE$path") {
-                    expectSuccess = false
-                    timeout {
-                        requestTimeoutMillis = options
-                            .text(
-                                "timeout",
-                            ).toLongOrNull()
-                            ?.coerceIn(1000, 30000) ?: 30000
-                    }
-                    params.forEach { (name, value) ->
-                        if (value !=
-                            JsonNull
-                        ) {
-                            parameter(name, (value as JsonPrimitive).content)
+            return withTimeoutOrNull(timeoutMillis) {
+                client
+                    .prepareGet("$TMDB_BASE$path") {
+                        expectSuccess = false
+                        timeout {
+                            requestTimeoutMillis = timeoutMillis
                         }
+                        params.forEach { (name, value) ->
+                            if (value !=
+                                JsonNull
+                            ) {
+                                parameter(name, (value as JsonPrimitive).content)
+                            }
+                        }
+                    }.execute { response ->
+                        val bytes = response.bodyAsChannel().readRemaining(MAX_RESPONSE_BYTES + 1L).readByteArray()
+                        require(bytes.size <= MAX_RESPONSE_BYTES) { "TMDB 响应过大" }
+                        val body = bytes.decodeToString()
+                        buildJsonObject {
+                            put("ok", response.status.isSuccess())
+                            put("status", response.status.value)
+                            put(
+                                "data",
+                                runCatching { widgetJson.parseToJsonElement(body) }.getOrElse { JsonPrimitive(body) },
+                            )
+                            put("headers", JsonObject(emptyMap()))
+                        }.toString()
                     }
-                }.execute { response ->
-                    val bytes = response.bodyAsChannel().readRemaining(MAX_RESPONSE_BYTES + 1L).readByteArray()
-                    require(bytes.size <= MAX_RESPONSE_BYTES) { "TMDB 响应过大" }
-                    val body = bytes.decodeToString()
-                    buildJsonObject {
-                        put("ok", response.status.isSuccess())
-                        put("status", response.status.value)
-                        put(
-                            "data",
-                            runCatching { widgetJson.parseToJsonElement(body) }.getOrElse { JsonPrimitive(body) },
-                        )
-                        put("headers", JsonObject(emptyMap()))
-                    }.toString()
-                }
+            } ?: throw WidgetRequestException("TMDB 服务响应超时，请稍后重试")
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             // Network exceptions can contain proxy URLs. Keep account details outside the script sandbox.
-            error("TMDB 请求失败，请检查网络后重试")
+            throw if (e is WidgetRequestException) e else WidgetRequestException(e.widgetNetworkMessage(tmdb = true))
         }
     }
 

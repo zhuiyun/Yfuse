@@ -117,7 +117,7 @@ class WidgetContractTest {
 
     @Test fun every_saved_style_resolves_and_unknown_future_styles_fall_back() {
         assertEquals(
-            36,
+            WidgetStyle.entries.size,
             WidgetStyle.entries
                 .map { it.id }
                 .distinct()

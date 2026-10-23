@@ -124,7 +124,7 @@ class WidgetNavigationTest {
     }
 
     @Test
-    fun a_tmdb_identity_never_discards_widget_playback_or_episode_routes() {
+    fun films_with_playback_or_episode_routes_still_open_the_default_detail_page() {
         val movie =
             WidgetMedia(
                 id = "movie.42",
@@ -136,18 +136,21 @@ class WidgetNavigationTest {
             )
         val episode = WidgetMedia(id = "episode-1", title = "Episode 1", videoUrl = "https://source.example/1.m3u8")
         listOf("", movie.link).forEach { link ->
-            assertNull(
+            val expected = movie.tmdbDetailItemOrNull()
+            assertEquals(
+                expected,
                 movie.copy(link = link, videoUrl = "https://source.example/movie.m3u8").standardTmdbDetailItemOrNull(),
             )
-            assertNull(movie.copy(link = link, children = listOf(episode)).standardTmdbDetailItemOrNull())
-            assertNull(
+            assertEquals(expected, movie.copy(link = link, children = listOf(episode)).standardTmdbDetailItemOrNull())
+            assertEquals(
+                expected,
                 movie.copy(link = link, children = listOf(episode.copy(videoUrl = ""))).standardTmdbDetailItemOrNull(),
             )
         }
     }
 
     @Test
-    fun source_links_keep_the_widget_detail_loader_even_when_they_declare_tmdb() {
+    fun source_links_cannot_override_the_declared_tmdb_detail_destination() {
         val movie =
             WidgetMedia(
                 id = "42",
@@ -178,7 +181,8 @@ class WidgetNavigationTest {
             "ftp://www.themoviedb.org/movie/42",
             "//www.themoviedb.org/movie/42",
         ).forEach { link ->
-            assertNull(movie.copy(link = link).standardTmdbDetailItemOrNull(), link)
+            assertEquals(movie.tmdbDetailItemOrNull(), movie.copy(link = link).standardTmdbDetailItemOrNull(), link)
+            assertNull(movie.copy(type = "url", tmdbId = "", link = link).standardTmdbDetailItemOrNull(), link)
         }
     }
 }

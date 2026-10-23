@@ -10,9 +10,11 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.net.SocketException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SandboxWidgetRuntimeTest {
@@ -214,5 +216,53 @@ class SandboxWidgetRuntimeTest {
             val failure = assertFails { engine.invoke(widget, "oversized", JsonNull, 3) }
             assertTrue(failure.message.orEmpty().contains("单个 HTML 文档过大"), failure.message)
             assertEquals("2000", engine.invoke(widget, "select", JsonNull, 3))
+        }
+
+    @Test fun host_network_failures_never_enter_script_or_ui_as_jvm_stacks() =
+        runBlocking {
+            val engine =
+                SandboxWidgetRuntime(
+                    { _, _ ->
+                        throw SocketException("Connection reset https://private.invalid/?token=private-fixture")
+                    },
+                    { _, _ -> null },
+                    { _, _, _ -> },
+                )
+            val widget =
+                installed(
+                    engine,
+                    """
+                    $source
+                    async function uncaught(){ return await Widget.http.get('https://example.invalid'); }
+                    async function caught(){
+                      try { await Widget.http.get('https://example.invalid'); }
+                      catch(error) { return [{id:'error',title:String(error)}]; }
+                    }
+                    """.trimIndent(),
+                )
+            val failure = assertFails { engine.invoke(widget, "uncaught", JsonNull, 3) }.message.orEmpty()
+            val caught = parseWidgetMedia(engine.invoke(widget, "caught", JsonNull, 3)).single().title
+            for (message in listOf(failure, caught)) {
+                assertTrue(message.contains("连接暂时中断"))
+                assertTrue(message.length < 80)
+                assertFalse(message.contains("java."))
+                assertFalse(message.contains("private-fixture"))
+                assertFalse(message.contains("https://"))
+                assertFalse(message.contains("\n"))
+            }
+        }
+
+    @Test fun script_error_urls_headers_and_long_messages_are_not_returned_to_the_ui() =
+        runBlocking {
+            val engine = runtime()
+            for (message in listOf(
+                "https://private.invalid/?token=fixture",
+                "Authorization: Bearer private-fixture",
+                "x".repeat(1000),
+            )) {
+                val widget = installed(engine, "$source\nasync function fail(){throw Error('$message');}")
+                val error = assertFails { engine.invoke(widget, "fail", JsonNull, 3) }
+                assertEquals("组件内容暂时不可用，请稍后重试", error.message)
+            }
         }
 }

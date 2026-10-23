@@ -984,6 +984,7 @@ class EmbyRepository(
                                                 year,
                                                 seasonNumber,
                                                 episodeNumber,
+                                                forceRefresh = forceRefresh,
                                             ).single()
                                     } ?: unavailable
                                 } else {
@@ -997,6 +998,7 @@ class EmbyRepository(
                                             year,
                                             seasonNumber,
                                             episodeNumber,
+                                            forceRefresh = forceRefresh,
                                         ).single()
                                 }
                             // A skipped lookup must not perpetually extend its own cooldown.

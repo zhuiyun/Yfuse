@@ -230,6 +230,7 @@ fun App(root: RootComponent) {
             if (!customHomeVisible && active == Tab.CustomHome) root.selectTab(Tab.Browse)
         }
         val homeStack by root.home.stack.subscribeAsState()
+        val widgetStack by root.widgetHome.stack.subscribeAsState()
         val browseStack by root.browse.stack.subscribeAsState()
         val watchingStack by root.watching.stack.subscribeAsState()
         val searchStack by root.search.stack.subscribeAsState()
@@ -309,7 +310,8 @@ fun App(root: RootComponent) {
                 Tab.Browse -> browseStack.active.instance is LibraryComponent.Child.Home
                 Tab.Watching -> watchingStack.items.size == 1
                 // 服务器 is a single screen: it has no stack that could be anywhere but its root.
-                Tab.Servers, Tab.CustomHome -> true
+                Tab.CustomHome -> widgetStack.items.size == 1
+                Tab.Servers -> true
                 Tab.Search -> searchStack.active.instance is SearchComponent.Child.Home
                 Tab.Profile -> profileStack.active.instance is ProfileTabComponent.Child.Home
             }
@@ -430,8 +432,10 @@ fun App(root: RootComponent) {
                                                         onOpenLibrary = root::returnFromDiscovery,
                                                     ) { HomeTabScreen(root.home) }
                                                 Tab.CustomHome ->
-                                                    com.yfuse.feature.widgets
-                                                        .CustomHomeScreen(onOpenTmdb = root::openWidgetTitle)
+                                                    HomeTabScreen(root.widgetHome) {
+                                                        com.yfuse.feature.widgets
+                                                            .CustomHomeScreen(onOpenTmdb = root::openWidgetTitle)
+                                                    }
                                                 Tab.Browse -> LibraryScreen(root.browse)
                                                 Tab.Watching -> LibraryScreen(root.watching)
                                                 Tab.Servers -> ServersTabScreen(root.servers)

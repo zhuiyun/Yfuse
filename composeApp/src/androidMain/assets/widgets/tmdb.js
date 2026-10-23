@@ -5,7 +5,7 @@
 var WidgetMetadata = {
   "id": "plugin_builtin_tmdb",
   "title": "TMDB",
-  "version": "1.0.0-yfuse.1",
+  "version": "1.0.0-yfuse.2",
   "author": "CapyPlayer · Yfuse 适配",
   "description": "热映、趋势、热门、高分与分类发现，支持电视网和制作公司筛选。",
   "website": "https://www.themoviedb.org",
@@ -569,7 +569,11 @@ async function fetchData(api, params, forceMediaType, itemFilter) {
     if (response.success === false || !Array.isArray(response.results)) throw new Error('预置线路返回无效列表');
   } catch (_) {
     // The fallback keeps authentication inside Yfuse, within the module's 30-second budget.
-    response = await Widget.tmdb.get(normalizedPath, { params: requestParams, timeout: 18000 });
+    try {
+      response = await Widget.tmdb.get(normalizedPath, { params: requestParams, timeout: 18000 });
+    } catch (_) {
+      throw new Error('TMDB 线路暂时不可用，请稍后重试');
+    }
   }
 
   var payload = unwrapTmdbResponse(response);

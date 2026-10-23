@@ -36,7 +36,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -46,7 +45,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -66,6 +64,7 @@ import com.yfuse.core.widget.WidgetStyle
 import com.yfuse.core.widget.parameterError
 import com.yfuse.core.widget.parameterValues
 import com.yfuse.core.widget.visible
+import com.yfuse.core.widget.withBundledWidgetsFirst
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
@@ -264,14 +263,16 @@ internal fun WidgetPageEditor(
                             WidgetIconButton(AppIcons.More, "${section.title}的更多操作", { sectionActions = section })
                         }
                         val style = WidgetStyle.fromId(section.style)
-                        Box(Modifier.fillMaxWidth().clip(AppShapes.card)) {
-                            WidgetCards(
-                                style,
-                                widgetPreviewItems.take(6),
-                                section.showMetadata,
-                                compact = true,
-                                onOpen = { editing = section },
-                            )
+                        Box(Modifier.fillMaxWidth()) {
+                            CompositionLocalProvider(LocalWidgetPreview provides true) {
+                                WidgetCards(
+                                    style,
+                                    widgetPreviewItems.take(6),
+                                    section.showMetadata,
+                                    compact = true,
+                                    onOpen = { editing = section },
+                                )
+                            }
                         }
                     }
                 }
@@ -497,18 +498,20 @@ private fun WidgetSectionEditor(
                         }
                         if (refreshing) {
                             WidgetProgress(Modifier.size(36.dp, 3.dp))
-                        } else if (module != null && parameterIssue == null) {
-                            WidgetIconButton(AppIcons.Refresh, "刷新组件内容", { previewRequest++ })
+                        } else if (error != null && module != null && parameterIssue == null) {
+                            WidgetRetryButton({ previewRequest++ })
                         }
                     }
                     Box(Modifier.fillMaxWidth()) {
-                        WidgetCards(
-                            style,
-                            preview.ifEmpty { widgetPreviewItems }.take(6),
-                            section.showMetadata,
-                            section.compact,
-                            onOpen = { chooseStyle = true },
-                        )
+                        CompositionLocalProvider(LocalWidgetPreview provides true) {
+                            WidgetCards(
+                                style,
+                                preview.ifEmpty { widgetPreviewItems }.take(6),
+                                section.showMetadata,
+                                section.compact,
+                                onOpen = { chooseStyle = true },
+                            )
+                        }
                     }
                     error?.let { Text(it, color = LocalPalette.current.error, style = AppTypography.caption.regular) }
                 }
@@ -687,7 +690,7 @@ private fun WidgetSourcePicker(
     onSelect: (InstalledWidget, WidgetModule) -> Unit,
 ) {
     WidgetSheet("选择内容来源", onDismiss, Modifier.fillMaxHeight(0.72f)) {
-        val enabled = widgets.filter { it.enabled }
+        val enabled = widgets.filter { it.enabled }.withBundledWidgetsFirst()
         if (enabled.isEmpty()) {
             Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                 WidgetEmptyState(AppIcons.Grid, "还没有可用组件", "请先安装组件，或在组件详情中启用已有组件。")
@@ -699,7 +702,7 @@ private fun WidgetSourcePicker(
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             WidgetGroupCaption(widget.metadata.title)
                             Panel {
-                                widget.metadata.modules.forEach { module ->
+                                widget.metadata.modules.filter { it.type != "stream" }.forEach { module ->
                                     WidgetMenuRow(
                                         module.title,
                                         { onSelect(widget, module) },
@@ -866,8 +869,11 @@ private fun WidgetStylePicker(
                                 style = AppTypography.caption.regular,
                             )
                             Spacer(Modifier.height(2.dp))
-                            Box(Modifier.fillMaxWidth().clip(AppShapes.card)) {
-                                CompositionLocalProvider(LocalMutedGlass provides false) {
+                            Box(Modifier.fillMaxWidth()) {
+                                CompositionLocalProvider(
+                                    LocalMutedGlass provides false,
+                                    LocalWidgetPreview provides true,
+                                ) {
                                     WidgetCards(
                                         style,
                                         preview.ifEmpty { widgetPreviewItems }.take(6),

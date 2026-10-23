@@ -12,6 +12,12 @@ import com.yfuse.core.model.TmdbDetail
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.util.componentScope
+import com.yfuse.core.widget.WidgetSourceContext
+import com.yfuse.core.widget.detailSearchYear
+import com.yfuse.core.widget.exactDetailMatch
+import com.yfuse.core.widget.widgetDetailItem
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +31,8 @@ data class TmdbInfoState(
     val playable: Boolean = false,
     val resolvingPlay: Boolean = false,
     val sources: List<ServerSource> = emptyList(),
+    val sourcesLoading: Boolean = true,
+    val sourcesError: String? = null,
     val error: String? = null,
     /** The TMDB details failed to load; the page keeps what the list gave it and offers 重试. */
     val detailError: String? = null,
@@ -39,7 +47,7 @@ class TmdbInfoComponent(
     private val tmdb: TmdbRepository,
     private val emby: EmbyRepository,
     private val registry: ServerRegistry,
-    private val item: TmdbItem,
+    private var item: TmdbItem,
     private val embyItemId: String?,
     val onBack: () -> Unit,
     private val onPlayTarget: (
@@ -48,6 +56,9 @@ class TmdbInfoComponent(
         startPositionTicks: Long,
     ) -> Unit,
     private val followStore: CalendarFollowStore? = null,
+    val preferLibraryDetail: Boolean = false,
+    val widgetSourceContext: WidgetSourceContext? = null,
+    private val onOpenLibraryDetail: ((serverId: String, itemId: String) -> Unit)? = null,
 ) : ComponentContext by componentContext {
     private val scope = componentScope(lifecycle)
     private val _state =
@@ -58,6 +69,9 @@ class TmdbInfoComponent(
             ),
         )
     val state: StateFlow<TmdbInfoState> = _state.asStateFlow()
+    private var sourceJob: Job? = null
+    private var sourceGeneration = 0
+    private var openedLibraryDetail = false
     private val _following = MutableStateFlow(followStore?.isFollowing(item.id) == true)
     val following: StateFlow<Boolean> = _following.asStateFlow()
 
@@ -71,25 +85,97 @@ class TmdbInfoComponent(
         }
         loadDetail()
         scope.launch {
-            val sources =
-                emby.compareSources(
-                    servers = registry.data.value.servers,
-                    currentServerId = registry.defaultServer?.id,
-                    title = item.title,
-                    tmdbId = item.id,
-                    mediaType = item.mediaType,
-                    year = item.year?.toIntOrNull(),
-                )
-            _state.update {
-                it.copy(
-                    sources = sources,
-                    playable =
-                        sources.any { source ->
-                            source.reachable && source.source != null && source.itemId != null
-                        },
-                )
-            }
+            registry.data.collect { loadSources() }
         }
+    }
+
+    /** Explicit retry also bypasses the short cooldown left by an earlier server failure. */
+    fun retrySources() {
+        if (_state.value.sourcesLoading) return
+        loadSources(forceRefresh = true)
+    }
+
+    private fun loadSources(forceRefresh: Boolean = false) {
+        sourceJob?.cancel()
+        val generation = ++sourceGeneration
+        if (item.id <= 0) {
+            _state.update { it.copy(sourcesLoading = false) }
+            return
+        }
+        val servers =
+            registry.data.value.servers
+                .sortedBy { it.id != registry.defaultServer?.id }
+        _state.update {
+            it.copy(
+                sources = emptyList(),
+                sourcesLoading = servers.isNotEmpty(),
+                sourcesError = null,
+                playable = embyItemId != null,
+            )
+        }
+        if (servers.isEmpty()) return
+        sourceJob =
+            scope.launch {
+                try {
+                    val sources =
+                        emby.compareSources(
+                            servers = servers,
+                            currentServerId = registry.defaultServer?.id,
+                            title = item.title,
+                            tmdbId = item.id,
+                            mediaType = item.mediaType,
+                            year = item.year?.toIntOrNull(),
+                            forceRefresh = forceRefresh,
+                            onSource = sourceReceived@{ source ->
+                                if (generation != sourceGeneration) return@sourceReceived
+                                _state.update { previous ->
+                                    val available =
+                                        (previous.sources.filterNot { it.serverId == source.serverId } + source)
+                                            .sortedBy { entry -> servers.indexOfFirst { it.id == entry.serverId } }
+                                    previous.copy(
+                                        sources = available,
+                                        playable = embyItemId != null || available.any { it.hasLibraryItem() },
+                                    )
+                                }
+                                if (source.hasLibraryItem() && preferLibraryDetail && !openedLibraryDetail) {
+                                    onOpenLibraryDetail?.let { open ->
+                                        openedLibraryDetail = true
+                                        open(source.serverId, requireNotNull(source.itemId))
+                                    }
+                                }
+                            },
+                        )
+                    if (generation == sourceGeneration) {
+                        _state.update {
+                            it.copy(
+                                sources = sources,
+                                sourcesLoading = false,
+                                playable = embyItemId != null || sources.any { source -> source.hasLibraryItem() },
+                                sourcesError =
+                                    if (sources.any { source -> !source.reachable }) {
+                                        "部分服务器暂时无法查询，可重试查找已有资源"
+                                    } else {
+                                        null
+                                    },
+                            )
+                        }
+                    }
+                } catch (failure: CancellationException) {
+                    throw failure
+                } catch (failure: Exception) {
+                    AppLog.warning(
+                        category = "feature.tmdb_detail",
+                        event = "source_lookup_failed",
+                        message = "Library sources could not be resolved",
+                        throwable = failure,
+                    )
+                    if (generation == sourceGeneration) {
+                        _state.update {
+                            it.copy(sourcesLoading = false, sourcesError = "已有资源暂时无法查询，请重试")
+                        }
+                    }
+                }
+            }
     }
 
     /** 重试 after the TMDB details failed to load. */
@@ -101,6 +187,37 @@ class TmdbInfoComponent(
     private fun loadDetail() {
         _state.update { it.copy(loading = true, detailError = null) }
         scope.launch {
+            if (item.id <= 0) {
+                val media = widgetSourceContext?.media
+                if (media == null || item.mediaType !in setOf("movie", "tv")) {
+                    _state.update { it.copy(loading = false) }
+                    return@launch
+                }
+                try {
+                    val year = media.detailSearchYear()
+                    val first = tmdb.searchTitles(media.title, item.mediaType, year).getOrThrow()
+                    val results =
+                        if (first.isEmpty() && year != null) {
+                            tmdb.searchTitles(media.title, item.mediaType).getOrThrow()
+                        } else {
+                            first
+                        }
+                    val matched = media.exactDetailMatch(results)
+                    if (matched == null) {
+                        _state.update { it.copy(loading = false) }
+                        return@launch
+                    }
+                    item = matched.widgetDetailItem()
+                    _state.update { it.copy(detail = TmdbDetail(item)) }
+                    _following.value = followStore?.isFollowing(item.id) == true
+                    loadSources()
+                } catch (failure: CancellationException) {
+                    throw failure
+                } catch (_: Exception) {
+                    _state.update { it.copy(loading = false, detailError = DETAIL_LOAD_FAILED) }
+                    return@launch
+                }
+            }
             tmdb
                 .detail(item)
                 .onSuccess { detail -> _state.update { it.copy(detail = detail, loading = false) } }
@@ -120,7 +237,7 @@ class TmdbInfoComponent(
     }
 
     fun toggleFollow() {
-        if (item.mediaType != "tv") return
+        if (item.id <= 0 || item.mediaType != "tv") return
         val follows = followStore ?: return
         if (follows.isFollowing(item.id)) {
             follows.unfollow(item.id)
@@ -196,3 +313,5 @@ class TmdbInfoComponent(
 }
 
 private const val DETAIL_LOAD_FAILED = "影视资料没有加载出来，请检查网络后重试"
+
+private fun ServerSource.hasLibraryItem(): Boolean = reachable && !itemId.isNullOrBlank()

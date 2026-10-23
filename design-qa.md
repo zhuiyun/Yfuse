@@ -2,6 +2,24 @@
 
 final result: blocked
 
+## Current browse, playback and retry changes — 2026-10-23
+
+The latest source changes remove the persistent refresh buttons and “加载更多” label, use a section arrow to open a separate browse list, retain list content on return, and open widget details within the custom-home navigation stack. Retry controls use an unboxed icon and text, a minimum 48 dp target, a disabled busy state and reduced-motion-aware feedback. The original screenshot remains the visual reference; no final native screenshot is available.
+
+The [latest implementation and validation record](audit/widget-live-retry-20261023/report.md) distinguishes code validation from native visual acceptance. The intended OPPO is disconnected, and the different connected Samsung has not been operated. The actual locally installed Douyin script is unavailable. Neither live playback nor the final native layout is claimed as device-verified. No new APK has been produced for this round.
+
+## Current component-home changes — 2026-10-23
+
+The current source changes implement the requested home controls, bundled-component ordering, retained feed state and default film/TV details. This is native Android work in the existing application, not a web prototype. The reference screenshot was taken after scrolling, as confirmed by the user; the partially clipped first card is not treated as a defect.
+
+Source visual: `C:/Users/app-inkbird/.codex/visualizations/2026/10/21/01a15dd5-1923-7151-a570-08cd0fff2c73/home-ui-audit-20261023/01-custom-home-scrolled.jpg` (1272 × 2772 pixels). Implementation screenshot: unavailable. Viewport, density and interaction-state comparison: pending native capture. The coordinated phone `2791fbada91c7ece` disconnected; the connected-device list now identifies a different device, which was not operated. No installation or phone settings change was performed.
+
+The [current implementation and validation record](audit/widget-home-20261023/report.md) separates source-level checks from native visual acceptance. In accordance with the Product Design design-qa rule, “If either artifact cannot be opened, captured, or compared, write `design-qa.md` with `final result: blocked`”, the visual gate remains blocked. Compilation and unit tests are not substitutes for rendered-screen comparison.
+
+The following entries are historical and do not validate the current component-home changes.
+
+## Historical acceptance — 2026-10-22
+
 Status (2026-10-22): the user explicitly paused all phone operations and requested code changes first. The 1.5.6 (308) first candidate was tested before that pause and exposed an Android 28 dialog cutout-mode issue. Code now includes its API-specific repair plus the requested statistics, tracking-center and search-filter redesigns, pale glass buttons and unboxed poster ratings. Final-source phone and TV compilation and 1,277 regression tests passed, with zero failures, errors or skipped tests. The final signed full-MDK package passed artifact verification. Final native visual acceptance is pending the user's resumption of device work; no phone queries, installation, screenshots or cleanup have run during the pause.
 
 Current code-phase scope and independent review: [non-player UI code review](audit/all-ui-20261022/code-phase-review.md). Complete source inventory: [UI coverage inventory](audit/all-ui-20261022/ui-coverage-inventory.md). The following 1.5.5 verification and screenshots are historical evidence, not acceptance of the latest code.

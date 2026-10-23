@@ -1,0 +1,30 @@
+{
+  "exitCode": 0,
+  "elapsedSeconds": 420.87,
+  "command": [
+    "gradlew.bat",
+    ":phoneShared:testAndroidHostTest",
+    "--tests",
+    "com.yfuse.core.widget.*",
+    "--tests",
+    "com.yfuse.feature.widgets.*",
+    "--tests",
+    "com.yfuse.feature.home.WidgetDetailRouteTest",
+    "--tests",
+    "com.yfuse.feature.home.TmdbInfoSourcesTest",
+    ":tvShared:compileAndroidMain",
+    "--offline",
+    "--no-daemon",
+    "--max-workers=1",
+    "--no-parallel",
+    "--console=plain",
+    "-Pkotlin.compiler.execution.strategy=in-process",
+    "-Pkotlin.incremental=false",
+    "-Dorg.gradle.jvmargs=-Xmx4096M -Dfile.encoding=UTF-8",
+    "-PyfuseIncludeMdk=true",
+    "-PyfuseNativeOnlyRuntime=false"
+  ],
+  "sourceInputCount": 2830,
+  "sourceDrift": [],
+  "completedAtUtc": "2026-10-23T09:22:34.5651963Z"
+}
