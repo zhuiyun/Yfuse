@@ -685,7 +685,9 @@ class DetailBackNavigationInstrumentedTest {
                                             probe.transitionDetails.set(
                                                 "route=$route current=${transition.currentState} " +
                                                     "target=${transition.targetState} sharedMoving=$sharedMoving " +
-                                                    "sharedKey=$transitionActive preview=$previewActive",
+                                                    "sharedKey=$transitionActive preview=$previewActive " +
+                                                    "running=${transition.isRunning} " +
+                                                    "durationNanos=${transition.totalDurationNanos}",
                                             )
                                             if (previewActive) probe.previewSeen.set(true)
                                         }

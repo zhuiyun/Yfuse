@@ -369,14 +369,7 @@ internal class ZoomBackNavHost(
                 !visible || !controller.canStartSide -> SystemRoute.Ignored
                 top != null && stack.size > 1 && !blocked() && beginGesture(top, useOrigin = false) -> {
                     if (controller.startSide(BACK_NAVIGATION_TOWARD, event.progress, detailPreview)) {
-                        navigation.started(
-                            NavigationEvent(
-                                swipeEdge = event.swipeEdge,
-                                progress = 0f,
-                                touchX = event.touchX,
-                                touchY = event.touchY,
-                            ),
-                        )
+                        navigation.started(event)
                         SystemRoute.Zoom
                     } else {
                         clearGesture()
@@ -393,7 +386,13 @@ internal class ZoomBackNavHost(
 
     private fun systemProgressed(event: NavigationEvent) {
         when (system) {
-            SystemRoute.Zoom -> controller.moveSide(event.progress)
+            SystemRoute.Zoom -> {
+                controller.moveSide(event.progress)
+                // NavDisplay must rewind the same fraction when this gesture is cancelled.
+                // Holding it at zero skips that rewind and leaves its entry in PostExit.
+                // Its visual transform remains empty; the controller still draws the slide.
+                navigation.progressed(event)
+            }
             SystemRoute.Forward -> navigation.progressed(event)
             SystemRoute.None, SystemRoute.Ignored -> Unit
         }
