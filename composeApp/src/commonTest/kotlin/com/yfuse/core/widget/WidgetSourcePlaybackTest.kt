@@ -59,13 +59,15 @@ class WidgetSourcePlaybackTest {
 
     @Test fun aRankingUrlCardKeepsItsTvIdentityAndSuppliesTheSelectedEpisodeToItsResolver() =
         runTest {
-            val runtime = Runtime().apply {
-                response = """[{"name":"S2E3","url":"https://cdn.example/episode.m3u8"}]"""
-            }
+            val runtime =
+                Runtime().apply {
+                    response = """[{"name":"S2E3","url":"https://cdn.example/episode.m3u8"}]"""
+                }
             val repository = repository(runtime, stream = true)
-            val media = parseWidgetMedia(
-                """[{"id":"source-42","type":"url","mediaType":"tv","title":"玉簟秋","releaseDate":"2026","originalTitle":"Original title","seasonInfo":"第 2 季","genreTitle":"[GXF cat=tv|area=大陆|vid=42]","tmdbInfo":{"originalTitle":"Original title"},"videoUrl":"https://cdn.example/preview.mp4"}]""",
-            ).single()
+            val media =
+                parseWidgetMedia(
+                    """[{"id":"source-42","type":"url","mediaType":"tv","title":"玉簟秋","releaseDate":"2026","originalTitle":"Original title","seasonInfo":"第 2 季","genreTitle":"[GXF cat=tv|area=大陆|vid=42]","tmdbInfo":{"originalTitle":"Original title"},"videoUrl":"https://cdn.example/preview.mp4"}]""",
+                ).single()
             assertEquals("tv", media.widgetDetailSeed().mediaType)
             assertEquals(0, media.widgetDetailSeed().id)
             assertNull(media.tmdbDetailItemOrNull())
@@ -92,18 +94,25 @@ class WidgetSourcePlaybackTest {
 
     @Test fun episodeRoutesRetainTheirSeriesTitleAndTmdbIdentityAfterDetailLoading() =
         runTest {
-            val runtime = Runtime().apply {
-                response = """{"episodes":[{"id":"ep-3","title":"第3集","season":2,"episode":3,"link":"https://source.example/3"}]}"""
-            }
+            val runtime =
+                Runtime().apply {
+                    response =
+                        """{"episodes":[{"id":"ep-3","title":"第3集","season":2,"episode":3,"link":"https://source.example/3"}]}"""
+                }
             val repository = repository(runtime, stream = true)
-            val media = parseWidgetMedia(
-                """[{"id":"42","type":"tmdb","mediaType":"tv","title":"Series title","releaseDate":"2026","genreTitle":"Drama","link":"https://source.example/show"}]""",
-            ).single()
+            val media =
+                parseWidgetMedia(
+                    """[{"id":"42","type":"tmdb","mediaType":"tv","title":"Series title","releaseDate":"2026","genreTitle":"Drama","link":"https://source.example/show"}]""",
+                ).single()
             val loaded = repository.detail("local", media)
             val route = loaded.widgetPlaybackRoutes().single()
             runtime.response = """[{"name":"HD","url":"https://cdn.example/3.m3u8"}]"""
             repository.playback(WidgetSourceContext("local", loaded), route)
-            val args = runtime.calls.last().second.jsonObject
+            val args =
+                runtime.calls
+                    .last()
+                    .second
+                    .jsonObject
             assertEquals(JsonPrimitive("第3集"), args["title"])
             assertEquals(JsonPrimitive("Series title"), args["seriesName"])
             assertEquals(JsonPrimitive("42"), args["tmdbId"])
@@ -115,16 +124,22 @@ class WidgetSourcePlaybackTest {
 
     @Test fun anIdOnlyCatalogCardCanUseItsDeclaredStreamResolverWithoutADetailLink() =
         runTest {
-            val runtime = Runtime().apply {
-                response = """[{"id":"route","title":"HD","videoUrl":"https://cdn.example/live.m3u8"}]"""
-            }
+            val runtime =
+                Runtime().apply {
+                    response = """[{"id":"route","title":"HD","videoUrl":"https://cdn.example/live.m3u8"}]"""
+                }
             val repository = repository(runtime, stream = true)
             val media = WidgetMedia("room-42", "Live", mediaType = "video", type = "live")
             val context = WidgetSourceContext("local", media)
             assertTrue(context.hasStreamResolver(repository.database.value))
             val resolved = repository.playback(context, media).widgetPlaybackRoutes()
             assertEquals("freshStream", runtime.calls.single().first)
-            assertEquals(JsonPrimitive("room-42"), runtime.calls.single().second.jsonObject["id"])
+            val args =
+                runtime.calls
+                    .single()
+                    .second
+                    .jsonObject
+            assertEquals(JsonPrimitive("room-42"), args["id"])
             assertEquals("https://cdn.example/live.m3u8", resolved.single().videoUrl)
             val database = repository.database.value
             assertFalse(
@@ -165,7 +180,8 @@ class WidgetSourcePlaybackTest {
 
     @Test fun a_live_link_refreshes_its_signed_address_on_play_but_does_not_poll_on_return() =
         runTest {
-            val runtime = Runtime().apply { response = """{"videoUrl":"https://cdn.example/live.flv?token=fresh"}""" }
+            val runtime =
+                Runtime().apply { response = """{"videoUrl":"https://cdn.example/live.flv?token=fresh"}""" }
             val repository = repository(runtime)
             val media =
                 WidgetMedia(

@@ -48,30 +48,35 @@ class TmdbInfoSourcesTest {
 
     @Test fun aUrlTypedTvRankingCardStartsLibraryLookupWithoutATmdbIdentity() =
         runTest {
-            val media = parseWidgetMedia(
-                """[{"id":"source-42","type":"url","mediaType":"tv","title":"玉簟秋","releaseDate":"2026","rating":6.9}]""",
-            ).single()
+            val media =
+                parseWidgetMedia(
+                    """[{"id":"source-42","type":"url","mediaType":"tv","title":"玉簟秋","releaseDate":"2026","rating":6.9}]""",
+                ).single()
             var queries = 0
-            val fixture = fixture(
-                preferLibraryDetail = false,
-                sourceContext = WidgetSourceContext("ranking", media),
-                initialItem = media.widgetDetailSeed(),
-                tmdbHandler = { throw IOException("Metadata unavailable") },
-            ) { request ->
-                if (request.url.encodedPath.endsWith("/Users/u/Items")) {
-                    queries++
-                    assertEquals("玉簟秋", request.url.parameters["SearchTerm"])
-                    assertEquals("Series", request.url.parameters["IncludeItemTypes"])
-                    assertNull(request.url.parameters["AnyProviderIdEquals"])
-                    json("""{"Items":[{"Id":"series-42","Name":"玉簟秋","Type":"Series","ProductionYear":2026}]}""")
-                } else {
-                    json("""{"Items":[]}""")
+            val fixture =
+                fixture(
+                    preferLibraryDetail = false,
+                    sourceContext = WidgetSourceContext("ranking", media),
+                    initialItem = media.widgetDetailSeed(),
+                    tmdbHandler = { throw IOException("Metadata unavailable") },
+                ) { request ->
+                    if (request.url.encodedPath.endsWith("/Users/u/Items")) {
+                        queries++
+                        assertEquals("玉簟秋", request.url.parameters["SearchTerm"])
+                        assertEquals("Series", request.url.parameters["IncludeItemTypes"])
+                        assertNull(request.url.parameters["AnyProviderIdEquals"])
+                        json("""{"Items":[{"Id":"series-42","Name":"玉簟秋","Type":"Series","ProductionYear":2026}]}""")
+                    } else {
+                        json("""{"Items":[]}""")
+                    }
                 }
-            }
             try {
                 advanceUntilIdle()
                 assertTrue(queries > 0)
-                assertEquals("series-42", fixture.component.state.value.sources.single().itemId)
+                val source =
+                    fixture.component.state.value.sources
+                        .single()
+                assertEquals("series-42", source.itemId)
                 assertTrue(fixture.component.state.value.playable)
                 assertFalse(fixture.component.state.value.sourcesLoading)
                 assertEquals(0, fixture.playRequests)
@@ -84,19 +89,20 @@ class TmdbInfoSourcesTest {
         runTest {
             val metadata = CompletableDeferred<Unit>()
             val media = WidgetMedia("catalog-id", "Avengers: Endgame", mediaType = "movie", year = "2019")
-            val fixture = fixture(
-                sourceContext = WidgetSourceContext("catalog", media),
-                initialItem = media.widgetDetailSeed(),
-                tmdbHandler = {
-                    metadata.await()
-                    json("""{"results":[]}""")
-                },
-            ) { request ->
-                assertEquals(media.title, request.url.parameters["SearchTerm"])
-                assertNull(request.url.parameters["AnyProviderIdEquals"])
-                assertEquals("Movie", request.url.parameters["IncludeItemTypes"])
-                matchingMovie("primary")
-            }
+            val fixture =
+                fixture(
+                    sourceContext = WidgetSourceContext("catalog", media),
+                    initialItem = media.widgetDetailSeed(),
+                    tmdbHandler = {
+                        metadata.await()
+                        json("""{"results":[]}""")
+                    },
+                ) { request ->
+                    assertEquals(media.title, request.url.parameters["SearchTerm"])
+                    assertNull(request.url.parameters["AnyProviderIdEquals"])
+                    assertEquals("Movie", request.url.parameters["IncludeItemTypes"])
+                    matchingMovie("primary")
+                }
             try {
                 runCurrent()
                 assertTrue(fixture.component.state.value.loading)
@@ -116,15 +122,16 @@ class TmdbInfoSourcesTest {
         runTest {
             val media = WidgetMedia("catalog-id", "Unrelated film", mediaType = "movie", year = "2019")
             var queries = 0
-            val fixture = fixture(
-                sourceContext = WidgetSourceContext("catalog", media),
-                initialItem = media.widgetDetailSeed(),
-                tmdbHandler = { throw IOException("Metadata unavailable") },
-            ) { request ->
-                queries++
-                assertEquals(media.title, request.url.parameters["SearchTerm"])
-                matchingMovie("primary")
-            }
+            val fixture =
+                fixture(
+                    sourceContext = WidgetSourceContext("catalog", media),
+                    initialItem = media.widgetDetailSeed(),
+                    tmdbHandler = { throw IOException("Metadata unavailable") },
+                ) { request ->
+                    queries++
+                    assertEquals(media.title, request.url.parameters["SearchTerm"])
+                    matchingMovie("primary")
+                }
             try {
                 advanceUntilIdle()
                 assertTrue(queries > 0)
@@ -253,7 +260,8 @@ class TmdbInfoSourcesTest {
                                 ),
                         ),
                 )
-            val fixture = fixture(sourceContext = context) { json("""{"Items":[]}""") }
+            val fixture =
+                fixture(sourceContext = context) { json("""{"Items":[]}""") }
             try {
                 advanceUntilIdle()
                 assertFalse(fixture.component.state.value.sourcesLoading)
@@ -339,7 +347,8 @@ class TmdbInfoSourcesTest {
     @Test
     fun ordinaryDiscoveryKeepsItsExistingMetadataRouteWhenSourcesAreFound() =
         runTest {
-            val fixture = fixture(preferLibraryDetail = false) { matchingMovie("primary") }
+            val fixture =
+                fixture(preferLibraryDetail = false) { matchingMovie("primary") }
             try {
                 advanceUntilIdle()
                 assertTrue(fixture.component.state.value.playable)

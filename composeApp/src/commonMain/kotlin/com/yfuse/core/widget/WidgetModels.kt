@@ -313,7 +313,11 @@ fun parseWidgetItem(
                 ?.coerceIn(0f, 1f),
         season =
             item.text("seasonNumber", "season_number", "season").toIntOrNull()
-                ?: Regex("第\\s*([0-9]+)\\s*季").find(item.text("seasonInfo"))?.groupValues?.get(1)?.toIntOrNull(),
+                ?: Regex("第\\s*([0-9]+)\\s*季")
+                    .find(item.text("seasonInfo"))
+                    ?.groupValues
+                    ?.get(1)
+                    ?.toIntOrNull(),
         episode = item.text("episodeNumber", "episode_number", "episode").toIntOrNull(),
         headers =
             ((item["headers"] as? JsonObject).orEmpty() + (item["customHeaders"] as? JsonObject).orEmpty())
@@ -338,10 +342,17 @@ fun parseWidgetItem(
         resourceMetadata =
             JsonObject(
                 item.filterKeys {
-                    it in setOf(
-                        "originalTitle", "seriesName", "episodeName", "seasonInfo", "genreTitle",
-                        "releaseDate", "premiereDate", "tmdbInfo",
-                    )
+                    it in
+                        setOf(
+                            "originalTitle",
+                            "seriesName",
+                            "episodeName",
+                            "seasonInfo",
+                            "genreTitle",
+                            "releaseDate",
+                            "premiereDate",
+                            "tmdbInfo",
+                        )
                 },
             ),
     )

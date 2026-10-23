@@ -3,7 +3,6 @@ package com.yfuse.feature.widgets
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.Orientation
@@ -69,6 +68,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.widget.WidgetMedia
@@ -289,7 +289,7 @@ internal fun WidgetKineticLayouts(
                 Crossfade(
                     targetState = items[currentIndex],
                     modifier = Modifier.weight(1f),
-                    animationSpec = tween(if (reduceMotion) 0 else 160),
+                    animationSpec = Motion.tween(if (reduceMotion) 0 else Motion.DISCLOSURE),
                     label = "kineticFilmCopy",
                 ) { item ->
                     MediaCopy(item, metadata = metadata, dense = true)

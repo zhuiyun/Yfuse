@@ -2424,8 +2424,13 @@ internal class AndroidEnhancedPlaybackSession(
     /** Recover only the stalled audio path; live streams must not be reopened/seeked for this. */
     private fun recoverMissingAudioOutput(): Boolean {
         val eligible =
-            playing && firstVideoFrameRendered && audioTrack != null && !audioInputEnded &&
-                !softwareAudioActive && !isAudioPassthrough() && !audioRendererConfigured
+            playing &&
+                firstVideoFrameRendered &&
+                audioTrack != null &&
+                !audioInputEnded &&
+                !softwareAudioActive &&
+                !isAudioPassthrough() &&
+                !audioRendererConfigured
         if (!audioStartupWatchdog.shouldFallback(System.nanoTime(), eligible)) return false
         val software = softwareDecoderOrNull() ?: return false
         val track = requireNotNull(audioTrack)

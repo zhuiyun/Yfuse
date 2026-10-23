@@ -54,9 +54,11 @@ internal fun WidgetSourceSection(context: WidgetSourceContext) {
     var resolvedChoices by remember(context) { mutableStateOf<List<WidgetMedia>?>(null) }
     var failedRoute by remember(context) { mutableStateOf<WidgetMedia?>(null) }
     val selectEpisode =
-        hasStreamResolver && media.isWidgetFilmOrSeries() &&
+        hasStreamResolver &&
+            media.isWidgetFilmOrSeries() &&
             media.mediaType.trim().lowercase() in setOf("tv", "series") &&
-            media.episode == null && media.children.isEmpty()
+            media.episode == null &&
+            media.children.isEmpty()
     var seasonInput by remember(context, media.season) { mutableStateOf((media.season ?: 1).toString()) }
     var episodeInput by remember(context) { mutableStateOf("1") }
     val selectedSeason = seasonInput.toIntOrNull()?.takeIf { it > 0 }

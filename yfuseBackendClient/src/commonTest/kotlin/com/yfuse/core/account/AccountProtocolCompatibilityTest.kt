@@ -1,5 +1,6 @@
 package com.yfuse.core.account
 
+import com.yfuse.backend.BackendAccess
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
@@ -10,6 +11,8 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 
 class AccountProtocolCompatibilityTest {
+    private val backendAccess = BackendAccess(enabled = true)
+
     @Test
     fun missing_prelogin_route_uses_the_legacy_contract() =
         runTest {
@@ -20,9 +23,10 @@ class AccountProtocolCompatibilityTest {
                         paths += request.url.encodedPath
                         respond("legacy route missing", HttpStatusCode.NotFound)
                     },
+                    access = backendAccess,
                 )
             try {
-                assertNull(AccountApi(client).prelogin("legacy-viewer"))
+                assertNull(AccountApi(client, backendAccess = backendAccess).prelogin("legacy-viewer"))
                 assertEquals(listOf("/api/v1/auth/prelogin"), paths)
             } finally {
                 client.close()
@@ -39,9 +43,12 @@ class AccountProtocolCompatibilityTest {
                         paths += request.url.encodedPath
                         respond("temporarily unavailable", HttpStatusCode.ServiceUnavailable)
                     },
+                    access = backendAccess,
                 )
             try {
-                val failure = runCatching { AccountApi(client).prelogin("legacy-viewer") }.exceptionOrNull()
+                val failure =
+                    runCatching { AccountApi(client, backendAccess = backendAccess).prelogin("legacy-viewer") }
+                        .exceptionOrNull()
                 assertEquals(HttpStatusCode.ServiceUnavailable, assertIs<AccountApiException>(failure).status)
                 assertEquals(listOf("/api/v1/auth/prelogin"), paths)
             } finally {

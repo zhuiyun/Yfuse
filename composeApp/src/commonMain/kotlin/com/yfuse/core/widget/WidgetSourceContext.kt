@@ -16,7 +16,8 @@ data class WidgetSourceContext(
 /** A stream resolver can work from the item ID even when the catalog returns no link. */
 fun WidgetSourceContext.hasStreamResolver(database: WidgetDatabase): Boolean =
     database.widgets.any { widget ->
-        widget.enabled && widget.metadata.id == widgetId &&
+        widget.enabled &&
+            widget.metadata.id == widgetId &&
             widget.metadata.modules.any { it.id == "loadResource" && it.type == "stream" }
     }
 

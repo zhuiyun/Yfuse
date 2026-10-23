@@ -298,15 +298,23 @@ class DetailBackNavigationInstrumentedTest {
             awaitComposedRoute("library", probe)
             tapPoster(probe)
             awaitComposedRoute("detail-a", probe)
-            awaitCondition("The poster entry did not settle") { !probe.transitionActive.get() }
+            awaitCondition("The poster entry did not settle") {
+                !probe.transitionActive.get() &&
+                    !probe.sharedMoving.get() &&
+                    probe.routeSettled.get()
+            }
             for (edge in listOf(BackEventCompat.EDGE_LEFT, BackEventCompat.EDGE_RIGHT)) {
                 predictiveGesture(scenario, cancel = true, edge = edge) {
                     assertOpaqueSidePreview()
                     assertFalse("Back must not seek the shared hero", probe.sharedMoving.get())
                 }
-                awaitCondition("The cancelled detail did not settle") {
-                    !probe.sharedMoving.get() &&
-                        probe.routeSettled.get()
+                try {
+                    awaitCondition("The cancelled detail did not settle") {
+                        !probe.sharedMoving.get() &&
+                            probe.routeSettled.get()
+                    }
+                } catch (failure: AssertionError) {
+                    throw AssertionError("${failure.message}; edge=$edge; ${probe.transitionDetails.get()}", failure)
                 }
                 assertStack(scenario, probe, listOf("library", "detail-a"), pops = 0)
             }
@@ -674,6 +682,11 @@ class DetailBackNavigationInstrumentedTest {
                                             probe.sharedMoving.set(sharedMoving)
                                             probe.previewActive.set(previewActive)
                                             probe.routeSettled.set(routeSettled)
+                                            probe.transitionDetails.set(
+                                                "route=$route current=${transition.currentState} " +
+                                                    "target=${transition.targetState} sharedMoving=$sharedMoving " +
+                                                    "sharedKey=$transitionActive preview=$previewActive",
+                                            )
                                             if (previewActive) probe.previewSeen.set(true)
                                         }
                                     }
@@ -1107,6 +1120,7 @@ class DetailBackNavigationInstrumentedTest {
         val previewActive = AtomicBoolean()
         val previewSeen = AtomicBoolean()
         val routeSettled = AtomicBoolean()
+        val transitionDetails = AtomicReference<String>()
         val menuComposed = AtomicBoolean()
         val menu = LiftMenuState()
     }

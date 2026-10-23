@@ -38,6 +38,7 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.ThemeIcon
 import com.yfuse.core.designsystem.controlSurface
 import com.yfuse.core.designsystem.pressable
@@ -79,7 +80,11 @@ internal fun WidgetHomeAction(
             transition.animateFloat(
                 initialValue = 0f,
                 targetValue = 360f,
-                animationSpec = infiniteRepeatable(tween(1000, easing = LinearEasing), RepeatMode.Restart),
+                animationSpec =
+                    infiniteRepeatable(
+                        tween(Motion.SPINNER_TURN, easing = LinearEasing),
+                        RepeatMode.Restart,
+                    ),
                 label = "widgetRefreshAngle",
             )
         } else {

@@ -35,7 +35,8 @@ import java.util.concurrent.atomic.AtomicReference
 class LiquidTabGestureInstrumentedTest {
     @Test(timeout = 45_000L)
     fun drag_commits_once_on_release_cancel_rolls_back_and_switch_restores_taps() {
-        // Browse and Watching are the first two persistent cells; Home is a discovery route.
+        // Use the same visible destinations as GlassTabBar, including the custom home.
+        val tabs = navigationTabs().map { it.tab }
         val active = mutableStateOf(Tab.Browse)
         val enabled = mutableStateOf(true)
         val selections = AtomicInteger()
@@ -71,22 +72,22 @@ class LiquidTabGestureInstrumentedTest {
             while (bounds.get().width == 0f && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(20)
             assertTrue(bounds.get().width > 0f)
 
-            fun cell(index: Int): Offset =
-                bounds.get().let { Offset(it.left + it.width * (index + 0.5f) / 4f, it.center.y) }
+            fun cell(tab: Tab): Offset =
+                bounds.get().let { Offset(it.left + it.width * (tabs.indexOf(tab) + 0.5f) / tabs.size, it.center.y) }
 
             var down = SystemClock.uptimeMillis()
-            send(scenario, MotionEvent.ACTION_DOWN, cell(0), down)
-            move(scenario, cell(0), cell(3), down)
+            send(scenario, MotionEvent.ACTION_DOWN, cell(Tab.Browse), down)
+            move(scenario, cell(Tab.Browse), cell(Tab.Profile), down)
             assertEquals("Dragging must not navigate before release", 0, selections.get())
-            send(scenario, MotionEvent.ACTION_UP, cell(3), down)
+            send(scenario, MotionEvent.ACTION_UP, cell(Tab.Profile), down)
             instrumentation.waitForIdleSync()
             assertEquals(Tab.Profile, active.value)
             assertEquals("A drag also triggered a child click", 1, selections.get())
 
             down = SystemClock.uptimeMillis()
-            send(scenario, MotionEvent.ACTION_DOWN, cell(3), down)
-            move(scenario, cell(3), cell(0), down)
-            send(scenario, MotionEvent.ACTION_CANCEL, cell(0), down)
+            send(scenario, MotionEvent.ACTION_DOWN, cell(Tab.Profile), down)
+            move(scenario, cell(Tab.Profile), cell(Tab.Browse), down)
+            send(scenario, MotionEvent.ACTION_CANCEL, cell(Tab.Browse), down)
             instrumentation.waitForIdleSync()
             assertEquals(Tab.Profile, active.value)
             assertEquals(1, selections.get())
@@ -94,15 +95,15 @@ class LiquidTabGestureInstrumentedTest {
             scenario.onActivity { enabled.value = false }
             instrumentation.waitForIdleSync()
             down = SystemClock.uptimeMillis()
-            send(scenario, MotionEvent.ACTION_DOWN, cell(3), down)
-            move(scenario, cell(3), cell(0), down)
-            send(scenario, MotionEvent.ACTION_UP, cell(0), down)
+            send(scenario, MotionEvent.ACTION_DOWN, cell(Tab.Profile), down)
+            move(scenario, cell(Tab.Profile), cell(Tab.Browse), down)
+            send(scenario, MotionEvent.ACTION_UP, cell(Tab.Browse), down)
             instrumentation.waitForIdleSync()
             assertEquals("Disabled motion retained its drag handler", 1, selections.get())
 
             down = SystemClock.uptimeMillis()
-            send(scenario, MotionEvent.ACTION_DOWN, cell(1), down)
-            send(scenario, MotionEvent.ACTION_UP, cell(1), down)
+            send(scenario, MotionEvent.ACTION_DOWN, cell(Tab.Watching), down)
+            send(scenario, MotionEvent.ACTION_UP, cell(Tab.Watching), down)
             instrumentation.waitForIdleSync()
             assertEquals(Tab.Watching, active.value)
             assertEquals(2, selections.get())
