@@ -40,6 +40,7 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
@@ -262,9 +263,13 @@ class AccountRepositoryStateTest {
         }
 
     @Test
-    fun restore_session_refresh_unauthorized_clears_credentials_and_signs_out() =
+    fun restore_session_refresh_unauthorized_clears_credentials_but_preserves_protocol_guard() =
         runTest {
-            val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
+            val secureStore = RecordingAccountSecureStore()
+            val crypto = VaultCrypto(FastAccountCryptoPrimitives())
+            AccountProtocolMemory(secureStore, crypto).rememberDerivedKey("existing-user")
+            val protocolGuard = secureStore.snapshot()
+            secureStore.seedStoredSession()
             val api =
                 accountApi(
                     MockEngine { request ->
@@ -284,8 +289,10 @@ class AccountRepositoryStateTest {
             awaitAccountState(repository) { it is AccountState.SignedOut }
 
             assertIs<AccountState.SignedOut>(repository.state.value)
-            assertTrue(secureStore.snapshot().isEmpty())
-            assertEquals(1, secureStore.clearCount)
+            assertEquals(protocolGuard, secureStore.snapshot())
+            assertFailsWith<IllegalStateException> {
+                AccountProtocolMemory(secureStore, crypto).requirePasswordMayBeSent("existing-user")
+            }
         }
 
     @Test

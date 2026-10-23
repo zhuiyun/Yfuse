@@ -37,15 +37,11 @@ class AccountProtocolTest {
     }
 
     @Test
-    fun theMemoryOfUpgradedAccountsSurvivesSignOutAndIgnoresCase() {
+    fun theMemoryOfUpgradedAccountsIgnoresCaseAndCanBeExplicitlyForgotten() {
         val store = TestSecureStore()
         val memory = AccountProtocolMemory(store, VaultCrypto())
         memory.requirePasswordMayBeSent("viewer")
         memory.rememberDerivedKey(" Viewer ")
-        store.put("refresh_token", byteArrayOf(1))
-
-        memory.preservedAcross(store::clear)
-
         assertEquals(setOf("account_protocol2_names"), store.storedKeys())
         assertFailsWith<IllegalStateException> { memory.requirePasswordMayBeSent("VIEWER") }
         memory.requirePasswordMayBeSent("someone-else")

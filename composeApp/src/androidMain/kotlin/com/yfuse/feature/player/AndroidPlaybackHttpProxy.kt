@@ -42,7 +42,6 @@ internal class AndroidPlaybackHttpProxy(
     videoCacheBytes: Long,
     private val connectionAdmission: PlaybackProxyAdmission = PlaybackProxyAdmission(),
     private val headerTimeoutMs: Long = PLAYBACK_PROXY_HEADER_TIMEOUT_MS,
-    widgetMedia: () -> PlayerMediaItem? = { null },
 ) : Closeable {
     private val routes = PlaybackProxyRoutes()
     private val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
@@ -51,13 +50,21 @@ internal class AndroidPlaybackHttpProxy(
             .newBuilder()
             .connectTimeout(UPSTREAM_CONNECT_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
             .readTimeout(UPSTREAM_READ_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
-            .addNetworkInterceptor(WidgetPlaybackHeadersInterceptor(widgetMedia))
+            .addNetworkInterceptor(WidgetPlaybackHeadersInterceptor())
             .addNetworkInterceptor { chain ->
                 val original = chain.request()
                 val uri = original.url.toUri()
-                val cookies = cookieManager.get(uri, emptyMap())["Cookie"].orEmpty()
+                val binding = original.tag(WidgetPlaybackRequest::class.java)
+                val manager = binding?.cookies ?: cookieManager
+                val cookies = manager.get(uri, emptyMap())["Cookie"].orEmpty()
+                val explicitCookie =
+                    binding != null &&
+                        binding.headers.values.keys
+                            .any { it.equals("Cookie", ignoreCase = true) } &&
+                        com.yfuse.core2.android
+                            .mediaCredentialOriginsMatch(binding.origin, original.url.toString())
                 val outgoing =
-                    if (cookies.isEmpty()) {
+                    if (cookies.isEmpty() || explicitCookie) {
                         original
                     } else {
                         original
@@ -66,7 +73,7 @@ internal class AndroidPlaybackHttpProxy(
                             .build()
                     }
                 chain.proceed(outgoing).also { response ->
-                    cookieManager.put(uri, response.headers.toMultimap())
+                    manager.put(uri, response.headers.toMultimap())
                 }
             }.build()
     private val cacheHandle =
@@ -107,9 +114,12 @@ internal class AndroidPlaybackHttpProxy(
     fun localUrl(
         upstreamUrl: String,
         cacheable: Boolean = false,
+        widgetRequest: WidgetPlaybackRequest? = null,
     ): String {
         if (!shouldProxyMpvNetworkUrl(upstreamUrl)) return upstreamUrl
-        val routeId = routes.registerRoot(PlaybackProxyRoute(upstreamUrl, cacheable)) ?: return upstreamUrl
+        val routeId =
+            routes.registerRoot(PlaybackProxyRoute(upstreamUrl, cacheable && widgetRequest == null, widgetRequest))
+                ?: return upstreamUrl
         return routeUrl(routeId)
     }
 
@@ -347,6 +357,7 @@ internal class AndroidPlaybackHttpProxy(
             Request
                 .Builder()
                 .url(route.upstreamUrl)
+                .tag(WidgetPlaybackRequest::class.java, route.widgetRequest)
                 .method(method, null)
                 .header("Accept-Encoding", "identity")
         userAgent.trim().takeIf(String::isNotEmpty)?.let { builder.header("User-Agent", it) }

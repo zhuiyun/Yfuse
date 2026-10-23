@@ -95,3 +95,36 @@ test("the proxy connects to the address it checked, and only on web ports", asyn
     target.close();
   }
 });
+
+test("disconnecting an HTTP renderer request closes its outstanding upstream response", { timeout: 3000 }, async () => {
+  const upstreamSockets = new Set();
+  let closeUpstream;
+  const upstreamClosed = new Promise((resolve) => { closeUpstream = resolve; });
+  const target = http.createServer((_request, response) => {
+    response.writeHead(200);
+    response.write("partial page");
+  });
+  target.on("connection", (socket) => {
+    upstreamSockets.add(socket);
+    socket.on("close", closeUpstream);
+  });
+  await new Promise((resolve) => target.listen(0, "127.0.0.1", resolve));
+  const port = target.address().port;
+  const proxy = await startEgressProxy({ isBlocked: () => false, allowedPorts: [port] });
+  try {
+    await new Promise((resolve, reject) => {
+      const request = http.get({ host: "127.0.0.1", port: proxy.address().port, path: `http://127.0.0.1:${port}/` },
+        (response) => response.once("data", () => { response.destroy(); resolve(); }));
+      request.on("error", reject);
+    });
+    await Promise.race([
+      upstreamClosed,
+      new Promise((_resolve, reject) => { const timer = setTimeout(() => reject(new Error("upstream left open")), 500); timer.unref(); }),
+    ]);
+  } finally {
+    for (const socket of upstreamSockets) socket.destroy();
+    proxy.closeAllConnections();
+    proxy.close();
+    target.close();
+  }
+});

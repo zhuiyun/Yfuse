@@ -80,6 +80,7 @@ import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.YfChip
 import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.liftAnchor
 import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.motionAwareScrollToItem
@@ -712,7 +713,7 @@ private fun GenreLoadErrorRow(
                     .glass(
                         shape = AppShapes.chip,
                         fill = accent.container,
-                        border = accent.border.copy(alpha = 0.28f),
+                        border = glassControlHighlight(accent, palette.isDark),
                     ).padding(horizontal = 14.dp, vertical = 7.dp),
         )
     }
@@ -914,7 +915,7 @@ private fun GridFooter(
                             .glass(
                                 shape = AppShapes.chip,
                                 fill = accent.container,
-                                border = accent.border.copy(alpha = 0.28f),
+                                border = glassControlHighlight(accent, palette.isDark),
                             ).padding(horizontal = 14.dp, vertical = 7.dp),
                 )
             }

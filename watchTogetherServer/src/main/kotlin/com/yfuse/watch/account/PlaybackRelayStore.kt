@@ -53,6 +53,25 @@ internal data class PlaybackDeltaResponse(
     val hasMore: Boolean = false,
 )
 
+@Serializable
+internal data class PlaybackRekeyItem(
+    val sourceEntityKey: String,
+    val sourceCursor: Long,
+    val entity: EncryptedPlaybackEntity,
+)
+
+@Serializable
+internal data class PlaybackRekeyBatch(
+    val migrationId: String,
+    val keyVersion: Int,
+    val items: List<PlaybackRekeyItem> = emptyList(),
+)
+
+@Serializable
+internal data class PlaybackRekeyReceipt(
+    val migrationId: String,
+)
+
 /**
  * Opaque, cursor-addressed current-state relay. The media key and document are both client-side
  * secrets: [entityKey] is HMAC-SHA256 under the account vault key and [ciphertext] is AES-GCM.
@@ -99,6 +118,34 @@ internal class PlaybackRelayStore private constructor(
                     """
                     CREATE INDEX IF NOT EXISTS playback_sync_entities_cursor_idx
                     ON playback_sync_entities(user_id, cursor)
+                    """.trimIndent(),
+                )
+                statement.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS playback_rekey (
+                        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                        migration_id TEXT NOT NULL,
+                        session_id TEXT NOT NULL,
+                        key_version INTEGER NOT NULL,
+                        updated_at_ms INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                statement.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS playback_rekey_entities (
+                        user_id TEXT NOT NULL REFERENCES playback_rekey(user_id) ON DELETE CASCADE,
+                        source_key TEXT NOT NULL,
+                        source_cursor INTEGER NOT NULL,
+                        entity_key TEXT NOT NULL,
+                        mutation_id TEXT NOT NULL,
+                        nonce BLOB NOT NULL,
+                        ciphertext BLOB NOT NULL,
+                        updated_at_ms INTEGER NOT NULL,
+                        PRIMARY KEY(user_id, source_key),
+                        UNIQUE(user_id, entity_key),
+                        UNIQUE(user_id, mutation_id)
+                    )
                     """.trimIndent(),
                 )
             }
@@ -172,14 +219,15 @@ internal class PlaybackRelayStore private constructor(
         request: PlaybackPushRequest,
         nowEpochMs: Long,
         keyVersion: Int = 1,
+        validateAccount: (() -> Int)? = null,
     ): PlaybackPushResponse =
         synchronized(lock) {
             require(request.items.size in 1..MAX_PUSH_ITEMS) { "playback batch size invalid" }
-            val normalized = request.items.map { validatePutItem(it, keyVersion) }
             val previousAutoCommit = connection.autoCommit
             connection.autoCommit = false
             try {
-                deleteKeyVersionsBelowLocked(userId, keyVersion)
+                val currentKeyVersion = validateAccount?.invoke() ?: keyVersion
+                val normalized = request.items.map { validatePutItem(it, currentKeyVersion) }
                 var cursor = cursorLocked(userId)
                 val accepted = mutableListOf<PlaybackAcceptedEntity>()
                 val conflicts = mutableListOf<EncryptedPlaybackEntity>()
@@ -234,27 +282,191 @@ internal class PlaybackRelayStore private constructor(
             }
         }
 
-    /** Drops entities encrypted under a retired vault key; the cursor stays monotonic. */
-    fun purgeKeyVersionsBelow(
+    /** Staging uses the owning account store's connection and transaction. No live row changes. */
+    fun stageRekey(
+        userId: String,
+        sessionId: String,
+        batch: PlaybackRekeyBatch,
+        now: Long,
+    ) {
+        require(ENTITY_KEY_PATTERN.matches(batch.migrationId)) { "playback migration id invalid" }
+        require(batch.items.size <= MAX_PUSH_ITEMS) { "playback migration batch size invalid" }
+        connection.prepareStatement("DELETE FROM playback_rekey WHERE updated_at_ms < ?").use {
+            it.setLong(1, now - REKEY_STAGE_TTL_MS)
+            it.executeUpdate()
+        }
+        if (batch.items.isEmpty()) {
+            discardRekey(userId)
+            connection
+                .prepareStatement(
+                    "INSERT INTO playback_rekey(user_id, migration_id, session_id, key_version, updated_at_ms) VALUES(?, ?, ?, ?, ?)",
+                ).use {
+                    it.setString(1, userId)
+                    it.setString(2, batch.migrationId)
+                    it.setString(3, sessionId)
+                    it.setInt(4, batch.keyVersion)
+                    it.setLong(5, now)
+                    it.executeUpdate()
+                }
+            return
+        }
+        if (!matchesRekey(userId, sessionId, batch.migrationId, batch.keyVersion, now)) rekeyConflict()
+        batch.items.forEach { item ->
+            require(ENTITY_KEY_PATTERN.matches(item.sourceEntityKey) && item.sourceCursor > 0)
+            val entity = validatePutItem(PlaybackPutItem(0, item.entity), batch.keyVersion).entity
+            val source = entityLocked(userId, item.sourceEntityKey)
+            if (source == null || source.cursor != item.sourceCursor) rekeyConflict()
+            connection
+                .prepareStatement(
+                    """
+                    INSERT INTO playback_rekey_entities(
+                        user_id, source_key, source_cursor, entity_key, mutation_id, nonce, ciphertext, updated_at_ms
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id, source_key) DO UPDATE SET
+                        source_cursor = excluded.source_cursor, entity_key = excluded.entity_key,
+                        mutation_id = excluded.mutation_id, nonce = excluded.nonce,
+                        ciphertext = excluded.ciphertext, updated_at_ms = excluded.updated_at_ms
+                    """.trimIndent(),
+                ).use {
+                    it.setString(1, userId)
+                    it.setString(2, item.sourceEntityKey)
+                    it.setLong(3, item.sourceCursor)
+                    it.setString(4, entity.entityKey)
+                    it.setString(5, entity.mutationId)
+                    it.setBytes(6, entity.nonce.decodeBase64Url())
+                    it.setBytes(7, entity.ciphertext.decodeBase64Url())
+                    it.setLong(8, source.updatedAtEpochMs)
+                    it.executeUpdate()
+                }
+        }
+        connection
+            .prepareStatement(
+                "SELECT COUNT(*), COALESCE(SUM(length(ciphertext)), 0) FROM playback_rekey_entities WHERE user_id = ?",
+            ).use {
+                it.setString(1, userId)
+                it.executeQuery().use { result ->
+                    check(result.next())
+                    require(result.getInt(1) <= maxEntitiesPerUser && result.getLong(2) <= maxCiphertextBytesPerUser) {
+                        "playback migration quota exceeded"
+                    }
+                }
+            }
+        connection.prepareStatement("UPDATE playback_rekey SET updated_at_ms = ? WHERE user_id = ?").use {
+            it.setLong(1, now)
+            it.setString(2, userId)
+            it.executeUpdate()
+        }
+    }
+
+    fun canCommitRekey(
+        userId: String,
+        sessionId: String,
+        migrationId: String?,
+        keyVersion: Int,
+        expectedCursor: Long?,
+        now: Long,
+    ): Boolean {
+        // Old clients can rotate an empty relay, but must never discard existing ciphertext.
+        if (migrationId == null) return expectedCursor == null && accountUsageLocked(userId).first == 0
+        if (expectedCursor != cursorLocked(userId) ||
+            !matchesRekey(userId, sessionId, migrationId, keyVersion, now)
+        ) {
+            return false
+        }
+        return connection
+            .prepareStatement(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM playback_sync_entities WHERE user_id = ?),
+                    COUNT(*),
+                    COALESCE(SUM(CASE WHEN live.cursor = staged.source_cursor THEN 1 ELSE 0 END), 0)
+                FROM playback_rekey_entities staged
+                LEFT JOIN playback_sync_entities live ON live.user_id = staged.user_id AND live.entity_key = staged.source_key
+                WHERE staged.user_id = ?
+                """.trimIndent(),
+            ).use {
+                it.setString(1, userId)
+                it.setString(2, userId)
+                it.executeQuery().use { result ->
+                    check(result.next())
+                    result.getInt(1) == result.getInt(2) && result.getInt(2) == result.getInt(3)
+                }
+            }
+    }
+
+    /** Must run after canCommitRekey, inside the SAME transaction as vault, sync and sessions. */
+    fun commitRekey(
         userId: String,
         keyVersion: Int,
     ) {
-        synchronized(lock) { deleteKeyVersionsBelowLocked(userId, keyVersion) }
+        val cursor = cursorLocked(userId)
+        val count = accountUsageLocked(userId).first
+        val nextCursor = Math.addExact(cursor, count.toLong())
+        connection.prepareStatement("DELETE FROM playback_sync_entities WHERE user_id = ?").use {
+            it.setString(1, userId)
+            it.executeUpdate()
+        }
+        connection
+            .prepareStatement(
+                """
+                INSERT INTO playback_sync_entities(
+                    user_id, entity_key, cursor, mutation_id, schema_version, algorithm, key_version, nonce, ciphertext, updated_at_ms
+                ) SELECT user_id, entity_key, ROW_NUMBER() OVER (ORDER BY source_cursor) + ?, mutation_id, 1, 'AES-256-GCM', ?, nonce, ciphertext, updated_at_ms
+                  FROM playback_rekey_entities WHERE user_id = ?
+                """.trimIndent(),
+            ).use {
+                it.setLong(1, cursor)
+                it.setInt(2, keyVersion)
+                it.setString(3, userId)
+                it.executeUpdate()
+            }
+        setCursorLocked(userId, nextCursor)
+        discardRekey(userId)
     }
 
-    private fun deleteKeyVersionsBelowLocked(
+    fun discardRekey(
         userId: String,
-        keyVersion: Int,
+        sessionId: String? = null,
+        migrationId: String? = null,
     ) {
         connection
             .prepareStatement(
-                "DELETE FROM playback_sync_entities WHERE user_id = ? AND key_version < ?",
-            ).use { statement ->
-                statement.setString(1, userId)
-                statement.setInt(2, keyVersion)
-                statement.executeUpdate()
+                "DELETE FROM playback_rekey WHERE user_id = ? AND (? IS NULL OR session_id = ?) AND (? IS NULL OR migration_id = ?)",
+            ).use {
+                it.setString(1, userId)
+                it.setString(2, sessionId)
+                it.setString(3, sessionId)
+                it.setString(4, migrationId)
+                it.setString(5, migrationId)
+                it.executeUpdate()
             }
     }
+
+    private fun matchesRekey(
+        userId: String,
+        sessionId: String,
+        migrationId: String,
+        keyVersion: Int,
+        now: Long,
+    ): Boolean =
+        connection
+            .prepareStatement(
+                "SELECT 1 FROM playback_rekey WHERE user_id = ? AND session_id = ? AND migration_id = ? AND key_version = ? AND updated_at_ms >= ?",
+            ).use {
+                it.setString(1, userId)
+                it.setString(2, sessionId)
+                it.setString(3, migrationId)
+                it.setInt(4, keyVersion)
+                it.setLong(5, now - REKEY_STAGE_TTL_MS)
+                it.executeQuery().use { result -> result.next() }
+            }
+
+    private fun rekeyConflict(): Nothing =
+        throw AccountServiceException(
+            AccountProblem.VersionConflict,
+            "playback_version_conflict",
+            "播放记录已变化，请重新更换密钥",
+        )
 
     private fun validatePutItem(
         item: PlaybackPutItem,
@@ -448,6 +660,14 @@ internal class PlaybackRelayStore private constructor(
     }
 
     companion object {
+        /** The account store owns both this connection and the lock protecting it. */
+        fun borrow(connection: Connection): PlaybackRelayStore =
+            PlaybackRelayStore(
+                connection,
+                MAX_PLAYBACK_ENTITIES_PER_USER,
+                MAX_PLAYBACK_CIPHERTEXT_BYTES_PER_USER,
+            )
+
         fun fromEnvironment(): PlaybackRelayStore {
             val file = File(System.getenv("ACCOUNT_DB_PATH") ?: "/var/lib/yfuse/account.db")
             file.parentFile?.mkdirs()
@@ -504,3 +724,4 @@ private const val MAX_PULL_ITEMS = 200
 private const val MAX_PUSH_ITEMS = 64
 private const val MAX_PLAYBACK_ENTITIES_PER_USER = 1_024
 private const val MAX_PLAYBACK_CIPHERTEXT_BYTES_PER_USER = 64L * 1024L * 1024L
+private const val REKEY_STAGE_TTL_MS = 30 * 60_000L

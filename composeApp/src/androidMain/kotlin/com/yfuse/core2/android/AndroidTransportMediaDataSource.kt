@@ -60,6 +60,7 @@ internal class AndroidTransportMediaDataSource(
     private val refreshMemoryPressure: () -> Unit = AndroidPlaybackMemoryBudget::refreshPressure,
     private val representationSession: AndroidMediaRepresentationSession? = null,
     private val rangeReadClock: () -> Long = System::nanoTime,
+    private val originBoundHeaderNames: Set<String> = emptySet(),
 ) : MediaDataSource() {
     private val sourceInstance = transportSourceSequence.incrementAndGet().toString()
     private val sourceTrace by lazy {
@@ -768,6 +769,7 @@ internal class AndroidTransportMediaDataSource(
                                     headers
                                 },
                             credentials = credentials,
+                            originBoundHeaderNames = originBoundHeaderNames,
                         ),
                     )
                 diagnostics.status = response.statusCode

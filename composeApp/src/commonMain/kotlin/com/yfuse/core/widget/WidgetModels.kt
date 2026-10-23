@@ -120,6 +120,7 @@ data class WidgetDatabase(
     val widgets: List<InstalledWidget> = emptyList(),
     val pages: List<WidgetPage> = emptyList(),
     val defaultPageId: String? = null,
+    val bundledDigests: Map<String, String> = emptyMap(),
 )
 
 internal fun JsonObject.text(vararg keys: String): String =

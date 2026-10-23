@@ -3,8 +3,10 @@ package com.yfuse.feature.widgets
 import com.yfuse.core2.android.toCore2MediaItems
 import com.yfuse.feature.player.PlayerCustomHeaders
 import com.yfuse.feature.player.WidgetPlaybackHeadersInterceptor
+import com.yfuse.feature.player.WidgetPlaybackRequest
 import com.yfuse.feature.player.externalPlaybackItem
 import com.yfuse.feature.player.persistentPlaybackCacheUrl
+import com.yfuse.feature.player.widgetPlaybackRequest
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.mockwebserver.MockResponse
@@ -36,9 +38,20 @@ class WidgetPlaybackTransportTest {
                     OkHttpClient
                         .Builder()
                         .addNetworkInterceptor(
-                            WidgetPlaybackHeadersInterceptor { item },
+                            WidgetPlaybackHeadersInterceptor(),
                         ).build()
-                client.newCall(Request.Builder().url(item.url).build()).execute().use { assertEquals(200, it.code) }
+                client
+                    .newCall(
+                        Request
+                            .Builder()
+                            .url(
+                                item.url,
+                            ).tag(WidgetPlaybackRequest::class.java, item.widgetPlaybackRequest())
+                            .build(),
+                    ).execute()
+                    .use {
+                        assertEquals(200, it.code)
+                    }
                 assertEquals("private", origin.takeRequest(3, TimeUnit.SECONDS)?.getHeader("X-Source-Token"))
                 val redirected = requireNotNull(redirect.takeRequest(3, TimeUnit.SECONDS))
                 assertNull(redirected.getHeader("X-Source-Token"))

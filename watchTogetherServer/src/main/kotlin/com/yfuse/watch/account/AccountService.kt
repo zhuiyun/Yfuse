@@ -531,12 +531,17 @@ internal class AccountService(
 
     fun exportAccount(accessToken: String): AccountExportResponse {
         val authenticated = authenticate(accessToken)
+        val exported = store.getAccountExport(authenticated.user.id) ?: unauthorized()
         return AccountExportResponse(
             schemaVersion = 1,
             exportedAtEpochMs = clock(),
             user = authenticated.user.toResponse(capabilitiesFor(authenticated.user.id)),
-            encryptedSync = store.getSyncState(authenticated.user.id).toResponse(),
-            vault = store.getVault(authenticated.user.id)?.toEnvelope(),
+            encryptedSync = exported.sync.toResponse(),
+            vault = exported.vault?.toEnvelope(),
+            authProtocol = exported.authProtocol,
+            kdf = KDF_ALGORITHM.takeIf { exported.authProtocol == AUTH_PROTOCOL_DERIVED_KEY },
+            kdfIterations = exported.kdfIterations,
+            kdfSalt = exported.kdfSalt?.let(base64Encoder::encodeToString),
         )
     }
 
@@ -835,6 +840,8 @@ internal class AccountService(
                     syncBaseVersion = request.sync?.baseVersion,
                     replacementSession = issued.asNewSession(user.id, validateDeviceName(request.deviceName)),
                     nowEpochMs = now,
+                    playbackMigrationId = request.playbackMigrationId,
+                    playbackCursor = request.playbackCursor,
                 )
             } finally {
                 credentials.wipe()
@@ -867,13 +874,59 @@ internal class AccountService(
                 safeCode = "sync_reencryption_required",
                 safeMessage = "更换密钥时必须同时上传用新密钥加密的同步数据",
             )
+            RekeyWriteResult.PlaybackConflict -> throw AccountServiceException(
+                AccountProblem.VersionConflict,
+                "playback_version_conflict",
+                "更换密钥前必须完整迁移播放记录，请更新客户端后重试",
+            )
             RekeyWriteResult.CredentialsChanged -> currentPasswordInvalid()
             RekeyWriteResult.SessionInvalid -> unauthorized()
         }
     }
 
-    /** The key version playback records must be encrypted under: the vault's, or 1 before it exists. */
-    fun playbackKeyVersion(userId: String): Int = store.getVault(userId)?.keyVersion ?: 1
+    fun pullPlayback(
+        accessToken: String,
+        after: Long,
+        limit: Int,
+        forRekey: Boolean = false,
+    ): PlaybackDeltaResponse {
+        val account = authenticate(accessToken)
+        enforceRateLimit(
+            syncUserRateLimiter.check(
+                account.user.id,
+                if (forRekey) AccountRateLimitBucket.PlaybackRekey else AccountRateLimitBucket.SyncRead,
+            ),
+        )
+        return store.pullPlayback(account.user.id, account.sessionId, after, limit, clock())
+    }
+
+    fun pushPlayback(
+        accessToken: String,
+        request: PlaybackPushRequest,
+    ): PlaybackPushResponse {
+        val account = authenticate(accessToken)
+        enforceRateLimit(syncUserRateLimiter.check(account.user.id, AccountRateLimitBucket.SyncWrite))
+        return store.pushPlayback(account.user.id, account.sessionId, request, clock())
+    }
+
+    fun stagePlaybackRekey(
+        accessToken: String,
+        request: PlaybackRekeyBatch,
+    ): PlaybackRekeyReceipt {
+        val account = authenticate(accessToken)
+        enforceRateLimit(syncUserRateLimiter.check(account.user.id, AccountRateLimitBucket.PlaybackRekey))
+        store.stagePlaybackRekey(account.user.id, account.sessionId, request, clock())
+        return PlaybackRekeyReceipt(request.migrationId)
+    }
+
+    fun discardPlaybackRekey(
+        accessToken: String,
+        migrationId: String,
+    ) {
+        val account = authenticate(accessToken)
+        enforceRateLimit(syncUserRateLimiter.check(account.user.id, AccountRateLimitBucket.PlaybackRekey))
+        store.discardPlaybackRekey(account.user.id, account.sessionId, migrationId, clock())
+    }
 
     fun deleteSync(accessToken: String): SyncResponse {
         val authenticated = authenticate(accessToken)

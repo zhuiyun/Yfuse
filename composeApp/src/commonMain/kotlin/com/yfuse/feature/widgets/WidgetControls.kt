@@ -41,10 +41,14 @@ import com.yfuse.core.designsystem.PillSwitch
 import com.yfuse.core.designsystem.ThemeIcon
 import com.yfuse.core.designsystem.controlBorder
 import com.yfuse.core.designsystem.controlSurface
+import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.glassControlHighlight
+import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.readableSurfaceInk
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.resolveGlassButtonVisuals
 
 @Composable
@@ -107,7 +111,7 @@ private fun WidgetAction(
             if (raisedPrimary) {
                 it.copy(
                     fill = plate,
-                    border = palette.text.copy(alpha = if (palette.isDark) 0.18f else 0.12f),
+                    border = glassControlHighlight(accent, palette.isDark),
                     content = readableSurfaceInk(accent.accent, plate.compositeOver(palette.background)),
                 )
             } else {
@@ -172,19 +176,26 @@ internal fun WidgetFilterChip(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
+    val selection = rememberGlassSelectionStyle()
     Row(
         modifier
             .defaultMinSize(minHeight = 48.dp)
             .semantics { this.selected = selected }
             .pressable(role = Role.RadioButton, onClick = onClick)
-            .glass(
-                AppShapes.chip,
-                if (selected) palette.card3 else palette.controlSurface,
-                palette.controlBorder,
+            .then(
+                if (selected) {
+                    Modifier.glassSelection(AppShapes.chip, selection)
+                } else {
+                    Modifier.flatGlass(AppShapes.chip, palette.controlSurface, palette.controlBorder)
+                },
             ).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
-    ) { CompositionLocalProvider(LocalContentColor provides if (selected) accent.accent else palette.text) { label() } }
+    ) {
+        CompositionLocalProvider(
+            LocalContentColor provides if (selected) selection.contentColor else palette.text,
+            LocalTextStyle provides if (selected) AppTypography.body.strong else AppTypography.body.medium,
+        ) { label() }
+    }
 }
 
 @Composable

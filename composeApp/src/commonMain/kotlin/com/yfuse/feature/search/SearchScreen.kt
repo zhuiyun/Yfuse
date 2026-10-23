@@ -49,7 +49,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -102,6 +101,7 @@ import com.yfuse.core.designsystem.controlBorder
 import com.yfuse.core.designsystem.controlSurface
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.glassControlHighlight
+import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.liftAnchor
 import com.yfuse.core.designsystem.liftable
 import com.yfuse.core.designsystem.mediaLazyItemKey
@@ -112,6 +112,7 @@ import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDelayedBusy
 import com.yfuse.core.designsystem.rememberDisclosureProgress
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.searchFieldArrival
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.sharedMediaOnClick
@@ -201,6 +202,7 @@ private fun SearchHomeScreen(
     var showPeople by remember { mutableStateOf(false) }
     var compactResults by remember { mutableStateOf(true) }
     var filtersOpen by remember { mutableStateOf(false) }
+    val playlistEditor = remember { SmartPlaylistEditorState() }
     val sharer = rememberPosterCardSharer()
     val state by component.store.states.collectAsState(component.store.state)
     val actionMessage by component.flags.message.collectAsState()
@@ -265,7 +267,7 @@ private fun SearchHomeScreen(
             state = component.listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding(),
             contentPadding = PaddingValues(top = Dimens.contentTop, bottom = bottomContentInset),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             motionItem(key = "search-field") {
                 Column {
@@ -279,7 +281,6 @@ private fun SearchHomeScreen(
                         iconMotion = resultHandoff.icon,
                         loading = requestShown,
                     )
-                    Spacer(Modifier.height(8.dp))
                 }
             }
             state.playlistName?.let { name ->
@@ -310,28 +311,24 @@ private fun SearchHomeScreen(
                 motionItem(key = "search-results-heading") {
                     Column(
                         Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff.item(key = "heading")),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            com.yfuse.feature.library.LibraryAction(
-                                if (compactResults) "显示简介" else "紧凑结果",
-                            ) { compactResults = !compactResults }
-                            // The store has filtered by server, library, year, genre, watched state
-                            // and sort all along; only 类型 ever reached the screen.
-                            val filters = state.filterCount - if (state.type != SearchType.All) 1 else 0
-                            com.yfuse.feature.library.LibraryAction(
-                                if (filters > 0) "筛选 · $filters" else "筛选",
-                                selected = filters > 0,
-                            ) { filtersOpen = true }
-                        }
                         ResultsHeading(
-                            count = visibleResultCount,
                             types = availableTypes,
                             selected = state.type,
                             onSelectType = { store.accept(SearchIntent.SetType(it)) },
+                            compact = compactResults,
+                            onToggleCompact = { compactResults = !compactResults },
+                            filters = state.filterCount - if (state.type != SearchType.All) 1 else 0,
+                            onOpenFilters = {
+                                focusManager.clearFocus(force = true)
+                                keyboard?.hide()
+                                filtersOpen = true
+                            },
                         )
                         if (state.unavailableGroups.isNotEmpty() || state.emptyServerCount > 0) {
                             SearchCoverageNotice(
+                                resultCount = visibleResultCount,
                                 unavailable = state.unavailableGroups,
                                 emptyServerCount = state.emptyServerCount,
                                 expanded = coverageExpanded,
@@ -340,17 +337,14 @@ private fun SearchHomeScreen(
                                 onRetry = { store.accept(SearchIntent.RetryServer(it)) },
                                 retryEnabled = !state.loading && state.query.trim() == state.searchedQuery,
                             )
+                        } else {
+                            Text(
+                                if (visibleResultCount == 0) "搜索结果" else "$visibleResultCount 条结果",
+                                style = AppTypography.caption.medium,
+                                color = palette.sub2,
+                                modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
+                            )
                         }
-                    }
-                }
-                // ＋ 保存筛选 needs the query and filters to save, and they only exist here: 首页 and
-                // 媒体库 list the pinned 智能片单 but could never make one.
-                if (state.error == null) {
-                    motionItem(key = "search-smart-playlists") {
-                        SmartPlaylistShelf(
-                            state = state,
-                            onApply = { store.accept(SearchIntent.ApplyPlaylist(it)) },
-                        )
                     }
                 }
                 when {
@@ -495,9 +489,11 @@ private fun SearchHomeScreen(
         SearchFilterSheet(
             state = state,
             onIntent = store::accept,
+            playlistEditor = playlistEditor,
             onDismiss = { filtersOpen = false },
         )
     }
+    SmartPlaylistDialogs(playlistEditor, onApply = { store.accept(SearchIntent.ApplyPlaylist(it)) })
 }
 
 /**
@@ -585,6 +581,7 @@ private fun searchLiftMenu(
 private fun SearchFilterSheet(
     state: SearchState,
     onIntent: (SearchIntent) -> Unit,
+    playlistEditor: SmartPlaylistEditorState,
     onDismiss: () -> Unit,
 ) {
     WidgetSheet("筛选", onDismiss, Modifier.fillMaxHeight(0.82f)) {
@@ -599,6 +596,17 @@ private fun SearchFilterSheet(
             contentPadding = PaddingValues(bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
+            if (state.hasSearched && state.error == null) {
+                item(key = "saved-filters") {
+                    SmartPlaylistShelf(
+                        state = state,
+                        onApply = { onIntent(SearchIntent.ApplyPlaylist(it)) },
+                        embedded = true,
+                        editorState = playlistEditor,
+                        onOpenEditor = onDismiss,
+                    )
+                }
+            }
             item(key = "type") {
                 SearchFilterLabel("内容类型", state.type.label)
                 SearchFilterChips {
@@ -766,25 +774,18 @@ private fun SearchFilterChoice(
     weightedLabel: Boolean = false,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val fill =
-        if (selected) {
-            accent.accent.copy(alpha = if (palette.isDark) 0.12f else 0.07f).compositeOver(palette.controlSurface)
-        } else {
-            palette.controlSurface
-        }
+    val selection = rememberGlassSelectionStyle()
     Row(
         modifier
             .widthIn(min = 64.dp)
             .heightIn(min = 48.dp)
             .pressable(role = Role.RadioButton, onClick = onClick)
             .semantics(mergeDescendants = true) { this.selected = selected }
-            .glass(AppShapes.chip, fill, if (selected) null else palette.controlBorder)
             .then(
                 if (selected) {
-                    Modifier.border(1.5.dp, glassControlHighlight(accent, palette.isDark), AppShapes.chip)
+                    Modifier.glassSelection(AppShapes.chip, selection)
                 } else {
-                    Modifier
+                    Modifier.glass(AppShapes.chip, palette.controlSurface, palette.controlBorder)
                 },
             ).padding(horizontal = 10.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -794,12 +795,12 @@ private fun SearchFilterChoice(
             label,
             modifier = if (weightedLabel) Modifier.weight(1f, fill = false) else Modifier,
             style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
-            color = palette.text,
+            color = if (selected) selection.contentColor else palette.text,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) {
-            if (selected) Icon(AppIcons.Check, null, tint = accent.accent, modifier = Modifier.size(14.dp))
+            if (selected) Icon(AppIcons.Check, null, tint = selection.contentColor, modifier = Modifier.size(14.dp))
         }
     }
 }
@@ -906,30 +907,29 @@ internal fun SearchField(
     }
 }
 
-/** 共 N 条结果, with the 影片 / 剧集 narrowing beside it. */
+/** Types and presentation tools share a row; whole groups wrap when text needs the room. */
 @Composable
 private fun ResultsHeading(
-    count: Int,
     types: List<SearchType>,
     selected: SearchType,
     onSelectType: (SearchType) -> Unit,
+    compact: Boolean,
+    onToggleCompact: () -> Unit,
+    filters: Int,
+    onOpenFilters: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    Row(
+    val selection = rememberGlassSelectionStyle()
+    FlowRow(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(
-            if (count == 0) "搜索结果" else "共 $count 条结果",
-            style = AppTypography.caption.medium,
-            color = palette.sub2,
-        )
-        // One type is no choice at all — the row only appears when both kinds matched.
         if (types.size > 1) {
             Row(
-                modifier = Modifier.selectableGroup(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                Modifier.selectableGroup(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 types.forEach { type ->
                     YfChip(
@@ -939,6 +939,39 @@ private fun ResultsHeading(
                         onClickLabel = "筛选 ${type.label}",
                     )
                 }
+            }
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (compact) "简介" else "紧凑",
+                style = AppTypography.caption.strong,
+                color = palette.sub,
+                modifier =
+                    Modifier
+                        .pressable(
+                            onClickLabel = if (compact) "显示结果简介" else "显示紧凑结果",
+                            onClick = onToggleCompact,
+                        ).touchTarget()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+            )
+            Row(
+                Modifier
+                    .pressable(onClickLabel = "打开筛选与已保存片单", onClick = onOpenFilters)
+                    .touchTarget()
+                    .then(if (filters > 0) Modifier.glassSelection(AppShapes.chip, selection) else Modifier)
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (filters > 0) "筛选 $filters" else "筛选",
+                    style = AppTypography.caption.strong,
+                    color = selection.contentColor,
+                )
+                Icon(AppIcons.ChevronDown, null, tint = selection.contentColor, modifier = Modifier.size(12.dp))
             }
         }
     }
@@ -1212,6 +1245,7 @@ private fun ServerGroup(
 /** Keeps empty/offline servers out of the main result stream without hiding coverage. */
 @Composable
 private fun SearchCoverageNotice(
+    resultCount: Int,
     onRetry: (String?) -> Unit,
     retryEnabled: Boolean,
     unavailable: List<ServerSearchGroup>,
@@ -1224,47 +1258,51 @@ private fun SearchCoverageNotice(
     val accent = LocalAccentColors.current
     val hiddenCount = unavailable.size + emptyServerCount
     val disclosure = rememberDisclosureProgress(expanded)
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .glass(AppShapes.card, palette.card2, palette.border),
-    ) {
+    Column(Modifier.fillMaxWidth()) {
         Row(
-            Modifier
-                .fillMaxWidth()
-                .pressable(onClickLabel = "查看服务器搜索状态", onClick = onToggle)
-                .touchTarget()
-                .padding(horizontal = 13.dp, vertical = 9.dp),
-            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                AppIcons.Info,
-                contentDescription = null,
-                tint = palette.sub,
-                modifier = Modifier.size(14.dp),
-            )
             Text(
-                "已收起 $hiddenCount 台无结果或不可用服务器",
+                if (resultCount == 0) "搜索结果" else "$resultCount 条结果",
                 style = AppTypography.caption.medium,
-                color = palette.sub,
-                modifier = Modifier.weight(1f),
+                color = palette.sub2,
             )
-            Text(
-                if (expanded) "收起" else "查看",
-                style = AppTypography.caption.strong,
-                color = accent.accent,
-            )
-            Icon(
-                AppIcons.ChevronRight,
-                contentDescription = null,
-                tint = accent.accent,
-                modifier = Modifier.size(14.dp).graphicsLayer { rotationZ = disclosure.value * 90f },
-            )
+            Row(
+                Modifier
+                    .weight(1f)
+                    .pressable(
+                        onClickLabel = if (expanded) "收起服务器搜索状态" else "查看 $hiddenCount 台无结果或不可用服务器",
+                        onClick = onToggle,
+                    ).touchTarget()
+                    .padding(start = 6.dp, end = 2.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "$hiddenCount 台未返回结果",
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    AppIcons.ChevronRight,
+                    contentDescription = null,
+                    tint = palette.sub2,
+                    modifier = Modifier.size(12.dp).graphicsLayer { rotationZ = disclosure.value * 90f },
+                )
+            }
         }
         DisclosureContent(expanded, disclosure) {
             Column(
-                Modifier.padding(start = 13.dp, end = 13.dp, bottom = 12.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .glass(AppShapes.card, palette.card2, palette.border)
+                    .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (emptyServerCount > 0) {
@@ -1740,7 +1778,7 @@ private fun HistoryAction(
                 .glass(
                     shape = AppShapes.chip,
                     fill = if (accent) accentColors.container else palette.card2,
-                    border = if (accent) accentColors.border else palette.border,
+                    border = if (accent) glassControlHighlight(accentColors, palette.isDark) else palette.border,
                 ).padding(horizontal = 11.dp, vertical = 6.dp),
     )
 }

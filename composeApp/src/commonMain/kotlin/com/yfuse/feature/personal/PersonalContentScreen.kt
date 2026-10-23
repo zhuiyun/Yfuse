@@ -52,10 +52,12 @@ import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.contentHandoff
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.rememberSegmentIndicator
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
+import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
@@ -209,10 +211,9 @@ private fun PersonalContentFilters(
     onSelect: (PersonalCenterTab) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val indicator = rememberSegmentIndicator(PersonalContentTabs.indexOf(selected), accent.accent, underline = true)
+    val selection = rememberGlassSelectionStyle()
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal).then(indicator.container),
+        Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         PersonalContentTabs.forEachIndexed { index, tab ->
@@ -221,15 +222,16 @@ private fun PersonalContentFilters(
             Column(
                 Modifier
                     .weight(1f)
-                    .then(indicator.item(index))
                     .pressable(role = Role.Tab, onClickLabel = label, onClick = { onSelect(tab) })
                     .semantics {
                         contentDescription = label
                         this.selected = active
-                    }.glass(
-                        AppShapes.control,
-                        fill = if (active) accent.container else palette.card2,
-                        border = if (active) accent.border else palette.border,
+                    }.then(
+                        if (active) {
+                            Modifier.glassSelection(AppShapes.control, selection)
+                        } else {
+                            Modifier.glass(AppShapes.control, palette.card2, palette.border)
+                        },
                     ).padding(horizontal = 8.dp, vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -237,12 +239,12 @@ private fun PersonalContentFilters(
                 RollingNumber(
                     counts[index].toString(),
                     style = AppTypography.section.strong,
-                    color = if (active) accent.accent else palette.text,
+                    color = selectionColor(if (active) selection.contentColor else palette.text),
                 )
                 Text(
                     label,
-                    style = AppTypography.caption.regular,
-                    color = if (active) accent.accent else palette.sub2,
+                    style = if (active) AppTypography.caption.strong else AppTypography.caption.regular,
+                    color = selectionColor(if (active) selection.contentColor else palette.sub2),
                     maxLines = 2,
                 )
             }

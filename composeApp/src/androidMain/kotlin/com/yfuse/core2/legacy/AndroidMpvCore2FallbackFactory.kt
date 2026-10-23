@@ -29,6 +29,7 @@ import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
 import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.MpvVideoEngine
+import com.yfuse.feature.player.PlayerCustomHeaders
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.PlayerMediaVersion
 import com.yfuse.feature.player.SubtitleAppearance
@@ -130,6 +131,7 @@ private fun createMpvCore2FallbackPlayer(
                             fallbackTranscodeUrl = "",
                             title = item.title ?: item.id,
                             serverId = item.providerKey,
+                            customHeaders = item.componentPlaybackHeaders(),
                         ),
                 ),
             startIndex = 0,
@@ -462,3 +464,9 @@ internal fun YMediaItem.toDiscPlayerMediaItem(): PlayerMediaItem {
         versionId = version.id,
     )
 }
+
+internal fun YMediaItem.componentPlaybackHeaders(): PlayerCustomHeaders? =
+    headers
+        .filterKeys { name -> originBoundHeaderNames.any { it.equals(name, ignoreCase = true) } }
+        .takeIf { it.isNotEmpty() }
+        ?.let(::PlayerCustomHeaders)

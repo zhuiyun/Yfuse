@@ -68,7 +68,11 @@ internal class AndroidHttpMediaTransport(
             val originalHeaders = request.headers.withHttpBasicCredentials(request.credentials)
             val cachedRoute = redirectState?.resolve(originalUri)
             var targetUri = cachedRoute?.targetUri ?: originalUri
-            var activeHeaders = originalHeaders.withoutCredentials(cachedRoute?.stripCredentials == true)
+            var activeHeaders =
+                originalHeaders.withoutCredentials(
+                    cachedRoute?.stripCredentials == true,
+                    request.originBoundHeaderNames,
+                )
             var redirectCount = 0
             var cleartextRedirect = false
             var strippedCredentials = cachedRoute?.stripCredentials == true
@@ -86,7 +90,7 @@ internal class AndroidHttpMediaTransport(
                     YTransportMethod.Post -> builder.post((request.body ?: ByteArray(0)).toRequestBody())
                 }
                 activeHeaders.forEach { (name, value) ->
-                    require(name.isSafeTransportHeader() && value.isSafeTransportHeader()) {
+                    require(name.isSafeTransportHeaderName() && value.isSafeTransportHeaderValue()) {
                         "Unsafe transport header"
                     }
                     builder.header(name, value)
@@ -144,7 +148,7 @@ internal class AndroidHttpMediaTransport(
                 redirectCount += 1
                 cleartextRedirect = cleartextRedirect || redirectsToCleartext
                 if (!previous.hasSameOrigin(redirectTarget)) {
-                    activeHeaders = activeHeaders.filterKeys { !it.isCredentialHeader() }
+                    activeHeaders = activeHeaders.withoutCredentials(true, request.originBoundHeaderNames)
                     strippedCredentials = true
                 }
                 targetUri = redirectTarget.toString()
@@ -369,10 +373,22 @@ internal fun HttpUrl.hasSameOrigin(other: HttpUrl): Boolean =
 
 private fun YByteRange.toHttpRange(): String = "bytes=$startInclusive-${endInclusive ?: ""}"
 
-internal fun Map<String, String>.withoutCredentials(required: Boolean): Map<String, String> =
-    if (required) filterKeys { name -> !name.isCredentialHeader() } else this
+internal fun Map<String, String>.withoutCredentials(
+    required: Boolean,
+    originBoundHeaderNames: Set<String> = emptySet(),
+): Map<String, String> =
+    if (required) {
+        filterKeys { name ->
+            !name.isCredentialHeader() && originBoundHeaderNames.none { it.equals(name, ignoreCase = true) }
+        }
+    } else {
+        this
+    }
 
-private fun String.isSafeTransportHeader(): Boolean = isNotBlank() && none { it == '\r' || it == '\n' || it == ':' }
+private fun String.isSafeTransportHeaderName(): Boolean =
+    isNotBlank() && all { it.isLetterOrDigit() && it.code < 128 || it in "!#$%&'*+.^_`|~-" }
+
+private fun String.isSafeTransportHeaderValue(): Boolean = none { it == '\r' || it == '\n' || it == '\u0000' }
 
 internal fun Map<String, String>.withHttpBasicCredentials(credentials: YTransportCredentials?): Map<String, String> {
     if (keys.any { it.equals("Authorization", ignoreCase = true) }) return this

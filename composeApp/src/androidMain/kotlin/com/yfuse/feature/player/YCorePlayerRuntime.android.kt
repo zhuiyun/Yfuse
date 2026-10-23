@@ -199,6 +199,7 @@ internal fun rememberYCoreRuntimeAssessmentState(
                 session.observe(
                     current.runtimeObservation(
                         playbackRequested = player.playbackRequested,
+                        videoSuspended = player.videoOutputSuspended,
                         probe = latestProbe,
                         runtimeEnvironment = latestRuntimeEnvironment,
                     ),
@@ -259,8 +260,9 @@ internal fun PlaybackState.runtimeObservation(
     probe: PlaybackMediaProbe,
     runtimeEnvironment: PlaybackRuntimeEnvironment,
     nowEpochMs: Long = SystemClock.elapsedRealtime(),
+    videoSuspended: Boolean = false,
 ): YCoreRuntimeObservation =
-    diagnostics.outputExpectation(probe, videoHeight, audioTracks.isNotEmpty()).let { expectation ->
+    diagnostics.outputExpectation(probe, videoHeight, audioTracks.isNotEmpty(), videoSuspended).let { expectation ->
         YCoreRuntimeObservation(
             nowEpochMs = nowEpochMs,
             positionMs = positionMs,

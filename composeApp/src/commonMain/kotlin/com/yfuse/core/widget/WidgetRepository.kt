@@ -40,12 +40,15 @@ class WidgetRepository(
     private val newId: () -> String,
     private val hash: (String) -> String,
     private val now: () -> Long,
+    private val bundledSources: suspend () -> List<BundledWidgetSource> = { emptyList() },
 ) {
     private val mutex = Mutex()
     private val mutableDatabase = MutableStateFlow(WidgetDatabase())
     val database = mutableDatabase.asStateFlow()
     private val mutableError = MutableStateFlow<String?>(null)
     val error = mutableError.asStateFlow()
+    private val mutableBundleError = MutableStateFlow<String?>(null)
+    val bundleError = mutableBundleError.asStateFlow()
     private val ready = CompletableDeferred<Unit>()
     private val cacheMutex = Mutex()
 
@@ -64,6 +67,7 @@ class WidgetRepository(
                     validate(value)
                     mutableDatabase.value = value
                 }
+                initializeBundles()
             } catch (e: CancellationException) {
                 ready.cancel(e)
                 throw e
@@ -76,6 +80,23 @@ class WidgetRepository(
     }
 
     suspend fun awaitReady() = ready.await()
+
+    private suspend fun initializeBundles() {
+        try {
+            val bundles = bundledSources().map { source -> source to inspect(source.source, source.origin) }
+            val updated = mergeBundledWidgets(database.value, bundles)
+            if (updated != database.value) {
+                validate(updated)
+                persistence.write(encodeSnapshot(updated))
+                mutableDatabase.value = updated
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // A failed bundled update must not prevent editing or backing up a valid user snapshot.
+            mutableBundleError.value = "预置组件加载失败，已有组件和页面已保留，下次启动时会重试。"
+        }
+    }
 
     suspend fun inspect(
         source: String,
@@ -169,9 +190,11 @@ class WidgetRepository(
     }
 
     suspend fun restore(raw: String) {
-        require(raw.encodeToByteArray().size <= 24 * MAX_WIDGET_SOURCE_BYTES) { "备份文件过大" }
+        require(raw.encodeToByteArray().size <= MAX_WIDGET_DATABASE_BYTES) { "备份文件过大" }
         val value = widgetJson.decodeFromString<WidgetDatabase>(raw)
         validate(value)
+        // Defaults omitted by another exporter can make the persisted snapshot larger than its input.
+        val snapshot = encodeSnapshot(value)
         // Imported backups carry code: inspect every script before atomically replacing anything.
         value.widgets.forEach { saved ->
             val checked = inspect(saved.source, saved.origin)
@@ -179,9 +202,10 @@ class WidgetRepository(
         }
         ready.await()
         mutex.withLock {
-            persistence.write(widgetJson.encodeToString(value))
+            persistence.write(snapshot)
             mutableDatabase.value = value
             mutableError.value = null
+            mutableBundleError.value = null
             cacheMutex.withLock { cache.clear() }
         }
     }
@@ -243,17 +267,26 @@ class WidgetRepository(
                     updated.copy(defaultPageId = null)
             }
             validate(updated)
-            val snapshot = widgetJson.encodeToString(updated)
-            require(snapshot.encodeToByteArray().size <= MAX_WIDGET_DATABASE_BYTES) { "组件与页面配置已达到存储上限" }
+            val snapshot = encodeSnapshot(updated)
             persistence.write(snapshot)
             mutableDatabase.value = updated
             cacheMutex.withLock { cache.clear() }
         }
     }
 
+    private fun encodeSnapshot(value: WidgetDatabase): String {
+        val snapshot = widgetJson.encodeToString(value)
+        require(snapshot.encodeToByteArray().size <= MAX_WIDGET_DATABASE_BYTES) { "组件与页面配置已达到存储上限" }
+        return snapshot
+    }
+
     private fun validate(db: WidgetDatabase) {
         require(db.schema == 1) { "不支持此备份版本" }
         require(db.widgets.size <= 24 && db.pages.size <= 32) { "最多安装 24 个组件、创建 32 个页面" }
+        require(
+            db.bundledDigests.size <= 64 &&
+                db.bundledDigests.all { (id, digest) -> id.length in 1..160 && digest.length in 1..128 },
+        ) { "预置组件记录无效" }
         require(
             db.widgets
                 .map { it.metadata.id }

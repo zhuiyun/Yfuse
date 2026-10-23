@@ -10,6 +10,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class WidgetRepositoryTest {
     private class MemoryPersistence(
@@ -174,6 +175,43 @@ class WidgetRepositoryTest {
             )
             repo.restore(backup)
             assertEquals(backup, repo.backup())
+        }
+
+    @Test fun restoring_a_compact_backup_cannot_write_a_snapshot_that_the_next_start_cannot_read() =
+        runTest {
+            val disk = MemoryPersistence()
+            val repo = WidgetRepository(disk, Runtime(), backgroundScope, { "saved" }, { it }, { 0L })
+            repo.savePage(repo.newPage("Saved"))
+            val before = repo.backup()
+            val prefix =
+                """{"pages":[{"id":"p","title":"Imported","sections":[""" +
+                    """{"id":"s","widgetId":"w","moduleId":"m","title":"Section","params":{"text":""""
+            val suffix = """"}}]}]}"""
+            val raw = prefix + "x".repeat(MAX_WIDGET_DATABASE_BYTES - prefix.length - suffix.length - 1) + suffix
+            assertTrue(raw.encodeToByteArray().size < MAX_WIDGET_DATABASE_BYTES)
+
+            val failure = assertFailsWith<IllegalArgumentException> { repo.restore(raw) }
+            assertTrue(failure.message.orEmpty().contains("存储上限"))
+            assertEquals(before, disk.raw)
+            assertEquals(before, repo.backup())
+            assertNull(repo.error.value)
+
+            val restarted = WidgetRepository(disk, Runtime(), backgroundScope, { "new" }, { it }, { 0L })
+            restarted.awaitReady()
+            assertEquals(
+                "Saved",
+                restarted.database.value.pages
+                    .single()
+                    .title,
+            )
+            assertNull(restarted.error.value)
+            repo.restore("""{"pages":[{"id":"p","title":"Valid"}]}""")
+            assertEquals(
+                "Valid",
+                repo.database.value.pages
+                    .single()
+                    .title,
+            )
         }
 
     @Test fun utf8_bom_is_normalized_before_hashing_and_backup_round_trip() =

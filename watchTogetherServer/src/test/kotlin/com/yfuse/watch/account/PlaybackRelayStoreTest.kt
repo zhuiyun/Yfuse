@@ -269,7 +269,7 @@ class PlaybackRelayStoreTest {
     }
 
     @Test
-    fun aRekeyedAccountOnlyAcceptsAndKeepsEntitiesUnderItsCurrentKey() {
+    fun aPushRejectsRetiredKeysAndNeverDeletesOtherCiphertextAsASideEffect() {
         PlaybackRelayStore.inMemoryForTests().use { store ->
             val retired = entity('A', "mutation-retired", 1)
             store.push("user-a", PlaybackPushRequest(listOf(PlaybackPutItem(0L, retired))), 1_000L)
@@ -283,25 +283,11 @@ class PlaybackRelayStoreTest {
                 store.push("user-a", PlaybackPushRequest(listOf(PlaybackPutItem(0L, current))), 3_000L, keyVersion = 2)
 
             assertEquals(2L, response.accepted.single().cursor)
-            assertEquals(listOf(current.entityKey), store.pull("user-a", 0L, 10).changes.map { it.entityKey })
-            assertEquals(1, store.entityCountForTests("user-b"), "Another account's records are not touched")
-        }
-    }
-
-    @Test
-    fun purgeDropsOnlyRetiredKeyVersions() {
-        PlaybackRelayStore.inMemoryForTests().use { store ->
-            store.push(
-                "user-a",
-                PlaybackPushRequest(listOf(PlaybackPutItem(0L, entity('A', "mutation-one", 1)))),
-                1_000L,
+            assertEquals(
+                listOf(retired.entityKey, current.entityKey),
+                store.pull("user-a", 0L, 10).changes.map { it.entityKey },
             )
-
-            store.purgeKeyVersionsBelow("user-a", 1)
-            assertEquals(1, store.entityCountForTests("user-a"))
-            store.purgeKeyVersionsBelow("user-a", 2)
-            assertEquals(0, store.entityCountForTests("user-a"))
-            assertEquals(1L, store.pull("user-a", 0L, 10).cursor, "The cursor never moves backwards")
+            assertEquals(1, store.entityCountForTests("user-b"), "Another account's records are not touched")
         }
     }
 

@@ -145,8 +145,8 @@ internal fun ServerIconDialog(
                                 .then(
                                     if (selected) {
                                         Modifier.border(
-                                            width = 2.dp,
-                                            color = contentColorForSurface(swatch),
+                                            width = 1.dp,
+                                            color = Color.White.copy(alpha = 0.96f),
                                             shape = AppShapes.control,
                                         )
                                     } else {

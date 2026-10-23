@@ -23,6 +23,12 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import java.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.Mac
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -31,6 +37,101 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class AccountProtocolV2Test {
+    @Test
+    fun export_can_be_decrypted_offline_after_the_protocol2_account_is_deleted() =
+        accountApp {
+            val salt = kdfSalt(17)
+            val master =
+                SecretKeyFactory
+                    .getInstance("PBKDF2WithHmacSHA256")
+                    .generateSecret(PBEKeySpec(PASSWORD.toCharArray(), salt, KDF_ITERATIONS, 256))
+                    .encoded
+
+            fun derive(
+                info: String,
+                key: ByteArray,
+            ): ByteArray =
+                Mac.getInstance("HmacSHA256").run {
+                    init(SecretKeySpec(key, "HmacSHA256"))
+                    doFinal(info.toByteArray() + byteArrayOf(1))
+                }
+
+            fun crypt(
+                mode: Int,
+                key: ByteArray,
+                nonce: ByteArray,
+                aad: String,
+                input: ByteArray,
+            ): ByteArray =
+                Cipher.getInstance("AES/GCM/NoPadding").run {
+                    init(mode, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce))
+                    updateAAD(aad.toByteArray())
+                    doFinal(input)
+                }
+            val authKey = derive("yfuse-auth-v2", master)
+            val key = ByteArray(32) { (it + 3).toByte() }
+            val nonce = ByteArray(12) { 13 }
+            val wrapped = crypt(Cipher.ENCRYPT_MODE, derive("yfuse-wrap-v2", master), nonce, "yfuse-vault:v2:1", key)
+            val registered =
+                register(
+                    """{"username":"export-user","authKey":"${b64(authKey)}","kdfSalt":"${b64(salt)}",
+                    "kdfIterations":$KDF_ITERATIONS,"vault":{"keyVersion":1,"wrapVersion":2,
+                    "nonce":"${b64(nonce)}","wrappedKey":"${b64(wrapped)}"}}""",
+                ).also { assertEquals(HttpStatusCode.Created, it.status) }.json()
+            val token = registered.string("accessToken")
+            val userId = registered.getValue("user").jsonObject.string("id")
+            val plaintext = "exported private settings".toByteArray()
+            val syncNonce = ByteArray(12) { 7 }
+            val encrypted = crypt(Cipher.ENCRYPT_MODE, key, syncNonce, "yfuse-sync:v1:$userId:1:1", plaintext)
+            assertEquals(
+                HttpStatusCode.OK,
+                putSync(
+                    token,
+                    """{"baseVersion":0,"payload":{"schemaVersion":1,"algorithm":"AES-256-GCM",
+                    "keyVersion":1,"nonce":"${b64(syncNonce)}","ciphertext":"${b64(encrypted)}"}}""",
+                ).status,
+            )
+            val exported = client.get("/api/v1/account/export") { secureBearer(token) }.json()
+            assertEquals(HttpStatusCode.NoContent, deleteAccount(token, """{"authKey":"${b64(authKey)}"}""").status)
+
+            assertEquals(AUTH_PROTOCOL_DERIVED_KEY, exported.int("authProtocol"))
+            assertEquals("PBKDF2-HMAC-SHA256", exported.string("kdf"))
+            val decoder = Base64.getUrlDecoder()
+            val exportedMaster =
+                SecretKeyFactory
+                    .getInstance("PBKDF2WithHmacSHA256")
+                    .generateSecret(
+                        PBEKeySpec(
+                            PASSWORD.toCharArray(),
+                            decoder.decode(exported.string("kdfSalt")),
+                            exported.int("kdfIterations"),
+                            256,
+                        ),
+                    ).encoded
+            val vault = exported.getValue("vault").jsonObject
+            val recoveredKey =
+                crypt(
+                    Cipher.DECRYPT_MODE,
+                    derive("yfuse-wrap-v2", exportedMaster),
+                    decoder.decode(vault.string("nonce")),
+                    "yfuse-vault:v2:${vault.int("keyVersion")}",
+                    decoder.decode(vault.string("wrappedKey")),
+                )
+            val sync = exported.getValue("encryptedSync").jsonObject
+            val payload = sync.getValue("payload").jsonObject
+            val recovered =
+                crypt(
+                    Cipher.DECRYPT_MODE,
+                    recoveredKey,
+                    decoder.decode(payload.string("nonce")),
+                    "yfuse-sync:v1:$userId:${sync.long("version")}:${payload.int("keyVersion")}",
+                    decoder.decode(payload.string("ciphertext")),
+                )
+            kotlin.test.assertContentEquals(plaintext, recovered)
+            assertFalse(exported.containsKey("passwordHash"))
+            assertFalse(exported.containsKey("authKey"))
+        }
+
     @Test
     fun prelogin_answers_unknown_names_like_upgraded_accounts() =
         accountApp {

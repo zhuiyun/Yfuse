@@ -182,6 +182,7 @@ internal class AndroidAdaptiveCore2YPlayer(
      */
     private val scope = CoroutineScope(SupervisorJob() + androidCore2RouterDispatcher())
     private val commands = Channel<Command>(Channel.UNLIMITED)
+    private val childSettings = AndroidChildPlaybackSettings { commands.trySend(Command.ApplyChildSettings) }
     private val worker = scope.launch { runLoop() }
     private val audioManager = context.applicationContext.getSystemService(AudioManager::class.java)
     private val batteryManager = context.applicationContext.getSystemService(BatteryManager::class.java)
@@ -367,14 +368,12 @@ internal class AndroidAdaptiveCore2YPlayer(
      * compatibility child would keep decoding video, so it is told, and so is every child attached
      * while it holds.
      */
-    @Volatile
-    private var videoSuspended = false
+    override val videoOutputSuspended: Boolean get() = childSettings.videoSuspended
 
     override val supportsBackgroundAudio: Boolean get() = activeChild?.supportsBackgroundAudio ?: true
 
     override fun setVideoSuspended(suspended: Boolean) {
-        videoSuspended = suspended
-        activeChild?.setVideoSuspended(suspended)
+        if (!released) childSettings.setVideoSuspended(suspended)
     }
 
     override fun setPauseAtEndOfCurrentItem(enabled: Boolean) {
@@ -480,17 +479,10 @@ internal class AndroidAdaptiveCore2YPlayer(
         return effect == YAudioEffect.Off || supportsAudioEffects
     }
 
-    /** The viewer's subtitle style for a child that draws subtitles itself; see [YNativeSubtitleStyle]. */
-    @Volatile
-    private var nativeSubtitleStyle: YNativeSubtitleStyle? = null
-
     override fun setNativeSubtitleStyle(style: YNativeSubtitleStyle): Boolean {
         if (released) return false
-        // Written before the child is read: either this call reaches the child that is attaching,
-        // or its attach reads this value (both volatile), and applying the same style twice is
-        // harmless.
-        nativeSubtitleStyle = style
-        return (activeChild as? YNativeSubtitleStyleTarget)?.setNativeSubtitleStyle(style) != false
+        childSettings.setSubtitleStyle(style)
+        return true
     }
 
     override fun retry() {
@@ -1622,8 +1614,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             next.setSpeed(speed)
             if (!next.setAudioDelayMs(audioDelayMs)) reportRejectedSetting(next, "audioDelay")
             if (!next.setAudioEffect(audioEffect)) reportRejectedSetting(next, "audioEffect")
-            nativeSubtitleStyle?.let { style -> (next as? YNativeSubtitleStyleTarget)?.setNativeSubtitleStyle(style) }
-            if (videoSuspended) next.setVideoSuspended(true)
+            applyChildSettings(next)
             // NativeDirect gets the caller's newest output rather than the command copy, which may
             // still be queued behind this very start (see requestedVideoOutput): before prepare()
             // it only records the Surface and then configures its decoder with it. The enhanced
@@ -2313,6 +2304,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 is Command.SetSpeed -> updateSpeed(command)
                 is Command.SetAudioDelay -> updateAudioDelay(command)
                 is Command.SetAudioEffect -> updateAudioEffect(command)
+                Command.ApplyChildSettings -> child?.let(::applyChildSettings)
                 is Command.AdaptiveTransition -> {
                     if (child === command.fromChild) {
                         pendingAdaptiveTarget = command.target
@@ -2433,6 +2425,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                     if (!active.setAudioEffect(audioEffect)) reportRejectedSetting(active, "audioEffect")
                 }
             }
+        }
+
+        private fun applyChildSettings(active: YPlayer) {
+            if (!childSettings.applyTo(active)) reportRejectedSetting(active, "subtitleStyle")
         }
 
         /**
@@ -2835,6 +2831,8 @@ internal class AndroidAdaptiveCore2YPlayer(
             val globalPositionMs: Long,
             val target: YAdaptivePlaybackTarget?,
         ) : Command
+
+        data object ApplyChildSettings : Command
 
         data object Prepare : Command
 

@@ -148,4 +148,71 @@ class SandboxWidgetRuntimeTest {
             assertEquals("2", values["test:count"])
             assertEquals(setOf("test:count"), values.keys)
         }
+
+    @Test fun repeated_dom_parsing_is_bounded_even_when_parent_handles_are_removed() =
+        runBlocking {
+            val engine = runtime()
+            val widget =
+                installed(
+                    engine,
+                    """
+                    $source
+                    function exhaust(){
+                      var html='<p>'+'x'.repeat(1024*1024)+'</p>', children=[];
+                      for(var i=0;i<100;i++){
+                        var document=Widget.dom.parse(html);
+                        children.push(Widget.dom.select(document,'p')[0]);
+                        Widget.dom.remove(document);
+                      }
+                      return children;
+                    }
+                    """.trimIndent(),
+                )
+            val failure = assertFails { engine.invoke(widget, "exhaust", JsonNull, 3) }
+            assertTrue(failure.message.orEmpty().contains("HTML 解析资源已达到上限"), failure.message)
+            val normal = engine.invoke(widget, "list", buildJsonObject { put("page", 2) }, 3)
+            assertEquals("Page 2", parseWidgetMedia(normal).single().title)
+        }
+
+    @Test fun metadata_dom_parsing_has_the_same_host_budget() =
+        runBlocking {
+            val engine = runtime()
+            val failure =
+                assertFails {
+                    engine.metadata(
+                        "var html='x'.repeat(1024*1024); for(var i=0;i<100;i++) Widget.dom.parse(html); $source",
+                    )
+                }
+            assertTrue(failure.message.orEmpty().contains("HTML 解析资源已达到上限"), failure.message)
+            assertEquals("test", parseWidgetMetadata(engine.metadata(source), "fallback").id)
+        }
+
+    @Test fun dom_node_budget_counts_the_trees_instead_of_only_exported_handles() =
+        runBlocking {
+            val engine = runtime()
+            val widget =
+                installed(
+                    engine,
+                    "$source\nfunction dense(){for(var i=0;i<100;i++) Widget.dom.parse('<i></i>'.repeat(8000));}",
+                )
+            val failure = assertFails { engine.invoke(widget, "dense", JsonNull, 3) }
+            assertTrue(failure.message.orEmpty().contains("HTML 节点数量超限"), failure.message)
+        }
+
+    @Test fun dom_document_limit_counts_utf8_bytes_and_selection_stops_at_its_result_limit() =
+        runBlocking {
+            val engine = runtime()
+            val widget =
+                installed(
+                    engine,
+                    """
+                    $source
+                    function oversized(){return Widget.dom.parse('界'.repeat(1024*1024));}
+                    function select(){return Widget.dom.select(Widget.dom.parse('<a>x</a>'.repeat(2500)),'a').length;}
+                    """.trimIndent(),
+                )
+            val failure = assertFails { engine.invoke(widget, "oversized", JsonNull, 3) }
+            assertTrue(failure.message.orEmpty().contains("单个 HTML 文档过大"), failure.message)
+            assertEquals("2000", engine.invoke(widget, "select", JsonNull, 3))
+        }
 }

@@ -190,8 +190,8 @@ the user to update the app.
 
 Sync documents of a protocol 2 account carry no wrapper fields (`400 sync_key_wrap_forbidden`)
 and must use the vault's `keyVersion` (`409 sync_key_version_conflict`, checked again inside the
-write transaction). Playback relay records must use it as well; records under older key versions
-are deleted.
+write transaction). Playback relay records must use it as well; key rotation migrates every
+existing record before retiring the old key.
 
 ### Upgrade and password change: rekey
 
@@ -208,7 +208,9 @@ upgrade of a protocol 1 account proves `currentPassword`; a protocol 2 password 
   "kdfIterations": 600000,
   "vault": {"keyVersion": 2, "wrapVersion": 2, "nonce": "...", "wrappedKey": "..."},
   "sync": {"baseVersion": 7, "payload": {"schemaVersion": 1, "keyVersion": 2, "...": "..."}},
-  "deviceName": "Pixel"
+  "deviceName": "Pixel",
+  "playbackMigrationId": "base64url-32-random-bytes",
+  "playbackCursor": 42
 }
 ```
 
@@ -219,7 +221,35 @@ under the new key with `baseVersion` equal to the current revision (`409
 sync_reencryption_required`, `409 sync_version_conflict`). The transaction updates the
 credentials, stores the vault, writes the document as `baseVersion + 1`, deletes every session
 and creates one replacement session, which the response returns. Other devices still hold the
-retired key and must sign in again; playback relay records under the retired key are deleted.
+retired key and must sign in again. Playback replacement is part of that same SQLite transaction.
+
+Before `/rekey`, begin a staging area with `POST /api/v1/account/playback/rekey` and
+`{"migrationId":"...","keyVersion":2,"items":[]}`. Read all relay pages using
+`GET /api/v1/account/playback/rekey?after=0&limit=200`, following the returned cursor until
+`hasMore` is false. Decrypt each record locally and re-encrypt its original plaintext bytes under
+the new vault key, including a new HMAC entity key. Upload batches to the same POST endpoint:
+`items` contains `{"sourceEntityKey":"...","sourceCursor":1,"entity":{...}}`. Each batch
+has at most 64 items and must fit the existing request-body limit. Staging is bound to the user,
+session, migration ID and new key version, limited to 1,024 records / 64 MiB ciphertext per account,
+and expires after 30 minutes without a successful batch. An empty batch restarts staging.
+`DELETE /api/v1/account/playback/rekey/{migrationId}` discards only that session's matching stage.
+Live data never changes during staging.
+
+Pass the final page cursor and migration ID to `/rekey`. The commit requires the global cursor,
+every source entity cursor and the complete source set to still match; otherwise it returns
+`409 playback_version_conflict` without changing credentials, vault, sync, playback or sessions.
+The client restarts migration after a conflict and switches its local key only after commit.
+Migration reads/writes use a separate bounded rate-limit bucket so a complete relay can be paged.
+
+Deploy this migration-capable server before the matching client. A new client receiving
+404/405 from staging must stop and ask for a server upgrade, preserving the old key and data.
+An old client omitting migration fields may rekey only when the relay is empty; otherwise the
+server returns `409 playback_version_conflict`. Never fall back to discarding relay records.
+
+Protocol 2 account exports include `authProtocol`, `kdf`, `kdfIterations` and `kdfSalt` alongside
+the vault and main encrypted sync snapshot, read consistently in one transaction. The export
+and its password therefore contain the parameters needed for offline decryption. Protocol 1
+exports retain their original password recovery envelope in the sync payload.
 
 Deploy this server before releasing a client that uses protocol 2. Old clients keep working
 with protocol 1 accounts; once an account has upgraded they ask the user to update.

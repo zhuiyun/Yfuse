@@ -44,8 +44,8 @@ fun YfChip(
     role: Role = Role.Tab,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val ink = selectionColor(if (selected) accent.accent else palette.body)
+    val selection = rememberGlassSelectionStyle()
+    val ink = selectionColor(if (selected) selection.contentColor else palette.body)
     // The pill is about 34dp tall in a 48dp slot: the press and the focus ring follow the pill.
     val focusShape = remember { TouchTargetFocusShape(AppShapes.chip) }
     Row(
@@ -65,13 +65,12 @@ fun YfChip(
                         this.selected = selected
                     }
                 }.touchTarget(focus = focusShape)
-                .glass(
-                    shape = AppShapes.chip,
-                    fill = selectionColor(if (selected) accent.container else palette.controlSurface),
-                    border =
-                        selectionColor(
-                            if (selected) glassControlHighlight(accent, palette.isDark) else palette.controlBorder,
-                        ),
+                .then(
+                    if (selected) {
+                        Modifier.glassSelection(style = selection)
+                    } else {
+                        Modifier.glass(AppShapes.chip, palette.controlSurface, palette.controlBorder)
+                    },
                 ).alpha(if (enabled) 1f else 0.4f)
                 .padding(horizontal = Dimens.space.md, vertical = Dimens.space.sm),
         horizontalArrangement = Arrangement.spacedBy(Dimens.space.xs),

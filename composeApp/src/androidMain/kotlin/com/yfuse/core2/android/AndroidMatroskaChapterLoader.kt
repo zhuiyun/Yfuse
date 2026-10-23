@@ -64,6 +64,7 @@ internal suspend fun loadAndroidMatroskaChapters(
                                 YByteRange(offset, offset + maximum - 1),
                                 item.headers,
                                 item.transportCredentials,
+                                originBoundHeaderNames = item.originBoundHeaderNames,
                             ),
                         )
                     require(response.statusCode in 200..299) { "Chapter metadata request failed" }

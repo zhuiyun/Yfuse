@@ -42,6 +42,8 @@ data class YMediaTransportRequest(
     val method: YTransportMethod = YTransportMethod.Get,
     /** Request payload is kept in memory only and is always omitted from diagnostics. */
     val body: ByteArray? = null,
+    /** Explicit same-origin headers, including names that are not recognizable credentials. */
+    val originBoundHeaderNames: Set<String> = emptySet(),
 ) {
     init {
         require(uri.isNotBlank())

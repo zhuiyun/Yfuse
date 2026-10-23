@@ -9,10 +9,15 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.security.AesGcmPayload
+import com.yfuse.core.security.RecoveryKeyEnvelope
 import com.yfuse.core.security.TestSecureStore
 import com.yfuse.core.security.VaultCrypto
+import com.yfuse.core.security.base64UrlToBytes
 import com.yfuse.core.security.toBase64Url
 import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.playback.EncryptedPlaybackEntity
+import com.yfuse.core.sync.playback.PlaybackDeltaResponse
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -41,6 +46,256 @@ import kotlin.test.assertTrue
 
 /** Account protocol 2 as the app speaks it, against an in-memory account service. */
 class AccountProtocolV2ClientTest {
+    @Test
+    fun password_change_migrates_all_1024_cloud_only_records_and_preserves_unknown_fields() =
+        runTest {
+            val service = FakeAccountService()
+            val phone = Device(service) // No PlaybackSyncStore or playback-sync preferences are installed.
+            phone.repository.register("viewer_01", PASSWORD.toCharArray()).getOrThrow()
+            val expected = seedPlayback(service, phone, 1_024)
+            val originalKey = phone.secrets.get("vault_key")
+            service.beforeRekey = { assertContentEquals(originalKey, phone.secrets.get("vault_key")) }
+
+            phone.repository.changePassword(PASSWORD.toCharArray(), NEW_PASSWORD.toCharArray()).getOrThrow()
+
+            assertEquals(expected, readPlayback(service, phone))
+            assertEquals(1_024, service.playback.size)
+            assertTrue(service.playback.all { it.keyVersion == 2 })
+            assertTrue(service.migrationBatches.count { it.items.isNotEmpty() } > 16)
+            assertTrue(service.migrationBatches.all { it.items.size <= 64 })
+            assertFalse(originalKey.contentEquals(phone.secrets.get("vault_key")))
+        }
+
+    @Test
+    fun a_concurrent_cloud_write_restarts_the_migration_and_a_failed_commit_keeps_the_old_key() =
+        runTest {
+            val service = FakeAccountService()
+            val phone = Device(service)
+            phone.repository.register("viewer_01", PASSWORD.toCharArray()).getOrThrow()
+            phone.addServer("unchanged-sync")
+            phone.repository.uploadNow().getOrThrow()
+            val expected = seedPlayback(service, phone, 2)
+            val oldKey = phone.secrets.get("vault_key")
+            val oldSync = service.sync("viewer_01")
+            service.failRekey = true
+            assertTrue(phone.repository.changePassword(PASSWORD.toCharArray(), NEW_PASSWORD.toCharArray()).isFailure)
+            assertContentEquals(oldKey, phone.secrets.get("vault_key"))
+            assertEquals(oldSync, service.sync("viewer_01"))
+            assertEquals(expected, readPlayback(service, phone))
+            assertTrue(service.staged.isEmpty(), "Failed staging is discarded")
+
+            service.failRekey = false
+            service.beforeRekey = {
+                service.playback[0] = service.playback[0].copy(cursor = ++service.playbackCursor)
+            }
+            phone.repository.changePassword(PASSWORD.toCharArray(), NEW_PASSWORD.toCharArray()).getOrThrow()
+            assertEquals(expected, readPlayback(service, phone))
+            assertEquals(3, service.migrationBatches.count { it.items.isEmpty() })
+            assertEquals(2, service.user("viewer_01").vault?.keyVersion)
+        }
+
+    @Test
+    fun logout_never_rewrites_protocol_memory_even_when_all_secure_store_writes_fail() =
+        runTest {
+            val service = FakeAccountService()
+            val phone = Device(service)
+            phone.repository.register("viewer_01", PASSWORD.toCharArray()).getOrThrow()
+            val remembered = phone.secrets.get("account_protocol2_names")
+            phone.secrets.failWrites = true
+            phone.repository.logout().getOrThrow()
+            assertEquals(setOf("account_protocol2_names"), phone.secrets.storedKeys())
+            assertContentEquals(remembered, phone.secrets.get("account_protocol2_names"))
+            val restarted = Device(service, phone.secrets)
+            service.claimsPasswordFor += "viewer_01"
+            service.paths.clear()
+            assertTrue(restarted.repository.login("viewer_01", PASSWORD.toCharArray()).isFailure)
+            assertEquals(listOf("/api/v1/auth/prelogin"), service.paths)
+            assertFalse(service.bodies.any { PASSWORD in it })
+        }
+
+    @Test
+    fun an_old_service_cannot_make_the_client_skip_playback_migration() =
+        runTest {
+            val service = FakeAccountService()
+            val phone = Device(service)
+            phone.repository.register("viewer_01", PASSWORD.toCharArray()).getOrThrow()
+            val original = phone.secrets.get("vault_key")
+            service.migrationAvailable = false
+            val result = phone.repository.changePassword(PASSWORD.toCharArray(), NEW_PASSWORD.toCharArray())
+            assertTrue(
+                result
+                    .exceptionOrNull()
+                    ?.message
+                    .orEmpty()
+                    .contains("升级服务端"),
+            )
+            assertFalse("/api/v1/account/rekey" in service.paths)
+            assertContentEquals(original, phone.secrets.get("vault_key"))
+        }
+
+    @Test
+    fun a_legacy_export_still_contains_its_offline_password_recovery_envelope() =
+        runTest {
+            val service = FakeAccountService(knowsProtocol2 = false)
+            val phone = Device(service)
+            phone.repository.register("viewer_01", PASSWORD.toCharArray()).getOrThrow()
+            phone.addServer("legacy-offline-token")
+            phone.repository.uploadNow().getOrThrow()
+            val saved = phone.repository.exportAccount().getOrThrow()
+            phone.repository.deleteAccount(PASSWORD.toCharArray()).getOrThrow()
+            val exported = Json.decodeFromString<AccountExport>(saved)
+            assertEquals(ACCOUNT_PROTOCOL_PASSWORD, exported.authProtocol)
+            val payload = assertNotNull(exported.encryptedSync.payload)
+            val crypto = VaultCrypto()
+            val recovery =
+                RecoveryKeyEnvelope(
+                    version = assertNotNull(payload.wrapVersion),
+                    salt = assertNotNull(payload.wrapSalt).base64UrlToBytes(),
+                    iterations = assertNotNull(payload.wrapIterations),
+                    wrappedKey =
+                        AesGcmPayload(
+                            assertNotNull(payload.wrapNonce).base64UrlToBytes(),
+                            assertNotNull(payload.wrappedVaultKey).base64UrlToBytes(),
+                        ),
+                )
+            val key =
+                crypto.unwrapVaultKey(
+                    recovery,
+                    PASSWORD.toCharArray(),
+                    (
+                        "yfuse-vault-key:v1:${exported.user.id}:${payload.keyVersion}:" +
+                            "${payload.wrapVersion}:${payload.wrapKdf}:${payload.wrapIterations}"
+                    ).encodeToByteArray(),
+                )
+            val clear =
+                crypto.decrypt(
+                    key,
+                    AesGcmPayload(payload.nonce.base64UrlToBytes(), payload.ciphertext.base64UrlToBytes()),
+                    "yfuse-sync:v1:${exported.user.id}:${exported.encryptedSync.version}:${payload.keyVersion}"
+                        .encodeToByteArray(),
+                )
+            try {
+                assertTrue("legacy-offline-token" in decodeSyncDocument(clear))
+            } finally {
+                key.fill(0)
+                clear.fill(0)
+            }
+        }
+
+    private fun seedPlayback(
+        service: FakeAccountService,
+        device: Device,
+        count: Int,
+    ): Set<String> {
+        val crypto = VaultCrypto()
+        val key = assertNotNull(device.secrets.get("vault_key"))
+        val userId = service.user("viewer_01").id
+        return try {
+            (0 until count).mapTo(linkedSetOf()) { index ->
+                val mediaKey = "tmdb:movie:$index"
+                val identity =
+                    crypto
+                        .hmacSha256(
+                            key,
+                            "yfuse-playback-entity-v1\u0000$mediaKey".encodeToByteArray(),
+                        ).toBase64Url()
+                val extra = if (index < 4) "x".repeat(90 * 1024) else "future-$index"
+                val clear =
+                    """{"schemaVersion":1,"state":{"mediaKey":"$mediaKey","deviceId":"remote"},""" +
+                        """"future":"$extra"}"""
+                val encrypted =
+                    crypto.encrypt(
+                        key,
+                        clear.encodeToByteArray(),
+                        "yfuse-playback:v1:$userId:$identity".encodeToByteArray(),
+                    )
+                service.playback +=
+                    EncryptedPlaybackEntity(
+                        identity,
+                        "mutation-$index",
+                        nonce = encrypted.nonce.toBase64Url(),
+                        ciphertext = encrypted.ciphertext.toBase64Url(),
+                        cursor = ++service.playbackCursor,
+                    )
+                clear
+            }
+        } finally {
+            key.fill(0)
+        }
+    }
+
+    private fun readPlayback(
+        service: FakeAccountService,
+        device: Device,
+    ): Set<String> {
+        val crypto = VaultCrypto()
+        val key = assertNotNull(device.secrets.get("vault_key"))
+        val userId = service.user("viewer_01").id
+        return try {
+            service.playback.mapTo(linkedSetOf()) { entity ->
+                val clear =
+                    crypto.decrypt(
+                        key,
+                        AesGcmPayload(entity.nonce.base64UrlToBytes(), entity.ciphertext.base64UrlToBytes()),
+                        "yfuse-playback:v1:$userId:${entity.entityKey}".encodeToByteArray(),
+                    )
+                try {
+                    clear.decodeToString()
+                } finally {
+                    clear.fill(0)
+                }
+            }
+        } finally {
+            key.fill(0)
+        }
+    }
+
+    @Test
+    fun an_export_keeps_every_parameter_needed_to_open_it_after_a_password_change() =
+        runTest {
+            val service = FakeAccountService()
+            val phone = Device(service)
+            assertTrue(phone.repository.register("viewer_01", PASSWORD.toCharArray()).isSuccess)
+            phone.addServer("offline-export-token")
+            assertTrue(phone.repository.uploadNow().isSuccess)
+            val saved = phone.repository.exportAccount().getOrThrow()
+            assertTrue(phone.repository.changePassword(PASSWORD.toCharArray(), NEW_PASSWORD.toCharArray()).isSuccess)
+
+            // No service or device-keystore reads: the shared text and its original password suffice.
+            val exported = Json.decodeFromString<AccountExport>(saved)
+            assertEquals(ACCOUNT_PROTOCOL_DERIVED_KEY, exported.authProtocol)
+            assertEquals(ACCOUNT_KDF, exported.kdf)
+            val crypto = VaultCrypto()
+            val keys =
+                crypto.deriveAccountKeys(
+                    PASSWORD.toCharArray(),
+                    assertNotNull(exported.kdfSalt).base64UrlToBytes(),
+                    assertNotNull(exported.kdfIterations),
+                )
+            val vault = assertNotNull(exported.vault)
+            val key =
+                crypto.unwrapAccountVaultKey(
+                    AesGcmPayload(vault.nonce.base64UrlToBytes(), vault.wrappedKey.base64UrlToBytes()),
+                    keys.wrapKey,
+                    vault.keyVersion,
+                )
+            val payload = assertNotNull(exported.encryptedSync.payload)
+            val plaintext =
+                crypto.decrypt(
+                    key,
+                    AesGcmPayload(payload.nonce.base64UrlToBytes(), payload.ciphertext.base64UrlToBytes()),
+                    "yfuse-sync:v1:${exported.user.id}:${exported.encryptedSync.version}:${payload.keyVersion}"
+                        .encodeToByteArray(),
+                )
+            try {
+                assertTrue("offline-export-token" in decodeSyncDocument(plaintext))
+            } finally {
+                keys.wipe()
+                key.fill(0)
+                plaintext.fill(0)
+            }
+        }
+
     @Test
     fun devices_share_one_vault_and_the_service_never_sees_the_password() =
         runTest {
@@ -200,6 +455,21 @@ class AccountProtocolV2ClientTest {
         }
 
     @Test
+    fun an_unreadable_protocol_memory_never_authorizes_sending_the_password() =
+        runTest {
+            val service = FakeAccountService()
+            val phone = Device(service)
+            assertTrue(phone.repository.register("viewer_01", PASSWORD.toCharArray()).isSuccess)
+            assertTrue(phone.repository.logout().isSuccess)
+            phone.secrets.corruptedKeys += "account_protocol2_names"
+            service.claimsPasswordFor += "viewer_01"
+            service.paths.clear()
+            assertTrue(phone.repository.login("viewer_01", PASSWORD.toCharArray()).isFailure)
+            assertEquals(listOf("/api/v1/auth/prelogin"), service.paths)
+            assertFalse(service.bodies.any { PASSWORD in it })
+        }
+
+    @Test
     fun weak_key_parameters_from_the_service_are_refused_before_anything_is_sent() =
         runTest {
             val service = FakeAccountService(preloginIterations = 1_000)
@@ -243,9 +513,9 @@ class AccountProtocolV2ClientTest {
 
     private class Device(
         service: FakeAccountService,
+        val secrets: TestSecureStore = TestSecureStore(),
     ) {
         private val settings = MapSettings()
-        val secrets = TestSecureStore()
         val registry = ServerRegistry(settings, TestSecureStore())
         val repository =
             AccountRepository(
@@ -311,6 +581,14 @@ class AccountProtocolV2ClientTest {
         private val accessTokens = mutableMapOf<String, String>()
         private val refreshTokens = mutableMapOf<String, String>()
         private var issued = 0
+        val playback = mutableListOf<EncryptedPlaybackEntity>()
+        var playbackCursor = 0L
+        val staged = mutableListOf<PlaybackRekeyItem>()
+        val migrationBatches = mutableListOf<PlaybackRekeyBatch>()
+        var migrationId: String? = null
+        var failRekey = false
+        var migrationAvailable = true
+        var beforeRekey: (() -> Unit)? = null
         val claimsPasswordFor = mutableSetOf<String>()
         val bodies = mutableListOf<String>()
         val paths = mutableListOf<String>()
@@ -337,10 +615,19 @@ class AccountProtocolV2ClientTest {
                     "/api/v1/auth/refresh" -> refresh(body)
                     "/api/v1/auth/logout" -> respond("", HttpStatusCode.NoContent)
                     "/api/v1/account/sync" -> sync(request, body)
+                    "/api/v1/account/export" -> export(request)
                     "/api/v1/account/rekey" -> rekey(request, body)
+                    "/api/v1/account/playback/rekey" -> playbackRekey(request, body)
                     "/api/v1/account/password" -> changePassword(request, body)
                     "/api/v1/account" -> delete(request, body)
-                    else -> error("Unexpected path $path")
+                    else ->
+                        if (path.startsWith("/api/v1/account/playback/rekey/")) {
+                            staged.clear()
+                            migrationId = null
+                            respond("", HttpStatusCode.NoContent)
+                        } else {
+                            error("Unexpected path $path")
+                        }
                 }
             }
         }
@@ -448,6 +735,23 @@ class AccountProtocolV2ClientTest {
             }
         }
 
+        private fun MockRequestHandleScope.export(request: HttpRequestData): HttpResponseData {
+            val user = authorized(request) ?: return failure(HttpStatusCode.Unauthorized, "unauthorized")
+            return ok(
+                AccountExport(
+                    schemaVersion = 1,
+                    exportedAtEpochMs = 1L,
+                    user = AccountUser(user.id, user.username, "影友", 0, 0L, 0L),
+                    encryptedSync = syncByUser[user.id] ?: SyncResponse(version = 0),
+                    vault = user.vault,
+                    authProtocol = user.protocol,
+                    kdf = ACCOUNT_KDF.takeIf { user.protocol == ACCOUNT_PROTOCOL_DERIVED_KEY },
+                    kdfIterations = user.kdfIterations,
+                    kdfSalt = user.kdfSalt,
+                ),
+            )
+        }
+
         private fun MockRequestHandleScope.changePassword(
             request: HttpRequestData,
             body: String,
@@ -483,6 +787,39 @@ class AccountProtocolV2ClientTest {
             return ok(auth(user))
         }
 
+        private fun MockRequestHandleScope.playbackRekey(
+            request: HttpRequestData,
+            body: String,
+        ): HttpResponseData {
+            if (!migrationAvailable) return respond("", HttpStatusCode.NotFound)
+            authorized(request) ?: return failure(HttpStatusCode.Unauthorized, "unauthorized")
+            if (request.method.value == "GET") {
+                val after = request.url.parameters["after"]?.toLong() ?: 0L
+                val rows = playback.filter { it.cursor > after }.sortedBy { it.cursor }
+                val page = mutableListOf<EncryptedPlaybackEntity>()
+                var bytes = 0
+                for (row in rows) {
+                    if (page.size == 200 || (page.isNotEmpty() && bytes + row.ciphertext.length > 192 * 1024)) break
+                    page += row
+                    bytes += row.ciphertext.length
+                }
+                val more = page.size < rows.size
+                return ok(PlaybackDeltaResponse(if (more) page.last().cursor else playbackCursor, page, more))
+            }
+            assertTrue(body.encodeToByteArray().size <= 382_294)
+            val batch = json.decodeFromString<PlaybackRekeyBatch>(body)
+            assertTrue(batch.items.size <= 64)
+            migrationBatches += batch
+            if (batch.items.isEmpty()) {
+                migrationId = batch.migrationId
+                staged.clear()
+            } else {
+                assertEquals(migrationId, batch.migrationId)
+                staged += batch.items
+            }
+            return ok(PlaybackRekeyReceipt(batch.migrationId))
+        }
+
         private fun MockRequestHandleScope.rekey(
             request: HttpRequestData,
             body: String,
@@ -495,6 +832,20 @@ class AccountProtocolV2ClientTest {
                     else -> rekey.currentPassword == user.password
                 }
             if (!proven) return failure(HttpStatusCode.Forbidden, "current_password_invalid")
+            if (failRekey) return failure(HttpStatusCode.ServiceUnavailable, "unavailable")
+            beforeRekey?.also { beforeRekey = null }?.invoke()
+            if (rekey.playbackMigrationId != migrationId ||
+                rekey.playbackCursor != playbackCursor ||
+                staged.size != playback.size ||
+                staged.any { item ->
+                    playback.none {
+                        it.entityKey == item.sourceEntityKey &&
+                            it.cursor == item.sourceCursor
+                    }
+                }
+            ) {
+                return failure(HttpStatusCode.Conflict, "playback_version_conflict")
+            }
             val current = syncByUser[user.id] ?: SyncResponse(version = 0)
             val currentKeyVersion = user.vault?.keyVersion ?: maxOf(current.payload?.keyVersion ?: 0, 1)
             if (rekey.vault.keyVersion <= currentKeyVersion) {
@@ -516,6 +867,11 @@ class AccountProtocolV2ClientTest {
             user.kdfSalt = rekey.kdfSalt
             user.kdfIterations = rekey.kdfIterations
             user.vault = rekey.vault
+            val migrated = staged.map { it.entity.copy(cursor = ++playbackCursor) }
+            playback.clear()
+            playback += migrated
+            staged.clear()
+            migrationId = null
             accessTokens.values.removeAll { it == user.id }
             refreshTokens.values.removeAll { it == user.id }
             return ok(auth(user))

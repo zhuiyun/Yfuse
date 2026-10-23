@@ -13,6 +13,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -44,12 +45,18 @@ class AndroidTransportStartupAndResumeTest {
         val releaseBlocks = CountDownLatch(1)
         val currentBlockOpened = CountDownLatch(1)
         val forwardBlockOpened = CountDownLatch(1)
+        val allowsSpeculativeWork = AtomicBoolean(false)
         val source =
             AndroidTransportMediaDataSource(
                 uri = "https://example.invalid/video.mkv",
                 protocol = YSourceProtocol.Https,
                 headers = emptyMap(),
                 prioritizeStartupReads = true,
+                memoryLeaseOverride =
+                    PlaybackMemoryPool(64L * 1024 * 1024)
+                        .acquire(PlaybackBufferKind.Transport, 64L * 1024 * 1024),
+                allowsSpeculativeWork = allowsSpeculativeWork::get,
+                refreshMemoryPressure = {},
                 createTransport = {
                     TestRangeTransport(media, requests, fullBlockRelease = releaseBlocks) { range ->
                         if (range == YByteRange(0L, blockBytes - 1L)) currentBlockOpened.countDown()
@@ -60,6 +67,13 @@ class AndroidTransportStartupAndResumeTest {
         val worker = Executors.newSingleThreadExecutor()
         try {
             assertEquals(media.size.toLong(), worker.await { source.getSize() })
+            assertEquals(1, worker.await { source.readAt(0L, ByteArray(1), 0, 1) })
+            // Pressure drops the cached slice before the second foreground demand, so both reads
+            // request only that short range; neither may start a speculative full block.
+            assertEquals(List(2) { YByteRange(0L, 128 * 1024L - 1L) }, requests.map { it.range })
+            assertEquals(1L, currentBlockOpened.count)
+            // Admission resumes independently of the process-wide heap and other tests' leases.
+            allowsSpeculativeWork.set(true)
             assertEquals(1, worker.await { source.readAt(0L, ByteArray(1), 0, 1) })
             assertTrue(currentBlockOpened.await(2, TimeUnit.SECONDS))
             assertTrue(requests.all { it.range?.startInclusive == 0L })

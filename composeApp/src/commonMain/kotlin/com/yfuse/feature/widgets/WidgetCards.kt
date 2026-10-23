@@ -4,11 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,16 +16,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,12 +30,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.controlBorder
 import com.yfuse.core.designsystem.controlSurface
@@ -48,7 +49,7 @@ import com.yfuse.core.widget.WidgetStyle
 import com.yfuse.core.designsystem.ThemeText as Text
 import com.yfuse.feature.widgets.WidgetProgress as LinearProgressIndicator
 
-/** Thirty-six stable presets built from shared artwork/text primitives and distinct arrangements. */
+/** Persistent style IDs share one horizontal lane; item count never determines its height. */
 @Composable
 fun WidgetCards(
     style: WidgetStyle,
@@ -58,534 +59,454 @@ fun WidgetCards(
     onOpen: (WidgetMedia) -> Unit,
 ) {
     val display =
-        remember(items, metadata) {
-            if (metadata) {
-                items
+        remember(items, metadata, style) {
+            val media =
+                if (metadata) {
+                    items
+                } else {
+                    items.map {
+                        it.copy(year = "", rating = "", description = "", season = null, episode = null)
+                    }
+                }
+            when (style) {
+                WidgetStyle.Calendar -> media.sortedBy { it.date.take(10) }
+                WidgetStyle.GroupRanks -> media.groupBy { it.group }.values.flatten()
+                else -> media
+            }
+        }
+    if (display.isEmpty()) return
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val metrics = widgetRailMetrics(style, compact, metadata, maxWidth)
+        val groupRanks =
+            remember(display) {
+                val ranks = mutableMapOf<String, Int>()
+                display.map { item ->
+                    val rank = ranks.getOrElse(item.group) { 0 } + 1
+                    ranks[item.group] = rank
+                    rank
+                }
+            }
+        val open: (WidgetMedia) -> Unit = { selected ->
+            onOpen(items.firstOrNull { it.id == selected.id } ?: selected)
+        }
+        key(style) {
+            if (style == WidgetStyle.PeekCarousel || style == WidgetStyle.CenterPoster) {
+                val pager = rememberPagerState(pageCount = { display.size })
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    HorizontalPager(
+                        state = pager,
+                        modifier = Modifier.fillMaxWidth().height(metrics.height),
+                        contentPadding = PaddingValues(horizontal = metrics.pageInset),
+                        pageSpacing = 12.dp,
+                        key = { index -> "$index:${display[index].id}" },
+                    ) { index ->
+                        val distance = kotlin.math.abs(pager.currentPage - index + pager.currentPageOffsetFraction)
+                        WidgetRailCard(
+                            style,
+                            display[index],
+                            index,
+                            groupRanks[index],
+                            metadata,
+                            metrics,
+                            Modifier.fillMaxSize().graphicsLayer {
+                                val scale = 1f - distance.coerceIn(0f, 1f) * .06f
+                                scaleX = scale
+                                scaleY = scale
+                            },
+                            open,
+                        )
+                    }
+                    Text(
+                        "${pager.currentPage + 1} / ${display.size}",
+                        color = LocalPalette.current.sub2,
+                        style = AppTypography.caption.regular,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                    )
+                }
             } else {
-                items.map {
-                    it.copy(year = "", rating = "", description = "", season = null, episode = null)
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().height(metrics.height),
+                    horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp),
+                ) {
+                    itemsIndexed(display, key = { index, item -> "$index:${item.id}" }) { index, item ->
+                        val width =
+                            when (style) {
+                                WidgetStyle.FeatureThree -> if (index % 3 == 0) metrics.width else metrics.width * .72f
+                                WidgetStyle.Magazine -> if (index % 2 == 0) metrics.width else metrics.width * .76f
+                                WidgetStyle.RankFeature -> if (index == 0) metrics.width else metrics.width * .72f
+                                else -> metrics.width
+                            }
+                        WidgetRailCard(
+                            style,
+                            item,
+                            index,
+                            groupRanks[index],
+                            metadata,
+                            metrics,
+                            Modifier.width(width).fillMaxHeight(),
+                            open,
+                        )
+                    }
                 }
             }
         }
-    WidgetCardLayout(style, display, metadata, compact) { selected ->
-        onOpen(items.firstOrNull { it.id == selected.id } ?: selected)
     }
 }
 
+private data class WidgetRailMetrics(
+    val width: Dp,
+    val imageHeight: Dp,
+    val height: Dp,
+    val pageInset: Dp = 0.dp,
+)
+
+/** Sizes depend only on presentation and typography, never on media count or visible text. */
 @Composable
-private fun WidgetCardLayout(
+private fun widgetRailMetrics(
     style: WidgetStyle,
-    items: List<WidgetMedia>,
-    metadata: Boolean = true,
-    compact: Boolean = false,
+    compact: Boolean,
+    metadata: Boolean,
+    available: Dp,
+): WidgetRailMetrics {
+    val bodyLine =
+        with(LocalDensity.current) {
+            AppTypography.body.regular.lineHeight
+                .toDp()
+        }
+    val sectionLine =
+        with(LocalDensity.current) {
+            AppTypography.section.strong.lineHeight
+                .toDp()
+        }
+
+    fun copy(lines: Int = 0): Dp {
+        val title = bodyLine * 2
+        val details = if (metadata) bodyLine + 3.dp else 0.dp
+        val description = if (metadata && lines > 0) bodyLine * lines + 3.dp else 0.dp
+        return title + details + description
+    }
+    val pageInset = if (style == WidgetStyle.CenterPoster) minOf(52.dp, available * .15f) else 16.dp
+    val preferred =
+        when (style) {
+            WidgetStyle.Landscape, WidgetStyle.Cinema, WidgetStyle.ContinueLandscape -> if (compact) 200.dp else 244.dp
+            WidgetStyle.Poster, WidgetStyle.ContinuePoster -> if (compact) 108.dp else 136.dp
+            WidgetStyle.DoublePoster -> if (compact) 132.dp else 156.dp
+            WidgetStyle.GridTwo -> if (compact) 140.dp else 160.dp
+            WidgetStyle.GridThree, WidgetStyle.RankGrid -> if (compact) 96.dp else 116.dp
+            WidgetStyle.PosterStack -> if (compact) 164.dp else 190.dp
+            WidgetStyle.RankRail -> if (compact) 152.dp else 172.dp
+            WidgetStyle.Podium -> if (compact) 132.dp else 154.dp
+            WidgetStyle.People -> if (compact) 110.dp else 128.dp
+            WidgetStyle.Tags -> if (compact) 144.dp else 164.dp
+            WidgetStyle.Categories -> if (compact) 164.dp else 194.dp
+            WidgetStyle.Collection -> if (compact) 188.dp else 220.dp
+            WidgetStyle.Calendar, WidgetStyle.GroupRanks -> if (compact) 204.dp else 236.dp
+            WidgetStyle.TextList -> if (compact) 218.dp else 258.dp
+            WidgetStyle.CenterPoster, WidgetStyle.PeekCarousel -> available - pageInset * 2
+            else -> if (compact) 270.dp else 310.dp
+        }
+    val width = minOf(preferred, available).coerceAtLeast(48.dp)
+    val image =
+        when (style) {
+            WidgetStyle.Cinema -> width / 2.33f
+            WidgetStyle.Poster, WidgetStyle.ContinuePoster, WidgetStyle.GridTwo,
+            WidgetStyle.GridThree, WidgetStyle.RankGrid, WidgetStyle.CenterPoster,
+            -> width / .667f
+            WidgetStyle.DoublePoster -> (width - 20.dp) / .8f
+            WidgetStyle.Podium -> (width - 20.dp) / .667f
+            WidgetStyle.RankRail -> (width - 40.dp) / .667f
+            WidgetStyle.PosterStack -> if (compact) 182.dp else 210.dp
+            WidgetStyle.Collection -> if (compact) 156.dp else 180.dp
+            WidgetStyle.People -> 90.dp
+            WidgetStyle.ImageTop, WidgetStyle.TextTop, WidgetStyle.FeatureList -> (width - 24.dp) / 1.78f
+            WidgetStyle.Calendar, WidgetStyle.GroupRanks -> (width - 24.dp) / 1.78f
+            else -> width / 1.78f
+        }
+    val heroHeight = maxOf(if (compact) 212.dp else 250.dp, sectionLine * 2 + copy(2) + 64.dp)
+    val infoHeight = maxOf(84.dp, copy(2)) + 24.dp
+    val height =
+        when (style) {
+            WidgetStyle.SideLeft, WidgetStyle.SideRight -> infoHeight
+            WidgetStyle.PosterDetail -> maxOf(142.dp, copy(3)) + 24.dp
+            WidgetStyle.Episodes, WidgetStyle.RankList -> maxOf(84.dp, copy(2) + bodyLine + 8.dp) + 24.dp
+            WidgetStyle.Expandable -> maxOf(120.dp, copy(2) + bodyLine + 8.dp) + 24.dp
+            WidgetStyle.Timeline -> infoHeight + bodyLine + 18.dp
+            WidgetStyle.ImageTop, WidgetStyle.TextTop, WidgetStyle.FeatureList -> image + copy(2) + 32.dp
+            WidgetStyle.Hero, WidgetStyle.PeekCarousel, WidgetStyle.FeatureThree, WidgetStyle.Magazine,
+            WidgetStyle.RankFeature, WidgetStyle.NextEpisode,
+            -> heroHeight
+            WidgetStyle.Categories -> maxOf(width, sectionLine * 2 + copy(2) + 40.dp)
+            WidgetStyle.DoublePoster -> image + copy() + 28.dp
+            WidgetStyle.Podium -> image + copy() + bodyLine + 36.dp
+            WidgetStyle.GroupRanks, WidgetStyle.Calendar -> image + copy() + bodyLine + 40.dp
+            WidgetStyle.People -> image + copy(1) + 12.dp
+            WidgetStyle.Tags -> maxOf(48.dp, bodyLine * 2 + 20.dp)
+            WidgetStyle.TextList -> copy(2) + 32.dp
+            WidgetStyle.ContinueLandscape, WidgetStyle.ContinuePoster -> image + copy() + bodyLine + 16.dp
+            WidgetStyle.Landscape, WidgetStyle.Cinema, WidgetStyle.Poster, WidgetStyle.GridTwo,
+            WidgetStyle.GridThree, WidgetStyle.PosterStack, WidgetStyle.CenterPoster,
+            WidgetStyle.RankRail, WidgetStyle.RankGrid, WidgetStyle.Collection,
+            -> image + copy() + 8.dp
+        }
+    return WidgetRailMetrics(width, image, height, pageInset)
+}
+
+@Composable
+private fun WidgetRailCard(
+    style: WidgetStyle,
+    item: WidgetMedia,
+    index: Int,
+    groupRank: Int,
+    metadata: Boolean,
+    metrics: WidgetRailMetrics,
+    modifier: Modifier,
     onOpen: (WidgetMedia) -> Unit,
 ) {
-    if (items.isEmpty()) return
-    val gap = if (compact) 8.dp else 12.dp
-    when (style) {
-        WidgetStyle.Landscape, WidgetStyle.Cinema ->
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                items(items, key = { it.id }) { item ->
-                    MediaTile(
-                        item,
-                        Modifier.width(if (compact) 188.dp else 240.dp),
-                        if (style ==
-                            WidgetStyle.Cinema
-                        ) {
-                            2.33f
-                        } else {
-                            1.78f
-                        },
-                        metadata = metadata,
-                        onOpen = onOpen,
-                    )
-                }
-            }
-        WidgetStyle.SideLeft, WidgetStyle.SideRight ->
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                items.forEach {
-                    InfoRow(
-                        it,
-                        reverse = style == WidgetStyle.SideRight,
-                        metadata = metadata,
-                        onOpen = onOpen,
-                    )
-                }
-            }
-        WidgetStyle.ImageTop, WidgetStyle.TextTop ->
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                items.forEach { item ->
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(
-                                AppShapes.card,
-                            ).glass(AppShapes.card, LocalPalette.current.card, LocalPalette.current.controlBorder)
-                            .clickable {
-                                onOpen(item)
-                            },
-                    ) {
-                        if (style == WidgetStyle.TextTop) MediaCopy(item, Modifier.padding(14.dp), metadata, 3)
-                        Artwork(item, Modifier.fillMaxWidth().aspectRatio(1.78f))
-                        if (style == WidgetStyle.ImageTop) MediaCopy(item, Modifier.padding(14.dp), metadata, 3)
-                    }
-                }
-            }
-        WidgetStyle.Poster, WidgetStyle.ContinuePoster ->
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                items(items, key = { it.id }) { item ->
-                    MediaTile(
-                        item,
-                        Modifier.width(if (compact) 108.dp else 136.dp),
-                        .667f,
-                        metadata,
-                        progress =
-                            style == WidgetStyle.ContinuePoster,
-                        onOpen = onOpen,
-                    )
-                }
-            }
-        WidgetStyle.DoublePoster ->
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                items(items.chunked(2)) { pair ->
-                    Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                        pair.forEach { MediaTile(it, Modifier.width(120.dp), .667f, metadata, onOpen = onOpen) }
-                    }
-                }
-            }
-        WidgetStyle.GridTwo, WidgetStyle.GridThree, WidgetStyle.RankGrid ->
-            CardGrid(
-                items,
-                if (style ==
-                    WidgetStyle.GridTwo
-                ) {
-                    2
-                } else {
-                    3
-                },
-                gap,
-            ) { item, index ->
+    // Exactly one click target per entry, including the former expandable/grouped presets.
+    Box(modifier.clip(AppShapes.card).clickable { onOpen(item) }) {
+        when (style) {
+            WidgetStyle.Landscape, WidgetStyle.Cinema ->
+                MediaTile(item, metrics.imageHeight, metadata)
+            WidgetStyle.Poster, WidgetStyle.GridTwo, WidgetStyle.GridThree, WidgetStyle.CenterPoster ->
+                MediaTile(item, metrics.imageHeight, metadata, poster = true)
+            WidgetStyle.ContinueLandscape, WidgetStyle.ContinuePoster ->
                 MediaTile(
                     item,
-                    Modifier.fillMaxWidth(),
-                    .667f,
+                    metrics.imageHeight,
                     metadata,
-                    badge =
+                    progress = true,
+                    poster =
+                        style == WidgetStyle.ContinuePoster,
+                )
+            WidgetStyle.SideLeft, WidgetStyle.SideRight ->
+                InfoCard(item, metadata, reverse = style == WidgetStyle.SideRight)
+            WidgetStyle.PosterDetail -> InfoCard(item, metadata, poster = true, descriptionLines = 3)
+            WidgetStyle.Episodes -> InfoCard(item, metadata, label = episodeLabel(item).ifBlank { "分集内容" })
+            WidgetStyle.ImageTop, WidgetStyle.TextTop, WidgetStyle.FeatureList -> {
+                Column(
+                    Modifier.fillMaxSize().quietCard().padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (style == WidgetStyle.TextTop) MediaCopy(item, metadata = metadata, lines = 2)
+                    Box(Modifier.fillMaxWidth().height(metrics.imageHeight).clip(AppShapes.thumb)) {
+                        Artwork(item, Modifier.fillMaxSize())
                         if (style ==
-                            WidgetStyle.RankGrid
+                            WidgetStyle.FeatureList
                         ) {
-                            "${index + 1}"
+                            Badge(if (index == 0) "主推" else "精选", Modifier.padding(8.dp))
+                        }
+                    }
+                    if (style != WidgetStyle.TextTop) MediaCopy(item, metadata = metadata, lines = 2)
+                }
+            }
+            WidgetStyle.DoublePoster -> {
+                Column(Modifier.fillMaxSize().quietCard().padding(10.dp)) {
+                    MediaTile(item, metrics.imageHeight, metadata, poster = true)
+                }
+            }
+            WidgetStyle.PosterStack -> {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CoverStack(item, metrics.imageHeight, fan = true)
+                    MediaCopy(item, metadata = metadata)
+                }
+            }
+            WidgetStyle.Hero, WidgetStyle.PeekCarousel, WidgetStyle.FeatureThree,
+            WidgetStyle.Magazine, WidgetStyle.RankFeature, WidgetStyle.NextEpisode,
+            WidgetStyle.Categories,
+            -> {
+                val badge =
+                    when (style) {
+                        WidgetStyle.RankFeature -> "TOP ${index + 1}"
+                        WidgetStyle.NextEpisode -> if (index == 0) "下一集" else episodeLabel(item).ifBlank { "后续剧集" }
+                        WidgetStyle.FeatureThree -> if (index % 3 == 0) "焦点推荐" else null
+                        WidgetStyle.Magazine -> "精选 · ${(index + 1).toString().padStart(2, '0')}"
+                        else -> null
+                    }
+                HeroTile(item, metadata, badge)
+            }
+            WidgetStyle.RankRail -> {
+                Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        (index + 1).toString().padStart(2, '0'),
+                        Modifier.width(40.dp).padding(bottom = 4.dp),
+                        color = LocalAccentColors.current.accent,
+                        style = AppTypography.section.strong,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Box(Modifier.weight(1f)) { MediaTile(item, metrics.imageHeight, metadata, poster = true) }
+                }
+            }
+            WidgetStyle.RankList -> InfoCard(item, metadata, label = "TOP ${index + 1}")
+            WidgetStyle.Podium -> {
+                Column(
+                    Modifier.fillMaxSize().quietCard().padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    RailLabel(if (index == 0) "01 · 榜首" else "${(index + 1).toString().padStart(2, '0')} · 榜单")
+                    MediaTile(item, metrics.imageHeight, metadata, poster = true)
+                }
+            }
+            WidgetStyle.RankGrid ->
+                MediaTile(
+                    item,
+                    metrics.imageHeight,
+                    metadata,
+                    badge = "${index + 1}",
+                    poster = true,
+                )
+            WidgetStyle.GroupRanks, WidgetStyle.Calendar -> {
+                Column(
+                    Modifier.fillMaxSize().quietCard().padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    RailLabel(
+                        if (style == WidgetStyle.Calendar) {
+                            item.date.take(10).ifBlank { "日期未提供" }
                         } else {
-                            null
+                            "${item.group.ifBlank { "全部内容" }} · TOP $groupRank"
                         },
-                    onOpen = onOpen,
-                )
-            }
-        WidgetStyle.PosterDetail ->
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                items.forEach { InfoRow(it, poster = true, metadata = metadata, onOpen = onOpen) }
-            }
-        WidgetStyle.PosterStack ->
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                items(items.chunked(3)) { group ->
-                    Column(Modifier.width(190.dp).clickable { onOpen(group.first()) }) {
-                        Box(Modifier.height(210.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            group.reversed().forEachIndexed { index, media ->
-                                Artwork(
-                                    media,
-                                    Modifier
-                                        .width(126.dp)
-                                        .aspectRatio(.667f)
-                                        .graphicsLayer {
-                                            rotationZ =
-                                                (index - 1) * 9f
-                                            ; translationX = (index - 1) * 20f
-                                        }.clip(AppShapes.thumb),
-                                    poster = true,
-                                )
-                            }
-                        }
-                        MediaCopy(group.first(), metadata = metadata)
-                    }
+                    )
+                    MediaTile(item, metrics.imageHeight, metadata)
                 }
             }
-        WidgetStyle.Hero ->
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                items.forEach { HeroTile(it, Modifier.fillMaxWidth().height(300.dp), onOpen) }
-            }
-        WidgetStyle.PeekCarousel, WidgetStyle.CenterPoster -> {
-            val pager = rememberPagerState(pageCount = { items.size })
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                HorizontalPager(
-                    pager,
-                    contentPadding =
-                        PaddingValues(
-                            horizontal =
-                                if (style ==
-                                    WidgetStyle.CenterPoster
-                                ) {
-                                    64.dp
-                                } else {
-                                    20.dp
-                                },
-                        ),
-                    pageSpacing = 12.dp,
-                ) { index ->
-                    if (style ==
-                        WidgetStyle.CenterPoster
-                    ) {
-                        MediaTile(
-                            items[index],
-                            Modifier.fillMaxWidth().graphicsLayer {
-                                val distance =
-                                    kotlin.math
-                                        .abs(
-                                            pager.currentPage - index + pager.currentPageOffsetFraction,
-                                        ).coerceIn(0f, 1f)
-                                scaleX = 1f - distance * .12f
-                                scaleY = scaleX
-                            },
-                            .667f,
-                            metadata,
-                            onOpen = onOpen,
-                        )
-                    } else {
-                        HeroTile(items[index], Modifier.fillMaxWidth().height(230.dp), onOpen)
-                    }
-                }
-                Text(
-                    "${pager.currentPage + 1} / ${items.size}",
-                    color = LocalPalette.current.sub2,
-                    style = AppTypography.body.regular,
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                )
-            }
-        }
-        WidgetStyle.FeatureThree ->
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                items.chunked(3).forEach { group ->
-                    HeroTile(group.first(), Modifier.fillMaxWidth().height(240.dp), onOpen)
-                    CardGrid(
-                        group.drop(1),
-                        2,
-                        gap,
-                    ) { item, _ -> MediaTile(item, Modifier.fillMaxWidth(), 1.78f, metadata, onOpen = onOpen) }
-                }
-            }
-        WidgetStyle.FeatureList ->
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                items.chunked(4).forEach { group ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                        MediaTile(group.first(), Modifier.weight(1f), .667f, metadata, onOpen = onOpen)
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            group.drop(1).forEach { TextEntry(it, onOpen = onOpen) }
-                        }
-                    }
-                }
-            }
-        WidgetStyle.Magazine ->
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                items.chunked(3).forEachIndexed { index, group ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                        val feature: @Composable () -> Unit = {
-                            HeroTile(
-                                group.first(),
-                                Modifier.weight(1.25f).height(280.dp),
-                                onOpen,
-                            )
-                        }
-                        if (index % 2 == 0) feature()
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(gap)) {
-                            group
-                                .drop(
-                                    1,
-                                ).forEach {
-                                    MediaTile(
-                                        it,
-                                        Modifier.fillMaxWidth(),
-                                        1.5f,
-                                        metadata = false,
-                                        onOpen = onOpen,
-                                    )
-                                }
-                        }
-                        if (index % 2 != 0) feature()
-                    }
-                }
-            }
-        WidgetStyle.RankRail ->
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                items(items.size) { index ->
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            "${index + 1}",
-                            style = AppTypography.display.strong,
-                            fontWeight = FontWeight.Black,
-                            color = LocalPalette.current.sub2,
-                        )
-                        MediaTile(items[index], Modifier.width(116.dp), .667f, metadata, onOpen = onOpen)
-                    }
-                }
-            }
-        WidgetStyle.RankList ->
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                items.forEachIndexed { index, item ->
+            WidgetStyle.Timeline -> {
+                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Rank(index + 1)
-                        Box(Modifier.weight(1f)) { InfoRow(item, metadata = metadata, onOpen = onOpen) }
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(LocalAccentColors.current.accent))
+                        RailLabel(item.date.take(10).ifBlank { "最近更新" })
+                        Box(Modifier.weight(1f).height(1.dp).background(LocalPalette.current.controlBorder))
                     }
+                    Box(Modifier.weight(1f)) { InfoCard(item, metadata) }
                 }
             }
-        WidgetStyle.Podium ->
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+            WidgetStyle.People -> {
+                Column(
+                    Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    listOf(1, 0, 2).filter { it < items.size }.forEach { index ->
-                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                            MediaTile(
-                                items[index],
-                                Modifier.fillMaxWidth(),
-                                if (index ==
-                                    0
-                                ) {
-                                    .55f
-                                } else {
-                                    .75f
-                                },
-                                metadata = false,
-                                badge = "${index + 1}",
-                                onOpen = onOpen,
-                            )
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .height(
-                                        if (index ==
-                                            0
-                                        ) {
-                                            38.dp
-                                        } else {
-                                            22.dp
-                                        },
-                                    ).glass(
-                                        AppShapes.chip,
-                                        LocalPalette.current.controlSurface,
-                                        LocalPalette.current.controlBorder,
-                                    ),
-                            )
-                        }
-                    }
-                }
-                items.drop(3).forEachIndexed { index, item -> TextEntry(item, "${index + 4}", onOpen) }
-            }
-        WidgetStyle.RankFeature ->
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                HeroTile(items.first(), Modifier.fillMaxWidth().height(260.dp), onOpen, "TOP 1")
-                items.drop(1).forEachIndexed { index, item -> TextEntry(item, "${index + 2}", onOpen) }
-            }
-        WidgetStyle.GroupRanks ->
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                items(items.groupBy { it.group.ifBlank { "全部内容" } }.toList()) { (group, media) ->
-                    Column(
-                        Modifier
-                            .width(
-                                260.dp,
-                            ).clip(AppShapes.card)
-                            .glass(AppShapes.card, LocalPalette.current.card, LocalPalette.current.controlBorder)
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        Text(group, fontWeight = FontWeight.Bold, color = LocalPalette.current.text)
-                        media.forEachIndexed { index, item -> TextEntry(item, "${index + 1}", onOpen) }
-                    }
+                    Artwork(item, Modifier.size(90.dp).clip(CircleShape), poster = true)
+                    MediaCopy(item, metadata = metadata, lines = 1, centered = true)
                 }
             }
-        WidgetStyle.ContinueLandscape ->
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                items(items, key = {
-                    it.id
-                }) { MediaTile(it, Modifier.width(254.dp), 1.78f, metadata, progress = true, onOpen = onOpen) }
-            }
-        WidgetStyle.Episodes ->
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                items.forEach { InfoRow(it, episode = true, metadata = metadata, onOpen = onOpen) }
-            }
-        WidgetStyle.NextEpisode ->
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                HeroTile(
-                    items.first(),
-                    Modifier.fillMaxWidth().height(240.dp),
-                    onOpen,
-                    episodeLabel(items.first()).ifBlank { "下一集" },
-                )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                    items(items.drop(1)) { MediaTile(it, Modifier.width(180.dp), 1.78f, metadata, onOpen = onOpen) }
-                }
-            }
-        WidgetStyle.Calendar ->
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                items(items.groupBy { it.date.take(10).ifBlank { "日期未提供" } }.toSortedMap().toList()) { (date, media) ->
-                    Column(
-                        Modifier
-                            .width(
-                                170.dp,
-                            ).clip(AppShapes.card)
-                            .glass(AppShapes.card, LocalPalette.current.card, LocalPalette.current.controlBorder)
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(date, fontWeight = FontWeight.Bold, color = LocalPalette.current.text)
-                        media.forEach { MediaTile(it, Modifier.fillMaxWidth(), 1.78f, metadata, onOpen = onOpen) }
-                    }
-                }
-            }
-        WidgetStyle.Timeline ->
-            Column {
-                items.forEach { item ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(Modifier.size(10.dp).clip(CircleShape).background(LocalPalette.current.sub))
-                            Box(Modifier.width(2.dp).height(100.dp).background(LocalPalette.current.controlBorder))
-                        }
-                        Column(Modifier.weight(1f).padding(bottom = 16.dp)) {
-                            if (item.date.isNotBlank()) {
-                                Text(
-                                    item.date,
-                                    style = AppTypography.body.regular,
-                                    color = LocalPalette.current.sub2,
-                                )
-                            }
-                            InfoRow(item, metadata = metadata, onOpen = onOpen)
-                        }
-                    }
-                }
-            }
-        WidgetStyle.Categories ->
-            CardGrid(
-                items,
-                2,
-                gap,
-            ) { item, _ -> HeroTile(item, Modifier.fillMaxWidth().aspectRatio(1f), onOpen) }
-        WidgetStyle.People ->
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                items(items, key = { it.id }) { item ->
-                    Column(
-                        Modifier.width(94.dp).clickable { onOpen(item) },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Artwork(item, Modifier.size(90.dp).clip(CircleShape), poster = true)
-                        Text(
-                            item.title,
-                            color = LocalPalette.current.text,
-                            maxLines = 2,
-                            style = AppTypography.body.regular,
-                            modifier = Modifier.padding(top = 8.dp),
-                        )
-                    }
-                }
-            }
-        WidgetStyle.Tags ->
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items.forEach { item ->
+            WidgetStyle.Tags -> {
+                Box(
+                    Modifier.fillMaxSize().quietCard(AppShapes.chip).padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text(
                         item.title,
                         color = LocalPalette.current.text,
-                        modifier =
-                            Modifier
-                                .clip(
-                                    AppShapes.chip,
-                                ).glass(
-                                    AppShapes.chip,
-                                    LocalPalette.current.controlSurface,
-                                    LocalPalette.current.controlBorder,
-                                ).clickable {
-                                    onOpen(item)
-                                }.padding(horizontal = 16.dp, vertical = 12.dp),
+                        style = AppTypography.body.medium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
-        WidgetStyle.Collection ->
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                items(items, key = { it.id }) { item ->
-                    Column(Modifier.width(184.dp).clickable { onOpen(item) }) {
-                        val covers = item.children.take(4).ifEmpty { listOf(item) }
-                        Column(Modifier.clip(AppShapes.card)) {
-                            covers.chunked(2).forEach { row ->
-                                Row {
-                                    row.forEach { Artwork(it, Modifier.weight(1f).aspectRatio(.75f), poster = true) }
-                                }
-                            }
-                        }
-                        MediaCopy(item, metadata = metadata)
-                    }
+            WidgetStyle.Collection -> {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CoverStack(item, metrics.imageHeight)
+                    MediaCopy(item, metadata = metadata)
                 }
             }
-        WidgetStyle.Expandable ->
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                items.forEach { item ->
-                    var expanded by remember(item.id) { mutableStateOf(false) }
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(
-                                AppShapes.card,
-                            ).glass(AppShapes.card, LocalPalette.current.card, LocalPalette.current.controlBorder)
-                            .padding(12.dp),
-                    ) {
-                        Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(vertical = 8.dp)) {
-                            Text(
-                                item.title,
-                                Modifier.weight(1f),
-                                color = LocalPalette.current.text,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Text(if (expanded) "收起 −" else "展开 ＋", color = LocalPalette.current.sub)
-                        }
-                        if (expanded) {
-                            if (item.children.isEmpty()) {
-                                InfoRow(item, metadata = metadata, onOpen = onOpen)
-                            } else {
-                                item.children.forEach { TextEntry(it, onOpen = onOpen) }
+            WidgetStyle.Expandable ->
+                InfoCard(
+                    item,
+                    metadata,
+                    poster = true,
+                    label =
+                        if (item.children.isEmpty()) {
+                            item.group.ifBlank {
+                                "内容合集"
                             }
-                        }
-                    }
+                        } else {
+                            "${item.children.size} 项内容 · 查看全部"
+                        },
+                )
+            WidgetStyle.TextList -> {
+                Row(
+                    Modifier.fillMaxSize().quietCard().padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    MediaCopy(item, Modifier.weight(1f), metadata, lines = 2)
+                    Text("›", color = LocalPalette.current.sub2, style = AppTypography.section.medium)
                 }
             }
-        WidgetStyle.TextList ->
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items.forEach { TextEntry(it, onOpen = onOpen) }
-            }
+        }
     }
 }
 
 @Composable
-private fun CardGrid(
-    items: List<WidgetMedia>,
-    columns: Int,
-    gap: androidx.compose.ui.unit.Dp,
-    content: @Composable (WidgetMedia, Int) -> Unit,
+private fun Modifier.quietCard(shape: androidx.compose.ui.graphics.Shape = AppShapes.card): Modifier =
+    clip(shape).glass(shape, LocalPalette.current.card, LocalPalette.current.controlBorder)
+
+@Composable
+private fun RailLabel(text: String) {
+    Text(
+        text,
+        style = AppTypography.body.medium,
+        color = LocalAccentColors.current.accent,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+@Composable
+private fun Badge(
+    text: String,
+    modifier: Modifier = Modifier,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-        items.chunked(columns).forEachIndexed { row, group ->
-            Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                repeat(columns) { column ->
-                    Box(Modifier.weight(1f)) {
-                        group.getOrNull(column)?.let {
-                            content(
-                                it,
-                                row * columns + column,
-                            )
-                        }
-                    }
+    Text(
+        text,
+        modifier
+            .clip(
+                AppShapes.chip,
+            ).glass(AppShapes.chip, LocalPalette.current.controlSurface, LocalPalette.current.controlBorder)
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        color = LocalAccentColors.current.accent,
+        style = AppTypography.caption.strong,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+/** Overlapping cover decoration remains inside one fixed-size, singly clickable collection card. */
+@Composable
+private fun CoverStack(
+    item: WidgetMedia,
+    height: Dp,
+    fan: Boolean = false,
+) {
+    val covers = remember(item) { (listOf(item) + item.children).take(3) }
+    Box(Modifier.fillMaxWidth().height(height).clip(AppShapes.thumb)) {
+        if (fan) {
+            repeat(3) { layer ->
+                val cover = covers.getOrElse(2 - layer) { item }
+                Artwork(
+                    cover,
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxHeight(.9f)
+                        .fillMaxWidth(.68f)
+                        .graphicsLayer {
+                            rotationZ = (1 - layer) * 7f
+                            translationX = (1 - layer) * 15.dp.toPx()
+                        }.clip(AppShapes.thumb),
+                    poster = true,
+                )
+            }
+        } else {
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                repeat(3) { index ->
+                    Artwork(covers.getOrElse(index) { item }, Modifier.weight(1f).fillMaxHeight(), poster = true)
                 }
             }
         }
@@ -649,47 +570,31 @@ internal fun Artwork(
 @Composable
 private fun MediaTile(
     item: WidgetMedia,
-    modifier: Modifier = Modifier,
-    ratio: Float,
-    metadata: Boolean = true,
+    imageHeight: Dp,
+    metadata: Boolean,
     progress: Boolean = false,
     badge: String? = null,
-    onOpen: (WidgetMedia) -> Unit,
+    poster: Boolean = false,
 ) {
-    Column(modifier.clickable { onOpen(item) }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(ratio).clip(AppShapes.thumb)) {
-            Artwork(item, Modifier.fillMaxSize(), poster = ratio < 1f)
-            badge?.let {
-                Text(
-                    it,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    modifier =
-                        Modifier
-                            .padding(
-                                6.dp,
-                            ).clip(CircleShape)
-                            .background(Color.Black.copy(alpha = .65f))
-                            .padding(8.dp),
-                )
-            }
-            if (progress &&
-                item.progress != null
-            ) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.fillMaxWidth().height(imageHeight).clip(AppShapes.thumb)) {
+            Artwork(item, Modifier.fillMaxSize(), poster = poster)
+            badge?.let { Badge(it, Modifier.padding(7.dp)) }
+            if (progress && item.progress != null) {
                 LinearProgressIndicator(
-                    progress = { item.progress },
+                    progress = { item.progress.coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
                 )
             }
         }
         MediaCopy(item, metadata = metadata)
-        if (progress &&
-            item.progress != null
-        ) {
+        if (progress) {
             Text(
-                "已看 ${(item.progress * 100).toInt()}%",
+                item.progress?.let { "已看 ${(it.coerceIn(0f, 1f) * 100).toInt()}%" } ?: "未记录进度",
                 style = AppTypography.body.regular,
                 color = LocalPalette.current.sub2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -701,15 +606,19 @@ private fun MediaCopy(
     modifier: Modifier = Modifier,
     metadata: Boolean = true,
     lines: Int = 0,
+    centered: Boolean = false,
 ) {
+    val alignment = if (centered) TextAlign.Center else TextAlign.Start
     Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(
             item.title,
+            Modifier.fillMaxWidth(),
             color = LocalPalette.current.text,
-            style = AppTypography.body.regular,
-            fontWeight = FontWeight.Medium,
+            style = AppTypography.body.medium,
+            minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
+            textAlign = alignment,
         )
         if (metadata) {
             val meta =
@@ -717,29 +626,30 @@ private fun MediaCopy(
                     item.year.take(4),
                     item.rating
                         .takeIf(String::isNotBlank)
-                        ?.let {
-                            "★ $it"
-                        }.orEmpty(),
+                        ?.let { "★ $it" }
+                        .orEmpty(),
                     episodeLabel(item),
-                ).filter(String::isNotBlank).joinToString(" · ")
-            if (meta.isNotBlank()) {
-                Text(
-                    meta,
-                    color = LocalPalette.current.sub2,
-                    style = AppTypography.body.regular,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (lines > 0 &&
-                item.description.isNotBlank()
-            ) {
+                ).filter(String::isNotBlank)
+                    .joinToString(" · ")
+            Text(
+                meta,
+                Modifier.fillMaxWidth(),
+                color = LocalPalette.current.sub2,
+                style = AppTypography.body.regular,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = alignment,
+            )
+            if (lines > 0) {
                 Text(
                     item.description,
+                    Modifier.fillMaxWidth(),
                     color = LocalPalette.current.sub,
                     style = AppTypography.body.regular,
+                    minLines = lines,
                     maxLines = lines,
                     overflow = TextOverflow.Ellipsis,
+                    textAlign = alignment,
                 )
             }
         }
@@ -747,24 +657,16 @@ private fun MediaCopy(
 }
 
 @Composable
-private fun InfoRow(
+private fun InfoCard(
     item: WidgetMedia,
+    metadata: Boolean,
     reverse: Boolean = false,
     poster: Boolean = false,
-    episode: Boolean = false,
-    metadata: Boolean = true,
-    onOpen: (WidgetMedia) -> Unit,
+    label: String? = null,
+    descriptionLines: Int = 2,
 ) {
     Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(AppShapes.card)
-            .glass(AppShapes.card, LocalPalette.current.card, LocalPalette.current.controlBorder)
-            .clickable {
-                onOpen(item)
-            }.padding(
-                10.dp,
-            ),
+        Modifier.fillMaxSize().quietCard().padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -773,20 +675,16 @@ private fun InfoRow(
                 item,
                 Modifier
                     .width(
-                        if (poster) 94.dp else 116.dp,
-                    ).aspectRatio(if (poster) .667f else 1.78f)
+                        if (poster) 80.dp else 100.dp,
+                    ).height(if (poster) 120.dp else 70.dp)
                     .clip(AppShapes.thumb),
                 poster,
             )
         }
         if (!reverse) picture()
-        Column(Modifier.weight(1f)) {
-            if (episode &&
-                episodeLabel(item).isNotBlank()
-            ) {
-                Text(episodeLabel(item), style = AppTypography.body.regular, color = LocalPalette.current.sub2)
-            }
-            MediaCopy(item, metadata = metadata, lines = if (poster) 5 else 2)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            label?.let { RailLabel(it) }
+            MediaCopy(item, metadata = metadata, lines = descriptionLines)
         }
         if (reverse) picture()
     }
@@ -795,85 +693,64 @@ private fun InfoRow(
 @Composable
 private fun HeroTile(
     item: WidgetMedia,
-    modifier: Modifier,
-    onOpen: (WidgetMedia) -> Unit,
-    badge: String? = null,
+    metadata: Boolean,
+    badge: String?,
 ) {
-    Box(modifier.clip(AppShapes.card).clickable { onOpen(item) }) {
+    Box(Modifier.fillMaxSize().clip(AppShapes.card)) {
         Artwork(item, Modifier.fillMaxSize())
         Box(
             Modifier.fillMaxSize().background(
-                Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .85f))),
+                Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .78f))),
             ),
         )
-        Column(Modifier.align(Alignment.BottomStart).padding(18.dp)) {
-            badge?.let { Text(it, color = Color.White.copy(alpha = .8f), style = AppTypography.body.regular) }
+        Column(
+            Modifier.align(Alignment.BottomStart).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            badge?.let { Badge(it) }
             Text(
                 item.title,
                 color = Color.White,
-                style = AppTypography.display.strong,
-                fontWeight = FontWeight.Bold,
+                style = AppTypography.section.strong,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (item.description.isNotBlank()) {
-                Text(
-                    item.description,
-                    color = Color.White.copy(alpha = .8f),
-                    maxLines = 2,
-                    style = AppTypography.body.regular,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            if (metadata) {
+                val meta =
+                    listOf(
+                        item.year.take(4),
+                        item.rating
+                            .takeIf(String::isNotBlank)
+                            ?.let { "★ $it" }
+                            .orEmpty(),
+                        episodeLabel(item),
+                    ).filter(String::isNotBlank)
+                        .joinToString(" · ")
+                if (meta.isNotBlank()) {
+                    Text(
+                        meta,
+                        color = Color.White.copy(alpha = .85f),
+                        style = AppTypography.body.regular,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (item.description.isNotBlank()) {
+                    Text(
+                        item.description,
+                        color = Color.White.copy(alpha = .82f),
+                        maxLines = 2,
+                        style = AppTypography.body.regular,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
 }
 
-@Composable
-private fun TextEntry(
-    item: WidgetMedia,
-    prefix: String? = null,
-    onOpen: (WidgetMedia) -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable {
-                onOpen(item)
-            }.padding(
-                vertical = 10.dp,
-            ),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        prefix?.let {
-            Text(
-                it,
-                color = LocalPalette.current.sub2,
-                fontWeight = FontWeight.Bold,
-                style = AppTypography.section.strong,
-            )
-        }
-        Box(Modifier.weight(1f)) { MediaCopy(item) }
-        Text("›", color = LocalPalette.current.hint, style = AppTypography.section.strong)
-    }
-}
-
-@Composable
-private fun Rank(value: Int) {
-    Text(
-        value.toString().padStart(2, '0'),
-        style = AppTypography.display.strong,
-        fontWeight = FontWeight.Bold,
-        color = LocalPalette.current.sub2,
-    )
-}
-
 private fun episodeLabel(item: WidgetMedia): String =
-    item.episode
-        ?.let {
-            "${item.season?.let { s -> "S$s · " }.orEmpty()}第 $it 集"
-        }.orEmpty()
+    item.episode?.let { "${item.season?.let { s -> "S$s · " }.orEmpty()}第 $it 集" }.orEmpty()
 
 internal val widgetPreviewItems =
     (1..6).map { index ->

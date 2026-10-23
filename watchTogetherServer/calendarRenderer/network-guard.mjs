@@ -146,6 +146,7 @@ export function startEgressProxy({ lookup, isBlocked, allowedPorts = [80, 443], 
       target.protocol === "http:" && allowedPorts.includes(port)
         ? await resolvePublicAddress(target.hostname, options)
         : null;
+    if (response.destroyed) return;
     if (!address) {
       onBlocked(target.hostname);
       response.writeHead(403).end();
@@ -161,12 +162,17 @@ export function startEgressProxy({ lookup, isBlocked, allowedPorts = [80, 443], 
         upstreamResponse.pipe(response);
       },
     );
+    // A cancelled renderer closes its downstream response even when the origin keeps streaming.
+    // pipe() alone unpipes that destination without destroying the outstanding upstream request.
+    response.once("close", () => upstream.destroy());
+    request.once("aborted", () => upstream.destroy());
     upstream.on("error", () => response.destroy());
     request.pipe(upstream);
   });
   server.on("connect", async (request, client, head) => {
     const { host, port } = splitHostPort(request.url || "", 443);
     const address = allowedPorts.includes(port) ? await resolvePublicAddress(host, options) : null;
+    if (client.destroyed) return;
     if (!address) {
       onBlocked(host);
       client.end("HTTP/1.1 403 Forbidden\r\n\r\n");
@@ -179,7 +185,9 @@ export function startEgressProxy({ lookup, isBlocked, allowedPorts = [80, 443], 
       client.pipe(upstream);
     });
     upstream.on("error", () => client.destroy());
+    upstream.once("close", () => client.destroy());
     client.on("error", () => upstream.destroy());
+    client.once("close", () => upstream.destroy());
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);

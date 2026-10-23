@@ -122,18 +122,16 @@ internal class AndroidNativeDirectSession(
      * True once a video decoder has rendered into a real Surface for the current media.
      *
      * Distinguishes "video output was lost" from "video output was never established". Losing
-     * it must not stop audio; never having had it still gates startup on the Surface.
+     * it must not stop audio. Initial startup still waits for video unless audio-only output
+     * was explicitly requested by the lifecycle.
      *
      * Volatile because the MediaCodec render callback sets it ([markFirstVideoFrameRendered])
      * on its own thread while the playback pump reads it through [audioPumpAllowed] and
      * [videoOutputPending]; without it the pump may keep gating audio on a stale false.
      */
-    @Volatile
-    private var videoOutputEstablished = false
-
-    /** Set when a rebuilt video decoder still needs a sync sample before it can decode. */
-    private var awaitVideoSyncSample = false
-    private var awaitVideoSyncSampleDrops = 0
+    private val outputLifecycle = NativeDirectOutputLifecycle()
+    private val videoOutputEstablished: Boolean get() = outputLifecycle.videoEstablished
+    private val videoIntentionallySuspended: Boolean get() = outputLifecycle.videoSuspended && audioTrackIndex != null
 
     /** Where prepare or the last seek left the source, and whether a sample was consumed since. */
     private var sourcePositionedAtUs = 0L
@@ -215,15 +213,15 @@ internal class AndroidNativeDirectSession(
         get() = videoConfigured && surfaceOutput?.surface?.isValid == true
 
     /**
-     * Audio may drive the pump on its own once video output has been established, or when the
-     * media has no video at all.
+     * Audio may drive the pump once video output has been established, when the media has no
+     * video, or while explicitly requested background audio starts a new media session.
      *
      * Requiring a live Surface for the whole pump is what made a destroyed Surface stop the
      * sound with it: background listening, lock-screen playback and the PiP transition all go
      * through exactly that path. Exo's `clearVideoSurface` detaches only the video renderer.
      */
     private val audioPumpAllowed: Boolean
-        get() = audioTrackIndex != null && (!hasVideoTrack || videoOutputEstablished)
+        get() = outputLifecycle.allowsAudioPump(hasVideoTrack, audioTrackIndex != null)
 
     /** True when the audio path alone is already carrying playback. */
     private val audioCarryingPlayback: Boolean
@@ -266,6 +264,7 @@ internal class AndroidNativeDirectSession(
             is Command.SetSpeed -> updateSpeed(command.speed)
             is Command.SetAudioDelay -> updateAudioDelay(command.delayMs)
             is Command.SetAudioEffect -> updateAudioEffect(command.effect)
+            is Command.SetVideoSuspended -> setVideoSuspended(command.suspended)
             is Command.SetVideoOutput -> setSurface(command.output).also { command.detached?.complete(Unit) }
             is Command.SelectAudioTrack -> selectAudioTrack(command.trackIndex)
             is Command.SelectSubtitleTrack ->
@@ -491,7 +490,7 @@ internal class AndroidNativeDirectSession(
             bufferingTrackIndices = setOfNotNull(videoTrackIndex, audioTrackIndex),
         )
 
-        if (videoFormat != null) {
+        if (videoFormat != null && !videoIntentionallySuspended) {
             surfaceOutput?.surface?.takeIf { it.isValid }?.let { surface ->
                 configureVideoDecoder(surface)
             }
@@ -716,10 +715,20 @@ internal class AndroidNativeDirectSession(
         }
     }
 
+    private fun setVideoSuspended(suspended: Boolean) {
+        if (outputLifecycle.videoSuspended == suspended) return
+        outputLifecycle.setVideoSuspended(suspended, audioCarryingPlayback)
+        if (!prepared) return
+        // Keep the caller's Surface reference for foreground restoration, but stop its decoder
+        // while audio-only playback is requested. A new media session can now start without it.
+        setSurface(surfaceOutput)
+        if (requestedPlay) startPlayback()
+    }
+
     private fun setSurface(output: AndroidSurfaceVideoOutput?) {
         val previous = surfaceOutput
         surfaceOutput = output
-        val newSurface = output?.surface?.takeIf { it.isValid }
+        val newSurface = output?.surface?.takeIf { it.isValid && !videoIntentionallySuspended }
         if (newSurface == null) {
             videoOutputEpoch.reset()
             firstVideoFrameRendered = false
@@ -786,8 +795,7 @@ internal class AndroidNativeDirectSession(
             // the decoder in place and let it pick up the next sync sample instead of seeking
             // the shared extractor, which would have to rewind audio to a keyframe as well.
             configureVideoDecoder(newSurface)
-            awaitVideoSyncSample = true
-            awaitVideoSyncSampleDrops = 0
+            outputLifecycle.awaitVideoSync()
             if (requestedPlay) startPlayback()
             return
         }
@@ -1194,9 +1202,12 @@ internal class AndroidNativeDirectSession(
      * whose sync flags are missing or wrong would otherwise stay silent-with-no-picture forever.
      */
     private fun recoverVideoIfNoSyncSampleArrives() {
-        if (!awaitVideoSyncSample || awaitVideoSyncSampleDrops < MAX_VIDEO_SYNC_SAMPLE_DROPS) return
-        awaitVideoSyncSample = false
-        awaitVideoSyncSampleDrops = 0
+        if (!outputLifecycle.awaitingVideoSync ||
+            outputLifecycle.skippedVideoSamples < MAX_VIDEO_SYNC_SAMPLE_DROPS
+        ) {
+            return
+        }
+        outputLifecycle.clearVideoSyncWait()
         seekTo(currentPositionUs())
     }
 
@@ -1297,23 +1308,21 @@ internal class AndroidNativeDirectSession(
             when (sample.trackIndex) {
                 videoTrackIndex ->
                     when {
-                        !videoConfigured && videoOutputEstablished ->
+                        !videoConfigured && audioPumpAllowed ->
                             // The Surface went away mid-playback. Holding the sample would
                             // back-pressure the shared queue until audio starved too, so the
                             // video track is discarded until a Surface returns.
                             YCodecQueueResult.Queued
                         !videoConfigured -> YCodecQueueResult.TryAgain
-                        awaitVideoSyncSample &&
-                            sample.flags and MediaExtractor.SAMPLE_FLAG_SYNC == 0 -> {
+                        outputLifecycle.discardUntilVideoSync(
+                            syncSample = sample.flags and MediaExtractor.SAMPLE_FLAG_SYNC != 0,
+                        ) -> {
                             // A rebuilt decoder cannot start mid-GOP. Dropping to the next sync
                             // sample resumes video without seeking the shared extractor, which
                             // is what would have interrupted the audio that never stopped.
-                            awaitVideoSyncSampleDrops++
                             YCodecQueueResult.Queued
                         }
                         else -> {
-                            awaitVideoSyncSample = false
-                            awaitVideoSyncSampleDrops = 0
                             applyHdr10PlusMetadata(sample)
                             nativeDirectStage(
                                 YPlaybackFailureCategory.Decoder,
@@ -2566,7 +2575,7 @@ internal class AndroidNativeDirectSession(
         if (firstVideoFrameRendered || control.released) return
         firstVideoFrameRendered = true
         outputHasEverRendered = true
-        videoOutputEstablished = true
+        outputLifecycle.videoRendered()
         mutableState.updateState { current ->
             if (control.released) {
                 current
@@ -2833,9 +2842,7 @@ internal class AndroidNativeDirectSession(
         sourceRemote = false
         sourceBitRateBitsPerSecond = 0L
         lastBufferReplanNs = 0L
-        videoOutputEstablished = false
-        awaitVideoSyncSample = false
-        awaitVideoSyncSampleDrops = 0
+        outputLifecycle.resetMedia()
         videoFormat = null
         inspectHdr10PlusSamples = false
         hdrAccessUnits.clear()

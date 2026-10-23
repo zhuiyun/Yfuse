@@ -79,6 +79,9 @@ interface YPlayer {
      */
     fun setVideoSuspended(suspended: Boolean) = Unit
 
+    /** Intentional audio-only output; health and recovery must not wait for suspended video. */
+    val videoOutputSuspended: Boolean get() = false
+
     /** True only while the active backend can keep audio playing without a visible video output. */
     val supportsBackgroundAudio: Boolean get() = false
 
@@ -191,6 +194,8 @@ data class YMediaItem(
      * entry never share it. Queue updates compare this key instead and keep the active address.
      */
     val sourceKey: String? = null,
+    /** Exact header names whose values may only be sent to this media URI's origin. */
+    val originBoundHeaderNames: Set<String> = emptySet(),
 ) {
     init {
         require(cacheMaximumBytes >= 0L)
@@ -329,6 +334,7 @@ internal fun YMediaItem.hasSameActiveSourceAs(other: YMediaItem): Boolean {
     if (id != other.id) return false
     if (drmConfiguration != other.drmConfiguration) return false
     if (transportCredentials != other.transportCredentials) return false
+    if (originBoundHeaderNames != other.originBoundHeaderNames) return false
     val key = sourceKey
     val otherKey = other.sourceKey
     return if (key != null && otherKey != null) {

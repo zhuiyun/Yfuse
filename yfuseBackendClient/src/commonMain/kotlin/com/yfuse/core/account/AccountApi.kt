@@ -144,6 +144,38 @@ class AccountApi(
                 setBody(request)
             }.decoded()
 
+    suspend fun pullPlaybackForRekey(
+        accessToken: String,
+        after: Long,
+    ): com.yfuse.core.sync.playback.PlaybackDeltaResponse =
+        client
+            .get("$origin/api/v1/account/playback/rekey") {
+                bearerAuth(accessToken)
+                parameter("after", after)
+                parameter("limit", 200)
+            }.decoded()
+
+    suspend fun stagePlaybackRekey(
+        accessToken: String,
+        batch: PlaybackRekeyBatch,
+    ): PlaybackRekeyReceipt =
+        client
+            .post("$origin/api/v1/account/playback/rekey") {
+                bearerAuth(accessToken)
+                contentType(ContentType.Application.Json)
+                setBody(batch)
+            }.decoded()
+
+    suspend fun discardPlaybackRekey(
+        accessToken: String,
+        migrationId: String,
+    ) {
+        client
+            .delete("$origin/api/v1/account/playback/rekey/$migrationId") {
+                bearerAuth(accessToken)
+            }.decodedUnit()
+    }
+
     suspend fun refresh(
         refreshToken: String,
         deviceName: String? = null,

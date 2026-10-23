@@ -85,6 +85,8 @@ internal data class RekeyRequest(
     val vault: VaultEnvelope,
     val sync: PutSyncRequest? = null,
     val deviceName: String? = null,
+    val playbackMigrationId: String? = null,
+    val playbackCursor: Long? = null,
 )
 
 @Serializable
@@ -173,6 +175,20 @@ internal data class AccountExportResponse(
     val encryptedSync: SyncResponse,
     /** Protocol 2 accounts: the wrapped key [encryptedSync] is encrypted under. */
     val vault: VaultEnvelope? = null,
+    /** Public derivation metadata, never the password verifier or either derived key. */
+    val authProtocol: Int = AUTH_PROTOCOL_PASSWORD,
+    val kdf: String? = null,
+    val kdfIterations: Int? = null,
+    val kdfSalt: String? = null,
+)
+
+/** All key-dependent export material is read from one database snapshot. */
+internal data class StoredAccountExport(
+    val authProtocol: Int,
+    val kdfSalt: ByteArray?,
+    val kdfIterations: Int?,
+    val vault: StoredVault?,
+    val sync: StoredSyncState,
 )
 
 /**
@@ -278,6 +294,8 @@ internal sealed interface RekeyWriteResult {
 
     /** The account has a sync document that was not re-encrypted under the new key. */
     data object SyncRequired : RekeyWriteResult
+
+    data object PlaybackConflict : RekeyWriteResult
 
     data object CredentialsChanged : RekeyWriteResult
 

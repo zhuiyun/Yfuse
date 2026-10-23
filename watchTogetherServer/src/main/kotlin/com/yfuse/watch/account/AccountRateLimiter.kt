@@ -18,6 +18,8 @@ data class AccountRateLimitPolicy(
     val profileWindowMs: Long = 60_000L,
     val syncReadAttemptsPerWindow: Int = 120,
     val syncWriteAttemptsPerWindow: Int = 30,
+    /** A full 1,024-record migration is paged to stay below the ordinary HTTP body limit. */
+    val playbackRekeyAttemptsPerWindow: Int = 2_048,
     val syncWindowMs: Long = 60_000L,
     val passwordChangeAttemptsPerWindow: Int = 5,
     val passwordChangeWindowMs: Long = 15 * 60_000L,
@@ -49,6 +51,7 @@ data class AccountRateLimitPolicy(
         require(profileWindowMs > 0L)
         require(syncReadAttemptsPerWindow > 0)
         require(syncWriteAttemptsPerWindow > 0)
+        require(playbackRekeyAttemptsPerWindow > 0)
         require(syncWindowMs > 0L)
         require(passwordChangeAttemptsPerWindow > 0)
         require(passwordChangeWindowMs > 0L)
@@ -95,6 +98,7 @@ class AccountRateLimiter(
                     AccountRateLimitBucket.ProfileWrite -> policy.profileWriteAttemptsPerWindow
                     AccountRateLimitBucket.SyncRead -> policy.syncReadAttemptsPerWindow
                     AccountRateLimitBucket.SyncWrite -> policy.syncWriteAttemptsPerWindow
+                    AccountRateLimitBucket.PlaybackRekey -> policy.playbackRekeyAttemptsPerWindow
                     AccountRateLimitBucket.PasswordChange -> policy.passwordChangeAttemptsPerWindow
                     AccountRateLimitBucket.InviteIssue -> policy.inviteIssueAttemptsPerWindow
                     AccountRateLimitBucket.TmdbProxy -> policy.tmdbProxyAttemptsPerWindow
@@ -110,6 +114,7 @@ class AccountRateLimiter(
                     -> policy.profileWindowMs
                     AccountRateLimitBucket.SyncRead,
                     AccountRateLimitBucket.SyncWrite,
+                    AccountRateLimitBucket.PlaybackRekey,
                     -> policy.syncWindowMs
                     AccountRateLimitBucket.PasswordChange -> policy.passwordChangeWindowMs
                     AccountRateLimitBucket.InviteIssue -> policy.inviteIssueWindowMs
@@ -246,6 +251,7 @@ internal enum class AccountRateLimitBucket {
     ProfileWrite,
     SyncRead,
     SyncWrite,
+    PlaybackRekey,
     PasswordChange,
     InviteIssue,
     TmdbProxy,

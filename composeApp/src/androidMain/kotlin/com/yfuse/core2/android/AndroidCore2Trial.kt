@@ -105,6 +105,11 @@ internal object AndroidCore2TrialFactory {
                                             embyPlaybackHeaders(upstreamUrl) { AppBuildConfig.VERSION_NAME } +
                                             item.customHeaders?.values.orEmpty(),
                                     credentials = item.transportCredentials,
+                                    originBoundHeaderNames =
+                                        item.customHeaders
+                                            ?.values
+                                            ?.keys
+                                            .orEmpty(),
                                     cacheable = cacheable,
                                     cacheIdentity = item.yCoreCacheIdentity(),
                                     maximumWidth = item.activeVersion?.sourceWidth,
@@ -411,6 +416,16 @@ private fun PlayerMediaItem.toCore2MediaItem(
             } else {
                 // A loopback proxy owns upstream auth; it must not receive it as a client header.
                 headers
+            },
+        originBoundHeaderNames =
+            if (mediaCredentialOriginsMatch(
+                    upstreamUri,
+                    localizedUri,
+                )
+            ) {
+                customHeaders?.values?.keys.orEmpty()
+            } else {
+                emptySet()
             },
         sourceKey = yMediaSourceKey(upstreamUri, upstreamHeaders),
         providerKey = serverId,

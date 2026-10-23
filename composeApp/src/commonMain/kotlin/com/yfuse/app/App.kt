@@ -431,7 +431,7 @@ fun App(root: RootComponent) {
                                                     ) { HomeTabScreen(root.home) }
                                                 Tab.CustomHome ->
                                                     com.yfuse.feature.widgets
-                                                        .CustomHomeScreen()
+                                                        .CustomHomeScreen(onOpenTmdb = root::openWidgetTitle)
                                                 Tab.Browse -> LibraryScreen(root.browse)
                                                 Tab.Watching -> LibraryScreen(root.watching)
                                                 Tab.Servers -> ServersTabScreen(root.servers)

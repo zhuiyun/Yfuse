@@ -166,15 +166,15 @@ internal fun SettingSegmentControl(
     onSelect: (Int) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
+    val selection = rememberGlassSelectionStyle()
     val indicator =
-        rememberSegmentIndicator(selectedIndex, accent.container, glassControlHighlight(accent, palette.isDark))
+        rememberSegmentIndicator(selectedIndex, Color.Transparent, selectionStyle = selection)
     Row(
         Modifier
             .then(if (expanded) Modifier.fillMaxWidth() else Modifier)
             .selectableGroup()
             .flatGlass(AppShapes.chip, palette.card3, palette.border)
-            .padding(2.dp)
+            .padding(4.dp)
             .then(indicator.container),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -199,7 +199,7 @@ internal fun SettingSegmentControl(
                 Text(
                     label,
                     style = if (isSelected) AppTypography.caption.strong else AppTypography.caption.medium,
-                    color = selectionColor(if (isSelected) accent.accent else palette.sub2),
+                    color = selectionColor(if (isSelected) selection.contentColor else palette.sub2),
                     maxLines = 2,
                     textAlign = TextAlign.Center,
                     overflow = TextOverflow.Ellipsis,

@@ -6,6 +6,7 @@ import java.util.UUID
 internal data class PlaybackProxyRoute(
     val upstreamUrl: String,
     val cacheable: Boolean,
+    val widgetRequest: WidgetPlaybackRequest? = null,
 )
 
 /**
@@ -65,7 +66,8 @@ internal class PlaybackProxyRoutes(
                 if (closed || !shouldProxyMpvNetworkUrl(url)) {
                     url
                 } else {
-                    val id = register(PlaybackProxyRoute(url, cacheable = false))
+                    val id =
+                        register(PlaybackProxyRoute(url, cacheable = false, widgetRequest = parent.route.widgetRequest))
                     children += id
                     localUrl(id)
                 }

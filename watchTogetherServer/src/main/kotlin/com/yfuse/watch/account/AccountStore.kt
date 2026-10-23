@@ -31,6 +31,37 @@ internal interface AccountStore : AutoCloseable {
 
     fun getVault(userId: String): StoredVault?
 
+    fun getAccountExport(userId: String): StoredAccountExport?
+
+    fun pullPlayback(
+        userId: String,
+        sessionId: String,
+        after: Long,
+        limit: Int,
+        now: Long,
+    ): PlaybackDeltaResponse
+
+    fun pushPlayback(
+        userId: String,
+        sessionId: String,
+        request: PlaybackPushRequest,
+        now: Long,
+    ): PlaybackPushResponse
+
+    fun stagePlaybackRekey(
+        userId: String,
+        sessionId: String,
+        request: PlaybackRekeyBatch,
+        now: Long,
+    )
+
+    fun discardPlaybackRekey(
+        userId: String,
+        sessionId: String,
+        migrationId: String,
+        now: Long,
+    )
+
     /** A per-database secret that makes decoy prelogin parameters stable and unguessable. */
     fun preloginSecret(): ByteArray
 
@@ -44,6 +75,8 @@ internal interface AccountStore : AutoCloseable {
         syncBaseVersion: Long?,
         replacementSession: NewSession,
         nowEpochMs: Long,
+        playbackMigrationId: String? = null,
+        playbackCursor: Long? = null,
     ): RekeyWriteResult
 
     fun issueInvite(
@@ -163,6 +196,7 @@ internal class SqliteAccountStore private constructor(
     private val activeSessionsPerUserLimit: Int,
 ) : AccountStore {
     private val lock = Any()
+    private val playback by lazy { PlaybackRelayStore.borrow(connection) }
     private var nextNonceHistoryCleanupAtEpochMs = Long.MIN_VALUE
     private var lastNonceHistoryClockEpochMs = Long.MIN_VALUE
 
@@ -1336,6 +1370,26 @@ internal class SqliteAccountStore private constructor(
 
     override fun getVault(userId: String): StoredVault? = synchronized(lock) { getVaultLocked(userId) }
 
+    override fun getAccountExport(userId: String): StoredAccountExport? =
+        synchronized(lock) {
+            transaction {
+                val credentials = findCredentialsByUserIdLocked(userId) ?: return@transaction null
+                try {
+                    StoredAccountExport(
+                        authProtocol = credentials.authProtocol,
+                        kdfSalt = credentials.kdfSalt?.copyOf(),
+                        kdfIterations = credentials.kdfIterations,
+                        vault = getVaultLocked(userId),
+                        sync = getSyncStateLocked(userId),
+                    )
+                } finally {
+                    credentials.passwordSalt.fill(0)
+                    credentials.passwordHash.fill(0)
+                    credentials.kdfSalt?.fill(0)
+                }
+            }
+        }
+
     override fun preloginSecret(): ByteArray =
         synchronized(lock) {
             readMetaLocked(PRELOGIN_SECRET_KEY)?.let { return@synchronized it }
@@ -1351,6 +1405,72 @@ internal class SqliteAccountStore private constructor(
             checkNotNull(readMetaLocked(PRELOGIN_SECRET_KEY)) { "prelogin secret was not stored" }
         }
 
+    override fun pullPlayback(
+        userId: String,
+        sessionId: String,
+        after: Long,
+        limit: Int,
+        now: Long,
+    ): PlaybackDeltaResponse =
+        synchronized(lock) {
+            requirePlaybackSession(userId, sessionId, now)
+            playback.pull(userId, after, limit)
+        }
+
+    override fun pushPlayback(
+        userId: String,
+        sessionId: String,
+        request: PlaybackPushRequest,
+        now: Long,
+    ): PlaybackPushResponse =
+        synchronized(lock) {
+            playback.push(userId, request, now, validateAccount = {
+                requirePlaybackSession(userId, sessionId, now)
+                getVaultLocked(userId)?.keyVersion ?: 1
+            })
+        }
+
+    override fun stagePlaybackRekey(
+        userId: String,
+        sessionId: String,
+        request: PlaybackRekeyBatch,
+        now: Long,
+    ) {
+        synchronized(lock) {
+            val relay = playback
+            transaction {
+                requirePlaybackSession(userId, sessionId, now)
+                val currentVersion = getVaultLocked(userId)?.keyVersion ?: 1
+                require(
+                    request.keyVersion > currentVersion && request.keyVersion <= 1_000_000,
+                ) { "playback key version invalid" }
+                relay.stageRekey(userId, sessionId, request, now)
+            }
+        }
+    }
+
+    override fun discardPlaybackRekey(
+        userId: String,
+        sessionId: String,
+        migrationId: String,
+        now: Long,
+    ) {
+        synchronized(lock) {
+            requirePlaybackSession(userId, sessionId, now)
+            playback.discardRekey(userId, sessionId, migrationId)
+        }
+    }
+
+    private fun requirePlaybackSession(
+        userId: String,
+        sessionId: String,
+        now: Long,
+    ) {
+        if (!isActiveSessionLocked(sessionId, userId, now)) {
+            throw AccountServiceException(AccountProblem.Unauthorized, "unauthorized", "请重新登录")
+        }
+    }
+
     override fun rekey(
         userId: String,
         authenticatedSessionId: String,
@@ -1361,18 +1481,19 @@ internal class SqliteAccountStore private constructor(
         syncBaseVersion: Long?,
         replacementSession: NewSession,
         nowEpochMs: Long,
+        playbackMigrationId: String?,
+        playbackCursor: Long?,
     ): RekeyWriteResult =
         synchronized(lock) {
             require(vault.userId == userId && replacementSession.userId == userId)
             require(sync == null || (sync.userId == userId && syncBaseVersion != null))
+            val relay = playback
             transaction {
                 if (!isActiveSessionLocked(authenticatedSessionId, userId, nowEpochMs)) {
                     return@transaction RekeyWriteResult.SessionInvalid
                 }
                 val currentSync = getSyncStateLocked(userId)
-                // Protocol 1 accounts always encrypted playback records under key version 1, so
-                // the first vault starts at 2 even without a sync document: otherwise records
-                // under the retired key would share the new key's version and survive the purge.
+                // Protocol 1 playback records use key version 1 even without a main sync document.
                 val currentKeyVersion =
                     getVaultLocked(userId)?.keyVersion ?: maxOf(currentSync.record?.keyVersion ?: 0, 1)
                 if (vault.keyVersion <= currentKeyVersion) {
@@ -1386,6 +1507,17 @@ internal class SqliteAccountStore private constructor(
                         return@transaction RekeyWriteResult.VersionConflict(currentSync.version)
                     }
                     check(sync.version == currentSync.version + 1L && sync.keyVersion == vault.keyVersion)
+                }
+                if (!relay.canCommitRekey(
+                        userId,
+                        authenticatedSessionId,
+                        playbackMigrationId,
+                        vault.keyVersion,
+                        playbackCursor,
+                        nowEpochMs,
+                    )
+                ) {
+                    return@transaction RekeyWriteResult.PlaybackConflict
                 }
                 val changed =
                     connection
@@ -1414,6 +1546,14 @@ internal class SqliteAccountStore private constructor(
                             statement.executeUpdate()
                         }
                 if (changed != 1) return@transaction RekeyWriteResult.CredentialsChanged
+
+                if (playbackMigrationId !=
+                    null
+                ) {
+                    relay.commitRekey(userId, vault.keyVersion)
+                } else {
+                    relay.discardRekey(userId)
+                }
                 upsertVaultLocked(vault)
                 if (sync != null) {
                     // The new key version starts a fresh nonce namespace.

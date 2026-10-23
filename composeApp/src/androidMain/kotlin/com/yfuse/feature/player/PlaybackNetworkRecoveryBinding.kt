@@ -88,12 +88,16 @@ internal fun BindPlaybackNetworkRecovery(
             player.retry()
         }
     }
-    LaunchedEffect(recovery, localPlayback) {
+    LaunchedEffect(recovery, localPlayback, player) {
         // Keep pending through synthetic seek ticks and short-lived output that re-buffers.
         snapshotFlow {
             val resumePosition = recovery.resumePositionMs
             if (recovery.pending && resumePosition != null) {
-                localPlayback.value.networkRecoveryOutcome(resumePosition, currentProbe)
+                localPlayback.value.networkRecoveryOutcome(
+                    resumePosition,
+                    currentProbe,
+                    videoSuspended = player.videoOutputSuspended,
+                )
             } else {
                 null
             }

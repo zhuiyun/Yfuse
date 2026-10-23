@@ -42,7 +42,9 @@ import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.WatchAvatar
+import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.util.graphemeCount
@@ -386,15 +388,18 @@ private fun DanmakuSourceRow(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val selection = rememberGlassSelectionStyle()
     Row(
         Modifier
             .fillMaxWidth()
             .pressable(role = Role.RadioButton, onClick = onSelect)
             .semantics { this.selected = selected }
-            .glass(
-                AppShapes.control,
-                if (selected) accent.container else palette.card2,
-                if (selected) accent.border else palette.border,
+            .then(
+                if (selected) {
+                    Modifier.glassSelection(AppShapes.control, selection)
+                } else {
+                    Modifier.glass(AppShapes.control, palette.card2, palette.border)
+                },
             ).padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -403,7 +408,7 @@ private fun DanmakuSourceRow(
             Text(
                 source.name,
                 style = AppTypography.body.strong,
-                color = palette.text,
+                color = if (selected) selection.contentColor else palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -421,7 +426,7 @@ private fun DanmakuSourceRow(
             Icon(
                 AppIcons.Check,
                 contentDescription = "使用中",
-                tint = accent.accent,
+                tint = selection.contentColor,
                 modifier = Modifier.size(13.dp),
             )
         }

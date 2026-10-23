@@ -36,6 +36,7 @@ internal fun rememberSegmentIndicator(
     fill: Color,
     border: Color = Color.Transparent,
     underline: Boolean = false,
+    selectionStyle: GlassSelectionStyle? = null,
 ): SegmentIndicator {
     val bounds = remember { mutableStateMapOf<Int, Rect>() }
     val target = bounds[selectedIndex]
@@ -71,7 +72,7 @@ internal fun rememberSegmentIndicator(
         derivedStateOf { target != null && (left.value != target.left || right.value != target.right) }
     }
     val lights = rememberPhaseLightCount(inMotion)
-    val lightColor = LocalPalette.current.text
+    val lightColor = selectionStyle?.topHighlight ?: LocalPalette.current.text
     return SegmentIndicator(
         Modifier.drawBehind {
             if (target != null) {
@@ -86,9 +87,14 @@ internal fun rememberSegmentIndicator(
                     )
                 } else if (width > 0f) {
                     translate(left = left.value) {
-                        val outline = AppShapes.chip.createOutline(Size(width, size.height), layoutDirection, this)
-                        drawOutline(outline, fill)
-                        drawOutline(outline, border, style = Stroke(1.dp.toPx()))
+                        val paneSize = Size(width, size.height)
+                        if (selectionStyle != null) {
+                            drawGlassSelection(paneSize, AppShapes.chip, selectionStyle)
+                        } else {
+                            val outline = AppShapes.chip.createOutline(paneSize, layoutDirection, this)
+                            drawOutline(outline, fill)
+                            drawOutline(outline, border, style = Stroke(1.dp.toPx()))
+                        }
                     }
                 }
                 drawPhaseLight(

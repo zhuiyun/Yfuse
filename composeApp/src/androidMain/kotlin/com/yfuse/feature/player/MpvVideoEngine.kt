@@ -193,7 +193,6 @@ class MpvVideoEngine(
                 context = context.applicationContext,
                 userAgent = customUserAgent,
                 videoCacheBytes = videoCacheBytes,
-                widgetMedia = { this.items.getOrNull(_state.value.currentIndex) },
             )
         }.onFailure { error ->
             AppLog.warning(
@@ -1212,6 +1211,8 @@ class MpvVideoEngine(
     @Volatile
     private var videoSuspended = false
 
+    override val videoOutputSuspended: Boolean get() = videoSuspended
+
     override fun setVideoSuspended(suspended: Boolean) {
         videoSuspended = suspended
         withMpv { instance ->
@@ -1983,7 +1984,12 @@ class MpvVideoEngine(
                 val cacheable =
                     item?.persistentPlaybackCacheUrl(usingServerTranscode) == preparedUrl.trim()
                 val transportUrl =
-                    networkProxy?.localUrl(preparedUrl, cacheable = cacheable) ?: preparedUrl
+                    networkProxy?.localUrl(
+                        preparedUrl,
+                        cacheable = cacheable,
+                        widgetRequest = item?.widgetPlaybackRequest(),
+                    )
+                        ?: preparedUrl
                 instance.command(arrayOf("loadfile", transportUrl))
                 AppLog.info(
                     category = "player.mpv.network",

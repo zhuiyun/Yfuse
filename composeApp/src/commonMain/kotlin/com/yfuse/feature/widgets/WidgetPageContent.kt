@@ -37,6 +37,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.ThemeIcon
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.widget.WidgetMedia
 import com.yfuse.core.widget.WidgetPage
 import com.yfuse.core.widget.WidgetRepository
@@ -44,6 +45,7 @@ import com.yfuse.core.widget.WidgetSection
 import com.yfuse.core.widget.WidgetStyle
 import com.yfuse.core.widget.openWidgetVideo
 import com.yfuse.core.widget.searchWidgetMedia
+import com.yfuse.core.widget.standardTmdbDetailItemOrNull
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -57,6 +59,7 @@ internal fun WidgetPageContent(
     page: WidgetPage,
     repository: WidgetRepository,
     onEdit: () -> Unit,
+    onOpenTmdb: (TmdbItem) -> Unit,
 ) {
     val listState =
         androidx.compose.foundation.lazy
@@ -76,7 +79,7 @@ internal fun WidgetPageContent(
         items(
             page.sections.filterNot { it.hidden },
             key = { it.id },
-        ) { section -> WidgetSectionContent(section, repository) }
+        ) { section -> WidgetSectionContent(section, repository, onOpenTmdb) }
     }
 }
 
@@ -84,6 +87,7 @@ internal fun WidgetPageContent(
 private fun WidgetSectionContent(
     section: WidgetSection,
     repository: WidgetRepository,
+    onOpenTmdb: (TmdbItem) -> Unit,
     categoryDepth: Int = 0,
 ) {
     val database by repository.database.collectAsState()
@@ -92,15 +96,17 @@ private fun WidgetSectionContent(
     val sourceKey =
         listOf(section.id, section.widgetId, section.moduleId, section.params, widget?.digest, widget?.enabled)
     var items by remember(sourceKey) { mutableStateOf<List<WidgetMedia>>(emptyList()) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(true) }
+    var error by remember(sourceKey) { mutableStateOf<String?>(null) }
+    var busy by remember(sourceKey) { mutableStateOf(true) }
     var refresh by remember { mutableIntStateOf(0) }
-    var selected by remember { mutableStateOf<WidgetMedia?>(null) }
-    var expanded by remember(sourceKey) { mutableStateOf(false) }
+    var selected by remember(sourceKey) { mutableStateOf<WidgetMedia?>(null) }
+    var showAllLoaded by remember(sourceKey) { mutableStateOf(false) }
     var pageNumber by remember(sourceKey) { mutableIntStateOf(1) }
     var hasMore by remember(sourceKey) { mutableStateOf(true) }
-    var category by remember { mutableStateOf<WidgetMedia?>(null) }
-    LaunchedEffect(section, widget?.digest, widget?.enabled, refresh, pageNumber) {
+    var category by remember(sourceKey) { mutableStateOf<WidgetMedia?>(null) }
+    val moreLoaded = !showAllLoaded && items.size > section.limit
+    val canLoadNext = hasMore && items.size < 500 && module?.params?.any { it.type == "page" } == true
+    LaunchedEffect(sourceKey, refresh, pageNumber) {
         busy = true
         error = null
         try {
@@ -118,9 +124,31 @@ private fun WidgetSectionContent(
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionTitle(if (categoryDepth == 0) section.title else "全部内容", "刷新") {
-            pageNumber = 1
-            refresh++
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (categoryDepth == 0) section.title else "全部内容",
+                Modifier.weight(1f),
+                color = LocalPalette.current.text,
+                style = AppTypography.section.strong,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (moreLoaded || canLoadNext) {
+                TextButton(
+                    enabled = !busy && error == null,
+                    onClick = {
+                        showAllLoaded = true
+                        if (!moreLoaded) {
+                            busy = true
+                            pageNumber++
+                        }
+                    },
+                ) { Text("更多") }
+            }
+            WidgetIconButton(AppIcons.Refresh, "刷新${section.title}", {
+                pageNumber = 1
+                refresh++
+            })
         }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         error?.let { message ->
@@ -131,38 +159,26 @@ private fun WidgetSectionContent(
         }
         WidgetCards(
             WidgetStyle.fromId(section.style),
-            if (expanded) items else items.take(section.limit),
+            if (showAllLoaded) items else items.take(section.limit),
             section.showMetadata,
             section.compact,
         ) { item ->
-            if (item.categoryParams.isNotEmpty() && categoryDepth < 5) category = item else selected = item
-        }
-        if (items.size > section.limit &&
-            !expanded
-        ) {
-            TextButton(onClick = { expanded = true }) { Text("查看全部 ${items.size} 项") }
-        }
-        if (expanded &&
-            hasMore &&
-            module?.params?.any { it.type == "page" } == true
-        ) {
-            TextButton(
-                enabled = !busy && error == null && items.size < 500,
-                onClick = { pageNumber++ },
-            ) { Text("加载更多") }
-        }
-        if (!expanded &&
-            items.size <= section.limit &&
-            hasMore &&
-            module?.params?.any { it.type == "page" } == true
-        ) {
-            TextButton(enabled = !busy && error == null, onClick = {
-                expanded = true
-                pageNumber++
-            }) { Text("更多内容") }
+            val tmdbItem = item.standardTmdbDetailItemOrNull()
+            when {
+                item.categoryParams.isNotEmpty() && categoryDepth < 5 -> category = item
+                tmdbItem != null -> onOpenTmdb(tmdbItem)
+                else -> selected = item
+            }
         }
     }
-    selected?.let { media -> WidgetMediaDialog(repository, section.widgetId, media, onDismiss = { selected = null }) }
+    selected?.let { media ->
+        WidgetMediaDialog(
+            repository,
+            section.widgetId,
+            media,
+            onDismiss = { selected = null },
+        )
+    }
     category?.let { item ->
         FullWidgetDialog(onClose = { category = null }) {
             WidgetFrame(item.title, { category = null }) {
@@ -178,7 +194,11 @@ private fun WidgetSectionContent(
                                     ),
                             ),
                             repository,
-                            categoryDepth + 1,
+                            onOpenTmdb = { target ->
+                                category = null
+                                onOpenTmdb(target)
+                            },
+                            categoryDepth = categoryDepth + 1,
                         )
                     }
                 }

@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,8 +24,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,9 +46,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.isToday
 import com.yfuse.core.designsystem.AppIcons
@@ -61,11 +65,11 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.animateRotationAsState
-import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.motionItem
-import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.CalendarDay
@@ -119,6 +123,9 @@ internal fun CalendarWeekHeader(
     filtersExpanded: Boolean,
     error: String?,
     hasConfirmedData: Boolean,
+    changesCount: Int,
+    changesExpanded: Boolean,
+    onToggleChanges: () -> Unit,
     onToggleFilters: () -> Unit,
     onRetry: () -> Unit,
 ) {
@@ -141,25 +148,53 @@ internal fun CalendarWeekHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(
-                AppIcons.WatchCalendar,
-                contentDescription = null,
-                tint = palette.sub,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                "本周 $weekShowCount 部更新",
-                style = AppTypography.caption.medium,
-                color = palette.sub,
-                modifier = Modifier.weight(1f),
-            )
+            Column(
+                Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .then(
+                        if (changesCount > 0) {
+                            Modifier.pressable(
+                                role = Role.Button,
+                                onClickLabel = if (changesExpanded) "收起排期调整" else "查看 $changesCount 条排期调整",
+                                onClick = onToggleChanges,
+                            )
+                        } else {
+                            Modifier
+                        },
+                    ).padding(vertical = 6.dp),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    "本周 $weekShowCount 部更新",
+                    style = AppTypography.body.medium,
+                    color = palette.text,
+                )
+                if (changesCount > 0) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Text(
+                            "$changesCount 条排期调整",
+                            style = AppTypography.caption.regular,
+                            color = palette.sub2,
+                        )
+                        Icon(
+                            if (changesExpanded) AppIcons.ChevronDown else AppIcons.ChevronRight,
+                            contentDescription = null,
+                            tint = palette.sub2,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
+                }
+            }
             Row(
                 Modifier
                     .pressable(
                         onClickLabel = if (filtersExpanded) "收起日历筛选" else "展开日历筛选",
                         onClick = onToggleFilters,
-                    ).touchTarget()
-                    .glass(AppShapes.pill, palette.card2, palette.border)
+                    ).heightIn(min = 48.dp)
                     .padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -399,14 +434,6 @@ private fun CalendarListResults(
                                         onOpen = { onOpen(display.entry) },
                                         liftMenu = { liftMenu(display) },
                                     )
-                                    Box(
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .padding(
-                                                horizontal = 12.dp,
-                                            ).height(1.dp)
-                                            .background(palette.border),
-                                    )
                                 }
                             }
                         }
@@ -417,6 +444,7 @@ private fun CalendarListResults(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CalendarWeekNavigator(
     days: List<CalendarDay>,
@@ -425,61 +453,69 @@ private fun CalendarWeekNavigator(
     onSelect: (CalendarDay) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val state =
-        rememberLazyListState(initialFirstVisibleItemIndex = days.indexOfFirst { it.date == today }.coerceAtLeast(0))
-    LazyRow(
-        state = state,
-        contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    val selection = rememberGlassSelectionStyle()
+    val density = LocalDensity.current
+    val fontScale = density.fontScale
+    BoxWithConstraints(
+        Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal, vertical = 4.dp),
     ) {
-        motionItems(days, key = CalendarDay::date) { day ->
-            val active = day.date == selectedDate
-            Column(
-                Modifier
-                    .width(52.dp)
-                    .heightIn(min = 64.dp)
-                    .pressable(role = Role.Tab, onClickLabel = "查看${day.date}排期") { onSelect(day) }
-                    .semantics { selected = active }
-                    .glass(
-                        AppShapes.thumb,
-                        if (active) accent.container else palette.card2,
-                        if (active) accent.border else palette.border,
-                    ).then(
-                        if (active) {
-                            Modifier.border(
-                                1.5.dp,
-                                Color.White.copy(alpha = 0.9f),
-                                AppShapes.thumb,
-                            )
-                        } else {
-                            Modifier
-                        },
-                    ).padding(horizontal = 4.dp, vertical = 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    if (day.date ==
-                        today
-                    ) {
-                        "今天"
-                    } else {
-                        isoWeekdayLabel(day.date)
-                    },
-                    style = AppTypography.caption.medium,
-                    color = if (active) accent.accent else palette.sub2,
-                )
-                Text(
-                    day.date.takeLast(2).trimStart('0'),
-                    style = AppTypography.section.strong,
-                    color = if (active) accent.accent else palette.text,
-                )
+        // Keep the start of the week visible. Narrow widths and large text wrap whole dates.
+        val gap = 4.dp
+        val minimumDayWidth = maxOf(40.dp, (26f * fontScale + 8f).dp)
+        val gapPx = with(density) { gap.roundToPx() }
+        val minimumDayWidthPx = with(density) { minimumDayWidth.roundToPx() }
+        val capacity = ((constraints.maxWidth + gapPx) / (minimumDayWidthPx + gapPx)).coerceAtLeast(1)
+        val columns =
+            when {
+                days.size <= capacity -> days.size.coerceAtLeast(1)
+                capacity >= 4 -> 4
+                else -> capacity
+            }
+        val availableCellPx = (constraints.maxWidth - gapPx * (columns - 1)) / columns
+        val dayWidth = minOf(76.dp * maxOf(1f, fontScale), with(density) { availableCellPx.toDp() })
+        FlowRow(
+            modifier = Modifier.fillMaxWidth().selectableGroup(),
+            maxItemsInEachRow = columns,
+            horizontalArrangement = Arrangement.spacedBy(gap, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            days.forEach { day ->
+                val active = day.date == selectedDate
+                Column(
+                    Modifier
+                        .width(dayWidth)
+                        .heightIn(min = 64.dp)
+                        .pressable(role = Role.Tab, onClickLabel = "查看${day.date}排期") { onSelect(day) }
+                        .semantics { selected = active }
+                        .then(
+                            if (active) {
+                                Modifier.glassSelection(AppShapes.thumb, selection)
+                            } else {
+                                Modifier
+                            },
+                        ).padding(horizontal = 4.dp, vertical = 7.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        if (day.date == today) "今天" else isoWeekdayLabel(day.date),
+                        style = if (active) AppTypography.caption.strong else AppTypography.caption.medium,
+                        color = if (active) selection.contentColor else palette.sub2,
+                        textAlign = TextAlign.Center,
+                    )
+                    Text(
+                        day.date.takeLast(2).trimStart('0'),
+                        style = if (active) AppTypography.section.strong else AppTypography.section.medium,
+                        color = if (active) selection.contentColor else palette.text,
+                        textAlign = TextAlign.Center,
+                    )
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CalendarDayHeader(
     day: CalendarDay,
@@ -540,16 +576,15 @@ private fun CalendarDayHeader(
             if (expanded) {
                 Box(
                     Modifier
-                        .width(3.dp)
-                        .height(30.dp)
+                        .size(5.dp)
                         .clip(CircleShape)
                         .background(accent.accent),
                 )
             }
-            Row(
+            FlowRow(
                 Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
                     isoWeekdayLabel(day.date),

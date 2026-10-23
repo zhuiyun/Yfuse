@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalSharedTransitionApi::class)
+@file:OptIn(ExperimentalSharedTransitionApi::class, ExperimentalLayoutApi::class)
 
 package com.yfuse.feature.servers
 
@@ -8,6 +8,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,6 +31,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -42,6 +46,7 @@ import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.ItemAction
@@ -58,9 +63,12 @@ import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.SwipeActionsRow
 import com.yfuse.core.designsystem.ToastAction
 import com.yfuse.core.designsystem.YfFormField
+import com.yfuse.core.designsystem.disclosureRotation
+import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.rememberUndoWindow
 import com.yfuse.core.designsystem.returnLocator
 import com.yfuse.core.designsystem.touchTarget
@@ -125,12 +133,15 @@ internal fun ServerRoutesDialog(
     var draftUrl by remember(server.id) { mutableStateOf("") }
     var error by remember(server.id) { mutableStateOf<String?>(null) }
     val atCapacity = routes.size >= ServerRoute.MAX_ROUTES
-
+    var addingRoute by remember(server.id) { mutableStateOf(false) }
+    val addingProgress = rememberDisclosureProgress(addingRoute)
     GlassDialog(onDismiss = onDismiss) {
         val palette = LocalPalette.current
+        val focusManager = LocalFocusManager.current
+        val keyboard = LocalSoftwareKeyboardController.current
         OverlayHeader(
             title = "线路",
-            subtitle = "同一台服务器的多个地址；无法连接时会自动切到可用线路",
+            subtitle = "连接异常时自动切换可用线路",
             onClose = onDismiss,
         )
         Column(Modifier.motionAwareAnimateContentSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -180,27 +191,28 @@ internal fun ServerRoutesDialog(
             }
         }
 
-        Spacer(Modifier.height(10.dp))
-        OverlayButton(
-            label = if (checking) "正在测试全部线路…" else "测速全部线路",
-            loading = checking,
-            onClick = onProbe,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        health?.let { result ->
-            OperationFeedback(
-                if (checking) "正在更新线路连接与延迟…" else result.summary,
-                if (checking) {
-                    OperationTone.Working
-                } else if (result.reachable) {
-                    OperationTone.Success
-                } else {
-                    OperationTone.Error
-                },
+        Spacer(Modifier.height(20.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            OverlayButton(
+                label = if (checking) "正在测试全部线路…" else "测速全部线路",
+                loading = checking,
+                onClick = onProbe,
+                modifier = Modifier.fillMaxWidth(),
             )
+            health?.let { result ->
+                OperationFeedback(
+                    if (checking) "正在更新线路连接与延迟…" else result.summary,
+                    if (checking) {
+                        OperationTone.Working
+                    } else if (result.reachable) {
+                        OperationTone.Success
+                    } else {
+                        OperationTone.Error
+                    },
+                )
+            }
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(20.dp))
         if (atCapacity) {
             Text(
                 "已达 ${ServerRoute.MAX_ROUTES} 条线路上限",
@@ -208,72 +220,115 @@ internal fun ServerRoutesDialog(
                 color = palette.sub2,
             )
         } else {
-            Text("添加备用线路", style = AppTypography.caption.strong, color = palette.sub2)
-            Spacer(Modifier.height(8.dp))
-            YfFormField(
-                value = draftName,
-                onValueChange = {
-                    draftName = it.take(ServerRoute.MAX_NAME_CHARS)
-                    error = null
-                },
-                label = "名称，例如 内网 / 家里",
-            )
-            Spacer(Modifier.height(8.dp))
-            YfFormField(
-                value = draftUrl,
-                onValueChange = {
-                    draftUrl = it.trim()
-                    error = null
-                },
-                label = "地址，例如 http://192.168.1.10:8096",
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            )
-            if (error != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(error.orEmpty(), style = AppTypography.caption.medium, color = palette.error)
-            }
-            val endpoint = validateEmbyServerEndpoint(draftUrl)
-            if (draftUrl.isNotBlank() && endpoint.message != null) {
-                Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = MinTouchTarget)
+                    .pressable(
+                        role = Role.Button,
+                        onClickLabel = if (addingRoute) "收起备用线路表单" else "添加备用线路",
+                    ) {
+                        if (addingRoute) {
+                            focusManager.clearFocus()
+                            keyboard?.hide()
+                        }
+                        // Collapse only hides the form. Its current draft remains intact.
+                        addingRoute = !addingRoute
+                    }.padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(AppIcons.Add, null, tint = LocalAccentColors.current.accent, modifier = Modifier.size(18.dp))
                 Text(
-                    endpoint.message,
-                    style = AppTypography.caption.medium,
-                    color = palette.error,
+                    "添加备用线路",
+                    modifier = Modifier.weight(1f),
+                    style = AppTypography.body.strong,
+                    color = palette.text,
+                )
+                Icon(
+                    AppIcons.ChevronRight,
+                    if (addingRoute) "收起" else "展开",
+                    tint = palette.sub2,
+                    modifier = Modifier.size(18.dp).disclosureRotation(addingProgress),
                 )
             }
-            Spacer(Modifier.height(10.dp))
-            OverlayButton(
-                label = "添加线路",
-                onClick = {
-                    val url = endpoint.normalizedEndpoint?.takeIf { endpoint.allowed }
-                    when {
-                        url == null ->
-                            error = endpoint.message
-                                ?: "请填写以 http:// 或 https:// 开头的完整地址"
-                        routes.any { it.url == url } -> error = "这个地址已经在列表里了"
-                        else -> {
-                            // Something new sends a waiting removal on its way: [routes] already
-                            // leaves that route out, so this one save carries both changes.
-                            if (removals.release() != null) removing = null
-                            onSave(
-                                routes +
-                                    ServerRoute(
-                                        id = ServerRoute.nextId(routes.map { it.id }),
-                                        name = ServerRoute.sanitizeName(draftName, "备用线路"),
-                                        url = url,
-                                    ),
-                                false,
-                            )
-                            draftName = ""
-                            draftUrl = ""
-                            error = null
+            DisclosureContent(expanded = addingRoute, progress = addingProgress) {
+                Text(
+                    "支持内网或外网地址，收起保留草稿。",
+                    style = AppTypography.caption.reading,
+                    color = palette.sub2,
+                )
+                Spacer(Modifier.height(12.dp))
+                YfFormField(
+                    value = draftName,
+                    onValueChange = {
+                        draftName = it.take(ServerRoute.MAX_NAME_CHARS)
+                        error = null
+                    },
+                    label = "线路名称",
+                    placeholder = "例如：内网 / 家里",
+                )
+                Spacer(Modifier.height(8.dp))
+                YfFormField(
+                    value = draftUrl,
+                    onValueChange = {
+                        draftUrl = it.trim()
+                        error = null
+                    },
+                    label = "服务器地址",
+                    placeholder = "http://192.168.1.10:8096",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                )
+                if (error != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(error.orEmpty(), style = AppTypography.caption.medium, color = palette.error)
+                }
+                val endpoint = validateEmbyServerEndpoint(draftUrl)
+                if (draftUrl.isNotBlank() && endpoint.message != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        endpoint.message,
+                        style = AppTypography.caption.medium,
+                        color = palette.error,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                OverlayButton(
+                    label = "添加线路",
+                    onClick = {
+                        val url = endpoint.normalizedEndpoint?.takeIf { endpoint.allowed }
+                        when {
+                            url == null ->
+                                error = endpoint.message
+                                    ?: "请填写以 http:// 或 https:// 开头的完整地址"
+                            routes.any { it.url == url } -> error = "这个地址已经在列表里了"
+                            else -> {
+                                // Something new sends a waiting removal on its way: [routes] already
+                                // leaves that route out, so this one save carries both changes.
+                                if (removals.release() != null) removing = null
+                                onSave(
+                                    routes +
+                                        ServerRoute(
+                                            id = ServerRoute.nextId(routes.map { it.id }),
+                                            name = ServerRoute.sanitizeName(draftName, "备用线路"),
+                                            url = url,
+                                        ),
+                                    false,
+                                )
+                                draftName = ""
+                                draftUrl = ""
+                                error = null
+                                addingRoute = false
+                                focusManager.clearFocus()
+                                keyboard?.hide()
+                            }
                         }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                tone = OverlayButtonTone.Primary,
-                enabled = endpoint.allowed,
-            )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    tone = OverlayButtonTone.Primary,
+                    enabled = endpoint.allowed,
+                )
+            }
         }
     }
 }
@@ -313,16 +368,22 @@ private fun ServerRouteRow(
             .liquidGlass(
                 shape = AppShapes.chip,
                 fill = if (isActive) accent.container else palette.card2,
-                border = if (isActive) accent.border else palette.border,
+                border = if (isActive) glassControlHighlight(accent, palette.isDark) else palette.border,
             ).padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(7.dp).clip(CircleShape).background(dotColor))
+        Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
+            if (isActive) {
+                Icon(AppIcons.Check, "当前线路", tint = accent.accent, modifier = Modifier.size(16.dp))
+            } else {
+                Box(Modifier.size(7.dp).clip(CircleShape).background(dotColor))
+            }
+        }
         Column(Modifier.weight(1f)) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
                     route.name,
@@ -330,7 +391,6 @@ private fun ServerRouteRow(
                     color = if (isActive) accent.accent else palette.text,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
                 )
                 Text(
                     routeLatencyLabel(health),

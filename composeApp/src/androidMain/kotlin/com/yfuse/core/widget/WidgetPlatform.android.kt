@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.koin.core.context.GlobalContext
+import org.koin.core.qualifier.named
 import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
@@ -37,6 +38,8 @@ internal fun widgetHash(value: String): String =
     MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") {
         "%02x".format(it)
     }
+
+private val widgetTmdbHttp by lazy { WidgetTmdbHttp(GlobalContext.get().get(named("tmdb-http"))) }
 
 private val processRepository by lazy {
     val context = checkNotNull(androidAppContext)
@@ -75,7 +78,13 @@ private val processRepository by lazy {
             },
         runtime =
             SandboxWidgetRuntime(
-                request = WidgetHttp::request,
+                request = { options, tmdb ->
+                    if (tmdb && options.text("apiKey").isBlank()) {
+                        widgetTmdbHttp.request(options)
+                    } else {
+                        WidgetHttp.request(options, tmdb)
+                    }
+                },
                 readStorage = { id, key -> storage.getString("${widgetHash(id)}:$key", null) },
                 writeStorage = { id, key, value ->
                     synchronized(storage) {
@@ -105,6 +114,13 @@ private val processRepository by lazy {
         newId = { UUID.randomUUID().toString() },
         hash = ::widgetHash,
         now = System::currentTimeMillis,
+        bundledSources = {
+            bundledWidgetSources { filename ->
+                context.assets.open("widgets/$filename").use {
+                    it.readBytesBounded(MAX_WIDGET_SOURCE_BYTES).toString(Charsets.UTF_8)
+                }
+            }
+        },
     )
 }
 

@@ -99,6 +99,27 @@ data class RekeyRequest(
     val vault: VaultEnvelope,
     val sync: PutSyncRequest? = null,
     val deviceName: String? = null,
+    val playbackMigrationId: String? = null,
+    val playbackCursor: Long? = null,
+)
+
+@Serializable
+data class PlaybackRekeyItem(
+    val sourceEntityKey: String,
+    val sourceCursor: Long,
+    val entity: com.yfuse.core.sync.playback.EncryptedPlaybackEntity,
+)
+
+@Serializable
+data class PlaybackRekeyBatch(
+    val migrationId: String,
+    val keyVersion: Int,
+    val items: List<PlaybackRekeyItem> = emptyList(),
+)
+
+@Serializable
+data class PlaybackRekeyReceipt(
+    val migrationId: String,
 )
 
 @Serializable
@@ -208,6 +229,11 @@ data class AccountExport(
     val user: AccountUser,
     val encryptedSync: SyncResponse,
     val vault: VaultEnvelope? = null,
+    /** Password derivation parameters needed to open a protocol 2 export without the service. */
+    val authProtocol: Int = 1,
+    val kdf: String? = null,
+    val kdfIterations: Int? = null,
+    val kdfSalt: String? = null,
 )
 
 @Serializable

@@ -30,6 +30,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -51,7 +52,10 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.awaitOverlayEntered
 import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.glassControlHighlight
+import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.designsystem.ThemeText as Text
@@ -170,11 +174,17 @@ internal fun ServerFormInput(
                             Modifier
                                 .graphicsLayer { alpha = if (enabled) 1f else 0.5f }
                                 .background(
-                                    if (palette.isDark) palette.reducedFill.card3 else Color.White,
+                                    if (palette.isDark) {
+                                        palette.reducedFill.card3
+                                    } else if (focused) {
+                                        lerp(Color.White, accent.accent, 0.08f)
+                                    } else {
+                                        Color.White
+                                    },
                                     AppShapes.control,
                                 ).border(
-                                    if (focused) 2.dp else 1.dp,
-                                    if (focused) accent.accent else palette.sub2.copy(alpha = 0.75f),
+                                    1.dp,
+                                    if (focused) glassControlHighlight(accent, palette.isDark) else palette.border,
                                     AppShapes.control,
                                 ).defaultMinSize(minHeight = 48.dp)
                                 .padding(horizontal = 12.dp, vertical = 10.dp)
@@ -232,7 +242,7 @@ internal fun ServerProtocolSegment(
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
+    val selection = rememberGlassSelectionStyle()
     Box(
         modifier
             .graphicsLayer { alpha = if (enabled) 1f else 0.5f }
@@ -240,27 +250,13 @@ internal fun ServerProtocolSegment(
             .semantics { this.selected = selected }
             .touchTarget()
             .then(
-                if (outlined) {
-                    Modifier
-                        .background(
-                            if (selected) {
-                                accent.accent
-                            } else if (palette.isDark) {
-                                palette.reducedFill.card3
-                            } else {
-                                Color.White
-                            },
-                            AppShapes.thumb,
-                        ).border(
-                            1.dp,
-                            if (selected) accent.accent else palette.sub2.copy(alpha = 0.75f),
-                            AppShapes.thumb,
-                        )
+                if (selected) {
+                    Modifier.glassSelection(AppShapes.thumb, selection)
                 } else {
                     Modifier.glass(
                         shape = AppShapes.thumb,
-                        fill = if (selected) accent.container else palette.card2,
-                        border = if (selected) accent.border else palette.border.copy(alpha = 0.55f),
+                        fill = if (outlined) palette.card3 else palette.card2,
+                        border = palette.border,
                     )
                 },
             ).padding(horizontal = 8.dp, vertical = 8.dp),
@@ -270,11 +266,12 @@ internal fun ServerProtocolSegment(
             label,
             style = if (selected) AppTypography.caption.strong else AppTypography.caption.medium,
             color =
-                when {
-                    outlined && selected -> accent.onAccent
-                    outlined -> palette.text
-                    selected -> accent.accent
-                    else -> palette.sub2
+                if (selected) {
+                    selection.contentColor
+                } else if (outlined) {
+                    palette.text
+                } else {
+                    palette.sub2
                 },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

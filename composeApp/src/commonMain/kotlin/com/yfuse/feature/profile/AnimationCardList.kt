@@ -35,10 +35,11 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.HapticSignal
-import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Stable choices with one live preview and a glimpse of the next card to invite a swipe. */
@@ -68,7 +69,7 @@ internal fun <T> AnimationCardList(
         }
     }
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
+    val selection = rememberGlassSelectionStyle()
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val cardWidth = minOf(184.dp * LocalDensity.current.fontScale.coerceAtLeast(1f), maxWidth * 0.88f)
         LazyRow(
@@ -89,12 +90,14 @@ internal fun <T> AnimationCardList(
                             focusShape = AppShapes.card,
                             onClick = { onSelect(animation) },
                         ).semantics { this.selected = chosen }
-                        .clip(AppShapes.card)
-                        .background(if (chosen) accent.container else palette.card2)
-                        .border(
-                            if (chosen) 2.dp else 1.dp,
-                            if (chosen) accent.border else palette.border,
-                            AppShapes.card,
+                        .then(
+                            if (chosen) {
+                                Modifier.glassSelection(AppShapes.card, selection)
+                            } else {
+                                Modifier
+                                    .background(palette.card2, AppShapes.card)
+                                    .border(1.dp, palette.border, AppShapes.card)
+                            },
                         ).padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -110,7 +113,7 @@ internal fun <T> AnimationCardList(
                         if (chosen) {
                             Text(
                                 "已选",
-                                color = accent.accent,
+                                color = selection.contentColor,
                                 style = AppTypography.caption.strong,
                                 modifier = Modifier.clearAndSetSemantics {},
                             )
@@ -129,7 +132,7 @@ internal fun <T> AnimationCardList(
                     }
                     Text(
                         label(animation),
-                        color = if (chosen) accent.accent else palette.text,
+                        color = if (chosen) selection.contentColor else palette.text,
                         style = AppTypography.body.strong,
                     )
                     Text(

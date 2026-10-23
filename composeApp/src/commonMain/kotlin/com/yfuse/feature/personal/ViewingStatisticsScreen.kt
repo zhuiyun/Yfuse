@@ -435,6 +435,14 @@ private fun ViewingCalendar(
             Modifier.fillMaxWidth().directionalHandoff(month.year * 12L + month.monthValue),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
+            if (compact) {
+                Text(
+                    "日期下方数字为当天观看作品数",
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
             Row(Modifier.fillMaxWidth()) {
                 (
                     if (compact) {
@@ -487,7 +495,8 @@ private fun ViewingCalendar(
                                     .pressable {
                                         onSelectDay(date.toString())
                                     }.semantics {
-                                        contentDescription = "$date，${watched.size} 次观看" + if (isToday) "，今天" else ""
+                                        contentDescription =
+                                            "$date，${unique.size} 部作品，${watched.size} 次观看" + if (isToday) "，今天" else ""
                                         selected = isSelected
                                     }.padding(3.dp),
                                 contentAlignment = if (compact) Alignment.Center else Alignment.TopStart,

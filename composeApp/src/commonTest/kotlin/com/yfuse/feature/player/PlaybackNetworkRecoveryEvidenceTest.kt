@@ -73,6 +73,26 @@ class PlaybackNetworkRecoveryEvidenceTest {
         assertEquals(false, playing.copy(error = "network").networkRecoveryOutcome(1_010_282L, probe()))
     }
 
+    @Test
+    fun background_network_recovery_requires_audio_but_not_intentionally_suspended_video() {
+        val listening =
+            state(position = 4_000L).copy(
+                diagnostics =
+                    PlaybackDiagnostics(
+                        videoReadiness = PlaybackOutputReadiness.Released,
+                        audioReadiness = PlaybackOutputReadiness.Rendering,
+                    ),
+            )
+        assertEquals(true, listening.networkRecoveryOutcome(0L, probe(), videoSuspended = true))
+        assertNull(listening.networkRecoveryOutcome(0L, probe(), videoSuspended = false))
+        assertNull(
+            listening
+                .copy(
+                    diagnostics = listening.diagnostics.copy(audioReadiness = PlaybackOutputReadiness.Waiting),
+                ).networkRecoveryOutcome(0L, probe(), videoSuspended = true),
+        )
+    }
+
     private fun state(position: Long) =
         PlaybackState(
             playing = true,

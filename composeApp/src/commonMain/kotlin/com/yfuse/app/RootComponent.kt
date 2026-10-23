@@ -14,6 +14,7 @@ import com.yfuse.core.designsystem.LaunchWaveGate
 import com.yfuse.core.designsystem.TabReselection
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.StartupTab
+import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchTogetherClient
@@ -398,6 +399,13 @@ class RootComponent(
     fun openDownloads() {
         selectTab(Tab.Profile)
         profile.openDownloads()
+    }
+
+    /** Widget cards open the existing metadata detail and return to their custom home. */
+    fun openWidgetTitle(item: TmdbItem) {
+        discoveryOrigin = Tab.CustomHome
+        home.openDiscoveryTitle(item, embyItemId = null)
+        selectTab(Tab.Home)
     }
 
     fun returnFromDiscovery() {

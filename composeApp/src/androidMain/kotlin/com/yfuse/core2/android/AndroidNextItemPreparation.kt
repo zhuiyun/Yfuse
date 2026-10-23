@@ -287,6 +287,7 @@ internal fun warmNextItemBytes(
             uri = item.uri,
             protocol = protocol,
             headers = item.headers,
+            originBoundHeaderNames = item.originBoundHeaderNames,
             credentials = item.transportCredentials,
             createTransport = createTransport,
             cacheDirectory = cacheDirectory,

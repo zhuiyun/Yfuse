@@ -26,6 +26,14 @@ class CustomHomeNavigationTest {
     }
 
     @Test
+    fun widget_metadata_details_return_to_custom_home_instead_of_the_start_tab() {
+        assertEquals(
+            listOf(Tab.CustomHome, Tab.Home),
+            topLevelBackStack(Tab.Home, start = Tab.Servers, discoveryOrigin = Tab.CustomHome),
+        )
+    }
+
+    @Test
     fun hidden_or_deleted_selected_page_falls_back_without_changing_saved_data() {
         val first = WidgetPage("first", "精选")
         val second = WidgetPage("second", "追剧")

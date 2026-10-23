@@ -1,25 +1,20 @@
 package com.yfuse.feature.profile
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,11 +23,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,10 +37,15 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.YfButton
+import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.contentHandoff
+import com.yfuse.core.designsystem.glassButtonLift
+import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.validateEmbyServerEndpoint
@@ -475,8 +472,8 @@ private fun PlexChoiceRow(
             .fillMaxWidth()
             .pressable(role = Role.Button, focusShape = AppShapes.control, onClick = onClick)
             .touchTarget()
-            .background(if (palette.isDark) palette.reducedFill.card3 else Color.White, AppShapes.control)
-            .border(1.dp, palette.sub2.copy(alpha = 0.75f), AppShapes.control)
+            .shadow(glassButtonLift(palette), AppShapes.control)
+            .liquidGlass(AppShapes.control, palette.card2, palette.border)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -515,7 +512,7 @@ private fun ServerFormSection(content: @Composable ColumnScope.() -> Unit) {
             Modifier
                 .fillMaxWidth()
                 .background(palette.reducedFill.card2, AppShapes.card)
-                .border(1.dp, palette.text.copy(alpha = 0.1f), AppShapes.card)
+                .border(1.dp, palette.border, AppShapes.card)
                 .padding(vertical = 4.dp),
         content = content,
     )
@@ -530,48 +527,13 @@ private fun ServerFormButton(
     enabled: Boolean = true,
     loading: Boolean = false,
 ) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val fill =
-        if (primary) {
-            accent.accent
-        } else if (palette.isDark) {
-            palette.reducedFill.card3
-        } else {
-            Color.White
-        }
-    val ink = if (primary) accent.onAccent else accent.accent
-    // Keep the button's identity while a request runs, and expose its busy state to TalkBack.
-    Button(
+    YfButton(
+        label = label,
         onClick = onClick,
-        modifier = modifier.defaultMinSize(minHeight = 48.dp).semantics { if (loading) stateDescription = "处理中" },
-        enabled = enabled && !loading,
-        shape = AppShapes.control,
-        border = if (primary) null else BorderStroke(1.dp, accent.accent),
-        colors =
-            ButtonDefaults.buttonColors(
-                containerColor = fill,
-                contentColor = ink,
-                disabledContainerColor = if (loading) fill else palette.mutedControl,
-                disabledContentColor = if (loading) ink else palette.text.copy(alpha = 0.55f),
-            ),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-    ) {
-        if (loading) {
-            OrbProgress(size = 16.dp, color = ink)
-            Spacer(Modifier.width(8.dp))
-        }
-        Text(
-            label,
-            style = AppTypography.body.strong,
-            color =
-                if (enabled ||
-                    loading
-                ) {
-                    ink
-                } else {
-                    palette.text.copy(alpha = 0.55f)
-                },
-        )
-    }
+        modifier = modifier,
+        // The spinner retains the action's identity while pressable blocks repeat submissions.
+        enabled = enabled || loading,
+        loading = loading,
+        tone = if (primary) YfButtonTone.Primary else YfButtonTone.Secondary,
+    )
 }

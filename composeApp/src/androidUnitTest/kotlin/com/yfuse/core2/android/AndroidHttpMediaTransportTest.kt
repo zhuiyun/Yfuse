@@ -38,6 +38,83 @@ import kotlin.test.assertTrue
 
 class AndroidHttpMediaTransportTest {
     @Test
+    fun `legal media header values with colons reach the origin unchanged`() =
+        runBlocking {
+            MockWebServer().use { server ->
+                server.enqueue(
+                    MockResponse()
+                        .setResponseCode(206)
+                        .setHeader("Content-Range", "bytes 0-3/4")
+                        .setBody("data"),
+                )
+                val headers =
+                    mapOf(
+                        "Referer" to "https://source.invalid:8443/watch?id=example",
+                        "User-Agent" to "Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0",
+                        "Cookie" to "session=opaque:part",
+                        "X-Stream-Time" to "2026-10-23T06:10:39+08:00",
+                        "X-Optional" to "",
+                    )
+                val transport = AndroidHttpMediaTransport()
+                try {
+                    val response =
+                        transport.open(
+                            YMediaTransportRequest(
+                                uri = server.url("/video").toString(),
+                                protocol = YSourceProtocol.Http,
+                                headers = headers,
+                                range = YByteRange(0, 3),
+                            ),
+                        )
+                    assertEquals(206, response.statusCode)
+                    val output = ByteArray(4)
+                    assertEquals(4, transport.read(output, 0, output.size))
+                    assertContentEquals("data".encodeToByteArray(), output)
+                    val request = assertNotNull(server.takeRequest(2, TimeUnit.SECONDS))
+                    headers.forEach { (name, value) -> assertEquals(value, request.getHeader(name), name) }
+                    assertEquals("bytes=0-3", request.getHeader("Range"))
+                } finally {
+                    transport.close()
+                }
+            }
+        }
+
+    @Test
+    fun `unsafe media headers fail before sending and a later valid request can open`() =
+        runBlocking {
+            MockWebServer().use { server ->
+                val uri = server.url("/video").toString()
+                val transport = AndroidHttpMediaTransport()
+                try {
+                    val invalid =
+                        listOf(
+                            "X:Private" to "value",
+                            "X Private" to "value",
+                            "X-Private\r\nInjected" to "value",
+                            "X-Private" to "private\rInjected: value",
+                            "X-Private" to "private\nInjected: value",
+                            "X-Private" to "private\u0000value",
+                        )
+                    for ((name, value) in invalid) {
+                        val failure =
+                            assertFailsWith<IllegalArgumentException> {
+                                transport.open(
+                                    YMediaTransportRequest(uri, YSourceProtocol.Http, headers = mapOf(name to value)),
+                                )
+                            }
+                        assertEquals("Unsafe transport header", failure.message)
+                    }
+                    assertEquals(0, server.requestCount)
+                    server.enqueue(MockResponse().setBody("data"))
+                    assertEquals(200, transport.open(YMediaTransportRequest(uri, YSourceProtocol.Http)).statusCode)
+                    assertEquals(1, server.requestCount)
+                } finally {
+                    transport.close()
+                }
+            }
+        }
+
+    @Test
     fun `malformed redirect is a source failure with safe details rather than an invalid range`() =
         runTest {
             val server = MockWebServer()

@@ -28,6 +28,8 @@ import com.yfuse.core.sync.applyCloudSyncSnapshot
 import com.yfuse.core.sync.captureCloudSyncSnapshot
 import com.yfuse.core.sync.encodeCloudSyncDocument
 import com.yfuse.core.sync.largestPartName
+import com.yfuse.core.sync.playback.EncryptedPlaybackEntity
+import com.yfuse.core.sync.playback.PlaybackSyncDocument
 import com.yfuse.core.sync.requireWritableByThisBuild
 import com.yfuse.deviceModel
 import io.ktor.client.network.sockets.ConnectTimeoutException
@@ -787,11 +789,15 @@ class AccountRepository(
         for (attempt in 1..REKEY_ATTEMPTS) {
             val remote = authorized { api.getSync(it) }
             val payload = remote.payload
-            val document = payload?.let { decryptForRekeyLocked(remote, it, proof) }
+            val source = payload?.let { decryptForRekeyLocked(remote, it, proof) }
+            val document = source?.first
+            val localKey = requireVaultKey()
             val keyVersion = maxOf(localKeyVersion(), payload?.keyVersion ?: 0, KEY_VERSION) + 1
             val salt = crypto.randomBytes(ACCOUNT_KDF_SALT_BYTES)
             val keys = deriveAccountKeys(newPassword, salt, ACCOUNT_KDF_MIN_ITERATIONS)
             val vaultKey = crypto.generateVaultKey()
+            val migrationId = crypto.randomBytes(32).toBase64Url()
+            var committed = false
             try {
                 val sync =
                     document?.let { plaintext ->
@@ -809,6 +815,15 @@ class AccountRepository(
                                 ),
                         )
                     }
+                val playbackCursor =
+                    migratePlaybackLocked(
+                        user.id,
+                        migrationId,
+                        listOfNotNull(source?.second, localKey),
+                        maxOf(localKeyVersion(), payload?.keyVersion ?: KEY_VERSION),
+                        vaultKey,
+                        keyVersion,
+                    )
                 val request =
                     RekeyRequest(
                         currentPassword = (proof as? RekeyProof.Password)?.password?.concatToString(),
@@ -819,14 +834,21 @@ class AccountRepository(
                         vault = sealVault(vaultKey, keys.wrapKey, keyVersion),
                         sync = sync,
                         deviceName = deviceModel().take(64),
+                        playbackMigrationId = migrationId,
+                        playbackCursor = playbackCursor,
                     )
                 val auth =
                     try {
                         authorized { api.rekey(it, request) }
                     } catch (error: AccountApiException) {
-                        if (error.code == "sync_version_conflict" && attempt < REKEY_ATTEMPTS) continue
+                        if (error.code in setOf("sync_version_conflict", "playback_version_conflict") &&
+                            attempt < REKEY_ATTEMPTS
+                        ) {
+                            continue
+                        }
                         throw error
                     }
+                committed = true
                 acceptAuth(auth)
                 storeDerivedVault(user.id, vaultKey, keyVersion)
                 protocolMemory.rememberDerivedKey(user.username)
@@ -839,8 +861,19 @@ class AccountRepository(
                         message = successMessage,
                     )
                 return
+            } catch (error: AccountApiException) {
+                if (!committed &&
+                    error.code in setOf("sync_version_conflict", "playback_version_conflict") &&
+                    attempt < REKEY_ATTEMPTS
+                ) {
+                    continue
+                }
+                throw error
             } finally {
+                if (!committed) runCatching { authorized { api.discardPlaybackRekey(it, migrationId) } }
                 document?.fill(0)
+                source?.second?.fill(0)
+                localKey.fill(0)
                 keys.wipe()
                 vaultKey.fill(0)
             }
@@ -856,13 +889,13 @@ class AccountRepository(
         remote: SyncResponse,
         payload: EncryptedSyncPayload,
         proof: RekeyProof,
-    ): ByteArray {
+    ): Pair<ByteArray, ByteArray> {
         payload.requireSupportedMetadata()
         val userId = requireSignedIn().session.user.id
         if (payload.keyVersion == localKeyVersion()) {
             secureStore.get(KEY_VAULT_KEY)?.let { local ->
                 try {
-                    openSyncDocument(local, remote, payload, userId)?.let { return it }
+                    openSyncDocument(local, remote, payload, userId)?.let { return it to local.copyOf() }
                 } finally {
                     local.fill(0)
                 }
@@ -885,10 +918,132 @@ class AccountRepository(
                 }
             }
         return try {
-            openSyncDocument(cloudKey, remote, payload, userId)
-                ?: throw IllegalArgumentException("当前密码错误或云端加密数据无效")
-        } finally {
+            val plaintext =
+                openSyncDocument(cloudKey, remote, payload, userId)
+                    ?: throw IllegalArgumentException("当前密码错误或云端加密数据无效")
+            plaintext to cloudKey
+        } catch (failure: Throwable) {
             cloudKey.fill(0)
+            throw failure
+        }
+    }
+
+    /** Reads the complete relay even when this device has never enabled playback synchronization. */
+    private suspend fun migratePlaybackLocked(
+        userId: String,
+        migrationId: String,
+        oldKeys: List<ByteArray>,
+        oldVersion: Int,
+        newKey: ByteArray,
+        newVersion: Int,
+    ): Long {
+        try {
+            authorized { api.stagePlaybackRekey(it, PlaybackRekeyBatch(migrationId, newVersion)) }
+        } catch (error: AccountApiException) {
+            if (error.status == HttpStatusCode.NotFound || error.status == HttpStatusCode.MethodNotAllowed) {
+                throw IllegalStateException("账号服务尚不支持无损更换密钥，请先升级服务端；原密钥和云端数据已保留", error)
+            }
+            throw error
+        }
+        var cursor = 0L
+        val seen = hashSetOf<String>()
+        var ciphertextBytes = 0L
+        while (true) {
+            val page = authorized { api.pullPlaybackForRekey(it, cursor) }
+            require(page.cursor >= cursor && (!page.hasMore || page.cursor > cursor)) { "播放记录迁移游标无效" }
+            val items = mutableListOf<PlaybackRekeyItem>()
+
+            suspend fun flush() {
+                if (items.isNotEmpty()) {
+                    authorized {
+                        api.stagePlaybackRekey(
+                            it,
+                            PlaybackRekeyBatch(migrationId, newVersion, items.toList()),
+                        )
+                    }
+                    items.clear()
+                }
+            }
+            for (entity in page.changes) {
+                require(
+                    entity.cursor > cursor && entity.cursor <= page.cursor && seen.add(entity.entityKey),
+                ) { "播放记录迁移版本冲突，请重试" }
+                require(seen.size <= 1_024) { "播放记录数量超过迁移上限" }
+                ciphertextBytes += entity.ciphertext.base64UrlToBytes().size
+                require(ciphertextBytes <= 64L * 1024 * 1024) { "播放记录大小超过迁移上限" }
+                val replacement =
+                    withContext(cryptoDispatcher) {
+                        reencryptPlayback(userId, entity, oldKeys, oldVersion, newKey, newVersion)
+                    }
+                val item = PlaybackRekeyItem(entity.entityKey, entity.cursor, replacement)
+                // Includes JSON metadata and escaping; stays below the existing HTTP body cap.
+                val candidate = PlaybackRekeyBatch(migrationId, newVersion, items + item)
+                if (items.size == 64 || json.encodeToString(candidate).encodeToByteArray().size > 300 * 1024) flush()
+                items += item
+            }
+            flush()
+            cursor = page.cursor
+            if (!page.hasMore) return cursor
+        }
+    }
+
+    private fun reencryptPlayback(
+        userId: String,
+        entity: EncryptedPlaybackEntity,
+        oldKeys: List<ByteArray>,
+        oldVersion: Int,
+        newKey: ByteArray,
+        newVersion: Int,
+    ): EncryptedPlaybackEntity {
+        require(entity.schemaVersion == 1 && entity.algorithm == "AES-256-GCM" && entity.keyVersion == oldVersion) {
+            "暂不支持这个播放记录加密版本，请更新 Yfuse"
+        }
+        val encrypted = AesGcmPayload(entity.nonce.base64UrlToBytes(), entity.ciphertext.base64UrlToBytes())
+        require(encrypted.ciphertext.size <= 96 * 1024 + 16)
+        var plaintext: ByteArray? = null
+        var sourceKey: ByteArray? = null
+        for (key in oldKeys) {
+            try {
+                plaintext =
+                    crypto.decrypt(key, encrypted, "yfuse-playback:v1:$userId:${entity.entityKey}".encodeToByteArray())
+                sourceKey = key
+                break
+            } catch (_: VaultAuthenticationException) {
+                // Legacy devices may have generated distinct keys before a main sync was uploaded.
+            }
+        }
+        val clear = requireNotNull(plaintext) { "云端播放记录无法解密，已保留原密钥和所有云端数据" }
+        try {
+            val document = json.decodeFromString<PlaybackSyncDocument>(clear.decodeToString())
+            require(document.schemaVersion == 1)
+            val identity =
+                if (document.state.profileId == com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE) {
+                    document.state.mediaKey
+                } else {
+                    "profile:${document.state.profileId}\u0000${document.state.mediaKey}"
+                }
+
+            fun opaqueKey(key: ByteArray): String {
+                val digest = crypto.hmacSha256(key, "yfuse-playback-entity-v1\u0000$identity".encodeToByteArray())
+                return try {
+                    digest.toBase64Url()
+                } finally {
+                    digest.fill(0)
+                }
+            }
+            require(opaqueKey(requireNotNull(sourceKey)) == entity.entityKey) { "播放记录身份验证失败" }
+            val entityKey = opaqueKey(newKey)
+            // Re-encrypt the original bytes, including fields introduced by newer clients.
+            val replacement = crypto.encrypt(newKey, clear, "yfuse-playback:v1:$userId:$entityKey".encodeToByteArray())
+            return entity.copy(
+                entityKey = entityKey,
+                keyVersion = newVersion,
+                nonce = replacement.nonce.toBase64Url(),
+                ciphertext = replacement.ciphertext.toBase64Url(),
+                cursor = 0L,
+            )
+        } finally {
+            clear.fill(0)
         }
     }
 
@@ -1495,7 +1650,12 @@ class AccountRepository(
     }
 
     /** Every sign-out wipes the account's secrets but keeps what protects the password next time. */
-    private fun clearAccountSecrets() = protocolMemory.preservedAcross(secureStore::clear)
+    private fun clearAccountSecrets() {
+        // Never delete then rewrite downgrade protection: a failed write would silently lose it.
+        secureStore.remove(KEY_REFRESH_TOKEN)
+        secureStore.remove(KEY_PENDING_REFRESH)
+        clearVaultSecrets()
+    }
 
     private fun storeWrap(recovery: RecoveryKeyEnvelope) {
         secureStore.put(KEY_WRAP_SALT, recovery.salt)

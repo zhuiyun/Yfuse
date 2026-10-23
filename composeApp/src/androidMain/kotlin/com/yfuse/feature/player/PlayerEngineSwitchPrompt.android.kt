@@ -103,12 +103,12 @@ internal fun restoreItemEngine(
  * switch for the current entry only.
  *
  * A setting the viewer adjusted, or one remembered for the series, used to rebuild playback on the
- * compatibility engine without a word and keep the whole session there. Each entry and setting is
- * asked about once; keeping the engine resets the setting, so the panel never shows a value that is
- * not being applied.
+ * compatibility engine without a word and keep the whole session there. Concurrent unsupported
+ * settings share one decision; keeping the engine resets every setting named by that decision.
  */
 internal class EngineSwitchPrompt {
-    private val asked = mutableSetOf<Pair<String?, UnsupportedPlaybackSetting>>()
+    private val requests = EngineSwitchRequests()
+    private var shown: PendingEngineSwitch? = null
     private var dialog: AlertDialog? = null
 
     fun ask(
@@ -118,27 +118,77 @@ internal class EngineSwitchPrompt {
         onSwitch: () -> Unit,
         onKeep: () -> Unit,
     ) {
-        if (dialog?.isShowing == true || !asked.add(itemId to setting)) return
-        var answered = false
+        val pending = requests.offer(itemId, setting, onSwitch, onKeep)
+        val message = "当前内核无法应用「${pending.settings.joinToString("、") { it.label }}」。可以只为这一集改用兼容内核，下一集会回到原来的选择。"
+        if (shown === pending && dialog?.isShowing == true) {
+            dialog?.setMessage(message)
+            return
+        }
+        dialog?.dismiss()
+        shown = pending
         dialog =
             AlertDialog
                 .Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("改用兼容内核播放本集？")
-                .setMessage("当前内核无法应用「${setting.label}」。可以只为这一集改用兼容内核，下一集会回到原来的选择。")
+                .setMessage(message)
                 .setPositiveButton("本集改用") { _, _ ->
-                    answered = true
-                    onSwitch()
+                    requests.resolve(pending, switch = true)
                 }.setNegativeButton("保持当前内核") { _, _ ->
-                    answered = true
-                    onKeep()
+                    requests.resolve(pending, switch = false)
                 }.setOnDismissListener {
-                    if (!answered) onKeep()
-                    dialog = null
+                    requests.resolve(pending, switch = false)
+                    if (shown === pending) {
+                        shown = null
+                        dialog = null
+                    }
                 }.show()
     }
 
     fun dismiss() {
+        shown?.let { requests.resolve(it, switch = false) }
         dialog?.dismiss()
+        shown = null
         dialog = null
     }
+}
+
+/** Only unresolved choices are retained; a later adjustment is a new user decision. */
+internal class EngineSwitchRequests {
+    private var pending: PendingEngineSwitch? = null
+
+    fun offer(
+        itemId: String?,
+        setting: UnsupportedPlaybackSetting,
+        onSwitch: () -> Unit,
+        onKeep: () -> Unit,
+    ): PendingEngineSwitch {
+        pending?.takeIf { it.itemId != itemId }?.let { resolve(it, switch = false) }
+        val current = pending ?: PendingEngineSwitch(itemId, onSwitch).also { pending = it }
+        current.onSwitch = onSwitch
+        current.onKeep[setting] = onKeep
+        return current
+    }
+
+    fun resolve(
+        request: PendingEngineSwitch,
+        switch: Boolean,
+    ) {
+        if (pending !== request) return
+        pending = null
+        if (switch) {
+            request.onSwitch()
+        } else {
+            request.onKeep.values
+                .toList()
+                .forEach { it() }
+        }
+    }
+}
+
+internal class PendingEngineSwitch(
+    val itemId: String?,
+    internal var onSwitch: () -> Unit,
+) {
+    internal val onKeep = linkedMapOf<UnsupportedPlaybackSetting, () -> Unit>()
+    val settings: List<UnsupportedPlaybackSetting> get() = onKeep.keys.toList()
 }

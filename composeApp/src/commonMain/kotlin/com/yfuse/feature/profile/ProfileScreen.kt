@@ -115,6 +115,7 @@ import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.controlBorder
 import com.yfuse.core.designsystem.controlSurface
 import com.yfuse.core.designsystem.flatGlass
+import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.overlayAction
@@ -1372,8 +1373,11 @@ private fun SettingsSearchField(
                 .fillMaxWidth()
                 .heightIn(min = 48.dp)
                 .flatGlass(AppShapes.control, palette.controlSurface, palette.controlBorder)
-                .border(1.dp, if (focused) accent.border else Color.Transparent, AppShapes.control)
-                .semantics { contentDescription = "搜索设置" },
+                .border(
+                    1.dp,
+                    if (focused) glassControlHighlight(accent, palette.isDark) else Color.Transparent,
+                    AppShapes.control,
+                ).semantics { contentDescription = "搜索设置" },
         decorationBox = { innerTextField ->
             Row(
                 Modifier.heightIn(min = 48.dp).padding(start = 14.dp, end = if (value.isEmpty()) 14.dp else 4.dp),

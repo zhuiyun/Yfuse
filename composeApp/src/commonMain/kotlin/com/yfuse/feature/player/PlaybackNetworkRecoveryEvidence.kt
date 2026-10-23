@@ -6,10 +6,11 @@ import com.yfuse.core.playback.PlaybackMediaProbe
 internal fun PlaybackState.networkRecoveryOutcome(
     resumePositionMs: Long,
     probe: PlaybackMediaProbe,
+    videoSuspended: Boolean = false,
 ): Boolean? {
     if (error != null) return false
     if (buffering) return null
-    val expected = diagnostics.outputExpectation(probe, videoHeight, audioTracks.isNotEmpty())
+    val expected = diagnostics.outputExpectation(probe, videoHeight, audioTracks.isNotEmpty(), videoSuspended)
 
     fun ready(readiness: PlaybackOutputReadiness): Boolean =
         readiness == PlaybackOutputReadiness.Rendering || readiness == PlaybackOutputReadiness.Unknown
@@ -31,6 +32,7 @@ internal fun PlaybackDiagnostics.outputExpectation(
     probe: PlaybackMediaProbe,
     videoHeight: Int,
     hasAudioTracks: Boolean,
+    videoSuspended: Boolean = false,
 ): PlaybackOutputExpectation {
     val evidence = outputEvidence
     val videoKnown =
@@ -50,7 +52,7 @@ internal fun PlaybackDiagnostics.outputExpectation(
             evidence.audioMode != PlaybackAudioOutputMode.Unknown ||
             effectiveAudioReadiness == PlaybackOutputReadiness.Rendering
     return PlaybackOutputExpectation(
-        video = videoKnown || !audioKnown,
+        video = !videoSuspended && (videoKnown || !audioKnown),
         audio = audioKnown,
     )
 }

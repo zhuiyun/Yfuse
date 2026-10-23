@@ -25,6 +25,7 @@ internal data class YAndroidMediaSource(
     val bitrateBitsPerSecond: Long = 0L,
     val cacheIdentity: YCacheIdentity? = null,
     val cacheMaximumBytes: Long = 0L,
+    val originBoundHeaderNames: Set<String> = emptySet(),
 )
 
 internal data class YExtractorSample(
@@ -196,6 +197,8 @@ internal class AndroidMediaExtractorDemuxNode(
                 source.headers,
                 source.credentials,
                 MAX_ADAPTIVE_DRM_MANIFEST_BYTES,
+                source.uri,
+                source.originBoundHeaderNames,
             )?.decodeToString()
                 ?: return null
         return resolveWidevineAdaptiveInitializationData(root, source.uri) { childUri ->
@@ -204,6 +207,8 @@ internal class AndroidMediaExtractorDemuxNode(
                 source.headers,
                 source.credentials,
                 MAX_ADAPTIVE_DRM_MANIFEST_BYTES,
+                source.uri,
+                source.originBoundHeaderNames,
             )?.decodeToString()
         }
     }
@@ -358,6 +363,8 @@ internal class AndroidMediaExtractorDemuxNode(
         headers: Map<String, String>,
         credentials: YTransportCredentials?,
         maximumBytes: Int,
+        headerOrigin: String,
+        originBoundHeaderNames: Set<String>,
     ): ByteArray? {
         require(maximumBytes > 0)
         val parsed = Uri.parse(uri)
@@ -380,8 +387,9 @@ internal class AndroidMediaExtractorDemuxNode(
                                         } else {
                                             YSourceProtocol.Http
                                         },
-                                    headers = headers,
-                                    credentials = credentials,
+                                    headers = scopedMediaHeaders(headers, headerOrigin, uri, originBoundHeaderNames),
+                                    credentials = credentials.takeIf { mediaCredentialOriginsMatch(headerOrigin, uri) },
+                                    originBoundHeaderNames = originBoundHeaderNames,
                                 ),
                             )
                         require(response.statusCode in 200..299) {
@@ -421,7 +429,7 @@ internal class AndroidMediaExtractorDemuxNode(
                     // Platform HTTP opens otherwise hide their socket from cancellation. A private
                     // proxy lets exit/deadline close the exact downstream socket and upstream call.
                     val proxy =
-                        if (probeBudget != null) {
+                        if (probeBudget != null || source.originBoundHeaderNames.isNotEmpty()) {
                             AndroidYCoreHttpProxy(
                                 appContext,
                                 userAgent = "",
@@ -440,8 +448,12 @@ internal class AndroidMediaExtractorDemuxNode(
                             source.credentials,
                             cacheable = false,
                             cacheIdentity = source.cacheIdentity,
+                            originBoundHeaderNames = source.originBoundHeaderNames,
                         ) ?: source.uri
-                    setDataSource(uri, source.headers)
+                    setDataSource(
+                        uri,
+                        scopedMediaHeaders(source.headers, source.uri, uri, source.originBoundHeaderNames),
+                    )
                     return
                 }
                 val cronetHostHealth = AndroidCronetHostHealth.shared
@@ -471,6 +483,7 @@ internal class AndroidMediaExtractorDemuxNode(
                                 YSourceProtocol.Http
                             },
                         headers = source.headers,
+                        originBoundHeaderNames = source.originBoundHeaderNames,
                         credentials = source.credentials,
                         initialMediaBitRateBitsPerSecond = source.bitrateBitsPerSecond,
                         cacheDirectory = appContext.cacheDir,
@@ -515,6 +528,7 @@ internal class AndroidMediaExtractorDemuxNode(
                         uri = normalizedUri,
                         protocol = if (tls) YSourceProtocol.WebDavTls else YSourceProtocol.WebDav,
                         headers = source.headers,
+                        originBoundHeaderNames = source.originBoundHeaderNames,
                         credentials = source.credentials,
                         initialMediaBitRateBitsPerSecond = source.bitrateBitsPerSecond,
                         cacheDirectory = appContext.cacheDir,
@@ -534,6 +548,7 @@ internal class AndroidMediaExtractorDemuxNode(
                         uri = source.uri,
                         protocol = YSourceProtocol.Smb,
                         headers = source.headers,
+                        originBoundHeaderNames = source.originBoundHeaderNames,
                         credentials = source.credentials,
                         initialMediaBitRateBitsPerSecond = source.bitrateBitsPerSecond,
                         cacheDirectory = appContext.cacheDir,

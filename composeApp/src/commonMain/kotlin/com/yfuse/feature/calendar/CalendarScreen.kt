@@ -29,12 +29,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.systemNavigationContentInset
@@ -58,6 +56,7 @@ import com.yfuse.core.designsystem.contentPhase
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.rememberSegmentIndicator
 import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.solidGlass
@@ -141,7 +140,7 @@ fun CalendarScreen(component: CalendarComponent) {
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = Dimens.pageHorizontal)
-                    .padding(top = 6.dp, bottom = 8.dp),
+                    .padding(top = 2.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -193,68 +192,7 @@ fun CalendarScreen(component: CalendarComponent) {
                 selected = state.section,
                 onSelect = { component.store.accept(CalendarIntent.SelectSection(it)) },
             )
-            Spacer(Modifier.height(12.dp))
-
-            if (scheduleChanges.isNotEmpty() && state.section == CalendarSection.Schedule) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = Dimens.pageHorizontal)
-                        .glass(AppShapes.card, palette.card2, palette.border)
-                        .padding(horizontal = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth().pressable { changesExpanded = !changesExpanded }.heightIn(min = 48.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(AppIcons.WatchCalendar, null, tint = accent.accent, modifier = Modifier.size(17.dp))
-                        Text(
-                            "排期更新 · ${scheduleChanges.size} 条调整",
-                            style = AppTypography.caption.strong,
-                            color = palette.text,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Icon(
-                            if (changesExpanded) AppIcons.ChevronDown else AppIcons.ChevronRight,
-                            contentDescription = if (changesExpanded) "收起排期调整" else "展开排期调整",
-                            tint = accent.accent,
-                            modifier = Modifier.size(15.dp),
-                        )
-                    }
-                    DisclosureContent(changesExpanded, rememberDisclosureProgress(changesExpanded)) {
-                        Column(
-                            Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            scheduleChanges.forEach { change ->
-                                Text(
-                                    "${change.title} · ${change.displayMessage}",
-                                    style = AppTypography.caption.regular,
-                                    color = palette.sub,
-                                )
-                            }
-                        }
-                        Text(
-                            "知道了",
-                            style = AppTypography.caption.strong,
-                            color = accent.accent,
-                            modifier =
-                                Modifier
-                                    .align(Alignment.End)
-                                    .pressable {
-                                        component.acknowledgeScheduleChanges()
-                                        scheduleChanges = emptyList()
-                                        changesExpanded = false
-                                    }.touchTarget(),
-                        )
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-            }
+            Spacer(Modifier.height(if (state.section == CalendarSection.Schedule) 4.dp else 12.dp))
 
             // Only what the section shows hands over, keyed by the section. The back key, 刷新 and
             // the section bar used to fade in with it: the handoff covered the whole page.
@@ -267,9 +205,49 @@ fun CalendarScreen(component: CalendarComponent) {
                         filtersExpanded = filtersExpanded,
                         error = state.error,
                         hasConfirmedData = state.confirmedDays.isNotEmpty(),
+                        changesCount = scheduleChanges.size,
+                        changesExpanded = changesExpanded,
+                        onToggleChanges = { changesExpanded = !changesExpanded },
                         onToggleFilters = { filtersExpanded = !filtersExpanded },
                         onRetry = { component.store.accept(CalendarIntent.Refresh) },
                     )
+                    DisclosureContent(
+                        expanded = changesExpanded && scheduleChanges.isNotEmpty(),
+                        progress = rememberDisclosureProgress(changesExpanded && scheduleChanges.isNotEmpty()),
+                    ) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = Dimens.pageHorizontal)
+                                .padding(bottom = 8.dp),
+                        ) {
+                            Column(
+                                Modifier.heightIn(max = 160.dp).verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                scheduleChanges.forEach { change ->
+                                    Text(
+                                        "${change.title} · ${change.displayMessage}",
+                                        style = AppTypography.caption.reading,
+                                        color = palette.sub,
+                                    )
+                                }
+                            }
+                            Text(
+                                "知道了",
+                                style = AppTypography.caption.strong,
+                                color = accent.accent,
+                                modifier =
+                                    Modifier
+                                        .align(Alignment.End)
+                                        .pressable {
+                                            component.acknowledgeScheduleChanges()
+                                            scheduleChanges = emptyList()
+                                            changesExpanded = false
+                                        }.touchTarget(),
+                            )
+                        }
+                    }
                     val filterProgress = rememberDisclosureProgress(filtersExpanded)
                     DisclosureContent(filtersExpanded, filterProgress) {
                         LazyRow(
@@ -421,11 +399,12 @@ private fun CalendarSectionBar(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val selection = rememberGlassSelectionStyle()
     val indicator =
         rememberSegmentIndicator(
             CalendarSection.entries.indexOf(selected),
             accent.container,
-            Color.White.copy(alpha = 0.8f),
+            selectionStyle = selection,
         )
     Row(
         Modifier
@@ -450,8 +429,8 @@ private fun CalendarSectionBar(
             ) {
                 Text(
                     section.label,
-                    style = AppTypography.body.strong,
-                    color = selectionColor(if (active) accent.accent else palette.sub),
+                    style = if (active) AppTypography.body.strong else AppTypography.body.medium,
+                    color = selectionColor(if (active) selection.contentColor else palette.sub),
                     maxLines = 1,
                 )
             }

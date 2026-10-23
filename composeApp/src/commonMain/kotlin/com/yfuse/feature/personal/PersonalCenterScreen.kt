@@ -62,9 +62,6 @@ import com.yfuse.core.sync.SyncMutationKind
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.feature.profile.SettingsPage
 import com.yfuse.feature.profile.rememberComposedPageStore
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import com.yfuse.core.designsystem.ThemeText as Text
 
 enum class PersonalCenterTab(
@@ -339,96 +336,43 @@ private fun PersonalCenterPage(
                 if (BackendAccess.Default.enabled) {
                     item {
                         Section(title = "个人内容") {
-                            SettingsCard {
-                                SettingRow(
-                                    "清单、历史与追剧",
+                            PersonalSyncCard(
+                                title = "清单、历史与追剧",
+                                status =
                                     when {
-                                        library.syncing -> "正在同步…"
+                                        !state.signedIn -> "登录鱼服账号后同步"
+                                        library.syncing -> "正在同步个人内容…"
+                                        library.error != null -> "同步未完成，可重试"
                                         library.pendingSync -> "有本机更改待同步"
                                         else -> "本机更改已同步"
                                     },
-                                    embedded = true,
-                                )
-                                SettingsDivider()
-                                SettingRow(
-                                    "最近成功",
-                                    library.lastSyncedAtEpochMs?.let {
-                                        Instant
-                                            .ofEpochMilli(it)
-                                            .atZone(ZoneId.systemDefault())
-                                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-                                    }
-                                        ?: "暂无同步记录",
-                                    embedded = true,
-                                )
-                                SettingsDivider()
-                                SettingRow(
-                                    "立即同步",
-                                    loading = library.syncing,
-                                    value = if (!state.signedIn) "请先登录鱼服账号" else "合并个人数据并重试",
-                                    embedded = true,
-                                    icon = AppIcons.Refresh,
-                                    iconTint = SettingTint.sync,
-                                    onClick =
-                                        if (!state.signedIn ||
-                                            library.syncing
-                                        ) {
-                                            null
-                                        } else {
-                                            (
-                                                {
-                                                    onIntent(PersonalCenterIntent.SyncNow)
-                                                }
-                                            )
-                                        },
-                                )
-                            }
+                                lastSyncedAtEpochMs = library.lastSyncedAtEpochMs,
+                                actionLabel = "立即同步",
+                                enabled = state.signedIn && !library.syncing,
+                                syncing = library.syncing,
+                                onSync = { onIntent(PersonalCenterIntent.SyncNow) },
+                            )
                         }
                     }
                     item { PersonalNotice("个人内容自动加密合并，保留删除记录；服务器配置与设置备份仍需手动操作。") }
                     item {
                         Section(title = "播放进度") {
-                            SettingsCard {
-                                SettingRow(
-                                    "同步状态",
-                                    "待上传 " + playbackState.pendingCount + " 项 · " +
-                                        if (playbackState.syncing) "同步中" else "空闲",
-                                    embedded = true,
-                                )
-                                SettingsDivider()
-                                SettingRow(
-                                    "最近成功",
-                                    playbackState.lastSyncedAtEpochMs?.let {
-                                        Instant
-                                            .ofEpochMilli(it)
-                                            .atZone(ZoneId.systemDefault())
-                                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-                                    }
-                                        ?: "暂无同步记录",
-                                    embedded = true,
-                                )
-                                SettingsDivider()
-                                SettingRow(
-                                    "刷新与重试",
-                                    loading = playbackState.syncing,
-                                    value = "拉取最新播放进度",
-                                    embedded = true,
-                                    icon = AppIcons.Refresh,
-                                    iconTint = SettingTint.sync,
-                                    onClick =
-                                        if (playbackState.syncing ||
-                                            !state.signedIn
-                                        ) {
-                                            null
-                                        } else {
-                                            (
-                                                {
-                                                    onIntent(PersonalCenterIntent.RefreshPlaybackSync)
-                                                }
-                                            )
-                                        },
-                                )
-                            }
+                            PersonalSyncCard(
+                                title = "跨设备播放进度",
+                                status =
+                                    when {
+                                        !state.signedIn -> "登录鱼服账号后同步"
+                                        playbackState.syncing -> "正在同步播放进度…"
+                                        playbackState.error != null -> "同步未完成，可重试"
+                                        playbackState.pendingCount > 0 -> "待上传 ${playbackState.pendingCount} 项"
+                                        else -> "暂无待上传进度"
+                                    },
+                                lastSyncedAtEpochMs = playbackState.lastSyncedAtEpochMs,
+                                actionLabel = "刷新同步",
+                                enabled = state.signedIn && !playbackState.syncing,
+                                syncing = playbackState.syncing,
+                                onSync = { onIntent(PersonalCenterIntent.RefreshPlaybackSync) },
+                            )
                         }
                     }
                     playbackState.error?.let { error -> item { PersonalNotice(error, error = true) } }
@@ -451,21 +395,15 @@ private fun PersonalCenterPage(
                                 )
                             }
                             SettingsDivider()
-                            SettingRow(
-                                "重试服务器同步",
-                                "重新提交待处理更改",
-                                embedded = true,
-                                icon = AppIcons.Refresh,
-                                iconTint = SettingTint.sync,
-                                loading =
-                                    state.serverStatuses
-                                        .any {
-                                            it.syncing
-                                        },
-                                onClick = {
-                                    onIntent(PersonalCenterIntent.RetryServerSync)
-                                },
-                            )
+                            Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.CenterEnd) {
+                                val syncing = state.serverStatuses.any { it.syncing }
+                                SyncActionButton(
+                                    label = "重试同步",
+                                    enabled = !syncing,
+                                    syncing = syncing,
+                                    onSync = { onIntent(PersonalCenterIntent.RetryServerSync) },
+                                )
+                            }
                         }
                     }
                 }

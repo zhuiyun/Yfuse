@@ -143,6 +143,17 @@ internal class AndroidNativeDirectYPlayer(
 
     override val supportsBackgroundAudio: Boolean get() = true
 
+    @Volatile
+    private var videoSuspended = false
+
+    override val videoOutputSuspended: Boolean get() = videoSuspended
+
+    override fun setVideoSuspended(suspended: Boolean) {
+        if (sessionControl.released) return
+        videoSuspended = suspended
+        submit(Command.SetVideoSuspended(suspended))
+    }
+
     override fun play() {
         if (sessionControl.released) return
         mutableState.updateState {
@@ -537,6 +548,10 @@ internal class AndroidNativeDirectYPlayer(
 
         data class SetSpeed(
             val speed: Float,
+        ) : Command
+
+        data class SetVideoSuspended(
+            val suspended: Boolean,
         ) : Command
 
         data class SetVideoOutput(

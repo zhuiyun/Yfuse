@@ -1,6 +1,8 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -55,6 +57,19 @@ class GlassButtonStyleTest {
         )
         assertTrue(primary.sheen <= 0.5f)
         assertTrue(destructive.sheen <= 0.5f)
+    }
+
+    @Test
+    fun light_action_edges_remain_highlights_for_every_emphasis_and_accent() {
+        for (color in listOf(Brand.Primary, Color.Black, Color.White, Color(0xFF351940), Color(0xFFFFD044))) {
+            val accent = resolveAccentColors(color, dark = false)
+            for (emphasis in GlassButtonEmphasis.entries) {
+                val visual = resolveGlassButtonVisuals(emphasis, LightPalette, accent)
+                val border = assertNotNull(visual.border)
+                val body = visual.fill.compositeOver(LightPalette.background)
+                assertTrue(border.compositeOver(body).luminance() >= 0.85f, "Light actions need luminous edges")
+            }
+        }
     }
 
     @Test

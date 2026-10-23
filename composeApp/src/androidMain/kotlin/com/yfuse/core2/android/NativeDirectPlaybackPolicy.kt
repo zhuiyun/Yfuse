@@ -180,6 +180,8 @@ private fun AndroidNativeDirectYPlayer.Command.canBeReplacedBy(next: AndroidNati
         is AndroidNativeDirectYPlayer.Command.SetAudioDelay -> next is AndroidNativeDirectYPlayer.Command.SetAudioDelay
         is AndroidNativeDirectYPlayer.Command.SetAudioEffect ->
             next is AndroidNativeDirectYPlayer.Command.SetAudioEffect
+        is AndroidNativeDirectYPlayer.Command.SetVideoSuspended ->
+            next is AndroidNativeDirectYPlayer.Command.SetVideoSuspended
         is AndroidNativeDirectYPlayer.Command.SetVideoOutput ->
             next is AndroidNativeDirectYPlayer.Command.SetVideoOutput && detached == null
         is AndroidNativeDirectYPlayer.Command.SelectAudioTrack ->

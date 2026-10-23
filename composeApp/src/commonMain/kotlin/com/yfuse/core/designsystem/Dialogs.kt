@@ -738,7 +738,7 @@ fun ConfirmDialog(
 
 val OverlayOptionSpacing: Dp = Dimens.space.sm
 
-/** Selectable rows use the same liquid body as buttons; selection is a separate focus ring. */
+/** Selected rows lift into a glass pane; explicit detail-page outlines retain their own appearance. */
 @Composable
 fun OverlayOptionRow(
     label: String,
@@ -760,6 +760,8 @@ fun OverlayOptionRow(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val choice = role != Role.Button
+    val selection =
+        if (selected && !destructive && selectionBorderColor == null) rememberGlassSelectionStyle() else null
     val fill =
         when {
             destructive -> palette.errorContainer.copy(alpha = 0.52f)
@@ -770,6 +772,7 @@ fun OverlayOptionRow(
     val ink =
         when {
             destructive -> palette.error
+            selection != null -> selection.contentColor
             selected -> accent.accent
             else -> palette.text
         }
@@ -785,7 +788,9 @@ fun OverlayOptionRow(
             ).then(if (choice) Modifier.semantics { this.selected = selected } else Modifier)
             .heightIn(min = MinTouchTarget)
             .then(
-                if (LocalOverlayLiquidButtons.current) {
+                if (selection != null) {
+                    Modifier.glassSelection(style = selection)
+                } else if (LocalOverlayLiquidButtons.current) {
                     Modifier.liquidGlass(
                         shape = AppShapes.chip,
                         fill = fill,
@@ -797,7 +802,7 @@ fun OverlayOptionRow(
                     Modifier.flatGlass(AppShapes.chip, fill, materialBorder)
                 },
             ).then(
-                if (selected) {
+                if (selected && selection == null) {
                     Modifier.border(
                         selectionBorderWidth,
                         selectionBorderColor ?: glassControlHighlight(accent, palette.isDark),
@@ -829,7 +834,7 @@ fun OverlayOptionRow(
                 Text(
                     description,
                     style = AppTypography.caption.regular,
-                    color = palette.sub2,
+                    color = selection?.contentColor ?: palette.sub2,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -843,13 +848,19 @@ fun OverlayOptionRow(
         ) {
             if (selected) {
                 Box(
-                    Modifier.size(CheckBadgeSize).clip(CircleShape).background(accent.accent),
+                    Modifier.size(CheckBadgeSize).then(
+                        if (selection != null) {
+                            Modifier.border(0.75.dp, selection.rimTop, CircleShape)
+                        } else {
+                            Modifier.clip(CircleShape).background(accent.accent)
+                        },
+                    ),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         AppIcons.Check,
                         contentDescription = null,
-                        tint = accent.onAccent,
+                        tint = selection?.contentColor ?: accent.onAccent,
                         modifier = Modifier.size(CheckGlyphSize),
                     )
                 }

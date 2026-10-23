@@ -58,6 +58,7 @@ internal fun exoMediaItem(
         MediaItem
             .Builder()
             .setUri(playbackUrl)
+            .setTag(item.widgetPlaybackRequest())
             .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).build())
     exoContainerMimeType(
         declaredContainer = item.activeVersion?.container,

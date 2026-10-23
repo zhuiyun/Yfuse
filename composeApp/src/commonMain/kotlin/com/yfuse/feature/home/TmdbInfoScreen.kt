@@ -65,6 +65,7 @@ import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.contentColorForSurface
 import com.yfuse.core.designsystem.fadeIntoPage
+import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.heroScrollCollapse
 import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.liftOverHero
@@ -75,6 +76,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedColorState
 import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.shadow
@@ -500,6 +502,7 @@ private fun TmdbSourceStrip(
     onSelect: (serverId: String, itemId: String) -> Unit,
 ) {
     val palette = LocalPalette.current
+    val selection = rememberGlassSelectionStyle(accent)
     val availableSources =
         remember(sources) {
             sources.filter { it.reachable && it.source != null && it.itemId != null }
@@ -517,19 +520,11 @@ private fun TmdbSourceStrip(
                     .heightIn(min = 52.dp)
                     .pressable {
                         entry.itemId?.let { onSelect(entry.serverId, it) }
-                    }.solidGlass(
-                        shape = AppShapes.thumb,
-                        fill = palette.card2,
-                        border = palette.border,
-                    ).then(
+                    }.then(
                         if (entry.isCurrent) {
-                            Modifier.border(
-                                2.dp,
-                                if (palette.isDark) Color.White.copy(alpha = 0.9f) else accent,
-                                AppShapes.thumb,
-                            )
+                            Modifier.glassSelection(AppShapes.thumb, selection)
                         } else {
-                            Modifier
+                            Modifier.solidGlass(AppShapes.thumb, palette.card2, palette.border)
                         },
                     ).padding(horizontal = 10.dp, vertical = 7.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -539,7 +534,7 @@ private fun TmdbSourceStrip(
                     Text(
                         entry.serverName,
                         style = AppTypography.body.strong,
-                        color = palette.text,
+                        color = if (entry.isCurrent) selection.contentColor else palette.text,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -557,7 +552,7 @@ private fun TmdbSourceStrip(
                     Icon(
                         AppIcons.Check,
                         contentDescription = "当前片源",
-                        tint = accent,
+                        tint = selection.contentColor,
                         modifier = Modifier.size(16.dp),
                     )
                 } else {

@@ -151,18 +151,6 @@ internal fun Route.accountRoutes(
                     val accessToken = call.requireBearerToken()
                     val request = call.receiveLimitedJson<RekeyRequest>()
                     val response = backend.executeCredential { rekey(accessToken, request) }
-                    // Records under the retired key can never be read again. Push drops them as
-                    // well, so a failure here only delays the cleanup.
-                    response.vault?.let { vault ->
-                        runCatching {
-                            backend.execute {
-                                PlaybackRelayStoreProvider.instance.purgeKeyVersionsBelow(
-                                    response.user.id,
-                                    vault.keyVersion,
-                                )
-                            }
-                        }.onFailure { call.application.log.warn("Playback relay cleanup after rekey failed") }
-                    }
                     call.respondLimitedJson(response)
                 }
             }
@@ -198,7 +186,6 @@ internal fun Route.accountRoutes(
             get("/playback") {
                 call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.SyncRead) {
                     val accessToken = call.requireBearerToken()
-                    val account = backend.validateAccessToken(accessToken)
                     val after = call.request.queryParameters["after"]?.toLongOrNull() ?: 0L
                     val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 100
                     if (after < 0L || limit !in 1..200) {
@@ -211,24 +198,18 @@ internal fun Route.accountRoutes(
                     // Synchronous JDBC belongs on the account work executor, not on the
                     // server's event-loop thread that runs this handler.
                     call.respondLimitedJson(
-                        backend.execute { PlaybackRelayStoreProvider.instance.pull(account.userId, after, limit) },
+                        backend.execute { pullPlayback(accessToken, after, limit) },
                     )
                 }
             }
             post("/playback") {
                 call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.SyncWrite) {
                     val accessToken = call.requireBearerToken()
-                    val account = backend.validateAccessToken(accessToken)
                     val request = call.receiveLimitedJson<PlaybackPushRequest>()
                     val response =
                         try {
                             backend.execute {
-                                PlaybackRelayStoreProvider.instance.push(
-                                    userId = account.userId,
-                                    request = request,
-                                    nowEpochMs = System.currentTimeMillis(),
-                                    keyVersion = playbackKeyVersion(account.userId),
-                                )
+                                pushPlayback(accessToken, request)
                             }
                         } catch (_: IllegalArgumentException) {
                             throw AccountServiceException(
@@ -238,6 +219,47 @@ internal fun Route.accountRoutes(
                             )
                         }
                     call.respondLimitedJson(response)
+                }
+            }
+            get("/playback/rekey") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.PlaybackRekey) {
+                    val accessToken = call.requireBearerToken()
+                    val after = call.request.queryParameters["after"]?.toLongOrNull() ?: 0L
+                    val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 100
+                    if (after < 0L || limit !in 1..200) {
+                        throw AccountServiceException(
+                            AccountProblem.InvalidRequest,
+                            "playback_query_invalid",
+                            "播放记录同步参数无效",
+                        )
+                    }
+                    call.respondLimitedJson(
+                        backend.execute { pullPlayback(accessToken, after, limit, forRekey = true) },
+                    )
+                }
+            }
+            post("/playback/rekey") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.PlaybackRekey) {
+                    val accessToken = call.requireBearerToken()
+                    val request = call.receiveLimitedJson<PlaybackRekeyBatch>()
+                    val receipt =
+                        try {
+                            backend.execute { stagePlaybackRekey(accessToken, request) }
+                        } catch (_: IllegalArgumentException) {
+                            throw AccountServiceException(
+                                AccountProblem.InvalidRequest,
+                                "playback_payload_invalid",
+                                "播放记录同步数据无效",
+                            )
+                        }
+                    call.respondLimitedJson(receipt)
+                }
+            }
+            delete("/playback/rekey/{migrationId}") {
+                call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.PlaybackRekey) {
+                    val accessToken = call.requireBearerToken()
+                    backend.execute { discardPlaybackRekey(accessToken, call.parameters["migrationId"].orEmpty()) }
+                    call.respond(HttpStatusCode.NoContent)
                 }
             }
         }

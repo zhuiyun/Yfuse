@@ -122,6 +122,8 @@ internal class YPlayerVideoEngineAdapter(
 
     override fun setVideoSuspended(suspended: Boolean) = player.setVideoSuspended(suspended)
 
+    override val videoOutputSuspended: Boolean get() = player.videoOutputSuspended
+
     override val supportsBackgroundAudio: Boolean get() = player.supportsBackgroundAudio
 
     override fun selectDiscTitle(index: Int): Boolean = player.selectDiscTitle(index)

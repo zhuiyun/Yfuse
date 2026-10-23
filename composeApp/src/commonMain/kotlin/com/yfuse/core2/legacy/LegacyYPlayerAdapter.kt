@@ -84,6 +84,8 @@ internal class LegacyYPlayerAdapter(
 
     override fun setVideoSuspended(suspended: Boolean) = engine.setVideoSuspended(suspended)
 
+    override val videoOutputSuspended: Boolean get() = engine.videoOutputSuspended
+
     override val supportsBackgroundAudio: Boolean get() = engine.supportsBackgroundAudio
 
     override fun selectDiscTitle(index: Int): Boolean = engine.selectDiscTitle(index)

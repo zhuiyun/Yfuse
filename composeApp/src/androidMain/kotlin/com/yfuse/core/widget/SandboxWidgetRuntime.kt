@@ -14,8 +14,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
-import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
+import org.jsoup.parser.Parser
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Fresh engines have no Java reflection, filesystem, process or application object bindings. */
@@ -111,6 +111,9 @@ class SandboxWidgetRuntime(
     private fun bindDom(js: QuickJs) {
         val nodes = mutableMapOf<String, Element>()
         var next = 0
+        var parsedBytes = 0
+        var parsedNodes = 0
+        var exhausted = false
 
         fun retain(element: Element): String {
             check(nodes.size < 10000) { "HTML 节点数量超限" }
@@ -122,19 +125,49 @@ class SandboxWidgetRuntime(
             val selector = args.getOrNull(2) as? String ?: ""
             when (op) {
                 "parse" -> {
-                    require(target.length <= 2 * MAX_WIDGET_SOURCE_BYTES)
-                    retain(Jsoup.parse(target))
+                    check(!exhausted) { "HTML 解析资源已达到上限" }
+                    require(target.length <= 2 * MAX_WIDGET_SOURCE_BYTES) { "单个 HTML 文档过大" }
+                    val bytes = target.toByteArray(Charsets.UTF_8).size
+                    require(bytes <= 2 * MAX_WIDGET_SOURCE_BYTES) { "单个 HTML 文档过大" }
+                    // QuickJS's heap limit does not cover Jsoup's Java objects. Reserve input before
+                    // parsing, then count actual nodes. A delimiter cap also bounds a single dense
+                    // document's temporary tree before that count can run.
+                    if (bytes > MAX_WIDGET_DOM_BYTES - parsedBytes ||
+                        target.count { it == '<' } > MAX_WIDGET_DOM_NODES
+                    ) {
+                        exhausted = true
+                        error("HTML 解析资源已达到上限")
+                    }
+                    parsedBytes += bytes
+                    val document = Parser.htmlParser().setMaxDepth(256).parseInput(target, "")
+                    val count = document.nodeStream().use { it.limit(MAX_WIDGET_DOM_NODES + 1L).count().toInt() }
+                    if (count > MAX_WIDGET_DOM_NODES - parsedNodes) {
+                        exhausted = true
+                        error("HTML 节点数量超限")
+                    }
+                    parsedNodes += count
+                    retain(document)
                 }
-                "select" ->
-                    JsonArray(
-                        (nodes[target]?.select(selector) ?: emptyList<Element>()).take(2000).map {
-                            JsonPrimitive(retain(it))
-                        },
-                    ).toString()
+                "select" -> {
+                    val selected =
+                        nodes[target]
+                            ?.selectStream(selector)
+                            ?.use { matches ->
+                                matches
+                                    .limit(2000)
+                                    .iterator()
+                                    .asSequence()
+                                    .map { JsonPrimitive(retain(it)) }
+                                    .toList()
+                            }.orEmpty()
+                    JsonArray(selected).toString()
+                }
                 "text" -> nodes[target]?.text().orEmpty()
                 "html" -> nodes[target]?.html().orEmpty()
                 "attr" -> nodes[target]?.attr(selector).orEmpty()
                 "remove" -> {
+                    // A remaining child handle still owns its entire document. Releasing a handle
+                    // never refunds this invocation's parse budget.
                     nodes.remove(target)
                     ""
                 }
@@ -143,6 +176,9 @@ class SandboxWidgetRuntime(
         }
     }
 }
+
+internal const val MAX_WIDGET_DOM_BYTES = 4 * MAX_WIDGET_SOURCE_BYTES
+internal const val MAX_WIDGET_DOM_NODES = 32_000
 
 internal val WIDGET_BRIDGE =
     """

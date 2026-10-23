@@ -135,7 +135,8 @@ fun <T : Any> OfficialNavDisplay(
     }
     val activeSharedKey = sharedMediaController.activeKey
     val density = LocalDensity.current
-    val pageBackground = LocalPalette.current.background
+    // Retained entries must paint the current theme underneath translucent page content.
+    val pageBackground by rememberUpdatedState(LocalPalette.current.background)
     val searchTravelPx = with(density) { Motion.searchTravel.roundToPx() }
     val pushTravelPx = with(density) { Motion.pushOffset.roundToPx() }
     val calmTravelPx = with(density) { CalmTravel.roundToPx() }

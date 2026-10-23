@@ -180,15 +180,7 @@ class ExoVideoEngine(
 
     val player: ExoPlayer =
         run {
-            val httpFactory =
-                PlaybackHttpDataSource.factory(
-                    customUserAgent,
-                    PlaybackHttpDataSource.client
-                        .newBuilder()
-                        .addNetworkInterceptor(
-                            WidgetPlaybackHeadersInterceptor { items.getOrNull(_state.value.currentIndex) },
-                        ).build(),
-                )
+            val httpFactory = PlaybackHttpDataSource.factory(customUserAgent)
 
             val selector =
                 MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
@@ -301,7 +293,22 @@ class ExoVideoEngine(
                 .setLoadControl(loadControl)
                 .setTrackSelector(trackSelector)
                 .setMediaSourceFactory(
-                    DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory),
+                    WidgetMediaSourceFactory(
+                        DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory),
+                    ) { binding ->
+                        val client = widgetPlaybackHttpClient(binding)
+                        val upstream =
+                            DefaultDataSource.Factory(
+                                context,
+                                PlaybackHttpDataSource.factory(customUserAgent, client),
+                            )
+                        val guarded = HlsManifestGuardDataSourceFactory(upstream)
+                        val boundSource =
+                            DataSource.Factory {
+                                guarded.createDataSource().also { it.addTransferListener(startupTransferEvidence) }
+                            }
+                        DefaultMediaSourceFactory(boundSource, extractorsFactory)
+                    },
                 ).setVideoChangeFrameRateStrategy(exoVideoChangeFrameRateStrategy(frameRateMatchMode))
                 .setAudioAttributes(
                     AudioAttributes
@@ -1386,7 +1393,13 @@ class ExoVideoEngine(
 
     override val supportsBackgroundAudio: Boolean get() = true
 
+    @Volatile
+    private var videoSuspended = false
+
+    override val videoOutputSuspended: Boolean get() = videoSuspended
+
     override fun setVideoSuspended(suspended: Boolean) {
+        videoSuspended = suspended
         val parameters = player.trackSelectionParameters
         if (parameters.disabledTrackTypes.contains(C.TRACK_TYPE_VIDEO) == suspended) return
         player.trackSelectionParameters =

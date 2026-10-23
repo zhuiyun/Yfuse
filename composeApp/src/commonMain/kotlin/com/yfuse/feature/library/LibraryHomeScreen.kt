@@ -911,10 +911,11 @@ private fun HeroCarousel(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (item.subtitle != null) {
+            val subtitle = item.subtitle?.trim()?.takeIf { it.isNotEmpty() && it != item.year?.toString() }
+            if (subtitle != null) {
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    item.subtitle,
+                    subtitle,
                     modifier = Modifier.carouselCaptionEntry(captionProgress, stage = 1),
                     style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
                     color = Color.White.copy(alpha = 0.88f),

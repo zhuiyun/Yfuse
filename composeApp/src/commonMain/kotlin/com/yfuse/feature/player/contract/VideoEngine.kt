@@ -481,6 +481,9 @@ interface VideoEngine {
      */
     fun setVideoSuspended(suspended: Boolean) = Unit
 
+    /** Intentional audio-only output; health and recovery must not wait for suspended video. */
+    val videoOutputSuspended: Boolean get() = false
+
     /** True only while the active backend can keep audio playing without a visible video output. */
     val supportsBackgroundAudio: Boolean get() = false
 

@@ -80,13 +80,6 @@ internal class AccountProtocolMemory(
         if (tag in entries) write(entries - tag)
     }
 
-    /** Runs [clear] (a full secure-store wipe) and puts this memory back afterwards. */
-    fun preservedAcross(clear: () -> Unit) {
-        val saved = runCatching { secureStore.get(KEY) }.getOrNull()
-        clear()
-        if (saved != null) runCatching { secureStore.put(KEY, saved) }
-    }
-
     private fun tag(username: String): String {
         val digest = crypto.sha256("yfuse-protocol2-account\u0000${username.trim().lowercase()}".encodeToByteArray())
         return try {
@@ -97,8 +90,9 @@ internal class AccountProtocolMemory(
     }
 
     private fun read(): Set<String> =
-        runCatching { secureStore.get(KEY)?.decodeToString() }
-            .getOrNull()
+        secureStore
+            .get(KEY)
+            ?.decodeToString()
             ?.split('\n')
             ?.filterTo(linkedSetOf(), String::isNotEmpty)
             .orEmpty()

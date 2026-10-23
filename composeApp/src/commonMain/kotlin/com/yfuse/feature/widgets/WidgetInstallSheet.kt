@@ -99,6 +99,7 @@ internal fun WidgetInstallSheet(
             Spacer(Modifier.weight(1f))
             WidgetIconButton(AppIcons.Close, "关闭安装面板", { if (!installing) onDismiss() })
         }
+        Spacer(Modifier.height(8.dp))
         Text(
             "安装组件",
             Modifier.fillMaxWidth(),
@@ -106,7 +107,7 @@ internal fun WidgetInstallSheet(
             style = AppTypography.section.medium,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(16.dp))
         val widget = candidate
         if (widget != null) {
             WidgetMetadataCard(
@@ -117,6 +118,7 @@ internal fun WidgetInstallSheet(
                 changeSourceEnabled = !busy,
             )
             database.widgets.firstOrNull { it.metadata.id == widget.metadata.id }?.let { old ->
+                Spacer(Modifier.height(8.dp))
                 Text(
                     if (old.digest == widget.digest) "此组件已安装" else "更新 ${old.metadata.version}，保留页面配置",
                     color = palette.sub2,
@@ -148,8 +150,15 @@ internal fun WidgetInstallSheet(
                 error = null
             }, "组件 URL", placeholder = "https://…/component.js")
         }
-        if (reading || inspecting) WidgetProgress(Modifier.fillMaxWidth())
-        error?.let { Text(it, color = palette.error, style = AppTypography.caption.regular) }
+        if (reading || inspecting) {
+            Spacer(Modifier.height(12.dp))
+            WidgetProgress(Modifier.fillMaxWidth())
+        }
+        error?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, color = palette.error, style = AppTypography.caption.regular)
+        }
+        Spacer(Modifier.height(16.dp))
         WidgetPrimaryButton(
             onClick = {
                 if (widget != null) {
@@ -203,6 +212,7 @@ internal fun WidgetInstallSheet(
             )
         }
         if (source == null && !busy) {
+            Spacer(Modifier.height(8.dp))
             WidgetTextButton({ onSource(demoWidgetSource to "builtin:demo") }, Modifier.fillMaxWidth()) {
                 Text("体验示例组件", style = AppTypography.caption.regular)
             }

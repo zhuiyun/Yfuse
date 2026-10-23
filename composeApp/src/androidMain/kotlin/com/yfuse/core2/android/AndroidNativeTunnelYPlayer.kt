@@ -654,6 +654,7 @@ private fun YMediaItem.toAndroidTunnelSource(): YAndroidMediaSource =
     YAndroidMediaSource(
         uri = uri,
         headers = headers,
+        originBoundHeaderNames = originBoundHeaderNames,
         credentials = transportCredentials,
         cacheIdentity = cacheIdentity,
         cacheMaximumBytes = cacheMaximumBytes,

@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -40,6 +42,7 @@ import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun AccordionCalendarEntry(
     display: CalendarDisplayEntry,
@@ -62,7 +65,7 @@ internal fun AccordionCalendarEntry(
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = 5.dp)
             .defaultMinSize(minHeight = if (expanded) 88.dp else 78.dp)
             .glass(AppShapes.card, palette.card2, palette.border)
             .liftable(
@@ -77,8 +80,8 @@ internal fun AccordionCalendarEntry(
                         "展开${entry.episode.showTitle}"
                     },
                 onClick = onOpen,
-            ).padding(horizontal = 10.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ).padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         FallbackImage(
@@ -87,79 +90,58 @@ internal fun AccordionCalendarEntry(
             modifier =
                 Modifier
                     .liftAnchor(artwork)
-                    .width(if (expanded) 50.dp else 44.dp)
+                    .width(if (expanded) 48.dp else 44.dp)
                     .height(if (expanded) 70.dp else 62.dp)
                     .clip(AppShapes.thumb)
                     .background(palette.card),
         )
-        Column(
-            Modifier
-                .weight(1f)
-                .padding(bottom = 2.dp),
-        ) {
+        Column(Modifier.weight(1f)) {
             Text(
                 entry.episode.showTitle,
                 style = AppTypography.body.strong,
                 color = palette.text,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(3.dp))
-            Text(
-                buildString {
-                    append(display.episodeLabel)
-                    if (extraCount > 0) append(" · 另 $extraCount 部")
-                },
-                style = AppTypography.caption.regular,
-                color = palette.sub,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (expanded) {
-                Spacer(Modifier.height(3.dp))
+            Spacer(Modifier.height(5.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
                 Text(
-                    display.statusLine ?: broadcastStateLabel(entry),
-                    style = AppTypography.caption.regular,
-                    color = palette.sub2,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    buildString {
+                        append(display.episodeLabel)
+                        if (extraCount > 0) append(" · 另 $extraCount 部")
+                    },
+                    style = AppTypography.caption.medium,
+                    color = LocalAccentColors.current.accent,
                 )
+                airTimeLabel(entry.episode)?.let { airTime ->
+                    Text(
+                        airTime,
+                        style = AppTypography.caption.regular,
+                        color = palette.sub,
+                    )
+                }
             }
-            Spacer(Modifier.height(if (expanded) 5.dp else 8.dp))
+            Spacer(Modifier.height(5.dp))
+            StatusBadge(entry, compact = true)
             CalendarEpisodeSegments(
                 stats = weekStats,
                 playedPercentage = entry.playedPercentage,
             )
         }
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(7.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                airTimeLabel(entry.episode)?.let { airTime ->
-                    Text(
-                        airTime,
-                        style = AppTypography.caption.medium,
-                        color = palette.sub,
-                    )
-                }
-                if (showChevron) {
-                    Icon(
-                        AppIcons.ChevronDown,
-                        contentDescription = if (expanded) "收起" else "展开",
-                        tint = palette.sub2,
-                        modifier =
-                            Modifier
-                                .pressable(onClickLabel = if (expanded) "收起" else "展开", onClick = onToggle)
-                                .touchTarget()
-                                .size(16.dp),
-                    )
-                }
-            }
-            StatusBadge(entry)
+        if (showChevron) {
+            Icon(
+                AppIcons.ChevronDown,
+                contentDescription = if (expanded) "收起" else "展开",
+                tint = palette.sub2,
+                modifier =
+                    Modifier
+                        .pressable(onClickLabel = if (expanded) "收起" else "展开", onClick = onToggle)
+                        .touchTarget()
+                        .size(16.dp),
+            )
         }
     }
 }
@@ -183,7 +165,7 @@ private fun CalendarEpisodeSegments(
     val clampedFilled = filled.coerceIn(0, segmentCount)
     if (clampedFilled == 0) return
     Row(
-        Modifier.fillMaxWidth(),
+        Modifier.fillMaxWidth().padding(top = 7.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         repeat(segmentCount) { index ->

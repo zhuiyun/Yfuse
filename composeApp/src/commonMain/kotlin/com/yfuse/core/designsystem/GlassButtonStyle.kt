@@ -57,7 +57,9 @@ internal fun resolveGlassButtonVisuals(
         GlassButtonEmphasis.Destructive ->
             GlassButtonVisuals(
                 fill = palette.errorContainer.copy(alpha = 0.66f),
-                border = lerp(palette.error, Color.White, 0.72f).copy(alpha = 0.72f),
+                border =
+                    lerp(palette.error, Color.White, if (palette.isDark) 0.72f else 0.96f)
+                        .copy(alpha = if (palette.isDark) 0.72f else 0.96f),
                 content =
                     readableSurfaceInk(
                         palette.error,
@@ -99,7 +101,7 @@ internal fun glassButtonAlpha(enabled: Boolean): Float = if (enabled) 1f else 0.
 internal fun glassControlHighlight(
     accent: AccentColors,
     dark: Boolean,
-): Color = lerp(accent.accent, Color.White, if (dark) 0.68f else 0.78f).copy(alpha = if (dark) 0.72f else 0.96f)
+): Color = lerp(accent.accent, Color.White, if (dark) 0.68f else 0.96f).copy(alpha = if (dark) 0.72f else 0.96f)
 
 internal fun glassButtonLift(palette: Palette): CssShadow =
     CssShadow(0.dp, 3.dp, 10.dp, 0.dp, Color(0xFF294877).copy(alpha = if (palette.isDark) 0.20f else 0.12f))

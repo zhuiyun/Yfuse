@@ -74,8 +74,13 @@ internal class AndroidCronetMediaTransport(
             val originalHeaders = request.headers.withHttpBasicCredentials(request.credentials)
             val cachedRoute = redirectState?.resolve(originalUri)
             val targetUri = cachedRoute?.targetUri ?: originalUri
-            val requestHeaders = originalHeaders.withoutCredentials(cachedRoute?.stripCredentials == true)
+            val requestHeaders =
+                originalHeaders.withoutCredentials(
+                    cachedRoute?.stripCredentials == true,
+                    request.originBoundHeaderNames,
+                )
             val requestMethod = request.method
+            val originBoundHeaderNames = request.originBoundHeaderNames
             val responseReady = current.ready
             var responseInfo: UrlResponseInfo? = null
             var activeUrl = targetUri.toHttpUrlOrNull()
@@ -97,7 +102,10 @@ internal class AndroidCronetMediaTransport(
                                 target == null ||
                                 !previous.hasSameOrigin(target)
                         val carriesCredentials =
-                            requestHeaders.keys.any(String::isCredentialHeader)
+                            requestHeaders.keys.any { name ->
+                                name.isCredentialHeader() ||
+                                    originBoundHeaderNames.any { it.equals(name, ignoreCase = true) }
+                            }
                         val canFollow =
                             followMediaRedirects &&
                                 requestMethod == YTransportMethod.Get &&

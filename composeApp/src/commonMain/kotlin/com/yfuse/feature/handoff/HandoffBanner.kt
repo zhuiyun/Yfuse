@@ -61,6 +61,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.calmMotion
+import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rubberBand
@@ -490,7 +491,7 @@ private fun BannerButton(
                 .liquidGlass(
                     shape = AppShapes.pill,
                     fill = if (prominent) accent.container else palette.glassStrong,
-                    border = if (prominent) accent.border else palette.border,
+                    border = if (prominent) glassControlHighlight(accent, palette.isDark) else palette.border,
                 ).padding(horizontal = 14.dp, vertical = 8.dp),
     )
 }

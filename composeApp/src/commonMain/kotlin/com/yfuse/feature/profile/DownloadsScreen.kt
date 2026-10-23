@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,9 +25,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -39,6 +42,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -69,6 +73,7 @@ import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.ContextualTip
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
+import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.ItemAction
 import com.yfuse.core.designsystem.LightEffect
@@ -77,6 +82,7 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.OverlayActionRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
@@ -88,6 +94,7 @@ import com.yfuse.core.designsystem.SelectionActionBar
 import com.yfuse.core.designsystem.SelectionMark
 import com.yfuse.core.designsystem.SettingIconTile
 import com.yfuse.core.designsystem.SettingRow
+import com.yfuse.core.designsystem.SettingSegmentControl
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.SettingsCard
 import com.yfuse.core.designsystem.SettingsDivider
@@ -97,10 +104,13 @@ import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.ToastAction
 import com.yfuse.core.designsystem.YfChip
+import com.yfuse.core.designsystem.controlBorder
+import com.yfuse.core.designsystem.controlSurface
 import com.yfuse.core.designsystem.coversAll
 import com.yfuse.core.designsystem.dragSelect
 import com.yfuse.core.designsystem.dragSelectRow
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.lightOnChange
 import com.yfuse.core.designsystem.motionItem
 import com.yfuse.core.designsystem.motionItems
@@ -108,6 +118,7 @@ import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDecorativePhase
 import com.yfuse.core.designsystem.rememberDragSelectState
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.rememberThrottledValue
 import com.yfuse.core.designsystem.rememberUndoWindow
 import com.yfuse.core.designsystem.selectingAll
@@ -287,7 +298,7 @@ internal fun DownloadsScreen(
     // A held finger enters 多选 without ever passing 完成, so 返回 leaves the mode before the page.
     PlatformBackHandler(enabled = selecting, onBack = ::endSelection)
 
-    // Every delete on this page — a swipe, the row's ×, the batch bar — goes through here.
+    // Every delete on this page — a swipe, the action menu, the batch bar — goes through here.
     fun remove(
         ids: Set<String>,
         message: String,
@@ -433,6 +444,25 @@ internal fun DownloadsScreen(
                                 )
                             }
                         }
+                        if (!selecting) {
+                            Box(
+                                Modifier
+                                    .size(48.dp)
+                                    .glass(AppShapes.pill, palette.card2, palette.border)
+                                    .pressable(
+                                        enabled = access.canManageServers,
+                                        onClickLabel = if (showSettings) "收起下载设置" else "打开下载设置",
+                                    ) { showSettings = !showSettings },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    AppIcons.Menu,
+                                    contentDescription = "下载设置",
+                                    tint = if (showSettings) accent else palette.sub,
+                                    modifier = Modifier.size(21.dp),
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -463,16 +493,6 @@ internal fun DownloadsScreen(
                     }
                 }
 
-                // The one setting the page owns, as the settings row it is everywhere else in 我的 —
-                // rather than a "下载策略" card that also held a sort control disguised as a status
-                // line and a pair of queue buttons for a queue that is usually empty.
-                motionItem(key = "download-settings-toggle") {
-                    SettingRow(
-                        title = if (showSettings) "收起下载设置" else "下载设置",
-                        value = if (access.canManageServers) "Wi-Fi、容量、自动追更" else "请切换至家长资料管理",
-                        onClick = { if (access.canManageServers) showSettings = !showSettings },
-                    )
-                }
                 if (showSettings && access.canManageServers) {
                     motionItem {
                         Section(title = "下载设置") {
@@ -664,29 +684,42 @@ internal fun DownloadsScreen(
                             enter = downloadRevealEnter(vertical = true),
                             exit = downloadRevealExit(vertical = true),
                         ) {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            Column(
+                                Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                motionItems(DownloadFilter.entries) { value ->
-                                    val active = filter == value
-                                    YfChip(
-                                        label = value.label,
-                                        selected = active,
-                                        onClickLabel = "筛选${value.label}下载",
-                                        onClick = { filter = value },
+                                SettingSegmentControl(
+                                    options = DownloadFilter.entries.map { it.label },
+                                    selectedIndex = DownloadFilter.entries.indexOf(filter),
+                                    expanded = true,
+                                    onSelect = { filter = DownloadFilter.entries[it] },
+                                )
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        "${shown.size} 项内容",
+                                        style = AppTypography.caption.medium,
+                                        color = palette.sub2,
+                                        modifier = Modifier.weight(1f),
                                     )
-                                }
-                                // Sorting belongs with filtering: both decide what the list under them
-                                // looks like, and it used to sit in another card's header where it read
-                                // as a label rather than a control.
-                                motionItem {
-                                    YfChip(
-                                        label = "排序 · ${sort.label}",
-                                        selected = false,
-                                        onClickLabel = "更改排序，当前${sort.label}",
-                                        onClick = { sortOpen = true },
-                                    )
+                                    Row(
+                                        Modifier
+                                            .pressable(onClickLabel = "更改排序，当前${sort.label}") { sortOpen = true }
+                                            .touchTarget()
+                                            .padding(start = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Text(sort.label, style = AppTypography.caption.medium, color = palette.sub)
+                                        Icon(
+                                            AppIcons.ChevronDown,
+                                            null,
+                                            tint = palette.sub,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -759,7 +792,7 @@ internal fun DownloadsScreen(
                 } else {
                     motionItems(shown, key = { it.id }, contentType = { "download-task" }) { item ->
                         val removeItem = { remove(setOf(item.id), "已删除「${item.title}」") }
-                        // Right: the transfer's own next step. Left: 删除, undoable like the × beside it.
+                        // Right: the transfer's own next step. Left: 删除, undoable like the action menu.
                         // Selecting is its own mode, and a row being ticked does not also swipe.
                         SwipeActionsRow(
                             modifier =
@@ -986,7 +1019,6 @@ private fun DownloadTaskRow(
     selected: Boolean,
     selectionMode: Boolean,
     onToggleSelected: () -> Unit,
-    /** 多选 with this row ticked: what a finger held on the row does, for a screen reader's long press. */
     onStartSelection: () -> Unit,
     onPlay: () -> Unit,
     onPause: () -> Unit,
@@ -996,6 +1028,23 @@ private fun DownloadTaskRow(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current.accent
+    val selection = rememberGlassSelectionStyle()
+    var actionsOpen by remember(item.id) { mutableStateOf(false) }
+    val swipe = downloadSwipe(item.status)
+    val actionLabel = if (item.playable) "播放" else swipe?.label ?: "重试"
+    val actionIcon =
+        when {
+            item.playable -> AppIcons.Play
+            swipe == DownloadSwipe.Pause -> AppIcons.Pause
+            swipe == DownloadSwipe.Retry -> AppIcons.Refresh
+            else -> AppIcons.Download
+        }
+    val primaryAction =
+        when {
+            item.playable -> onPlay
+            swipe == DownloadSwipe.Pause -> onPause
+            else -> onResume
+        }
     Column(
         modifier
             .fillMaxWidth()
@@ -1003,7 +1052,7 @@ private fun DownloadTaskRow(
                 role = if (selectionMode) Role.Checkbox else Role.Button,
                 onClickLabel =
                     when {
-                        !selectionMode -> null
+                        !selectionMode -> "查看${item.title}的下载操作"
                         selected -> "取消选择"
                         else -> "选择"
                     },
@@ -1011,49 +1060,64 @@ private fun DownloadTaskRow(
                     if (selectionMode) {
                         onToggleSelected
                     } else {
-                        {
-                            if (item.playable) {
-                                onPlay()
-                            } else if (item.status ==
-                                DownloadStatus.Downloading
-                            ) {
-                                onPause()
-                            } else {
-                                onResume()
-                            }
-                        }
+                        { actionsOpen = true }
                     },
             ).semantics {
                 if (selectionMode) {
                     this.selected = selected
                     stateDescription = if (selected) "已选择" else "未选择"
                 } else {
-                    // The held finger is the list's own gesture (see [dragSelect]); a screen reader
-                    // reaches the same 多选 through the row's long press instead.
                     onLongClick(label = "进入多选") {
                         onStartSelection()
                         true
                     }
                 }
             }.heightIn(min = MinTouchTarget)
-            .glass(
-                AppShapes.card,
-                if (selected) accent.copy(alpha = 0.10f) else palette.card,
-                if (selected) accent.copy(alpha = 0.30f) else palette.border,
-            ).padding(13.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp),
+            .then(
+                if (selected) {
+                    Modifier.glassSelection(AppShapes.card, selection)
+                } else {
+                    Modifier.glass(AppShapes.card, palette.card, palette.border)
+                },
+            ).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // As tall with the mark as with 播放 and × — the × is a full touch target — so a finger held
-        // on a row to enter 多选 does not see the rows under it shrink and slide away.
         Row(
-            Modifier.fillMaxWidth().heightIn(min = MinTouchTarget),
+            Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (selectionMode) {
-                SelectionMark(selected)
-                Spacer(Modifier.size(9.dp))
+            Box(
+                Modifier
+                    .width(56.dp)
+                    .height(82.dp)
+                    .clip(AppShapes.thumb)
+                    .background(palette.card3),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (item.posterUrl.isNullOrBlank()) {
+                    Icon(AppIcons.Movie, null, tint = palette.sub2, modifier = Modifier.size(27.dp))
+                } else {
+                    FallbackImage(
+                        urls = listOf(item.posterUrl),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        progressive = false,
+                    )
+                }
+                if (selectionMode) {
+                    Box(
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .padding(4.dp)
+                            .glass(CircleShape, palette.card, palette.border)
+                            .padding(2.dp),
+                    ) {
+                        SelectionMark(selected)
+                    }
+                }
             }
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     item.title,
                     style = AppTypography.body.strong,
@@ -1097,34 +1161,79 @@ private fun DownloadTaskRow(
                         )
                     }
                 }
-            }
-            if (!selectionMode) {
-                CinemaDownloadMark(item.status, accent)
-                Text(
-                    when (item.status) {
-                        DownloadStatus.Completed -> "播放"
-                        DownloadStatus.Downloading -> "暂停"
-                        DownloadStatus.Failed -> "重试"
-                        else -> "继续"
-                    },
-                    style = AppTypography.body.strong,
-                    color = accent,
-                )
-                Icon(
-                    AppIcons.Close,
-                    "删除下载",
-                    tint = palette.sub2,
-                    modifier =
-                        Modifier
-                            .padding(start = 6.dp)
-                            .pressable(onClickLabel = "删除下载", onClick = onRemove)
-                            .touchTarget()
-                            .size(28.dp)
-                            .padding(7.dp),
-                )
+                // Keep the same row height while selecting so drag selection never shifts its targets.
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = MinTouchTarget),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (selectionMode) {
+                        Text(
+                            if (selected) "已选择" else "点按选择",
+                            style = AppTypography.caption.medium,
+                            color = if (selected) selection.contentColor else palette.sub2,
+                        )
+                    } else {
+                        Row(
+                            Modifier
+                                .pressable(onClickLabel = "$actionLabel${item.title}", onClick = primaryAction)
+                                .touchTarget()
+                                .glass(AppShapes.pill, palette.controlSurface, palette.controlBorder)
+                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(actionIcon, null, tint = accent, modifier = Modifier.size(16.dp))
+                            Text(actionLabel, style = AppTypography.caption.strong, color = accent)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            Modifier
+                                .size(48.dp)
+                                .pressable(onClickLabel = "更多下载操作") { actionsOpen = true },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(AppIcons.More, "更多下载操作", tint = palette.sub, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
             }
         }
         DownloadProgressTrack(item = item, accent = accent, trackColor = palette.border)
+    }
+    if (actionsOpen && !selectionMode) {
+        GlassDialog(onDismiss = { actionsOpen = false }) {
+            OverlayHeader(title = "下载操作", subtitle = item.title, onClose = { actionsOpen = false })
+            Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+                OverlayActionRow(
+                    label = actionLabel,
+                    onClick =
+                        overlayAction {
+                            actionsOpen = false
+                            primaryAction()
+                        },
+                    leadingContent = { Icon(actionIcon, null, tint = accent, modifier = Modifier.size(20.dp)) },
+                )
+                OverlayActionRow(
+                    label = "选择此任务",
+                    onClick =
+                        overlayAction {
+                            actionsOpen = false
+                            onStartSelection()
+                        },
+                )
+                OverlayActionRow(
+                    label = "删除下载",
+                    description = "移除本机文件，可在提示中撤销",
+                    destructive = true,
+                    onClick =
+                        overlayAction {
+                            actionsOpen = false
+                            onRemove()
+                        },
+                )
+            }
+        }
     }
 }
 

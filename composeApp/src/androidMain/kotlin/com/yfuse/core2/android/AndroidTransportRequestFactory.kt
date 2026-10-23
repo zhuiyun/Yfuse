@@ -12,6 +12,7 @@ internal fun yCoreRandomAccessRequest(
     endInclusive: Long,
     headers: Map<String, String>,
     credentials: YTransportCredentials?,
+    originBoundHeaderNames: Set<String> = emptySet(),
 ): YMediaTransportRequest =
     YMediaTransportRequest(
         uri = uri,
@@ -19,4 +20,5 @@ internal fun yCoreRandomAccessRequest(
         range = YByteRange(startInclusive, endInclusive),
         headers = headers,
         credentials = credentials,
+        originBoundHeaderNames = originBoundHeaderNames,
     )

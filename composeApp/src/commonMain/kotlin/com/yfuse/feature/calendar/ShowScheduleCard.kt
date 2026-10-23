@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.pager.HorizontalPager
@@ -84,6 +85,7 @@ import com.yfuse.core.designsystem.TOAST_UNDO_WINDOW_MS
 import com.yfuse.core.designsystem.artworkPageSurface
 import com.yfuse.core.designsystem.calmMotion
 import com.yfuse.core.designsystem.flatGlass
+import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.motionItems
 import com.yfuse.core.designsystem.overlayAction
@@ -91,6 +93,7 @@ import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.rememberDominantColor
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.resolveAccentColors
 import com.yfuse.core.designsystem.resolveGlassButtonVisuals
 import com.yfuse.core.designsystem.selectionColor
@@ -815,17 +818,15 @@ private fun ScheduleDayCell(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val span = remember(entries) { entries?.let(::scheduleDaySpan) }
+    val selection = rememberGlassSelectionStyle()
     val isToday = date == today
     // Match the season summary: a dated episode still explicitly marked Unaired stays upcoming.
     val updated = entries.orEmpty().any { it.status != LibraryStatus.Unaired && it.episode.airDate <= today }
     val status = if (updated) "已更新" else "待更新"
-    val fill = selectionColor(if (selected) palette.success.copy(alpha = 0.16f) else Color.Transparent)
     val dateColor =
         selectionColor(
             if (selected) {
-                palette.success
-            } else if (updated) {
-                palette.text
+                selection.contentColor
             } else {
                 palette.text
             },
@@ -833,7 +834,7 @@ private fun ScheduleDayCell(
     val labelColor =
         selectionColor(
             if (selected) {
-                palette.text
+                selection.contentColor
             } else if (updated) {
                 accent.accent
             } else {
@@ -850,7 +851,7 @@ private fun ScheduleDayCell(
         }
     Column(
         modifier
-            .height(ScheduleDayHeight)
+            .heightIn(min = ScheduleDayHeight)
             .padding(horizontal = 2.dp)
             .then(
                 if (span != null) {
@@ -871,15 +872,9 @@ private fun ScheduleDayCell(
                     this.selected = selected
                     stateDescription = status
                 }
-            }.clip(ScheduleDayShape)
-            .background(fill)
-            .then(
+            }.then(
                 if (selected) {
-                    Modifier.border(
-                        1.5.dp,
-                        Color.White.copy(alpha = 0.9f),
-                        ScheduleDayShape,
-                    )
+                    Modifier.glassSelection(ScheduleDayShape, selection)
                 } else {
                     Modifier
                 },
@@ -888,8 +883,16 @@ private fun ScheduleDayCell(
     ) {
         Box(
             Modifier
-                .size(ScheduleDateBand)
-                .then(if (span != null) Modifier.border(2.dp, palette.success, CircleShape) else Modifier),
+                .sizeIn(minWidth = ScheduleDateBand, minHeight = ScheduleDateBand)
+                .then(
+                    if (span != null && !selected) {
+                        Modifier
+                            .background(palette.success.copy(alpha = 0.08f), CircleShape)
+                            .border(1.dp, palette.border, CircleShape)
+                    } else {
+                        Modifier
+                    },
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -922,7 +925,7 @@ private fun ScheduleDayCell(
                 overflow = TextOverflow.Ellipsis,
                 modifier =
                     Modifier
-                        .height(ScheduleLabelSlot)
+                        .heightIn(min = ScheduleLabelSlot)
                         .padding(horizontal = 2.dp)
                         .clearAndSetSemantics { },
             )
@@ -1002,53 +1005,85 @@ private fun ScheduleEpisodeRow(
     val palette = LocalPalette.current
     val (status, tint) = scheduleStatus(entry.status, palette)
     val meta = remember(entry.episode) { scheduleEpisodeMeta(entry.episode) }
+    var explanationExpanded by remember(entry.episode.mediaKey) { mutableStateOf(false) }
+    val explanationProgress = rememberDisclosureProgress(explanationExpanded)
     // Opening an item leaves the card, so its exit plays first.
     val open = onOpen?.let { overlayAction(it) }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 52.dp)
-            .then(if (open != null) Modifier.pressable(onClickLabel = "打开", onClick = open) else Modifier)
-            .padding(horizontal = 14.dp, vertical = Dimens.space.sm),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                entry.episode.episodeLabel,
-                style = AppTypography.body.medium,
-                color = palette.text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (meta != null) {
-                Spacer(Modifier.height(2.dp))
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp)
+                .then(if (open != null) Modifier.pressable(onClickLabel = "打开", onClick = open) else Modifier)
+                .padding(horizontal = 14.dp, vertical = Dimens.space.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
                 Text(
-                    meta,
-                    style = AppTypography.caption.regular,
-                    color = palette.sub2,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    entry.episode.episodeLabel,
+                    style = AppTypography.body.medium,
+                    color = palette.text,
+                )
+                if (meta != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        meta,
+                        style = AppTypography.caption.regular,
+                        color = palette.sub2,
+                    )
+                }
+            }
+            Text(
+                status,
+                style = AppTypography.caption.strong,
+                color = tint,
+                modifier =
+                    Modifier
+                        .clip(CircleShape)
+                        .background(tint.copy(alpha = 0.12f))
+                        .padding(horizontal = Dimens.space.sm, vertical = Dimens.space.xs),
+            )
+            if (open != null) {
+                Icon(
+                    AppIcons.ChevronRight,
+                    contentDescription = null,
+                    tint = palette.sub2,
+                    modifier = Modifier.size(14.dp),
                 )
             }
         }
-        Text(
-            status,
-            style = AppTypography.caption.strong,
-            color = tint,
-            maxLines = 1,
-            modifier =
-                Modifier
-                    .clip(CircleShape)
-                    .background(tint.copy(alpha = 0.12f))
-                    .padding(horizontal = Dimens.space.sm, vertical = Dimens.space.xs),
-        )
-        if (open != null) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .pressable(
+                    role = Role.Button,
+                    onClickLabel = if (explanationExpanded) "收起排期说明" else "查看排期说明",
+                ) { explanationExpanded = !explanationExpanded }
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                "排期说明",
+                style = AppTypography.caption.medium,
+                color = palette.sub,
+                modifier = Modifier.weight(1f),
+            )
             Icon(
-                AppIcons.ChevronRight,
+                if (explanationExpanded) AppIcons.ChevronDown else AppIcons.ChevronRight,
                 contentDescription = null,
                 tint = palette.sub2,
                 modifier = Modifier.size(14.dp),
+            )
+        }
+        DisclosureContent(explanationExpanded, explanationProgress) {
+            Text(
+                broadcastStateLabel(entry),
+                style = AppTypography.caption.reading,
+                color = palette.sub2,
+                modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
             )
         }
     }
@@ -1273,8 +1308,7 @@ private fun ScheduleReminderPicker(
     onMinutes: (Int) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val reminder = LocalAccentColors.current
-    val selectionEdge = Color.White.copy(alpha = 0.9f)
+    val selection = rememberGlassSelectionStyle()
     Column(
         Modifier
             .fillMaxWidth()
@@ -1301,23 +1335,21 @@ private fun ScheduleReminderPicker(
                     .pressable(haptic = HapticSignal.Select, role = Role.RadioButton) { onSelect(mode) }
                     .semantics { this.selected = active }
                     .touchTarget()
-                    .clip(AppShapes.chip)
-                    .background(if (active) reminder.container else Color.Transparent)
-                    .then(if (active) Modifier.border(1.5.dp, selectionEdge, AppShapes.chip) else Modifier)
+                    .then(if (active) Modifier.glassSelection(AppShapes.chip, selection) else Modifier)
                     .padding(horizontal = 10.dp, vertical = Dimens.space.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     reminderModeLabel(mode, beforeMinutes),
                     style = AppTypography.caption.medium,
-                    color = if (active) reminder.accent else palette.text,
+                    color = if (active) selection.contentColor else palette.text,
                     modifier = Modifier.weight(1f),
                 )
                 if (active) {
                     Icon(
                         AppIcons.Check,
                         contentDescription = null,
-                        tint = reminder.accent,
+                        tint = selection.contentColor,
                         modifier = Modifier.size(15.dp),
                     )
                 }
@@ -1332,24 +1364,18 @@ private fun ScheduleReminderPicker(
                         Text(
                             if (minutes < 60) "$minutes 分钟" else "${minutes / 60} 小时",
                             style = AppTypography.caption.strong,
-                            color = if (minuteActive) reminder.accent else palette.sub,
+                            color = if (minuteActive) selection.contentColor else palette.sub,
                             modifier =
                                 Modifier
                                     .pressable(haptic = HapticSignal.Select, role = Role.RadioButton) {
                                         onMinutes(minutes)
                                     }.semantics { this.selected = minuteActive }
                                     .touchTarget()
-                                    .clip(CircleShape)
-                                    .background(if (minuteActive) reminder.container else palette.card3)
                                     .then(
                                         if (minuteActive) {
-                                            Modifier.border(
-                                                1.5.dp,
-                                                selectionEdge,
-                                                CircleShape,
-                                            )
+                                            Modifier.glassSelection(CircleShape, selection)
                                         } else {
-                                            Modifier
+                                            Modifier.clip(CircleShape).background(palette.card3)
                                         },
                                     ).padding(horizontal = 10.dp, vertical = 7.dp),
                         )

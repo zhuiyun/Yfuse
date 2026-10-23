@@ -27,7 +27,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -56,7 +55,9 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.SettingSegmentControl
+import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.supportsBackdropBlur
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -361,23 +362,40 @@ private fun MaterialPresetCard(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current.accent
+    val selection = rememberGlassSelectionStyle()
     Column(
         modifier
-            .clip(AppShapes.control)
             .pressable(
                 role = Role.RadioButton,
                 focusShape = AppShapes.control,
                 onClickLabel = "选择${preset.label}",
                 onClick = onClick,
-            ).background(if (chosen) accent.copy(alpha = 0.10f) else palette.card, AppShapes.control)
-            .border(1.dp, if (chosen) accent.copy(alpha = 0.65f) else palette.border, AppShapes.control)
-            .semantics { selected = chosen }
+            ).then(
+                if (chosen) {
+                    Modifier.glassSelection(AppShapes.control, selection)
+                } else {
+                    Modifier
+                        .background(palette.card, AppShapes.control)
+                        .border(1.dp, palette.border, AppShapes.control)
+                },
+            ).semantics { selected = chosen }
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(preset.number, Modifier.weight(1f), style = AppTypography.caption.strong, color = accent)
-            if (chosen) Text("已选", style = AppTypography.caption.regular, color = accent)
+            Text(
+                preset.number,
+                Modifier.weight(1f),
+                style = AppTypography.caption.strong,
+                color = if (chosen) selection.contentColor else accent,
+            )
+            if (chosen) {
+                Text(
+                    "已选",
+                    style = AppTypography.caption.regular,
+                    color = if (chosen) selection.contentColor else accent,
+                )
+            }
         }
         Text(preset.label, style = AppTypography.body.medium, color = palette.text)
         Text(preset.description, style = AppTypography.caption.regular, color = palette.sub2)

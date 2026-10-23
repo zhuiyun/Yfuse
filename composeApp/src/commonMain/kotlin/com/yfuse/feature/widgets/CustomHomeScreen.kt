@@ -34,6 +34,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.ThemeIcon
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.widget.WidgetDatabase
 import com.yfuse.core.widget.WidgetPage
 import com.yfuse.core.widget.widgetRepository
@@ -51,7 +52,7 @@ internal fun customHomePage(
 }
 
 @Composable
-fun CustomHomeScreen() {
+fun CustomHomeScreen(onOpenTmdb: (TmdbItem) -> Unit) {
     val repository = remember { widgetRepository() }
     val database by repository.database.collectAsState()
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
@@ -159,7 +160,9 @@ fun CustomHomeScreen() {
                 }
             }
         } else {
-            Box(Modifier.weight(1f)) { WidgetPageContent(page, repository, onEdit = { manager = true }) }
+            Box(Modifier.weight(1f)) {
+                WidgetPageContent(page, repository, onEdit = { manager = true }, onOpenTmdb = onOpenTmdb)
+            }
         }
     }
     if (manager) WidgetWorkspaceScreen(repository, onClose = { manager = false })

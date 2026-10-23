@@ -49,6 +49,7 @@ fun WidgetWorkspaceScreen(
 ) {
     val database by repository.database.collectAsState()
     val storeError by repository.error.collectAsState()
+    val bundleError by repository.bundleError.collectAsState()
     val scope = rememberCoroutineScope()
     var pending by remember(initialSource) { mutableStateOf(initialSource) }
     var page by rememberSaveable(stateSaver = widgetDraftSaver<WidgetPage?>()) { mutableStateOf(null) }
@@ -128,7 +129,7 @@ fun WidgetWorkspaceScreen(
                         contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 32.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        (message ?: storeError)?.let { text ->
+                        (message ?: storeError ?: bundleError)?.let { text ->
                             item { Text(text, color = palette.sub2, style = AppTypography.body.regular) }
                         }
                         if (busy) item { WidgetProgress(Modifier.fillMaxWidth()) }

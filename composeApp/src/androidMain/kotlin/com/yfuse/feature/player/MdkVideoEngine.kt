@@ -236,7 +236,6 @@ class MdkVideoEngine(
                     context = context.applicationContext,
                     userAgent = customUserAgent,
                     videoCacheBytes = videoCacheBytes,
-                    widgetMedia = { this.items.getOrNull(_state.value.currentIndex) },
                 )
             }.onFailure { error ->
                 AppLog.warning(
@@ -736,7 +735,12 @@ class MdkVideoEngine(
                 item.persistentPlaybackCacheUrl(usingServerTranscode) == upstreamUrl.trim()
             val transportUrl =
                 if (cacheable || item.customHeaders != null) {
-                    networkProxy?.localUrl(upstreamUrl, cacheable = cacheable) ?: upstreamUrl
+                    networkProxy?.localUrl(
+                        upstreamUrl,
+                        cacheable = cacheable,
+                        widgetRequest = item.widgetPlaybackRequest(),
+                    )
+                        ?: upstreamUrl
                 } else {
                     upstreamUrl
                 }

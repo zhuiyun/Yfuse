@@ -1050,6 +1050,7 @@ private fun YMediaItem.toProbeSource(): YAndroidMediaSource =
     YAndroidMediaSource(
         uri = uri,
         headers = headers,
+        originBoundHeaderNames = originBoundHeaderNames,
         credentials = transportCredentials,
         bitrateBitsPerSecond = sourceHints?.bitrateBitsPerSecond ?: 0L,
         cacheIdentity = cacheIdentity,

@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -31,6 +32,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.LatencySeverity
@@ -52,9 +54,11 @@ import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.contentColorForSurface
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.glassControlHighlight
+import com.yfuse.core.designsystem.glassSelection
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.refreshAction
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
 import com.yfuse.core.designsystem.serverTintColor
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
@@ -119,7 +123,7 @@ internal fun ServersHeader(
                         .liquidGlass(
                             shape = AppShapes.chip,
                             fill = accent.container,
-                            border = accent.border.copy(alpha = 0.42f),
+                            border = glassControlHighlight(accent, palette.isDark),
                             sheen = 0.7f,
                         ).padding(horizontal = 13.dp, vertical = 9.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -148,7 +152,7 @@ internal fun ServersHeader(
                     .liquidGlass(
                         shape = AppShapes.chip,
                         fill = if (filterActive) accent.container else palette.card2,
-                        border = if (filterActive) accent.border else palette.border,
+                        border = if (filterActive) glassControlHighlight(accent, palette.isDark) else palette.border,
                         sheen = 0.75f,
                     ).padding(horizontal = 12.dp, vertical = 9.dp),
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -433,31 +437,59 @@ private fun HeroMetric(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
-    Row(
-        modifier.padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(32.dp)
-                .glass(AppShapes.thumb, color.copy(alpha = 0.08f), color.copy(alpha = 0.24f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(icon, null, tint = color, modifier = Modifier.size(15.dp))
-        }
-        Column(Modifier.weight(1f)) {
-            Text(
-                value,
-                style = AppTypography.body.strong,
-                color = if (label == "延迟") palette.text else palette.statusText(color),
-            )
-            Text(
-                label,
-                style = AppTypography.caption.regular,
-                color = palette.sub2,
-                maxLines = 1,
-            )
+    val valueColor = if (label == "延迟") palette.text else palette.statusText(color)
+    val fontScale = LocalDensity.current.fontScale
+    BoxWithConstraints(modifier) {
+        if (maxWidth / fontScale < 128.dp) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
+                Text(
+                    value,
+                    style = AppTypography.body.strong,
+                    color = valueColor,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    label,
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier
+                        .size(32.dp)
+                        .glass(AppShapes.thumb, color.copy(alpha = 0.08f), color.copy(alpha = 0.24f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(icon, null, tint = color, modifier = Modifier.size(15.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        value,
+                        style = AppTypography.body.strong,
+                        color = valueColor,
+                    )
+                    Text(
+                        label,
+                        style = AppTypography.caption.regular,
+                        color = palette.sub2,
+                        maxLines = 1,
+                    )
+                }
+            }
         }
     }
 }
@@ -507,20 +539,13 @@ internal fun ServerCard(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
+    val selection = rememberGlassSelectionStyle()
     val status = health?.status ?: ServerHealthStatus.Unknown
     val statusColor = serverStatusColor(status)
     val badgeColor = serverTintColor(server.id, server.iconTint)
     val surfaceModifier =
         if (isCurrent) {
-            Modifier
-                .shadow(Shadows.primaryButton(accent.accent.copy(alpha = 0.55f)), AppShapes.card)
-                .liquidGlass(
-                    shape = AppShapes.card,
-                    fill = lerp(palette.card, accent.container, if (palette.isDark) 0.26f else 0.20f),
-                    border = accent.border.copy(alpha = 0.72f),
-                    over = palette.background,
-                    sheen = 0.64f,
-                )
+            Modifier.glassSelection(AppShapes.card, selection)
         } else if (server.iconTint != null) {
             // A tint the user chose is theirs to see. It washes the card from the badge corner
             // and fades out well before the numbers, so the figures keep the page's own contrast
@@ -532,7 +557,7 @@ internal fun ServerCard(
                     // One tinted colour, not a gradient: liquidGlass draws its own body ramp
                     // over whatever fill it is given, and it takes a Color.
                     fill = lerp(palette.card, badgeColor, if (palette.isDark) 0.20f else 0.16f),
-                    border = lerp(palette.border, badgeColor, 0.28f),
+                    border = palette.border,
                     sheen = 0.52f,
                 )
         } else {
@@ -595,8 +620,7 @@ internal fun ServerCard(
                             server.serverName,
                             style = AppTypography.body.strong,
                             color = palette.text,
-                            minLines = 2,
-                            maxLines = 2,
+                            maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
@@ -693,7 +717,7 @@ internal fun ServerCard(
                     .liquidGlass(
                         shape = CircleShape,
                         fill = if (isCurrent) accent.container else palette.card2,
-                        border = if (isCurrent) accent.border.copy(alpha = 0.5f) else palette.border,
+                        border = if (isCurrent) glassControlHighlight(accent, palette.isDark) else palette.border,
                         sheen = 0.9f,
                     ),
                 contentAlignment = Alignment.Center,
@@ -826,7 +850,7 @@ internal fun EmptyServers(onAdd: () -> Unit) {
                 Modifier
                     .pressable(onClick = onAdd)
                     .heightIn(min = MinTouchTarget)
-                    .glass(AppShapes.chip, accent.accent, accent.border)
+                    .glass(AppShapes.chip, accent.accent, glassControlHighlight(accent, palette.isDark))
                     .padding(horizontal = 22.dp, vertical = 13.dp),
         )
     }

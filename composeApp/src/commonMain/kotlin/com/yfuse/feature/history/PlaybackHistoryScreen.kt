@@ -214,7 +214,6 @@ private fun PlaybackHistoryCard(
                 style = AppTypography.body.strong,
                 color = palette.text,
                 maxLines = 2,
-                minLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             val metadata =
@@ -223,14 +222,15 @@ private fun PlaybackHistoryCard(
                     entry.media.year?.toString(),
                     row.server?.serverName,
                 ).joinToString(" · ")
-            Text(
-                metadata.ifBlank { " " },
-                style = AppTypography.caption.regular,
-                color = palette.sub2,
-                minLines = 2,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (metadata.isNotBlank()) {
+                Text(
+                    metadata,
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             val failed = row.metadataLoaded && row.metadata?.complete != true
             Text(
                 row.overview
@@ -244,7 +244,6 @@ private fun PlaybackHistoryCard(
                 style = AppTypography.caption.regular,
                 color = palette.sub2,
                 maxLines = 2,
-                minLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = if (failed) Modifier.pressable(onClickLabel = "重新加载简介和海报", onClick = onRetry) else Modifier,
             )

@@ -77,6 +77,7 @@ internal class AndroidCodecSampleProbe(
                     YAndroidMediaSource(
                         uri = item.uri,
                         headers = item.headers,
+                        originBoundHeaderNames = item.originBoundHeaderNames,
                         credentials = item.transportCredentials,
                         cacheIdentity = item.cacheIdentity,
                         cacheMaximumBytes = item.cacheMaximumBytes,

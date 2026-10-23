@@ -59,7 +59,7 @@ internal fun SurfaceContentTheme(
     contrastSurface: Color = palette.background,
     content: @Composable () -> Unit,
 ) {
-    val base = LocalArtworkAccent.current ?: Brand.Primary
+    val base = LocalArtworkAccent.current ?: Brand.Primary // design-system: brand-identity fallback without artwork
     val accent = remember(base, palette, contrastSurface) { resolveAccentColors(base, palette.isDark, contrastSurface) }
     val scheme =
         MaterialTheme.colorScheme.copy(

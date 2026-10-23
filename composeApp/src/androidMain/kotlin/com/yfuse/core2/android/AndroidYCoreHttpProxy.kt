@@ -206,6 +206,7 @@ internal class AndroidYCoreHttpProxy(
         val playbackTarget: AdaptiveTargetConfiguration? = null,
         val pinnedHls: PinnedHlsPlayback? = null,
         val credentialOrigin: String = upstreamUri,
+        val originBoundHeaderNames: Set<String> = emptySet(),
     )
 
     private class AdaptiveTargetConfiguration(
@@ -611,6 +612,7 @@ internal class AndroidYCoreHttpProxy(
         allowDolbyAtmosHls: Boolean = false,
         mediaBitRateBitsPerSecond: Long = 0L,
         credentialOrigin: String = upstreamUri,
+        originBoundHeaderNames: Set<String> = emptySet(),
     ): String {
         val protocol = upstreamUri.sourceProtocolOrNull()
         // A manifest's resource (credentialOrigin is then its manifest's address) is checked before
@@ -626,6 +628,7 @@ internal class AndroidYCoreHttpProxy(
                 upstreamUri = upstreamUri,
                 upstreamHeaders = upstreamHeaders,
                 credentialOrigin = credentialOrigin,
+                originBoundHeaderNames = originBoundHeaderNames,
                 credentials = credentials,
                 // A document on this device is already local; copying it into the block cache
                 // would only spend the cache budget twice.
@@ -1248,6 +1251,7 @@ internal class AndroidYCoreHttpProxy(
                         upstreamUri = upstreamUri,
                         upstreamHeaders = route.upstreamHeaders,
                         credentialOrigin = route.credentialOrigin,
+                        originBoundHeaderNames = route.originBoundHeaderNames,
                         credentials = route.credentials,
                         cacheable = persistent,
                         cacheIdentity =
@@ -1303,6 +1307,7 @@ internal class AndroidYCoreHttpProxy(
                         upstreamHeaders = route.upstreamHeaders,
                         credentials = route.credentials,
                         credentialOrigin = route.credentialOrigin,
+                        originBoundHeaderNames = route.originBoundHeaderNames,
                         cacheable = false,
                         cacheIdentity = route.cacheIdentity?.forStableAdaptiveUri(uri),
                         maximumWidth = route.maximumWidth,
@@ -1444,6 +1449,7 @@ internal class AndroidYCoreHttpProxy(
                     upstreamUri = upstreamUri,
                     upstreamHeaders = route.upstreamHeaders,
                     credentialOrigin = route.credentialOrigin,
+                    originBoundHeaderNames = route.originBoundHeaderNames,
                     credentials = route.credentials,
                     cacheable = false,
                     cacheIdentity = null,
@@ -1598,6 +1604,7 @@ internal class AndroidYCoreHttpProxy(
                             upstreamUri = upstreamUri,
                             upstreamHeaders = route.upstreamHeaders,
                             credentialOrigin = route.credentialOrigin,
+                            originBoundHeaderNames = route.originBoundHeaderNames,
                             credentials = route.credentials,
                             cacheable = route.cacheable,
                             cacheIdentity =
@@ -1746,6 +1753,7 @@ internal class AndroidYCoreHttpProxy(
                     uri = route.upstreamUri,
                     protocol = requireNotNull(route.upstreamUri.sourceProtocolOrNull()),
                     headers = upstreamHeaders,
+                    originBoundHeaderNames = route.originBoundHeaderNames,
                     credentials = credentials,
                     createTransport = { trackedTransport(route.upstreamUri) },
                     initialMediaBitRateBitsPerSecond = route.mediaBitRateBitsPerSecond,
@@ -1852,6 +1860,7 @@ internal class AndroidYCoreHttpProxy(
                         protocol = requireNotNull(route.upstreamUri.sourceProtocolOrNull()),
                         headers = route.upstreamHeadersWithUserAgent(),
                         credentials = route.credentialsFor(route.upstreamUri),
+                        originBoundHeaderNames = route.originBoundHeaderNames,
                     ),
                 )
             if (response.statusCode !in 200..299) throw YUpstreamHttpException(response.statusCode)
@@ -1954,6 +1963,7 @@ internal class AndroidYCoreHttpProxy(
                             protocol = requireNotNull(upstreamUri.sourceProtocolOrNull()),
                             headers = route.upstreamHeadersWithUserAgent(upstreamUri),
                             credentials = route.credentialsFor(upstreamUri),
+                            originBoundHeaderNames = route.originBoundHeaderNames,
                         ),
                     )
                 if (response.statusCode !in 200..299) throw YUpstreamHttpException(response.statusCode)
@@ -2002,7 +2012,7 @@ internal class AndroidYCoreHttpProxy(
 
     private fun Route.upstreamHeadersWithUserAgent(targetUri: String = upstreamUri): Map<String, String> =
         yCoreProxyUpstreamRequestContext(
-            upstreamHeaders = scopedMediaHeaders(upstreamHeaders, credentialOrigin, targetUri),
+            upstreamHeaders = scopedMediaHeaders(upstreamHeaders, credentialOrigin, targetUri, originBoundHeaderNames),
             configuredUserAgent = userAgent,
             credentials = credentials,
         ).headers

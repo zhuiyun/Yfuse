@@ -34,6 +34,7 @@ import com.yfuse.core.designsystem.PageLoadingSkeleton
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.SkeletonHandoff
 import com.yfuse.core.designsystem.contentHandoff
+import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.motionAwareAnimateContentSize
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.solidGlass
@@ -126,7 +127,7 @@ fun WatchInviteSheet(
                                     .solidGlass(
                                         shape = AppShapes.chip,
                                         fill = accent.container,
-                                        border = accent.border,
+                                        border = glassControlHighlight(accent, palette.isDark),
                                     ).padding(12.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -310,7 +311,7 @@ fun WatchInviteShareSheet(
                                 .solidGlass(
                                     shape = AppShapes.chip,
                                     fill = accent.container,
-                                    border = accent.border,
+                                    border = glassControlHighlight(accent, palette.isDark),
                                 ).padding(vertical = 16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(6.dp),

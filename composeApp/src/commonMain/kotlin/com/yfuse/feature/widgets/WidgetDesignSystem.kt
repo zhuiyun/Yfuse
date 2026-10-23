@@ -16,12 +16,14 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.paneTitle
@@ -38,11 +40,15 @@ import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.ThemeIcon
 import com.yfuse.core.designsystem.controlSurface
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
+import com.yfuse.core.designsystem.rememberSegmentIndicator
+import com.yfuse.core.designsystem.selectionColor
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /** Shared surface and rhythm for the custom-home workspace and plugin flows. */
@@ -182,8 +188,14 @@ internal fun WidgetSegmentedControl(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
+    val selection = rememberGlassSelectionStyle()
+    val indicator = rememberSegmentIndicator(selectedIndex, Color.Transparent, selectionStyle = selection)
     Row(
-        modifier.glass(CircleShape, palette.controlSurface, palette.border).padding(3.dp),
+        modifier
+            .selectableGroup()
+            .glass(CircleShape, palette.controlSurface, palette.border)
+            .padding(4.dp)
+            .then(indicator.container),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         options.forEachIndexed { index, label ->
@@ -191,15 +203,14 @@ internal fun WidgetSegmentedControl(
             Box(
                 Modifier
                     .weight(1f)
-                    .defaultMinSize(minHeight = 42.dp)
+                    .defaultMinSize(minHeight = MinTouchTarget)
+                    .then(indicator.item(index))
                     .semantics {
                         selected = active
                     }.pressable(role = Role.Tab, onClick = {
                         onSelect(index)
                     })
-                    .then(
-                        if (active) Modifier.glass(CircleShape, palette.card3, palette.border) else Modifier,
-                    ).padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -209,7 +220,7 @@ internal fun WidgetSegmentedControl(
                             fontSize = 13.sp,
                             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                         ),
-                    color = if (active) palette.text else palette.sub2,
+                    color = selectionColor(if (active) selection.contentColor else palette.sub2),
                     textAlign = TextAlign.Center,
                 )
             }

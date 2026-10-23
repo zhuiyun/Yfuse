@@ -71,11 +71,14 @@ internal fun scopedMediaHeaders(
     headers: Map<String, String>,
     origin: String?,
     target: String,
+    originBoundHeaderNames: Set<String> = emptySet(),
 ): Map<String, String> =
     if (origin != null && mediaCredentialOriginsMatch(origin, target)) {
         headers
     } else {
-        headers.filterKeys { !it.isCredentialHeader() }
+        headers.filterKeys { name ->
+            !name.isCredentialHeader() && originBoundHeaderNames.none { it.equals(name, ignoreCase = true) }
+        }
     }
 
 internal fun String.isCredentialHeader(): Boolean {

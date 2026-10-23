@@ -57,6 +57,8 @@ import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberGlassSelectionStyle
+import com.yfuse.core.designsystem.rememberSegmentIndicator
 import com.yfuse.core.designsystem.resolveGlassButtonVisuals
 import com.yfuse.core.designsystem.serverTintColor
 import com.yfuse.core.model.SavedServer
@@ -114,17 +116,35 @@ internal fun ServerActionsDialog(
             ServerActionsHeader(server, isCurrent, health, onDismiss)
 
             if (canManage) {
+                val selection = rememberGlassSelectionStyle()
+                val indicator =
+                    rememberSegmentIndicator(if (managing) 1 else 0, Color.Transparent, selectionStyle = selection)
                 Row(
                     Modifier
                         .padding(horizontal = 16.dp)
                         .fillMaxWidth()
                         .selectableGroup()
                         .flatGlass(AppShapes.pill, sheetPalette.card2, sheetPalette.text.copy(alpha = 0.06f))
-                        .padding(3.dp),
+                        .padding(4.dp)
+                        .then(indicator.container),
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    ServerActionsTab("连接", selected = !managing, modifier = Modifier.weight(1f)) { managing = false }
-                    ServerActionsTab("管理", selected = managing, modifier = Modifier.weight(1f)) { managing = true }
+                    ServerActionsTab(
+                        "连接",
+                        selected = !managing,
+                        modifier = Modifier.weight(1f).then(indicator.item(0)),
+                    ) {
+                        managing =
+                            false
+                    }
+                    ServerActionsTab(
+                        "管理",
+                        selected = managing,
+                        modifier = Modifier.weight(1f).then(indicator.item(1)),
+                    ) {
+                        managing =
+                            true
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -262,7 +282,7 @@ internal fun ServerActionsDialog(
                     ).liquidGlass(
                         shape = AppShapes.pill,
                         fill = primaryVisuals.fill,
-                        border = primaryVisuals.content.copy(alpha = 0.28f),
+                        border = primaryVisuals.border,
                         over = sheetPalette.background,
                         sheen = primaryVisuals.sheen,
                     ).padding(horizontal = 16.dp, vertical = 10.dp),
@@ -379,25 +399,19 @@ private fun ServerActionsTab(
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
+    val selection = rememberGlassSelectionStyle()
     Box(
         modifier
             .pressable(role = Role.Tab, focusShape = AppShapes.pill, onClick = onClick)
             .semantics { this.selected = selected }
-            .then(
-                if (selected) {
-                    Modifier.flatGlass(AppShapes.pill, accent.accent.copy(alpha = 0.08f))
-                } else {
-                    Modifier
-                },
-            ).defaultMinSize(minHeight = 48.dp)
+            .defaultMinSize(minHeight = 48.dp)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             label,
-            style = AppTypography.body.medium,
-            color = if (selected) accent.accent else palette.sub2,
+            style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
+            color = if (selected) selection.contentColor else palette.sub2,
         )
     }
 }

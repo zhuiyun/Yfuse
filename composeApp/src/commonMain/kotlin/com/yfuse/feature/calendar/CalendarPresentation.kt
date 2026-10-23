@@ -169,7 +169,10 @@ internal fun coalesceCalendarEntries(entries: List<CalendarEntry>): List<Calenda
         )
 
 @Composable
-internal fun StatusBadge(entry: CalendarEntry) {
+internal fun StatusBadge(
+    entry: CalendarEntry,
+    compact: Boolean = false,
+) {
     val palette = LocalPalette.current
     val status = entry.status
     val (label, tint) =
@@ -199,13 +202,17 @@ internal fun StatusBadge(entry: CalendarEntry) {
         }
     Text(
         displayedLabel,
-        style = AppTypography.caption.strong,
+        style = if (compact) AppTypography.caption.medium else AppTypography.caption.strong,
         color = tint,
         modifier =
-            Modifier
-                .clip(AppShapes.chip)
-                .background(tint.copy(alpha = 0.12f))
-                .padding(horizontal = 7.dp, vertical = 2.dp),
+            if (compact) {
+                Modifier
+            } else {
+                Modifier
+                    .clip(AppShapes.chip)
+                    .background(tint.copy(alpha = 0.12f))
+                    .padding(horizontal = 7.dp, vertical = 2.dp)
+            },
     )
 }
 

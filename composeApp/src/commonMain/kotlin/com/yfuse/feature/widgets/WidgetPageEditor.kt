@@ -54,6 +54,7 @@ import com.yfuse.core.designsystem.LocalMutedGlass
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.ThemeIcon
 import com.yfuse.core.designsystem.YfFormField
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.widget.InstalledWidget
 import com.yfuse.core.widget.WidgetMedia
 import com.yfuse.core.widget.WidgetModule
@@ -266,7 +267,7 @@ internal fun WidgetPageEditor(
                         Box(Modifier.fillMaxWidth().clip(AppShapes.card)) {
                             WidgetCards(
                                 style,
-                                widgetPreviewItems.take(stylePreviewCount(style)),
+                                widgetPreviewItems.take(6),
                                 section.showMetadata,
                                 compact = true,
                                 onOpen = { editing = section },
@@ -486,9 +487,9 @@ private fun WidgetSectionEditor(
                                 if (refreshing) {
                                     "正在加载组件内容…"
                                 } else if (preview.isEmpty()) {
-                                    "样式预览 · 示例内容"
+                                    "横向预览 · 示例内容"
                                 } else {
-                                    "样式预览 · 组件内容"
+                                    "横向预览 · 组件内容"
                                 },
                                 color = LocalPalette.current.sub2,
                                 style = AppTypography.caption.regular,
@@ -503,7 +504,7 @@ private fun WidgetSectionEditor(
                     Box(Modifier.fillMaxWidth()) {
                         WidgetCards(
                             style,
-                            preview.ifEmpty { widgetPreviewItems }.take(stylePreviewCount(style)),
+                            preview.ifEmpty { widgetPreviewItems }.take(6),
                             section.showMetadata,
                             section.compact,
                             onOpen = { chooseStyle = true },
@@ -587,7 +588,7 @@ private fun WidgetSectionEditor(
                     EditorSwitchRow("紧凑布局", section.compact) { section = section.copy(compact = it) }
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "展示数量",
+                            "首次展示条目数",
                             Modifier.weight(1f),
                             color = LocalPalette.current.text,
                             style = AppTypography.body.regular,
@@ -603,6 +604,11 @@ private fun WidgetSectionEditor(
                         { section = section.copy(limit = it.toInt()) },
                         valueRange = 1f..50f,
                         steps = 48,
+                    )
+                    Text(
+                        "所有内容均在单行内横向浏览，更多条目不会增加栏目高度。",
+                        color = LocalPalette.current.sub2,
+                        style = AppTypography.caption.regular,
                     )
                 }
             }
@@ -636,6 +642,7 @@ private fun WidgetSectionEditor(
             WidgetParameterField(parameter, params[parameter.name] ?: parameter.defaultValue) { value ->
                 section = section.copy(params = JsonObject(section.params + (parameter.name to value)))
             }
+            Spacer(Modifier.height(16.dp))
             WidgetPrimaryButton({ editingParameter = null }, Modifier.fillMaxWidth()) { Text("完成") }
         }
     }
@@ -816,7 +823,12 @@ private fun WidgetStylePicker(
                 FilterChip(category == group, { category = group }, { Text(group) })
             }
         }
-        Spacer(Modifier.height(16.dp))
+        Text(
+            "所有视图均为单行横向浏览",
+            Modifier.padding(top = 12.dp, bottom = 16.dp),
+            color = LocalPalette.current.sub2,
+            style = AppTypography.caption.regular,
+        )
         key(category) {
             LazyColumn(
                 Modifier.weight(1f),
@@ -826,8 +838,10 @@ private fun WidgetStylePicker(
                 groups.filterKeys { category == null || it == category }.forEach { (group, styles) ->
                     item(key = "group-$group") { WidgetGroupCaption(group) }
                     items(styles, key = { it.id }) { style ->
+                        // Title and preview taps share one exit-completed handoff to the next sheet.
+                        val selectStyle = overlayAction { onSelect(style) }
                         Column(
-                            Modifier.fillMaxWidth().clickable { onSelect(style) },
+                            Modifier.fillMaxWidth().clickable(onClick = selectStyle),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -856,9 +870,9 @@ private fun WidgetStylePicker(
                                 CompositionLocalProvider(LocalMutedGlass provides false) {
                                     WidgetCards(
                                         style,
-                                        preview.ifEmpty { widgetPreviewItems }.take(stylePreviewCount(style)),
+                                        preview.ifEmpty { widgetPreviewItems }.take(6),
                                         compact = true,
-                                        onOpen = { onSelect(style) },
+                                        onOpen = { selectStyle() },
                                     )
                                 }
                             }
@@ -869,16 +883,3 @@ private fun WidgetStylePicker(
         }
     }
 }
-
-private fun stylePreviewCount(style: WidgetStyle): Int =
-    when (style) {
-        WidgetStyle.SideLeft, WidgetStyle.SideRight, WidgetStyle.ImageTop, WidgetStyle.TextTop,
-        WidgetStyle.PosterDetail, WidgetStyle.Hero, WidgetStyle.NextEpisode, WidgetStyle.Expandable,
-        -> 1
-        WidgetStyle.GridTwo, WidgetStyle.RankList, WidgetStyle.Episodes, WidgetStyle.Timeline -> 2
-        WidgetStyle.GridThree, WidgetStyle.RankGrid, WidgetStyle.Podium,
-        WidgetStyle.FeatureThree, WidgetStyle.Magazine,
-        -> 3
-        WidgetStyle.FeatureList, WidgetStyle.RankFeature -> 4
-        else -> 6
-    }
