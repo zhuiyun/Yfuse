@@ -11,6 +11,8 @@ data class WidgetSourceContext(
     val widgetId: String,
     val media: WidgetMedia,
     val params: JsonObject = JsonObject(emptyMap()),
+    /** Reopen history with the current section settings rather than persisting credentials. */
+    val sectionId: String? = null,
 )
 
 /** A stream resolver can work from the item ID even when the catalog returns no link. */
@@ -46,4 +48,16 @@ internal fun WidgetSourceContext.resourceArguments(
                 (route.episode ?: media.episode)?.let { put("episode", it) }
             },
     )
+}
+
+/** History uses the current settings of its originating section, including rotated credentials. */
+internal fun WidgetSourceContext.withCurrentSection(database: WidgetDatabase): WidgetSourceContext {
+    if (params.isNotEmpty() || sectionId == null) return this
+    val section =
+        database.pages
+            .flatMap { it.sections }
+            .filter { section ->
+                section.widgetId == widgetId && (section.id == sectionId || sectionId.startsWith("${section.id}:"))
+            }.maxByOrNull { it.id.length }
+    return section?.let { copy(params = it.params) } ?: this
 }

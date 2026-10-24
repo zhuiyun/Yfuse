@@ -1,10 +1,10 @@
 {
-  "versionName": "1.6.6",
-  "versionCode": 318,
+  "versionName": "1.6.7",
+  "versionCode": 319,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
   "confirmedAt": "2026-10-24",
   "confirmedBy": "release owner",
-  "confirmationBasis": "Owner requested committing the live-audio and widget-resource fixes and triggering the build. Standing project authorization covers the unchanged pinned MDK in the full ARM64 package. This build is package-only: retain the signed APK as a GitHub Actions artifact without publishing an update."
+  "confirmationBasis": "Owner requested using the existing default details page, integrating playback history progress, then building the APK. Standing project authorization covers the unchanged pinned MDK in this full ARM64 package-only delivery. Retain the production-signed APK artifact without publishing an update."
 }

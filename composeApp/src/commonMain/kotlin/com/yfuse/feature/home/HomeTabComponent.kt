@@ -18,18 +18,20 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.navigation.SingleFlightNavigationGuard
+import com.yfuse.core.sync.playback.PlaybackSyncStore
 import com.yfuse.core.widget.WidgetSourceContext
-import com.yfuse.core.widget.hasStreamResolver
+import com.yfuse.core.widget.widgetDetailSeed
 import com.yfuse.core.widget.widgetRepository
 import com.yfuse.feature.calendar.CalendarComponent
+import com.yfuse.feature.detail.DetailCatalog
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
-import com.yfuse.feature.widgets.hasWidgetPlaybackSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
+import org.koin.core.context.GlobalContext
 
 /** 发现及外部追剧入口的子页面；保留历史路由配置以恢复已有导航状态。 */
 @OptIn(DelicateDecomposeApi::class)
@@ -121,6 +123,7 @@ class HomeTabComponent(
         class Info(
             val component: TmdbInfoComponent,
             val libraryDetail: StateFlow<DetailComponent?>,
+            val standardDetail: DetailComponent? = null,
         ) : Child
 
         class Calendar(
@@ -175,15 +178,17 @@ class HomeTabComponent(
             Config.Info(
                 item,
                 null,
-                preferLibraryDetail =
-                    sourceContext?.media?.hasWidgetPlaybackSource() != true &&
-                        sourceContext?.hasStreamResolver(widgetRepository().database.value) != true,
+                preferLibraryDetail = true,
                 sourceContext = sourceContext,
             ),
         )
     }
 
     fun openPersonalTitle(media: com.yfuse.core.personal.PersonalMediaRef) {
+        media.widgetSource?.let { source ->
+            openWidgetTitle(source.media.widgetDetailSeed(), source)
+            return
+        }
         val tmdbId = media.tmdbId ?: return
         returnToLibraryOnRoot = true
         popToRoot()
@@ -347,56 +352,88 @@ class HomeTabComponent(
                         },
                     ),
                 )
-            is Config.Info -> {
-                val libraryDetail = MutableStateFlow<DetailComponent?>(null)
-                Child.Info(
-                    TmdbInfoComponent(
-                        componentContext = context,
-                        tmdb = tmdb,
-                        emby = repo,
-                        registry = registry,
-                        item = config.item,
-                        followStore = dependencies.calendarFollowStore,
-                        embyItemId = config.embyItemId,
-                        preferLibraryDetail = config.preferLibraryDetail,
-                        widgetSourceContext = config.sourceContext,
-                        onOpenLibraryDetail =
-                            if (config.preferLibraryDetail) {
-                                { serverId, itemId ->
-                                    if (libraryDetail.value == null) {
-                                        libraryDetail.value =
-                                            DetailComponent(
-                                                componentContext = context.childContext("matchedLibraryDetail"),
-                                                storeFactory = storeFactory,
-                                                repo = repo,
-                                                registry = registry,
-                                                itemId = itemId,
-                                                serverId = serverId,
-                                                dependencies = dependencies,
-                                                onBack = ::navigateBack,
-                                                onOpenRelated = { relatedServer, relatedId ->
-                                                    navigation.pushToFront(Config.Detail(relatedServer, relatedId))
-                                                },
-                                                onPlay = { targetServer, targetId, ticks, mediaSourceId ->
-                                                    openPlayer(
-                                                        Config.Player(targetServer, targetId, ticks, mediaSourceId),
-                                                    )
-                                                },
-                                            )
-                                    }
-                                }
-                            } else {
-                                null
-                            },
-                        onBack = ::navigateBack,
-                        onPlayTarget = { serverId, id, ticks ->
-                            openPlayer(Config.Player(serverId, id, ticks))
+            is Config.Info -> createInfo(config, context)
+        }
+
+    private fun createInfo(
+        config: Config.Info,
+        context: ComponentContext,
+    ): Child.Info {
+        val libraryDetail = MutableStateFlow<DetailComponent?>(null)
+
+        fun detail(
+            serverId: String?,
+            itemId: String,
+            catalog: DetailCatalog? = null,
+        ): DetailComponent =
+            DetailComponent(
+                componentContext =
+                    context.childContext(
+                        if (catalog ==
+                            null
+                        ) {
+                            "matchedLibraryDetail"
+                        } else {
+                            "catalogDetail"
                         },
                     ),
-                    libraryDetail,
-                )
+                storeFactory = storeFactory,
+                repo = repo,
+                registry = registry,
+                itemId = itemId,
+                serverId = serverId,
+                catalog = catalog,
+                dependencies = dependencies,
+                onBack = ::navigateBack,
+                onOpenRelated = {
+                        relatedServer,
+                        relatedId,
+                    ->
+                    navigation.pushToFront(Config.Detail(relatedServer, relatedId))
+                },
+                onPlay = {
+                        targetServer,
+                        targetId,
+                        ticks,
+                        sourceId,
+                    ->
+                    openPlayer(Config.Player(targetServer, targetId, ticks, sourceId))
+                },
+            )
+        val info =
+            TmdbInfoComponent(
+                componentContext = context,
+                tmdb = tmdb,
+                emby = repo,
+                registry = registry,
+                item = config.item,
+                followStore = dependencies.calendarFollowStore,
+                embyItemId = config.embyItemId,
+                preferLibraryDetail = config.preferLibraryDetail && config.sourceContext == null,
+                widgetSourceContext = config.sourceContext,
+                onOpenLibraryDetail =
+                    if (config.preferLibraryDetail && config.sourceContext == null) {
+                        { server, id -> if (libraryDetail.value == null) libraryDetail.value = detail(server, id) }
+                    } else {
+                        null
+                    },
+                onBack = ::navigateBack,
+                onPlayTarget = { server, id, ticks -> openPlayer(Config.Player(server, id, ticks)) },
+            )
+        val standard =
+            config.sourceContext?.let { source ->
+                val catalog =
+                    DetailCatalog(
+                        info = info,
+                        context = source,
+                        tmdb = tmdb,
+                        widgets = widgetRepository(),
+                        progress = runCatching { GlobalContext.get().get<PlaybackSyncStore>() }.getOrNull(),
+                    )
+                detail(null, catalog.initialState().detail?.id ?: config.item.id.toString(), catalog)
             }
-        }
+        return Child.Info(info, libraryDetail, standard)
+    }
 }
 
 internal fun Long.toEmbyTicks(): Long =

@@ -20,7 +20,6 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.util.androidAppContext
 import com.yfuse.feature.player.PlayerActivity
-import com.yfuse.feature.player.externalPlaybackItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -271,29 +270,21 @@ actual fun rememberWidgetBackupFiles(
     }, restore = { restore.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) })
 }
 
-actual fun openWidgetVideo(media: WidgetMedia) {
+actual fun openWidgetVideo(
+    media: WidgetMedia,
+    request: WidgetPlaybackRequest?,
+) {
     val context = checkNotNull(androidAppContext)
     val url = media.videoUrl.toHttpUrl()
     val preferences = GlobalContext.get().get<ThemePreferences>()
-    val item =
-        externalPlaybackItem(url.toString(), media.title).copy(
-            posterUrl = media.poster,
-            stillUrl = media.backdrop,
-            seasonNumber = media.season,
-            episodeNumber = media.episode,
-            customHeaders =
-                com.yfuse.feature.player
-                    .PlayerCustomHeaders(
-                        media.headers.filterKeys { !it.equals("X-Forward-Skip-Redirect-Probe", true) },
-                    ),
-        )
+    val item = widgetPlaybackItem(media.copy(videoUrl = url.toString()), request)
     val launch =
         PlayerActivity
             .intent(
                 context,
                 listOf(item),
                 0,
-                0L,
+                request?.positionMs?.coerceAtLeast(0L) ?: 0L,
                 preferences.engine.value,
                 preferences.decoder.value,
                 false,

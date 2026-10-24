@@ -20,6 +20,7 @@ import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.componentScope
 import com.yfuse.core.widget.WidgetSourceContext
+import com.yfuse.core.widget.widgetDetailSeed
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.person.PersonPageRequest
@@ -160,6 +161,11 @@ class RootComponent(
                 home.openDiscoveryTitle(item, target)
                 selectTab(Tab.Home)
             },
+            onOpenWidgetTitle = { source ->
+                discoveryOrigin = Tab.Browse
+                home.openWidgetTitle(source.media.widgetDetailSeed(), source)
+                selectTab(Tab.Home)
+            },
         )
 
     /** 服务器: the saved servers as a grid. */
@@ -208,8 +214,13 @@ class RootComponent(
                 if (serverId != null && media.serverItemId != null) {
                     browse.openDetail(serverId, media.serverItemId)
                     selectTab(Tab.Browse)
-                } else if (media.tmdbId != null &&
-                    media.mediaType in setOf("Movie", "Series") &&
+                } else if ((
+                        media.widgetSource != null ||
+                            (
+                                media.tmdbId != null &&
+                                    media.mediaType in setOf("Movie", "Series")
+                            )
+                    ) &&
                     !org.koin.core.context.GlobalContext
                         .get()
                         .get<com.yfuse.core.personal.PersonalLibraryRepository>()
@@ -242,6 +253,11 @@ class RootComponent(
             onOpenDiscoveryTitle = { item, target ->
                 discoveryOrigin = Tab.Watching
                 home.openDiscoveryTitle(item, target)
+                selectTab(Tab.Home)
+            },
+            onOpenWidgetTitle = { source ->
+                discoveryOrigin = Tab.Watching
+                home.openWidgetTitle(source.media.widgetDetailSeed(), source)
                 selectTab(Tab.Home)
             },
         )

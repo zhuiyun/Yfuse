@@ -10,6 +10,8 @@ internal sealed interface PlaybackReportingTarget {
 
     data object DefaultServer : PlaybackReportingTarget
 
+    data object LocalOnly : PlaybackReportingTarget
+
     data object Disabled : PlaybackReportingTarget
 }
 
@@ -26,7 +28,10 @@ internal fun playbackReportingTarget(item: PlayerMediaItem?): PlaybackReportingT
     item.serverId?.takeIf(String::isNotBlank)?.let { serverId ->
         return PlaybackReportingTarget.SavedServer(serverId)
     }
-    if (item.isFileSourcePlayback || (item.isExternalPlayback && item.id.startsWith("external-stremio-"))) {
+    if (item.isExternalPlayback && item.id.startsWith("external-widget-")) return PlaybackReportingTarget.LocalOnly
+    if (item.isFileSourcePlayback ||
+        (item.isExternalPlayback && item.id.startsWith("external-stremio-"))
+    ) {
         return PlaybackReportingTarget.Disabled
     }
     return if (item.url.hasLocalPlaybackScheme()) {

@@ -76,6 +76,9 @@ internal data class TmdbEpisodeStubDto(
     @SerialName("season_number") val seasonNumber: Int? = null,
     @SerialName("episode_number") val episodeNumber: Int? = null,
     val name: String? = null,
+    val overview: String? = null,
+    val runtime: Int? = null,
+    @SerialName("still_path") val stillPath: String? = null,
 )
 
 /** `/tv/{id}` reduced to what a broadcast calendar needs. */
@@ -143,6 +146,7 @@ internal data class TmdbDetailDto(
     val status: String? = null,
     val tagline: String? = null,
     val credits: TmdbCreditsDto = TmdbCreditsDto(),
+    val seasons: List<com.yfuse.core.model.TmdbSeasonSummary> = emptyList(),
 )
 
 private fun TmdbItemDto.toItem(fallbackType: String): TmdbItem =
@@ -465,6 +469,7 @@ class TmdbRepository(
                     numberOfSeasons = dto.numberOfSeasons?.takeIf { it > 0 },
                     status = dto.status?.ifBlank { null },
                     tagline = dto.tagline?.ifBlank { null },
+                    seasons = dto.seasons,
                     cast =
                         dto.credits.cast
                             .filter { it.name.isNotBlank() }
@@ -896,6 +901,44 @@ class TmdbRepository(
                 attributes = mapOf("showId" to showId.toString()),
             )
             null
+        }
+
+    /** The default detail episode rail also works for titles not held by a media server. */
+    suspend fun detailEpisodes(
+        showId: Int,
+        seasonNumber: Int,
+    ): Result<List<com.yfuse.core.model.Episode>> =
+        try {
+            val dto =
+                client
+                    .get("$TMDB_BASE/tv/$showId/season/$seasonNumber") {
+                        parameter("language", "zh-CN")
+                    }.body<TmdbSeasonDto>()
+            Result.success(
+                dto.episodes.mapNotNull { episode ->
+                    val number = episode.episodeNumber ?: return@mapNotNull null
+                    val season = episode.seasonNumber ?: seasonNumber
+                    com.yfuse.core.model.Episode(
+                        id = "tmdb:$showId/s${season}e$number",
+                        name = episode.name?.takeIf(String::isNotBlank) ?: "第 $number 集",
+                        indexNumber = number,
+                        seasonNumber = season,
+                        seasonId = season.toString(),
+                        overview = episode.overview,
+                        runtimeMinutes = episode.runtime,
+                        primaryTag =
+                            com.yfuse.core.network.TmdbImages
+                                .backdrop(episode.stillPath, "w780"),
+                        playedPercentage = null,
+                        resumePositionTicks = null,
+                        premiereDate = episode.airDate,
+                    )
+                },
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
         }
 
     private suspend fun season(

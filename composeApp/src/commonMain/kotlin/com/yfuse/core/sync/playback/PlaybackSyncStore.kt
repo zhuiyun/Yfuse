@@ -293,6 +293,21 @@ class PlaybackSyncStore(
                 ?.state
         }
 
+    /** Latest per-episode records for a catalog series, scoped to the active profile. */
+    fun statesForSeries(seriesKey: String): List<PlaybackStateRecord> =
+        synchronized(lock) {
+            documents
+                .map { it.document.state }
+                .filter { state ->
+                    state.profileId == activeProfileId &&
+                        (listOf(state.mediaKey) + state.aliases).any {
+                            com.yfuse.core.sync
+                                .parseEpisodeWatchKey(it)
+                                ?.seriesKey == seriesKey
+                        }
+                }.sortedByDescending(PlaybackStateRecord::lastPlayedAtEpochMs)
+        }
+
     /** Snapshot used to build local-only resume and next-up shelves. */
     fun statesForServer(serverId: String): List<PlaybackStateRecord> =
         synchronized(lock) {

@@ -473,7 +473,7 @@ class WidgetRepository(
             database.value.widgets.firstOrNull { it.metadata.id == context.widgetId && it.enabled } ?: error("组件不可用")
         val resource = widget.metadata.modules.firstOrNull { it.id == "loadResource" && it.type == "stream" }
         if (resource != null) {
-            val args = context.resourceArguments(resource, media)
+            val args = context.withCurrentSection(database.value).resourceArguments(resource, media)
             AppLog.info(
                 category = "widget",
                 event = "resource_lookup_started",
@@ -638,6 +638,9 @@ data class WidgetBackupActions(
 
 expect suspend fun downloadWidgetSource(url: String): String
 
-expect fun openWidgetVideo(media: WidgetMedia)
+expect fun openWidgetVideo(
+    media: WidgetMedia,
+    request: WidgetPlaybackRequest? = null,
+)
 
 expect fun searchWidgetMedia(title: String)

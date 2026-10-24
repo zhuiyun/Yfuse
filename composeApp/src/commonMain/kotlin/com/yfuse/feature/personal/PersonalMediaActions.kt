@@ -18,6 +18,7 @@ import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.personal.PersonalLibraryRepository
 import com.yfuse.core.personal.PersonalMediaRef
 import com.yfuse.core.sync.watchKey
+import com.yfuse.core.widget.historySource
 import com.yfuse.feature.detail.GlassActionButton
 import org.koin.core.context.GlobalContext
 
@@ -35,12 +36,13 @@ class PersonalMediaLists(
 @Composable
 fun rememberPersonalMediaLists(
     detail: MediaDetail,
-    serverId: String,
+    serverId: String?,
+    widgetSource: com.yfuse.core.widget.WidgetSourceContext? = null,
 ): PersonalMediaLists {
     val personal = remember { GlobalContext.get().get<PersonalLibraryRepository>() }
     val state by personal.state.collectAsState()
     val media =
-        remember(detail, serverId) {
+        remember(detail, serverId, widgetSource) {
             PersonalMediaRef(
                 mediaKey = detail.providerIds.watchKey(detail.id),
                 title = detail.title,
@@ -52,7 +54,9 @@ fun rememberPersonalMediaLists(
                         ?.value
                         ?.toIntOrNull(),
                 serverId = serverId,
-                serverItemId = detail.id,
+                serverItemId = detail.id.takeIf { serverId != null },
+                posterPath = detail.posterTag.takeIf { serverId == null },
+                widgetSource = widgetSource?.historySource(),
             )
         }
     val favorite = state.favorites.any { it.media.identity == media.identity }
@@ -60,10 +64,22 @@ fun rememberPersonalMediaLists(
     return PersonalMediaLists(
         favorite = favorite,
         wanted = wanted,
-        allowed = personal.canAccessServer(serverId),
+        allowed = (serverId == null || personal.canAccessServer(serverId)),
         error = state.error,
-        toggleFavorite = { if (personal.canAccessServer(serverId)) personal.setFavorite(media, !favorite) },
-        toggleWanted = { if (personal.canAccessServer(serverId)) personal.setWatchLater(media, !wanted) },
+        toggleFavorite = {
+            if ((serverId == null || personal.canAccessServer(serverId))) personal.setFavorite(media, !favorite)
+        },
+        toggleWanted = {
+            if ((
+                    serverId == null ||
+                        personal.canAccessServer(
+                            serverId,
+                        )
+                )
+            ) {
+                personal.setWatchLater(media, !wanted)
+            }
+        },
     )
 }
 

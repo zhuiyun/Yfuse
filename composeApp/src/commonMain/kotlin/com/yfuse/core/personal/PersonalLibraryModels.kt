@@ -25,6 +25,7 @@ data class PersonalMediaRef(
     val posterPath: String? = null,
     val serverId: String? = null,
     val serverItemId: String? = null,
+    val widgetSource: com.yfuse.core.widget.WidgetSourceContext? = null,
 ) {
     val identity: String
         get() {

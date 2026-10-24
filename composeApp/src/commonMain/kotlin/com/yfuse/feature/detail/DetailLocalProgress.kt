@@ -91,3 +91,33 @@ private fun PlaybackStateRecord?.resumeTicks(): Long? =
         ?.positionMs
         ?.takeIf { it > 0L }
         ?.let { if (it > Long.MAX_VALUE / 10_000L) Long.MAX_VALUE else it * 10_000L }
+
+/** A component and a library copy share canonical progress without inventing a server item. */
+internal fun DetailState.localProgressForItem(
+    local: com.yfuse.core.sync.playback.PlaybackSyncStore,
+    serverId: String,
+    itemId: String,
+): PlaybackStateRecord? {
+    val direct = local.stateForServerItem(serverId, itemId)
+    val episode = episodes.firstOrNull { it.id == itemId }
+    val media = listOfNotNull(playTarget, playSourceDetail, detail).firstOrNull { it.id == itemId }
+    val series = playSourceDetail?.takeIf { it.type == "Series" } ?: detail?.takeIf { it.type == "Series" }
+    val keys =
+        com.yfuse.core.sync.watchMatchKeys(
+            ownProviderIds = episode?.providerIds ?: media?.providerIds.orEmpty(),
+            seriesProviderIds = series?.providerIds.orEmpty(),
+            seasonNumber = episode?.seasonNumber ?: media?.seasonNumber,
+            episodeNumber = episode?.indexNumber ?: media?.episodeNumber,
+            fallbackId = itemId,
+        )
+    return keys
+        .filterNot { it.startsWith("emby:") }
+        .mapNotNull { key ->
+            local.find(key, serverId = serverId)?.document?.state
+        }.fold(direct) { selected, record ->
+            selected?.let {
+                com.yfuse.core.sync.playback.PlaybackConflictResolver
+                    .chooseState(it, record)
+            } ?: record
+        }
+}

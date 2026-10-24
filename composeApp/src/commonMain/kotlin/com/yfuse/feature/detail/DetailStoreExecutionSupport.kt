@@ -51,6 +51,10 @@ internal const val PLAYBACK_RESOLUTION_TIMEOUT_MS = 5_000L
 internal class PlaybackResolutionTimeoutException : Exception("playback resolution timed out")
 
 internal sealed interface DetailMsg {
+    data class CatalogUpdated(
+        val snapshot: DetailState,
+    ) : DetailMsg
+
     data object Loading : DetailMsg
 
     data class PeopleLoaded(
