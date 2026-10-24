@@ -28,6 +28,8 @@ import kotlinx.coroutines.launch
 internal data class CatalogResources(
     val routes: List<WidgetMedia> = emptyList(),
     val selectedId: String? = null,
+    /** These URLs came from the explicit play request, not a catalog preview. */
+    val resolved: Boolean = false,
     val loading: Boolean = false,
     val error: String? = null,
     val metadataError: String? = null,
@@ -63,6 +65,9 @@ class DetailCatalog(
     private var episodeJob: Job? = null
     private var resourceJob: Job? = null
     private var resourceGeneration = 0
+
+    /** Keep the content identifier when a resolved stream has a different route identifier. */
+    private var resourceInput: WidgetMedia? = null
     private var pendingPlay: Boolean? = null
     private var restoredPlayed = false
     private var interactionRevision = 0
@@ -344,6 +349,7 @@ class DetailCatalog(
     private fun prepareResources() {
         resourceJob?.cancel()
         resourceGeneration++
+        resourceInput = null
         pendingPlay = null
         val selected = media.copy(season = season, episode = episode)
         val choices =
@@ -442,6 +448,8 @@ class DetailCatalog(
     ) {
         resourceJob?.cancel()
         val generation = ++resourceGeneration
+        val preferredId = mutableResources.value.selectedId.takeIf { resourceInput != null }
+        resourceInput = selected
         val enriched =
             context.copy(
                 media =
@@ -453,6 +461,9 @@ class DetailCatalog(
                     ),
             )
         val launchIdentity = identity()
+        val requestedSeason = season
+        val requestedEpisode = episode
+        val series = info.state.value.detail.item.mediaType in setOf("tv", "series")
         pendingPlay = fromStart
         resourceJob =
             scope?.launch {
@@ -464,13 +475,28 @@ class DetailCatalog(
                                 enriched,
                                 selected,
                             ).widgetPlaybackRoutes()
-                            .filter { it.videoUrl.isNotBlank() }
-                    require(resolved.isNotEmpty()) { "组件未返回播放地址" }
+                            .filter {
+                                it.videoUrl.isNotBlank() &&
+                                    (
+                                        !series ||
+                                            (
+                                                (it.season == null || it.season == requestedSeason) &&
+                                                    (it.episode == null || it.episode == requestedEpisode)
+                                            )
+                                    )
+                            }
+                    require(resolved.isNotEmpty()) {
+                        if (series) "组件未返回第 $requestedSeason 季第 $requestedEpisode 集的播放地址" else "组件未返回播放地址"
+                    }
                     if (generation != resourceGeneration) return@launch
-                    mutableResources.value = CatalogResources(resolved, resolved.firstOrNull()?.id)
+                    val preferred = resolved.firstOrNull { it.id == preferredId }
+                    val chosen = preferred ?: resolved.singleOrNull()
+                    mutableResources.value =
+                        CatalogResources(resolved, (preferred ?: resolved.first()).id, resolved = true)
+                    val startFromBeginning = pendingPlay ?: fromStart
                     pendingPlay = null
-                    if (resolved.size == 1 && launchIdentity.aliases.any { it in identity().aliases }) {
-                        play(fromStart)
+                    if (chosen != null && launchIdentity.aliases.any { it in identity().aliases }) {
+                        launchRoute(chosen, startFromBeginning)
                     } else {
                         emit?.invoke(DetailMsg.ActionMessage("请选择播放来源"))
                     }
@@ -482,8 +508,8 @@ class DetailCatalog(
                     ) {
                         mutableResources.value =
                             CatalogResources(error = widgetFailureMessage(e.message.orEmpty()))
+                        pendingPlay = null
                     }
-                    pendingPlay = null
                 } finally {
                     if (generation == resourceGeneration) update()
                 }
@@ -500,11 +526,21 @@ class DetailCatalog(
             return
         }
         val route = resources.routes.firstOrNull { it.id == resources.selectedId } ?: resources.routes.firstOrNull()
-        if (route == null || route.videoUrl.isBlank()) {
-            resolveResources(route ?: media.copy(season = season, episode = episode), fromStart)
+        // The repository waits for restored widget metadata, then gives a declared stream
+        // resolver precedence over catalog URLs. Never bypass that policy from this screen.
+        if (route == null || route.videoUrl.isBlank() || !resources.resolved) {
+            resolveResources(resourceInput ?: route ?: media.copy(season = season, episode = episode), fromStart)
             update()
             return
         }
+        launchRoute(route, fromStart)
+    }
+
+    private fun launchRoute(
+        route: WidgetMedia,
+        fromStart: Boolean,
+    ) {
+        val resources = mutableResources.value
         val position =
             if (fromStart) {
                 0L
@@ -544,8 +580,12 @@ class DetailCatalog(
                     ),
                 ),
             )
+            // A later play is a new resolution, using resourceInput's catalog ID and current
+            // coordinates. Selecting among this request's resolved routes does not re-resolve.
+            mutableResources.value = resources.copy(resolved = false)
         } catch (e: Exception) {
             mutableResources.value = resources.copy(error = widgetFailureMessage(e.message.orEmpty()))
         }
+        update()
     }
 }

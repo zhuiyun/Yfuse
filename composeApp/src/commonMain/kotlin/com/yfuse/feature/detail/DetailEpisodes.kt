@@ -32,6 +32,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -541,7 +542,6 @@ internal fun EpisodeSection(
     /** The 浮起菜单's actions and each episode's download; null leaves the cards with their tap alone. */
     rowActions: EpisodeRowActions? = null,
 ) {
-    val listState = rememberLazyListState()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val routeVisible = LocalRouteVisible.current
     // Held back for the busy threshold, so a season answered from cache never dims at all.
@@ -565,7 +565,6 @@ internal fun EpisodeSection(
     // episode group without referencing the removed selectedSeasonId parameter. Episode identity
     // also separates groups with identical season labels and stays stable across progress updates.
     val firstEpisodeId = episodes.firstOrNull()?.id
-    var initiallyPositioned by remember(baseUrl, seasonLabel, firstEpisodeId) { mutableStateOf(false) }
     // A season past thirty episodes can be picked by number; one of short episodes — a 短剧 —
     // opens that way. Asked again for each season the rail hands over to.
     val gridFits = prefersEpisodeGrid(episodes.size)
@@ -636,85 +635,91 @@ internal fun EpisodeSection(
             )
             return@Column
         }
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val collection = Triple(baseUrl, listedSeasonId, firstEpisodeId)
+        BoxWithConstraints(Modifier.fillMaxWidth().contentHandoff(collection)) {
             val density = LocalDensity.current
             val centeredOffset =
                 with(density) {
                     -((maxWidth - 210.dp) / 2f).coerceAtLeast(0.dp).roundToPx()
                 }
-            LaunchedEffect(
-                baseUrl,
-                seasonLabel,
-                firstEpisodeId,
-                selectedEpisodeId,
-                focusedEpisodeIndex,
-                reduceMotion,
-                routeVisible,
-                centeredOffset,
-            ) {
-                if (!routeVisible || focusedEpisodeIndex < 0) return@LaunchedEffect
-                if (!initiallyPositioned || reduceMotion) {
-                    listState.scrollToItem(focusedEpisodeIndex, centeredOffset)
-                    initiallyPositioned = true
-                } else {
-                    listState.animateScrollToItem(focusedEpisodeIndex, centeredOffset)
+            // animateItem retains departing graphics layers. A different source/season is a
+            // replacement rail, so dispose its animator instead of painting both collections.
+            key(collection) {
+                val listState = rememberLazyListState()
+                var initiallyPositioned by remember { mutableStateOf(false) }
+                LaunchedEffect(
+                    baseUrl,
+                    seasonLabel,
+                    firstEpisodeId,
+                    selectedEpisodeId,
+                    focusedEpisodeIndex,
+                    reduceMotion,
+                    routeVisible,
+                    centeredOffset,
+                ) {
+                    if (!routeVisible || focusedEpisodeIndex < 0) return@LaunchedEffect
+                    if (!initiallyPositioned || reduceMotion) {
+                        listState.scrollToItem(focusedEpisodeIndex, centeredOffset)
+                        initiallyPositioned = true
+                    } else {
+                        listState.animateScrollToItem(focusedEpisodeIndex, centeredOffset)
+                    }
                 }
-            }
-            LazyRow(
-                state = listState,
-                // The last season's cards stay where they are, dimmed and inert, until the new
-                // season's land and take their place.
-                modifier =
-                    Modifier
-                        .contentHandoff(listedSeasonId.orEmpty())
-                        .graphicsLayer { alpha = staleAlpha.value },
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.Bottom,
-                contentPadding =
-                    PaddingValues(
-                        start = Dimens.pageHorizontal,
-                        top = 10.dp,
-                        end = Dimens.pageHorizontal,
-                        bottom = 0.dp,
-                    ),
-            ) {
-                motionItemsIndexed(
-                    episodes,
-                    key = { index, episode -> "ep-${episode.id}-$index" },
-                ) { _, episode ->
-                    EpisodeCard(
-                        baseUrl = baseUrl,
-                        accessToken = accessToken,
-                        episode = episode,
-                        seriesPosterUrl = seriesPosterUrl,
-                        accent = accent,
-                        selected = episode.id == selectedEpisodeId,
-                        enabled = !seasonLoading,
-                        onPlay = { onPlayEpisode(episode) },
-                        download = rowActions?.downloads?.get(episode.id),
-                        // A press held on a card lifts it into the 单集 menu (5.1). The rail scrolls
-                        // sideways, so the card has no swipe of its own; 从这里开始多选 opens the
-                        // 管理进度 sheet, whose rows swipe and sweep. The sideways look through the
-                        // episode (按住拖看) happens on the lifted card instead, once the rail can no
-                        // longer take the finger.
-                        liftMenu =
-                            rowActions?.takeIf { !seasonLoading }?.let { actions ->
-                                {
-                                    episodeLiftMenu(
-                                        episode = episode,
-                                        episodes = episodes,
-                                        artworkUrl = episodeStillUrl(baseUrl, accessToken, episode),
-                                        downloaded = actions.downloads.containsKey(episode.id),
-                                        onOpen = { onPlayEpisode(episode) },
-                                        onPlay = { actions.play(episode, onPlayEpisode) },
-                                        onMark = actions::mark,
-                                        onDownload = { actions.download(listOf(episode)) },
-                                        onSelectFrom = { actions.startSelection(episode) },
-                                        scrub = actions.scrub(episode),
-                                    )
-                                }
-                            },
-                    )
+                LazyRow(
+                    state = listState,
+                    // The last season's cards stay where they are, dimmed and inert, until the new
+                    // season's land and take their place.
+                    modifier =
+                        Modifier
+                            .graphicsLayer { alpha = staleAlpha.value },
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    contentPadding =
+                        PaddingValues(
+                            start = Dimens.pageHorizontal,
+                            top = 10.dp,
+                            end = Dimens.pageHorizontal,
+                            bottom = 0.dp,
+                        ),
+                ) {
+                    motionItemsIndexed(
+                        episodes,
+                        key = { index, episode -> "ep-${episode.id}-$index" },
+                    ) { _, episode ->
+                        EpisodeCard(
+                            baseUrl = baseUrl,
+                            accessToken = accessToken,
+                            episode = episode,
+                            seriesPosterUrl = seriesPosterUrl,
+                            accent = accent,
+                            selected = episode.id == selectedEpisodeId,
+                            enabled = !seasonLoading,
+                            onPlay = { onPlayEpisode(episode) },
+                            download = rowActions?.downloads?.get(episode.id),
+                            // A press held on a card lifts it into the 单集 menu (5.1). The rail scrolls
+                            // sideways, so the card has no swipe of its own; 从这里开始多选 opens the
+                            // 管理进度 sheet, whose rows swipe and sweep. The sideways look through the
+                            // episode (按住拖看) happens on the lifted card instead, once the rail can no
+                            // longer take the finger.
+                            liftMenu =
+                                rowActions?.takeIf { !seasonLoading }?.let { actions ->
+                                    {
+                                        episodeLiftMenu(
+                                            episode = episode,
+                                            episodes = episodes,
+                                            artworkUrl = episodeStillUrl(baseUrl, accessToken, episode),
+                                            downloaded = actions.downloads.containsKey(episode.id),
+                                            onOpen = { onPlayEpisode(episode) },
+                                            onPlay = { actions.play(episode, onPlayEpisode) },
+                                            onMark = actions::mark,
+                                            onDownload = { actions.download(listOf(episode)) },
+                                            onSelectFrom = { actions.startSelection(episode) },
+                                            scrub = actions.scrub(episode),
+                                        )
+                                    }
+                                },
+                        )
+                    }
                 }
             }
         }

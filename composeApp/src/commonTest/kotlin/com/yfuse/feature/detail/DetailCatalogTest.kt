@@ -48,6 +48,127 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DetailCatalogTest {
+    @Test fun aCatalogPreviewCannotBypassTheEpisodeStreamResolverAndEachPlayRefreshesTheUrl() =
+        runTest {
+            val fixture = fixture(videoUrl = "https://cdn.example/two-minute-bonus.mp4")
+            try {
+                fixture.start()
+                advanceUntilIdle()
+                fixture.catalog.selectCoordinate(2, 3)
+                advanceUntilIdle()
+                fixture.catalog.handle(DetailIntent.Play, fixture.state)
+                advanceUntilIdle()
+                assertEquals(1, fixture.runtime.calls.size)
+                assertEquals(
+                    "https://cdn.example/fresh.m3u8",
+                    fixture.launches
+                        .single()
+                        .first.videoUrl,
+                )
+                fixture.runtime.response =
+                    """[{"id":"resource","title":"线路一","videoUrl":"https://cdn.example/refreshed.m3u8"}]"""
+                fixture.catalog.handle(DetailIntent.Play, fixture.state)
+                advanceUntilIdle()
+                assertEquals(2, fixture.runtime.calls.size)
+                assertEquals(
+                    "https://cdn.example/refreshed.m3u8",
+                    fixture.launches
+                        .last()
+                        .first.videoUrl,
+                )
+                fixture.runtime.calls.forEach { request ->
+                    val args = request.jsonObject
+                    assertEquals(JsonPrimitive("42"), args["id"], "A resolved route ID is not the catalog ID")
+                    assertEquals(JsonPrimitive(2), args["season"])
+                    assertEquals(JsonPrimitive(3), args["episode"])
+                }
+            } finally {
+                fixture.close()
+            }
+        }
+
+    @Test fun aResolverFailureNeverFallsBackToTheCatalogPreview() =
+        runTest {
+            val fixture = fixture(videoUrl = "https://cdn.example/preview.mp4")
+            try {
+                fixture.runtime.response = "[]"
+                fixture.start()
+                advanceUntilIdle()
+                fixture.catalog.handle(DetailIntent.Play, fixture.state)
+                advanceUntilIdle()
+                assertEquals(1, fixture.runtime.calls.size)
+                assertTrue(fixture.launches.isEmpty())
+                assertTrue(fixture.catalog.resources.value.error != null)
+            } finally {
+                fixture.close()
+            }
+        }
+
+    @Test fun resolverRoutesForADifferentEpisodeCannotPlayAsTheSelectedEpisode() =
+        runTest {
+            val fixture = fixture()
+            try {
+                fixture.runtime.response =
+                    """[{"id":"wrong","title":"第1集","season":1,"episode":1,"videoUrl":"https://cdn.example/wrong.m3u8"}]"""
+                fixture.start()
+                advanceUntilIdle()
+                fixture.catalog.selectCoordinate(1, 2)
+                advanceUntilIdle()
+                fixture.catalog.handle(DetailIntent.Play, fixture.state)
+                advanceUntilIdle()
+                assertTrue(fixture.launches.isEmpty())
+                assertTrue(fixture.catalog.resources.value.error != null)
+            } finally {
+                fixture.close()
+            }
+        }
+
+    @Test fun choosingAmongFreshResolvedRoutesDoesNotResolveAgainUntilTheNextPlayback() =
+        runTest {
+            val fixture = fixture(videoUrl = "https://cdn.example/preview.mp4")
+            try {
+                fixture.runtime.response = """[{"id":"hd","title":"HD","videoUrl":"https://cdn.example/hd.m3u8"},
+                    {"id":"fhd","title":"FHD","videoUrl":"https://cdn.example/fhd.m3u8"}]"""
+                fixture.start()
+                advanceUntilIdle()
+                fixture.catalog.handle(DetailIntent.Play, fixture.state)
+                advanceUntilIdle()
+                assertTrue(fixture.launches.isEmpty())
+                fixture.catalog.selectRoute("fhd")
+                fixture.catalog.handle(DetailIntent.Play, fixture.state)
+                advanceUntilIdle()
+                assertEquals(1, fixture.runtime.calls.size)
+                assertEquals(
+                    "https://cdn.example/fhd.m3u8",
+                    fixture.launches
+                        .single()
+                        .first.videoUrl,
+                )
+            } finally {
+                fixture.close()
+            }
+        }
+
+    @Test fun aDirectVideoWithoutAResolverStillPlaysDirectly() =
+        runTest {
+            val fixture = fixture(videoUrl = "https://cdn.example/full-episode.m3u8", stream = false)
+            try {
+                fixture.start()
+                advanceUntilIdle()
+                fixture.catalog.handle(DetailIntent.Play, fixture.state)
+                advanceUntilIdle()
+                assertTrue(fixture.runtime.calls.isEmpty())
+                assertEquals(
+                    "https://cdn.example/full-episode.m3u8",
+                    fixture.launches
+                        .single()
+                        .first.videoUrl,
+                )
+            } finally {
+                fixture.close()
+            }
+        }
+
     @Test fun restoresTheLatestEpisodeAndResolvesFreshResourcesOnlyAfterPlay() =
         runTest {
             val fixture = fixture()
@@ -207,7 +328,10 @@ class DetailCatalogTest {
             }
         }
 
-    private suspend fun TestScope.fixture(): Fixture {
+    private suspend fun TestScope.fixture(
+        videoUrl: String = "",
+        stream: Boolean = true,
+    ): Fixture {
         val dispatcher = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(dispatcher)
         val owner = CoroutineScope(SupervisorJob() + dispatcher)
@@ -247,11 +371,24 @@ class DetailCatalogTest {
                 override suspend fun write(value: String) = Unit
             }
         val widgets = WidgetRepository(persistence, runtime, owner, { "id" }, { it }, { 0L })
+        val resolver =
+            if (stream) {
+                """,{"id":"loadResource","title":"资源","type":"stream","functionName":"stream"}"""
+            } else {
+                ""
+            }
         val metadata = """{"id":"catalog","title":"测试组件","modules":[
-                {"id":"list","title":"List","functionName":"list"},
-                {"id":"loadResource","title":"资源","type":"stream","functionName":"stream"}]}"""
+                {"id":"list","title":"List","functionName":"list"}$resolver]}"""
         widgets.install(widgets.inspect(metadata, "file:catalog.js"))
-        val media = WidgetMedia("42", "测试剧", type = "tmdb", mediaType = "tv", tmdbId = "42")
+        val media =
+            WidgetMedia(
+                "42",
+                "测试剧",
+                type = "tmdb",
+                mediaType = "tv",
+                tmdbId = "42",
+                videoUrl = videoUrl,
+            )
         val source = WidgetSourceContext("catalog", media)
         val tmdb = TmdbRepository(client)
         val info =
