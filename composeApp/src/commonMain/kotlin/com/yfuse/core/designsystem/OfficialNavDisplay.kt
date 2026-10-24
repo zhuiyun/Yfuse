@@ -210,8 +210,12 @@ fun <T : Any> OfficialNavDisplay(
                     modifier = Modifier.fillMaxSize(),
                     onBack = onBack,
                     sceneStrategies =
-                        remember(zoom) {
-                            if (zoom == null) emptyList() else listOf(ZoomBackSceneStrategy<T>(zoom))
+                        remember(zoom, zoom?.pageKey, zoom?.controller?.active) {
+                            if (zoom == null) {
+                                emptyList()
+                            } else {
+                                listOf(ZoomBackSceneStrategy<T>(zoom.pageKey.takeIf { zoom.controller.active }))
+                            }
                         },
                     transitionSpec = {
                         if (cinemaPoster && motion == OfficialNavMotion.Stack) {

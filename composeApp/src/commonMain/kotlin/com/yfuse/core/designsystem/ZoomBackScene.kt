@@ -12,11 +12,13 @@ import androidx.navigation3.scene.SceneStrategyScope
 
 /** Keep a side preview inside the current scene; the gesture controller owns its animation. */
 internal class ZoomBackSceneStrategy<T : Any>(
-    private val host: ZoomBackNavHost,
+    // NavDisplay memoizes scenes by the strategy list, so preview changes must create a new
+    // strategy value instead of reading the controller inside the cached calculation.
+    private val previewPageKey: String?,
 ) : SceneStrategy<T> {
     override fun SceneStrategyScope<T>.calculateScene(entries: List<NavEntry<T>>): Scene<T> {
         val top = entries.last()
-        val preview = host.controller.active && host.pageKey == top.contentKey
+        val preview = previewPageKey == top.contentKey
         return ZoomBackScene(
             key = top.contentKey,
             entries = entries.takeLast(if (preview) 2 else 1),
