@@ -21,6 +21,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -303,6 +304,7 @@ class DetailBackNavigationInstrumentedTest {
                     !probe.sharedMoving.get() &&
                     probe.routeSettled.get()
             }
+            val detailInstance = probe.composedInstance.get()
             for (edge in listOf(BackEventCompat.EDGE_LEFT, BackEventCompat.EDGE_RIGHT)) {
                 predictiveGesture(scenario, cancel = true, edge = edge) {
                     assertOpaqueSidePreview()
@@ -316,6 +318,11 @@ class DetailBackNavigationInstrumentedTest {
                 } catch (failure: AssertionError) {
                     throw AssertionError("${failure.message}; edge=$edge; ${probe.transitionDetails.get()}", failure)
                 }
+                assertSame(
+                    "Cancelling back must retain the detail's state",
+                    detailInstance,
+                    probe.composedInstance.get(),
+                )
                 assertStack(scenario, probe, listOf("library", "detail-a"), pops = 0)
             }
             probe.sharedReturningRoute.set(null)
@@ -662,6 +669,7 @@ class DetailBackNavigationInstrumentedTest {
                                         LocalSharedMediaTransitionController.current?.activeKey != null
                                     val sharedMoving = LocalSharedTransitionScope.current?.isTransitionActive == true
                                     val previewActive = LocalZoomBackSources.current?.wanted != null
+                                    val contentInstance = remember { Any() }
                                     val transition = LocalNavAnimatedContentScope.current.transition
                                     val routeSettled =
                                         transition.currentState == EnterExitState.Visible &&
@@ -678,6 +686,7 @@ class DetailBackNavigationInstrumentedTest {
                                         }
                                         if (visible) {
                                             probe.composedTop.set(route)
+                                            probe.composedInstance.set(contentInstance)
                                             probe.transitionActive.set(transitionActive)
                                             probe.sharedMoving.set(sharedMoving)
                                             probe.previewActive.set(previewActive)
@@ -1114,6 +1123,7 @@ class DetailBackNavigationInstrumentedTest {
         val rootPops = AtomicInteger()
         val rootBacks = AtomicInteger()
         val composedTop = AtomicReference<String>()
+        val composedInstance = AtomicReference<Any>()
         val posterBounds = AtomicReference(Rect.Zero)
         val transitionActive = AtomicBoolean()
         val sharedMoving = AtomicBoolean()
