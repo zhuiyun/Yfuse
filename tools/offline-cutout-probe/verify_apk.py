@@ -19,7 +19,7 @@ for abi in ['arm64-v8a', 'x86_64']:
     with zipfile.ZipFile(apk) as archive:
         names = archive.namelist()
         assert any(n.startswith('lib/' + abi + '/') and 'onnxruntime' in n for n in names)
-        assert any(n.startswith('lib/' + abi + '/') and 'tensorflowlite' in n for n in names)
+        assert any(n.startswith('lib/' + abi + '/') and 'mediapipe_tasks_vision_jni' in n for n in names)
         for model in manifest['models']:
             assert hashlib.sha256(archive.read('assets/' + model['file'])).hexdigest() == model['sha256']
     name = f'Yfuse-offline-cutout-probe-0.0.1-{abi}.apk'

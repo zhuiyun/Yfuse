@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install build-time-only conversion dependencies
-        run: python -m pip install 'numpy<2' paddlepaddle==2.6.2 paddle2onnx==1.2.3 onnx==1.16.2 onnxruntime==1.23.2 pillow
+        run: python -m pip install 'numpy<2' protobuf==3.20.3 six==1.17.0 paddlepaddle==2.6.2 paddle2onnx==1.2.3 onnx==1.16.2 onnxruntime==1.23.2 pillow
       - name: Fetch exact models and verify Paddle to ONNX equivalence
         run: python tools/offline-cutout-probe/prepare_assets.py
       - name: Install compile platform

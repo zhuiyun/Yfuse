@@ -10,7 +10,14 @@ import android.os.Debug;
 import android.os.SystemClock;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.tensorflow.lite.Interpreter;
+import com.google.mediapipe.framework.image.MPImage;
+import com.google.mediapipe.framework.image.BitmapImageBuilder;
+import com.google.mediapipe.framework.image.ByteBufferExtractor;
+import com.google.mediapipe.tasks.core.BaseOptions;
+import com.google.mediapipe.tasks.core.Delegate;
+import com.google.mediapipe.tasks.vision.core.RunningMode;
+import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenter;
+import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenterResult;
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtSession;
@@ -61,21 +68,27 @@ public final class ProbeRunner {
     private static Engine engine(Context context, JSONObject spec, JSONObject report) throws Exception {
         File file = model(context, spec.getString("file"));
         if (spec.getString("runtime").equals("tflite")) {
-            Interpreter.Options options = new Interpreter.Options().setNumThreads(2);
-            final Interpreter interpreter = new Interpreter(file, options);
-            int[] in = interpreter.getInputTensor(0).shape(); int[] output = interpreter.getOutputTensor(0).shape();
-            report.put("actual_input_shape", new JSONArray(in)); report.put("actual_output_shape", new JSONArray(output));
+            ImageSegmenter.ImageSegmenterOptions options = ImageSegmenter.ImageSegmenterOptions.builder()
+                    .setBaseOptions(BaseOptions.builder().setModelAssetPath(spec.getString("file")).setDelegate(Delegate.CPU).build())
+                    .setRunningMode(RunningMode.IMAGE).setOutputCategoryMask(false).setOutputConfidenceMasks(true).build();
+            final ImageSegmenter segmenter = ImageSegmenter.createFromOptions(context, options);
+            report.put("runtime", "MediaPipe Tasks CPU 0.10.21 (official custom-op support)").put("threads", "MediaPipe default");
             return new Engine() {
-                public Mask infer(Bitmap bitmap) {
-                    int height = in[1], width = in[2];
-                    float[] rgb = pixels(bitmap, width, height, "unit", false);
-                    ByteBuffer data = ByteBuffer.allocateDirect(rgb.length * 4).order(ByteOrder.nativeOrder()); data.asFloatBuffer().put(rgb);
-                    int count = 1; for (int dim : output) count *= dim;
-                    ByteBuffer buffer = ByteBuffer.allocateDirect(count * 4).order(ByteOrder.nativeOrder());
-                    interpreter.run(data, buffer); buffer.rewind(); float[] raw = new float[count]; buffer.asFloatBuffer().get(raw);
-                    return new Mask(raw, output[2], output[1]);
+                public Mask infer(Bitmap bitmap) throws Exception {
+                    MPImage input = new BitmapImageBuilder(bitmap).build();
+                    try {
+                        ImageSegmenterResult result = segmenter.segment(input);
+                        List<MPImage> masks = result.confidenceMasks().orElseThrow();
+                        if (masks.size() != 1) throw new IllegalStateException("Expected one foreground channel: " + masks.size());
+                        MPImage output = masks.get(0);
+                        try {
+                            ByteBuffer buffer = ByteBufferExtractor.extract(output).order(ByteOrder.nativeOrder());
+                            float[] raw = new float[output.getWidth() * output.getHeight()]; buffer.asFloatBuffer().get(raw);
+                            return new Mask(raw, output.getWidth(), output.getHeight());
+                        } finally { for (MPImage mask : masks) mask.close(); }
+                    } finally { input.close(); }
                 }
-                public void close() { interpreter.close(); }
+                public void close() { segmenter.close(); }
             };
         }
         OrtEnvironment environment = OrtEnvironment.getEnvironment();

@@ -50,8 +50,8 @@ def convert_paddle(spec, source):
             if Path(name).is_absolute() or '..' in Path(name).parts:
                 raise RuntimeError('Unsafe archive member')
         archive.extractall(directory)
-    model = next(directory.rglob('*.pdmodel'))
-    params = next(directory.rglob('*.pdiparams'))
+    model = next(p for p in directory.rglob('model.pdmodel') if '__MACOSX' not in p.parts)
+    params = model.with_name('model.pdiparams')
     target = ASSETS / spec['file']
     subprocess.run(['paddle2onnx', '--model_dir', str(model.parent), '--model_filename', model.name,
                     '--params_filename', params.name, '--save_file', str(target), '--opset_version', '11',
@@ -94,7 +94,8 @@ def main():
         spec['sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
         if spec['runtime'] == 'onnx':
             import onnxruntime as ort
-            session = ort.InferenceSession(str(path), providers=['CPUExecutionProvider'])
+            options = ort.SessionOptions(); options.intra_op_num_threads = 2; options.inter_op_num_threads = 1
+            session = ort.InferenceSession(str(path), sess_options=options, providers=['CPUExecutionProvider'])
             spec['input_name'] = session.get_inputs()[0].name
             shape = session.get_inputs()[0].shape
             default = [1, 3, 144, 256] if spec['id'] == 'pp-portrait' else [1, 3, 192, 192] if spec['id'] == 'pp-human' else [1, 3, 512, 512] if spec['id'] in ('modnet', 'birefnet') else [1, 3, 320, 320]
@@ -103,6 +104,13 @@ def main():
             spec['source_input_shape'] = shape
         print(json.dumps(spec, ensure_ascii=False), flush=True)
     if not args.downloads_only:
+        for name, url in {
+            'MODNet-APACHE.txt': 'https://raw.githubusercontent.com/ZHKKKe/MODNet/master/LICENSE',
+            'PaddleSeg-APACHE.txt': 'https://raw.githubusercontent.com/PaddlePaddle/PaddleSeg/release/2.10/LICENSE',
+            'MediaPipe-APACHE.txt': 'https://raw.githubusercontent.com/google-ai-edge/mediapipe/v0.10.21/LICENSE',
+            'BiRefNet-MIT.txt': 'https://huggingface.co/studioludens/birefnet-lite-512/resolve/962e67969ec6acec9c19fab76acee4f5e22e990c/LICENSE',
+            'U2Net-APACHE.txt': 'https://raw.githubusercontent.com/xuebinqin/U-2-Net/master/LICENSE',
+        }.items(): fetch(url, ASSETS / 'licenses' / name)
         (ASSETS / 'manifest.json').write_text(json.dumps(dict(models=MODELS, samples=SAMPLES), ensure_ascii=False, indent=2))
 
 if __name__ == '__main__': main()

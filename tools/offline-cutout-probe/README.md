@@ -9,8 +9,8 @@
 - 两张历史失败海报：《鲸口脱险》《野兽之心》。另外使用《星际穿越》《蜘蛛侠：平行宇宙》《海洋奇缘》《沙丘》；来源与原始字节 SHA-256 写入 model-manifest.json。
 - 使用原始模型输出；不手工修图，不叠加其他模型，不使用生成式图像。原始浮点蒙版保留为小端 f32；展示图执行模型规定的 sigmoid、min-max 或概率转换，并单独记录裁剪值。
 - 每个模型在单独的 Android 进程中运行；每张图预热一次、测量三次。耗时包括缩放、归一化、张量分配、CPU 推理和输出复制；不含模型加载与文件写入。报告分别记录初始化耗时。
-- 采用两个 CPU 推理线程。内核 `/proc/self/status` 的 VmHWM 是该测试进程的最高常驻内存；PSS 为采样值。二者均不是模型权重文件大小。
-- Google Selfie 模型直接由本地 TFLite Interpreter 执行，不使用 MediaPipe 图形流水线；不能用本次结果推断整套 MediaPipe 流水线的表现。
+- ONNX 模型采用两个 CPU 推理线程；Google Selfie 采用 MediaPipe CPU 默认线程配置。内核 `/proc/self/status` 的 VmHWM 是该测试进程的最高常驻内存；PSS 为采样值。二者均不是模型权重文件大小。
+- Google Selfie 模型包含 `Convolution2DTransposeBias` 自定义算子，因此使用本地 MediaPipe Tasks CPU 运行时及其官方预处理，不能直接用普通 TFLite Interpreter 代替。运行时不依赖 Play 服务下载模型。
 - MODNet 使用模型提供者发布的动态 ONNX 图，在本轮统一固定 512×512 输入；这是移动端有限开销的测试配置，不代表官方保持长宽比或更高分辨率配置的最佳表现。
 - PP 模型由官方 Paddle softmax 推理模型转为 ONNX，先在构建机与 Paddle 原输出做误差校验。这个转换检查不算 Android 性能测试。
 - 飞行模式、关闭 Wi-Fi/移动数据，并禁用模拟器 Google Play 服务后测试。APK 中无 INTERNET 权限作为额外保证。
