@@ -14,7 +14,7 @@ android {
     }
     buildFeatures { buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    splits { abi { isEnable = true; reset(); include("arm64-v8a", "x86_64"); isUniversalApk = false } }
+    splits { abi { isEnable = true; reset(); include("arm64-v8a", "x86"); isUniversalApk = false } }
     androidResources { noCompress += listOf("tflite") }
 }
 dependencies {

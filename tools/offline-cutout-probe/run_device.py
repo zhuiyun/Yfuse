@@ -16,10 +16,10 @@ def main():
         raise SystemExit('Unattended runner only accepts a disposable emulator')
     abis = adb('shell', 'getprop', 'ro.product.cpu.abilist').stdout.strip()
     bridge = adb('shell', 'getprop', 'ro.dalvik.vm.native.bridge').stdout.strip()
-    (OUT / 'abi-check.json').write_text(json.dumps(dict(device_abis=abis, native_bridge=bridge, requested_apk='arm64-v8a'), indent=2))
-    if 'arm64-v8a' not in abis:
-        raise SystemExit('This emulator lacks ARM64 translation required by the official MediaPipe runtime')
-    apk = ROOT / 'app/build/outputs/apk/debug/app-arm64-v8a-debug.apk'
+    (OUT / 'abi-check.json').write_text(json.dumps(dict(device_abis=abis, native_bridge=bridge, requested_apk='x86'), indent=2))
+    if 'x86' not in abis.split(','):
+        raise SystemExit('This image lacks native x86 support')
+    apk = ROOT / 'app/build/outputs/apk/debug/app-x86-debug.apk'
     result = adb('install', '-r', str(apk), timeout=180)
     (OUT / 'install.txt').write_text(result.stdout + result.stderr); result.check_returncode()
     adb('shell', 'pm', 'clear', PACKAGE)
@@ -42,7 +42,7 @@ def main():
             process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT)
             started = time.monotonic(); timed_out = False
             while process.poll() is None:
-                if time.monotonic() - started > 720:
+                if time.monotonic() - started > 240:
                     timed_out = True; adb('shell', 'am', 'force-stop', PACKAGE); process.kill(); break
                 time.sleep(1)
             process.wait(timeout=20)
@@ -54,6 +54,12 @@ def main():
         (OUT / (model + '-meminfo.txt')).write_text(adb('shell', 'dumpsys', 'meminfo', PACKAGE).stdout)
         (OUT / 'outcomes.json').write_text(json.dumps(outcomes, indent=2))
         print(json.dumps(outcomes[-1]), flush=True)
+        snapshot = adb('exec-out', 'run-as', PACKAGE, 'tar', '-C', 'files', '-cf', '-', 'offline-probe', binary=True, timeout=120)
+        if snapshot.returncode == 0:
+            with tarfile.open(fileobj=io.BytesIO(snapshot.stdout)) as partial:
+                for member in partial.getmembers():
+                    if Path(member.name).is_absolute() or '..' in Path(member.name).parts or member.issym() or member.islnk(): raise RuntimeError('Unsafe archive')
+                partial.extractall(OUT)
     archive = adb('exec-out', 'run-as', PACKAGE, 'tar', '-C', 'files', '-cf', '-', 'offline-probe', binary=True, timeout=180)
     archive.check_returncode()
     with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
@@ -64,7 +70,7 @@ def main():
     print('All attempted:', json.dumps(outcomes), flush=True)
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
-            stream.write('Android emulator CPU only; no physical-device performance claim.\n\n')
+            stream.write('Android 11 native x86 emulator CPU; no ARM64 physical-device performance claim.\n\n')
             stream.write('| Model | Status |\n|---|---|\n')
             for item in outcomes: stream.write(f'| {item["model"]} | {item["status"]} |\n')
 

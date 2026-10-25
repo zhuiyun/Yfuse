@@ -8,7 +8,7 @@ sdk = Path(os.environ.get('ANDROID_SDK_ROOT', os.environ.get('ANDROID_HOME', '')
 tool = sdk / 'build-tools/37.0.0'
 manifest = json.loads((ROOT / 'app/src/main/assets/manifest.json').read_text())
 metadata = []
-for abi in ['arm64-v8a', 'x86_64']:
+for abi in ['arm64-v8a', 'x86']:
     apk = ROOT / f'app/build/outputs/apk/debug/app-{abi}-debug.apk'
     badging = subprocess.check_output([str(tool / 'aapt'), 'dump', 'badging', str(apk)], text=True)
     package = re.search(r"^package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", badging, re.M)
@@ -22,7 +22,7 @@ for abi in ['arm64-v8a', 'x86_64']:
         selfie_native = any(n.startswith('lib/' + abi + '/') and 'mediapipe_tasks_vision_jni' in n for n in names)
         # Google's 0.10.21 AAR publishes arm64-v8a, armeabi-v7a and x86, but
         # no x86_64 library. Only the ARM64 APK is an all-model deliverable.
-        if abi == 'arm64-v8a': assert selfie_native
+        assert selfie_native
         for model in manifest['models']:
             assert hashlib.sha256(archive.read('assets/' + model['file'])).hexdigest() == model['sha256']
     name = f'Yfuse-offline-cutout-probe-0.0.1-{abi}.apk'

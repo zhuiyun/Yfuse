@@ -16,10 +16,10 @@
 - PP 通用人物版采用 256×256 输入：192×192 下出现的非整除自适应池化转换误差，不能当成原模型效果。256×256 配置与原始动态 Paddle 模型在同尺寸下对照，随机输入与六张海报均要求 allclose(atol=1e-4, rtol=1e-4)，保留每项数值和轮廓一致率。人像版保持官方 144×256 输入。
 - 飞行模式、关闭 Wi-Fi/移动数据，并禁用模拟器 Google Play 服务后测试。APK 中无 INTERNET 权限作为额外保证。
 - 自动结果状态只说明模型是否产生输出；前景比例不作为质量准确率。复杂海报的肢体、动物、文字残留、发丝等必须视觉检查。
-- Google MediaPipe 0.10.21 的官方 AAR 没有 x86_64 运行库。全模型测试使用 ARM64 APK，在具有 ARM64 原生桥转译能力的 Android x86_64 云端模拟器运行；驱动先检查 ABI 能力并保留 native bridge 信息。耗时、内存不能冒充 ARM64 真机测试。x86_64 APK 仅供 ONNX 排查，不作为全模型交付包。
+- 本轮使用 Android 11 / API 30 的原生 x86 KVM 模拟器，执行包含六组权重的 x86 APK。Google MediaPipe 官方 AAR 包含原生 x86 运行库。另提供同权重 ARM64 APK；原生 x86 的时间和内存不能冒充 ARM64 真机结果。每种模型的总执行上限为 240 秒，超时保留已经产生的真实输出。ARM64 转译测试另在独立工作流记录。
 
 ## 复现
 
-由 `.github/workflows/offline-cutout-probe.yml` 构建和测试。安装 ARM64 APK 后开启飞行模式，运行内置图片或选择本地图片，并将报告 ZIP 导出到本地。
+由 `.github/workflows/offline-cutout-native.yml` 构建和测试。安装 ARM64 APK 后开启飞行模式，运行内置图片或选择本地图片，并将报告 ZIP 导出到本地。
 
 模型来源与许可：MODNet（ZHKKKe/MODNet，Apache-2.0，Xenova 转换版）；PP-HumanSeg（百度 PaddleSeg，Apache-2.0）；Google MediaPipe Selfie 模型（Google AI Edge 官方模型发布）；BiRefNet Lite（ZhengPeng7/BiRefNet，Studio Ludens 转换版，MIT）；U2NetP（xuebinqin/U-2-Net，Apache-2.0，经 rembg 发布）。具体下载 URL、版本及哈希随报告保留。
