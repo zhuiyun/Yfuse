@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -111,7 +112,11 @@ internal fun WidgetRibbonGallery(
                         }
                     }.then(motion.inputModifier),
             ) {
-                Box(Modifier.fillMaxSize().clip(strip).clearAndSetSemantics { }) {
+                Box(
+                    Modifier.fillMaxSize().clip(strip).clearAndSetSemantics { },
+                    // Artwork positions below already mirror in physical coordinates.
+                    contentAlignment = AbsoluteAlignment.TopLeft,
+                ) {
                     val visible = (motion.currentIndex - 2..motion.currentIndex + 2).filter { it in items.indices }
                     visible.forEach { index ->
                         val center = .5f + (index - motion.position) * .44f * if (motion.rtl) -1 else 1

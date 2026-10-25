@@ -1,6 +1,7 @@
 package com.yfuse.feature.widgets
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.SystemClock
 import android.view.InputDevice
@@ -51,6 +52,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 /** Exercises the public style dispatch and actual Compose semantics, without network artwork. */
 @RunWith(AndroidJUnit4::class)
@@ -196,6 +200,112 @@ class WidgetImmersiveLayoutsInstrumentedTest {
             }
         }
     }
+
+    @Test(timeout = 90_000L)
+    fun ribbon_current_artwork_stays_centered_in_ltr_and_rtl() {
+        val source =
+            instrumentation.targetContext.assets.open("widget-preview/space.png").use {
+                requireNotNull(BitmapFactory.decodeStream(it))
+            }
+        try {
+            withWidgetScenario { scenario ->
+                val probe = mount(scenario)
+                var session = 0
+                for (single in listOf(false, true)) {
+                    for (rtl in listOf(false, true)) {
+                        val input =
+                            RenderCase(
+                                WidgetStyle.RibbonGallery,
+                                if (single) listOf(films[0]) else films,
+                                width = 180,
+                                fontScale = 2f,
+                                rtl = rtl,
+                                reduced = true,
+                                session = session++,
+                            )
+                        show(scenario, probe, input)
+                        awaitDetail(films[0])
+                        val expected = ribbonSourceSamples(probe, source)
+                        // Compare with the bundled photograph, not another screenshot that could
+                        // still show Coil's placeholder. The selected film must stay at the marker.
+                        await("Ribbon's actual first artwork was not centered (single=$single, rtl=$rtl)") {
+                            val screenshot = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+                            try {
+                                val bounds = probe.bounds.get()
+                                val actual =
+                                    ribbonCenterSamples(
+                                        screenshot,
+                                        bounds.left.roundToInt(),
+                                        bounds.top.roundToInt(),
+                                        bounds.width,
+                                    )
+                                meanRgbDifference(expected, actual) <= 8.0
+                            } finally {
+                                screenshot.recycle()
+                            }
+                        }
+                        clickDetail(films[0], probe)
+                        assertSame("Ribbon's centered artwork opened another film", films[0], probe.opened.get())
+                    }
+                }
+            }
+        } finally {
+            source.recycle()
+        }
+    }
+
+    private fun ribbonSourceSamples(
+        probe: Probe,
+        source: Bitmap,
+    ): IntArray {
+        val density = probe.density.get()
+        val widthDp = probe.bounds.get().width / density
+        val fraction = if (probe.input.value.items.size == 1) .84f else .44f
+        val posterLeft = (widthDp * (.5f - fraction / 2) * density).roundToInt()
+        val posterTop = (widthDp * .76f * .055f * density).roundToInt()
+        val posterWidth = ((widthDp * fraction + .5f) * density).roundToInt()
+        val posterHeight = (widthDp * .76f * .83f * density).roundToInt()
+        // Reproduce ContentScale.Crop for the actual source image inside a centered poster.
+        val scale = max(posterWidth.toFloat() / source.width, posterHeight.toFloat() / source.height)
+        val scaled =
+            Bitmap.createScaledBitmap(
+                source,
+                (source.width * scale).roundToInt(),
+                (source.height * scale).roundToInt(),
+                true,
+            )
+        try {
+            val cropLeft = ((posterWidth - scaled.width) / 2f).roundToInt()
+            val cropTop = ((posterHeight - scaled.height) / 2f).roundToInt()
+            return ribbonCenterSamples(scaled, -posterLeft - cropLeft, -posterTop - cropTop, probe.bounds.get().width)
+        } finally {
+            if (scaled !== source) scaled.recycle()
+        }
+    }
+
+    private fun ribbonCenterSamples(
+        bitmap: Bitmap,
+        originX: Int,
+        originY: Int,
+        stageWidth: Float,
+    ): IntArray =
+        IntArray(12 * 12) { index ->
+            // This patch stays inside the photograph and clear of the ribbon edges/centre marker.
+            val x = originX + (stageWidth * (.42f + (index % 12) * .16f / 11)).roundToInt()
+            val y = originY + (stageWidth * (.24f + (index / 12) * .16f / 11)).roundToInt()
+            bitmap.getPixel(x, y)
+        }
+
+    private fun meanRgbDifference(
+        expected: IntArray,
+        actual: IntArray,
+    ): Double =
+        expected.indices
+            .sumOf { index ->
+                abs(android.graphics.Color.red(expected[index]) - android.graphics.Color.red(actual[index])) +
+                    abs(android.graphics.Color.green(expected[index]) - android.graphics.Color.green(actual[index])) +
+                    abs(android.graphics.Color.blue(expected[index]) - android.graphics.Color.blue(actual[index]))
+            }.toDouble() / (expected.size * 3)
 
     private data class RenderCase(
         val style: WidgetStyle,
