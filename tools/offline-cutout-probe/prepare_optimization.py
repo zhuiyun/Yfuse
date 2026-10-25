@@ -1,6 +1,7 @@
 """Reuse immutable checked weights; quantize only constant matrix weights."""
 from pathlib import Path
 import argparse,copy,hashlib,json,zipfile
+import onnx
 from onnxruntime.quantization import QuantType,quantize_dynamic
 ROOT=Path(__file__).resolve().parent
 ASSETS=ROOT/'app/src/main/assets'
@@ -25,6 +26,19 @@ with zipfile.ZipFile(apk) as z:
 quantize_dynamic(str(ASSETS/'birefnet.onnx'),str(ASSETS/'birefnet-matmul-int8.onnx'),
                  op_types_to_quantize=['MatMul','Gemm'],per_channel=True,weight_type=QuantType.QInt8,
                  extra_options={'MatMulConstBOnly':True})
+# Quantization can leave Identity aliases and their original FP32 constants dead.
+# Keep exactly the nodes/initializers reachable backwards from graph outputs.
+quantized=onnx.load(ASSETS/'birefnet-matmul-int8.onnx')
+needed={x.name for x in quantized.graph.output};live=[]
+for node in reversed(quantized.graph.node):
+    assert not any(a.type in (onnx.AttributeProto.GRAPH,onnx.AttributeProto.GRAPHS) for a in node.attribute)
+    if needed.intersection(node.output):live.append(node);needed.update(node.input)
+kept=[x for x in quantized.graph.initializer if x.name in needed]
+print('QUANTIZED_GRAPH',json.dumps(dict(before_nodes=len(quantized.graph.node),after_nodes=len(live),before_initializers=len(quantized.graph.initializer),after_initializers=len(kept))),flush=True)
+del quantized.graph.node[:];quantized.graph.node.extend(reversed(live))
+del quantized.graph.initializer[:];quantized.graph.initializer.extend(kept)
+onnx.checker.check_model(quantized)
+onnx.save(quantized,ASSETS/'birefnet-matmul-int8.onnx')
 pp=copy.deepcopy(next(x for x in chosen if x['id']=='pp-human'))
 base=copy.deepcopy(next(x for x in chosen if x['id']=='birefnet'))
 base.update(id='biref-base',title='BiRef FP32 原始分配',cpu_arena=True,memory_pattern=True,threads=2)

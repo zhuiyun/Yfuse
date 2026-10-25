@@ -15,6 +15,9 @@ for abi in ['arm64-v8a', 'x86']:
     assert package and package.groups() == ('com.yfuse.offlineprobe.v2', '2', '0.0.2'), badging[:500]
     permissions = subprocess.check_output([str(tool / 'aapt'), 'dump', 'permissions', str(apk)], text=True)
     assert 'android.permission.INTERNET' not in permissions
+    tree = subprocess.check_output([str(tool / 'aapt'), 'dump', 'xmltree', str(apk), 'AndroidManifest.xml'], text=True)
+    assert 'com.yfuse.offlineprobe.ProbeInstrumentation' in tree
+    assert 'com.yfuse.offlineprobe.MainActivity' in tree
     signature = subprocess.check_output([str(tool / 'apksigner'), 'verify', '--print-certs', str(apk)], text=True)
     with zipfile.ZipFile(apk) as archive:
         names = archive.namelist()

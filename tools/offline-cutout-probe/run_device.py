@@ -23,6 +23,10 @@ def main():
     result = adb('install', '-r', str(apk), timeout=180)
     (OUT / 'install.txt').write_text(result.stdout + result.stderr); result.check_returncode()
     adb('shell', 'pm', 'clear', PACKAGE)
+    registered=adb('shell','pm','list','instrumentation').stdout
+    (OUT/'instrumentation-registration.txt').write_text(registered)
+    if PACKAGE+'/com.yfuse.offlineprobe.ProbeInstrumentation' not in registered:
+        raise SystemExit('Expected instrumentation component is not registered: '+registered)
     offline = []
     for command in [('shell', 'settings', 'put', 'global', 'airplane_mode_on', '1'),
                     ('shell', 'svc', 'wifi', 'disable'), ('shell', 'svc', 'data', 'disable'),
