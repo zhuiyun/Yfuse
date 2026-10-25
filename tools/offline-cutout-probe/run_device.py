@@ -14,7 +14,12 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     if adb('shell', 'getprop', 'ro.kernel.qemu').stdout.strip() != '1':
         raise SystemExit('Unattended runner only accepts a disposable emulator')
-    apk = ROOT / 'app/build/outputs/apk/debug/app-x86_64-debug.apk'
+    abis = adb('shell', 'getprop', 'ro.product.cpu.abilist').stdout.strip()
+    bridge = adb('shell', 'getprop', 'ro.dalvik.vm.native.bridge').stdout.strip()
+    (OUT / 'abi-check.json').write_text(json.dumps(dict(device_abis=abis, native_bridge=bridge, requested_apk='arm64-v8a'), indent=2))
+    if 'arm64-v8a' not in abis:
+        raise SystemExit('This emulator lacks ARM64 translation required by the official MediaPipe runtime')
+    apk = ROOT / 'app/build/outputs/apk/debug/app-arm64-v8a-debug.apk'
     result = adb('install', '-r', str(apk), timeout=180)
     (OUT / 'install.txt').write_text(result.stdout + result.stderr); result.check_returncode()
     adb('shell', 'pm', 'clear', PACKAGE)

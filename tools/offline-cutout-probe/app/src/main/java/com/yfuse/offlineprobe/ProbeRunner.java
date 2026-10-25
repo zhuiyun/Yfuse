@@ -144,6 +144,7 @@ public final class ProbeRunner {
         JSONObject report = new JSONObject().put("model", spec).put("version", BuildConfig.VERSION_NAME)
                 .put("device", Build.MANUFACTURER + " " + Build.MODEL).put("fingerprint", Build.FINGERPRINT)
                 .put("abis", new JSONArray(Build.SUPPORTED_ABIS)).put("sdk", Build.VERSION.SDK_INT)
+                .put("process_arch", System.getProperty("os.arch")).put("native_library_directory", context.getApplicationInfo().nativeLibraryDir)
                 .put("internet_permission", context.checkSelfPermission(Manifest.permission.INTERNET) == PackageManager.PERMISSION_GRANTED)
                 .put("timing_includes", "resize+normalization+tensor allocation+CPU inference+output copy; excludes file saving and model initialization")
                 .put("threads", 2).put("pid", android.os.Process.myPid()).put("quality_status", "requires_visual_review");

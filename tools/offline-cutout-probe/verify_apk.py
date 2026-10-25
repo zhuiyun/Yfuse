@@ -19,13 +19,16 @@ for abi in ['arm64-v8a', 'x86_64']:
     with zipfile.ZipFile(apk) as archive:
         names = archive.namelist()
         assert any(n.startswith('lib/' + abi + '/') and 'onnxruntime' in n for n in names)
-        assert any(n.startswith('lib/' + abi + '/') and 'mediapipe_tasks_vision_jni' in n for n in names)
+        selfie_native = any(n.startswith('lib/' + abi + '/') and 'mediapipe_tasks_vision_jni' in n for n in names)
+        # Google's 0.10.21 AAR publishes arm64-v8a, armeabi-v7a and x86, but
+        # no x86_64 library. Only the ARM64 APK is an all-model deliverable.
+        if abi == 'arm64-v8a': assert selfie_native
         for model in manifest['models']:
             assert hashlib.sha256(archive.read('assets/' + model['file'])).hexdigest() == model['sha256']
     name = f'Yfuse-offline-cutout-probe-0.0.1-{abi}.apk'
     target = OUT / name; shutil.copyfile(apk, target)
     metadata.append(dict(file=name, bytes=target.stat().st_size, sha256=hashlib.sha256(target.read_bytes()).hexdigest(),
-                         version='0.0.1', code=1, package='com.yfuse.offlineprobe', abi=abi, permissions=permissions, signature=signature))
+                         version='0.0.1', code=1, package='com.yfuse.offlineprobe', abi=abi, selfie_native_available=selfie_native, permissions=permissions, signature=signature))
 (OUT / 'apk-metadata.json').write_text(json.dumps(metadata, indent=2))
 shutil.copyfile(ROOT / 'app/src/main/assets/manifest.json', OUT / 'model-manifest.json')
 print(json.dumps(metadata, indent=2))
