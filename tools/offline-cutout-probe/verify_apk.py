@@ -12,23 +12,21 @@ for abi in ['arm64-v8a', 'x86']:
     apk = ROOT / f'app/build/outputs/apk/debug/app-{abi}-debug.apk'
     badging = subprocess.check_output([str(tool / 'aapt'), 'dump', 'badging', str(apk)], text=True)
     package = re.search(r"^package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", badging, re.M)
-    assert package and package.groups() == ('com.yfuse.offlineprobe', '1', '0.0.1'), badging[:500]
+    assert package and package.groups() == ('com.yfuse.offlineprobe.v2', '2', '0.0.2'), badging[:500]
     permissions = subprocess.check_output([str(tool / 'aapt'), 'dump', 'permissions', str(apk)], text=True)
     assert 'android.permission.INTERNET' not in permissions
     signature = subprocess.check_output([str(tool / 'apksigner'), 'verify', '--print-certs', str(apk)], text=True)
     with zipfile.ZipFile(apk) as archive:
         names = archive.namelist()
         assert any(n.startswith('lib/' + abi + '/') and 'onnxruntime' in n for n in names)
-        selfie_native = any(n.startswith('lib/' + abi + '/') and 'mediapipe_tasks_vision_jni' in n for n in names)
-        # Google's 0.10.21 AAR publishes arm64-v8a, armeabi-v7a and x86, but
-        # no x86_64 library. Only the ARM64 APK is an all-model deliverable.
-        assert selfie_native
+        assert set(n for n in names if n.endswith('.onnx')) == {'assets/'+m['file'] for m in manifest['models']}
+        assert 'classes.dex' in names
         for model in manifest['models']:
             assert hashlib.sha256(archive.read('assets/' + model['file'])).hexdigest() == model['sha256']
-    name = f'Yfuse-offline-cutout-probe-0.0.1-{abi}.apk'
+    name = f'Yfuse-offline-cutout-probe-0.0.2-{abi}.apk'
     target = OUT / name; shutil.copyfile(apk, target)
     metadata.append(dict(file=name, bytes=target.stat().st_size, sha256=hashlib.sha256(target.read_bytes()).hexdigest(),
-                         version='0.0.1', code=1, package='com.yfuse.offlineprobe', abi=abi, selfie_native_available=selfie_native, permissions=permissions, signature=signature))
+                         version='0.0.2', code=2, package='com.yfuse.offlineprobe.v2', abi=abi, permissions=permissions, signature=signature))
 (OUT / 'apk-metadata.json').write_text(json.dumps(metadata, indent=2))
 shutil.copyfile(ROOT / 'app/src/main/assets/manifest.json', OUT / 'model-manifest.json')
 print(json.dumps(metadata, indent=2))

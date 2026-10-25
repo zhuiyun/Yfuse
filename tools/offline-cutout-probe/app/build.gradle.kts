@@ -19,5 +19,4 @@ android {
 }
 dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
-    implementation("com.google.mediapipe:tasks-vision:0.10.21")
 }

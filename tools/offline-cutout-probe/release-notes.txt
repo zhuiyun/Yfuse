@@ -1,3 +1,8 @@
+0.0.2
+保留 PP 通用人物版及本轮验证通过的 BiRefNet 配置；移除其他模型和 MediaPipe 运行库。
+验证 CPU 内存分配策略与 MatMul/Gemm INT8 权重量化，保留原始蒙版、数值变化、耗时与内存记录。
+独立诊断包，可与上一版并存；模型内置，无网络权限。
+
 0.0.1
 独立离线抠图对照工具：MODNet、PP-HumanSeg V2 Lite 人像/通用人物版、Google Selfie、BiRefNet Lite 512 与 U2NetP 基线。
 模型与六张公开验证海报内置，无 INTERNET 权限；支持选择本地图片与导出原始蒙版、透明前景及实测记录。

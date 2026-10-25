@@ -4,8 +4,8 @@ import io, json, os, subprocess, tarfile, time
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / 'artifacts/device'
-PACKAGE = 'com.yfuse.offlineprobe'
-MODELS = ['modnet', 'pp-portrait', 'pp-human', 'selfie', 'birefnet', 'u2netp']
+PACKAGE = 'com.yfuse.offlineprobe.v2'
+MODELS = ['pp-human', 'biref-base', 'biref-lowmem', 'biref-int8']
 
 def adb(*args, binary=False, timeout=60):
     return subprocess.run(['adb', *args], capture_output=True, text=not binary, timeout=timeout)
@@ -36,7 +36,7 @@ def main():
     for model in MODELS:
         adb('shell', 'am', 'force-stop', PACKAGE)
         adb('logcat', '-c')
-        command = ['adb', 'shell', 'am', 'instrument', '-w', '-r', '-e', 'model', model, PACKAGE + '/.ProbeInstrumentation']
+        command = ['adb', 'shell', 'am', 'instrument', '-w', '-r', '-e', 'model', model, PACKAGE + '/com.yfuse.offlineprobe.ProbeInstrumentation']
         print('TESTING', model, flush=True)
         with (OUT / (model + '-instrumentation.txt')).open('w') as stream:
             process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT)

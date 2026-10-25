@@ -5,7 +5,7 @@ import org.json.JSONObject;
 
 public final class ProbeInstrumentation extends Instrumentation {
     private String model;
-    @Override public void onCreate(Bundle args) { super.onCreate(args); model = args.getString("model", "modnet"); start(); }
+    @Override public void onCreate(Bundle args) { super.onCreate(args); model = args.getString("model", "pp-human"); start(); }
     @Override public void onStart() {
         Bundle result = new Bundle();
         try {

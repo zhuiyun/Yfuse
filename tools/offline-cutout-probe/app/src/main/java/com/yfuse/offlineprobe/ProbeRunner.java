@@ -10,14 +10,6 @@ import android.os.Debug;
 import android.os.SystemClock;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import com.google.mediapipe.framework.image.MPImage;
-import com.google.mediapipe.framework.image.BitmapImageBuilder;
-import com.google.mediapipe.framework.image.ByteBufferExtractor;
-import com.google.mediapipe.tasks.core.BaseOptions;
-import com.google.mediapipe.tasks.core.Delegate;
-import com.google.mediapipe.tasks.vision.core.RunningMode;
-import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenter;
-import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenterResult;
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtSession;
@@ -58,43 +50,22 @@ public final class ProbeRunner {
         source.recycle(); return resized;
     }
     public static File out(Context context) { File root = new File(context.getFilesDir(), "offline-probe"); root.mkdirs(); return root; }
-    private static File model(Context context, String name) throws Exception {
+    private static File model(Context context, String name, long bytes) throws Exception {
         File file = new File(context.getNoBackupFilesDir(), name);
-        if (!file.isFile()) {
-            try (InputStream input = context.getAssets().open(name); OutputStream output = new FileOutputStream(file)) { copy(input, output); }
+        if (!file.isFile() || file.length() != bytes) {
+            File temporary = new File(file.getAbsolutePath() + ".tmp");
+            try (InputStream input = context.getAssets().open(name); OutputStream output = new FileOutputStream(temporary)) { copy(input, output); }
+            if (temporary.length() != bytes || !temporary.renameTo(file)) throw new IOException("Model copy incomplete");
         }
         return file;
     }
     private static Engine engine(Context context, JSONObject spec, JSONObject report) throws Exception {
-        File file = model(context, spec.getString("file"));
-        if (spec.getString("runtime").equals("tflite")) {
-            ImageSegmenter.ImageSegmenterOptions options = ImageSegmenter.ImageSegmenterOptions.builder()
-                    .setBaseOptions(BaseOptions.builder().setModelAssetPath(spec.getString("file")).setDelegate(Delegate.CPU).build())
-                    .setRunningMode(RunningMode.IMAGE).setOutputCategoryMask(false).setOutputConfidenceMasks(true).build();
-            final ImageSegmenter segmenter = ImageSegmenter.createFromOptions(context, options);
-            report.put("runtime", "MediaPipe Tasks CPU 0.10.21 (official custom-op support)").put("threads", "MediaPipe default");
-            return new Engine() {
-                public Mask infer(Bitmap bitmap) throws Exception {
-                    // MPImage.close() owns/recycles the bitmap; retain the test source.
-                    MPImage input = new BitmapImageBuilder(bitmap.copy(Bitmap.Config.ARGB_8888, false)).build();
-                    try {
-                        ImageSegmenterResult result = segmenter.segment(input);
-                        List<MPImage> masks = result.confidenceMasks().orElseThrow(() -> new IllegalStateException("Missing confidence masks"));
-                        if (masks.size() != 1) throw new IllegalStateException("Expected one foreground channel: " + masks.size());
-                        MPImage output = masks.get(0);
-                        try {
-                            ByteBuffer buffer = ByteBufferExtractor.extract(output).order(ByteOrder.nativeOrder());
-                            float[] raw = new float[output.getWidth() * output.getHeight()]; buffer.asFloatBuffer().get(raw);
-                            return new Mask(raw, output.getWidth(), output.getHeight());
-                        } finally { for (MPImage mask : masks) mask.close(); }
-                    } finally { input.close(); }
-                }
-                public void close() { segmenter.close(); }
-            };
-        }
+        File file = model(context, spec.getString("file"), spec.getLong("bytes"));
         OrtEnvironment environment = OrtEnvironment.getEnvironment();
         OrtSession.SessionOptions options = new OrtSession.SessionOptions();
-        options.setIntraOpNumThreads(2); options.setInterOpNumThreads(1);
+        options.setIntraOpNumThreads(spec.optInt("threads", 2)); options.setInterOpNumThreads(1);
+        options.setCPUArenaAllocator(spec.optBoolean("cpu_arena", true));
+        options.setMemoryPatternOptimization(spec.optBoolean("memory_pattern", true));
         final OrtSession session;
         try { session = environment.createSession(file.getAbsolutePath(), options); } finally { options.close(); }
         JSONArray shapeSpec = spec.getJSONArray("input_shape");
@@ -147,7 +118,7 @@ public final class ProbeRunner {
                 .put("process_arch", System.getProperty("os.arch")).put("native_library_directory", context.getApplicationInfo().nativeLibraryDir)
                 .put("internet_permission", context.checkSelfPermission(Manifest.permission.INTERNET) == PackageManager.PERMISSION_GRANTED)
                 .put("timing_includes", "resize+normalization+tensor allocation+CPU inference+output copy; excludes file saving and model initialization")
-                .put("threads", 2).put("pid", android.os.Process.myPid()).put("quality_status", "requires_visual_review");
+                .put("status", "running").put("threads", spec.optInt("threads", 2)).put("cpu_arena", spec.optBoolean("cpu_arena", true)).put("memory_pattern", spec.optBoolean("memory_pattern", true)).put("pid", android.os.Process.myPid()).put("quality_status", "requires_visual_review");
         JSONArray results = new JSONArray(); report.put("samples", results); writeJson(new File(directory, "report.json"), report);
         try {
             progress.update(spec.getString("title") + "：加载模型");
