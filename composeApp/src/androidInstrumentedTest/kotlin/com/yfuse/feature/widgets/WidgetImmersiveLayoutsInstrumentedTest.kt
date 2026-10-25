@@ -55,6 +55,7 @@ import java.util.concurrent.atomic.AtomicReference
 @RunWith(AndroidJUnit4::class)
 class WidgetImmersiveLayoutsInstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
+    private var currentCase: RenderCase? = null
     private val styles =
         listOf(
             WidgetStyle.ArcPoster,
@@ -79,7 +80,7 @@ class WidgetImmersiveLayoutsInstrumentedTest {
 
     @Test(timeout = 180_000L)
     fun switching_and_refreshing_keep_the_original_detail_payload_for_every_style() {
-        launchMainActivityForInput().use { scenario ->
+        withWidgetScenario { scenario ->
             val probe = mount(scenario)
             for ((index, style) in styles.withIndex()) {
                 show(scenario, probe, RenderCase(style, films, session = index))
@@ -110,7 +111,7 @@ class WidgetImmersiveLayoutsInstrumentedTest {
 
     @Test(timeout = 180_000L)
     fun real_swipes_and_direction_keys_select_without_opening_details() {
-        launchMainActivityForInput().use { scenario ->
+        withWidgetScenario { scenario ->
             val probe = mount(scenario)
             for ((index, style) in styles.withIndex()) {
                 show(scenario, probe, RenderCase(style, films, session = index))
@@ -146,7 +147,7 @@ class WidgetImmersiveLayoutsInstrumentedTest {
 
     @Test(timeout = 180_000L)
     fun normal_narrow_large_text_rtl_empty_and_single_layouts_stay_bounded() {
-        launchMainActivityForInput().use { scenario ->
+        withWidgetScenario { scenario ->
             val probe = mount(scenario)
             var session = 0
             for (style in styles) {
@@ -254,6 +255,7 @@ class WidgetImmersiveLayoutsInstrumentedTest {
         probe: Probe,
         input: RenderCase,
     ) {
+        currentCase = input
         scenario.onActivity { probe.input.value = input }
         // Finish both recomposition and the identity-restoration effect before querying the
         // accessibility tree, which may briefly still contain the previous collection.
@@ -303,23 +305,93 @@ class WidgetImmersiveLayoutsInstrumentedTest {
     private fun hasLabel(
         node: AccessibilityNodeInfo,
         text: String,
-    ): Boolean =
-        node.contentDescription?.toString()?.contains(text) == true || node.text?.toString()?.contains(text) == true
+    ): Boolean {
+        // Compose exposes a merging clickable's description as a virtual label child when it
+        // has descendants. The Android ACTION_CLICK remains on its parent, so the spoken label
+        // and action need not be fields of the same AccessibilityNodeInfo.
+        val pending = ArrayDeque<AccessibilityNodeInfo>()
+        pending.add(node)
+        while (pending.isNotEmpty()) {
+            val candidate = pending.removeFirst()
+            if (candidate.contentDescription?.toString()?.contains(text) == true ||
+                candidate.text?.toString()?.contains(text) == true
+            ) {
+                return true
+            }
+            repeat(candidate.childCount) { index ->
+                candidate.getChild(index)?.let { child ->
+                    // A neighbouring film is another action, not part of this action's label.
+                    if (child.isVisibleToUser && !child.isClickable && !child.isLongClickable) pending.add(child)
+                }
+            }
+        }
+        return false
+    }
 
     private fun findNode(matches: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? =
         nodes().firstOrNull(matches)
 
-    private fun nodes(): List<AccessibilityNodeInfo> {
+    private fun nodes(includeInvisible: Boolean = false): List<AccessibilityNodeInfo> {
         val root = instrumentation.uiAutomation.rootInActiveWindow ?: return emptyList()
         val result = mutableListOf<AccessibilityNodeInfo>()
         val pending = ArrayDeque<AccessibilityNodeInfo>()
         pending.add(root)
         while (pending.isNotEmpty()) {
             val node = pending.removeFirst()
-            if (node.isVisibleToUser) result.add(node)
+            if (includeInvisible || node.isVisibleToUser) result.add(node)
             repeat(node.childCount) { index -> node.getChild(index)?.let(pending::addLast) }
         }
         return result
+    }
+
+    private fun withWidgetScenario(block: (ActivityScenario<MainActivity>) -> Unit) {
+        launchMainActivityForInput().use { scenario ->
+            try {
+                block(scenario)
+            } catch (failure: Throwable) {
+                // Capture before ActivityScenario closes the actual failing widget window.
+                saveFailureEvidence(failure)
+                throw failure
+            }
+        }
+    }
+
+    private fun evidenceDirectory(): File =
+        (
+            InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")?.let(::File)
+                ?: requireNotNull(instrumentation.targetContext.getExternalFilesDir(null))
+        ).apply { mkdirs() }
+
+    private fun saveFailureEvidence(failure: Throwable) {
+        runCatching {
+            val output = evidenceDirectory()
+            val stem = "widget-failure-${SystemClock.uptimeMillis()}"
+            File(output, "$stem-nodes.txt").writeText(
+                buildString {
+                    appendLine("Render case: $currentCase")
+                    appendLine(failure.stackTraceToString())
+                    nodes(includeInvisible = true).forEach { node ->
+                        val bounds = android.graphics.Rect().also(node::getBoundsInScreen)
+                        appendLine(
+                            "package=${node.packageName} class=${node.className} bounds=$bounds " +
+                                "visible=${node.isVisibleToUser} enabled=${node.isEnabled} " +
+                                "clickable=${node.isClickable} focusable=${node.isFocusable} " +
+                                "text=${node.text} description=${node.contentDescription} " +
+                                "actions=${node.actionList.joinToString { "${it.id}:${it.label}" }}",
+                        )
+                    }
+                },
+            )
+            instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
+                try {
+                    File(output, "$stem.png").outputStream().use {
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                    }
+                } finally {
+                    bitmap.recycle()
+                }
+            }
+        }
     }
 
     private fun swipeNext(
@@ -404,10 +476,7 @@ class WidgetImmersiveLayoutsInstrumentedTest {
                     }
                 }
             }
-            val output =
-                InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")?.let(::File)
-                    ?: requireNotNull(instrumentation.targetContext.getExternalFilesDir(null))
-            output.mkdirs()
+            val output = evidenceDirectory()
             File(output, "widget-$name.png").outputStream().use {
                 assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
             }

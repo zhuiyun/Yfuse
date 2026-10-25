@@ -422,17 +422,9 @@ jobs:
           # takes injected touches, so every test that needs the app's own window fails behind it,
           # as five did on one run. The first line has the system end such an app instead of asking;
           # the second closes a dialog that came up before it.
-          script: |
-            test "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" = "${{ matrix.api }}"
-            adb shell settings put global hide_error_dialogs 1
-            adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS
-            ./gradlew :composeApp:connectedDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation ${{ matrix.test_args }} --no-daemon
-      - name: Collect native widget screenshots
-        if: always()
-        shell: bash
-        run: |
-          mkdir -p composeApp/build/outputs/widget-layout-evidence
-          adb pull /sdcard/Android/data/com.yfuse.validation/files/. composeApp/build/outputs/widget-layout-evidence/ || true
+          # Use one shell so the EXIT trap pulls evidence while the emulator is still alive,
+          # preserving the test exit status even if collecting evidence fails.
+          script: bash scripts/run-instrumented-gate.sh "${{ matrix.api }}" ${{ matrix.test_args }}
       # A run in which the device was skipped or no test executed must not read as a pass.
       - name: Summarise instrumented test results
         if: always()
