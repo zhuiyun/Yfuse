@@ -40,6 +40,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/mlkit-mask-tests"
           javac -d "$RUNNER_TEMP/mlkit-mask-tests" tools/mlkit-cutout-probe/app/src/main/java/com/yfuse/cutoutprobe/MaskAnalysis.java tools/mlkit-cutout-probe/tests/MaskAnalysisTest.java
           java -cp "$RUNNER_TEMP/mlkit-mask-tests" com.yfuse.cutoutprobe.MaskAnalysisTest
+          python3 -m unittest discover -s tools/mlkit-cutout-probe/tests -p 'test_*.py'
       - name: Fetch and verify exact public original posters
         run: python3 tools/mlkit-cutout-probe/fetch_inputs.py
       - name: Install compile platform

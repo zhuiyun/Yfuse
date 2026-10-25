@@ -11,6 +11,15 @@ import zipfile
 ROOT = Path(__file__).resolve().parent
 
 
+def parse_badging(badging):
+    line = next((line for line in badging.splitlines() if line.startswith("package:")), "")
+    # Codename/platformBuildVersionName must never overwrite the literal `name` attribute.
+    fields = re.findall(r"(?:^|\s)(name|versionCode|versionName)='([^']*)'", line)
+    if len(fields) != 3 or len(dict(fields)) != 3:
+        raise ValueError("missing or duplicate APK package/version attributes")
+    return dict(fields)
+
+
 def main():
     config = dict(line.strip().split("=", 1) for line in (ROOT / "version.properties").read_text().splitlines()
                   if line.strip() and not line.startswith("#"))
@@ -20,7 +29,7 @@ def main():
     build_tools = sdk / "build-tools/37.0.0"
     badging = subprocess.run([str(build_tools / "aapt2"), "dump", "badging", str(apk)],
                              capture_output=True, text=True, check=True).stdout
-    actual = dict(re.findall(r"(name|versionCode|versionName)='([^']*)'", badging.splitlines()[0]))
+    actual = parse_badging(badging)
     assert actual == {"name": config["APPLICATION_ID"], "versionCode": config["VERSION_CODE"],
                       "versionName": config["VERSION_NAME"]}, actual
     assert tuple(map(int, config["VERSION_NAME"].split("."))) > (0, 0, 1)
