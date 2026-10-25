@@ -2,7 +2,9 @@
 from pathlib import Path
 import json
 import os
+import shutil
 import subprocess
+import time
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "artifacts"
@@ -13,15 +15,8 @@ def adb(*args, timeout=60, binary=False):
     return subprocess.run(["adb", *args], capture_output=True, text=not binary, timeout=timeout)
 
 
-def main():
-    OUT.mkdir(exist_ok=True)
-    if adb("shell", "getprop", "ro.kernel.qemu").stdout.strip() != "1":
-        raise SystemExit("This unattended runner accepts disposable emulators only")
-    (OUT / "graphics.txt").write_text(adb("shell", "dumpsys", "SurfaceFlinger").stdout)
-    apk = ROOT / "app/build/outputs/apk/debug/app-debug.apk"
-    install = adb("install", "-r", str(apk), timeout=120)
-    (OUT / "install.txt").write_text(install.stdout + install.stderr)
-    install.check_returncode()
+def run_attempt():
+    (OUT / "report.json").unlink(missing_ok=True)
     adb("logcat", "-c")
     adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
     # Exercise a foreground app, then keep its result files independent of the UI process.
@@ -52,6 +47,37 @@ def main():
         raise SystemExit("No report: inspect instrumentation and logcat")
     report = json.loads(report_path.read_text())
     print(json.dumps(report, indent=2))
+    return report
+
+
+def main():
+    OUT.mkdir(exist_ok=True)
+    if adb("shell", "getprop", "ro.kernel.qemu").stdout.strip() != "1":
+        raise SystemExit("This unattended runner accepts disposable emulators only")
+    (OUT / "graphics.txt").write_text(adb("shell", "dumpsys", "SurfaceFlinger").stdout)
+    apk = ROOT / "app/build/outputs/apk/debug/app-debug.apk"
+    install = adb("install", "-r", str(apk), timeout=120)
+    (OUT / "install.txt").write_text(install.stdout + install.stderr)
+    install.check_returncode()
+    report = run_attempt()
+    attempts = [report]
+    # The SwANGLE run reached GLES 3.1 but Google's module downloader returned
+    # INTERNAL_ERROR (8). Retain that attempt, then allow one clean retry on the
+    # same booted emulator after Play services' initial configuration settles.
+    # Never retry a real inference failure or substitute a mask.
+    transient = report["status"] == "model_unavailable" and any(
+        state.get("error_code") == 8 for state in report.get("module_install_updates", []))
+    if transient:
+        first = OUT / "attempt-1"
+        first.mkdir(exist_ok=True)
+        for file in OUT.iterdir():
+            if file.is_file():
+                shutil.copyfile(file, first / file.name)
+        print("One bounded retry after Google module INTERNAL_ERROR; preserving attempt 1", flush=True)
+        time.sleep(30)
+        report = run_attempt()
+        attempts.append(report)
+    (OUT / "runner-attempts.json").write_text(json.dumps(attempts, indent=2))
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             summary.write("## Real ML Kit probe\n\nStatus: **" + report["status"] + "**\n\n")

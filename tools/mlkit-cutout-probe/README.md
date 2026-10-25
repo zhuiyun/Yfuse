@@ -20,6 +20,9 @@ hashes, dimensions and timing. Model/download/API failures never produce replace
 The model is supplied by Google Play services; the app contains no bundled Google model.
 
 For disposable Google Play services emulators, run `python3 tools/mlkit-cutout-probe/run_device.py`.
+If Google reports module-download `INTERNAL_ERROR (8)`, the runner preserves the entire first
+attempt and permits one retry on the same emulator after 30 seconds. Real inference failures
+are not automatically retried. The real reports of every attempt are retained separately.
 The GitHub probe workflow retains JSON, native Float32 masks, PNGs, logs and the exact diagnostic
 APK. These are public-poster tests without account login or private media-server configuration.
 No private credential, live update or backend deployment is used. If the module cannot download,
