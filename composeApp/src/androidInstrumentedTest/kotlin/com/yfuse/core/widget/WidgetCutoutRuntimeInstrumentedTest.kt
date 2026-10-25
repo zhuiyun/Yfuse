@@ -5,6 +5,8 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.net.Uri
+import android.os.SystemClock
+import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
@@ -29,12 +31,14 @@ class WidgetCutoutRuntimeInstrumentedTest {
     fun real_native_model_preserves_coordinates_reuses_cache_and_recovers_missing_files() =
         runBlocking {
             withTimeout(150_000L) {
-                val directory = File(context.cacheDir, "widget-cutout")
-                assertTrue("Cannot reset feature cache", !directory.exists() || directory.deleteRecursively())
+                val startedAt = SystemClock.elapsedRealtime()
+                val directory = resetCache()
+                logStage("first native inference starting", startedAt)
                 // The Store has no precomputed-preview branch. This must execute Coil + ONNX + gate.
                 assertNull(WidgetCutoutStore.get(context, source, allowProcessing = false))
                 val first = WidgetCutoutStore.get(context, source)
                 assertNotNull("Packaged model failed its known-good original artwork", first)
+                logStage("first native inference completed", startedAt)
                 first!!
                 assertEquals(512, first.sourceWidth)
                 assertEquals(768, first.sourceHeight)
@@ -46,6 +50,7 @@ class WidgetCutoutRuntimeInstrumentedTest {
                 assertTrue(backgroundFile.canonicalPath.startsWith(directory.canonicalPath + File.separator))
                 assertTrue(foregroundFile.canonicalPath.startsWith(directory.canonicalPath + File.separator))
                 verifyAlignedPixelsAndSaveEvidence(backgroundFile, foregroundFile, first)
+                logStage("aligned pixel checks and evidence completed", startedAt)
 
                 // A cache hit can touch metadata, but it must not rewrite either PNG or run inference.
                 val unchangedStamp = System.currentTimeMillis() - 120_000L
@@ -56,27 +61,51 @@ class WidgetCutoutRuntimeInstrumentedTest {
                 assertEquals(first, WidgetCutoutStore.get(context, source))
                 assertEquals(storedBackgroundStamp, backgroundFile.lastModified())
                 assertEquals(storedForegroundStamp, foregroundFile.lastModified())
+                logStage("cache reuse verified without rewriting either PNG", startedAt)
 
                 // Retained routes must discard an evicted or corrupt pair before trying to render it.
                 assertTrue(foregroundFile.delete())
                 assertNull(WidgetCutoutStore.get(context, source, allowProcessing = false))
+                logStage("missing cache entry rejected", startedAt)
+                foregroundFile.writeText("not a PNG")
+                assertNull(WidgetCutoutStore.get(context, source, allowProcessing = false))
+                logStage("corrupt cache entry rejected; native recovery starting", startedAt)
+                // Both invalid states use the same production cache-miss recovery path. Exercise
+                // that path once, instead of repeating identical ARM64 inference under translation.
                 val recovered = WidgetCutoutStore.get(context, source)
                 assertNotNull(recovered)
                 assertTrue(imageFile(recovered!!.foregroundModel).isFile)
-                imageFile(recovered.foregroundModel).writeText("not a PNG")
-                assertNull(WidgetCutoutStore.get(context, source, allowProcessing = false))
-                assertNotNull(WidgetCutoutStore.get(context, source))
+                assertEquals(first.sourceWidth, recovered.sourceWidth)
+                assertEquals(first.sourceHeight, recovered.sourceHeight)
+                assertTrue(directory.listFiles().orEmpty().sumOf(File::length) <= 32L * 1024 * 1024)
+                assertFalse(directory.listFiles().orEmpty().any { it.extension == "part" })
+                logStage("native recovery completed and cache bounds verified", startedAt)
+            }
+        }
 
+    @Test(timeout = 180_000L)
+    fun a_real_weak_mask_falls_back_and_reuses_its_cached_failure() =
+        runBlocking {
+            withTimeout(150_000L) {
+                val startedAt = SystemClock.elapsedRealtime()
+                val directory = resetCache()
                 // A real weak mask is rejected and the rejection is cached without extending its TTL.
                 val rejectedSource = "file:///android_asset/widget-preview/rain.png"
+                logStage("weak-mask native inference starting", startedAt)
                 assertNull(WidgetCutoutStore.get(context, rejectedSource))
+                logStage("weak-mask native inference rejected by quality gate", startedAt)
                 val rejected = directory.listFiles().orEmpty().filter { it.extension == "reject" }
                 assertEquals(1, rejected.size)
                 val expiry = rejected.single().readText()
+                assertTrue(
+                    "Expected a quality rejection, not a transient model/load error",
+                    expiry.toLong() - System.currentTimeMillis() > 12L * 60 * 60 * 1000,
+                )
                 assertNull(WidgetCutoutStore.get(context, rejectedSource))
                 assertEquals(expiry, rejected.single().readText())
                 assertTrue(directory.listFiles().orEmpty().sumOf(File::length) <= 32L * 1024 * 1024)
                 assertFalse(directory.listFiles().orEmpty().any { it.extension == "part" })
+                logStage("negative cache reused without extending expiry", startedAt)
             }
         }
 
@@ -115,6 +144,19 @@ class WidgetCutoutRuntimeInstrumentedTest {
     }
 
     private fun imageFile(model: String): File = File(requireNotNull(Uri.parse(model).path))
+
+    private fun resetCache(): File {
+        val directory = File(context.cacheDir, "widget-cutout")
+        assertTrue("Cannot reset feature cache", !directory.exists() || directory.deleteRecursively())
+        return directory
+    }
+
+    private fun logStage(
+        stage: String,
+        startedAt: Long,
+    ) {
+        Log.i("WidgetCutoutRuntime", "$stage; elapsed=${SystemClock.elapsedRealtime() - startedAt}ms")
+    }
 
     private fun verifyAlignedPixelsAndSaveEvidence(
         backgroundFile: File,
