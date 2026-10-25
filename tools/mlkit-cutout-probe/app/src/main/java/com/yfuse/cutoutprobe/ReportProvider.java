@@ -16,7 +16,7 @@ public final class ReportProvider extends ContentProvider {
     @Override public boolean onCreate() { return true; }
 
     private File file(Uri uri) throws FileNotFoundException {
-        if (!uri.toString().equals("content://com.yfuse.cutoutprobe.report/report.zip")) {
+        if (!uri.toString().equals("content://" + getContext().getPackageName() + ".report/report.zip")) {
             throw new FileNotFoundException("Unknown report");
         }
         return new File(getContext().getCacheDir(), "mlkit-probe-report.zip");

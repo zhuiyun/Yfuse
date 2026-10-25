@@ -8,7 +8,8 @@ import time
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "artifacts"
-PACKAGE = "com.yfuse.cutoutprobe"
+PACKAGE = "com.yfuse.cutoutprobe.v2"
+COMPONENT_PACKAGE = "com.yfuse.cutoutprobe"
 
 
 def adb(*args, timeout=60, binary=False):
@@ -18,10 +19,10 @@ def adb(*args, timeout=60, binary=False):
 def run_attempt():
     (OUT / "report.json").unlink(missing_ok=True)
     adb("logcat", "-c")
-    adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
+    adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/{COMPONENT_PACKAGE}.MainActivity")
     # Exercise a foreground app, then keep its result files independent of the UI process.
     process = subprocess.Popen(["adb", "shell", "am", "instrument", "-w", "-r",
-                                f"{PACKAGE}/.ProbeInstrumentation"],
+                                f"{PACKAGE}/{COMPONENT_PACKAGE}.ProbeInstrumentation"],
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     with (OUT / "instrumentation.txt").open("w") as log:
         for line in process.stdout:
@@ -82,7 +83,7 @@ def main():
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             summary.write("## Real ML Kit probe\n\nStatus: **" + report["status"] + "**\n\n")
             summary.write("Output creation is not a semantic-quality pass. No fake model/mask was used.\n")
-    if report["status"] != "segmentation_outputs_created":
+    if report["status"] != "diagnostic_outputs_created":
         raise SystemExit("Environment/API probe failed; no segmentation quality conclusion")
 
 

@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:allowBackup="false"
-        android:label="ML Kit 抠图验证"
+        android:label="ML Kit 抠图验证 2"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="subject_segment" />
         <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize">
@@ -11,10 +11,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <provider android:name=".ReportProvider" android:authorities="com.yfuse.cutoutprobe.report" android:exported="false" android:grantUriPermissions="true" />
+        <provider android:name=".ReportProvider" android:authorities="${applicationId}.report" android:exported="false" android:grantUriPermissions="true" />
     </application>
     <instrumentation
         android:name=".ProbeInstrumentation"
-        android:targetPackage="com.yfuse.cutoutprobe"
+        android:targetPackage="${applicationId}"
         android:label="ML Kit real model probe" />
 </manifest>

@@ -20,8 +20,8 @@ public final class ProbeInstrumentation extends Instrumentation {
         }).run();
         Bundle output = new Bundle();
         output.putString("stream", result.toString() + "\n");
-        // RESULT_OK means two real outputs, not semantic quality or Yfuse acceptance.
-        finish(result.optString("status").equals("segmentation_outputs_created")
+        // RESULT_OK means two real diagnostic comparisons, not confidence/semantic quality acceptance.
+        finish(result.optString("status").equals("diagnostic_outputs_created")
                 ? Activity.RESULT_OK : Activity.RESULT_CANCELED, output);
     }
 }
