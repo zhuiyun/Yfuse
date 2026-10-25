@@ -17,6 +17,10 @@ are committed. The app shows Google's model-download state, requests the optiona
 polls for up to ten minutes and then processes each whole original with a maximum long edge of
 1024 pixels. Confidence masks and same-coordinate PNG foregrounds are saved with input/output
 hashes, dimensions and timing. Model/download/API failures never produce replacement masks.
+Raw masks are saved before validation, with non-finite/out-of-range counts and min/max. Only
+finite floating-point excursions within 0.001 of [0, 1] may be saturated for PNG/gate use;
+both raw and saturated Float32 files and SHA-256 are preserved. Larger excursions fail the
+case. Both posters are attempted independently; one failure never hides the other's result.
 The model is supplied by Google Play services; the app contains no bundled Google model.
 
 For disposable Google Play services emulators, run `python3 tools/mlkit-cutout-probe/run_device.py`.

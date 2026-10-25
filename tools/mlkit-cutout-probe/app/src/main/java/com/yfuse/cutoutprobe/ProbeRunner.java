@@ -95,9 +95,25 @@ final class ProbeRunner {
                 return report;
             }
             report.put("model_ready", true);
-            for (String name : CASES) process(segmenter, name);
-            report.put("status", "segmentation_outputs_created");
-            emit("两张前景已生成，需检查轮廓；这不代表已通过 Yfuse 质量验收。");
+            JSONArray caseErrors = new JSONArray();
+            report.put("case_errors", caseErrors);
+            int completed = 0;
+            for (String name : CASES) {
+                try {
+                    process(segmenter, name);
+                    completed++;
+                } catch (Exception exception) {
+                    caseErrors.put(new JSONObject().put("name", name).put("error", error(exception)));
+                    emit(name + " 失败：" + error(exception));
+                    segmenter.close();
+                    segmenter = SubjectSegmentation.getClient(options);
+                    save();
+                }
+            }
+            report.put("valid_output_count", completed);
+            report.put("status", completed == CASES.length ? "segmentation_outputs_created"
+                    : completed > 0 ? "partial_outputs" : "no_valid_outputs");
+            emit("已生成 " + completed + " 张有效数值前景，需检查实际轮廓。");
         } catch (Exception exception) {
             try {
                 report.put("status", "failed");
@@ -189,25 +205,32 @@ final class ProbeRunner {
         FloatBuffer mask = result.getForegroundConfidenceMask();
         int count = source.getWidth() * source.getHeight();
         if (mask == null || mask.remaining() != count) throw new IllegalStateException("mask dimensions " + name);
-        int[] colors = new int[count];
-        source.getPixels(colors, 0, source.getWidth(), 0, 0, source.getWidth(), source.getHeight());
-        ByteBuffer binary = ByteBuffer.allocate(count * 4).order(ByteOrder.LITTLE_ENDIAN);
-        int solid = 0;
+        float[] values = new float[count];
+        mask.get(values);
+        ByteBuffer raw = ByteBuffer.allocate(count * 4).order(ByteOrder.LITTLE_ENDIAN);
+        int nonFinite = 0, outsideUnitRange = 0, beyondRoundoff = 0;
+        float minimum = Float.POSITIVE_INFINITY, maximum = Float.NEGATIVE_INFINITY;
+        String firstInvalid = "";
         for (int i = 0; i < count; i++) {
-            float confidence = mask.get();
-            if (!Float.isFinite(confidence) || confidence < 0 || confidence > 1) {
-                throw new IllegalStateException("invalid confidence " + name);
+            float value = values[i];
+            raw.putFloat(value);
+            if (!Float.isFinite(value)) {
+                nonFinite++;
+            } else {
+                minimum = Math.min(minimum, value);
+                maximum = Math.max(maximum, value);
+                if (value < 0 || value > 1) outsideUnitRange++;
+                // Preserve raw bytes; saturate only finite probability roundoff within one
+                // fp16 ULP near 1. Larger excursions and non-finite output remain failures.
+                if (value < -0.001f || value > 1.001f) beyondRoundoff++;
             }
-            binary.putFloat(confidence);
-            int alpha = Math.round(confidence * 255);
-            if (confidence >= 0.85f) solid++;
-            colors[i] = (colors[i] & 0x00ffffff) | (alpha << 24);
+            if (firstInvalid.isEmpty() && (!Float.isFinite(value) || value < 0 || value > 1)) {
+                firstInvalid = i + ":" + value;
+            }
         }
         try (FileOutputStream stream = new FileOutputStream(new File(output, name + ".f32"))) {
-            stream.write(binary.array());
+            stream.write(raw.array());
         }
-        Bitmap foreground = Bitmap.createBitmap(colors, source.getWidth(), source.getHeight(), Bitmap.Config.ARGB_8888);
-        writeBitmap(foreground, new File(output, name + "-foreground.png"));
         JSONObject item = new JSONObject();
         item.put("name", name);
         item.put("input_sha256", inputSha);
@@ -216,12 +239,43 @@ final class ProbeRunner {
         item.put("width", source.getWidth());
         item.put("height", source.getHeight());
         item.put("inference_ms", elapsed);
+        item.put("raw_mask_minimum", String.valueOf(minimum));
+        item.put("raw_mask_maximum", String.valueOf(maximum));
+        item.put("non_finite_count", nonFinite);
+        item.put("outside_unit_range_count", outsideUnitRange);
+        item.put("beyond_roundoff_count", beyondRoundoff);
+        item.put("first_outside_unit_range", firstInvalid);
+        item.put("mask_sha256", hex(MessageDigest.getInstance("SHA-256").digest(raw.array())));
+        report.getJSONArray("cases").put(item);
+        if (nonFinite > 0 || beyondRoundoff > 0) {
+            item.put("status", "invalid_confidence");
+            save();
+            source.recycle();
+            throw new IllegalStateException("invalid confidence " + name + "; min=" + minimum
+                    + "; max=" + maximum + "; nonFinite=" + nonFinite + "; beyondRoundoff=" + beyondRoundoff);
+        }
+        int[] colors = new int[count];
+        source.getPixels(colors, 0, source.getWidth(), 0, 0, source.getWidth(), source.getHeight());
+        ByteBuffer binary = ByteBuffer.allocate(count * 4).order(ByteOrder.LITTLE_ENDIAN);
+        int solid = 0;
+        for (int i = 0; i < count; i++) {
+            float confidence = Math.max(0, Math.min(1, values[i]));
+            binary.putFloat(confidence);
+            int alpha = Math.round(confidence * 255);
+            if (confidence >= 0.85f) solid++;
+            colors[i] = (colors[i] & 0x00ffffff) | (alpha << 24);
+        }
+        try (FileOutputStream stream = new FileOutputStream(new File(output, name + "-clamped.f32"))) {
+            stream.write(binary.array());
+        }
+        Bitmap foreground = Bitmap.createBitmap(colors, source.getWidth(), source.getHeight(), Bitmap.Config.ARGB_8888);
+        writeBitmap(foreground, new File(output, name + "-foreground.png"));
+        item.put("status", "segmentation_output_created");
         item.put("solid_fraction", (double) solid / count);
         item.put("java_heap_used_bytes", Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory());
         item.put("native_heap_allocated_bytes", Debug.getNativeHeapAllocatedSize());
         item.put("app_pss_kib", Debug.getPss());
-        item.put("mask_sha256", hex(MessageDigest.getInstance("SHA-256").digest(binary.array())));
-        report.getJSONArray("cases").put(item);
+        item.put("quality_mask_sha256", hex(MessageDigest.getInstance("SHA-256").digest(binary.array())));
         save();
         foreground.recycle();
         source.recycle();

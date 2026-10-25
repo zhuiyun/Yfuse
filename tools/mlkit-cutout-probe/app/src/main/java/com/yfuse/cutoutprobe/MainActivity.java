@@ -73,10 +73,11 @@ public final class MainActivity extends Activity {
                     if (isDestroyed()) return;
                     status.append("\n\n状态：" + report.optString("status")
                             + "\nGoogle 服务：" + report.optString("google_play_services_version")
-                            + "\n" + report.optString("error", ""));
+                            + "\n" + report.optString("error", "")
+                            + "\n" + report.optString("case_errors", ""));
                     start.setEnabled(true);
                     share.setEnabled(true);
-                    if (report.optString("status").equals("segmentation_outputs_created")) showResults();
+                    if (report.optInt("valid_output_count") > 0) showResults();
                 });
             });
         });
