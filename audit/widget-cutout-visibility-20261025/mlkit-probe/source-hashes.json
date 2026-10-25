@@ -1,0 +1,54 @@
+[
+  {
+    "path": "tools/mlkit-cutout-probe/.gitignore",
+    "sha256": "1824405c9c578a31edbb9658b1d1dd47f1ab342f1532331bd7e0f7dc00579a09"
+  },
+  {
+    "path": "tools/mlkit-cutout-probe/README.md",
+    "sha256": "83f3acf071c5d399831769fdcac32f66011d51347d1c7b15bf69453dc86ccd7f"
+  },
+  {
+    "path": "tools/mlkit-cutout-probe/app/build.gradle.kts",
+    "sha256": "9d53de9daa42f0cbc2221d8aaa381a950265782471bb0ecfe2475cf5e2a48fa9"
+  },
+  {
+    "path": "tools/mlkit-cutout-probe/app/src/main/AndroidManifest.xml",
+    "sha256": "24b4688f6a1219db62edfa23b2337862f54588d93b9a8350ad17f7cdc1173be8"
+  },
+  {
+    "path": "tools/mlkit-cutout-probe/app/src/main/java/com/yfuse/cutoutprobe/MainActivity.java",
+    "sha256": "7534cc70b614131a58e4d18444b7ee8fb107a0431455271b75b9a60701c4f78f"
+  },
+  {
+    "path": "tools/mlkit-cutout-probe/app/src/main/java/com/yfuse/cutoutprobe/ProbeInstrumentation.java",
+    "sha256": "67609ffc841976ad4f07f3b26ba9a53fc8d2d6fed3e86e9d9a100d2cf469e868"
+  },
+  {
+    "path": "tools/mlkit-cutout-probe/app/src/main/java/com/yfuse/cutoutprobe/ProbeRunner.java",
+    "sha256": "2e2da780791e1ac8192b00f0a10319eb81ebdd2e3814eb2821de8b2d0783f749"
+  },
+  {
+    "path": "tools/mlkit-cutout-probe/app/src/main/java/com/yfuse/cutoutprobe/ReportProvider.java",
+    "sha256": "e22f1f052de71b984d7cf1076562ca042eacd2865e2ef93850c52d3b9e27c365"
+  },
+  {
+    "path": "tools/mlkit-cutout-probe/build.gradle.kts",
+    "sha256": "9280b4610fd317014ebe7698a96c0e2bb23894699d1e15401f4089576dfe6523"
+  },
+  {
+    "path": "tools/mlkit-cutout-probe/fetch_inputs.py",
+    "sha256": "bacdf164db09082fedaf4889d43d72d69e1f3d4b0e312d3ae5e8a9b368141915"
+  },
+  {
+    "path": "tools/mlkit-cutout-probe/gradle.properties",
+    "sha256": "9500657d074e53c154b6838a64b16fe0a32aa6f471ab8f86f35aa5e5cb2d0393"
+  },
+  {
+    "path": "tools/mlkit-cutout-probe/run_device.py",
+    "sha256": "267665c5920f6c767e7e99a2292612bd2899068c1f3bd5aaf0179617d7513059"
+  },
+  {
+    "path": "tools/mlkit-cutout-probe/settings.gradle.kts",
+    "sha256": "ec70992b2a2db6ed45b65ae5f372314f9c937cbed8e8328f1bf10733a248239d"
+  }
+]
