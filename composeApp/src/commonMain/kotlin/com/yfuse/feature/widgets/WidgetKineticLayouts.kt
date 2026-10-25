@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -38,7 +39,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -94,10 +97,20 @@ internal fun WidgetKineticLayouts(
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val scope = rememberCoroutineScope()
     var position by rememberSaveable(style.id) { mutableFloatStateOf(0f) }
+    var arcSelectedId by rememberSaveable(style.id) { mutableStateOf<String?>(null) }
     val lastIndex = items.lastIndex
     val boundedPosition = position.coerceIn(0f, lastIndex.toFloat())
     val currentIndex = boundedPosition.roundToInt().coerceIn(0, lastIndex)
-    LaunchedEffect(lastIndex) { position = position.coerceIn(0f, lastIndex.toFloat()) }
+    val arcIds = if (style == WidgetStyle.ArcPoster) items.map { it.id } else emptyList()
+    LaunchedEffect(lastIndex, arcIds) {
+        position =
+            if (style == WidgetStyle.ArcPoster) {
+                (arcIds.indexOfFirst { it == arcSelectedId }.takeIf { it >= 0 } ?: currentIndex).toFloat()
+            } else {
+                position.coerceIn(0f, lastIndex.toFloat())
+            }
+        if (style == WidgetStyle.ArcPoster) arcSelectedId = items[position.roundToInt()].id
+    }
 
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
         val stageWidth = minOf(maxWidth, if (compact) 340.dp else 480.dp)
@@ -121,6 +134,7 @@ internal fun WidgetKineticLayouts(
             rememberScrollableState { delta ->
                 val before = position
                 position = (before - delta / stepPixels).coerceIn(0f, lastIndex.toFloat())
+                if (style == WidgetStyle.ArcPoster) arcSelectedId = items[position.roundToInt()].id
                 (before - position) * stepPixels
             }
         val fling =
@@ -270,6 +284,35 @@ internal fun WidgetKineticLayouts(
                         }
                     }
                 }
+                if (style == WidgetStyle.ArcPoster && items.size > 1) {
+                    val accent = LocalAccentColors.current.accent
+                    Canvas(
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 4.dp)
+                            .width(artworkWidth * .88f)
+                            .height(16.dp)
+                            .clearAndSetSemantics { },
+                    ) {
+                        val track =
+                            Path().apply {
+                                moveTo(0f, size.height * .12f)
+                                quadraticTo(size.width * .5f, size.height * 1.1f, size.width, size.height * .12f)
+                            }
+                        drawPath(track, accent.copy(alpha = .12f), style = Stroke(1.dp.toPx()))
+                        for (offset in -2..2) {
+                            if (currentIndex + offset !in items.indices) continue
+                            val fraction = (offset + 2) / 4f
+                            val visualFraction = if (rtl) 1f - fraction else fraction
+                            val curveY = size.height * (.12f + 1.96f * visualFraction * (1f - visualFraction))
+                            drawCircle(
+                                color = accent.copy(alpha = if (offset == 0) 1f else .25f),
+                                radius = if (offset == 0) 3.5.dp.toPx() else 2.dp.toPx(),
+                                center = Offset(size.width * visualFraction, curveY),
+                            )
+                        }
+                    }
+                }
             }
 
             Row(
@@ -307,7 +350,14 @@ internal fun WidgetKineticLayouts(
                 }
             }
             if (items.size > 1) {
-                KineticPositionControls(currentIndex, items.size, boundedPosition, rtl, select)
+                KineticPositionControls(
+                    currentIndex,
+                    items.size,
+                    boundedPosition,
+                    rtl,
+                    style != WidgetStyle.ArcPoster,
+                    select,
+                )
             }
         }
     }
@@ -319,6 +369,7 @@ private fun KineticPositionControls(
     count: Int,
     position: Float,
     rtl: Boolean,
+    showTrack: Boolean,
     select: (Int) -> Unit,
 ) {
     val accent = LocalAccentColors.current.accent
@@ -340,13 +391,27 @@ private fun KineticPositionControls(
                 textAlign = TextAlign.Center,
                 maxLines = 1,
             )
-            Canvas(Modifier.width(72.dp).height(3.dp)) {
-                val y = size.height / 2
-                drawLine(accent.copy(alpha = .12f), Offset(0f, y), Offset(size.width, y), size.height, StrokeCap.Round)
-                val length = (size.width / count).coerceAtLeast(12.dp.toPx()).coerceAtMost(size.width)
-                val fraction = (position / (count - 1)).coerceIn(0f, 1f)
-                val x = (size.width - length) * if (rtl) 1f - fraction else fraction
-                drawLine(accent.copy(alpha = .78f), Offset(x, y), Offset(x + length, y), size.height, StrokeCap.Round)
+            if (showTrack) {
+                Canvas(Modifier.width(72.dp).height(3.dp)) {
+                    val y = size.height / 2
+                    drawLine(
+                        accent.copy(alpha = .12f),
+                        Offset(0f, y),
+                        Offset(size.width, y),
+                        size.height,
+                        StrokeCap.Round,
+                    )
+                    val length = (size.width / count).coerceAtLeast(12.dp.toPx()).coerceAtMost(size.width)
+                    val fraction = (position / (count - 1)).coerceIn(0f, 1f)
+                    val x = (size.width - length) * if (rtl) 1f - fraction else fraction
+                    drawLine(
+                        accent.copy(alpha = .78f),
+                        Offset(x, y),
+                        Offset(x + length, y),
+                        size.height,
+                        StrokeCap.Round,
+                    )
+                }
             }
         }
         WidgetIconButton(

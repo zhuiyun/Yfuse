@@ -53,7 +53,7 @@ enum class WidgetStyle(
     NextDirect("next-direct", "下一集直达", "剧集浏览", "真实观看进度 · 定位下一集"),
     BigRank("big-rank", "大字榜单", "排行榜", "醒目名次与真实海报 · 横向浏览"),
     Accordion("accordion", "折页片单", "空间片廊", "主封面展开 · 相邻封面轻收拢"),
-    ArcPoster("arc-poster", "弧形海报", "空间片廊", "浅弧排列 · 滑动聚焦影片"),
+    ArcPoster("arc-poster", "弧形选片", "空间片廊", "弧线扇面 · 轻拨聚焦影片"),
     StaggeredColumns("staggered-columns", "错位双列", "构图片廊", "有限双列构图 · 横向翻阅"),
     Borderless("borderless", "无边光影", "构图片廊", "剧照渐隐融入背景 · 轻盈标题"),
     SeasonShowcase("season-showcase", "分季橱窗", "剧集浏览", "剧集封面与真实季列表 · 选择查看"),
@@ -70,6 +70,10 @@ enum class WidgetStyle(
     BannerStack("banner-stack", "横幅叠片", "构图片廊", "同片横幅与竖海报交叠 · 稳定下沿"),
     DepthGallery("depth-gallery", "纵深片廊", "空间片廊", "前后递进的海报 · 滑动进入前景"),
     FoldingGallery("folding-gallery", "折屏画廊", "空间片廊", "连续折面展开 · 透视随手势过渡"),
+    OrbitResume("orbit-resume", "环绕续播", "续播追剧", "环形观看进度 · 轻拨切换影片"),
+    BreakoutPoster("breakout-poster", "破框视界", "空间片廊", "主体跃出画框 · 整幅跟随滑动"),
+    PrismGallery("prism-gallery", "折光影盒", "空间片廊", "立体影盒 · 逐面旋转选片"),
+    RibbonGallery("ribbon-gallery", "流光片带", "空间片廊", "起伏海报长带 · 随指流动"),
     ;
 
     companion object {

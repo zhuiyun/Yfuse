@@ -340,7 +340,7 @@ jobs:
             test_args: ""
           - api: 37
             sdk: "37.0"
-            test_args: "-Pandroid.testInstrumentationRunnerArguments.class=com.yfuse.app.DetailBackNavigationInstrumentedTest,com.yfuse.app.PlatformNavigationBackInstrumentedTest"
+            test_args: "-Pandroid.testInstrumentationRunnerArguments.class=com.yfuse.app.DetailBackNavigationInstrumentedTest,com.yfuse.app.PlatformNavigationBackInstrumentedTest,com.yfuse.feature.widgets.WidgetImmersiveLayoutsInstrumentedTest,com.yfuse.core.widget.WidgetCutoutRuntimeInstrumentedTest"
     # A cold native dependency cache is bootstrapped here too, as in `verify`.
     timeout-minutes: 300
     steps:
@@ -427,6 +427,12 @@ jobs:
             adb shell settings put global hide_error_dialogs 1
             adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS
             ./gradlew :composeApp:connectedDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation ${{ matrix.test_args }} --no-daemon
+      - name: Collect native widget screenshots
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p composeApp/build/outputs/widget-layout-evidence
+          adb pull /sdcard/Android/data/com.yfuse.validation/files/. composeApp/build/outputs/widget-layout-evidence/ || true
       # A run in which the device was skipped or no test executed must not read as a pass.
       - name: Summarise instrumented test results
         if: always()
@@ -460,6 +466,7 @@ jobs:
           path: |
             composeApp/build/reports/androidTests/
             composeApp/build/outputs/androidTest-results/
+            composeApp/build/outputs/widget-layout-evidence/
           if-no-files-found: warn
           retention-days: 7
 

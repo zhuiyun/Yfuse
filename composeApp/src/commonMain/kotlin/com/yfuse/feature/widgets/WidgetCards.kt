@@ -60,6 +60,22 @@ fun WidgetCards(
 ) {
     if (items.isEmpty()) return
     when (style) {
+        WidgetStyle.OrbitResume -> {
+            key(style) { WidgetOrbitResume(items, metadata, compact, onOpen) }
+            return
+        }
+        WidgetStyle.BreakoutPoster -> {
+            key(style) { WidgetBreakoutPoster(items, metadata, compact, onOpen) }
+            return
+        }
+        WidgetStyle.PrismGallery -> {
+            key(style) { WidgetPrismGallery(items, metadata, compact, onOpen) }
+            return
+        }
+        WidgetStyle.RibbonGallery -> {
+            key(style) { WidgetRibbonGallery(items, metadata, compact, onOpen) }
+            return
+        }
         WidgetStyle.LayeredPoster, WidgetStyle.Accordion, WidgetStyle.ArcPoster,
         WidgetStyle.BookSpine, WidgetStyle.DepthGallery, WidgetStyle.FoldingGallery,
         -> {
