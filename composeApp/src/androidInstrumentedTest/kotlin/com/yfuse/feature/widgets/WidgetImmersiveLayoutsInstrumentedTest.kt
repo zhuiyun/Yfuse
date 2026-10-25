@@ -1,6 +1,7 @@
 package com.yfuse.feature.widgets
 
 import android.graphics.Bitmap
+import android.os.Build
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -172,7 +173,16 @@ class WidgetImmersiveLayoutsInstrumentedTest {
 
                     // A one-item source must not manufacture duplicates or navigation affordances.
                     show(scenario, probe, input.copy(items = listOf(films[0]), session = session++))
-                    awaitDetail(films[0])
+                    await("$style did not expose one film without navigation") {
+                        val snapshot = nodes()
+                        snapshot.any {
+                            it.collectionInfo?.let { info -> info.rowCount == 1 && info.columnCount == 1 } ==
+                                true
+                        } &&
+                            detailNode(films[0], snapshot) != null &&
+                            controlNode("下一部", snapshot) == null &&
+                            controlNode("上一部", snapshot) == null
+                    }
                     settle()
                     assertNull("$style shows next for one film", controlNode("下一部"))
                     assertNull("$style shows previous for one film", controlNode("上一部"))
@@ -205,6 +215,7 @@ class WidgetImmersiveLayoutsInstrumentedTest {
         val bounds = AtomicReference(Rect.Zero)
         val density = AtomicReference(1f)
         val inputMode = AtomicReference<InputModeManager>()
+        val committedInput = AtomicReference<RenderCase>()
     }
 
     private fun mount(scenario: ActivityScenario<MainActivity>): Probe {
@@ -215,7 +226,10 @@ class WidgetImmersiveLayoutsInstrumentedTest {
                 YfuseTheme(dark = false, accessibility = AccessibilityOptions(reduceMotion = input.reduced)) {
                     val density = LocalDensity.current
                     val inputMode = LocalInputModeManager.current
-                    SideEffect { probe.inputMode.set(inputMode) }
+                    SideEffect {
+                        probe.inputMode.set(inputMode)
+                        probe.committedInput.set(input)
+                    }
                     CompositionLocalProvider(
                         LocalDensity provides Density(density.density, input.fontScale),
                         LocalLayoutDirection provides if (input.rtl) LayoutDirection.Rtl else LayoutDirection.Ltr,
@@ -257,8 +271,9 @@ class WidgetImmersiveLayoutsInstrumentedTest {
     ) {
         currentCase = input
         scenario.onActivity { probe.input.value = input }
-        // Finish both recomposition and the identity-restoration effect before querying the
-        // accessibility tree, which may briefly still contain the previous collection.
+        // A title can exist in both collections, so it cannot prove this render was committed.
+        await("$input was not committed by Compose") { probe.committedInput.get() === input }
+        // Allow the identity-restoration effect and motion to settle after the actual commit.
         settle()
     }
 
@@ -281,8 +296,11 @@ class WidgetImmersiveLayoutsInstrumentedTest {
         assertTrue(requireNotNull(controlNode(label)).performAction(AccessibilityNodeInfo.ACTION_CLICK))
     }
 
-    private fun detailNode(film: WidgetMedia): AccessibilityNodeInfo? =
-        nodes()
+    private fun detailNode(
+        film: WidgetMedia,
+        snapshot: List<AccessibilityNodeInfo> = nodes(),
+    ): AccessibilityNodeInfo? =
+        snapshot
             .filter {
                 it.isClickable &&
                     it.isEnabled &&
@@ -300,7 +318,10 @@ class WidgetImmersiveLayoutsInstrumentedTest {
                     .top
             }
 
-    private fun controlNode(label: String): AccessibilityNodeInfo? = findNode { it.isClickable && hasLabel(it, label) }
+    private fun controlNode(
+        label: String,
+        snapshot: List<AccessibilityNodeInfo> = nodes(),
+    ): AccessibilityNodeInfo? = snapshot.firstOrNull { it.isClickable && hasLabel(it, label) }
 
     private fun hasLabel(
         node: AccessibilityNodeInfo,
@@ -328,10 +349,9 @@ class WidgetImmersiveLayoutsInstrumentedTest {
         return false
     }
 
-    private fun findNode(matches: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? =
-        nodes().firstOrNull(matches)
-
     private fun nodes(includeInvisible: Boolean = false): List<AccessibilityNodeInfo> {
+        // Virtual Compose nodes can remain cached after the collection is replaced.
+        if (Build.VERSION.SDK_INT >= 34) instrumentation.uiAutomation.clearCache()
         val root = instrumentation.uiAutomation.rootInActiveWindow ?: return emptyList()
         val result = mutableListOf<AccessibilityNodeInfo>()
         val pending = ArrayDeque<AccessibilityNodeInfo>()
@@ -376,6 +396,7 @@ class WidgetImmersiveLayoutsInstrumentedTest {
                             "package=${node.packageName} class=${node.className} bounds=$bounds " +
                                 "visible=${node.isVisibleToUser} enabled=${node.isEnabled} " +
                                 "clickable=${node.isClickable} focusable=${node.isFocusable} " +
+                                "collection=${node.collectionInfo} state=${node.stateDescription} " +
                                 "text=${node.text} description=${node.contentDescription} " +
                                 "actions=${node.actionList.joinToString { "${it.id}:${it.label}" }}",
                         )

@@ -21,4 +21,5 @@ adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS
 # AGP otherwise uninstalls the isolated test apps and removes their external files
 # before the EXIT trap can pull the screenshots from this disposable emulator.
 ./gradlew :composeApp:connectedDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation "$@" \
+  -Pandroid.testInstrumentationRunnerArguments.additionalTestOutputDir=/sdcard/Android/data/com.yfuse.validation/files/widget-layouts \
   -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true --no-daemon
