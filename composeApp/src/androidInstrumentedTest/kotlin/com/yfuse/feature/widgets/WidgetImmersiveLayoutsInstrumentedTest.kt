@@ -377,9 +377,9 @@ class WidgetImmersiveLayoutsInstrumentedTest {
     }
 
     private fun evidenceDirectory(): File =
-        (
-            InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")?.let(::File)
-                ?: requireNotNull(instrumentation.targetContext.getExternalFilesDir(null))
+        File(
+            requireNotNull(instrumentation.targetContext.getExternalFilesDir(null)),
+            "validation/widget-layouts",
         ).apply { mkdirs() }
 
     private fun saveFailureEvidence(failure: Throwable) {
