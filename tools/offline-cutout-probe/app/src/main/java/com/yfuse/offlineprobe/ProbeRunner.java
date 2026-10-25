@@ -75,7 +75,8 @@ public final class ProbeRunner {
             report.put("runtime", "MediaPipe Tasks CPU 0.10.21 (official custom-op support)").put("threads", "MediaPipe default");
             return new Engine() {
                 public Mask infer(Bitmap bitmap) throws Exception {
-                    MPImage input = new BitmapImageBuilder(bitmap).build();
+                    // MPImage.close() owns/recycles the bitmap; retain the test source.
+                    MPImage input = new BitmapImageBuilder(bitmap.copy(Bitmap.Config.ARGB_8888, false)).build();
                     try {
                         ImageSegmenterResult result = segmenter.segment(input);
                         List<MPImage> masks = result.confidenceMasks().orElseThrow(() -> new IllegalStateException("Missing confidence masks"));
@@ -138,6 +139,8 @@ public final class ProbeRunner {
         for (int i = 0; i < models.length(); i++) if (models.getJSONObject(i).getString("id").equals(id)) spec = models.getJSONObject(i);
         if (spec == null) throw new IllegalArgumentException("Unknown model: " + id);
         File directory = new File(out(context), id); directory.mkdirs();
+        File[] previous = directory.listFiles();
+        if (previous != null) for (File generated : previous) if (generated.isFile() && !generated.delete()) throw new IOException("Cannot clear old model output");
         JSONObject report = new JSONObject().put("model", spec).put("version", BuildConfig.VERSION_NAME)
                 .put("device", Build.MANUFACTURER + " " + Build.MODEL).put("fingerprint", Build.FINGERPRINT)
                 .put("abis", new JSONArray(Build.SUPPORTED_ABIS)).put("sdk", Build.VERSION.SDK_INT)
@@ -210,7 +213,7 @@ public final class ProbeRunner {
         for (int i = 0; i < pixels.length; i++) pixels[i] = (pixels[i] & 0x00ffffff) | ((alphas[i] & 255) << 24);
         Bitmap foreground = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888);
         png(new File(directory, sample.id() + "-foreground.png"), foreground);
-        File source = new File(outFileRoot(directory), sample.id() + "-source.png"); if (!source.exists()) png(source, sample.bitmap());
+        File source = new File(outFileRoot(directory), sample.id() + "-source.png"); png(source, sample.bitmap());
         foreground.recycle(); if (alpha != low) alpha.recycle(); low.recycle();
     }
     private static File outFileRoot(File directory) { return directory.getParentFile(); }

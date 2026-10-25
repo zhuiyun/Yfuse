@@ -56,7 +56,7 @@ def convert_paddle(spec, source):
     target = ASSETS / spec['file']
     # The official dynamic graph uses adaptive pooling. Fix the documented
     # deployment input dimensions and infer intermediate shapes before export.
-    height, width = (144, 256) if spec['id'] == 'pp-portrait' else (192, 192)
+    height, width = (144, 256) if spec['id'] == 'pp-portrait' else (256, 256)
     paddle.enable_static()
     with paddle.static.scope_guard(paddle.static.Scope()):
         executor = paddle.static.Executor(paddle.CPUPlace())
@@ -67,7 +67,7 @@ def convert_paddle(spec, source):
             if operation.type not in ('feed', 'fetch'): operation.desc.infer_shape(block.desc)
         fixed = directory / 'fixed/model'; fixed.parent.mkdir(exist_ok=True)
         paddle.static.save_inference_model(str(fixed), [block.var(name) for name in feed_names], fetch_vars, executor, program=program)
-    subprocess.run(['paddle2onnx', '--model_dir', str(fixed.parent), '--model_filename', 'model.pdmodel',
+    subprocess.run([sys.executable, '-m', 'paddle2onnx.command', '--model_dir', str(fixed.parent), '--model_filename', 'model.pdmodel',
                     '--params_filename', 'model.pdiparams', '--save_file', str(target), '--opset_version', '11',
                     '--enable_onnx_checker', 'True'], check=True)
     # Verify the actual exported probabilities against Paddle, before Android testing.
@@ -81,8 +81,25 @@ def convert_paddle(spec, source):
     session = ort.InferenceSession(str(target), providers=['CPUExecutionProvider'])
     actual = session.run(None, {session.get_inputs()[0].name: test})[0]
     error = float(np.max(np.abs(actual - reference)))
-    if not np.allclose(actual, reference, atol=1e-4, rtol=1e-4):
-        raise RuntimeError(f'Paddle->ONNX differs: {error}')
+    # Check the random input and every real poster against the original Paddle
+    # graph. Do not admit a converter-induced contour or probability change.
+    from PIL import Image
+    checks = []
+    for name, data in [('seeded_random', test)] + [
+        (sample['id'], (np.asarray(Image.open(ASSETS / sample['file']).convert('RGB').resize((width, height), Image.Resampling.BILINEAR), dtype=np.float32) / 127.5 - 1).transpose(2, 0, 1)[None]) for sample in SAMPLES
+    ]:
+        handle.copy_from_cpu(data); predictor.run()
+        expected = predictor.get_output_handle(predictor.get_output_names()[0]).copy_to_cpu()
+        converted = session.run(None, {session.get_inputs()[0].name: data})[0]
+        delta = np.abs(expected - converted)
+        check = dict(sample=name, max_abs=float(delta.max()), mean_abs=float(delta.mean()),
+                     argmax_agreement=float(np.mean(expected.argmax(1) == converted.argmax(1))))
+        checks.append(check)
+        if not np.allclose(expected, converted, atol=1e-4, rtol=1e-4) or check['argmax_agreement'] < .999:
+            raise RuntimeError(f'Paddle->ONNX validation failed: {check}')
+    spec['conversion_checks'] = checks
+    if spec['id'] == 'pp-human':
+        spec['deployment_note'] = '256x256 input avoids non-divisible adaptive-pooling conversion mismatch seen at 192x192; all source comparisons retained'
     spec['conversion_max_abs_error'] = error
     spec['source_sha256'] = hashlib.sha256(source.read_bytes()).hexdigest()
 
@@ -111,7 +128,7 @@ def main():
             session = ort.InferenceSession(str(path), sess_options=options, providers=['CPUExecutionProvider'])
             spec['input_name'] = session.get_inputs()[0].name
             shape = session.get_inputs()[0].shape
-            default = [1, 3, 144, 256] if spec['id'] == 'pp-portrait' else [1, 3, 192, 192] if spec['id'] == 'pp-human' else [1, 3, 512, 512] if spec['id'] in ('modnet', 'birefnet') else [1, 3, 320, 320]
+            default = [1, 3, 144, 256] if spec['id'] == 'pp-portrait' else [1, 3, 256, 256] if spec['id'] == 'pp-human' else [1, 3, 512, 512] if spec['id'] in ('modnet', 'birefnet') else [1, 3, 320, 320]
             spec['input_shape'] = [int(v) if isinstance(v, int) and v > 0 else default[i] for i, v in enumerate(shape)]
             spec['output_name'] = session.get_outputs()[0].name
             spec['source_input_shape'] = shape
