@@ -18,4 +18,7 @@ trap collect_evidence EXIT
 test "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" = "$expected_api"
 adb shell settings put global hide_error_dialogs 1
 adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS
-./gradlew :composeApp:connectedDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation "$@" --no-daemon
+# AGP otherwise uninstalls the isolated test apps and removes their external files
+# before the EXIT trap can pull the screenshots from this disposable emulator.
+./gradlew :composeApp:connectedDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation "$@" \
+  -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true --no-daemon
