@@ -1,0 +1,30 @@
+name: Stop superseded ARM bridge probe
+on:
+  push:
+    branches: [probe/offline-selfie-20261025]
+    paths: [.github/workflows/offline-cutout-stop-bridge.yml]
+permissions:
+  contents: read
+  actions: write
+jobs:
+  stop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Stop only the redundant probe after native comparison completed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, subprocess
+          repo='zhuiyun/Yfuse'
+          run='40211971069'
+          data=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run}'],text=True))
+          assert data['head_sha']=='536e042a783ad86e9294c9dd96763c9d5c5ad637'
+          assert data['head_branch']=='probe/offline-cutout-20261025'
+          if data['status']!='completed':
+              subprocess.run(['gh','api','--method','POST',f'repos/{repo}/actions/runs/{run}/cancel'],check=True)
+              print('Requested cancellation of the superseded ARM translation run.')
+          else:
+              print('Superseded run already completed.')
+          PY
