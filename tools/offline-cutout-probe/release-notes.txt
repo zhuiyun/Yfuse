@@ -1,0 +1,4 @@
+0.0.1
+独立离线抠图对照工具：MODNet、PP-HumanSeg V2 Lite 人像/通用人物版、Google Selfie、BiRefNet Lite 512 与 U2NetP 基线。
+模型与六张公开验证海报内置，无 INTERNET 权限；支持选择本地图片与导出原始蒙版、透明前景及实测记录。
+这是诊断工具；不会替换 Yfuse，也不将模型输出自动判为合格素材。
