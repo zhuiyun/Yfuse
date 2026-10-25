@@ -26,7 +26,7 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this); LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(32, 64, 32, 48); scroll.addView(root); setContentView(scroll);
         TextView title = new TextView(this); title.setText("Android 离线抠图对照 0.0.1"); title.setTextSize(23); root.addView(title);
-        TextView info = new TextView(this); info.setText("模型和六张海报已内置，可在飞行模式下测试。无网络权限。\n真实输出仅供检查，不会自动判为可用素材。\n导出 ZIP 包含原图、透明前景、原始蒙版、耗时与内存记录。"); root.addView(info);
+        TextView info = new TextView(this); info.setText("模型和六张海报已内置，可在飞行模式下测试。无网络权限。\n真实输出仅供检查，不会自动判为可用素材。\n比较峰值内存时，请重启 App 后单独选择一个模型；全部模式的峰值会累积。\n导出 ZIP 包含原图、透明前景、原始蒙版、耗时与内存记录。"); root.addView(info);
         choices = new Spinner(this); root.addView(choices);
         try {
             models = ProbeRunner.manifest(this).getJSONArray("models"); List<String> names = new ArrayList<>(); names.add("全部模型（依次运行）");
