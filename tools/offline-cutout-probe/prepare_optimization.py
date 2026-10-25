@@ -23,7 +23,22 @@ with zipfile.ZipFile(apk) as z:
     for name in z.namelist():
         if name.startswith('assets/licenses/') and not name.endswith('/'):
             path=ASSETS/'licenses'/Path(name).name;path.parent.mkdir(exist_ok=True);path.write_bytes(z.read(name))
-quantize_dynamic(str(ASSETS/'birefnet.onnx'),str(ASSETS/'birefnet-matmul-int8.onnx'),
+# The export shares FP32 initializers through Identity aliases. Resolve those
+# before quantization so all users share quantized weights rather than retain a
+# second FP32 copy. This rewires exact identities; it changes no tensor values.
+source=onnx.load(ASSETS/'birefnet.onnx');initializers={x.name for x in source.graph.initializer}
+outputs={x.name for x in source.graph.output};aliases={};nodes=[]
+for node in source.graph.node:
+    for i,name in enumerate(node.input):node.input[i]=aliases.get(name,name)
+    if node.op_type=='Identity' and node.input[0] in initializers and node.output[0] not in outputs:
+        aliases[node.output[0]]=node.input[0]
+    else:nodes.append(node)
+del source.graph.node[:];source.graph.node.extend(nodes)
+onnx.checker.check_model(source)
+work=ROOT/'intermediate';work.mkdir(exist_ok=True)
+onnx.save(source,work/'birefnet-weight-aliases-resolved.onnx')
+print('RESOLVED_WEIGHT_ALIASES',len(aliases),flush=True)
+quantize_dynamic(str(work/'birefnet-weight-aliases-resolved.onnx'),str(ASSETS/'birefnet-matmul-int8.onnx'),
                  op_types_to_quantize=['MatMul','Gemm'],per_channel=True,weight_type=QuantType.QInt8,
                  extra_options={'MatMulConstBOnly':True})
 # Quantization can leave Identity aliases and their original FP32 constants dead.
