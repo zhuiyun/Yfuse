@@ -17,6 +17,7 @@ def main():
     OUT.mkdir(exist_ok=True)
     if adb("shell", "getprop", "ro.kernel.qemu").stdout.strip() != "1":
         raise SystemExit("This unattended runner accepts disposable emulators only")
+    (OUT / "graphics.txt").write_text(adb("shell", "dumpsys", "SurfaceFlinger").stdout)
     apk = ROOT / "app/build/outputs/apk/debug/app-debug.apk"
     install = adb("install", "-r", str(apk), timeout=120)
     (OUT / "install.txt").write_text(install.stdout + install.stderr)
