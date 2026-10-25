@@ -21,6 +21,8 @@ for abi in ['arm64-v8a', 'x86']:
     signature = subprocess.check_output([str(tool / 'apksigner'), 'verify', '--print-certs', str(apk)], text=True)
     with zipfile.ZipFile(apk) as archive:
         names = archive.namelist()
+        # Incremental APK edits can leave large dead ZIP regions after pruning.
+        assert apk.stat().st_size - sum(i.compress_size for i in archive.infolist()) < 8 * 1024**2, 'APK contains excessive non-entry bytes; clean rebuild required'
         assert any(n.startswith('lib/' + abi + '/') and 'onnxruntime' in n for n in names)
         assert set(n for n in names if n.endswith('.onnx')) == {'assets/'+m['file'] for m in manifest['models']}
         assert 'classes.dex' in names

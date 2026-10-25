@@ -64,7 +64,7 @@ jobs:
         run: python tools/offline-cutout-probe/select_optimization.py
       - name: Rebuild and verify the two-model phone package
         run: |
-          ./gradlew -p tools/offline-cutout-probe :app:assembleDebug --no-daemon --max-workers=2
+          ./gradlew -p tools/offline-cutout-probe :app:clean :app:assembleDebug --no-daemon --max-workers=2
           python tools/offline-cutout-probe/verify_apk.py
       - name: Save the checked ARM64 phone package
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
