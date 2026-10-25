@@ -78,7 +78,7 @@ public final class ProbeRunner {
                     MPImage input = new BitmapImageBuilder(bitmap).build();
                     try {
                         ImageSegmenterResult result = segmenter.segment(input);
-                        List<MPImage> masks = result.confidenceMasks().orElseThrow();
+                        List<MPImage> masks = result.confidenceMasks().orElseThrow(() -> new IllegalStateException("Missing confidence masks"));
                         if (masks.size() != 1) throw new IllegalStateException("Expected one foreground channel: " + masks.size());
                         MPImage output = masks.get(0);
                         try {

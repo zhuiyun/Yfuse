@@ -41,6 +41,7 @@ def fetch(url, target):
 
 def convert_paddle(spec, source):
     import numpy as np
+    import paddle
     import paddle.inference as paddle_infer
     import onnxruntime as ort
     directory = WORK / spec['id']
@@ -53,11 +54,23 @@ def convert_paddle(spec, source):
     model = next(p for p in directory.rglob('model.pdmodel') if '__MACOSX' not in p.parts)
     params = model.with_name('model.pdiparams')
     target = ASSETS / spec['file']
-    subprocess.run(['paddle2onnx', '--model_dir', str(model.parent), '--model_filename', model.name,
-                    '--params_filename', params.name, '--save_file', str(target), '--opset_version', '11',
+    # The official dynamic graph uses adaptive pooling. Fix the documented
+    # deployment input dimensions and infer intermediate shapes before export.
+    height, width = (144, 256) if spec['id'] == 'pp-portrait' else (192, 192)
+    paddle.enable_static()
+    with paddle.static.scope_guard(paddle.static.Scope()):
+        executor = paddle.static.Executor(paddle.CPUPlace())
+        program, feed_names, fetch_vars = paddle.static.load_inference_model(str(model.with_suffix('')), executor)
+        block = program.global_block()
+        for name in feed_names: block.var(name).desc.set_shape([1, 3, height, width])
+        for operation in block.ops:
+            if operation.type not in ('feed', 'fetch'): operation.desc.infer_shape(block.desc)
+        fixed = directory / 'fixed/model'; fixed.parent.mkdir(exist_ok=True)
+        paddle.static.save_inference_model(str(fixed), [block.var(name) for name in feed_names], fetch_vars, executor, program=program)
+    subprocess.run(['paddle2onnx', '--model_dir', str(fixed.parent), '--model_filename', 'model.pdmodel',
+                    '--params_filename', 'model.pdiparams', '--save_file', str(target), '--opset_version', '11',
                     '--enable_onnx_checker', 'True'], check=True)
     # Verify the actual exported probabilities against Paddle, before Android testing.
-    height, width = (144, 256) if spec['id'] == 'pp-portrait' else (192, 192)
     test = np.random.default_rng(20261025).uniform(-1, 1, (1, 3, height, width)).astype(np.float32)
     config = paddle_infer.Config(str(model), str(params))
     config.disable_gpu(); config.disable_glog_info(); config.switch_ir_optim(False)
