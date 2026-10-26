@@ -1,10 +1,10 @@
 {
-  "versionName": "1.7.2",
-  "versionCode": 324,
+  "versionName": "1.7.3",
+  "versionCode": 325,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-26",
+  "confirmedAt": "2026-10-26T07:12:14.450519+00:00",
   "confirmedBy": "release owner",
-  "confirmationBasis": "Owner requested cutout diagnostics and a new package, retaining the same pinned MDK and full ARM64 package-only scope under standing authorization."
+  "confirmationBasis": "Owner requested pulling latest cloud mainline plus the local carousel fix and packaging. Standing authorization covers the unchanged pinned MDK component and local full ARM64 package-only delivery. No upload or publishing is authorized."
 }
