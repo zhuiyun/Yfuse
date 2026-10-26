@@ -11,7 +11,10 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
@@ -43,6 +46,7 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MotionBudget
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.widget.WidgetMedia
+import com.yfuse.core.widget.WidgetSection
 import com.yfuse.core.widget.WidgetStyle
 import com.yfuse.launchMainActivityForInput
 import org.junit.Assert.assertNull
@@ -51,6 +55,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.math.max
@@ -289,6 +294,128 @@ class WidgetImmersiveLayoutsInstrumentedTest {
                 assertTrue("$style shrank the previous touch target", previous.height() >= 47f * probe.density.get())
                 assertTrue("$style shrank the next touch target", next.height() >= 47f * probe.density.get())
             }
+        }
+    }
+
+    @Test(timeout = 90_000L)
+    fun tablet_home_uses_both_columns_fits_heroes_and_retains_selection_when_resized() {
+        val width = mutableStateOf(1200)
+        val panels = ConcurrentHashMap<String, Rect>()
+        val viewport = AtomicReference(Rect.Zero)
+        val tabletStyles =
+            listOf(
+                WidgetStyle.PrismGallery,
+                WidgetStyle.BreakoutPoster,
+                WidgetStyle.RibbonGallery,
+                WidgetStyle.ArcPoster,
+            )
+        val sections = tabletStyles.map { WidgetSection(it.id, "fixture", "fixture", it.id, style = it.id) }
+        val media =
+            sections.associate { section ->
+                section.id to
+                    films.mapIndexed { index, film ->
+                        film.copy(id = "preview-${section.id}-${index + 1}", title = "${section.id}: ${film.title}")
+                    }
+            }
+        val density = instrumentation.targetContext.resources.displayMetrics.widthPixels / 1200f
+        withWidgetScenario { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    YfuseTheme(dark = false, accessibility = AccessibilityOptions(reduceMotion = true)) {
+                        CompositionLocalProvider(
+                            LocalDensity provides Density(density, 1f),
+                            LocalRouteVisible provides true,
+                            LocalMotionBudget provides MotionBudget(),
+                        ) {
+                            Box(Modifier.fillMaxSize().background(Color.White)) {
+                                Box(
+                                    Modifier.width(width.value.dp).height(640.dp).onGloballyPositioned {
+                                        viewport.set(it.boundsInWindow())
+                                    },
+                                ) {
+                                    WidgetHomeSections(sections, bottomInset = 96.dp, empty = {}) { section ->
+                                        Column(
+                                            Modifier.fillMaxWidth().onGloballyPositioned {
+                                                panels[section.id] = it.boundsInWindow()
+                                            },
+                                        ) {
+                                            com.yfuse.core.designsystem
+                                                .ThemeText(section.title)
+                                            WidgetCards(
+                                                WidgetStyle.fromId(section.style),
+                                                media.getValue(section.id),
+                                                onOpen = {},
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            val prism = media.getValue(sections[0].id)
+            awaitDetail(prism[0])
+            await("Tablet sections were still stacked in a narrow centre column") {
+                val left = panels[sections[0].id] ?: return@await false
+                val right = panels[sections[1].id] ?: return@await false
+                abs(left.top - right.top) < density && left.right < right.left && left.width > 500 * density
+            }
+            for (section in sections.take(2)) {
+                val bounds = panels.getValue(section.id)
+                assertTrue(
+                    "${section.id} extended behind the dock in the first tablet row",
+                    bounds.bottom <= viewport.get().bottom - 96 * density,
+                )
+            }
+            saveTabletScreenshot("tablet-home-1200x640")
+            clickControl("下一部")
+            awaitDetail(prism[1])
+            scenario.onActivity { width.value = 700 }
+            await("Split window kept two squeezed columns") {
+                val first = panels[sections[0].id] ?: return@await false
+                val second = panels[sections[1].id] ?: return@await false
+                abs(first.left - second.left) < density && second.top >= first.bottom
+            }
+            awaitDetail(prism[1])
+            saveTabletScreenshot("tablet-home-split-700dp")
+            scenario.onActivity { width.value = 1200 }
+            await("Returning to landscape lost the second column") {
+                val left = panels[sections[0].id] ?: return@await false
+                val right = panels[sections[1].id] ?: return@await false
+                left.right < right.left && abs(left.top - right.top) < density
+            }
+            awaitDetail(prism[1])
+            // Scroll in the gap between columns, clear of the prism's two-axis rotation surface.
+            // Android does not consistently put collectionInfo and scroll actions on one node.
+            val home = viewport.get()
+            drag(
+                scenario,
+                Offset(home.center.x, home.bottom - 110 * density),
+                Offset(home.center.x, home.top + 40 * density),
+            )
+            await("The last tablet row could not be scrolled clear of the dock") {
+                sections.takeLast(2).all { section ->
+                    val bounds = panels[section.id] ?: return@all false
+                    bounds.top >= viewport.get().top && bounds.bottom <= viewport.get().bottom - 94 * density
+                }
+            }
+            saveTabletScreenshot("tablet-home-last-row-clear-of-dock")
+        }
+    }
+
+    private fun saveTabletScreenshot(name: String) {
+        settle()
+        val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+        try {
+            val directory =
+                File(
+                    instrumentation.targetContext.getExternalFilesDir(null),
+                    "validation/widget-layouts",
+                ).apply { mkdirs() }
+            File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        } finally {
+            bitmap.recycle()
         }
     }
 

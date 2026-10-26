@@ -27,12 +27,14 @@ import com.yfuse.core.security.SecureStore
 import com.yfuse.core.widget.LocalWidgetCutoutRuntime
 import com.yfuse.core.widget.PoofCutoutClient
 import com.yfuse.core.widget.PoofWidgetCutoutPipeline
+import com.yfuse.core.widget.WidgetCutoutLoader
 import com.yfuse.core.widget.WidgetCutoutPhase
 import com.yfuse.core.widget.WidgetCutoutPreferences
 import com.yfuse.core.widget.WidgetCutoutRuntime
 import com.yfuse.core.widget.WidgetMedia
 import com.yfuse.core.widget.preparePoofSource
 import com.yfuse.launchMainActivityForInput
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -69,6 +71,7 @@ class PoofCutoutFlowInstrumentedTest {
     fun downloaded_poster_is_segmented_rendered_above_the_frame_and_reused_after_restart() {
         PosterOrigin().use { origin ->
             val prefs = preferences("private-poof-fixture-key")
+            val startCutout = CompletableDeferred<Unit>()
             val folder = File(context.cacheDir, "poof-flow-${UUID.randomUUID()}")
             val rate = context.getSharedPreferences("poof-flow-rate-${UUID.randomUUID()}", 0)
             val pipeline =
@@ -80,6 +83,18 @@ class PoofCutoutFlowInstrumentedTest {
                     rate = rate,
                     requestSpacingMillis = 0,
                 )
+            val loader =
+                object : WidgetCutoutLoader by pipeline {
+                    override suspend fun get(
+                        source: String,
+                        allowProcessing: Boolean,
+                    ) = if (allowProcessing) {
+                        startCutout.await()
+                        pipeline.get(source, true)
+                    } else {
+                        pipeline.get(source, false)
+                    }
+                }
             try {
                 launchMainActivityForInput().use { scenario ->
                     val bounds = AtomicReference<Rect>()
@@ -91,7 +106,7 @@ class PoofCutoutFlowInstrumentedTest {
                                     LocalWidgetCutoutRuntime provides
                                         WidgetCutoutRuntime(
                                             prefs.configuration,
-                                            pipeline,
+                                            loader,
                                         ),
                                 ) {
                                     Box(
@@ -121,6 +136,12 @@ class PoofCutoutFlowInstrumentedTest {
                             }
                         }
                     }
+                    await("The original poster never reached the fixed background frame") {
+                        bounds.get()?.let(::backgroundFrameBounds) != null
+                    }
+                    val pendingBounds = checkNotNull(bounds.get())
+                    assertFixedFrame(pendingBounds)
+                    startCutout.complete(Unit)
                     await(
                         "The card never displayed its downloaded transparent foreground",
                     ) { hasText("抠图完成", stateOnly = true) }
@@ -129,6 +150,13 @@ class PoofCutoutFlowInstrumentedTest {
                     assertEquals(512, origin.uploadWidth.get())
                     assertEquals(768, origin.uploadHeight.get())
                     assertNull(origin.failure.get())
+                    assertFixedFrame(checkNotNull(bounds.get()))
+                    assertEquals(
+                        "Finishing the cutout changed the component height",
+                        pendingBounds.height,
+                        checkNotNull(bounds.get()).height,
+                        1f,
+                    )
                     val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
                     try {
                         val frame = checkNotNull(bounds.get())
@@ -386,6 +414,52 @@ class PoofCutoutFlowInstrumentedTest {
             SystemClock.sleep(50)
         }
         assertTrue(message, condition())
+    }
+
+    private fun assertFixedFrame(bounds: Rect) {
+        val density = context.resources.displayMetrics.density
+        var rendered: Pair<Int, Int>? = null
+        // Coil's success callback can precede the first drawn frame on a loaded emulator.
+        await("The background frame never reached the screen") {
+            rendered = backgroundFrameBounds(bounds)
+            rendered != null
+        }
+        val background = checkNotNull(rendered)
+        // Independent pixel edges: the original, processing and cutout views share this rectangle.
+        val artworkTop = bounds.top + 12 * density
+        val artworkHeight = bounds.width * .88f * 1.5f
+        assertTrue(
+            "The background frame moved with the subject",
+            kotlin.math.abs(
+                background.first -
+                    (artworkTop + artworkHeight * .26f),
+            ) <= 2 * density,
+        )
+        assertTrue(
+            "The background frame bottom moved",
+            kotlin.math.abs(
+                background.second + 1 -
+                    (artworkTop + artworkHeight),
+            ) <= 2 * density,
+        )
+    }
+
+    private fun backgroundFrameBounds(bounds: Rect): Pair<Int, Int>? {
+        val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+        try {
+            val density = context.resources.displayMetrics.density
+            // Outside the red/blue foreground, the source's green background exposes the real frame.
+            val x = (bounds.center.x - bounds.width * .88f * .35f).toInt()
+            val bottom = (bounds.top + 12 * density + bounds.width * .88f * 1.5f).toInt()
+            val rows =
+                (bounds.top.toInt().coerceAtLeast(0) until bottom.coerceAtMost(screenshot.height)).filter { y ->
+                    val pixel = screenshot.getPixel(x, y)
+                    Color.green(pixel) > 110 && Color.red(pixel) < 110 && Color.blue(pixel) < 180
+                }
+            return rows.firstOrNull()?.let { it to rows.last() }
+        } finally {
+            screenshot.recycle()
+        }
     }
 
     private fun hasText(

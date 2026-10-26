@@ -55,7 +55,7 @@ internal fun WidgetRibbonGallery(
     val density = LocalDensity.current
     val accent = LocalAccentColors.current.accent
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-        val stageWidth = minOf(maxWidth, if (compact) 340.dp else 480.dp)
+        val stageWidth = widgetGalleryWidth(maxWidth, compact, LocalWidgetGalleryMaxHeight.current, .76f)
         val stageHeight = stageWidth * .76f
         val motion = rememberWidgetGalleryMotion("ribbon-gallery", items, with(density) { (stageWidth * .44f).toPx() })
         val phase = if (motion.reduceMotion) 0f else motion.position

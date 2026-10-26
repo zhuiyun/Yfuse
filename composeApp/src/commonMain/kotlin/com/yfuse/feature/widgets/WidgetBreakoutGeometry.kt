@@ -4,8 +4,11 @@ import kotlin.math.max
 
 internal data class BreakoutFraming(
     val verticalBias: Float,
-    val frameTopFraction: Float,
-)
+    val scale: Float = 1f,
+) {
+    // The frame belongs to the gallery, not to an individual subject's bounds.
+    val frameTopFraction: Float get() = BREAKOUT_FRAME_TOP
+}
 
 internal const val BREAKOUT_WINDOW_HEIGHT = 1.5f
 internal const val BREAKOUT_CARD_WIDTH = .88f
@@ -19,19 +22,19 @@ internal fun breakoutFraming(
     subjectBottom: Float,
 ): BreakoutFraming {
     if (sourceWidth <= 0 || sourceHeight <= 0 || !subjectTop.isFinite() || !subjectBottom.isFinite()) {
-        return BreakoutFraming(0f, BREAKOUT_FRAME_TOP)
+        return BreakoutFraming(0f)
     }
-    // Reserve enough vertical room for faces in upright film posters.
     val windowHeight = BREAKOUT_WINDOW_HEIGHT
     val sourceAspect = sourceHeight.toFloat() / sourceWidth
-    val scaledHeight = max(sourceAspect, windowHeight)
-    val overflow = scaledHeight - windowHeight
     val top = subjectTop.coerceIn(0f, 1f)
-    val bottom = subjectBottom.coerceIn(top, 1f)
-    val offset = (windowHeight * .045f - top * scaledHeight).coerceIn(-overflow, 0f)
+    val baseHeight = max(sourceAspect, windowHeight)
+    val headroom = windowHeight * .045f
+    // Move the aligned pair, rather than shortening the frame for subjects lower in the poster.
+    // A bounded shared zoom supplies enough background below the crop without revealing a gap.
+    val requiredHeight = (windowHeight - headroom) / (1f - top).coerceAtLeast(.05f)
+    val scaledHeight = max(baseHeight, requiredHeight).coerceAtMost(baseHeight * 1.6f)
+    val overflow = scaledHeight - windowHeight
+    val offset = (headroom - top * scaledHeight).coerceIn(-overflow, 0f)
     val bias = if (overflow > .0001f) (-2 * offset / overflow - 1).coerceIn(-1f, 1f) else 0f
-    val visibleTop = top * scaledHeight + offset
-    val protrusion = ((bottom - top) * scaledHeight * .32f).coerceIn(windowHeight * .12f, windowHeight * .24f)
-    val frameTop = ((visibleTop + protrusion) / windowHeight).coerceIn(BREAKOUT_FRAME_TOP, .50f)
-    return BreakoutFraming(bias, frameTop)
+    return BreakoutFraming(bias, scaledHeight / baseHeight)
 }

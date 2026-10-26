@@ -2,13 +2,10 @@ package com.yfuse.feature.widgets
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -21,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalPalette
@@ -44,12 +42,7 @@ internal fun WidgetPageContent(
     onEdit: () -> Unit,
     onOpenTmdb: (TmdbItem, WidgetSourceContext?) -> Unit,
 ) {
-    val listState =
-        androidx.compose.foundation.lazy
-            .rememberLazyListState()
     var browsePath by rememberSaveable(page.id) { mutableStateOf(emptyList<String>()) }
-    com.yfuse.core.designsystem
-        .ScrollToTopOnReselect(listState)
 
     fun browse(section: WidgetSection) {
         browsePath =
@@ -65,17 +58,12 @@ internal fun WidgetPageContent(
             )
         }
     }
-    LazyColumn(
-        state = listState,
-        contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 120.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-    ) {
-        if (page.sections.none { !it.hidden }) {
-            item { WidgetEmptyState(AppIcons.Home, "首页还没有内容", "添加栏目，或重新显示已隐藏的栏目。", "编辑页面", onEdit) }
-        }
-        items(page.sections.filterNot { it.hidden }, key = { it.id }) { section ->
-            WidgetSectionContent(section, repository, onBrowse = { browse(section) }, onOpen = { open(section, it) })
-        }
+    WidgetHomeSections(
+        sections = page.sections.filterNot { it.hidden },
+        bottomInset = floatingNavigationContentInset(),
+        empty = { WidgetEmptyState(AppIcons.Home, "首页还没有内容", "添加栏目，或重新显示已隐藏的栏目。", "编辑页面", onEdit) },
+    ) { section ->
+        WidgetSectionContent(section, repository, onBrowse = { browse(section) }, onOpen = { open(section, it) })
     }
     val browseStates =
         androidx.compose.runtime.saveable
