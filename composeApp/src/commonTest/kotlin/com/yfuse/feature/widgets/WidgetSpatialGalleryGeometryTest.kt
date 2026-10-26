@@ -64,7 +64,8 @@ class WidgetSpatialGalleryGeometryTest {
                     assertTrue(point.y in 0.005f..0.975f, "vertical overflow at $step: $point")
                 }
             }
-            assertEquals(faces.size, faces.map { it.index }.distinct().size)
+            val sides = faces.filterNot { it.top || it.bottom }
+            assertEquals(sides.size, sides.map { it.index }.distinct().size)
         }
     }
 
@@ -89,6 +90,69 @@ class WidgetSpatialGalleryGeometryTest {
         }
         assertEquals(prismGalleryFaces(0f, 4), prismGalleryFaces(-100f, 4))
         assertEquals(prismGalleryFaces(3f, 4), prismGalleryFaces(100f, 4))
+    }
+
+    @Test
+    fun prism_stays_closed_bounded_and_affine_through_complete_vertical_turns() {
+        for (yawStep in 0..70) {
+            for (pitch in -360..360 step 15) {
+                val faces = prismGalleryFaces(yawStep / 10f, 8, pitchDegrees = pitch.toFloat())
+                assertTrue(faces.size in 1..3)
+                assertEquals(faces.map { it.depth }.sorted(), faces.map { it.depth })
+                val sides = faces.filterNot { it.top || it.bottom }
+                val cap = faces.singleOrNull { it.top || it.bottom }
+                faces.forEach { face ->
+                    assertTrue(face.index in 0..7)
+                    face.corners.forEach { point ->
+                        assertTrue(point.x in 0.07f..0.93f)
+                        assertTrue(point.y in 0.03f..0.91f)
+                    }
+                    assertNear(face.corners[0].x + face.corners[2].x, face.corners[1].x + face.corners[3].x)
+                    assertNear(face.corners[0].y + face.corners[2].y, face.corners[1].y + face.corners[3].y)
+                    val center =
+                        GalleryPoint(
+                            face.corners.sumOf { it.x.toDouble() }.toFloat() / 4,
+                            face.corners.sumOf { it.y.toDouble() }.toFloat() / 4,
+                        )
+                    assertTrue(galleryQuadContains(face.corners, center))
+                }
+                if (cap != null) {
+                    for (side in sides) {
+                        val edge = if (cap.top) listOf(0, 1) else listOf(2, 3)
+                        edge.forEach { vertex -> assertTrue(cap.corners.any { near(it, side.corners[vertex]) }) }
+                    }
+                }
+                if (sides.size == 2) {
+                    assertEquals(2, sides[0].corners.count { a -> sides[1].corners.any { near(a, it) } })
+                }
+                val mirrored = prismGalleryFaces(yawStep / 10f, 8, rtl = true, pitchDegrees = pitch.toFloat())
+                faces.zip(mirrored).forEach { (left, right) ->
+                    assertEquals(left.index, right.index)
+                    left.corners.zip(right.corners).forEach { (a, b) ->
+                        assertNear(1f - a.x, b.x)
+                        assertNear(a.y, b.y)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun vertical_turns_show_both_caps_and_keep_the_caption_on_the_front_photograph() {
+        assertEquals(0, prismGalleryFrontIndex(prismGalleryFaces(0f, 8)))
+        assertEquals(2, prismGalleryFrontIndex(prismGalleryFaces(0f, 8, pitchDegrees = -68f)))
+        assertEquals(3, prismGalleryFrontIndex(prismGalleryFaces(0f, 8, pitchDegrees = 112f)))
+        for (pitch in listOf(Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY)) {
+            assertEquals(prismGalleryFaces(0f, 8), prismGalleryFaces(0f, 8, pitchDegrees = pitch))
+        }
+        val before = prismGalleryFaces(1.3f, 8, pitchDegrees = 179.999f)
+        val after = prismGalleryFaces(1.3f, 8, pitchDegrees = -179.999f)
+        before.zip(after).forEach { (a, b) ->
+            assertEquals(a.index, b.index)
+            a.corners.zip(b.corners).forEach { (p, q) ->
+                assertTrue(abs(p.x - q.x) < .0001f && abs(p.y - q.y) < .0001f)
+            }
+        }
     }
 
     @Test

@@ -76,7 +76,7 @@ internal fun WidgetBreakoutPoster(
         val artworkHeight = cardWidth * BREAKOUT_WINDOW_HEIGHT
         val density = LocalDensity.current
         val motion = rememberWidgetGalleryMotion("breakout-poster", items, with(density) { (stageWidth * .72f).toPx() })
-        Column(Modifier.width(stageWidth), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.width(stageWidth), verticalArrangement = Arrangement.spacedBy(0.dp)) {
             Box(
                 Modifier
                     .fillMaxWidth()

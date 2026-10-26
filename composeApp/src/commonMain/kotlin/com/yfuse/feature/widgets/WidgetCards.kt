@@ -682,6 +682,8 @@ internal fun MediaCopy(
     lines: Int = 0,
     centered: Boolean = false,
     dense: Boolean = false,
+    minTitleLines: Int = 2,
+    metadataText: String? = null,
 ) {
     val alignment = if (centered) TextAlign.Center else TextAlign.Start
     Column(modifier, verticalArrangement = Arrangement.spacedBy(if (dense) 2.dp else 3.dp)) {
@@ -690,31 +692,34 @@ internal fun MediaCopy(
             Modifier.fillMaxWidth(),
             color = LocalPalette.current.text,
             style = AppTypography.body.medium,
-            minLines = 2,
+            minLines = minTitleLines.coerceIn(1, 2),
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             textAlign = alignment,
         )
         if (metadata) {
             val meta =
-                listOf(
-                    item.year.take(4),
-                    item.rating
-                        .takeIf(String::isNotBlank)
-                        ?.let { "★ $it" }
-                        .orEmpty(),
-                    episodeLabel(item),
-                ).filter(String::isNotBlank)
-                    .joinToString(" · ")
-            Text(
-                meta,
-                Modifier.fillMaxWidth(),
-                color = LocalPalette.current.sub2,
-                style = if (dense) AppTypography.caption.regular else AppTypography.body.regular,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = alignment,
-            )
+                metadataText
+                    ?: listOf(
+                        item.year.take(4),
+                        item.rating
+                            .takeIf(String::isNotBlank)
+                            ?.let { "★ $it" }
+                            .orEmpty(),
+                        episodeLabel(item),
+                    ).filter(String::isNotBlank)
+                        .joinToString(" · ")
+            if (meta.isNotBlank()) {
+                Text(
+                    meta,
+                    Modifier.fillMaxWidth(),
+                    color = LocalPalette.current.sub2,
+                    style = if (dense) AppTypography.caption.regular else AppTypography.body.regular,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = alignment,
+                )
+            }
             if (lines > 0) {
                 Text(
                     item.description,

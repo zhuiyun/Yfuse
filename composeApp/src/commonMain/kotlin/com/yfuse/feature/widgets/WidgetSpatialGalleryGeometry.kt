@@ -18,74 +18,96 @@ internal data class PrismGalleryFace(
     val depth: Float,
     val shade: Float,
     val top: Boolean = false,
+    val bottom: Boolean = false,
 )
 
-/**
- * The visible surfaces of one cube, projected by the same orthographic camera.
- * Adjacent surfaces share world vertices, including while a new film rotates into view.
- * Logical neighbours wrap only for artwork; the gallery's selection remains bounded.
- */
+/** A closed solid, culled and depth-sorted using the same camera on both rotation axes. */
 internal fun prismGalleryFaces(
     position: Float,
     count: Int,
     rtl: Boolean = false,
+    pitchDegrees: Float = 0f,
 ): List<PrismGalleryFace> {
     if (count <= 0) return emptyList()
     val progress = position.finiteOrZero().coerceIn(0f, (count - 1).toFloat())
-    val base = floor(progress.toDouble()).toInt()
-    val fraction = progress - base
+    val pitch = normalizedPrismPitch(pitchDegrees) * PI / 180
+    val yaw = -(progress.toDouble() % 4.0) * PI / 2 - PI / 6
+    val cosine = cos(yaw).toFloat()
+    val sine = sin(yaw).toFloat()
+    val cameraPitch = pitch - 22.0 * PI / 180
+    // Renumber only the hidden side, even when the cube is turned upside down.
+    val center = floor(progress.toDouble() + 1.0 / 3 + if (cos(cameraPitch) < 0) 2 else 0).toInt()
+
+    fun rotate(vertex: PrismVertex): PrismVertex =
+        PrismVertex(vertex.x * cosine + vertex.z * sine, vertex.y, -vertex.x * sine + vertex.z * cosine)
+            .pitch(pitch)
+
+    // Fit all eight vertices, so a diagonal turn cannot clip the top or bottom.
+    val extent =
+        listOf(-.5f, .5f)
+            .flatMap { x ->
+                listOf(-.5f, .5f).flatMap { y -> listOf(-.5f, .5f).map { z -> rotate(PrismVertex(x, y, z)) } }
+            }.maxOf { abs(it.screenY()) }
+    val scale = minOf(1f, .43f / (extent * .66f).coerceAtLeast(.0001f))
     val sides =
-        (base - 1..base + 2).mapNotNull { logicalIndex ->
-            val angle = ((logicalIndex - base - fraction) * PI / 2) - PI / 6
-            val facing = cos(angle)
-            if (facing <= 0.00001) return@mapNotNull null
-            val sine = sin(angle).toFloat()
-            val cosine = facing.toFloat()
+        (center - 1..center + 2).mapNotNull { logicalIndex ->
+            val angle = (logicalIndex - progress.toDouble()) * PI / 2 - PI / 6
+            val facing = cos(angle) * cos(cameraPitch)
+            if (facing <= .00001) return@mapNotNull null
+            val sideSine = sin(angle).toFloat()
+            val sideCosine = cos(angle).toFloat()
             val vertices =
                 listOf(
-                    PrismVertex((sine - cosine) / 2, -.5f, (cosine + sine) / 2),
-                    PrismVertex((sine + cosine) / 2, -.5f, (cosine - sine) / 2),
-                    PrismVertex((sine + cosine) / 2, .5f, (cosine - sine) / 2),
-                    PrismVertex((sine - cosine) / 2, .5f, (cosine + sine) / 2),
-                )
+                    PrismVertex((sideSine - sideCosine) / 2, -.5f, (sideCosine + sideSine) / 2),
+                    PrismVertex((sideSine + sideCosine) / 2, -.5f, (sideCosine - sideSine) / 2),
+                    PrismVertex((sideSine + sideCosine) / 2, .5f, (sideCosine - sideSine) / 2),
+                    PrismVertex((sideSine - sideCosine) / 2, .5f, (sideCosine + sideSine) / 2),
+                ).map { it.pitch(pitch) }
             PrismGalleryFace(
                 index = wrapGalleryIndex(logicalIndex, count),
-                corners = vertices.map { it.project(rtl) },
+                corners = vertices.map { it.project(rtl, scale) },
                 depth = vertices.sumOf { it.depth().toDouble() }.toFloat() / 4,
-                shade = .04f + .28f * (1f - cosine),
+                shade = .04f + .28f * (1f - facing.toFloat()),
             )
         }
-
-    // Keep this orientation continuous across integer positions: changing the side
-    // enumeration must never turn the top texture by an extra quarter revolution.
-    val topAngle = -(progress.toDouble() % 4.0) * PI / 2 - PI / 6
-    val sine = sin(topAngle).toFloat()
-    val cosine = cos(topAngle).toFloat()
-    val topVertices =
-        listOf(
-            PrismVertex(-.5f, -.5f, -.5f),
-            PrismVertex(.5f, -.5f, -.5f),
-            PrismVertex(.5f, -.5f, .5f),
-            PrismVertex(-.5f, -.5f, .5f),
-        ).map { vertex ->
-            PrismVertex(vertex.x * cosine + vertex.z * sine, vertex.y, -vertex.x * sine + vertex.z * cosine)
+    val caps =
+        listOf(-.5f, .5f).mapNotNull { y ->
+            val facing = (if (y < 0) -1 else 1) * sin(cameraPitch)
+            if (facing <= .00001) return@mapNotNull null
+            val vertices =
+                listOf(
+                    PrismVertex(-.5f, y, -.5f),
+                    PrismVertex(.5f, y, -.5f),
+                    PrismVertex(.5f, y, .5f),
+                    PrismVertex(-.5f, y, .5f),
+                ).map(::rotate)
+            PrismGalleryFace(
+                // Caps retain their photographs throughout a complete turn.
+                index = wrapGalleryIndex(if (y < 0) 2 else 3, count),
+                corners = vertices.map { it.project(rtl, scale) },
+                depth = vertices.sumOf { it.depth().toDouble() }.toFloat() / 4,
+                shade = .08f + .20f * (1f - facing.toFloat()),
+                top = y < 0,
+                bottom = y > 0,
+            )
         }
-    val sideIndices = sides.map { it.index }.toSet()
-    val topIndex =
-        (0 until minOf(count, 4))
-            .map { wrapGalleryIndex(base + 2 + it, count) }
-            .firstOrNull { it !in sideIndices }
-            ?: wrapGalleryIndex(base + 1, count)
-    val top =
-        PrismGalleryFace(
-            index = topIndex,
-            corners = topVertices.map { it.project(rtl) },
-            depth = topVertices.sumOf { it.depth().toDouble() }.toFloat() / 4,
-            shade = .12f,
-            top = true,
-        )
-    return (sides + top).sortedBy { it.depth }
+    return (sides + caps).sortedBy { it.depth }
 }
+
+internal fun normalizedPrismPitch(degrees: Float): Float = ((degrees.finiteOrZero() + 180f) % 360f + 360f) % 360f - 180f
+
+/** The footer and detail action follow the largest visible photograph, including either cap. */
+internal fun prismGalleryFrontIndex(faces: List<PrismGalleryFace>): Int =
+    faces
+        .maxByOrNull { face ->
+            abs(
+                face.corners.indices.sumOf { index ->
+                    val a = face.corners[index]
+                    val b = face.corners[(index + 1) % face.corners.size]
+                    (a.x * b.y - b.x * a.y).toDouble()
+                },
+            )
+        }?.index ?: 0
 
 /** Convex polygon hit testing includes edges but rejects the surrounding empty corners. */
 internal fun galleryQuadContains(
@@ -137,11 +159,23 @@ private data class PrismVertex(
     val y: Float,
     val z: Float,
 ) {
-    fun project(rtl: Boolean): GalleryPoint {
-        val screenX = .5f + x * .59f
+    fun pitch(angle: Double): PrismVertex =
+        PrismVertex(
+            x,
+            y * cos(angle).toFloat() - z * sin(angle).toFloat(),
+            y * sin(angle).toFloat() + z * cos(angle).toFloat(),
+        )
+
+    fun screenY(): Float = y * PrismCameraCosine - z * PrismCameraSine
+
+    fun project(
+        rtl: Boolean,
+        scale: Float,
+    ): GalleryPoint {
+        val screenX = .5f + x * .59f * scale
         return GalleryPoint(
             x = if (rtl) 1f - screenX else screenX,
-            y = .49f + (y * PrismCameraCosine - z * PrismCameraSine) * .66f,
+            y = .47f + screenY() * .66f * scale,
         )
     }
 
@@ -149,7 +183,7 @@ private data class PrismVertex(
 }
 
 private val PrismCameraCosine = cos(22.0 * PI / 180).toFloat()
-private val PrismCameraSine = sin(22.0 * PI / 180).toFloat()
+private val PrismCameraSine = sin(-22.0 * PI / 180).toFloat()
 
 private fun Float.finiteOrZero(): Float = if (isFinite()) this else 0f
 

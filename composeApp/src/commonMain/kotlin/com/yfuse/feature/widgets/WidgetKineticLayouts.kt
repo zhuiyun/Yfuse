@@ -1,6 +1,5 @@
 package com.yfuse.feature.widgets
 
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
@@ -15,7 +14,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,7 +21,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,7 +37,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
@@ -61,26 +57,18 @@ import androidx.compose.ui.semantics.scrollBy
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
-import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
-import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.Motion
-import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.widget.WidgetMedia
 import com.yfuse.core.widget.WidgetStyle
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import com.yfuse.core.designsystem.ThemeIcon as Icon
-import com.yfuse.core.designsystem.ThemeText as Text
 
 /** A single bounded artwork stage: actual neighbouring films, never copies of one poster. */
 @Composable
@@ -117,19 +105,6 @@ internal fun WidgetKineticLayouts(
         val artworkWidth = (stageWidth - 48.dp).coerceAtLeast(1.dp)
         val stageHeight = artworkWidth * kineticStageRatio(style) + 48.dp
         val stepPixels = with(density) { (artworkWidth * .54f).toPx().coerceAtLeast(1f) }
-        val copyHeight =
-            with(density) {
-                AppTypography.body.medium.lineHeight
-                    .toDp() * 2 +
-                    (
-                        if (metadata) {
-                            AppTypography.caption.regular.lineHeight
-                                .toDp() + 2.dp
-                        } else {
-                            0.dp
-                        }
-                    ) + 8.dp
-            }.coerceAtLeast(48.dp)
         val scrollState =
             rememberScrollableState { delta ->
                 val before = position
@@ -174,7 +149,7 @@ internal fun WidgetKineticLayouts(
 
         Column(
             Modifier.width(stageWidth),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
             Box(
                 Modifier
@@ -315,109 +290,20 @@ internal fun WidgetKineticLayouts(
                 }
             }
 
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .height(copyHeight)
-                    .pressable(
-                        onClickLabel = "查看详情",
-                        tintOnPress = true,
-                        pressedScale = 1f,
-                        lightFeedback = false,
-                        onClick = { onOpen(items[currentIndex]) },
-                    ).padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Crossfade(
-                    targetState = items[currentIndex],
-                    modifier = Modifier.weight(1f),
-                    animationSpec = Motion.tween(if (reduceMotion) 0 else Motion.DISCLOSURE),
-                    label = "kineticFilmCopy",
-                ) { item ->
-                    MediaCopy(item, metadata = metadata, dense = true)
-                }
-                Box(
-                    Modifier.size(36.dp).glass(CircleShape, LocalPalette.current.card, LocalPalette.current.border),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (rtl) AppIcons.ChevronLeft else AppIcons.ChevronRight,
-                        contentDescription = null,
-                        tint = LocalAccentColors.current.accent,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-            if (items.size > 1) {
-                KineticPositionControls(
+            WidgetGalleryFooter(
+                items,
+                metadata,
+                WidgetGalleryMotionState(
+                    boundedPosition,
                     currentIndex,
                     items.size,
-                    boundedPosition,
                     rtl,
-                    style != WidgetStyle.ArcPoster,
+                    reduceMotion,
+                    Modifier,
                     select,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun KineticPositionControls(
-    currentIndex: Int,
-    count: Int,
-    position: Float,
-    rtl: Boolean,
-    showTrack: Boolean,
-    select: (Int) -> Unit,
-) {
-    val accent = LocalAccentColors.current.accent
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        WidgetIconButton(
-            if (rtl) AppIcons.ChevronRight else AppIcons.ChevronLeft,
-            "上一部",
-            enabled = currentIndex > 0,
-        ) { select(currentIndex - 1) }
-        Column(
-            Modifier.weight(1f).clearAndSetSemantics { },
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
-            Text(
-                "${currentIndex + 1} / $count",
-                color = LocalPalette.current.sub2,
-                style = AppTypography.caption.regular,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
+                ),
+                onOpen,
             )
-            if (showTrack) {
-                Canvas(Modifier.width(72.dp).height(3.dp)) {
-                    val y = size.height / 2
-                    drawLine(
-                        accent.copy(alpha = .12f),
-                        Offset(0f, y),
-                        Offset(size.width, y),
-                        size.height,
-                        StrokeCap.Round,
-                    )
-                    val length = (size.width / count).coerceAtLeast(12.dp.toPx()).coerceAtMost(size.width)
-                    val fraction = (position / (count - 1)).coerceIn(0f, 1f)
-                    val x = (size.width - length) * if (rtl) 1f - fraction else fraction
-                    drawLine(
-                        accent.copy(alpha = .78f),
-                        Offset(x, y),
-                        Offset(x + length, y),
-                        size.height,
-                        StrokeCap.Round,
-                    )
-                }
-            }
         }
-        WidgetIconButton(
-            if (rtl) AppIcons.ChevronLeft else AppIcons.ChevronRight,
-            "下一部",
-            enabled = currentIndex < count - 1,
-        ) { select(currentIndex + 1) }
     }
 }
