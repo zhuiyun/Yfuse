@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -47,12 +49,17 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import coil3.compose.AsyncImage
+import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.widget.WidgetCutoutArtwork
+import com.yfuse.core.widget.WidgetCutoutPhase
+import com.yfuse.core.widget.WidgetCutoutStatus
 import com.yfuse.core.widget.WidgetMedia
-import com.yfuse.core.widget.rememberWidgetCutoutArtwork
+import com.yfuse.core.widget.rememberWidgetCutoutState
 import kotlin.math.abs
+import com.yfuse.core.designsystem.ThemeText as Text
 
 @Composable
 internal fun WidgetBreakoutPoster(
@@ -65,7 +72,7 @@ internal fun WidgetBreakoutPoster(
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
         val stageWidth = maxWidth.coerceAtMost(if (compact) 340.dp else 480.dp)
         val cardWidth = stageWidth * .82f
-        val artworkHeight = cardWidth * .82f
+        val artworkHeight = cardWidth * BREAKOUT_WINDOW_HEIGHT
         val density = LocalDensity.current
         val motion = rememberWidgetGalleryMotion("breakout-poster", items, with(density) { (stageWidth * .72f).toPx() })
         Column(Modifier.width(stageWidth), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -144,14 +151,68 @@ private fun BreakoutArtwork(
         } else {
             null
         }
-    val cutout = rememberWidgetCutoutArtwork(source, enabled = processForeground)
+    val state = rememberWidgetCutoutState(source, enabled = processForeground)
+    val cutout = state.artwork
     var failed by remember(cutout) { mutableStateOf(false) }
-    if (cutout == null || failed) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-            Artwork(item, Modifier.fillMaxWidth().fillMaxHeight(.78f).clip(RoundedCornerShape(18.dp)), poster = true)
+    var loaded by remember(cutout) { mutableStateOf(false) }
+    var settings by remember { mutableStateOf(false) }
+    if (settings) WidgetCutoutSettingsDialog { settings = false }
+    Box(Modifier.fillMaxSize()) {
+        if (cutout == null || failed) {
+            val modifier =
+                Modifier
+                    .align(
+                        Alignment.BottomCenter,
+                    ).fillMaxWidth()
+                    .fillMaxHeight(.78f)
+                    .clip(RoundedCornerShape(18.dp))
+            if (source?.startsWith("http") == true) {
+                FallbackImage(listOf(source), item.title, modifier, fitNarrow = true)
+            } else {
+                Artwork(item, modifier, poster = true)
+            }
+        } else {
+            BreakoutLayers(cutout, onError = { failed = true }, onLoaded = { loaded = true })
         }
-    } else {
-        BreakoutLayers(cutout, onError = { failed = true })
+        val status =
+            when {
+                failed -> WidgetCutoutStatus(WidgetCutoutPhase.Failed, "抠图图片显示失败，点按重试")
+                cutout != null && !loaded -> WidgetCutoutStatus(WidgetCutoutPhase.Downloading, "正在显示抠图")
+                else -> state.status
+            }
+        if (processForeground && status.phase != WidgetCutoutPhase.Idle) {
+            val configure =
+                status.phase in
+                    setOf(
+                        WidgetCutoutPhase.NeedsKey,
+                        WidgetCutoutPhase.Disabled,
+                        WidgetCutoutPhase.InvalidKey,
+                        WidgetCutoutPhase.NoCredits,
+                    )
+            val retry =
+                status.phase in setOf(WidgetCutoutPhase.Failed, WidgetCutoutPhase.Rejected, WidgetCutoutPhase.Limited)
+            Text(
+                status.message,
+                color = LocalPalette.current.text,
+                style = AppTypography.caption.regular,
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(LocalPalette.current.background.copy(alpha = .94f))
+                        .pressable(enabled = configure || retry, onClick = {
+                            if (configure) {
+                                settings = true
+                            } else if (retry) {
+                                failed = false
+                                loaded = false
+                                state.retry?.invoke()
+                            }
+                        })
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        }
     }
 }
 
@@ -159,7 +220,11 @@ private fun BreakoutArtwork(
 private fun BreakoutLayers(
     artwork: WidgetCutoutArtwork,
     onError: () -> Unit,
+    onLoaded: () -> Unit,
 ) {
+    var backgroundLoaded by remember(artwork) { mutableStateOf(false) }
+    var foregroundLoaded by remember(artwork) { mutableStateOf(false) }
+    LaunchedEffect(backgroundLoaded, foregroundLoaded) { if (backgroundLoaded && foregroundLoaded) onLoaded() }
     val framing =
         remember(artwork) {
             breakoutFraming(artwork.sourceWidth, artwork.sourceHeight, artwork.subjectTop, artwork.subjectBottom)
@@ -174,6 +239,7 @@ private fun BreakoutLayers(
         alignment = alignment,
         contentScale = ContentScale.Crop,
         onError = { onError() },
+        onSuccess = { backgroundLoaded = true },
     )
     AsyncImage(
         model = artwork.foregroundModel,
@@ -182,6 +248,7 @@ private fun BreakoutLayers(
         alignment = alignment,
         contentScale = ContentScale.Crop,
         onError = { onError() },
+        onSuccess = { foregroundLoaded = true },
     )
 }
 

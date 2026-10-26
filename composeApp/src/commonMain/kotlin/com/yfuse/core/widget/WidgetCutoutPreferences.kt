@@ -31,13 +31,18 @@ class WidgetCutoutPreferences(
 
     fun apiKey(): String = runCatching { secrets.get("poof.api-key")?.decodeToString().orEmpty() }.getOrDefault("")
 
+    val credentialGeneration: Long get() = settings.getLong("widget.poof.key-generation", 0L)
+
     fun save(
         enabled: Boolean,
         newKey: String,
     ) {
         val key = newKey.trim()
         require(key.length <= 256 && key.none { it.isWhitespace() || it.isISOControl() }) { "密钥格式不正确" }
-        if (key.isNotEmpty()) secrets.put("poof.api-key", key.encodeToByteArray())
+        if (key.isNotEmpty()) {
+            secrets.put("poof.api-key", key.encodeToByteArray())
+            settings.putLong("widget.poof.key-generation", credentialGeneration + 1L)
+        }
         settings.putBoolean("widget.poof.enabled", enabled)
         mutableConfiguration.value =
             WidgetCutoutConfiguration(enabled, apiKey().isNotEmpty(), mutableConfiguration.value.revision + 1)

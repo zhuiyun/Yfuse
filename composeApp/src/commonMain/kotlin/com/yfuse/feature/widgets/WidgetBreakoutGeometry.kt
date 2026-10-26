@@ -7,6 +7,8 @@ internal data class BreakoutFraming(
     val frameTopFraction: Float,
 )
 
+internal const val BREAKOUT_WINDOW_HEIGHT = 1.12f
+
 /** Both raster layers use this single crop. Moving only the cutout would reveal a second subject. */
 internal fun breakoutFraming(
     sourceWidth: Int,
@@ -17,8 +19,8 @@ internal fun breakoutFraming(
     if (sourceWidth <= 0 || sourceHeight <= 0 || !subjectTop.isFinite() || !subjectBottom.isFinite()) {
         return BreakoutFraming(0f, .22f)
     }
-    // Coordinates are normalised to the card width; the full artwork window is 0.82 widths tall.
-    val windowHeight = .82f
+    // Reserve enough vertical room for faces in upright film posters.
+    val windowHeight = BREAKOUT_WINDOW_HEIGHT
     val sourceAspect = sourceHeight.toFloat() / sourceWidth
     val scaledHeight = max(sourceAspect, windowHeight)
     val overflow = scaledHeight - windowHeight

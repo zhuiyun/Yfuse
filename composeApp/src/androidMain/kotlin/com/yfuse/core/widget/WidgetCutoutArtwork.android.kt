@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -64,24 +65,59 @@ private val trustedPreviewPosters =
     )
 
 @Composable
-actual fun rememberWidgetCutoutArtwork(
+actual fun rememberWidgetCutoutState(
     posterUrl: String?,
     enabled: Boolean,
-): WidgetCutoutArtwork? {
+): WidgetCutoutViewState {
     val context = LocalContext.current.applicationContext
     val visible = LocalRouteVisible.current
-    val configuration by remember { widgetCutoutPreferences() }.configuration.collectAsState()
+    val runtime =
+        LocalWidgetCutoutRuntime.current ?: remember(context) {
+            WidgetCutoutRuntime(
+                widgetCutoutPreferences().configuration,
+                object : WidgetCutoutLoader {
+                    override fun observe(source: String) = PoofWidgetCutoutStore.pipeline(context).observe(source)
+
+                    override suspend fun get(
+                        source: String,
+                        allowProcessing: Boolean,
+                    ) = WidgetCutoutStore.get(context, source, allowProcessing)
+
+                    override fun retry(source: String) = PoofWidgetCutoutStore.pipeline(context).retry(source)
+                },
+            )
+        }
+    val configuration by runtime.configuration.collectAsState()
     val source = remember(posterUrl) { safeCutoutSource(posterUrl) }
+    val observed = remember(source, runtime) { runtime.loader.observe(source.orEmpty()) }
+    val status by observed.collectAsState()
+    var attempt by remember(source) { mutableIntStateOf(0) }
     var artwork by remember(source) { mutableStateOf(precomputedPreviewCutout(source)) }
-    LaunchedEffect(source, enabled, visible, configuration) {
+    LaunchedEffect(source, enabled, visible, configuration, attempt) {
         if (source == null || !visible) return@LaunchedEffect
-        artwork = precomputedPreviewCutout(source) ?: WidgetCutoutStore.get(context, source, allowProcessing = false)
+        artwork = precomputedPreviewCutout(source) ?: runtime.loader.get(source, allowProcessing = false)
         if (artwork == null && enabled && configuration.enabled && configuration.configured) {
             delay(450)
-            artwork = WidgetCutoutStore.get(context, source)
+            artwork = runtime.loader.get(source, allowProcessing = true)
         }
     }
-    return artwork.takeIf { visible }
+    return WidgetCutoutViewState(
+        artwork.takeIf { visible },
+        when {
+            artwork != null -> WidgetCutoutStatus(WidgetCutoutPhase.Ready, "抠图完成")
+            !configuration.enabled -> WidgetCutoutStatus(WidgetCutoutPhase.Disabled, "海报抠图已关闭")
+            !configuration.configured -> WidgetCutoutStatus(WidgetCutoutPhase.NeedsKey, "先配置 Poof Key")
+            source == null -> WidgetCutoutStatus(WidgetCutoutPhase.Failed, "没有可处理的海报")
+            else -> status
+        },
+        retry =
+            source?.let {
+                {
+                    runtime.loader.retry(it)
+                    attempt++
+                }
+            },
+    )
 }
 
 /** An original demo pair, actually segmented with this model and visually reviewed before bundling. */

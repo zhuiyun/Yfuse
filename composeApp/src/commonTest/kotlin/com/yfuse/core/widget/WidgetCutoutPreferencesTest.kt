@@ -33,7 +33,7 @@ class WidgetCutoutPreferencesTest {
         val preferences = WidgetCutoutPreferences(settings, secrets)
         assertFalse(preferences.configuration.value.configured)
         preferences.save(true, "test-poof-key")
-        assertEquals(setOf("widget.poof.enabled"), settings.keys)
+        assertEquals(setOf("widget.poof.enabled", "widget.poof.key-generation"), settings.keys)
         assertTrue(preferences.configuration.value.configured)
         preferences.save(false, "")
         val restarted = WidgetCutoutPreferences(settings, secrets)

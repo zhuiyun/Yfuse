@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.core.graphics.get
 import coil3.BitmapImage
+import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
@@ -17,7 +18,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -31,41 +35,112 @@ private const val DAY_MS = 24L * 60 * 60 * 1000
 
 /** Only active cards request new work. Completed paid work survives a route/scroll cancellation. */
 internal object PoofWidgetCutoutStore {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val requests = PoofCutoutWorkQueue<WidgetCutoutArtwork>(scope)
-    private val disk = Mutex()
-    private val generation = AtomicLong()
-    private val client = PoofCutoutClient()
+    private var instance: PoofWidgetCutoutPipeline? = null
+
+    @Synchronized
+    fun pipeline(context: Context): PoofWidgetCutoutPipeline =
+        instance
+            ?: PoofWidgetCutoutPipeline(context.applicationContext, widgetCutoutPreferences()).also { instance = it }
 
     suspend fun get(
         context: Context,
         source: String,
         allowProcessing: Boolean,
-    ): WidgetCutoutArtwork? =
-        withContext(Dispatchers.IO) {
-            val preferences = widgetCutoutPreferences()
-            if (!preferences.configuration.value.enabled) return@withContext null
-            val cache = cache(context)
-            val sourceKey = poofHash("$POOF_CACHE_VERSION\n${imageCacheKeyForUrl(source)}".toByteArray())
-            disk.withLock { cache.findSource(sourceKey) }?.let { return@withContext it.artwork() }
-            if (!allowProcessing) return@withContext null
-            val key = preferences.apiKey()
-            if (key.isBlank()) return@withContext null
-            val credential = poofHash(key.toByteArray())
-            val expectedGeneration = generation.get()
-            requests.run("$sourceKey:$credential") {
-                process(context, cache, source, sourceKey, key, credential, expectedGeneration)
+    ) = pipeline(context).get(source, allowProcessing)
+
+    suspend fun clear(context: Context) = pipeline(context).clear()
+}
+
+/** Dependencies are explicit so device tests execute the same download, POST, cache and UI path. */
+internal class PoofWidgetCutoutPipeline(
+    private val context: Context,
+    private val preferences: WidgetCutoutPreferences,
+    private val client: PoofCutoutClient = PoofCutoutClient(),
+    private val imageLoader: ImageLoader = SingletonImageLoader.get(context),
+    private val directory: File = File(context.noBackupFilesDir, POOF_CACHE_DIRECTORY),
+    private val rate: android.content.SharedPreferences =
+        context.getSharedPreferences(
+            "widget-poof-rate-v1",
+            Context.MODE_PRIVATE,
+        ),
+    private val requestSpacingMillis: Long = REQUEST_SPACING_MS,
+) : WidgetCutoutLoader {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val requests = PoofCutoutWorkQueue<WidgetCutoutArtwork>(scope)
+    private val disk = Mutex()
+    private val generation = AtomicLong()
+    private val states = LinkedHashMap<String, MutableStateFlow<WidgetCutoutStatus>>()
+    private val retries = mutableSetOf<String>()
+
+    fun close() = scope.cancel()
+
+    override fun retry(source: String) {
+        synchronized(retries) { retries.add(sourceKey(source)) }
+    }
+
+    override fun observe(source: String): StateFlow<WidgetCutoutStatus> =
+        synchronized(states) {
+            val key = sourceKey(source)
+            states.getOrPut(key) { MutableStateFlow(WidgetCutoutStatus()) }.also {
+                if (states.size > 256) states.remove(states.keys.first())
             }
         }
 
-    suspend fun clear(context: Context) =
+    private fun report(
+        source: String,
+        phase: WidgetCutoutPhase,
+        message: String,
+    ) {
+        (observe(source) as MutableStateFlow<WidgetCutoutStatus>).value = WidgetCutoutStatus(phase, message)
+        preferences.report(message)
+    }
+
+    private fun sourceKey(source: String) =
+        poofHash("$POOF_CACHE_VERSION\n${imageCacheKeyForUrl(source)}".toByteArray())
+
+    override suspend fun get(
+        source: String,
+        allowProcessing: Boolean,
+    ): WidgetCutoutArtwork? =
+        withContext(Dispatchers.IO) {
+            try {
+                if (!preferences.configuration.value.enabled) return@withContext null
+                val cache = cache()
+                val sourceKey = sourceKey(source)
+                disk.withLock { cache.findSource(sourceKey) }?.let {
+                    report(source, WidgetCutoutPhase.Ready, "已复用抠图缓存")
+                    return@withContext it.artwork()
+                }
+                if (!allowProcessing) return@withContext null
+                val key = preferences.apiKey()
+                if (key.isBlank()) {
+                    report(source, WidgetCutoutPhase.NeedsKey, "先配置 Poof Key")
+                    return@withContext null
+                }
+                val credential = poofHash("$key\n${preferences.credentialGeneration}".toByteArray())
+                val expectedGeneration = generation.get()
+                report(source, WidgetCutoutPhase.Queued, "等待抠图处理")
+                requests.run("$sourceKey:$credential") {
+                    process(cache, source, sourceKey, key, credential, expectedGeneration)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                report(source, WidgetCutoutPhase.Failed, "缓存读取或海报加载失败，可点按重试")
+                null
+            } catch (_: OutOfMemoryError) {
+                report(source, WidgetCutoutPhase.Failed, "内存不足，保留普通海报")
+                null
+            }
+        }
+
+    suspend fun clear() =
         withContext(Dispatchers.IO) {
             generation.incrementAndGet()
-            disk.withLock { File(context.noBackupFilesDir, POOF_CACHE_DIRECTORY).deleteRecursively() }
+            disk.withLock { directory.deleteRecursively() }
         }
 
     private suspend fun process(
-        context: Context,
         cache: PoofCutoutCache,
         source: String,
         sourceKey: String,
@@ -73,9 +148,8 @@ internal object PoofWidgetCutoutStore {
         credential: String,
         expectedGeneration: Long,
     ): WidgetCutoutArtwork? {
-        val preferences = widgetCutoutPreferences()
-        val rate = context.getSharedPreferences("widget-poof-rate-v1", Context.MODE_PRIVATE)
         var contentKey: String? = null
+        val explicitRetry = synchronized(retries) { retries.remove(sourceKey) }
         try {
             disk.withLock { cache.findSource(sourceKey) }?.let { return it.artwork() }
             if (!preferences.configuration.value.enabled ||
@@ -84,7 +158,6 @@ internal object PoofWidgetCutoutStore {
             ) {
                 return null
             }
-            if (disk.withLock { cache.isRejected(sourceKey, credential) }) return null
             val now = System.currentTimeMillis()
             val blockedUntil =
                 if (rate.getString("credential", "") ==
@@ -94,9 +167,36 @@ internal object PoofWidgetCutoutStore {
                 } else {
                     0L
                 }
-            if (blockedUntil - now in 1..DAY_MS) return null
+            if (blockedUntil - now in 1..DAY_MS) {
+                val status = rate.getInt("blocked-status", 429)
+                report(
+                    source,
+                    if (status ==
+                        402
+                    ) {
+                        WidgetCutoutPhase.NoCredits
+                    } else if (status in
+                        setOf(401, 403)
+                    ) {
+                        WidgetCutoutPhase.InvalidKey
+                    } else {
+                        WidgetCutoutPhase.Limited
+                    },
+                    when (status) {
+                        402 -> "Poof 额度不足"
+                        401, 403 -> "Poof Key 不可用，请重新配置"
+                        else -> "Poof 暂时限流，稍后再试"
+                    },
+                )
+                return null
+            }
+            if (!explicitRetry && disk.withLock { cache.isRejected(sourceKey, credential) }) {
+                report(source, WidgetCutoutPhase.Failed, "上次未成功，可点按重试")
+                return null
+            }
+            report(source, WidgetCutoutPhase.Downloading, "正在读取海报")
             val result =
-                SingletonImageLoader.get(context).execute(
+                imageLoader.execute(
                     ImageRequest
                         .Builder(context)
                         .data(source)
@@ -107,23 +207,29 @@ internal object PoofWidgetCutoutStore {
                         .build(),
                 )
             // Coil owns this bitmap. The uploaded PNG contains pixels only, never its source URL.
-            val bitmap = ((result as? SuccessResult)?.image as? BitmapImage)?.bitmap ?: return null
-            if (bitmap.width !in 96..768 || bitmap.height !in 96..768) return null
-            val original =
-                ByteArrayOutputStream().use {
-                    check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
-                    it.toByteArray()
-                }
+            val bitmap = ((result as? SuccessResult)?.image as? BitmapImage)?.bitmap
+            if (bitmap == null) {
+                report(source, WidgetCutoutPhase.Failed, "海报下载失败，抠图尚未发起")
+                return null
+            }
+            val input = preparePoofSource(bitmap)
+            val original = input.bytes
             val content = poofHash(POOF_CACHE_VERSION.toByteArray() + original)
             contentKey = content
             disk
                 .withLock {
                     cache.findContent(content)?.also { cache.bindSource(sourceKey, content) }
                 }?.let { return it.artwork() }
-            if (disk.withLock { cache.isRejected(content, credential) }) return null
+            if (!explicitRetry && disk.withLock { cache.isRejected(content, credential) }) {
+                report(source, WidgetCutoutPhase.Failed, "上次未成功，可点按重试")
+                return null
+            }
             val previous = rate.getLong("last-attempt", 0L)
             val elapsed = System.currentTimeMillis() - previous
-            if (elapsed in 0 until REQUEST_SPACING_MS) delay(REQUEST_SPACING_MS - elapsed)
+            if (elapsed in 0 until requestSpacingMillis) {
+                report(source, WidgetCutoutPhase.Queued, "等待请求间隔，约 ${(requestSpacingMillis - elapsed + 999) / 1000} 秒")
+                delay(requestSpacingMillis - elapsed)
+            }
             if (!preferences.configuration.value.enabled ||
                 preferences.apiKey() != apiKey ||
                 generation.get() != expectedGeneration
@@ -146,11 +252,11 @@ internal object PoofWidgetCutoutStore {
                     .putLong("last-attempt", System.currentTimeMillis())
                     .commit(),
             )
-            preferences.report("正在生成海报抠图")
+            report(source, WidgetCutoutPhase.Processing, "Poof 正在抠图")
             val output = client.remove(apiKey, original)
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(output, 0, output.size, bounds)
-            check(bounds.outWidth == bitmap.width && bounds.outHeight == bitmap.height)
+            check(bounds.outWidth == input.width && bounds.outHeight == input.height)
             val foreground = checkNotNull(BitmapFactory.decodeByteArray(output, 0, output.size))
             val quality =
                 try {
@@ -164,15 +270,19 @@ internal object PoofWidgetCutoutStore {
                     cache.reject(sourceKey, POOF_QUALITY_TTL)
                     cache.reject(content, POOF_QUALITY_TTL)
                 }
-                preferences.report("这张海报不适合破框，保留普通海报")
+                report(source, WidgetCutoutPhase.Rejected, "返回图没有有效透明前景，可点按重试")
                 return null
             }
             val cached =
                 disk.withLock {
                     if (generation.get() != expectedGeneration) return@withLock null
-                    cache.write(sourceKey, content, original, output, bitmap.width, bitmap.height, quality)
+                    cache.write(sourceKey, content, original, output, input.width, input.height, quality)
                 }
-            preferences.report("生成完成，之后复用本机缓存")
+            report(
+                source,
+                if (cached == null) WidgetCutoutPhase.Failed else WidgetCutoutPhase.Ready,
+                if (cached == null) "抠图已完成，但缓存保存失败" else "抠图完成，已保存缓存",
+            )
             return cached?.artwork()
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -187,12 +297,20 @@ internal object PoofWidgetCutoutStore {
                 rate
                     .edit()
                     .putString("credential", credential)
+                    .putInt("blocked-status", failure.status)
                     .putLong(
                         "blocked-until",
                         System.currentTimeMillis() + hold,
                     ).commit()
             }
-            preferences.report(
+            report(
+                source,
+                when (failure.status) {
+                    401, 403 -> WidgetCutoutPhase.InvalidKey
+                    402 -> WidgetCutoutPhase.NoCredits
+                    429 -> WidgetCutoutPhase.Limited
+                    else -> WidgetCutoutPhase.Failed
+                },
                 when (failure.status) {
                     401, 403 -> "Poof 密钥不可用，请在海报抠图设置中修改"
                     402 -> "Poof 额度不足，暂时保留普通海报；已有缓存继续可用"
@@ -206,21 +324,69 @@ internal object PoofWidgetCutoutStore {
             }
             return null
         } catch (_: Exception) {
-            preferences.report("抠图暂未完成，保留普通海报，稍后可重试")
+            report(source, WidgetCutoutPhase.Failed, "抠图连接或图片处理失败，稍后可重试")
             runCatching { disk.withLock { cache.reject(sourceKey, POOF_TRANSIENT_TTL, credential) } }
             return null
         } catch (_: OutOfMemoryError) {
-            preferences.report("内存不足，保留普通海报")
+            report(source, WidgetCutoutPhase.Failed, "内存不足，保留普通海报")
             return null
         }
     }
 
-    private fun cache(context: Context) =
-        PoofCutoutCache(File(context.noBackupFilesDir, POOF_CACHE_DIRECTORY)) { image, width, height ->
+    private fun cache() =
+        PoofCutoutCache(directory) { image, width, height ->
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(image.path, bounds)
             bounds.outWidth == width && bounds.outHeight == height
         }
+}
+
+internal data class PoofSourceImage(
+    val bytes: ByteArray,
+    val width: Int,
+    val height: Int,
+)
+
+/** A shared Coil cache may return a larger software bitmap than this request's target size. */
+internal fun preparePoofSource(bitmap: Bitmap): PoofSourceImage {
+    require(bitmap.width > 0 && bitmap.height > 0 && bitmap.width.toLong() * bitmap.height <= 40_000_000L)
+    val readable =
+        if (bitmap.config ==
+            Bitmap.Config.HARDWARE
+        ) {
+            checkNotNull(bitmap.copy(Bitmap.Config.ARGB_8888, false))
+        } else {
+            bitmap
+        }
+    val scale = minOf(768f / readable.width, 768f / readable.height, 1f)
+    val normalized =
+        if (scale <
+            1f
+        ) {
+            Bitmap.createScaledBitmap(
+                readable,
+                (readable.width * scale).toInt().coerceAtLeast(1),
+                (
+                    readable.height *
+                        scale
+                ).toInt().coerceAtLeast(1),
+                true,
+            )
+        } else {
+            readable
+        }
+    try {
+        require(normalized.width >= 96 && normalized.height >= 96)
+        val bytes =
+            ByteArrayOutputStream().use {
+                check(normalized.compress(Bitmap.CompressFormat.PNG, 100, it))
+                it.toByteArray()
+            }
+        return PoofSourceImage(bytes, normalized.width, normalized.height)
+    } finally {
+        if (normalized !== readable) normalized.recycle()
+        if (readable !== bitmap) readable.recycle()
+    }
 }
 
 private fun PoofCachedArtwork.artwork() =
@@ -267,7 +433,9 @@ private fun assessPoofForeground(bitmap: Bitmap): WidgetCutoutQuality? {
         }
         val area = sampled.width * sampled.height
         val fraction = count.toFloat() / area
-        if (fraction !in .035f..0.70f || uncertain > area * .14f || uncertain > count * .45f) return null
+        // Cloud segmentation already made the semantic choice. A large face or several cartoon
+        // characters can legitimately fill most of a poster; do not apply the local-model gate.
+        if (fraction !in .015f..0.97f || uncertain > area * .45f || uncertain > count * .90f) return null
         if (bottom - top < sampled.height * .18f) return null
         return WidgetCutoutQuality(
             top.toFloat() / sampled.height,

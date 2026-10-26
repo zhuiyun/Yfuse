@@ -9,10 +9,10 @@ class WidgetBreakoutGeometryTest {
     fun portraitSubjectIsPositionedInsideReservedHeadroom() {
         val framing = breakoutFraming(600, 900, .2f, .85f)
         val scaledHeight = 1.5f
-        val croppedY = -(scaledHeight - .82f) * (framing.verticalBias + 1) / 2
+        val croppedY = -(scaledHeight - BREAKOUT_WINDOW_HEIGHT) * (framing.verticalBias + 1) / 2
         val subjectY = .2f * scaledHeight + croppedY
         assertTrue(subjectY >= 0f)
-        assertTrue(subjectY < .82f * framing.frameTopFraction)
+        assertTrue(subjectY < BREAKOUT_WINDOW_HEIGHT * framing.frameTopFraction)
         assertTrue(framing.frameTopFraction <= .5f)
     }
 

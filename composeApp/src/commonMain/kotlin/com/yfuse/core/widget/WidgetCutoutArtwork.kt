@@ -1,6 +1,8 @@
 package com.yfuse.core.widget
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * An aligned, bounded copy of the source and its foreground in the same pixel coordinates.
@@ -17,12 +19,59 @@ data class WidgetCutoutArtwork(
     val subjectBottom: Float,
 )
 
-/**
- * Returns null while loading or when a conservative quality check fails. [enabled] controls new
- * processing; an existing result remains stable while the card moves out of the active position.
- */
+/** Image-local progress and failure state; absence of artwork alone does not explain a fallback. */
+enum class WidgetCutoutPhase {
+    Idle,
+    Disabled,
+    NeedsKey,
+    Queued,
+    Downloading,
+    Processing,
+    Ready,
+    Rejected,
+    Failed,
+    Limited,
+    NoCredits,
+    InvalidKey,
+}
+
+data class WidgetCutoutStatus(
+    val phase: WidgetCutoutPhase = WidgetCutoutPhase.Idle,
+    val message: String = "",
+)
+
+data class WidgetCutoutViewState(
+    val artwork: WidgetCutoutArtwork? = null,
+    val status: WidgetCutoutStatus = WidgetCutoutStatus(),
+    val retry: (() -> Unit)? = null,
+)
+
+internal interface WidgetCutoutLoader {
+    fun observe(source: String): StateFlow<WidgetCutoutStatus>
+
+    suspend fun get(
+        source: String,
+        allowProcessing: Boolean,
+    ): WidgetCutoutArtwork?
+
+    fun retry(source: String) {}
+}
+
+internal data class WidgetCutoutRuntime(
+    val configuration: StateFlow<WidgetCutoutConfiguration>,
+    val loader: WidgetCutoutLoader,
+)
+
+internal val LocalWidgetCutoutRuntime = staticCompositionLocalOf<WidgetCutoutRuntime?> { null }
+
 @Composable
-expect fun rememberWidgetCutoutArtwork(
+expect fun rememberWidgetCutoutState(
     posterUrl: String?,
     enabled: Boolean,
-): WidgetCutoutArtwork?
+): WidgetCutoutViewState
+
+@Composable
+fun rememberWidgetCutoutArtwork(
+    posterUrl: String?,
+    enabled: Boolean,
+): WidgetCutoutArtwork? = rememberWidgetCutoutState(posterUrl, enabled).artwork
