@@ -38,6 +38,7 @@ data class TmdbDetail(
     val status: String? = null,
     val tagline: String? = null,
     val cast: List<TmdbPerson> = emptyList(),
+    val seasons: List<TmdbSeasonSummary> = emptyList(),
 )
 
 /**
@@ -88,3 +89,10 @@ data class TmdbHome(
 ) {
     val isEmpty: Boolean get() = featured.isEmpty() && rows.isEmpty()
 }
+
+/** Actual seasons reported by TMDB, including specials when present. */
+@Serializable
+data class TmdbSeasonSummary(
+    @kotlinx.serialization.SerialName("season_number") val number: Int,
+    val name: String = "",
+)

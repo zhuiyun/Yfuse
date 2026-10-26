@@ -718,6 +718,8 @@ internal fun AppearanceSettingsScreen(
                         iconTint = SettingTint.components,
                     )
                     SettingsDivider()
+                    WidgetCutoutSettingsRow()
+                    SettingsDivider()
                     // Two ways to live with the bar: give the screen to reading, or keep navigation up.
                     SwitchRow(
                         "滚动时收起导航栏",

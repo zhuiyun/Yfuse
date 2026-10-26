@@ -31,6 +31,7 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.time.TimeSource
 
 internal class DetailExecutor(
+    private val catalog: DetailCatalog? = null,
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
     private val itemId: String,
@@ -107,15 +108,44 @@ internal class DetailExecutor(
     private val crossServerSourcesEnabled: Boolean
         get() = playbackPreferences?.smartCrossServerSource?.value == true
 
-    override fun executeAction(action: DetailAction) = load()
+    override fun executeAction(action: DetailAction) {
+        if (catalog ==
+            null
+        ) {
+            load()
+        } else {
+            catalog.attach(scope, ::state, ::dispatch) { server, id -> selectSource(server, id) }
+        }
+    }
 
     override fun executeIntent(intent: DetailIntent) {
+        if (intent is DetailIntent.SelectCatalogSource || intent is DetailIntent.SelectCatalogCoordinate) {
+            sourceSelection.cancel()
+            episodeSelection.cancel()
+            pendingSourceServerId = null
+            pendingSourceItemId = null
+            clearQueuedPlay()
+            when (intent) {
+                is DetailIntent.SelectCatalogSource -> catalog?.selectRoute(intent.routeId)
+                is DetailIntent.SelectCatalogCoordinate -> catalog?.selectCoordinate(intent.season, intent.episode)
+                else -> Unit
+            }
+            return
+        }
+        if (catalog?.handle(intent, state()) == true) return
         when (intent) {
+            is DetailIntent.SelectCatalogSource, is DetailIntent.SelectCatalogCoordinate -> Unit
             DetailIntent.Retry -> load(forceRefresh = true)
             DetailIntent.RetrySources -> {
                 val current = state()
                 val sourceServer = current.playServer ?: current.server
-                val sourceDetail = current.playSourceDetail ?: current.detail
+                val sourceDetail =
+                    if (current.catalogPlayback) {
+                        current.detail
+                    } else {
+                        current.playSourceDetail
+                            ?: current.detail
+                    }
                 if (sourceServer != null && sourceDetail != null) {
                     loadSources(
                         sourceServer,

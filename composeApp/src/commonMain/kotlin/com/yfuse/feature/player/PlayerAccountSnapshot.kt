@@ -20,6 +20,8 @@ internal fun PlayerMediaItem.personalMediaRef(): PersonalMediaRef =
         year = year,
         serverId = serverId,
         serverItemId = id,
+        widgetSource = widgetSource,
+        posterPath = widgetSource?.media?.poster,
     )
 
 internal fun PlayerMediaItem.localViewingSession(

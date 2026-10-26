@@ -1307,7 +1307,7 @@ fun ProfileScreen(component: ProfileComponent) {
         if (confirmClearCache) {
             ConfirmDialog(
                 title = "清除图片缓存",
-                message = "将清除图片缓存，下次浏览时重新下载。离线下载的影片不受影响。",
+                message = "将清除图片和海报抠图缓存。再次浏览会重新下载图片，重新生成抠图会消耗 Poof 额度。离线下载的影片保留。",
                 confirmLabel = "清除",
                 destructive = true,
                 onConfirm = {

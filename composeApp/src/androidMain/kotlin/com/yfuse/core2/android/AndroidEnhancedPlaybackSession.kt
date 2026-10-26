@@ -178,6 +178,7 @@ internal class AndroidEnhancedPlaybackSession(
     private var outputActive = false
     private var prepared = false
     private var audioRendererConfigured = false
+    private val audioStartupWatchdog = AudioDecoderStartupWatchdog()
     private val rejectedPassthroughTracks = mutableSetOf<YTrackId>()
     private var isolateVideoTimestamps = true
     private var inputEnded = false
@@ -776,6 +777,7 @@ internal class AndroidEnhancedPlaybackSession(
         renderedFrameRateSampler.reset()
         val position = currentPositionUs()
         playing = false
+        audioStartupWatchdog.pause()
         bufferWaitMonitor.reset()
         lastGatePositionUs = position
         outputActive = false
@@ -1192,6 +1194,8 @@ internal class AndroidEnhancedPlaybackSession(
             return true
         }
         var didWork = handleAudioRoutingChange()
+        // Check before the buffer gate: a blocked audio decoder can itself hold the queue back.
+        didWork = recoverMissingAudioOutput() || didWork
         if (playing && !refreshOutputGate()) return didWork
         didWork = collectSoftwareRenderProgress() || didWork
         if (playing) didWork = drainAudio() || didWork
@@ -1540,6 +1544,7 @@ internal class AndroidEnhancedPlaybackSession(
         if (queued != YCodecQueueResult.Queued) {
             return false
         }
+        if (sample.trackId == audioTrack?.id && !pausedPreview.active) audioStartupWatchdog.inputQueued()
         if (sample.trackId == videoTrack.id && !softwareVideoActive) {
             videoEosGate.inputQueued()
             recordDolbyVisionLayerDelivery(sample.data)
@@ -2291,6 +2296,7 @@ internal class AndroidEnhancedPlaybackSession(
         }
 
     private fun resetEndState() {
+        audioStartupWatchdog.reset()
         audioDrainStartedNs = null
         videoEosGate.reset()
         surfaceCompletion.reset()
@@ -2398,6 +2404,7 @@ internal class AndroidEnhancedPlaybackSession(
         track: YDemuxTrack,
         preferSoftware: Boolean,
     ): Boolean {
+        audioStartupWatchdog.reset()
         val format = requireNotNull(track.audio)
         if (!preferSoftware) {
             try {
@@ -2411,6 +2418,46 @@ internal class AndroidEnhancedPlaybackSession(
             }
         }
         requireNotNull(softwareDecoderOrNull()).configureAudio(track.id)
+        return true
+    }
+
+    /** Recover only the stalled audio path; live streams must not be reopened/seeked for this. */
+    private fun recoverMissingAudioOutput(): Boolean {
+        val eligible =
+            playing &&
+                firstVideoFrameRendered &&
+                audioTrack != null &&
+                !audioInputEnded &&
+                !softwareAudioActive &&
+                !isAudioPassthrough() &&
+                !audioRendererConfigured
+        if (!audioStartupWatchdog.shouldFallback(System.nanoTime(), eligible)) return false
+        val software = softwareDecoderOrNull() ?: return false
+        val track = requireNotNull(audioTrack)
+        val positionUs = currentPositionUs()
+        yPlaybackStage(
+            category = YPlaybackFailureCategory.Decoder,
+            stage = YPlaybackFailureStage.AudioDecoderConfigure,
+            safeDetail = "Enhanced silent audio decoder fallback",
+        ) {
+            software.configureAudio(track.id)
+        }
+        pendingAudioOutput.discard()
+        runCatching(audioDecoder::release)
+        softwareAudioActive = true
+        audioFallbackCount++
+        // Remaining queued packets may precede the picture. Keep the existing media timeline.
+        seekAudioTargetUs = maxOf(seekAudioTargetUs, positionUs)
+        AppLog.warning(
+            category = "player.core2",
+            event = "enhanced_audio_startup_fallback",
+            message = "Audio packets produced no PCM format; switched only audio to FFmpeg",
+            attributes =
+                mapOf(
+                    "codec" to (track.audio?.codec?.name ?: "unknown"),
+                    "positionMs" to (positionUs / 1_000L).toString(),
+                ),
+        )
         return true
     }
 

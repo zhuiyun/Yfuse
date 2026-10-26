@@ -827,7 +827,7 @@ private fun WidgetStylePicker(
             }
         }
         Text(
-            "所有视图均为单行横向浏览",
+            "横向浏览，轻拨体验不同构图",
             Modifier.padding(top = 12.dp, bottom = 16.dp),
             color = LocalPalette.current.sub2,
             style = AppTypography.caption.regular,

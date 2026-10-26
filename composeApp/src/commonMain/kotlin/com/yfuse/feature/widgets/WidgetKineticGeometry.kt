@@ -30,7 +30,7 @@ internal data class KineticPosterFrame(
 internal fun kineticStageRatio(style: WidgetStyle): Float =
     when (style) {
         WidgetStyle.LayeredPoster -> .67f
-        WidgetStyle.ArcPoster -> .58f
+        WidgetStyle.ArcPoster -> .60f
         WidgetStyle.DepthGallery -> .79f
         WidgetStyle.Accordion -> .61f
         WidgetStyle.BookSpine -> .60f
@@ -104,22 +104,26 @@ private fun kineticKeyFrame(
         WidgetStyle.ArcPoster -> {
             val width =
                 when (distance) {
-                    0 -> .32f
-                    1 -> .25f
-                    2 -> .18f
+                    0 -> .37f
+                    1 -> .33f
+                    2 -> .25f
                     else -> .12f
                 }
             val center =
                 .5f + side *
                     when (distance) {
                         0 -> 0f
-                        1 -> .25f
-                        2 -> .41f
+                        1 -> .215f
+                        2 -> .36f
                         else -> .45f
                     }
             KineticPosterFrame(
                 center - width / 2,
-                .045f * distance.coerceAtMost(3),
+                when (distance) {
+                    0 -> 0f
+                    1 -> .035f
+                    else -> .08f
+                },
                 width,
                 width * 1.5f,
                 tilt =
@@ -127,9 +131,9 @@ private fun kineticKeyFrame(
                         when (distance) {
                             0 -> 0f
                             1 -> 9f
-                            else -> 16f
+                            else -> 18f
                         },
-                opacity = if (distance <= 2) 1f - .1f * distance else 0f,
+                opacity = if (distance <= 2) 1f else 0f,
             )
         }
         WidgetStyle.DepthGallery ->

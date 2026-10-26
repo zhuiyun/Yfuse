@@ -1,0 +1,30 @@
+{
+  "source_dimensions": [
+    512,
+    768
+  ],
+  "subjectTop": 0.153125,
+  "subjectBottom": 0.815625,
+  "left": 0.265625,
+  "right": 0.725,
+  "foregroundFraction": 0.13671875,
+  "uncertainFraction": 0.015205078125,
+  "uncertainOverForeground": 0.11121428571428571,
+  "softBackgroundOverForeground": 0.055857142857142855,
+  "largestComponentFraction": 1.0,
+  "secondComponentImageFraction": 0.0,
+  "significantComponents": 1,
+  "inference_ms": 278.8521930015122,
+  "mask_manually_edited": false,
+  "source_generated": true,
+  "model": "U2NetP",
+  "preprocessing": "bounded512x768, bilinear320, RGB/maxpixel, ImageNet mean/std",
+  "model_sha256": "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8",
+  "source_asset": "widget-preview/breakout-astronaut.png",
+  "foreground_asset": "widget-cutout/preview-astronaut.png",
+  "source_sha256": "fcea707f0d331f9609bc1d9c9a064796860618615115ac6550088333142a91f5",
+  "foreground_sha256": "5e1a2514f44519896e0dc94673c4cae05d423aecfdd2ce408c0903951c130ac1",
+  "quality_gate_result": "Passed actual WidgetCutoutQuality.kt function, evaluated on 320x320 output mask",
+  "manual_visual_check": "Gray-background review: helmet, both hands, legs, and boots retained; no large background islands. This is a visual check, not a semantic accuracy guarantee.",
+  "inference_timing_note": "Desktop CPU single run only; not an Android device benchmark."
+}

@@ -11,6 +11,8 @@ import com.yfuse.core.sync.playback.PlaybackStateRecord
 
 data class DetailState(
     val loading: Boolean = false,
+    /** The primary play action currently uses a component resource, not a media-server item. */
+    val catalogPlayback: Boolean = false,
     val detail: MediaDetail? = null,
     val server: SavedServer? = null,
     val resolvingPlay: Boolean = false,
@@ -96,6 +98,15 @@ data class DetailState(
 }
 
 sealed interface DetailIntent {
+    data class SelectCatalogCoordinate(
+        val season: Int,
+        val episode: Int,
+    ) : DetailIntent
+
+    data class SelectCatalogSource(
+        val routeId: String,
+    ) : DetailIntent
+
     data object Retry : DetailIntent
 
     data object RetrySources : DetailIntent

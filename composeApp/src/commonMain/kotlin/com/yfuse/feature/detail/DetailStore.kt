@@ -28,18 +28,20 @@ class DetailStoreFactory(
     private val playbackFailoverRequest: PlaybackFailoverRequest = PlaybackFailoverRequest(),
     private val playbackPreferences: PlaybackPreferences? = null,
     private val healthMonitor: ServerHealthMonitor? = null,
+    private val catalog: DetailCatalog? = null,
     private val networkClass: () -> PlaybackNetworkClass = { PlaybackNetworkClass.Unknown },
 ) {
     fun create(): Store<DetailIntent, DetailState, DetailLabel> =
         storeFactory.create(
             name = "DetailStore",
-            initialState = DetailState(),
+            initialState = catalog?.initialState() ?: DetailState(),
             bootstrapper =
                 coroutineBootstrapper<DetailAction>(mainContext) {
                     dispatch(DetailAction.Load)
                 },
             executorFactory = {
                 DetailExecutor(
+                    catalog = catalog,
                     repo = repo,
                     registry = registry,
                     itemId = itemId,

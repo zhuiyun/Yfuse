@@ -37,6 +37,7 @@ fun HomeTabScreen(
                     val state by instance.component.state.collectAsState()
                     val resolved = libraryDetail
                     when {
+                        instance.standardDetail != null -> DetailScreen(instance.standardDetail)
                         resolved != null -> DetailScreen(resolved)
                         instance.component.preferLibraryDetail && (state.sourcesLoading || state.loading) ->
                             com.yfuse.feature.widgets

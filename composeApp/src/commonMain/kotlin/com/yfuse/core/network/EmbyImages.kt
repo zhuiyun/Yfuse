@@ -55,6 +55,7 @@ object EmbyImages {
         maxHeight: Int = 450,
         accessToken: String? = null,
     ): String? {
+        if (baseUrl.isBlank() && tag.isPublicArtworkUrl()) return tag
         if (baseUrl.isBlank() || itemId.isBlank()) return null
         tag.plexArtworkPath()?.let { path ->
             // A 2:3 poster box. `minSize=1` fits the *smaller* edge, so a box wider than the
@@ -103,6 +104,7 @@ object EmbyImages {
         maxWidth: Int = 1280,
         accessToken: String? = null,
     ): String? {
+        if (baseUrl.isBlank() && tag.isPublicArtworkUrl()) return tag
         if (baseUrl.isBlank() || itemId.isBlank() || index < 0) return null
         tag.plexArtworkPath()?.let { path ->
             return plexImage(
@@ -189,3 +191,7 @@ object EmbyImages {
     private fun String.withToken(accessToken: String?): String =
         accessToken?.takeIf { it.isNotBlank() }?.let { "$this&${mediaBrowserTokenQuery(it)}" } ?: this
 }
+
+/** Catalog artwork is already public; never add a media-server token to its URL. */
+private fun String?.isPublicArtworkUrl(): Boolean =
+    this?.let { it.startsWith("https://") || it.startsWith("http://") } == true

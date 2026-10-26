@@ -209,6 +209,14 @@ fun <T : Any> OfficialNavDisplay(
                     backStack = shownStack,
                     modifier = Modifier.fillMaxSize(),
                     onBack = onBack,
+                    sceneStrategies =
+                        remember(zoom, zoom?.pageKey, zoom?.controller?.active) {
+                            if (zoom == null) {
+                                emptyList()
+                            } else {
+                                listOf(ZoomBackSceneStrategy<T>(zoom.pageKey.takeIf { zoom.controller.active }))
+                            }
+                        },
                     transitionSpec = {
                         if (cinemaPoster && motion == OfficialNavMotion.Stack) {
                             cinemaPosterPageTransform(popping = false)

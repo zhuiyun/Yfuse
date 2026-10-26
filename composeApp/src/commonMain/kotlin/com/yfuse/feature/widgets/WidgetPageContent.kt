@@ -59,7 +59,10 @@ internal fun WidgetPageContent(
         if (media.categoryParams.isNotEmpty() && browsePath.size < 5) {
             browse(section.categorySection(media))
         } else if (media.categoryParams.isEmpty()) {
-            onOpenTmdb(media.widgetDetailSeed(), WidgetSourceContext(section.widgetId, media, section.params))
+            onOpenTmdb(
+                media.widgetDetailSeed(),
+                WidgetSourceContext(section.widgetId, media, section.params, section.id),
+            )
         }
     }
     LazyColumn(

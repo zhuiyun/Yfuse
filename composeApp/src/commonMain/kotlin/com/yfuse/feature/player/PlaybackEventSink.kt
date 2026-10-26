@@ -57,6 +57,42 @@ internal interface PlaybackEventSink {
     suspend fun stopEncoding(sessionId: String): Boolean = true
 }
 
+/** Keeps the normal durable reporter active for component videos, with no server HTTP events. */
+internal object LocalPlaybackEventSink : PlaybackEventSink {
+    override suspend fun started(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    ) = Unit
+
+    override suspend fun progress(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    ) = Unit
+
+    override suspend fun stopped(
+        itemId: String,
+        sessionId: String,
+        positionTicks: Long,
+        isPaused: Boolean,
+    ) = Unit
+}
+
+internal fun playbackEventSinkFor(
+    target: PlaybackReportingTarget,
+    serverSinkFor: (PlaybackReportingTarget) -> PlaybackEventSink?,
+): PlaybackEventSink? =
+    if (target ==
+        PlaybackReportingTarget.LocalOnly
+    ) {
+        LocalPlaybackEventSink
+    } else {
+        serverSinkFor(target)
+    }
+
 internal class EmbyPlaybackEventSink(
     private val repo: EmbyRepository,
     private val server: SavedServer,

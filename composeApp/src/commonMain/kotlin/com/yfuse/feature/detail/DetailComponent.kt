@@ -70,6 +70,7 @@ class DetailComponent(
     private val registry: ServerRegistry,
     val itemId: String,
     val serverId: String? = null,
+    val catalog: DetailCatalog? = null,
     /**
      * Starts playback as soon as the item has loaded, without waiting for a tap.
      *
@@ -196,6 +197,7 @@ class DetailComponent(
             registry,
             itemId,
             serverId,
+            catalog = catalog,
             playbackTrackRequest = dependencies.playbackTrackRequest,
             syncManager = dependencies.serverSyncManager,
             playbackFailoverRequest = dependencies.playbackFailoverRequest,
@@ -552,6 +554,10 @@ class DetailComponent(
                 }
             }.launchIn(scope)
 
+        catalog?.let { source ->
+            store.states.onEach(source::syncLibrarySelection).launchIn(scope)
+        }
+
         // Only a page the user can see prepares playback. This page stays alive behind the player,
         // and playback progress moves its resume position every few seconds; each move changed the
         // preload key, so it rebuilt a PlayerStore - item detail plus a fresh PlaybackInfo, and on
@@ -573,7 +579,11 @@ class DetailComponent(
         // The page can resume before the player's final local write. Observe that write as well
         // as visibility and newly loaded selections; neither returning nor progress needs a fetch.
         runCatching { GlobalContext.get().get<PlaybackSyncStore>() }.getOrNull()?.let { local ->
-            localDetailProgress(store.states, pageVisible, local.changes, local::stateForServerItem)
+            localDetailProgress(
+                store.states,
+                pageVisible,
+                local.changes,
+            ) { server, item -> store.state.localProgressForItem(local, server, item) }
                 .onEach { progress ->
                     if (store.state.withLocalProgress(progress) != store.state) {
                         store.accept(DetailIntent.SyncLocalProgress(progress))

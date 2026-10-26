@@ -247,6 +247,9 @@ jobs:
           fi
 
       - name: Reject duplicate or older version
+        # Only publication compares with the live update feed. An artifact-only package
+        # must remain buildable while that server is unavailable; it cannot update clients.
+        if: env.PUBLISH_UPDATE == 'true'
         shell: bash
         run: |
           set -euo pipefail

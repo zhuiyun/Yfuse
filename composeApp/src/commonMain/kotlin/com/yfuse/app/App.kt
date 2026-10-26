@@ -189,7 +189,7 @@ internal fun navigationGlassVisuals(
     )
 
 /**
- * The four persistent destinations. Discovery opens from the watching tab;
+ * The persistent destinations, with an optional custom home. Discovery opens from the watching tab;
  * [SearchButton] remains a separate control beside the capsule.
  */
 internal fun navigationTabs(customHomeVisible: Boolean = true) =

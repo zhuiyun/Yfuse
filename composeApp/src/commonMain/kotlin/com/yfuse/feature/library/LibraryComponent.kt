@@ -48,6 +48,7 @@ class LibraryComponent(
     private val onOpenDiscoveryTitle: (TmdbItem, String?) -> Unit = { _, _ -> },
     initialConfiguration: Config = Config.Home,
     private val onExit: () -> Unit = {},
+    private val onOpenWidgetTitle: ((com.yfuse.core.widget.WidgetSourceContext) -> Unit)? = null,
 ) : ComponentContext by componentContext {
     val historyIsRoot: Boolean = initialConfiguration == Config.History
     private val navigation = StackNavigation<Config>()
@@ -228,6 +229,7 @@ class LibraryComponent(
                         onOpenItem = { serverId, itemId -> openDetail(serverId, itemId) },
                         onContinue = { serverId, itemId, ticks -> openPlayer(Config.Player(serverId, itemId, ticks)) },
                         onOpenMetadata = { onOpenDiscoveryTitle(it, null) },
+                        onOpenWidget = onOpenWidgetTitle,
                     ),
                 )
             Config.WatchingCenter ->

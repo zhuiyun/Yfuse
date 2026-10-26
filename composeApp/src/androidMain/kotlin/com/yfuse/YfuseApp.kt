@@ -110,6 +110,8 @@ open class YfuseApp :
         val diagnosticPreferences = DiagnosticPreferences(settings)
         SafeLogcatOutputGate.initialize(diagnosticPreferences)
         DiagnosticLogStore.initialize(this)
+        com.yfuse.core.widget.WidgetCutoutDiagnosticStore
+            .initialize(this)
         startupTrace.mark("platform_context")
         // Native tombstones are available only after the dead process restarts. Consume the
         // previous exit before constructing any new playback backend.

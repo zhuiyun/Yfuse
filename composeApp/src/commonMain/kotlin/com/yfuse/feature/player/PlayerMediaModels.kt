@@ -156,6 +156,7 @@ data class PlayerMediaItem(
     val folderId: String? = null,
     /** Cross-server identity used by watch-together rooms — the one this device publishes. */
     val watchKey: String = id,
+    val widgetSource: com.yfuse.core.widget.WidgetSourceContext? = null,
     /**
      * Every name this entry answers to when a room says what it is playing. A superset of
      * [watchKey]: the other device picked its key from its own metadata, which is rarely

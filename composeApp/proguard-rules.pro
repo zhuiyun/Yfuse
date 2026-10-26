@@ -1,4 +1,7 @@
 # ---- Android entry points ----
+# ONNX Runtime resolves its Java wrapper and native methods through JNI.
+-keep class ai.onnxruntime.** { *; }
+
 # These classes are instantiated by Android or Google Cast from Manifest strings rather
 # than from bytecode references. Keep them explicitly: relying on AGP's generated AAPT
 # rules left the release DEX without the application and every app component.

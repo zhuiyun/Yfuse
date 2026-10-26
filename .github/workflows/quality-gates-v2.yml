@@ -340,7 +340,7 @@ jobs:
             test_args: ""
           - api: 37
             sdk: "37.0"
-            test_args: "-Pandroid.testInstrumentationRunnerArguments.class=com.yfuse.app.DetailBackNavigationInstrumentedTest,com.yfuse.app.PlatformNavigationBackInstrumentedTest"
+            test_args: "-Pandroid.testInstrumentationRunnerArguments.class=com.yfuse.app.DetailBackNavigationInstrumentedTest,com.yfuse.app.PlatformNavigationBackInstrumentedTest,com.yfuse.feature.widgets.WidgetImmersiveLayoutsInstrumentedTest,com.yfuse.core.widget.WidgetCutoutRuntimeInstrumentedTest,com.yfuse.feature.widgets.PoofCutoutFlowInstrumentedTest"
     # A cold native dependency cache is bootstrapped here too, as in `verify`.
     timeout-minutes: 300
     steps:
@@ -422,11 +422,9 @@ jobs:
           # takes injected touches, so every test that needs the app's own window fails behind it,
           # as five did on one run. The first line has the system end such an app instead of asking;
           # the second closes a dialog that came up before it.
-          script: |
-            test "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" = "${{ matrix.api }}"
-            adb shell settings put global hide_error_dialogs 1
-            adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS
-            ./gradlew :composeApp:connectedDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation ${{ matrix.test_args }} --no-daemon
+          # Use one shell so the EXIT trap pulls evidence while the emulator is still alive,
+          # preserving the test exit status even if collecting evidence fails.
+          script: bash scripts/run-instrumented-gate.sh "${{ matrix.api }}" ${{ matrix.test_args }}
       # A run in which the device was skipped or no test executed must not read as a pass.
       - name: Summarise instrumented test results
         if: always()
@@ -460,6 +458,7 @@ jobs:
           path: |
             composeApp/build/reports/androidTests/
             composeApp/build/outputs/androidTest-results/
+            composeApp/build/outputs/widget-layout-evidence/
           if-no-files-found: warn
           retention-days: 7
 

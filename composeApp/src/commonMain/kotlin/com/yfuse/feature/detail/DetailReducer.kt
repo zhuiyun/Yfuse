@@ -7,6 +7,7 @@ import com.yfuse.core.model.Episode
 internal object DetailReducer : Reducer<DetailState, DetailMsg> {
     override fun DetailState.reduce(msg: DetailMsg): DetailState =
         when (msg) {
+            is DetailMsg.CatalogUpdated -> withCatalogSnapshot(msg.snapshot)
             DetailMsg.Loading -> copy(loading = true, error = null)
             is DetailMsg.Refreshed ->
                 if (server?.id == msg.server.id && detail?.id == msg.detail.id) {
@@ -274,6 +275,7 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                         selectedSeasonId
                     }
                 copy(
+                    catalogPlayback = false,
                     detail = resolvedSource,
                     server = msg.server,
                     playServer = msg.server,

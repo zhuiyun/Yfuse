@@ -47,13 +47,12 @@ import com.yfuse.core.logging.AppLog
 
 // ---------------------------------------------------------------- 跟手返回 in a navigation stack
 //
-// NavDisplay composes the page underneath only while *its* back gesture is in progress, and it
-// finishes that gesture the moment the platform says so. A zoom back needs the page underneath
-// from the first preview frame, and needs the page on top to stay until its slide has finished.
-// So a stack that can zoom back gives NavDisplay a dispatcher of its own, which only this file
-// drives, and stands in for NavDisplay's handler on the activity's dispatcher. Measured pages
-// follow an opaque side slide. NavDisplay completes the navigation only after the departing page
-// has gone; content drags never dismiss navigation pages.
+// A zoom back needs the underlying page from the first preview frame and keeps the current page
+// until its opaque slide has finished. ZoomBackScene supplies both entries without seeking a
+// second NavDisplay transition: cancelling that seek can strand an entry in PostExit -> Visible.
+// This host stands in for NavDisplay on the activity's dispatcher and changes the stack only
+// after the slide commits. Its private dispatcher handles gestures delegated to NavDisplay;
+// content drags never dismiss navigation pages.
 
 /** A back handler whose four callbacks are plain lambdas. */
 internal class RelayBackHandler : NavigationEventHandler<NavigationEventInfo>(NavigationEventInfo.None, false) {
@@ -270,8 +269,9 @@ internal class ZoomBackNavHost(
                 attributes = mapOf("committed" to committed.toString()),
             )
             if (committed) {
-                // NavDisplay pops now; the page is invisible until it has gone. See [onStack].
-                navigation.completed()
+                // The scene preview never started a NavDisplay gesture. Pop only now, keeping
+                // the departed page invisible until disposal. See [onStack].
+                onBack()
             } else {
                 navigation.cancelled()
                 clearGesture()
@@ -369,14 +369,6 @@ internal class ZoomBackNavHost(
                 !visible || !controller.canStartSide -> SystemRoute.Ignored
                 top != null && stack.size > 1 && !blocked() && beginGesture(top, useOrigin = false) -> {
                     if (controller.startSide(BACK_NAVIGATION_TOWARD, event.progress, detailPreview)) {
-                        navigation.started(
-                            NavigationEvent(
-                                swipeEdge = event.swipeEdge,
-                                progress = 0f,
-                                touchX = event.touchX,
-                                touchY = event.touchY,
-                            ),
-                        )
                         SystemRoute.Zoom
                     } else {
                         clearGesture()
@@ -393,7 +385,9 @@ internal class ZoomBackNavHost(
 
     private fun systemProgressed(event: NavigationEvent) {
         when (system) {
-            SystemRoute.Zoom -> controller.moveSide(event.progress)
+            SystemRoute.Zoom -> {
+                controller.moveSide(event.progress)
+            }
             SystemRoute.Forward -> navigation.progressed(event)
             SystemRoute.None, SystemRoute.Ignored -> Unit
         }

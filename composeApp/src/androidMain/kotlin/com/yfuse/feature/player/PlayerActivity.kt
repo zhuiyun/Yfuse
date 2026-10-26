@@ -846,7 +846,7 @@ class PlayerActivity :
             close = ::stopPlaybackAndFinish,
         )
         val startPlaybackRequested = requestedOnLaunch && requestLocalPlaybackStart()
-        val playbackSinkFor =
+        val serverPlaybackSinkFor =
             runCatching {
                 val registry = koin.get<ServerRegistry>()
                 val coordinator = koin.get<PlaybackReportingCoordinator>()
@@ -859,7 +859,7 @@ class PlayerActivity :
                             target.id.takeIf { registry.serverById(it) != null }
                         PlaybackReportingTarget.DefaultServer ->
                             registry.defaultServer?.id?.takeUnless { externalLaunch }
-                        PlaybackReportingTarget.Disabled -> null
+                        PlaybackReportingTarget.Disabled, PlaybackReportingTarget.LocalOnly -> null
                     }?.let(coordinator::sinkFor)
                 }
                 resolver
@@ -873,6 +873,9 @@ class PlayerActivity :
             }.getOrElse {
                 { _: PlaybackReportingTarget -> null }
             }
+        val playbackSinkFor: (PlaybackReportingTarget) -> PlaybackEventSink? = { target ->
+            playbackEventSinkFor(target, serverPlaybackSinkFor)
+        }
 
         setContent {
             val inPictureInPicture by pictureInPicture.collectAsState()

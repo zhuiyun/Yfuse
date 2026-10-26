@@ -355,7 +355,7 @@ fun DetailScreen(component: DetailComponent) {
     val watchPreferences = component.dependencies.watchTogetherPreferences
     val accountState by component.dependencies.account.state
         .collectAsState()
-    val watchAvailable = accountState.canUseWatchTogether()
+    val watchAvailable = accountState.canUseWatchTogether() && !state.catalogPlayback
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by watchPreferences.endpoint.collectAsState()
     val share = rememberShareHandler()
@@ -388,7 +388,7 @@ fun DetailScreen(component: DetailComponent) {
     // The episode rows' 浮起菜单, swipes and 长按拖选, and what of the season is downloaded.
     val episodeRowActions = rememberEpisodeRowActions(component, state.playServer?.id)
     // The top bar's 投屏 and its device list; null where this platform cannot cast.
-    val cast = rememberDetailCast(component)
+    val cast = rememberDetailCast(component).takeUnless { state.catalogPlayback }
     // 预告片: a key under 播放 while the title has one — see DetailTrailers. 主题曲 plays itself.
     val trailers = rememberDetailTrailers(component, displayTitle)
     DetailThemeSong(component)
@@ -430,16 +430,22 @@ fun DetailScreen(component: DetailComponent) {
             ?.takeIf { it > 0 }
             ?.toString()
     val serverFavoriteAvailable =
-        state.playServer
-            ?.kind
-            ?.capabilities()
-            ?.favorites != false
+        state.server != null &&
+            state.playServer
+                ?.kind
+                ?.capabilities()
+                ?.favorites != false
     // Read at page level, not only inside 更多操作: the title block says which lists hold this title.
     val personalLists =
         detail?.let { item ->
-            state.server?.let { server ->
-                com.yfuse.feature.personal
-                    .rememberPersonalMediaLists(item, server.id)
+            if (state.server != null || component.catalog != null) {
+                com.yfuse.feature.personal.rememberPersonalMediaLists(
+                    item,
+                    state.server?.id,
+                    component.catalog?.context,
+                )
+            } else {
+                null
             }
         }
     val detailStatusList =
@@ -804,7 +810,26 @@ fun DetailScreen(component: DetailComponent) {
                                         }
                                     }
 
-                                    if (state.server != null) {
+                                    component.catalog?.let { catalog ->
+                                        motionItem(key = "catalog-sources") {
+                                            DetailCatalogResources(
+                                                catalog,
+                                                selected = state.catalogPlayback,
+                                                onSelect = {
+                                                    component.store.accept(
+                                                        DetailIntent.SelectCatalogSource(it),
+                                                    )
+                                                },
+                                                onCoordinate = { season, episode ->
+                                                    component.store.accept(
+                                                        DetailIntent.SelectCatalogCoordinate(season, episode),
+                                                    )
+                                                },
+                                                modifier = Modifier.sectionPadding(),
+                                            )
+                                        }
+                                    }
+                                    if (state.server != null || component.catalog != null) {
                                         motionItem(key = "sources") {
                                             SourceSection(
                                                 sources = comparableSources,

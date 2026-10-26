@@ -169,4 +169,46 @@ class DetailLocalProgressTest {
         assertEquals(0L, initial.project(record(-1L)).playPositionTicks)
         assertEquals(Long.MAX_VALUE, initial.project(record(Long.MAX_VALUE)).playPositionTicks)
     }
+
+    @Test
+    fun component_progress_projects_onto_a_library_episode_without_another_episode_leaking_in() {
+        val local =
+            com.yfuse.core.sync.playback
+                .PlaybackSyncStore(com.russhwolf.settings.MapSettings()) { 1000L }
+        local.updatePlayback(
+            "emby:e1",
+            listOf("emby:e1"),
+            10_000L,
+            1_000_000L,
+            false,
+            "old",
+            server.id,
+            "e1",
+            com.yfuse.core.sync.playback.PlaybackMutationKind.AutoProgress,
+            com.yfuse.core.sync.playback.PlaybackSyncTrigger.Stop,
+        )
+        local.updatePlayback(
+            "tmdb:42/s2e3",
+            listOf("tmdb:42/s2e3"),
+            123_000L,
+            1_000_000L,
+            false,
+            "session",
+            null,
+            null,
+            com.yfuse.core.sync.playback.PlaybackMutationKind.AutoProgress,
+            com.yfuse.core.sync.playback.PlaybackSyncTrigger.Stop,
+        )
+        val series = target.copy(id = "series", type = "Series", providerIds = mapOf("Tmdb" to "42"))
+        val state =
+            initial.copy(
+                detail = series,
+                playSourceDetail = series,
+                playTarget = target.copy(seriesId = "series", seasonNumber = 2, episodeNumber = 3),
+                episodes = listOf(episode.copy(seasonNumber = 2, indexNumber = 3)),
+            )
+        assertEquals(123_000L, state.localProgressForItem(local, server.id, "e1")?.positionMs)
+        val otherEpisode = state.copy(episodes = listOf(episode.copy(id = "e4", seasonNumber = 2, indexNumber = 4)))
+        assertNull(otherEpisode.localProgressForItem(local, server.id, "e4"))
+    }
 }

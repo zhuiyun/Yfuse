@@ -38,6 +38,7 @@ class PlaybackHistoryComponent(
     private val nowMs: () -> Long = System::currentTimeMillis,
     internal val progress: PlaybackSyncStore? = GlobalContext.getOrNull()?.getOrNull(),
     private val onContinue: ((String, String, Long) -> Unit)? = null,
+    private val onOpenWidget: ((com.yfuse.core.widget.WidgetSourceContext) -> Unit)? = null,
 ) : ComponentContext by componentContext {
     // Detail covers this route without destroying its scroll position.
     internal val listState = LazyListState()
@@ -220,6 +221,12 @@ class PlaybackHistoryComponent(
         if (server != null && itemId != null) {
             onOpenItem(server.id, itemId)
             return true
+        }
+        media.widgetSource?.let { source ->
+            onOpenWidget?.let { open ->
+                open(source)
+                return true
+            }
         }
         val tmdbId = media.tmdbId?.takeIf { it > 0 } ?: return false
         val type =

@@ -84,6 +84,7 @@ class PublishPackageOnlyTest(unittest.TestCase):
 
     def test_every_server_facing_step_is_skipped_without_publishing(self):
         self.assertIn(GATE, step("publish-android.yml", "Verify watch server protocol"))
+        self.assertIn(GATE, step("publish-android.yml", "Reject duplicate or older version"))
         names = re.findall(r"^      - name: (.+)$", (WORKFLOWS / "publish-android.yml").read_text(), re.M)
         after_artifact = names[names.index("Save release artifact") + 1:]
         self.assertIn("Publish update atomically", after_artifact)
@@ -92,6 +93,22 @@ class PublishPackageOnlyTest(unittest.TestCase):
                 block = step("publish-android.yml", name)
                 # The rollback only runs after a successful activation, which is itself gated.
                 self.assertTrue(GATE in block or "steps.activate.outcome == 'success'" in block, block)
+
+    def test_publication_still_rejects_an_unavailable_feed_and_non_increasing_versions(self):
+        check = script(step("publish-android.yml", "Reject duplicate or older version"))
+        fake_curl = (
+            'printf \'{"versionCode":%s}\\n\' "$FEED_VERSION" > build/current-update-v2.json\n'
+            'printf "%s" "$FEED_STATUS"\n'
+        )
+        for status, version, accepted in (("000", "317", False), ("200", "318", False),
+                                           ("200", "319", False), ("200", "317", True)):
+            with self.subTest(status=status, version=version):
+                result, _ = run_with_fake("curl", fake_curl, check, {
+                    "UPDATE_BASE_URL": "https://update.example/yfuse",
+                    "LEGACY_UPDATE_BASE_URL": "http://legacy.example/yfuse",
+                    "VERSION_CODE": "318", "FEED_STATUS": status, "FEED_VERSION": version,
+                })
+                self.assertEqual(accepted, result.returncode == 0, result.stdout + result.stderr)
 
     def test_the_saved_artifact_is_required_only_when_it_is_the_deliverable(self):
         block = step("publish-android.yml", "Save release artifact")

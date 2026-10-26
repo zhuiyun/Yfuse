@@ -71,6 +71,24 @@ class WidgetKineticGeometryTest {
     }
 
     @Test
+    fun arc_forms_a_symmetric_overlapping_fan_with_the_selected_cover_in_front() {
+        val center = kineticPosterFrame(WidgetStyle.ArcPoster, 0f)
+        for (distance in 1..2) {
+            val left = kineticPosterFrame(WidgetStyle.ArcPoster, -distance.toFloat())
+            val right = kineticPosterFrame(WidgetStyle.ArcPoster, distance.toFloat())
+            assertEquals(left.width, right.width)
+            assertEquals(left.height, right.height)
+            assertTrue(abs(left.x + left.width + right.x - 1f) < .0001f)
+            assertEquals(-left.tilt, right.tilt)
+            assertTrue(center.width > right.width && center.y < right.y)
+        }
+        val near = kineticPosterFrame(WidgetStyle.ArcPoster, 1f)
+        val far = kineticPosterFrame(WidgetStyle.ArcPoster, 2f)
+        assertTrue(center.x + center.width > near.x, "The selected film should overlap its neighbour")
+        assertTrue(near.x + near.width > far.x, "The outer cover should belong to the same fan")
+    }
+
+    @Test
     fun releasing_a_drag_snaps_to_the_nearest_film_and_fast_fling_advances_without_skipping_the_collection() {
         assertEquals(1, kineticTargetIndex(1.49f, 0f, 150f, 8))
         assertEquals(2, kineticTargetIndex(1.51f, 0f, 150f, 8))

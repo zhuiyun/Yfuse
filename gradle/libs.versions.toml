@@ -5,7 +5,7 @@ compose = "1.12.2"
 androidx-activity = "1.13.0"
 androidx-lifecycle = "2.10.0"
 cameraX = "1.6.1"
-androidx-navigation3 = "1.1.4"
+androidx-navigation3 = "1.1.7"
 androidx-work = "2.11.2"
 decompose = "3.5.0"
 mvikotlin = "4.4.0"
@@ -21,6 +21,7 @@ coroutines = "1.11.0"
 koin = "4.2.2"
 settings = "1.2.0"
 coil = "3.6.3"
+onnxruntime = "1.31.0"
 media3 = "1.9.0"
 palette = "1.0.0"
 turbine = "1.2.0"
@@ -80,6 +81,7 @@ settings-test = { module = "com.russhwolf:multiplatform-settings-test", version.
 # Coil (image loading)
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 coil-network-ktor = { module = "io.coil-kt.coil3:coil-network-ktor3", version.ref = "coil" }
+onnxruntime-android = { module = "com.microsoft.onnxruntime:onnxruntime-android", version.ref = "onnxruntime" }
 # Android
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
 # Posture of a folding phone (折叠屏桌面模式). Already on every runtime classpath through Compose; the
