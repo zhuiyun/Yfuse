@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,6 +43,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -72,11 +72,11 @@ internal fun WidgetBreakoutPoster(
     if (items.isEmpty()) return
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
         val stageWidth = maxWidth.coerceAtMost(if (compact) 340.dp else 480.dp)
-        val cardWidth = stageWidth * .82f
+        val cardWidth = stageWidth * BREAKOUT_CARD_WIDTH
         val artworkHeight = cardWidth * BREAKOUT_WINDOW_HEIGHT
         val density = LocalDensity.current
         val motion = rememberWidgetGalleryMotion("breakout-poster", items, with(density) { (stageWidth * .72f).toPx() })
-        Column(Modifier.width(stageWidth), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.width(stageWidth), verticalArrangement = Arrangement.spacedBy(0.dp)) {
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -113,12 +113,12 @@ internal fun WidgetBreakoutPoster(
                                 .zIndex(2f - abs(relative))
                                 .graphicsLayer {
                                     translationX = relative * stageWidth.toPx() * .75f * if (motion.rtl) -1f else 1f
-                                    translationY = distance * 12.dp.toPx()
-                                    scaleX = 1f - distance * .12f
+                                    translationY = distance * 20.dp.toPx()
+                                    scaleX = 1f - distance * .18f
                                     scaleY = scaleX
-                                    rotationY = if (motion.reduceMotion) 0f else relative.coerceIn(-1f, 1f) * -8f
+                                    rotationY = if (motion.reduceMotion) 0f else relative.coerceIn(-1f, 1f) * -12f
                                     cameraDistance = 16 * density.density
-                                    alpha = 1f - distance * .38f
+                                    alpha = 1f - distance * .48f
                                     transformOrigin = TransformOrigin(.5f, .8f)
                                 }.pressable(
                                     label = items[index].title,
@@ -158,14 +158,23 @@ private fun BreakoutArtwork(
     var loaded by remember(cutout) { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
     if (settings) WidgetCutoutSettingsDialog { settings = false }
-    Box(Modifier.fillMaxSize()) {
+    val status =
+        when {
+            failed -> WidgetCutoutStatus(WidgetCutoutPhase.Failed, "抠图图片显示失败，点按重试")
+            cutout != null && !loaded -> WidgetCutoutStatus(WidgetCutoutPhase.Downloading, "正在显示抠图")
+            else -> state.status
+        }
+    Box(
+        Modifier.fillMaxSize().semantics {
+            if (processForeground) stateDescription = status.message
+        },
+    ) {
         if (cutout == null || failed) {
             val modifier =
                 Modifier
                     .align(
                         Alignment.BottomCenter,
-                    ).fillMaxWidth()
-                    .fillMaxHeight(.78f)
+                    ).fillMaxSize()
                     .clip(RoundedCornerShape(18.dp))
             if (source?.startsWith("http") == true) {
                 FallbackImage(listOf(source), item.title, modifier, fitNarrow = true)
@@ -175,12 +184,6 @@ private fun BreakoutArtwork(
         } else {
             BreakoutLayers(cutout, source, onError = { failed = true }, onLoaded = { loaded = true })
         }
-        val status =
-            when {
-                failed -> WidgetCutoutStatus(WidgetCutoutPhase.Failed, "抠图图片显示失败，点按重试")
-                cutout != null && !loaded -> WidgetCutoutStatus(WidgetCutoutPhase.Downloading, "正在显示抠图")
-                else -> state.status
-            }
         LaunchedEffect(processForeground, cutout, failed, loaded, status.phase) {
             if (processForeground) {
                 logWidgetCutout(
@@ -196,7 +199,7 @@ private fun BreakoutArtwork(
                 )
             }
         }
-        if (processForeground && status.phase != WidgetCutoutPhase.Idle) {
+        if (processForeground && status.phase !in setOf(WidgetCutoutPhase.Idle, WidgetCutoutPhase.Ready)) {
             val configure =
                 status.phase in
                     setOf(

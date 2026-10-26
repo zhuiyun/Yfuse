@@ -121,7 +121,10 @@ class PoofCutoutFlowInstrumentedTest {
                             }
                         }
                     }
-                    await("The card never displayed its downloaded transparent foreground") { hasText("抠图完成") }
+                    await(
+                        "The card never displayed its downloaded transparent foreground",
+                    ) { hasText("抠图完成", stateOnly = true) }
+                    assertFalse("Successful cutout must not cover the artwork with a badge", hasText("抠图完成"))
                     assertEquals(1, origin.posts.get())
                     assertEquals(512, origin.uploadWidth.get())
                     assertEquals(768, origin.uploadHeight.get())
@@ -132,7 +135,20 @@ class PoofCutoutFlowInstrumentedTest {
                         val density = context.resources.displayMetrics.density
                         var headPixels = 0
                         var leakedBackground = 0
-                        for (y in (frame.top + 20 * density).toInt() until (frame.top + 45 * density).toInt()) {
+                        // Sample above the frame inside the fixture's red head, independent of hero height.
+                        val artwork = checkNotNull(pipeline.peek(origin.poster))
+                        val crop =
+                            breakoutFraming(
+                                artwork.sourceWidth,
+                                artwork.sourceHeight,
+                                artwork.subjectTop,
+                                artwork.subjectBottom,
+                            )
+                        val cardWidth = frame.width * BREAKOUT_CARD_WIDTH
+                        val headStart = frame.top + 12 * density + cardWidth * .15f
+                        val frameStart =
+                            frame.top + 12 * density + cardWidth * BREAKOUT_WINDOW_HEIGHT * crop.frameTopFraction
+                        for (y in headStart.toInt() until frameStart.toInt()) {
                             for (x in (frame.left + frame.width * .25f).toInt() until
                                 (frame.left + frame.width * .75f).toInt()) {
                                 val pixel = screenshot.getPixel(x, y)
@@ -372,10 +388,16 @@ class PoofCutoutFlowInstrumentedTest {
         assertTrue(message, condition())
     }
 
-    private fun hasText(text: String): Boolean {
+    private fun hasText(
+        text: String,
+        stateOnly: Boolean = false,
+    ): Boolean {
         fun search(node: AccessibilityNodeInfo?): Boolean =
             node != null &&
-                (node.text?.toString() == text || (0 until node.childCount).any { search(node.getChild(it)) })
+                (
+                    (if (stateOnly) node.stateDescription?.toString() == text else node.text?.toString() == text) ||
+                        (0 until node.childCount).any { search(node.getChild(it)) }
+                )
         return search(instrumentation.uiAutomation.rootInActiveWindow)
     }
 }

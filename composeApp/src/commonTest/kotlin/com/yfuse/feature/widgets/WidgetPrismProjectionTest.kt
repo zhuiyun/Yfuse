@@ -19,20 +19,22 @@ class WidgetPrismProjectionTest {
                         Offset(0f, size.height),
                     )
                 for (step in 0..140) {
-                    prismGalleryFaces(step / 20f, 8, rtl).forEach { face ->
-                        val matrix = prismGalleryMatrix(face, size, rtl)
-                        val cornerOrder = if (rtl) listOf(1, 0, 3, 2) else listOf(0, 1, 2, 3)
-                        textureCorners.zip(cornerOrder).forEach { (texture, index) ->
-                            val expected = face.corners[index]
-                            val actual = matrix.map(texture)
-                            assertTrue(
-                                abs(actual.x - expected.x * size.width) < .0001f,
-                                "x projection mismatch at $step, rtl=$rtl",
-                            )
-                            assertTrue(
-                                abs(actual.y - expected.y * size.height) < .0001f,
-                                "y projection mismatch at $step, rtl=$rtl",
-                            )
+                    for (pitch in listOf(-180f, -90f, -22f, 0f, 60f, 90f, 180f)) {
+                        prismGalleryFaces(step / 20f, 8, rtl, pitch).forEach { face ->
+                            val matrix = prismGalleryMatrix(face, size, rtl)
+                            val cornerOrder = if (rtl) listOf(1, 0, 3, 2) else listOf(0, 1, 2, 3)
+                            textureCorners.zip(cornerOrder).forEach { (texture, index) ->
+                                val expected = face.corners[index]
+                                val actual = matrix.map(texture)
+                                assertTrue(
+                                    abs(actual.x - expected.x * size.width) < .0001f,
+                                    "x projection mismatch at $step, rtl=$rtl",
+                                )
+                                assertTrue(
+                                    abs(actual.y - expected.y * size.height) < .0001f,
+                                    "y projection mismatch at $step, rtl=$rtl",
+                                )
+                            }
                         }
                     }
                 }

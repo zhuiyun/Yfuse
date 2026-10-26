@@ -163,6 +163,61 @@ class WidgetFeedTest {
             assertEquals(listOf(item("old"), item("next")), feed.state.value.items)
         }
 
+    @Test fun replacement_retains_previous_items_until_success_and_after_failure() =
+        runTest {
+            val response = CompletableDeferred<List<WidgetMedia>>()
+            var calls = 0
+            val feed =
+                WidgetFeed(
+                    backgroundScope,
+                    { 0L },
+                    3600,
+                    true,
+                    initial = WidgetFeedSnapshot(items = listOf(item("old")), loaded = true, page = 3, expanded = true),
+                ) { _, _ ->
+                    calls++
+                    if (calls == 1) response.await() else listOf(item("new"))
+                }
+            assertFalse(feed.state.value.loaded)
+            assertEquals(listOf(item("old")), feed.state.value.items)
+            feed.ensureLoaded()
+            runCurrent()
+            assertTrue(feed.state.value.busy)
+            assertEquals(listOf(item("old")), feed.state.value.items)
+            response.completeExceptionally(IllegalStateException("offline"))
+            runCurrent()
+            assertEquals(listOf(item("old")), feed.state.value.items)
+            assertEquals("offline", feed.state.value.error)
+            feed.retry()
+            runCurrent()
+            assertEquals(listOf(item("new")), feed.state.value.items)
+            assertTrue(feed.state.value.expanded)
+        }
+
+    @Test fun closing_a_replaced_feed_preserves_content_and_rejects_the_old_response() =
+        runTest {
+            val response = CompletableDeferred<List<WidgetMedia>>()
+            var calls = 0
+            val feed =
+                WidgetFeed(backgroundScope, { 0L }, 3600, true) { _, _ ->
+                    calls++
+                    if (calls == 1) listOf(item("old")) else response.await()
+                }
+            feed.ensureLoaded()
+            runCurrent()
+            feed.refresh()
+            runCurrent()
+            feed.close(preserveContent = true)
+            response.complete(listOf(item("obsolete")))
+            runCurrent()
+            feed.ensureLoaded()
+            feed.refresh()
+            runCurrent()
+            assertEquals(listOf(item("old")), feed.state.value.items)
+            assertFalse(feed.state.value.busy)
+            assertEquals(2, calls)
+        }
+
     @Test fun invalidation_cancels_inflight_work_and_prevents_restarting_stale_feeds() =
         runTest {
             var calls = 0

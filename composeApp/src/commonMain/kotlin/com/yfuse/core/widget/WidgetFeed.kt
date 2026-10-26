@@ -29,6 +29,7 @@ class WidgetFeed internal constructor(
     private val now: () -> Long,
     private val cacheSeconds: Int,
     private val pageable: Boolean,
+    initial: WidgetFeedSnapshot = WidgetFeedSnapshot(),
     private val load: suspend (Int, Boolean) -> List<WidgetMedia>,
 ) {
     private enum class Request { INITIAL, REFRESH, MORE }
@@ -36,7 +37,18 @@ class WidgetFeed internal constructor(
     private val closed = MutableStateFlow(false)
     private val requestJob = MutableStateFlow<Job?>(null)
     private val requestMutex = Mutex()
-    private val mutableState = MutableStateFlow(WidgetFeedSnapshot())
+    private val mutableState =
+        MutableStateFlow(
+            initial.copy(
+                busy = false,
+                loaded = false,
+                error = null,
+                page = 0,
+                hasMore = true,
+                freshUntil = Long.MIN_VALUE,
+                addedCount = 0,
+            ),
+        )
     val state = mutableState.asStateFlow()
     private var failedRequest = Request.INITIAL
 
@@ -59,10 +71,10 @@ class WidgetFeed internal constructor(
         }
     }
 
-    internal fun close() {
+    internal fun close(preserveContent: Boolean = false) {
         closed.value = true
         requestJob.value?.cancel()
-        mutableState.value = WidgetFeedSnapshot()
+        mutableState.value = if (preserveContent) state.value.copy(busy = false) else WidgetFeedSnapshot()
     }
 
     private fun request(

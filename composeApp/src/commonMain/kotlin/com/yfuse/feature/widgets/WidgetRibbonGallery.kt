@@ -67,7 +67,7 @@ internal fun WidgetRibbonGallery(
         val currentPhase by rememberUpdatedState(phase)
         val currentItems by rememberUpdatedState(items)
         val open by rememberUpdatedState(onOpen)
-        Column(Modifier.width(stageWidth), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.width(stageWidth), verticalArrangement = Arrangement.spacedBy(0.dp)) {
             Box(
                 Modifier
                     .fillMaxWidth()

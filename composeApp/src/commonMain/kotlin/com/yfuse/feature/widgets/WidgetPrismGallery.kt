@@ -55,13 +55,19 @@ internal fun WidgetPrismGallery(
     val shadow = LocalPalette.current.text
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
         val stageWidth = minOf(maxWidth, if (compact) 340.dp else 480.dp)
-        val motion = rememberWidgetGalleryMotion("prism-gallery", items, with(density) { (stageWidth * .54f).toPx() })
-        val faces = prismGalleryFaces(motion.position, items.size, motion.rtl)
+        val motion =
+            rememberWidgetGalleryMotion(
+                "prism-gallery",
+                items,
+                with(density) { (stageWidth * .54f).toPx() },
+                twoAxis = true,
+            )
+        val faces = prismGalleryFaces(motion.position, items.size, motion.rtl, motion.pitchDegrees)
         val currentFaces by rememberUpdatedState(faces)
         val currentMotion by rememberUpdatedState(motion)
         val currentItems by rememberUpdatedState(items)
         val open by rememberUpdatedState(onOpen)
-        Column(Modifier.width(stageWidth), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.width(stageWidth), verticalArrangement = Arrangement.spacedBy(0.dp)) {
             Box(
                 Modifier
                     .fillMaxWidth()

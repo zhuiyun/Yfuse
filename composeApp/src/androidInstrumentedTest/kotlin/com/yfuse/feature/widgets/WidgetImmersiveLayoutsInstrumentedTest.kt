@@ -202,6 +202,97 @@ class WidgetImmersiveLayoutsInstrumentedTest {
     }
 
     @Test(timeout = 90_000L)
+    fun prism_vertical_drags_rotate_both_caps_without_opening_details() {
+        withWidgetScenario { scenario ->
+            val probe = mount(scenario)
+            for (rtl in listOf(false, true)) {
+                show(
+                    scenario,
+                    probe,
+                    RenderCase(
+                        WidgetStyle.PrismGallery,
+                        films,
+                        rtl = rtl,
+                        reduced = rtl,
+                        session = if (rtl) 1 else 0,
+                    ),
+                )
+                awaitDetail(films[0])
+                val bounds = probe.bounds.get()
+                val upper = Offset(bounds.center.x, bounds.top + bounds.width * .17f)
+                val lower = Offset(bounds.center.x, bounds.top + bounds.width * .63f)
+                drag(scenario, lower, upper)
+                awaitDetail(films[2])
+                assertNull("Vertical drag opened details", probe.opened.get())
+                assertBoundedAndSave(probe, "prism-top-rtl-$rtl")
+                drag(scenario, upper, lower)
+                awaitDetail(films[0])
+                drag(scenario, upper, lower)
+                awaitDetail(films[3])
+                assertNull("Vertical drag opened details", probe.opened.get())
+                assertBoundedAndSave(probe, "prism-bottom-rtl-$rtl")
+                clickDetail(films[3], probe)
+                assertSame("The visible cap lost its source payload", films[3], probe.opened.get())
+                probe.opened.set(null)
+                show(scenario, probe, probe.input.value.copy(items = films.reversed()))
+                awaitDetail(films[3])
+                clickDetail(films[3], probe)
+                assertSame("Refresh lost the selected cap", films[3], probe.opened.get())
+                probe.opened.set(null)
+            }
+        }
+    }
+
+    @Test(timeout = 90_000L)
+    fun spatial_galleries_keep_copy_and_pagination_on_one_compact_footer_at_normal_width() {
+        val compactStyles =
+            styles +
+                listOf(
+                    WidgetStyle.LayeredPoster,
+                    WidgetStyle.DepthGallery,
+                    WidgetStyle.Accordion,
+                    WidgetStyle.BookSpine,
+                    WidgetStyle.FoldingGallery,
+                )
+        withWidgetScenario { scenario ->
+            val probe = mount(scenario)
+            compactStyles.forEachIndexed { index, style ->
+                show(scenario, probe, RenderCase(style, films, session = index))
+                awaitDetail(films[0])
+                if (style == WidgetStyle.BreakoutPoster) {
+                    val hero = probe.bounds.get()
+                    assertTrue(
+                        "The breakout hero was compressed back into a square card",
+                        hero.height >= hero.width * 1.4f,
+                    )
+                }
+                val snapshot = nodes()
+                val footer =
+                    snapshot
+                        .filter {
+                            it.isClickable &&
+                                hasLabel(it, films[0].title) &&
+                                it.actionList.any { action -> action.label?.toString() == "查看详情" }
+                        }.maxBy {
+                            android.graphics
+                                .Rect()
+                                .also(it::getBoundsInScreen)
+                                .top
+                        }
+                val copyBounds = android.graphics.Rect().also(footer::getBoundsInScreen)
+                val previous = android.graphics.Rect().also(requireNotNull(controlNode("上一部"))::getBoundsInScreen)
+                val next = android.graphics.Rect().also(requireNotNull(controlNode("下一部"))::getBoundsInScreen)
+                val height =
+                    maxOf(copyBounds.bottom, previous.bottom, next.bottom) -
+                        minOf(copyBounds.top, previous.top, next.top)
+                assertTrue("$style reserved a separate pagination row", height <= 72f * probe.density.get())
+                assertTrue("$style shrank the previous touch target", previous.height() >= 47f * probe.density.get())
+                assertTrue("$style shrank the next touch target", next.height() >= 47f * probe.density.get())
+            }
+        }
+    }
+
+    @Test(timeout = 90_000L)
     fun ribbon_current_artwork_stays_centered_in_ltr_and_rtl() {
         val source =
             instrumentation.targetContext.assets.open("widget-preview/space.png").use {
@@ -531,6 +622,14 @@ class WidgetImmersiveLayoutsInstrumentedTest {
     ) {
         val from = Offset(bounds.left + bounds.width * .78f, bounds.top + bounds.width * .38f)
         val to = Offset(bounds.left + bounds.width * .18f, from.y)
+        drag(scenario, from, to)
+    }
+
+    private fun drag(
+        scenario: ActivityScenario<MainActivity>,
+        from: Offset,
+        to: Offset,
+    ) {
         val down = SystemClock.uptimeMillis()
 
         fun send(

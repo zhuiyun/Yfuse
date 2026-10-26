@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -63,10 +62,8 @@ import androidx.compose.ui.semantics.horizontalScrollAxisRange
 import androidx.compose.ui.semantics.scrollBy
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -80,7 +77,6 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
-import com.yfuse.core.designsystem.ThemeIcon as Icon
 import com.yfuse.core.designsystem.ThemeText as Text
 
 /** A bounded orbit; the circle and its satellites always refer to actual source items. */
@@ -157,7 +153,7 @@ internal fun WidgetOrbitResume(
                 }
             }
         }
-        Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(0.dp)) {
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -320,92 +316,34 @@ internal fun WidgetOrbitResume(
                     }
                 }
             }
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(
-                        item.title,
-                        color = palette.text,
-                        style = AppTypography.body.medium,
-                        minLines = 2,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (metadata) {
-                        val progress = orbitProgress(item)
-                        val remaining = orbitRemainingMinutes(item)
-                        val details =
-                            listOfNotNull(
-                                orbitEpisodeLabel(item).takeIf(String::isNotBlank),
-                                remaining?.let { "约剩 $it 分钟" }
-                                    ?: when {
-                                        progress == 1f -> "已看完"
-                                        progress != null && progress > 0f -> "已看 ${(progress * 100).toInt()}%"
-                                        else -> item.year.take(4).takeIf(String::isNotBlank)
-                                    },
-                            ).joinToString(" · ")
-                        if (details.isNotBlank()) {
-                            Text(
-                                details,
-                                color = palette.sub2,
-                                style = AppTypography.caption.regular,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-                Box(
-                    Modifier
-                        .size(48.dp)
-                        .background(accent.copy(alpha = .12f), CircleShape)
-                        .pressable(
-                            role = Role.Button,
-                            onClickLabel = "查看详情",
-                            focusShape = CircleShape,
-                            onClick = { onOpen(item) },
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (rtl) AppIcons.ChevronLeft else AppIcons.ChevronRight,
-                        contentDescription = "查看详情",
-                        tint = accent,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-            }
-            if (items.size > 1) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    WidgetIconButton(
-                        if (rtl) AppIcons.ChevronRight else AppIcons.ChevronLeft,
-                        "上一部",
-                        currentIndex > 0,
-                    ) {
-                        select(
-                            currentIndex - 1,
-                        )
-                    }
-                    Text(
-                        "${currentIndex + 1} / ${items.size}",
-                        color = palette.sub2,
-                        style = AppTypography.caption.regular,
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    )
-                    WidgetIconButton(
-                        if (rtl) AppIcons.ChevronLeft else AppIcons.ChevronRight,
-                        "下一部",
-                        currentIndex < lastIndex,
-                    ) { select(currentIndex + 1) }
-                }
-            }
+
+            val progress = orbitProgress(item)
+            val remaining = orbitRemainingMinutes(item)
+            val details =
+                listOfNotNull(
+                    orbitEpisodeLabel(item).takeIf(String::isNotBlank),
+                    remaining?.let { "约剩 $it 分钟" }
+                        ?: when {
+                            progress == 1f -> "已看完"
+                            progress != null && progress > 0f -> "已看 ${(progress * 100).toInt()}%"
+                            else -> item.year.take(4).takeIf(String::isNotBlank)
+                        },
+                ).joinToString(" · ")
+            WidgetGalleryFooter(
+                items,
+                metadata,
+                WidgetGalleryMotionState(
+                    boundedPosition,
+                    currentIndex,
+                    items.size,
+                    rtl,
+                    reduceMotion,
+                    Modifier,
+                    select,
+                ),
+                onOpen,
+                supportingText = details,
+            )
         }
     }
 }
