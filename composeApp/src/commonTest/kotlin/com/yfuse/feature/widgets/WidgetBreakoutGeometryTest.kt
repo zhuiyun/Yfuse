@@ -1,5 +1,6 @@
 package com.yfuse.feature.widgets
 
+import kotlin.math.max
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -8,7 +9,7 @@ class WidgetBreakoutGeometryTest {
     @Test
     fun portraitSubjectIsPositionedInsideReservedHeadroom() {
         val framing = breakoutFraming(600, 900, .2f, .85f)
-        val scaledHeight = 1.5f
+        val scaledHeight = 1.5f * framing.scale
         val croppedY = -(scaledHeight - BREAKOUT_WINDOW_HEIGHT) * (framing.verticalBias + 1) / 2
         val subjectY = .2f * scaledHeight + croppedY
         assertTrue(subjectY >= 0f)
@@ -17,17 +18,46 @@ class WidgetBreakoutGeometryTest {
     }
 
     @Test
-    fun portraitPosterKeepsItsFullHeightAndHasARealProtrusionAboveTheFrame() {
+    fun portraitPosterKeepsATallStageAndARealProtrusionAboveTheFixedFrame() {
         assertEquals(1.5f, BREAKOUT_WINDOW_HEIGHT)
         val framing = breakoutFraming(600, 900, .2f, .85f)
-        // A 2:3 source and window now share one aspect; no top/bottom crop is necessary.
-        assertEquals(0f, framing.verticalBias)
-        val subjectTop = .2f * BREAKOUT_WINDOW_HEIGHT
+        val scaledHeight = BREAKOUT_WINDOW_HEIGHT * framing.scale
+        val offset = -(scaledHeight - BREAKOUT_WINDOW_HEIGHT) * (framing.verticalBias + 1) / 2
+        val subjectTop = .2f * scaledHeight + offset
         val frameTop = framing.frameTopFraction * BREAKOUT_WINDOW_HEIGHT
         assertTrue(frameTop - subjectTop >= BREAKOUT_WINDOW_HEIGHT * .12f)
         assertTrue((1f - framing.frameTopFraction) * BREAKOUT_WINDOW_HEIGHT >= .8f)
         // At 320dp the hero grows from 294dp to 422dp, without enlarging the footer.
         assertTrue(320f * BREAKOUT_CARD_WIDTH * BREAKOUT_WINDOW_HEIGHT > 420f)
+    }
+
+    @Test
+    fun changingSubjectBoundsOrPosterAspectNeverChangesTheFrameHeight() {
+        val samples = listOf(.02f to .35f, .15f to .82f, .30f to .95f, .45f to .8f, .8f to .99f)
+        for ((width, height) in listOf(600 to 900, 900 to 600, 600 to 1800)) {
+            for ((top, bottom) in samples) {
+                val framing = breakoutFraming(width, height, top, bottom)
+                assertEquals(.26f, framing.frameTopFraction)
+                val scaledHeight = max(height.toFloat() / width, BREAKOUT_WINDOW_HEIGHT) * framing.scale
+                val offset = -(scaledHeight - BREAKOUT_WINDOW_HEIGHT) * (framing.verticalBias + 1) / 2
+                // The shared source crop must still cover the entire fixed background frame.
+                assertTrue(offset <= .0001f)
+                assertTrue(scaledHeight + offset >= BREAKOUT_WINDOW_HEIGHT - .0001f)
+                assertTrue(framing.scale in 1f..1.6001f)
+            }
+        }
+    }
+
+    @Test
+    fun uprightSubjectsUseTheSameHeadroomWithoutMovingTheBackgroundFrame() {
+        for (top in listOf(.06f, .15f, .2f, .3f, .4f)) {
+            val framing = breakoutFraming(600, 900, top, .9f)
+            val scaledHeight = 1.5f * framing.scale
+            val offset = -(scaledHeight - BREAKOUT_WINDOW_HEIGHT) * (framing.verticalBias + 1) / 2
+            val visibleTop = top * scaledHeight + offset
+            assertEquals(BREAKOUT_WINDOW_HEIGHT * .045f, visibleTop, .0001f)
+            assertTrue(visibleTop < framing.frameTopFraction * BREAKOUT_WINDOW_HEIGHT)
+        }
     }
 
     @Test
@@ -41,7 +71,7 @@ class WidgetBreakoutGeometryTest {
 
     @Test
     fun malformedMetadataCannotBreakLayout() {
-        val fallback = BreakoutFraming(0f, BREAKOUT_FRAME_TOP)
+        val fallback = BreakoutFraming(0f)
         assertEquals(fallback, breakoutFraming(0, 200, .1f, .8f))
         assertEquals(fallback, breakoutFraming(100, 200, Float.NaN, .8f))
         assertEquals(fallback, breakoutFraming(100, 200, .1f, Float.POSITIVE_INFINITY))

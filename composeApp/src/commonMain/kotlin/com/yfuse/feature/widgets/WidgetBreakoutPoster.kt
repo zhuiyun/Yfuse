@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,6 +38,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.ScaleFactor
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -174,7 +176,8 @@ private fun BreakoutArtwork(
                 Modifier
                     .align(
                         Alignment.BottomCenter,
-                    ).fillMaxSize()
+                    ).fillMaxWidth()
+                    .fillMaxHeight(1f - BREAKOUT_FRAME_TOP)
                     .clip(RoundedCornerShape(18.dp))
             if (source?.startsWith("http") == true) {
                 FallbackImage(listOf(source), item.title, modifier, fitNarrow = true)
@@ -254,7 +257,8 @@ private fun BreakoutLayers(
         remember(artwork) {
             breakoutFraming(artwork.sourceWidth, artwork.sourceHeight, artwork.subjectTop, artwork.subjectBottom)
         }
-    val shape = remember(framing.frameTopFraction) { BreakoutFrameShape(framing.frameTopFraction) }
+    val shape = remember { BreakoutFrameShape() }
+    val contentScale = remember(framing.scale) { BreakoutContentScale(framing.scale) }
     LaunchedEffect(artwork) {
         logWidgetCutout(
             "renderer_started",
@@ -265,6 +269,7 @@ private fun BreakoutLayers(
                 "subjectTop" to artwork.subjectTop.toString(),
                 "subjectBottom" to artwork.subjectBottom.toString(),
                 "verticalBias" to framing.verticalBias.toString(),
+                "scale" to framing.scale.toString(),
                 "frameTopFraction" to framing.frameTopFraction.toString(),
             ),
         )
@@ -276,7 +281,7 @@ private fun BreakoutLayers(
         contentDescription = null,
         modifier = Modifier.fillMaxSize().clip(shape).background(surface),
         alignment = alignment,
-        contentScale = ContentScale.Crop,
+        contentScale = contentScale,
         onError = {
             logWidgetCutout(
                 "image_layer_failed",
@@ -296,7 +301,7 @@ private fun BreakoutLayers(
         contentDescription = null,
         modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(bottomStart = 18.dp, bottomEnd = 18.dp)),
         alignment = alignment,
-        contentScale = ContentScale.Crop,
+        contentScale = contentScale,
         onError = {
             logWidgetCutout(
                 "image_layer_failed",
@@ -314,9 +319,7 @@ private fun BreakoutLayers(
 }
 
 /** The background alone starts below the subject. The whole stage owns the outer clipping. */
-private class BreakoutFrameShape(
-    private val topFraction: Float,
-) : Shape {
+private class BreakoutFrameShape : Shape {
     override fun createOutline(
         size: Size,
         layoutDirection: LayoutDirection,
@@ -325,10 +328,23 @@ private class BreakoutFrameShape(
         Outline.Rounded(
             RoundRect(
                 left = 0f,
-                top = size.height * topFraction,
+                top = size.height * BREAKOUT_FRAME_TOP,
                 right = size.width,
                 bottom = size.height,
                 cornerRadius = CornerRadius(with(density) { 18.dp.toPx() }),
             ),
         )
+}
+
+/** Scale both rasters in the same source coordinates while the outer frame stays fixed. */
+private class BreakoutContentScale(
+    private val zoom: Float,
+) : ContentScale {
+    override fun computeScaleFactor(
+        srcSize: Size,
+        dstSize: Size,
+    ): ScaleFactor {
+        val crop = ContentScale.Crop.computeScaleFactor(srcSize, dstSize)
+        return ScaleFactor(crop.scaleX * zoom, crop.scaleY * zoom)
+    }
 }
