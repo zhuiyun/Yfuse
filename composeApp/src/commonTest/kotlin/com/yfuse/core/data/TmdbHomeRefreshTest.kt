@@ -1,5 +1,7 @@
 package com.yfuse.core.data
 
+import com.yfuse.core.model.featuredSlidesForDay
+import com.yfuse.core.util.currentIsoDate
 import com.yfuse.feature.json
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -30,6 +32,46 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TmdbHomeRefreshTest {
+    @Test
+    fun runtime_enrichment_follows_the_actual_daily_mix_including_recent_releases() =
+        runTest {
+            val today = currentIsoDate()
+            val details = mutableListOf<Int>()
+
+            fun feed(ids: IntRange): String =
+                "{\"results\":[" +
+                    ids.joinToString(",") { id ->
+                        """{"id":$id,"title":"Movie $id","poster_path":"/$id.jpg",
+                        "backdrop_path":"/$id-bg.jpg","release_date":"$today","genre_ids":[18]}"""
+                    } + "]}"
+            val client =
+                client { request ->
+                    val path = request.url.encodedPath
+                    val detailId = path.substringAfterLast('/').toIntOrNull()
+                    when {
+                        detailId != null -> {
+                            details.add(detailId)
+                            json("""{"id":$detailId,"runtime":123}""")
+                        }
+                        path.endsWith("/movie/popular") -> json(feed(1..21))
+                        path.endsWith("/discover/movie") &&
+                            request.url.parameters["sort_by"] == "primary_release_date.desc" -> json(feed(100..120))
+                        else -> json("""{"results":[]}""")
+                    }
+                }
+            try {
+                val home = TmdbRepository(client).refreshHome().getOrThrow().content
+                val visible = home.featuredSlidesForDay(today)
+                assertEquals(8, visible.size)
+                assertEquals(3, visible.count { it.id >= 100 })
+                assertEquals(visible.map { it.id }.toSet(), details.toSet())
+                assertEquals(8, details.size)
+                assertTrue(visible.all { it.runtimeMinutes == 123 })
+            } finally {
+                client.close()
+            }
+        }
+
     @Test
     fun error_responses_preserve_the_http_category_without_expect_success() =
         runTest {

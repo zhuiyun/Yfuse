@@ -25,6 +25,7 @@ import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.model.TmdbRowTitles
 import com.yfuse.core.model.deduplicatePlaybackHistory
+import com.yfuse.core.model.featuredSlidesForDay
 import com.yfuse.core.network.knownUnavailableEndpointReason
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.ServerSyncManager
@@ -33,7 +34,6 @@ import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.util.LatestWins
 import com.yfuse.core.util.currentIsoDate
-import com.yfuse.core.util.pickForDay
 import com.yfuse.feature.library.flagChangeMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -101,27 +101,10 @@ data class HomeState(
      */
     val resumeUndoKey: String? = null,
 ) {
-    /**
-     * 今日精选 — one title out of [TmdbHome.featured], chosen by the date.
-     *
-     * The hero used to render `featured.first()`, which is TMDB's most popular title and
-     * nothing to do with today: that chart's top row holds for weeks at a time, so a badge
-     * reading 今日精选 sat over the same film for a month. Rotating on the date gives the
-     * label something to be true about, and does it without randomness — the pick is the
-     * same all day, the same for everyone, and survives closing the app.
-     */
-    val featuredToday: TmdbItem? get() = content.featured.pickForDay(today)
+    /** Today's first slide and the complete daily mix use the same selection rule. */
+    val featuredToday: TmdbItem? get() = featuredSlides.firstOrNull()
 
-    /**
-     * Keep today's deterministic pick first, then expose the rest to the hero carousel.
-     * This preserves the meaning of 今日精选 without collapsing a full recommendation
-     * feed into one static image.
-     */
-    val featuredSlides: List<TmdbItem>
-        get() {
-            val first = featuredToday ?: return emptyList()
-            return listOf(first) + content.featured.filterNot { it.id == first.id }
-        }
+    val featuredSlides: List<TmdbItem> get() = content.featuredSlidesForDay(today)
 
     val recentAdded: List<HomeResumeEntry>
         get() =
@@ -214,6 +197,9 @@ sealed interface HomeIntent {
 
     /** The same reload as [Retry], reported as a pull rather than as a first load. */
     data object Refresh : HomeIntent
+
+    /** Check on visibility/resume and while the home page remains open overnight. */
+    data object RefreshRecommendationsIfStale : HomeIntent
 
     /** Returning from detail may have changed watched state without changing recommendations. */
     data object RefreshLibrary : HomeIntent
@@ -338,6 +324,10 @@ private sealed interface Action {
 }
 
 private sealed interface Msg {
+    data class RecommendationDay(
+        val date: String,
+    ) : Msg
+
     data class Loading(
         val refresh: Boolean,
     ) : Msg
@@ -557,11 +547,16 @@ class HomeStoreFactory(
     private val recommendationsEnabled: Boolean = true,
     private val libraryEnabled: Boolean = true,
     private val initialRecommendationsLoad: Boolean = true,
+    private val currentDate: () -> String = ::currentIsoDate,
 ) {
     fun create(): Store<HomeIntent, HomeState, HomeLabel> =
         storeFactory.create(
             name = "HomeStore",
-            initialState = HomeState(loading = recommendationsEnabled && initialRecommendationsLoad),
+            initialState =
+                HomeState(
+                    loading = recommendationsEnabled && initialRecommendationsLoad,
+                    today = currentDate(),
+                ),
             bootstrapper =
                 coroutineBootstrapper<Action> {
                     if (recommendationsEnabled && initialRecommendationsLoad) dispatch(Action.Load)
@@ -577,7 +572,7 @@ class HomeStoreFactory(
                     }
                 },
             executorFactory = ::ExecutorImpl,
-            reducer = ReducerImpl,
+            reducer = ReducerImpl(),
         )
 
     private inner class ExecutorImpl : CoroutineExecutor<HomeIntent, Action, HomeState, Msg, HomeLabel>() {
@@ -622,6 +617,15 @@ class HomeStoreFactory(
                         loadResume(registry.data.value.servers, force = true, refresh = true)
                         loadNextUp(registry.data.value.servers)
                     }
+                }
+                HomeIntent.RefreshRecommendationsIfStale -> {
+                    if (!recommendationsEnabled || state().content.isEmpty || recommendations.isActive) return
+                    val date = currentDate()
+                    if (state().today == date) return
+                    // Rotate cached titles immediately, even offline. One automatic attempt per
+                    // day avoids a request storm on failure; manual refresh remains available.
+                    dispatch(Msg.RecommendationDay(date))
+                    loadRecommendations()
                 }
                 HomeIntent.RefreshLibrary -> {
                     if (!libraryEnabled) return
@@ -869,7 +873,7 @@ class HomeStoreFactory(
                         // Fetched today already: that is the page, not a stand-in
                         // for it. The sixteen feed requests wait for a pull or a
                         // new day; a stale entry still shows first and refreshes.
-                        if (!refresh && cached.isFresh(currentIsoDate())) {
+                        if (!refresh && cached.isFresh(currentDate())) {
                             dispatch(Msg.Loaded(cached.content))
                             return@launch
                         }
@@ -1121,9 +1125,10 @@ class HomeStoreFactory(
         }
     }
 
-    private object ReducerImpl : Reducer<HomeState, Msg> {
+    private inner class ReducerImpl : Reducer<HomeState, Msg> {
         override fun HomeState.reduce(msg: Msg): HomeState =
             when (msg) {
+                is Msg.RecommendationDay -> copy(today = msg.date)
                 is Msg.Loading ->
                     copy(
                         loading = true,
@@ -1134,14 +1139,14 @@ class HomeStoreFactory(
                 is Msg.Cached ->
                     copy(
                         content = msg.content,
-                        today = currentIsoDate(),
+                        today = currentDate(),
                     )
                 is Msg.Loaded ->
                     copy(
                         loading = false,
                         refreshing = false,
                         content = msg.content,
-                        today = currentIsoDate(),
+                        today = currentDate(),
                         error = null,
                         recommendationNotice = msg.notice,
                     )

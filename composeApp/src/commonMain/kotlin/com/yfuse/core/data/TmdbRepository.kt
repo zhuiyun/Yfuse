@@ -13,12 +13,12 @@ import com.yfuse.core.model.TmdbPerson
 import com.yfuse.core.model.TmdbPersonDetail
 import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.model.TmdbRowTitles
+import com.yfuse.core.model.featuredSlidesForDay
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.TMDB_BASE
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.isoDateDaysBefore
-import com.yfuse.core.util.pickForDay
 import io.ktor.client.HttpClient
 import io.ktor.client.call.NoTransformationFoundException
 import io.ktor.client.call.body
@@ -283,13 +283,8 @@ class TmdbRepository(
                             .thenByDescending { it.popularity },
                     )
 
-                // The pool 今日精选 rotates through, not a shortlist anyone sees all of. Only
-                // one is shown per day, so a handful would come back round inside a fortnight.
-                val featured = popular.filter { it.backdropPath != null }.take(FEATURED_POOL)
-                val enrichedFeatured =
-                    withTimeoutOrNull(FEATURED_ENRICHMENT_BUDGET_MS) {
-                        enrichFeaturedRuntimes(featured, today, language)
-                    } ?: featured
+                // Retain the popular pool; the daily reel mixes it with the recent-release row.
+                val featured = popular.filter { !it.backdropPath.isNullOrBlank() }.take(FEATURED_POOL)
                 val rows =
                     listOf(
                         TmdbRow(TmdbRowTitles.POPULAR, popular),
@@ -297,6 +292,11 @@ class TmdbRepository(
                         TmdbRow(TmdbRowTitles.NOW_PLAYING, nowPlaying),
                         TmdbRow(TmdbRowTitles.UPCOMING, upcoming),
                     ).filter { it.items.isNotEmpty() }
+                val home = TmdbHome(featured, rows)
+                val enrichedHome =
+                    withTimeoutOrNull(FEATURED_ENRICHMENT_BUDGET_MS) {
+                        enrichFeaturedRuntimes(home, today, language)
+                    } ?: home
 
                 // Even empty successful feeds carry freshness information: the store must
                 // clear those old shelves while retaining only the groups that failed.
@@ -314,7 +314,7 @@ class TmdbRepository(
                 } else {
                     Result.success(
                         TmdbHomeRefresh(
-                            content = TmdbHome(featured = enrichedFeatured, rows = rows),
+                            content = enrichedHome,
                             incompleteRows = incompleteRows,
                             failure = failure,
                         ),
@@ -497,13 +497,12 @@ class TmdbRepository(
      * can actually show, keeping the broader recommendation pool and shelves lightweight.
      */
     private suspend fun enrichFeaturedRuntimes(
-        featured: List<TmdbItem>,
+        home: TmdbHome,
         today: String,
         language: String,
-    ): List<TmdbItem> =
+    ): TmdbHome =
         coroutineScope {
-            val first = featured.pickForDay(today) ?: return@coroutineScope featured
-            val visible = (listOf(first) + featured.filterNot { it.id == first.id }).take(8)
+            val visible = home.featuredSlidesForDay(today)
             val permits = Semaphore(4)
             val runtimes =
                 visible
@@ -521,13 +520,12 @@ class TmdbRepository(
                         }
                     }.awaitAll()
                     .toMap()
-            featured.map { item ->
-                item.copy(
-                    runtimeMinutes =
-                        runtimes[item.mediaType to item.id]
-                            ?: item.runtimeMinutes,
-                )
-            }
+
+            fun TmdbItem.withRuntime(): TmdbItem = copy(runtimeMinutes = runtimes[mediaType to id] ?: runtimeMinutes)
+            home.copy(
+                featured = home.featured.map { it.withRuntime() },
+                rows = home.rows.map { row -> row.copy(items = row.items.map { it.withRuntime() }) },
+            )
         }
 
     private suspend fun fetchRuntimeMinutes(
