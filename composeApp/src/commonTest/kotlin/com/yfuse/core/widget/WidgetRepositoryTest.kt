@@ -182,7 +182,7 @@ class WidgetRepositoryTest {
             )
         }
 
-    @Test fun presentation_edits_keep_cached_content_but_widget_changes_and_restore_invalidate_it() =
+    @Test fun presentation_edits_keep_cached_content_and_restore_revalidates_without_blanking_it() =
         runTest {
             val disk = MemoryPersistence()
             val runtime = Runtime()
@@ -212,10 +212,9 @@ class WidgetRepositoryTest {
             repo.restore(snapshot)
             val restored = repo.feed(edited)
             assertNotSame(feed, restored)
-            assertTrue(
-                feed.state.value.items
-                    .isEmpty(),
-            )
+            assertEquals(1, feed.state.value.items.size)
+            assertEquals(feed.state.value.items, restored.state.value.items)
+            assertFalse(restored.state.value.loaded)
             restored.ensureLoaded()
             runCurrent()
             assertEquals(2, runtime.calls)
@@ -257,6 +256,80 @@ class WidgetRepositoryTest {
             updated.ensureLoaded()
             runCurrent()
             assertEquals(2, runtime.calls)
+        }
+
+    @Test fun a_script_update_hands_off_old_content_and_only_replaces_it_after_a_successful_load() =
+        runTest {
+            val response = CompletableDeferred<String>()
+            var calls = 0
+            val runtime =
+                object : WidgetRuntime {
+                    override suspend fun metadata(source: String) = source
+
+                    override suspend fun invoke(
+                        widget: InstalledWidget,
+                        function: String,
+                        argument: JsonElement,
+                        timeoutSeconds: Int,
+                    ): String {
+                        calls++
+                        return when (calls) {
+                            1 -> """[{"id":"old","title":"Previous film"}]"""
+                            2 -> response.await()
+                            else -> """[{"id":"new","title":"New film"}]"""
+                        }
+                    }
+                }
+            val repo = WidgetRepository(MemoryPersistence(), runtime, backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            val widget = repo.inspect(metadata, "file:demo.js")
+            repo.install(widget)
+            val section = repo.newSection(widget, widget.metadata.modules.single())
+            repo.savePage(repo.newPage("Page").copy(sections = listOf(section)))
+            val original = repo.feed(section)
+            original.ensureLoaded()
+            runCurrent()
+            repo.install(repo.inspect(metadata.replace("1.0", "1.1"), "file:demo.js"))
+            val updated = repo.feed(section)
+            assertNotSame(original, updated)
+            assertEquals(
+                "old",
+                original.state.value.items
+                    .single()
+                    .id,
+            )
+            assertEquals(
+                "old",
+                updated.state.value.items
+                    .single()
+                    .id,
+            )
+            updated.ensureLoaded()
+            runCurrent()
+            assertTrue(updated.state.value.busy)
+            assertEquals(
+                "old",
+                updated.state.value.items
+                    .single()
+                    .id,
+            )
+            response.completeExceptionally(IllegalStateException("offline"))
+            runCurrent()
+            assertEquals("offline", updated.state.value.error)
+            assertEquals(
+                "old",
+                updated.state.value.items
+                    .single()
+                    .id,
+            )
+            updated.retry()
+            runCurrent()
+            assertEquals(
+                "new",
+                updated.state.value.items
+                    .single()
+                    .id,
+            )
+            assertEquals(3, calls)
         }
 
     @Test fun updating_a_script_preserves_page_configuration_and_disabled_state() =

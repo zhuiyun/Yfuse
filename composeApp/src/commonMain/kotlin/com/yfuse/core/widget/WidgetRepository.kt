@@ -85,12 +85,7 @@ class WidgetRepository(
         while (true) {
             val previous = feeds.value
             val entry =
-                previous[key] ?: WidgetFeed(
-                    scope,
-                    now,
-                    module?.cacheDuration ?: 0,
-                    module?.params?.any { it.type == "page" } == true,
-                ) { page, refresh -> load(section, page, refresh) }
+                previous[key] ?: createFeed(section, module)
             val next = (previous - key) + (key to entry)
             val saved = savedFeedKeys(database.value)
             val expired =
@@ -103,6 +98,18 @@ class WidgetRepository(
             if (previous[key] == null) entry.close()
         }
     }
+
+    private fun createFeed(
+        section: WidgetSection,
+        module: WidgetModule?,
+        initial: WidgetFeedSnapshot = WidgetFeedSnapshot(),
+    ) = WidgetFeed(
+        scope,
+        now,
+        module?.cacheDuration ?: 0,
+        module?.params?.any { it.type == "page" } == true,
+        initial,
+    ) { page, refresh -> load(section, page, refresh) }
 
     private fun savedFeedKeys(db: WidgetDatabase): Set<FeedKey> {
         val widgets = db.widgets.associateBy { it.metadata.id }
@@ -128,14 +135,46 @@ class WidgetRepository(
         }
     }
 
-    private fun invalidateFeeds(ids: Set<String>? = null) {
+    /** A new script/query generation starts with the last successful picture still on screen. */
+    private fun invalidateFeeds(
+        ids: Set<String>? = null,
+        replacementDatabase: WidgetDatabase? = null,
+    ) {
+        val savedBefore = savedFeedKeys(database.value)
+        val savedAfter = replacementDatabase?.let(::savedFeedKeys).orEmpty()
         while (true) {
             val previous = feeds.value
             val removed = previous.filterKeys { ids == null || it.widgetId in ids }
-            if (feeds.compareAndSet(previous, previous - removed.keys)) {
-                removed.values.forEach { it.close() }
+            val retained = mutableSetOf<WidgetFeed>()
+            val replacements =
+                buildMap {
+                    removed.forEach { (key, feed) ->
+                        val widget =
+                            replacementDatabase?.widgets?.firstOrNull {
+                                it.metadata.id == key.widgetId &&
+                                    it.enabled
+                            }
+                        val module = widget?.metadata?.modules?.firstOrNull { it.id == key.moduleId }
+                        val nextKey = key.copy(digest = widget?.digest, enabled = widget?.enabled)
+                        if (module != null && (key !in savedBefore || nextKey in savedAfter)) {
+                            val section =
+                                WidgetSection(
+                                    key.sectionId,
+                                    key.widgetId,
+                                    key.moduleId,
+                                    module.title,
+                                    params = key.params,
+                                )
+                            put(nextKey, createFeed(section, module, feed.state.value))
+                            retained += feed
+                        }
+                    }
+                }
+            if (feeds.compareAndSet(previous, previous - removed.keys + replacements)) {
+                removed.values.forEach { it.close(preserveContent = it in retained) }
                 return
             }
+            replacements.values.forEach { it.close() }
         }
     }
 
@@ -386,7 +425,7 @@ class WidgetRepository(
                 cache.clear()
                 details.clear()
             }
-            invalidateFeeds()
+            invalidateFeeds(replacementDatabase = value)
             mutableDatabase.value = value
             mutableFeedRevision.value++
             mutableError.value = null
@@ -556,7 +595,7 @@ class WidgetRepository(
                     cache.entries.removeAll { it.value.widgetId in changedIds }
                     details.keys.removeAll { it.first in changedIds }
                 }
-                invalidateFeeds(changedIds)
+                invalidateFeeds(changedIds, updated)
             }
             val previousDatabase = database.value
             mutableDatabase.value = updated

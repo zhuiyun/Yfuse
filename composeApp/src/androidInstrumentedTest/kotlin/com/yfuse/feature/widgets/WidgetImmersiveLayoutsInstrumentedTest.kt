@@ -259,6 +259,13 @@ class WidgetImmersiveLayoutsInstrumentedTest {
             compactStyles.forEachIndexed { index, style ->
                 show(scenario, probe, RenderCase(style, films, session = index))
                 awaitDetail(films[0])
+                if (style == WidgetStyle.BreakoutPoster) {
+                    val hero = probe.bounds.get()
+                    assertTrue(
+                        "The breakout hero was compressed back into a square card",
+                        hero.height >= hero.width * 1.4f,
+                    )
+                }
                 val snapshot = nodes()
                 val footer =
                     snapshot
