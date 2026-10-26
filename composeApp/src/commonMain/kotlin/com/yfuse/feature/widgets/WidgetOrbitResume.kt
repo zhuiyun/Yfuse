@@ -108,7 +108,15 @@ internal fun WidgetOrbitResume(
     }
 
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-        val width = minOf(maxWidth, if (compact) 340.dp else 480.dp)
+        val width =
+            widgetGalleryWidth(
+                maxWidth,
+                compact,
+                LocalWidgetGalleryMaxHeight.current,
+                .80f,
+                widthInset = 32.dp,
+                heightInset = 24.dp,
+            )
         val artWidth = (width - 32.dp).coerceAtLeast(1.dp)
         val stageHeight = artWidth * .80f + 24.dp
         val stepPixels = with(density) { (artWidth * .62f).toPx().coerceAtLeast(1f) }

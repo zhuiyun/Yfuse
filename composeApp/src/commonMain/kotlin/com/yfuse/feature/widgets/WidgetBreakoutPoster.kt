@@ -74,10 +74,14 @@ internal fun WidgetBreakoutPoster(
     if (items.isEmpty()) return
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
         val stageWidth = maxWidth.coerceAtMost(if (compact) 340.dp else 480.dp)
-        val cardWidth = stageWidth * BREAKOUT_CARD_WIDTH
-        val artworkHeight = cardWidth * BREAKOUT_WINDOW_HEIGHT
+        val artworkHeight =
+            minOf(
+                stageWidth * BREAKOUT_CARD_WIDTH * BREAKOUT_WINDOW_HEIGHT,
+                (LocalWidgetGalleryMaxHeight.current - 24.dp).coerceAtLeast(1.dp),
+            )
+        val cardWidth = artworkHeight / BREAKOUT_WINDOW_HEIGHT
         val density = LocalDensity.current
-        val motion = rememberWidgetGalleryMotion("breakout-poster", items, with(density) { (stageWidth * .72f).toPx() })
+        val motion = rememberWidgetGalleryMotion("breakout-poster", items, with(density) { (cardWidth * .82f).toPx() })
         Column(Modifier.width(stageWidth), verticalArrangement = Arrangement.spacedBy(0.dp)) {
             Box(
                 Modifier
@@ -114,7 +118,8 @@ internal fun WidgetBreakoutPoster(
                                 .size(cardWidth, artworkHeight)
                                 .zIndex(2f - abs(relative))
                                 .graphicsLayer {
-                                    translationX = relative * stageWidth.toPx() * .75f * if (motion.rtl) -1f else 1f
+                                    translationX = relative * (stageWidth + cardWidth).toPx() * .4f *
+                                        if (motion.rtl) -1f else 1f
                                     translationY = distance * 20.dp.toPx()
                                     scaleX = 1f - distance * .18f
                                     scaleY = scaleX

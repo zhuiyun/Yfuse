@@ -101,7 +101,15 @@ internal fun WidgetKineticLayouts(
     }
 
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-        val stageWidth = minOf(maxWidth, if (compact) 340.dp else 480.dp)
+        val stageWidth =
+            widgetGalleryWidth(
+                maxWidth,
+                compact,
+                LocalWidgetGalleryMaxHeight.current,
+                kineticStageRatio(style),
+                widthInset = 48.dp,
+                heightInset = 48.dp,
+            )
         val artworkWidth = (stageWidth - 48.dp).coerceAtLeast(1.dp)
         val stageHeight = artworkWidth * kineticStageRatio(style) + 48.dp
         val stepPixels = with(density) { (artworkWidth * .54f).toPx().coerceAtLeast(1f) }

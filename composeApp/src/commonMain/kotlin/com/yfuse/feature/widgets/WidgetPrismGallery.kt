@@ -54,7 +54,7 @@ internal fun WidgetPrismGallery(
     val density = LocalDensity.current
     val shadow = LocalPalette.current.text
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-        val stageWidth = minOf(maxWidth, if (compact) 340.dp else 480.dp)
+        val stageWidth = widgetGalleryWidth(maxWidth, compact, LocalWidgetGalleryMaxHeight.current, .91f)
         val motion =
             rememberWidgetGalleryMotion(
                 "prism-gallery",
