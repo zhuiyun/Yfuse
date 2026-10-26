@@ -76,6 +76,8 @@ actual fun rememberWidgetCutoutState(
             WidgetCutoutRuntime(
                 widgetCutoutPreferences().configuration,
                 object : WidgetCutoutLoader {
+                    override fun peek(source: String) = PoofWidgetCutoutStore.pipeline(context).peek(source)
+
                     override fun observe(source: String) = PoofWidgetCutoutStore.pipeline(context).observe(source)
 
                     override suspend fun get(
@@ -92,7 +94,12 @@ actual fun rememberWidgetCutoutState(
     val observed = remember(source, runtime) { runtime.loader.observe(source.orEmpty()) }
     val status by observed.collectAsState()
     var attempt by remember(source) { mutableIntStateOf(0) }
-    var artwork by remember(source) { mutableStateOf(precomputedPreviewCutout(source)) }
+    var artwork by remember(source, runtime.loader, configuration.enabled) {
+        mutableStateOf(
+            precomputedPreviewCutout(source)
+                ?: source?.takeIf { configuration.enabled }?.let(runtime.loader::peek),
+        )
+    }
     LaunchedEffect(source, enabled, visible, configuration, attempt) {
         logWidgetCutout(
             "card_request",
@@ -128,7 +135,7 @@ actual fun rememberWidgetCutoutState(
         }
     }
     return WidgetCutoutViewState(
-        artwork.takeIf { visible },
+        artwork,
         when {
             artwork != null -> WidgetCutoutStatus(WidgetCutoutPhase.Ready, "抠图完成")
             !configuration.enabled -> WidgetCutoutStatus(WidgetCutoutPhase.Disabled, "海报抠图已关闭")

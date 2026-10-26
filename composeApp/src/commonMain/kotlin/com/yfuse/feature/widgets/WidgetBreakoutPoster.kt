@@ -48,7 +48,6 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import coil3.compose.AsyncImage
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.LocalPalette
@@ -269,7 +268,7 @@ private fun BreakoutLayers(
     }
     val alignment = BiasAlignment(0f, framing.verticalBias)
     val surface = LocalPalette.current.card
-    AsyncImage(
+    WidgetArtworkImage(
         model = artwork.backgroundModel,
         contentDescription = null,
         modifier = Modifier.fillMaxSize().clip(shape).background(surface),
@@ -289,7 +288,7 @@ private fun BreakoutLayers(
             backgroundLoaded = true
         },
     )
-    AsyncImage(
+    WidgetArtworkImage(
         model = artwork.foregroundModel,
         contentDescription = null,
         modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(bottomStart = 18.dp, bottomEnd = 18.dp)),

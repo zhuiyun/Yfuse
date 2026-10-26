@@ -59,6 +59,146 @@ import kotlin.test.assertTrue
 
 class HomeStoreTest {
     @Test
+    fun daily_refresh_rotates_cached_content_and_fetches_once_without_loading_servers() =
+        runTest(scheduler) {
+            var date = "2026-10-26"
+            var calls = 0
+            var gate: CompletableDeferred<Unit>? = null
+            val cached = CACHED_HOME.copy(featured = (1..21).map { CACHED_ITEM.copy(id = it) })
+            val cache = TmdbHomeCache(MapSettings()) { date }.apply { write(cached) }
+            val store =
+                HomeStoreFactory(
+                    storeFactory = DefaultStoreFactory(),
+                    tmdb =
+                        mockTmdb {
+                            calls++
+                            gate?.await()
+                            popularRecommendations(88)
+                        },
+                    emby = testRepo { error("Daily refresh must not load servers") },
+                    registry = testRegistry(),
+                    cache = cache,
+                    cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
+                    libraryEnabled = false,
+                    currentDate = { date },
+                ).create()
+            try {
+                advanceUntilIdle()
+                val yesterday = store.state.featuredSlides
+                store.accept(HomeIntent.RefreshRecommendationsIfStale)
+                advanceUntilIdle()
+                assertEquals(0, calls)
+                date = "2026-10-27"
+                gate = CompletableDeferred()
+                store.accept(HomeIntent.RefreshRecommendationsIfStale)
+                assertEquals(date, store.state.today)
+                assertTrue(
+                    yesterday
+                        .map { it.id }
+                        .toSet()
+                        .intersect(
+                            store.state.featuredSlides
+                                .map { it.id }
+                                .toSet(),
+                        ).isEmpty(),
+                )
+                assertTrue(store.state.loading)
+                val inFlightCalls = calls
+                store.accept(HomeIntent.RefreshRecommendationsIfStale)
+                assertEquals(inFlightCalls, calls)
+                gate.complete(Unit)
+                advanceUntilIdle()
+                assertFalse(store.state.loading)
+                assertTrue(store.state.featuredSlides.all { it.id == 88 })
+                val completedCalls = calls
+                repeat(3) { store.accept(HomeIntent.RefreshRecommendationsIfStale) }
+                advanceUntilIdle()
+                assertEquals(completedCalls, calls)
+                assertTrue(completedCalls > 0)
+            } finally {
+                gate?.complete(Unit)
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun failed_daily_refresh_keeps_rotated_content_and_allows_manual_retry() =
+        runTest(scheduler) {
+            var date = "2026-10-26"
+            var calls = 0
+            val cache = TmdbHomeCache(MapSettings()) { date }.apply { write(CACHED_HOME) }
+            val store =
+                HomeStoreFactory(
+                    storeFactory = DefaultStoreFactory(),
+                    tmdb =
+                        mockTmdb {
+                            calls++
+                            throw IOException("offline")
+                        },
+                    emby = testRepo { error("No server requests") },
+                    registry = testRegistry(),
+                    cache = cache,
+                    cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
+                    libraryEnabled = false,
+                    currentDate = { date },
+                ).create()
+            try {
+                advanceUntilIdle()
+                date = "2026-10-27"
+                store.accept(HomeIntent.RefreshRecommendationsIfStale)
+                advanceUntilIdle()
+                assertEquals(date, store.state.today)
+                assertEquals(CACHED_HOME, store.state.content)
+                assertNull(store.state.error)
+                assertNotNull(store.state.recommendationNotice)
+                val failedCalls = calls
+                assertTrue(failedCalls > 0)
+                repeat(3) { store.accept(HomeIntent.RefreshRecommendationsIfStale) }
+                advanceUntilIdle()
+                assertEquals(failedCalls, calls)
+                store.accept(HomeIntent.Refresh)
+                advanceUntilIdle()
+                assertTrue(calls > failedCalls)
+                val retriedCalls = calls
+                date = "2026-10-28"
+                store.accept(HomeIntent.RefreshRecommendationsIfStale)
+                advanceUntilIdle()
+                assertTrue(calls > retriedCalls)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun daily_check_does_not_start_a_deferred_or_disabled_recommendation_page() =
+        runTest(scheduler) {
+            var date = "2026-10-26"
+            for (enabled in listOf(true, false)) {
+                val store =
+                    HomeStoreFactory(
+                        storeFactory = DefaultStoreFactory(),
+                        tmdb = mockTmdb { error("No automatic initial load") },
+                        emby = testRepo { error("No server requests") },
+                        registry = testRegistry(),
+                        cache = TmdbHomeCache(MapSettings()),
+                        libraryEnabled = false,
+                        recommendationsEnabled = enabled,
+                        initialRecommendationsLoad = false,
+                        currentDate = { date },
+                    ).create()
+                try {
+                    date = "2026-10-27"
+                    store.accept(HomeIntent.RefreshRecommendationsIfStale)
+                    advanceUntilIdle()
+                    assertFalse(store.state.loading)
+                    assertNull(store.state.error)
+                } finally {
+                    store.dispose()
+                }
+            }
+        }
+
+    @Test
     fun watching_center_refresh_reports_progress_until_server_content_finishes() =
         runTest(scheduler) {
             var gate: CompletableDeferred<Unit>? = null

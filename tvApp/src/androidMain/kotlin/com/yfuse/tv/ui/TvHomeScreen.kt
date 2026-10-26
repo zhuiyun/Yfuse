@@ -57,6 +57,7 @@ import com.yfuse.core.network.TmdbImages
 import com.yfuse.feature.home.HomeComponent
 import com.yfuse.feature.home.HomeIntent
 import com.yfuse.feature.home.HomeLabel
+import com.yfuse.feature.home.HomeRecommendationRefreshEffect
 import com.yfuse.feature.home.HomeResumeEntry
 import com.yfuse.feature.home.HomeState
 import com.yfuse.feature.home.homeLiftMenu
@@ -71,6 +72,7 @@ internal fun TvHomeScreen(
 ) {
     val state by component.store.states.collectAsState(component.store.state)
     val store = component.store
+    HomeRecommendationRefreshEffect(component)
     val heroItems = state.featuredSlides.take(8)
     var heroIndex by remember(heroItems.map(TmdbItem::id)) { mutableIntStateOf(0) }
     val hero = heroItems.getOrNull(heroIndex)

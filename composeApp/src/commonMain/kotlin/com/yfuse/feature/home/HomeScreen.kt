@@ -234,6 +234,7 @@ private fun HomeContent(
     // The shelf opened out into a grid, or null. Held here rather than in the store: it is
     // which page is on screen, not anything about the data.
     val routeVisible = LocalRouteVisible.current
+    HomeRecommendationRefreshEffect(component)
     LaunchedEffect(component, routeVisible) {
         if (routeVisible && component.recommendationsEnabled && state.content.isEmpty && !state.loading) {
             component.store.accept(HomeIntent.Retry)
@@ -959,7 +960,7 @@ private fun HomeHeroCarousel(
     onPageColor: (Color) -> Unit,
     onBack: (() -> Unit)? = null,
 ) {
-    val hero = rememberLivingPosterHeroState(items.map { it.id.toString() })
+    val hero = rememberLivingPosterHeroState(items.map { "${it.mediaType}:${it.id}" })
     val ambientItem = items.getOrNull(hero.settledIndex(items.size))
     val ambientUrls = remember(ambientItem) { tmdbHeroArtworkUrls(ambientItem) }
 
