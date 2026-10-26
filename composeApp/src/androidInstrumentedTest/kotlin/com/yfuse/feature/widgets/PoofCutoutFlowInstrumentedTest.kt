@@ -27,12 +27,14 @@ import com.yfuse.core.security.SecureStore
 import com.yfuse.core.widget.LocalWidgetCutoutRuntime
 import com.yfuse.core.widget.PoofCutoutClient
 import com.yfuse.core.widget.PoofWidgetCutoutPipeline
+import com.yfuse.core.widget.WidgetCutoutLoader
 import com.yfuse.core.widget.WidgetCutoutPhase
 import com.yfuse.core.widget.WidgetCutoutPreferences
 import com.yfuse.core.widget.WidgetCutoutRuntime
 import com.yfuse.core.widget.WidgetMedia
 import com.yfuse.core.widget.preparePoofSource
 import com.yfuse.launchMainActivityForInput
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -55,8 +57,6 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.nio.ByteBuffer
 import java.util.UUID
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipInputStream
@@ -69,8 +69,9 @@ class PoofCutoutFlowInstrumentedTest {
 
     @Test(timeout = 120_000L)
     fun downloaded_poster_is_segmented_rendered_above_the_frame_and_reused_after_restart() {
-        PosterOrigin(holdPost = true).use { origin ->
+        PosterOrigin().use { origin ->
             val prefs = preferences("private-poof-fixture-key")
+            val startCutout = CompletableDeferred<Unit>()
             val folder = File(context.cacheDir, "poof-flow-${UUID.randomUUID()}")
             val rate = context.getSharedPreferences("poof-flow-rate-${UUID.randomUUID()}", 0)
             val pipeline =
@@ -82,6 +83,18 @@ class PoofCutoutFlowInstrumentedTest {
                     rate = rate,
                     requestSpacingMillis = 0,
                 )
+            val loader =
+                object : WidgetCutoutLoader by pipeline {
+                    override suspend fun get(
+                        source: String,
+                        allowProcessing: Boolean,
+                    ) = if (allowProcessing) {
+                        startCutout.await()
+                        pipeline.get(source, true)
+                    } else {
+                        pipeline.get(source, false)
+                    }
+                }
             try {
                 launchMainActivityForInput().use { scenario ->
                     val bounds = AtomicReference<Rect>()
@@ -93,7 +106,7 @@ class PoofCutoutFlowInstrumentedTest {
                                     LocalWidgetCutoutRuntime provides
                                         WidgetCutoutRuntime(
                                             prefs.configuration,
-                                            pipeline,
+                                            loader,
                                         ),
                                 ) {
                                     Box(
@@ -128,7 +141,7 @@ class PoofCutoutFlowInstrumentedTest {
                     }
                     val pendingBounds = checkNotNull(bounds.get())
                     assertFixedFrame(pendingBounds)
-                    origin.releasePost()
+                    startCutout.complete(Unit)
                     await(
                         "The card never displayed its downloaded transparent foreground",
                     ) { hasText("抠图完成", stateOnly = true) }
@@ -459,9 +472,7 @@ class PoofCutoutFlowInstrumentedTest {
 
 private class PosterOrigin(
     private val status: Int = 200,
-    holdPost: Boolean = false,
 ) : Closeable {
-    private val postGate = CountDownLatch(if (holdPost) 1 else 0)
     private val server = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
     val poster = "http://127.0.0.1:${server.localPort}/poster.png?access_token=private-fixture-poster"
     val endpoint = "http://127.0.0.1:${server.localPort}/remove"
@@ -529,7 +540,6 @@ private class PosterOrigin(
                                 source
                             } else {
                                 posts.incrementAndGet()
-                                check(postGate.await(45, TimeUnit.SECONDS))
                                 if (status != 200) "quota exhausted".toByteArray() else foreground(requestBody)
                             }
                         val code = if (isPost) status else 200
@@ -595,11 +605,8 @@ private class PosterOrigin(
         }
     }
 
-    fun releasePost() = postGate.countDown()
-
     override fun close() {
         closed = true
-        releasePost()
         server.close()
         thread.join(2_000)
         check(!thread.isAlive)

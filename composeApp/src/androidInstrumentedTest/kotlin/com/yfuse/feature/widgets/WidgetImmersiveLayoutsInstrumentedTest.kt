@@ -314,7 +314,7 @@ class WidgetImmersiveLayoutsInstrumentedTest {
             sections.associate { section ->
                 section.id to
                     films.mapIndexed { index, film ->
-                        film.copy(id = "preview-${section.id}-$index", title = "${section.id}: ${film.title}")
+                        film.copy(id = "preview-${section.id}-${index + 1}", title = "${section.id}: ${film.title}")
                     }
             }
         val density = instrumentation.targetContext.resources.displayMetrics.widthPixels / 1200f
@@ -403,6 +403,7 @@ class WidgetImmersiveLayoutsInstrumentedTest {
     }
 
     private fun saveTabletScreenshot(name: String) {
+        settle()
         val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
         try {
             val directory =
