@@ -418,7 +418,13 @@ class PoofCutoutFlowInstrumentedTest {
 
     private fun assertFixedFrame(bounds: Rect) {
         val density = context.resources.displayMetrics.density
-        val background = checkNotNull(backgroundFrameBounds(bounds))
+        var rendered: Pair<Int, Int>? = null
+        // Coil's success callback can precede the first drawn frame on a loaded emulator.
+        await("The background frame never reached the screen") {
+            rendered = backgroundFrameBounds(bounds)
+            rendered != null
+        }
+        val background = checkNotNull(rendered)
         // Independent pixel edges: the original, processing and cutout views share this rectangle.
         val artworkTop = bounds.top + 12 * density
         val artworkHeight = bounds.width * .88f * 1.5f

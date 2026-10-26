@@ -1,10 +1,10 @@
 {
-  "versionName": "1.7.5",
-  "versionCode": 327,
+  "versionName": "1.7.6",
+  "versionCode": 328,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-26T12:24:14.210974+00:00",
+  "confirmedAt": "2026-10-26T19:28:37.521805+00:00",
   "confirmedBy": "release owner",
-  "confirmationBasis": "Owner requested \"改完打包\" for the home widget visual and non-blank refresh changes. Standing authorization covers the unchanged pinned MDK component and a production-signed full ARM64 package-only delivery. No update-server publishing is requested."
+  "confirmationBasis": "Owner requested 签名打包 for the existing breakout-height and tablet-home fixes. Standing authorization covers the unchanged pinned MDK component and a production-signed full ARM64 package-only delivery. No update-server publishing is requested."
 }

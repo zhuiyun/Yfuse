@@ -386,12 +386,14 @@ class WidgetImmersiveLayoutsInstrumentedTest {
                 left.right < right.left && abs(left.top - right.top) < density
             }
             awaitDetail(prism[1])
-            val grid =
-                nodes().first { node ->
-                    node.collectionInfo?.columnCount == 2 &&
-                        node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD }
-                }
-            assertTrue(grid.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD))
+            // Scroll in the gap between columns, clear of the prism's two-axis rotation surface.
+            // Android does not consistently put collectionInfo and scroll actions on one node.
+            val home = viewport.get()
+            drag(
+                scenario,
+                Offset(home.center.x, home.bottom - 110 * density),
+                Offset(home.center.x, home.top + 40 * density),
+            )
             await("The last tablet row could not be scrolled clear of the dock") {
                 sections.takeLast(2).all { section ->
                     val bounds = panels[section.id] ?: return@all false
