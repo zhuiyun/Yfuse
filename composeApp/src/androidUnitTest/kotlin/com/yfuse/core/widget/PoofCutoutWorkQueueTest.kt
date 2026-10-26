@@ -2,11 +2,11 @@ package com.yfuse.core.widget
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 
 class PoofCutoutWorkQueueTest {
     @Test
@@ -44,20 +44,40 @@ class PoofCutoutWorkQueueTest {
         runTest {
             val queue = PoofCutoutWorkQueue<String>(backgroundScope, maxPending = 1)
             val finish = CompletableDeferred<Unit>()
+            var calls = 0
             val first =
                 async {
                     queue.run("first") {
+                        calls++
                         finish.await()
                         "done"
                     }
                 }
             runCurrent()
-            assertNull(queue.run("second") { "must not start" })
+            val scrolledAway =
+                async {
+                    queue.run("second") {
+                        calls++
+                        "must not start"
+                    }
+                }
+            runCurrent()
+            assertEquals(1, calls)
+            scrolledAway.cancel()
+            runCurrent()
+            val selected =
+                async {
+                    queue.run("selected") {
+                        calls++
+                        "available"
+                    }
+                }
+            runCurrent()
             finish.complete(Unit)
+            advanceTimeBy(100)
             runCurrent()
             assertEquals("done", first.await())
-            val after = async { queue.run("second") { "available" } }
-            runCurrent()
-            assertEquals("available", after.await())
+            assertEquals("available", selected.await())
+            assertEquals(2, calls)
         }
 }
