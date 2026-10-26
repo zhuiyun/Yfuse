@@ -22,6 +22,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.russhwolf.settings.SharedPreferencesSettings
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.security.SecureStore
 import com.yfuse.core.widget.LocalWidgetCutoutRuntime
 import com.yfuse.core.widget.PoofCutoutClient
@@ -33,6 +34,10 @@ import com.yfuse.core.widget.WidgetMedia
 import com.yfuse.core.widget.preparePoofSource
 import com.yfuse.launchMainActivityForInput
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -41,6 +46,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.DataInputStream
@@ -51,6 +57,7 @@ import java.nio.ByteBuffer
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import java.util.zip.ZipInputStream
 
 /** Real Coil GET + multipart POST + private disk cache + the production Compose renderer. */
 @RunWith(AndroidJUnit4::class)
@@ -61,7 +68,7 @@ class PoofCutoutFlowInstrumentedTest {
     @Test(timeout = 120_000L)
     fun downloaded_poster_is_segmented_rendered_above_the_frame_and_reused_after_restart() {
         PosterOrigin().use { origin ->
-            val prefs = preferences("fixture-key")
+            val prefs = preferences("private-poof-fixture-key")
             val folder = File(context.cacheDir, "poof-flow-${UUID.randomUUID()}")
             val rate = context.getSharedPreferences("poof-flow-rate-${UUID.randomUUID()}", 0)
             val pipeline =
@@ -176,6 +183,7 @@ class PoofCutoutFlowInstrumentedTest {
                     try {
                         assertEquals(first, runBlocking { restarted.get(origin.poster, false) })
                         assertEquals(1, origin.posts.get())
+                        assertExportedDiagnostics(origin.poster)
                     } finally {
                         restarted.close()
                     }
@@ -302,6 +310,56 @@ class PoofCutoutFlowInstrumentedTest {
         }
     }
 
+    private fun assertExportedDiagnostics(source: String) {
+        val output = ByteArrayOutputStream()
+        DiagnosticLogStore.export(output)
+        val contents = mutableMapOf<String, String>()
+        ZipInputStream(ByteArrayInputStream(output.toByteArray())).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                contents[entry.name] = zip.readBytes().decodeToString()
+            }
+        }
+        val snapshot = checkNotNull(contents["reports/widget-cutout.json"])
+        val report = Json.parseToJsonElement(snapshot).jsonObject
+        assertNotNull(report["configured"])
+        assertNotNull(report["cacheBytes"])
+        val events = checkNotNull(report["events"]).jsonArray
+        assertTrue(events.size <= 128)
+        val names =
+            events
+                .map {
+                    it.jsonObject
+                        .getValue("event")
+                        .jsonPrimitive.content
+                }.toSet()
+        for (name in listOf(
+            "download_ready",
+            "source_normalized",
+            "http_response",
+            "foreground_assessed",
+            "cache_write_finished",
+            "renderer_ready",
+            "cache_hit",
+        )) {
+            assertTrue("Missing cutout diagnostic event: $name", name in names)
+        }
+        val sourceReferences =
+            events.mapNotNull {
+                it.jsonObject["attributes"]
+                    ?.jsonObject
+                    ?.get("sourceRef")
+                    ?.jsonPrimitive
+                    ?.content
+            }
+        assertTrue(sourceReferences.any { it.matches(Regex("p[0-9a-f]{24}")) })
+        assertTrue(contents.filterKeys { it.startsWith("logs/") }.values.any { it.contains("widget_cutout") })
+        val exported = contents.values.joinToString("\n")
+        assertFalse(exported.contains(source))
+        assertFalse(exported.contains("private-poof-fixture-key"))
+        assertFalse(exported.contains("private-fixture-poster"))
+    }
+
     private fun await(
         message: String,
         condition: () -> Boolean,
@@ -326,7 +384,7 @@ private class PosterOrigin(
     private val status: Int = 200,
 ) : Closeable {
     private val server = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
-    val poster = "http://127.0.0.1:${server.localPort}/poster.png"
+    val poster = "http://127.0.0.1:${server.localPort}/poster.png?access_token=private-fixture-poster"
     val endpoint = "http://127.0.0.1:${server.localPort}/remove"
     val posts = AtomicInteger()
     val uploadWidth = AtomicInteger()

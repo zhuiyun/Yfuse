@@ -47,6 +47,15 @@ class WidgetCutoutPreferences(
         mutableConfiguration.value =
             WidgetCutoutConfiguration(enabled, apiKey().isNotEmpty(), mutableConfiguration.value.revision + 1)
         mutableStatus.value = if (apiKey().isEmpty()) "请先配置 Poof API Key" else "首次联网生成，之后复用本机缓存"
+        logWidgetCutout(
+            "configuration_saved",
+            attributes =
+                mapOf(
+                    "enabled" to enabled.toString(),
+                    "configured" to mutableConfiguration.value.configured.toString(),
+                    "credentialReplaced" to key.isNotEmpty().toString(),
+                ),
+        )
     }
 
     fun removeKey() {
@@ -54,6 +63,7 @@ class WidgetCutoutPreferences(
         mutableConfiguration.value =
             mutableConfiguration.value.copy(configured = false, revision = mutableConfiguration.value.revision + 1)
         mutableStatus.value = "请先配置 Poof API Key"
+        logWidgetCutout("credential_removed")
     }
 
     internal fun report(message: String) {

@@ -25,6 +25,16 @@ internal class PoofApiException(
     val retryAfterMillis: Long? = null,
 ) : IOException("Poof HTTP $status")
 
+internal class PoofResponseException(
+    val reason: String,
+) : IllegalStateException("Poof response: $reason")
+
+internal data class PoofResponseDiagnostic(
+    val status: Int,
+    val pngContentType: Boolean,
+    val declaredBytes: Long,
+)
+
 /** An isolated client never sends media-server URLs, cookies or authentication to Poof. */
 internal class PoofCutoutClient(
     private val client: OkHttpClient =
@@ -42,6 +52,7 @@ internal class PoofCutoutClient(
     suspend fun remove(
         apiKey: String,
         sourcePng: ByteArray,
+        onResponse: (PoofResponseDiagnostic) -> Unit = {},
     ): ByteArray {
         require(apiKey.isNotBlank() && apiKey.length <= 256 && apiKey.none(Char::isISOControl))
         require(sourcePng.size in 1..MAX_POOF_IMAGE_BYTES)
@@ -89,19 +100,35 @@ internal class PoofCutoutClient(
                         try {
                             val bytes =
                                 response.use {
+                                    runCatching {
+                                        onResponse(
+                                            PoofResponseDiagnostic(
+                                                it.code,
+                                                it.body.contentType()?.let { type ->
+                                                    type.type == "image" && type.subtype == "png"
+                                                } == true,
+                                                it.body.contentLength(),
+                                            ),
+                                        )
+                                    }
                                     if (!it.isSuccessful) {
                                         throw PoofApiException(it.code, poofRetryAfterMillis(it.header("Retry-After")))
                                     }
                                     val body = it.body ?: throw IOException("Empty Poof response")
-                                    check(body.contentLength() <= MAX_POOF_IMAGE_BYTES)
-                                    check(
-                                        body.contentType()?.let { type ->
+                                    if (body.contentLength() > MAX_POOF_IMAGE_BYTES) {
+                                        throw PoofResponseException("response_too_large")
+                                    }
+                                    if (body.contentType()?.let { type ->
                                             type.type == "image" && type.subtype == "png"
-                                        } ==
-                                            true,
-                                    )
+                                        } !=
+                                        true
+                                    ) {
+                                        throw PoofResponseException("unexpected_content_type")
+                                    }
                                     body.byteStream().readBytesBounded(MAX_POOF_IMAGE_BYTES).also { image ->
-                                        check(image.size >= 8 && image.copyOfRange(0, 8).contentEquals(PNG_SIGNATURE))
+                                        if (image.size < 8 || !image.copyOfRange(0, 8).contentEquals(PNG_SIGNATURE)) {
+                                            throw PoofResponseException("invalid_png_signature")
+                                        }
                                     }
                                 }
                             if (continuation.isActive) continuation.resume(bytes)

@@ -21,7 +21,9 @@ class PoofCutoutClientTest {
             MockWebServer().use { server ->
                 server.enqueue(MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(image)))
                 val client = PoofCutoutClient(endpoint = server.url("/v1/remove"))
-                assertContentEquals(image, client.remove("test-poof-key", image))
+                val diagnostics = mutableListOf<PoofResponseDiagnostic>()
+                assertContentEquals(image, client.remove("test-poof-key", image, diagnostics::add))
+                assertEquals(listOf(PoofResponseDiagnostic(200, true, image.size.toLong())), diagnostics)
                 val request = requireNotNull(server.takeRequest(3, TimeUnit.SECONDS))
                 assertEquals("POST", request.method)
                 assertEquals("test-poof-key", request.getHeader("x-api-key"))
@@ -112,4 +114,23 @@ class PoofCutoutClientTest {
         assertEquals(60_000L, poofRetryAfterMillis("Thu, 01 Jan 1970 00:01:00 GMT", now = 0))
         assertNull(poofRetryAfterMillis("invalid"))
     }
+
+    @Test
+    fun response_diagnostics_survive_invalid_png_and_cannot_replay_or_fail_a_request(): Unit =
+        runBlocking {
+            MockWebServer().use { server ->
+                server.enqueue(MockResponse().setHeader("Content-Type", "image/png").setBody("invalid"))
+                server.enqueue(MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(image)))
+                val client = PoofCutoutClient(endpoint = server.url("/remove"))
+                val diagnostics = mutableListOf<PoofResponseDiagnostic>()
+                val failure =
+                    assertFailsWith<PoofResponseException> {
+                        client.remove("test-key", image, diagnostics::add)
+                    }
+                assertEquals("invalid_png_signature", failure.reason)
+                assertEquals(200, diagnostics.single().status)
+                assertContentEquals(image, client.remove("test-key", image) { error("diagnostic observer failed") })
+                assertEquals(2, server.requestCount)
+            }
+        }
 }

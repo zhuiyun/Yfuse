@@ -57,7 +57,9 @@ import com.yfuse.core.widget.WidgetCutoutArtwork
 import com.yfuse.core.widget.WidgetCutoutPhase
 import com.yfuse.core.widget.WidgetCutoutStatus
 import com.yfuse.core.widget.WidgetMedia
+import com.yfuse.core.widget.logWidgetCutout
 import com.yfuse.core.widget.rememberWidgetCutoutState
+import com.yfuse.core.widget.widgetCutoutFailureAttributes
 import kotlin.math.abs
 import com.yfuse.core.designsystem.ThemeText as Text
 
@@ -172,7 +174,7 @@ private fun BreakoutArtwork(
                 Artwork(item, modifier, poster = true)
             }
         } else {
-            BreakoutLayers(cutout, onError = { failed = true }, onLoaded = { loaded = true })
+            BreakoutLayers(cutout, source, onError = { failed = true }, onLoaded = { loaded = true })
         }
         val status =
             when {
@@ -180,6 +182,21 @@ private fun BreakoutArtwork(
                 cutout != null && !loaded -> WidgetCutoutStatus(WidgetCutoutPhase.Downloading, "正在显示抠图")
                 else -> state.status
             }
+        LaunchedEffect(processForeground, cutout, failed, loaded, status.phase) {
+            if (processForeground) {
+                logWidgetCutout(
+                    "card_render_state",
+                    source,
+                    mapOf(
+                        "phase" to status.phase.name,
+                        "hasArtwork" to (cutout != null).toString(),
+                        "layersLoaded" to loaded.toString(),
+                        "fallback" to (cutout == null || failed).toString(),
+                        "imageError" to failed.toString(),
+                    ),
+                )
+            }
+        }
         if (processForeground && status.phase != WidgetCutoutPhase.Idle) {
             val configure =
                 status.phase in
@@ -219,17 +236,37 @@ private fun BreakoutArtwork(
 @Composable
 private fun BreakoutLayers(
     artwork: WidgetCutoutArtwork,
+    source: String?,
     onError: () -> Unit,
     onLoaded: () -> Unit,
 ) {
     var backgroundLoaded by remember(artwork) { mutableStateOf(false) }
     var foregroundLoaded by remember(artwork) { mutableStateOf(false) }
-    LaunchedEffect(backgroundLoaded, foregroundLoaded) { if (backgroundLoaded && foregroundLoaded) onLoaded() }
+    LaunchedEffect(backgroundLoaded, foregroundLoaded) {
+        if (backgroundLoaded && foregroundLoaded) {
+            logWidgetCutout("renderer_ready", source)
+            onLoaded()
+        }
+    }
     val framing =
         remember(artwork) {
             breakoutFraming(artwork.sourceWidth, artwork.sourceHeight, artwork.subjectTop, artwork.subjectBottom)
         }
     val shape = remember(framing.frameTopFraction) { BreakoutFrameShape(framing.frameTopFraction) }
+    LaunchedEffect(artwork) {
+        logWidgetCutout(
+            "renderer_started",
+            source,
+            mapOf(
+                "width" to artwork.sourceWidth.toString(),
+                "height" to artwork.sourceHeight.toString(),
+                "subjectTop" to artwork.subjectTop.toString(),
+                "subjectBottom" to artwork.subjectBottom.toString(),
+                "verticalBias" to framing.verticalBias.toString(),
+                "frameTopFraction" to framing.frameTopFraction.toString(),
+            ),
+        )
+    }
     val alignment = BiasAlignment(0f, framing.verticalBias)
     val surface = LocalPalette.current.card
     AsyncImage(
@@ -238,8 +275,19 @@ private fun BreakoutLayers(
         modifier = Modifier.fillMaxSize().clip(shape).background(surface),
         alignment = alignment,
         contentScale = ContentScale.Crop,
-        onError = { onError() },
-        onSuccess = { backgroundLoaded = true },
+        onError = {
+            logWidgetCutout(
+                "image_layer_failed",
+                source,
+                widgetCutoutFailureAttributes(it.result.throwable) + ("layer" to "background"),
+                warning = true,
+            )
+            onError()
+        },
+        onSuccess = {
+            logWidgetCutout("image_layer_ready", source, mapOf("layer" to "background"))
+            backgroundLoaded = true
+        },
     )
     AsyncImage(
         model = artwork.foregroundModel,
@@ -247,8 +295,19 @@ private fun BreakoutLayers(
         modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(bottomStart = 18.dp, bottomEnd = 18.dp)),
         alignment = alignment,
         contentScale = ContentScale.Crop,
-        onError = { onError() },
-        onSuccess = { foregroundLoaded = true },
+        onError = {
+            logWidgetCutout(
+                "image_layer_failed",
+                source,
+                widgetCutoutFailureAttributes(it.result.throwable) + ("layer" to "foreground"),
+                warning = true,
+            )
+            onError()
+        },
+        onSuccess = {
+            logWidgetCutout("image_layer_ready", source, mapOf("layer" to "foreground"))
+            foregroundLoaded = true
+        },
     )
 }
 

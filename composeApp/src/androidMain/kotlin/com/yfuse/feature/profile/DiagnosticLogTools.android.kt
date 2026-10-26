@@ -161,7 +161,7 @@ actual fun DiagnosticLogTools() {
         DiagnosticDivider()
         DiagnosticActionRow(
             title = if (exporting) "正在导出…" else "导出诊断包",
-            subtitle = "ZIP 包含脱敏日志、播放事件时间线、输出证据及原生库 SHA-256",
+            subtitle = "ZIP 包含抠图流程摘要、脱敏日志、播放时间线与原生库校验",
             enabled = !exporting,
             onClick = {
                 status = null

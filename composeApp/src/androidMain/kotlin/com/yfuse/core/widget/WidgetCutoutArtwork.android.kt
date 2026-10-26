@@ -94,11 +94,37 @@ actual fun rememberWidgetCutoutState(
     var attempt by remember(source) { mutableIntStateOf(0) }
     var artwork by remember(source) { mutableStateOf(precomputedPreviewCutout(source)) }
     LaunchedEffect(source, enabled, visible, configuration, attempt) {
-        if (source == null || !visible) return@LaunchedEffect
-        artwork = precomputedPreviewCutout(source) ?: runtime.loader.get(source, allowProcessing = false)
-        if (artwork == null && enabled && configuration.enabled && configuration.configured) {
-            delay(450)
-            artwork = runtime.loader.get(source, allowProcessing = true)
+        logWidgetCutout(
+            "card_request",
+            posterUrl,
+            mapOf(
+                "validSource" to (source != null).toString(),
+                "selected" to enabled.toString(),
+                "visible" to visible.toString(),
+                "enabled" to configuration.enabled.toString(),
+                "configured" to configuration.configured.toString(),
+            ),
+        )
+        if (source == null || !visible) {
+            logWidgetCutout(
+                "card_request_skipped",
+                posterUrl,
+                mapOf(
+                    "reason" to if (source == null) "invalid_or_missing_source" else "route_not_visible",
+                ),
+            )
+            return@LaunchedEffect
+        }
+        try {
+            artwork = precomputedPreviewCutout(source) ?: runtime.loader.get(source, allowProcessing = false)
+            if (artwork == null && enabled && configuration.enabled && configuration.configured) {
+                delay(450)
+                artwork = runtime.loader.get(source, allowProcessing = true)
+            }
+            logWidgetCutout("card_request_finished", source, mapOf("hasArtwork" to (artwork != null).toString()))
+        } catch (cancelled: CancellationException) {
+            logWidgetCutout("card_request_cancelled", source)
+            throw cancelled
         }
     }
     return WidgetCutoutViewState(
