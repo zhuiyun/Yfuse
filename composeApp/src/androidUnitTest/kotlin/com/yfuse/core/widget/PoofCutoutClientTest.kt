@@ -89,7 +89,7 @@ class PoofCutoutClientTest {
         }
 
     @Test
-    fun malformed_or_oversize_success_cannot_enter_the_image_cache() =
+    fun malformed_or_oversize_success_cannot_enter_the_image_cache(): Unit =
         runBlocking {
             MockWebServer().use { server ->
                 server.enqueue(MockResponse().setHeader("Content-Type", "image/png").setBody("not a PNG"))
