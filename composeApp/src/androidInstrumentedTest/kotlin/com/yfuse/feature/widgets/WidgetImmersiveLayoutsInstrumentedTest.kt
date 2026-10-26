@@ -757,16 +757,21 @@ class WidgetImmersiveLayoutsInstrumentedTest {
         from: Offset,
         to: Offset,
     ) {
+        val target = AtomicReference<android.view.View>()
+        val origin = IntArray(2)
+        scenario.onActivity { activity ->
+            target.set(activity.window.decorView)
+            activity.window.decorView.getLocationInWindow(origin)
+        }
         val down = SystemClock.uptimeMillis()
 
         fun send(
             action: Int,
             point: Offset,
         ) {
-            scenario.onActivity { activity ->
-                val decor = activity.window.decorView
-                val origin = IntArray(2)
-                decor.getLocationInWindow(origin)
+            // onActivity waits for an idle queue before every callback. A scrolling lazy grid
+            // can keep that queue busy until ACTION_UP, so enqueue the remaining input directly.
+            instrumentation.runOnMainSync {
                 val event =
                     MotionEvent.obtain(
                         down,
@@ -778,7 +783,7 @@ class WidgetImmersiveLayoutsInstrumentedTest {
                     )
                 try {
                     event.source = InputDevice.SOURCE_TOUCHSCREEN
-                    decor.dispatchTouchEvent(event)
+                    target.get().dispatchTouchEvent(event)
                 } finally {
                     event.recycle()
                 }
