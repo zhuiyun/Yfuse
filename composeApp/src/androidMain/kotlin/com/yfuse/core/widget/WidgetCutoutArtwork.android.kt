@@ -10,6 +10,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,11 +70,16 @@ actual fun rememberWidgetCutoutArtwork(
 ): WidgetCutoutArtwork? {
     val context = LocalContext.current.applicationContext
     val visible = LocalRouteVisible.current
+    val configuration by remember { widgetCutoutPreferences() }.configuration.collectAsState()
     val source = remember(posterUrl) { safeCutoutSource(posterUrl) }
     var artwork by remember(source) { mutableStateOf(precomputedPreviewCutout(source)) }
-    LaunchedEffect(source, enabled, visible) {
+    LaunchedEffect(source, enabled, visible, configuration) {
         if (source == null || !visible) return@LaunchedEffect
-        artwork = precomputedPreviewCutout(source) ?: WidgetCutoutStore.get(context, source, allowProcessing = enabled)
+        artwork = precomputedPreviewCutout(source) ?: WidgetCutoutStore.get(context, source, allowProcessing = false)
+        if (artwork == null && enabled && configuration.enabled && configuration.configured) {
+            delay(450)
+            artwork = WidgetCutoutStore.get(context, source)
+        }
     }
     return artwork.takeIf { visible }
 }
@@ -107,6 +113,30 @@ private fun safeCutoutSource(value: String?): String? {
 
 /** One bounded pipeline for both phone and TV. It shares the application's Coil/network policy. */
 internal object WidgetCutoutStore {
+    suspend fun get(
+        context: Context,
+        source: String,
+        allowProcessing: Boolean = true,
+    ): WidgetCutoutArtwork? {
+        val safeSource = safeCutoutSource(source) ?: return null
+        return try {
+            if (safeSource in trustedPreviewPosters) {
+                LocalWidgetCutoutStore.get(context, safeSource, allowProcessing)
+            } else {
+                PoofWidgetCutoutStore.get(context, safeSource, allowProcessing)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        } catch (_: OutOfMemoryError) {
+            null
+        }
+    }
+}
+
+/** The bundled model is retained for the offline preview and its existing runtime checks only. */
+private object LocalWidgetCutoutStore {
     private val gate = Semaphore(1)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var session: OrtSession? = null

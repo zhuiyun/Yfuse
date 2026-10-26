@@ -2,6 +2,8 @@ package com.yfuse.core.util
 
 import android.app.Application
 import coil3.SingletonImageLoader
+import com.yfuse.core.widget.POOF_CACHE_DIRECTORY
+import com.yfuse.core.widget.PoofWidgetCutoutStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -15,12 +17,14 @@ actual suspend fun clearImageCache() =
         loader.memoryCache?.clear()
         // Coil's DiskCache.clear() synchronously walks and deletes its entries.
         loader.diskCache?.clear()
+        PoofWidgetCutoutStore.clear(context)
     }
 
 actual suspend fun imageCacheUsageBytes(): Long =
     withContext(Dispatchers.IO) {
         val context = imageCacheContext ?: return@withContext 0L
-        context.cacheDir.resolve(IMAGE_CACHE_DIRECTORY).directorySizeBytes()
+        context.cacheDir.resolve(IMAGE_CACHE_DIRECTORY).directorySizeBytes() +
+            context.noBackupFilesDir.resolve(POOF_CACHE_DIRECTORY).directorySizeBytes()
     }
 
 private fun java.io.File.directorySizeBytes(): Long {
