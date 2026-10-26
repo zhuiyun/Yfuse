@@ -47,6 +47,9 @@ data class WidgetCutoutViewState(
 )
 
 internal interface WidgetCutoutLoader {
+    /** Previously validated metadata, without disk IO on the composition thread. */
+    fun peek(source: String): WidgetCutoutArtwork? = null
+
     fun observe(source: String): StateFlow<WidgetCutoutStatus>
 
     suspend fun get(

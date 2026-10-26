@@ -36,7 +36,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -619,7 +618,7 @@ internal fun Artwork(
         if (url !=
             null
         ) {
-            AsyncImage(
+            WidgetArtworkImage(
                 model = url,
                 contentDescription = item.title,
                 modifier = Modifier.fillMaxSize(),

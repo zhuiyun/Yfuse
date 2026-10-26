@@ -70,6 +70,7 @@ internal class PoofWidgetCutoutPipeline(
     private val requests = PoofCutoutWorkQueue<WidgetCutoutArtwork>(scope)
     private val disk = Mutex()
     private val generation = AtomicLong()
+    private val memory = WidgetCutoutMemoryCache()
     private val states = LinkedHashMap<String, MutableStateFlow<WidgetCutoutStatus>>()
     private val retries = mutableSetOf<String>()
 
@@ -101,7 +102,20 @@ internal class PoofWidgetCutoutPipeline(
     private fun sourceKey(source: String) =
         poofHash("$POOF_CACHE_VERSION\n${imageCacheKeyForUrl(source)}".toByteArray())
 
+    override fun peek(source: String): WidgetCutoutArtwork? =
+        if (preferences.configuration.value.enabled) memory.peek(source) else null
+
     override suspend fun get(
+        source: String,
+        allowProcessing: Boolean,
+    ): WidgetCutoutArtwork? {
+        val expectedMemoryGeneration = memory.generation()
+        return load(source, allowProcessing).also {
+            memory.put(source, it, expectedMemoryGeneration)
+        }
+    }
+
+    private suspend fun load(
         source: String,
         allowProcessing: Boolean,
     ): WidgetCutoutArtwork? =
@@ -168,7 +182,11 @@ internal class PoofWidgetCutoutPipeline(
     suspend fun clear() =
         withContext(Dispatchers.IO) {
             generation.incrementAndGet()
-            val deleted = disk.withLock { directory.deleteRecursively() }
+            val deleted =
+                disk.withLock {
+                    memory.clear()
+                    directory.deleteRecursively()
+                }
             logWidgetCutout("cache_cleared", attributes = mapOf("deleted" to deleted.toString()))
         }
 
