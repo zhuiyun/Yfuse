@@ -10,9 +10,9 @@ internal data class BreakoutFraming(
     val frameTopFraction: Float get() = BREAKOUT_FRAME_TOP
 }
 
-internal const val BREAKOUT_WINDOW_HEIGHT = 1.5f
+internal const val BREAKOUT_WINDOW_HEIGHT = 1.25f
 internal const val BREAKOUT_CARD_WIDTH = .88f
-internal const val BREAKOUT_FRAME_TOP = .26f
+internal const val BREAKOUT_FRAME_TOP = .14f
 
 /** Both raster layers use this single crop. Moving only the cutout would reveal a second subject. */
 internal fun breakoutFraming(

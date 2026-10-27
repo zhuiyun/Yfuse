@@ -434,7 +434,10 @@ fun App(root: RootComponent) {
                                                 Tab.CustomHome ->
                                                     HomeTabScreen(root.widgetHome) {
                                                         com.yfuse.feature.widgets
-                                                            .CustomHomeScreen(onOpenTmdb = root::openWidgetTitle)
+                                                            .CustomHomeScreen(
+                                                                root.themePreferences,
+                                                                onOpenTmdb = root::openWidgetTitle,
+                                                            )
                                                     }
                                                 Tab.Browse -> LibraryScreen(root.browse)
                                                 Tab.Watching -> LibraryScreen(root.watching)

@@ -51,10 +51,34 @@ internal actual fun widgetEpisodeData(): WidgetEpisodeData = processEpisodeData
 private val processRepository by lazy {
     val context = checkNotNull(androidAppContext)
     val file = AtomicFile(File(context.filesDir, "widgets-v1.json"))
+    val feedFile = AtomicFile(File(context.filesDir, "widget-feeds-v1.json"))
     val storage = context.getSharedPreferences("widget-storage-v1", 0)
     WidgetRepository(
         persistence =
             object : WidgetPersistence {
+                override suspend fun readFeedCache(): String? =
+                    withContext(Dispatchers.IO) {
+                        if (!feedFile.baseFile.exists()) {
+                            null
+                        } else {
+                            feedFile.openRead().use {
+                                it.readBytesBounded(MAX_WIDGET_FEED_CACHE_BYTES).toString(Charsets.UTF_8)
+                            }
+                        }
+                    }
+
+                override suspend fun writeFeedCache(value: String) =
+                    withContext(Dispatchers.IO) {
+                        val output = feedFile.startWrite()
+                        try {
+                            output.write(value.toByteArray())
+                            feedFile.finishWrite(output)
+                        } catch (e: Exception) {
+                            feedFile.failWrite(output)
+                            throw e
+                        }
+                    }
+
                 override suspend fun read(): String? =
                     withContext(Dispatchers.IO) {
                         if (!file.baseFile.exists()) {

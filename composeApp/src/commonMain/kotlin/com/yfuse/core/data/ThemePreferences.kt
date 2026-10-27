@@ -50,6 +50,8 @@ class ThemePreferences(
         const val KEY_SPLASH_VARIANT = "appearance.splashVariant.v3"
         const val KEY_CUSTOM_HOME = "appearance.customHomeVisible"
         const val KEY_STARTUP_TAB = "appearance.startupTab"
+        const val KEY_RESUME_CUSTOM_HOME = "appearance.resumeCustomHome"
+        const val KEY_CUSTOM_HOME_PAGE = "appearance.customHomePage"
         const val KEY_DIALOG_ANIMATION = "appearance.dialogAnimation"
         const val KEY_GLASS_STYLE = "appearance.glassStyle"
         const val KEY_GLASS_LIGHT = "appearance.glassMaterial.light"
@@ -165,6 +167,22 @@ class ThemePreferences(
             },
         )
     val startupTab: StateFlow<StartupTab> = _startupTab.asStateFlow()
+
+    val resumeCustomHome: Boolean get() = settings.getBoolean(KEY_RESUME_CUSTOM_HOME, false)
+
+    fun rememberHome(custom: Boolean) = settings.putBoolean(KEY_RESUME_CUSTOM_HOME, custom)
+
+    var customHomePageId: String?
+        get() = settings.getStringOrNull(KEY_CUSTOM_HOME_PAGE)
+        set(value) {
+            if (value ==
+                null
+            ) {
+                settings.remove(KEY_CUSTOM_HOME_PAGE)
+            } else {
+                settings.putString(KEY_CUSTOM_HOME_PAGE, value)
+            }
+        }
 
     // A name from a retired style falls back to Lift inside [load]; nothing here can throw.
     private val _dialogAnimation =
@@ -321,6 +339,7 @@ class ThemePreferences(
     fun setStartupTab(tab: StartupTab) {
         _startupTab.value = tab
         settings.putString(KEY_STARTUP_TAB, tab.name)
+        rememberHome(false)
     }
 
     private fun <T : Enum<T>> load(

@@ -427,12 +427,12 @@ class PoofCutoutFlowInstrumentedTest {
         val background = checkNotNull(rendered)
         // Independent pixel edges: the original, processing and cutout views share this rectangle.
         val artworkTop = bounds.top + 12 * density
-        val artworkHeight = bounds.width * .88f * 1.5f
+        val artworkHeight = bounds.width * .88f * 1.25f
         assertTrue(
             "The background frame moved with the subject",
             kotlin.math.abs(
                 background.first -
-                    (artworkTop + artworkHeight * .26f),
+                    (artworkTop + artworkHeight * .14f),
             ) <= 2 * density,
         )
         assertTrue(
@@ -450,7 +450,7 @@ class PoofCutoutFlowInstrumentedTest {
             val density = context.resources.displayMetrics.density
             // Outside the red/blue foreground, the source's green background exposes the real frame.
             val x = (bounds.center.x - bounds.width * .88f * .35f).toInt()
-            val bottom = (bounds.top + 12 * density + bounds.width * .88f * 1.5f).toInt()
+            val bottom = (bounds.top + 12 * density + bounds.width * .88f * 1.25f).toInt()
             val rows =
                 (bounds.top.toInt().coerceAtLeast(0) until bottom.coerceAtMost(screenshot.height)).filter { y ->
                     val pixel = screenshot.getPixel(x, y)

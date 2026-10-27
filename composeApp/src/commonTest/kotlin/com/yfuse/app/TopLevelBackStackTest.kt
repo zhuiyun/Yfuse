@@ -40,6 +40,19 @@ class TopLevelBackStackTest {
     }
 
     @Test
+    fun cold_start_resumes_custom_home_and_falls_back_when_it_is_hidden() {
+        for (hasServers in listOf(false, true)) {
+            StartupTab.entries.forEach { preference ->
+                assertEquals(Tab.CustomHome, startupTab(preference, hasServers, resumeCustomHome = true))
+            }
+            assertEquals(
+                if (hasServers) Tab.Browse else Tab.Servers,
+                startupTab(StartupTab.Automatic, hasServers, customHomeVisible = false, resumeCustomHome = true),
+            )
+        }
+    }
+
+    @Test
     fun a_chosen_start_tab_holds_with_or_without_servers() {
         listOf(false, true).forEach { hasServers ->
             assertEquals(Tab.Browse, startupTab(StartupTab.Home, hasServers))

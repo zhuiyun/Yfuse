@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -55,10 +56,13 @@ internal fun customHomePage(
 }
 
 @Composable
-fun CustomHomeScreen(onOpenTmdb: (TmdbItem, WidgetSourceContext?) -> Unit) {
+fun CustomHomeScreen(
+    preferences: ThemePreferences,
+    onOpenTmdb: (TmdbItem, WidgetSourceContext?) -> Unit,
+) {
     val repository = remember { widgetRepository() }
     val database by repository.database.collectAsState()
-    var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    var selected by rememberSaveable { mutableStateOf(preferences.customHomePageId) }
     var manager by rememberSaveable { mutableStateOf(false) }
     var choosing by remember { mutableStateOf(false) }
     val pageStates =
@@ -181,6 +185,7 @@ fun CustomHomeScreen(onOpenTmdb: (TmdbItem, WidgetSourceContext?) -> Unit) {
                         item.title,
                         {
                             selected = item.id
+                            preferences.customHomePageId = item.id
                             choosing = false
                         },
                         icon = AppIcons.Home,

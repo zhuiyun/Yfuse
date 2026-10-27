@@ -25,12 +25,20 @@ class WidgetRepositoryTest {
         var raw: String? = null,
     ) : WidgetPersistence {
         var fail = false
+        var feedCache: String? = null
 
         override suspend fun read() = raw
 
         override suspend fun write(value: String) {
             check(!fail) { "disk full" }
             raw = value
+        }
+
+        override suspend fun readFeedCache() = feedCache
+
+        override suspend fun writeFeedCache(value: String) {
+            check(!fail) { "disk full" }
+            feedCache = value
         }
     }
 
@@ -58,6 +66,81 @@ class WidgetRepositoryTest {
           {"id":"list","title":"List","functionName":"load","params":[{"name":"page","type":"page"}]}
         ]}
         """.trimIndent()
+
+    @Test fun process_restart_keeps_home_content_visible_until_fresh_content_arrives() =
+        runTest {
+            val disk = MemoryPersistence()
+            val original = WidgetRepository(disk, Runtime(), backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            original.install(original.inspect(metadata, "file:demo.js"))
+            val section = WidgetSection("section", "demo", "list", "Films")
+            original.savePage(WidgetPage("page", "Home", listOf(section)))
+            original.feed(section).ensureLoaded()
+            runCurrent()
+            assertNotNull(disk.feedCache)
+            val response = CompletableDeferred<String>()
+            val slow =
+                object : WidgetRuntime by Runtime() {
+                    override suspend fun invoke(
+                        widget: InstalledWidget,
+                        function: String,
+                        argument: JsonElement,
+                        timeoutSeconds: Int,
+                    ) = response.await()
+                }
+            val reopened = WidgetRepository(disk, slow, backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            reopened.awaitReady()
+            val feed = reopened.feed(section)
+            assertEquals(
+                "one",
+                feed.state.value.items
+                    .single()
+                    .id,
+            )
+            feed.ensureLoaded()
+            runCurrent()
+            assertTrue(feed.state.value.busy)
+            assertEquals(
+                "one",
+                feed.state.value.items
+                    .single()
+                    .id,
+            )
+            assertSame(feed, reopened.feed(section))
+            response.complete("""[{"id":"new","title":"New film"}]""")
+            runCurrent()
+            assertEquals(
+                "new",
+                feed.state.value.items
+                    .single()
+                    .id,
+            )
+            assertFalse(feed.state.value.busy)
+        }
+
+    @Test fun corrupt_feed_cache_does_not_hide_home_configuration_or_prevent_loading() =
+        runTest {
+            val disk = MemoryPersistence()
+            val original = WidgetRepository(disk, Runtime(), backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            original.install(original.inspect(metadata, "file:demo.js"))
+            val section = WidgetSection("section", "demo", "list", "Films")
+            original.savePage(WidgetPage("page", "Home", listOf(section)))
+            disk.feedCache = "broken"
+            val reopened = WidgetRepository(disk, Runtime(), backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            reopened.awaitReady()
+            assertNull(reopened.error.value)
+            assertEquals(original.database.value, reopened.database.value)
+            disk.fail = true
+            val feed = reopened.feed(section)
+            feed.ensureLoaded()
+            runCurrent()
+            assertEquals(
+                "one",
+                feed.state.value.items
+                    .single()
+                    .id,
+            )
+            assertNull(feed.state.value.error)
+        }
 
     @Test fun installed_components_pages_and_sections_round_trip_beyond_previous_count_limits() =
         runTest {
@@ -224,6 +307,10 @@ class WidgetRepositoryTest {
                     .isEmpty(),
             )
             val disabled = repo.feed(edited)
+            assertTrue(
+                disabled.state.value.items
+                    .isEmpty(),
+            )
             disabled.ensureLoaded()
             runCurrent()
             assertTrue(
