@@ -26,7 +26,7 @@ internal class WidgetFeedCache(
         try {
             val raw = persistence.readFeedCache() ?: return
             if (raw.encodeToByteArray().size > MAX_WIDGET_FEED_CACHE_BYTES) return
-            entries.value = widgetJson.decodeFromString<List<Entry>>(raw).takeLast(64)
+            entries.value = widgetJson.decodeFromString<List<Entry>>(raw)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -44,7 +44,7 @@ internal class WidgetFeedCache(
         key: String,
         items: List<WidgetMedia>,
     ) = mutex.withLock {
-        var next = (entries.value.filterNot { it.key == key } + Entry(key, items.take(100))).takeLast(64)
+        var next = entries.value.filterNot { it.key == key } + Entry(key, items.take(100))
         var encoded = widgetJson.encodeToString(next)
         while (encoded.encodeToByteArray().size > MAX_WIDGET_FEED_CACHE_BYTES && next.isNotEmpty()) {
             next = next.drop(1)

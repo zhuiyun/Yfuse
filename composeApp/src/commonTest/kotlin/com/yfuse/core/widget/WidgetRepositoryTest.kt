@@ -209,7 +209,8 @@ class WidgetRepositoryTest {
     @Test fun saved_sections_survive_more_than_48_feeds_and_temporary_browse_entries() =
         runTest {
             val runtime = Runtime()
-            val repo = WidgetRepository(MemoryPersistence(), runtime, backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            val disk = MemoryPersistence()
+            val repo = WidgetRepository(disk, runtime, backgroundScope, { "id" }, { "hash:$it" }, { 0L })
             val widget = repo.inspect(metadata, "file:demo.js")
             repo.install(widget)
             val sections =
@@ -245,6 +246,19 @@ class WidgetRepositoryTest {
             }
             runCurrent()
             assertEquals(80, runtime.calls)
+
+            val reopened = WidgetRepository(disk, Runtime(), backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            reopened.awaitReady()
+            sections.forEach { section ->
+                assertEquals(
+                    "one",
+                    reopened
+                        .feed(section)
+                        .state.value.items
+                        .single()
+                        .id,
+                )
+            }
 
             val changed = sections.first().copy(params = JsonObject(mapOf("topic" to JsonPrimitive("new"))))
             repo.savePage(page.copy(sections = listOf(changed) + sections.drop(1)))

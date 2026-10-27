@@ -84,6 +84,7 @@ class RootComponent(
 
     init {
         stateKeeper.register(ACTIVE_TAB_STATE_KEY, String.serializer()) { _activeTab.value.name }
+        if (_activeTab.value == Tab.CustomHome) themePreferences.rememberHome(true)
         // 「水火潮涌」 plays only on a true cold start that lands on 库. A restored process keeps
         // its page as it was, and a retained root (rotation) is never constructed twice.
         if (!restoredLaunch && _activeTab.value == Tab.Browse) LaunchWaveGate.arm()
