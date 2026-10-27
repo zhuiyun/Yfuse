@@ -76,12 +76,15 @@ class RootComponent(
             themePreferences.startupTab.value,
             registry.data.value.servers
                 .isNotEmpty(),
+            customHomeVisible = themePreferences.customHomeVisible.value,
+            resumeCustomHome = themePreferences.resumeCustomHome,
         )
     private val _activeTab = MutableValue(savedTab ?: startTab)
     val activeTab: Value<Tab> = _activeTab
 
     init {
         stateKeeper.register(ACTIVE_TAB_STATE_KEY, String.serializer()) { _activeTab.value.name }
+        if (_activeTab.value == Tab.CustomHome) themePreferences.rememberHome(true)
         // 「水火潮涌」 plays only on a true cold start that lands on 库. A restored process keeps
         // its page as it was, and a retained root (rotation) is never constructed twice.
         if (!restoredLaunch && _activeTab.value == Tab.Browse) LaunchWaveGate.arm()
@@ -305,7 +308,12 @@ class RootComponent(
         dependencies.watchTogether.leave()
     }
 
-    fun selectTab(tab: Tab) {
+    fun selectTab(tab: Tab) = selectTab(tab, rememberHome = true)
+
+    private fun selectTab(
+        tab: Tab,
+        rememberHome: Boolean,
+    ) {
         if (tab == Tab.CustomHome && !themePreferences.customHomeVisible.value) {
             selectTab(Tab.Browse)
             return
@@ -318,6 +326,9 @@ class RootComponent(
         if (tab != Tab.Browse) LaunchWaveGate.disarm()
         // Going somewhere else by hand ends the 演员页 round trip; Back there later stays in 搜索.
         if (tab != Tab.Search) personPageOrigin = null
+        if (rememberHome && (tab == Tab.CustomHome || tab == Tab.Browse)) {
+            themePreferences.rememberHome(tab == Tab.CustomHome)
+        }
         _activeTab.value = tab
     }
 
@@ -428,7 +439,7 @@ class RootComponent(
                 Tab.Servers -> Unit
             }
         } else {
-            if (state.tab == Tab.Home) returnFromDiscovery() else selectTab(startTab)
+            if (state.tab == Tab.Home) returnFromDiscovery() else selectTab(startTab, rememberHome = false)
         }
         return true
     }
@@ -617,11 +628,16 @@ internal fun restoredTab(saved: String?): RootComponent.Tab? =
 internal fun startupTab(
     preference: StartupTab,
     hasServers: Boolean,
+    customHomeVisible: Boolean = true,
+    resumeCustomHome: Boolean = false,
 ): RootComponent.Tab =
-    when (preference) {
-        StartupTab.Home -> RootComponent.Tab.Browse
-        StartupTab.Library -> RootComponent.Tab.Browse
-        StartupTab.Servers -> RootComponent.Tab.Servers
-        StartupTab.Automatic ->
-            if (hasServers) RootComponent.Tab.Browse else RootComponent.Tab.Servers
+    if (customHomeVisible && resumeCustomHome) {
+        RootComponent.Tab.CustomHome
+    } else {
+        when (preference) {
+            StartupTab.Home -> RootComponent.Tab.Browse
+            StartupTab.Library -> RootComponent.Tab.Browse
+            StartupTab.Servers -> RootComponent.Tab.Servers
+            StartupTab.Automatic -> if (hasServers) RootComponent.Tab.Browse else RootComponent.Tab.Servers
+        }
     }

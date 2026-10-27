@@ -31,6 +31,10 @@ interface WidgetPersistence {
     suspend fun read(): String?
 
     suspend fun write(value: String)
+
+    suspend fun readFeedCache(): String? = null
+
+    suspend fun writeFeedCache(value: String) = Unit
 }
 
 /** One atomic snapshot owns scripts and their references. Failed writes never publish new UI state. */
@@ -52,6 +56,7 @@ class WidgetRepository(
     val bundleError = mutableBundleError.asStateFlow()
     private val ready = CompletableDeferred<Unit>()
     private val cacheMutex = Mutex()
+    private val feedCache = WidgetFeedCache(persistence)
 
     private data class Cached(
         val widgetId: String,
@@ -108,8 +113,23 @@ class WidgetRepository(
         now,
         module?.cacheDuration ?: 0,
         module?.params?.any { it.type == "page" } == true,
-        initial,
+        initial.takeIf { it.items.isNotEmpty() }
+            ?: WidgetFeedSnapshot(
+                items =
+                    if (module != null &&
+                        database.value.widgets.any { it.metadata.id == section.widgetId && it.enabled }
+                    ) {
+                        feedCache.peek(feedCacheKey(section))
+                    } else {
+                        emptyList()
+                    },
+            ),
     ) { page, refresh -> load(section, page, refresh) }
+
+    private fun feedCacheKey(section: WidgetSection): String {
+        val widget = database.value.widgets.firstOrNull { it.metadata.id == section.widgetId }
+        return hash("${section.widgetId}:${widget?.digest}:${section.moduleId}:${section.params}")
+    }
 
     private fun savedFeedKeys(db: WidgetDatabase): Set<FeedKey> {
         val widgets = db.widgets.associateBy { it.metadata.id }
@@ -184,6 +204,7 @@ class WidgetRepository(
                 persistence.read()?.let { raw ->
                     val value = widgetJson.decodeFromString<WidgetDatabase>(raw)
                     validate(value)
+                    feedCache.restore()
                     mutableDatabase.value = value
                 }
                 initializeBundles()
@@ -456,6 +477,12 @@ class WidgetRepository(
                 cache[key] = Cached(widget.metadata.id, now() + module.cacheDuration * 1000L, items)
             }
             while (cache.size > 48) cache.remove(cache.keys.first())
+        }
+        if (page == 1 &&
+            database.value.pages.any { page -> page.sections.any { it == section } } &&
+            database.value.widgets.any { it == widget }
+        ) {
+            feedCache.save(feedCacheKey(section), items)
         }
         return items
     }

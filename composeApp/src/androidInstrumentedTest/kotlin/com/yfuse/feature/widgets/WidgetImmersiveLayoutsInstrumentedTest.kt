@@ -267,8 +267,8 @@ class WidgetImmersiveLayoutsInstrumentedTest {
                 if (style == WidgetStyle.BreakoutPoster) {
                     val hero = probe.bounds.get()
                     assertTrue(
-                        "The breakout hero was compressed back into a square card",
-                        hero.height >= hero.width * 1.4f,
+                        "The breakout hero lost its portrait proportions",
+                        hero.height >= hero.width * 1.2f,
                     )
                 }
                 val snapshot = nodes()

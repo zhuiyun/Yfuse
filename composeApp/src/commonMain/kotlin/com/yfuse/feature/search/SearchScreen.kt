@@ -42,6 +42,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -200,7 +201,7 @@ private fun SearchHomeScreen(
     consumeFocusRequest: (Int) -> Boolean,
 ) {
     var showPeople by remember { mutableStateOf(false) }
-    var compactResults by remember { mutableStateOf(true) }
+    var compactResults by rememberSaveable { mutableStateOf(false) }
     var filtersOpen by remember { mutableStateOf(false) }
     val playlistEditor = remember { SmartPlaylistEditorState() }
     val sharer = rememberPosterCardSharer()

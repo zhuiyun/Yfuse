@@ -15,6 +15,22 @@ import kotlin.test.assertTrue
 
 class CustomHomeNavigationTest {
     @Test
+    fun selected_home_and_page_survive_a_new_preferences_instance() {
+        val settings = MapSettings()
+        val preferences = ThemePreferences(settings)
+        preferences.rememberHome(true)
+        preferences.customHomePageId = "my-series"
+        val reopened = ThemePreferences(settings)
+        assertTrue(reopened.resumeCustomHome)
+        assertEquals("my-series", reopened.customHomePageId)
+        reopened.rememberHome(false)
+        assertFalse(ThemePreferences(settings).resumeCustomHome)
+        reopened.rememberHome(true)
+        reopened.setStartupTab(com.yfuse.core.model.StartupTab.Servers)
+        assertFalse(ThemePreferences(settings).resumeCustomHome)
+    }
+
+    @Test
     fun visibility_persists_and_only_removes_the_custom_destination() {
         val settings = MapSettings()
         val preferences = ThemePreferences(settings)
