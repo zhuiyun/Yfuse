@@ -126,12 +126,24 @@ class AndroidAdaptiveDashInstrumentedTest {
             }
         }
 
-    private fun assertDimensions(
+    private suspend fun assertDimensions(
         player: YPlayer,
         fixture: GeneratedDashTestMedia,
     ) {
-        assertEquals(fixture.width, player.state.value.diagnostics.videoWidth)
-        assertEquals(fixture.height, player.state.value.diagnostics.videoHeight)
+        // A seek can publish its new position before the replacement decoder's format arrives.
+        // Require the target format and verified picture together, within the existing step timeout.
+        val state =
+            awaitState(player, "decoded-frame-${fixture.width}x${fixture.height}") {
+                it.diagnostics.videoOutputVerified &&
+                    it.diagnostics.videoWidth == fixture.width &&
+                    it.diagnostics.videoHeight == fixture.height
+            }
+        assertTrue(
+            "Target dimensions did not use native decoding: $state",
+            state.diagnostics.route != YPlaybackRoute.Legacy,
+        )
+        assertEquals(fixture.width, state.diagnostics.videoWidth)
+        assertEquals(fixture.height, state.diagnostics.videoHeight)
     }
 
     private suspend fun surface(scenario: ActivityScenario<MainActivity>): AndroidSurfaceVideoOutput {
