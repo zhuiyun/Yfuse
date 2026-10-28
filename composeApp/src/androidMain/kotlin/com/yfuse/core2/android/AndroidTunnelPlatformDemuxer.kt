@@ -31,6 +31,8 @@ internal class AndroidTunnelPlatformDemuxer(
 
     fun startReadAhead() = readAhead.startReadAhead()
 
+    fun setMediaBitRateBitsPerSecond(value: Long) = readAhead.setMediaBitRateBitsPerSecond(value)
+
     fun pauseReadAhead() = readAhead.pauseReadAhead()
 
     fun snapshot(): YExtractorReadAheadSnapshot = readAhead.snapshot()

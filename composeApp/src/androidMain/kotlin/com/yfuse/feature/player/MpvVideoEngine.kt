@@ -817,21 +817,17 @@ class MpvVideoEngine(
                 }
             if (items.any { it.url.isRemotePlaybackSource() }) {
                 // Every remote source needs a bounded window, including small files and unknown sizes.
-                val bufferProfile = mpvBufferProfile(optimizationMode)
-                val memoryBudget = playbackMemoryBudgetBytes(context)
-                val forwardBytes = minOf(bufferProfile.forwardBytes.toLong(), memoryBudget * 3L / 4L)
-                val backBytes = minOf(bufferProfile.backBytes.toLong(), memoryBudget - forwardBytes)
-                instance.optionalOption("demuxer-max-bytes", forwardBytes.toString())
-                instance.optionalOption("demuxer-max-back-bytes", backBytes.toString())
+                val bufferProfile = mpvBufferProfile(optimizationMode, playbackMemoryBudgetBytes(context))
+                instance.optionalOption("demuxer-max-bytes", bufferProfile.forwardBytes.toString())
+                instance.optionalOption("demuxer-max-back-bytes", bufferProfile.backBytes.toString())
                 instance.optionalOption(
                     "demuxer-readahead-secs",
                     bufferProfile.readaheadSeconds.toString(),
                 )
+                instance.optionalOption("cache-secs", bufferProfile.readaheadSeconds.toString())
                 instance.optionalOption("cache-pause-initial", "yes")
-                // Initial pausing keeps a start from stuttering on its first bytes, but at 1 s every
-                // remote start waited a whole second of cache before its first frame (and so did each
-                // resume after an underrun). 0.3 s still absorbs first-read jitter without that delay.
-                instance.optionalOption("cache-pause-wait", "0.3")
+                // This applies to startup and underrun recovery; allow enough reserve for network jitter.
+                instance.optionalOption("cache-pause-wait", "2")
             }
             // Every source is already a resolved media URL. Running ytdl after an upstream error
             // only adds misleading failures and delays the real fallback path.
@@ -870,8 +866,10 @@ class MpvVideoEngine(
             val renderProfile =
                 mpvRenderProfile(
                     optimizationMode,
+                    // The enlarged cache budget still represents a small heap at 64 MiB.
+                    // Keep the previous lightweight rendering tier for these devices.
                     resourceConstrained =
-                        highPressureSoftwareDolby || playbackMemoryBudgetBytes(context) <= 32L * 1024L * 1024L,
+                        highPressureSoftwareDolby || playbackMemoryBudgetBytes(context) <= 64L * 1024L * 1024L,
                 )
             instance.optionalOption("hdr-compute-peak", if (renderProfile.computeHdrPeak) "yes" else "no")
             // The compatibility GPU tier is a real libplacebo renderer, not a label-only route.

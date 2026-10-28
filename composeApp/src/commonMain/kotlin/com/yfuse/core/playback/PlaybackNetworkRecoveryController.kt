@@ -13,33 +13,23 @@ data class PlaybackNetworkRecoveryDecision(
  */
 class PlaybackNetworkRecoveryController {
     private var offline = false
-    private var recoveryArmed = false
-    private var resumePositionMs = 0L
 
     fun observe(
         networkClass: PlaybackNetworkClass,
         playbackRequested: Boolean,
         positionMs: Long,
         ended: Boolean,
+        remoteSource: Boolean = true,
+        needsRecovery: Boolean = true,
+        recoveryInProgress: Boolean = false,
     ): PlaybackNetworkRecoveryDecision {
-        if (ended) {
+        if (ended || !remoteSource || !playbackRequested) {
             reset()
             return PlaybackNetworkRecoveryDecision()
         }
         when (networkClass) {
             PlaybackNetworkClass.Offline -> {
-                if (!offline) {
-                    offline = true
-                    recoveryArmed = playbackRequested
-                    resumePositionMs = positionMs.coerceAtLeast(0L)
-                } else {
-                    if (playbackRequested) {
-                        recoveryArmed = true
-                        resumePositionMs = positionMs.coerceAtLeast(0L)
-                    } else {
-                        recoveryArmed = false
-                    }
-                }
+                offline = true
                 return PlaybackNetworkRecoveryDecision()
             }
 
@@ -49,11 +39,11 @@ class PlaybackNetworkRecoveryController {
             -> {
                 if (!offline) return PlaybackNetworkRecoveryDecision()
                 offline = false
-                val shouldRetry = recoveryArmed
-                recoveryArmed = false
+                val shouldRetry = needsRecovery && !recoveryInProgress
                 return PlaybackNetworkRecoveryDecision(
                     retry = shouldRetry,
-                    resumePositionMs = resumePositionMs,
+                    // Cached playback may have advanced during the outage. Never rewind it.
+                    resumePositionMs = positionMs.coerceAtLeast(0L),
                 )
             }
         }
@@ -61,7 +51,5 @@ class PlaybackNetworkRecoveryController {
 
     fun reset() {
         offline = false
-        recoveryArmed = false
-        resumePositionMs = 0L
     }
 }

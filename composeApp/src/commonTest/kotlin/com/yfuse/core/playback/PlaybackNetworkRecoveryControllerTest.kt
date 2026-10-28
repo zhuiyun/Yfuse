@@ -8,6 +8,35 @@ import kotlin.test.assertTrue
 
 class PlaybackNetworkRecoveryControllerTest {
     @Test
+    fun reconnect_does_not_interrupt_cached_local_paused_or_recovering_playback() {
+        for (case in 0..3) {
+            val controller = PlaybackNetworkRecoveryController()
+            controller.observe(PlaybackNetworkClass.Offline, true, 5_000L, false)
+            val decision =
+                controller.observe(
+                    PlaybackNetworkClass.Unmetered,
+                    playbackRequested = case != 0,
+                    positionMs = 7_000L,
+                    ended = false,
+                    remoteSource = case != 1,
+                    needsRecovery = case != 2,
+                    recoveryInProgress = case == 3,
+                )
+            assertFalse(decision.retry, "reconnect case $case")
+            assertFalse(controller.observe(PlaybackNetworkClass.Unmetered, true, 7_000L, false).retry)
+        }
+    }
+
+    @Test
+    fun reconnect_resumes_at_current_position_after_cached_playback_advanced() {
+        val controller = PlaybackNetworkRecoveryController()
+        controller.observe(PlaybackNetworkClass.Offline, true, 5_000L, false)
+        val decision = controller.observe(PlaybackNetworkClass.Unmetered, true, 9_000L, false)
+        assertTrue(decision.retry)
+        assertEquals(9_000L, decision.resumePositionMs)
+    }
+
+    @Test
     fun online_transition_retries_once_at_the_last_offline_position() {
         val controller = PlaybackNetworkRecoveryController()
 

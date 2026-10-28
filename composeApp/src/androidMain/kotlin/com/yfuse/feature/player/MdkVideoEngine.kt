@@ -81,6 +81,14 @@ internal data class MdkPlaybackEvidence(
     val runtimeVersion: String = "",
 )
 
+/** Native metadata can arrive after load; include audio and keep the more conservative source hint. */
+internal fun MdkPlaybackEvidence.bufferBitrateBitsPerSecond(sourceHint: Long): Long =
+    maxOf(
+        sourceHint.coerceAtLeast(0L),
+        containerBitrate,
+        videoBitrate.coerceAtMost(Long.MAX_VALUE - audioBitrate) + audioBitrate,
+    )
+
 internal fun decodeMdkPlaybackEvidence(fields: Array<String>): MdkPlaybackEvidence {
     if (fields.size < MdkEvidenceField.Count) return MdkPlaybackEvidence()
     return MdkPlaybackEvidence(
@@ -227,7 +235,9 @@ class MdkVideoEngine(
     AndroidSerializedPlayerRelease {
     @Volatile
     private var items = items.toList()
-    private val memoryBudgetBytes = context?.let(::playbackMemoryBudgetBytes) ?: 32L * 1024L * 1024L
+    private val bufferContext = context?.applicationContext
+    private val memoryBudgetBytes: Long
+        get() = bufferContext?.let(::playbackMemoryBudgetBytes) ?: 32L * 1024L * 1024L
     private var appliedBufferRange: String? = null
     private val networkProxy =
         if (context != null && (videoCacheBytes > 0L || items.any { it.customHeaders != null })) {
@@ -669,11 +679,15 @@ class MdkVideoEngine(
         instance: MDKPlayer,
         item: PlayerMediaItem,
         started: Boolean,
+        evidence: MdkPlaybackEvidence = MdkPlaybackEvidence(),
     ) {
         val profile =
             mdkBufferProfile(
                 optimizationMode,
-                bitrateBitsPerSecond = item.activeVersion?.sourceBitrateBps?.toLong() ?: 0L,
+                bitrateBitsPerSecond =
+                    evidence.bufferBitrateBitsPerSecond(
+                        item.activeVersion?.sourceBitrateBps?.toLong() ?: 0L,
+                    ),
                 memoryBudgetBytes = memoryBudgetBytes,
                 remote = item.url.isRemotePlaybackSource(),
             )
@@ -837,7 +851,7 @@ class MdkVideoEngine(
                     playbackEvidence.videoCodec.isEmpty() &&
                     positionMs > 0L
                 ) {
-                    applyBufferRange(instance, item, started = true)
+                    applyBufferRange(instance, item, started = true, evidence = playbackEvidence)
                 }
             }
             _state.update { current ->

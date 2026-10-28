@@ -2140,6 +2140,13 @@ internal class AndroidEnhancedPlaybackSession(
                 bufferFull = readAhead.atCapacity,
                 rebufferWaitUs = waitingUs,
             )
+        logBufferCapacityLimit(
+            "Enhanced",
+            decision,
+            readAhead.bufferedDurationUs,
+            readAhead.queuedBytes,
+            readAhead.queueBudgetBytes,
+        )
         if (lastDiagnosticOutputAllowed != decision.outputAllowed || nowNs - lastBufferDiagnosticNs >= 5_000_000_000L) {
             lastBufferDiagnosticNs = nowNs
             lastDiagnosticOutputAllowed = decision.outputAllowed

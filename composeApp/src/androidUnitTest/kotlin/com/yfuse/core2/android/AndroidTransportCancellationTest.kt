@@ -26,6 +26,34 @@ class AndroidTransportCancellationTest {
         verifyCancellation(blockInOpen = false)
     }
 
+    @Test fun retiring_seek_source_rejects_future_reads_instead_of_resuming_the_scan() {
+        val created = AtomicInteger()
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mkv",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                createTransport = {
+                    created.incrementAndGet()
+                    error("Retired source must not create a transport")
+                },
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            source.cancelReads()
+            assertFailsWith<java.util.concurrent.ExecutionException> {
+                worker.submit<Int> { source.readAt(0L, ByteArray(8), 0, 8) }.get(1L, TimeUnit.SECONDS)
+            }
+            assertFailsWith<java.util.concurrent.ExecutionException> {
+                worker.submit<Long> { source.getSize() }.get(1L, TimeUnit.SECONDS)
+            }
+            assertEquals(0, created.get())
+        } finally {
+            source.close()
+            worker.shutdownNow()
+        }
+    }
+
     private fun verifyCancellation(blockInOpen: Boolean) {
         val entered = CountDownLatch(1)
         val cancelled = CountDownLatch(1)

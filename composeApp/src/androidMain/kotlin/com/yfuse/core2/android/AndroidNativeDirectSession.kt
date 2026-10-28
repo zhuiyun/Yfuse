@@ -94,6 +94,7 @@ internal class AndroidNativeDirectSession(
         com.yfuse.core2.network
             .YPlaybackBufferGate(remote = false, resumePlaybackUs = 0L)
     private var lastBufferReplanNs = 0L
+    private var lastBufferGatePositionUs = 0L
     private var surfaceOutput: AndroidSurfaceVideoOutput? = null
     private var videoTrackIndex: Int? = null
     private var audioTrackIndex: Int? = null
@@ -386,7 +387,7 @@ internal class AndroidNativeDirectSession(
     private fun prepareCurrent(positionUs: Long) {
         // Only the item whose decode-side failure kept the source may reuse it; anything else
         // (another item, a source failure, a later prepare) opens the source afresh.
-        val reuseSource = retainedSourceIndex == currentIndex
+        val reuseSource = retainedSourceIndex == currentIndex && !demux.readsAborted
         retainedSourceIndex = null
         releaseMedia(keepSource = reuseSource)
         monotonicPositionFloorUs = positionUs.coerceAtLeast(0L)
@@ -907,7 +908,14 @@ internal class AndroidNativeDirectSession(
             stage = YPlaybackFailureStage.Seek,
             safeDetail = "NativeDirect source seek",
         ) {
-            demux.seekTo(targetUs)
+            val buffered = demux.trySeekBuffered(targetUs, videoTrackIndex)
+            if (!buffered) demux.seekTo(targetUs)
+            AppLog.info(
+                category = "player.core2",
+                event = "native_direct_seek_resolved",
+                message = "NativeDirect positioned the source",
+                attributes = mapOf("targetUs" to targetUs.toString(), "buffered" to buffered.toString()),
+            )
         }
         sourcePositionedAtUs = targetUs
         inputConsumedSinceReposition = false
@@ -952,6 +960,7 @@ internal class AndroidNativeDirectSession(
         resetEndState()
         seekTargetVideoUs = targetUs
         bufferGate.reset()
+        lastBufferGatePositionUs = targetUs
         bufferWaitClock.reset()
         rebufferTracker.discontinuity(System.nanoTime() / 1_000_000L)
         hdrAccessUnits.clear()
@@ -967,6 +976,7 @@ internal class AndroidNativeDirectSession(
                 playing = false,
                 buffering = requestedPlay,
                 positionMs = targetUs / MICROS_PER_MILLISECOND,
+                bufferedPositionMs = maxOf(targetUs, demux.snapshot().bufferedThroughUs) / MICROS_PER_MILLISECOND,
                 subtitleCues = activeSubtitleCues(),
                 secondarySubtitleCues = activeSecondarySubtitleCues(),
                 secondarySubtitleTrackId = secondarySubtitleId(),
@@ -1746,17 +1756,23 @@ internal class AndroidNativeDirectSession(
     }
 
     /**
-     * Re-plans the compressed read-ahead once the transport has measured the link.
+     * Re-plans compressed read-ahead from the current shared grant and available link measurements.
      *
      * Mirrors the Enhanced session: a healthy link keeps the queue shallow and latency low,
-     * and only measured pressure buys depth.
+     * while a shrinking grant lowers the time watermark immediately, even before throughput is known.
      */
     private fun refreshAdaptiveBufferPlan(readAhead: YExtractorReadAheadSnapshot) {
-        if (!sourceRemote || !readAhead.throughputMeasured) return
+        val memoryBudget = playbackDemuxMemoryBudgetBytes(readAhead.memoryBudgetBytes)
+        if (!sourceRemote && memoryBudget == bufferPlan.maximumBytes) return
         val nowNs = System.nanoTime()
-        if (nowNs - lastBufferReplanNs < BUFFER_REPLAN_INTERVAL_NS) return
+        if (memoryBudget >= bufferPlan.maximumBytes && nowNs - lastBufferReplanNs < BUFFER_REPLAN_INTERVAL_NS) return
         lastBufferReplanNs = nowNs
-        applyBufferPlan(measuredThroughputBitsPerSecond = readAhead.throughputBitsPerSecond)
+        applyBufferPlan(
+            measuredThroughputBitsPerSecond =
+                readAhead.throughputBitsPerSecond.takeIf {
+                    readAhead.throughputMeasured
+                },
+        )
     }
 
     private fun applyBufferPlan(
@@ -1769,7 +1785,7 @@ internal class AndroidNativeDirectSession(
                     remote = sourceRemote,
                     mediaBitRateBitsPerSecond = sourceBitRateBitsPerSecond,
                     measuredNetworkBitsPerSecond = measuredThroughputBitsPerSecond,
-                    memoryBudgetBytes = MAX_DEMUX_QUEUE_BYTES,
+                    memoryBudgetBytes = playbackDemuxMemoryBudgetBytes(demux.snapshot().memoryBudgetBytes),
                     preferredTargetAheadUs = preferredRemoteBufferTargetUs,
                     speed = speed,
                 ),
@@ -1779,7 +1795,7 @@ internal class AndroidNativeDirectSession(
         bufferGate.updateThresholds(next)
         demux.configureBufferPlan(
             targetAheadUs = next.targetAheadUs,
-            maximumBytes = next.maximumBytes.coerceAtMost(MAX_DEMUX_QUEUE_BYTES),
+            maximumBytes = next.maximumBytes,
         )
     }
 
@@ -1787,6 +1803,11 @@ internal class AndroidNativeDirectSession(
     private fun refreshOutputGate(): Boolean {
         val ahead = demux.snapshot()
         refreshAdaptiveBufferPlan(ahead)
+        val positionUs = currentPositionUs()
+        if (requestedPlay && !transportBufferingVisible) {
+            bufferGate.recordPlaybackProgress(positionUs - lastBufferGatePositionUs)
+        }
+        lastBufferGatePositionUs = positionUs
         if (bufferGate.phase == com.yfuse.core2.network.YPlaybackBufferPhase.Ready &&
             ahead.starved &&
             !ahead.endOfInput &&
@@ -1807,6 +1828,13 @@ internal class AndroidNativeDirectSession(
                         ahead.generation,
                     ),
             )
+        logBufferCapacityLimit(
+            "NativeDirect",
+            decision,
+            ahead.bufferedDurationUs,
+            ahead.queuedBytes,
+            ahead.queueBudgetBytes,
+        )
         if (!decision.outputAllowed && !transportBufferingVisible) {
             val position = currentPositionUs()
             monotonicPositionFloorUs = maxOf(monotonicPositionFloorUs, position)
@@ -1846,21 +1874,14 @@ internal class AndroidNativeDirectSession(
                 playing = requestedPlay && !transportBufferingVisible,
             ),
         )
-        val sourceBufferedMs =
-            (transportQoe?.bufferedAheadDurationMs(currentState.durationMs) ?: 0L) +
-                readAhead.bufferedDurationUs / MICROS_PER_MILLISECOND
+        // A byte/bitrate estimate is not a timestamp range that can be sought in the queue.
+        // Only advertise media timestamps present for every required track.
         val bufferedPositionMs =
-            when {
-                !sourceRemote && currentState.durationMs > 0L -> currentState.durationMs
-                transportQoe != null -> {
-                    val candidate = positionMs + sourceBufferedMs
-                    if (currentState.durationMs > 0L) {
-                        candidate.coerceAtMost(currentState.durationMs)
-                    } else {
-                        candidate
-                    }
-                }
-                else -> currentState.bufferedPositionMs.coerceAtLeast(positionMs)
+            if (!sourceRemote && currentState.durationMs > 0L) {
+                currentState.durationMs
+            } else {
+                val endMs = maxOf(positionMs, readAhead.bufferedThroughUs / MICROS_PER_MILLISECOND)
+                if (currentState.durationMs > 0L) endMs.coerceAtMost(currentState.durationMs) else endMs
             }
         val playing =
             requestedPlay && !videoOutputPending && !transportBufferingVisible && !isEnded()
@@ -2842,6 +2863,7 @@ internal class AndroidNativeDirectSession(
         sourceRemote = false
         sourceBitRateBitsPerSecond = 0L
         lastBufferReplanNs = 0L
+        lastBufferGatePositionUs = 0L
         outputLifecycle.resetMedia()
         videoFormat = null
         inspectHdr10PlusSamples = false
@@ -2880,6 +2902,8 @@ internal class AndroidNativeDirectSession(
 
     fun cancelPendingRead() = demux.cancelPendingRead()
 
+    fun abortPendingReads() = demux.abortPendingReads()
+
     private fun releasePendingAudioOutput() {
         pendingAudioOutput.discard()
     }
@@ -2906,7 +2930,6 @@ private const val MAX_VIDEO_SCHEDULE_AHEAD_US = 250_000L
 private const val STATE_PUBLISH_INTERVAL_NS = 200_000_000L
 private const val BUFFER_REPLAN_INTERVAL_NS = 2_000_000_000L
 private const val MAX_VIDEO_SYNC_SAMPLE_DROPS = 600
-private const val MAX_DEMUX_QUEUE_BYTES = 24L * 1024L * 1024L
 private const val LATE_FRAME_DROP_NS = 100_000_000L
 private const val LATE_FRAME_IMMEDIATE_NS = 50_000_000L
 private const val NANOS_PER_MILLISECOND = 1_000_000L

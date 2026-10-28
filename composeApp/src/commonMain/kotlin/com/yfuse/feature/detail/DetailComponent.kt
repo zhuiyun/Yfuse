@@ -772,6 +772,7 @@ class DetailComponent(
                 mediaKey = identity.mediaKey,
                 aliases = identity.aliases,
                 serverId = identity.serverId,
+                serverItemId = identity.itemId,
             ) ?: return fallbackTicks
         return syncedMs.coerceAtMost(Long.MAX_VALUE / TICKS_PER_MILLISECOND) * TICKS_PER_MILLISECOND
     }

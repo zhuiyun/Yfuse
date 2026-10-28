@@ -501,12 +501,20 @@ internal fun PlayerRuntimeFaultRecovery(
                 )
         ) {
             PlaybackRuntimeFaultStep.ReopenTransport -> {
+                // Connectivity may already have reopened this same fault. Wait for its bounded
+                // outcome; a cleared/changed runtime fault cancels this effect while it waits.
+                if (networkRecovery.pending) snapshotFlow { networkRecovery.pending }.first { !it }
+                if (!player.playbackRequested) return@LaunchedEffect
+                if (activeProbe.localSource ||
+                    !livePlayback.value.buffering &&
+                    livePlayback.value.error == null
+                ) {
+                    return@LaunchedEffect
+                }
                 val positionMs = player.currentPositionMs().coerceAtLeast(0L)
+                if (!networkRecovery.begin(positionMs, livePlayback.value.error)) return@LaunchedEffect
                 longBufferRecoveryAttempts++
                 lastRecoveryPositionMs = positionMs
-                networkRecovery.attempts++
-                networkRecovery.pending = true
-                networkRecovery.resumePositionMs = positionMs
                 build.resume =
                     choices.handover(
                         state = state,
@@ -555,7 +563,7 @@ internal fun PlayerRuntimeFaultRecovery(
                 AppLog.warning(
                     category = "player.core2",
                     event = "native_only_runtime_recovery",
-                    message = "YCore Native restarted its local pipeline after a silent output fault",
+                    message = "YCore Native requested a local pipeline restart after a silent output fault",
                     attributes =
                         mapOf(
                             "engine" to attachedEngineLabel,

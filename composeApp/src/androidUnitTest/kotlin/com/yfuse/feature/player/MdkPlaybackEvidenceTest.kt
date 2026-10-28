@@ -1,11 +1,38 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.playback.PlaybackOptimizationMode
+import com.yfuse.core.playback.mdkBufferProfile
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class MdkPlaybackEvidenceTest {
+    @Test
+    fun late_native_bitrate_replaces_unknown_duration_cap_and_includes_audio() {
+        val budget = 16L * 1024L * 1024L
+        val unknown =
+            mdkBufferProfile(
+                PlaybackOptimizationMode.Balanced,
+                MdkPlaybackEvidence().bufferBitrateBitsPerSecond(0L),
+                budget,
+                remote = true,
+            )
+        assertTrue(unknown.maximumMs in 8_000..9_000)
+        val evidence = MdkPlaybackEvidence(videoBitrate = 90_000_000L, audioBitrate = 10_000_000L)
+        val known =
+            mdkBufferProfile(
+                PlaybackOptimizationMode.Balanced,
+                evidence.bufferBitrateBitsPerSecond(0L),
+                budget,
+                remote = true,
+            )
+        assertTrue(known.maximumMs in 1_300..1_400)
+        assertTrue(known.maximumMs.toLong() * 100_000_000L / 8_000L <= budget)
+        assertEquals(120_000_000L, evidence.bufferBitrateBitsPerSecond(120_000_000L))
+        assertEquals(150_000_000L, evidence.copy(containerBitrate = 150_000_000L).bufferBitrateBitsPerSecond(0L))
+    }
+
     @Test
     fun native_snapshot_maps_codec_color_decoder_and_first_frame() {
         val evidence =

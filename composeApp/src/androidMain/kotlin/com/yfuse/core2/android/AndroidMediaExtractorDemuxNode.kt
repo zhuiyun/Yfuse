@@ -71,6 +71,9 @@ internal interface YPlatformExtractorSource : YDemuxNode {
     /** Cancel only the outstanding read; a following owner-thread seek may reuse the source. */
     fun cancelPendingRead() = Unit
 
+    /** Permanently stop this source before retiring its extractor. */
+    fun abortPendingReads() = cancelPendingRead()
+
     fun selectTrack(index: Int)
 
     fun unselectTrack(index: Int)
@@ -231,6 +234,10 @@ internal class AndroidMediaExtractorDemuxNode(
 
     override fun liveTransportThroughput(): Long? =
         (mediaDataSource as? AndroidTransportMediaDataSource)?.liveTransportThroughput()
+
+    override fun abortPendingReads() {
+        (mediaDataSource as? AndroidTransportMediaDataSource)?.cancelReads()
+    }
 
     override fun cancelPendingRead() {
         (mediaDataSource as? AndroidTransportMediaDataSource)?.cancelPendingRead()

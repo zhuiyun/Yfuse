@@ -98,6 +98,8 @@ internal fun DetailState.localProgressForItem(
     serverId: String,
     itemId: String,
 ): PlaybackStateRecord? {
+    // A concrete library item uses the same authoritative record as history and repository
+    // metadata. Provider aliases are only a fallback for items with no direct record.
     val direct = local.stateForServerItem(serverId, itemId)
     val episode = episodes.firstOrNull { it.id == itemId }
     val media = listOfNotNull(playTarget, playSourceDetail, detail).firstOrNull { it.id == itemId }
@@ -110,14 +112,11 @@ internal fun DetailState.localProgressForItem(
             episodeNumber = episode?.indexNumber ?: media?.episodeNumber,
             fallbackId = itemId,
         )
-    return keys
-        .filterNot { it.startsWith("emby:") }
-        .mapNotNull { key ->
-            local.find(key, serverId = serverId)?.document?.state
-        }.fold(direct) { selected, record ->
-            selected?.let {
-                com.yfuse.core.sync.playback.PlaybackConflictResolver
-                    .chooseState(it, record)
-            } ?: record
-        }
+    return com.yfuse.core.sync.playback.libraryResumeState(
+        direct = direct,
+        portable =
+            keys.filterNot { it.startsWith("emby:") }.mapNotNull { key ->
+                local.find(key, serverId = serverId)?.document?.state
+            },
+    )
 }

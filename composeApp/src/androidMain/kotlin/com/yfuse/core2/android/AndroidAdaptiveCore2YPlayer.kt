@@ -1227,6 +1227,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         initialDecision = decision,
                         allowAudioPassthrough = allowAudioPassthrough,
                         frameRateSwitchMode = frameRateSwitchMode,
+                        preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
                     )
                 !forceSoftwareFallback &&
                     decision.nativeDirectExecutable &&
@@ -1783,7 +1784,20 @@ internal class AndroidAdaptiveCore2YPlayer(
                 if (networkRecoveryWindow.observe(
                         nowMs = System.nanoTime() / 1_000_000L,
                         positionMs = reportedChildState.positionMs,
-                        playing = reportedChildState.playing && !reportedChildState.buffering,
+                        playing =
+                            reportedChildState.playing &&
+                                !reportedChildState.buffering &&
+                                (
+                                    if (childAudioOnly) {
+                                        reportedChildState.diagnostics.audioOutputVerified
+                                    } else {
+                                        reportedChildState.diagnostics.videoOutputVerified
+                                    }
+                                ) &&
+                                (
+                                    reportedChildState.audioTracks.isEmpty() ||
+                                        reportedChildState.diagnostics.audioOutputVerified
+                                ),
                         speed = speed,
                     )
                 ) {

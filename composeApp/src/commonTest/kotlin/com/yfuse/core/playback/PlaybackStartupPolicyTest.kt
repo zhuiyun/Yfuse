@@ -6,6 +6,37 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PlaybackStartupPolicyTest {
+    @Test
+    fun mdk_deeper_cache_respects_mode_memory_and_keeps_startup_and_recovery_short() {
+        val budget = 1024L * 1024L * 1024L
+        val bitrate = 80_000_000L
+        val power = mdkBufferProfile(PlaybackOptimizationMode.PowerSaver, bitrate, budget, remote = true)
+        val quality = mdkBufferProfile(PlaybackOptimizationMode.Quality, bitrate, budget, remote = true)
+        assertTrue(quality.maximumMs >= 100_000)
+        assertTrue(power.maximumMs < quality.maximumMs)
+        assertTrue(power.maximumMs.toLong() * bitrate / 8_000L <= 256L * 1024L * 1024L)
+        assertEquals(1_000, quality.startupMs)
+        assertEquals(4_000, quality.rebufferMs)
+        val lowBitrate = mdkBufferProfile(PlaybackOptimizationMode.Quality, 1_000_000L, budget, remote = true)
+        assertEquals(300_000, lowBitrate.maximumMs)
+    }
+
+    @Test
+    fun mdk_unknown_bitrate_gets_one_minute_only_when_the_provisional_memory_estimate_fits() {
+        val large =
+            mdkBufferProfile(
+                PlaybackOptimizationMode.Balanced,
+                0L,
+                512L * 1024L * 1024L,
+                remote = true,
+            )
+        val smallBudget = 16L * 1024L * 1024L
+        val small = mdkBufferProfile(PlaybackOptimizationMode.Balanced, 0L, smallBudget, remote = true)
+        assertEquals(60_000, large.maximumMs)
+        assertTrue(small.maximumMs in 1..large.maximumMs)
+        assertTrue(small.maximumMs.toLong() * 16_000_000L / 8_000L <= smallBudget)
+    }
+
     private val measured =
         PlaybackStartupConditions(
             remote = true,

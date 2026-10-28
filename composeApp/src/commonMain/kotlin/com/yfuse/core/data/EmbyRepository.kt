@@ -858,29 +858,30 @@ class EmbyRepository(
         embyApiCall("item_detail") {
             val key = server to itemId
             val previous = detailSnapshots.peek(key)
-            detailSnapshots.get(key, reuse = false) {
-                val loaded =
-                    if (includePlaybackFields) {
-                        playbackDetails.get(server to itemId, reuse = false) {
+            detailSnapshots
+                .get(key, reuse = false) {
+                    val loaded =
+                        if (includePlaybackFields) {
+                            playbackDetails.get(server to itemId, reuse = false) {
+                                adapterFor(server)
+                                    .itemDetail(
+                                        server,
+                                        itemId,
+                                        includeInheritedPeople,
+                                        includePlaybackFields = true,
+                                    ).getOrThrow()
+                            }
+                        } else {
                             adapterFor(server)
                                 .itemDetail(
                                     server,
                                     itemId,
                                     includeInheritedPeople,
-                                    includePlaybackFields = true,
+                                    includePlaybackFields = false,
                                 ).getOrThrow()
                         }
-                    } else {
-                        adapterFor(server)
-                            .itemDetail(
-                                server,
-                                itemId,
-                                includeInheritedPeople,
-                                includePlaybackFields = false,
-                            ).getOrThrow()
-                    }
-                if (includePlaybackFields) loaded else loaded.retainPlaybackMetadata(previous)
-            }
+                    if (includePlaybackFields) loaded else loaded.retainPlaybackMetadata(previous)
+                }.let { progressProjection.projectDetail(server, it) }
         }
 
     /** A lightweight refresh must never erase file metadata already shown from a full snapshot. */
@@ -920,19 +921,20 @@ class EmbyRepository(
         itemId: String,
     ): Result<MediaDetail> =
         embyApiCall("playback_item_detail") {
-            playbackDetails.get(server to itemId) {
-                if (server.kind == MediaServerKind.Plex) {
-                    adapterFor(server).itemDetail(server, itemId, includeInheritedPeople = false).getOrThrow()
-                } else {
-                    detailService
-                        .itemDetail(
-                            server,
-                            itemId,
-                            includeInheritedPeople = false,
-                            playbackOnly = true,
-                        ).getOrThrow()
-                }
-            }
+            playbackDetails
+                .get(server to itemId) {
+                    if (server.kind == MediaServerKind.Plex) {
+                        adapterFor(server).itemDetail(server, itemId, includeInheritedPeople = false).getOrThrow()
+                    } else {
+                        detailService
+                            .itemDetail(
+                                server,
+                                itemId,
+                                includeInheritedPeople = false,
+                                playbackOnly = true,
+                            ).getOrThrow()
+                    }
+                }.let { progressProjection.projectDetail(server, it) }
         }
 
     suspend fun inheritedEpisodePeople(

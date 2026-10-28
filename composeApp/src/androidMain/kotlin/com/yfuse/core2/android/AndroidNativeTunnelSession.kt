@@ -59,6 +59,7 @@ internal class AndroidNativeTunnelSession(
     private val videoDecoder: AndroidMediaCodecVideoNode = AndroidMediaCodecVideoNode(),
     private val audioDecoder: AndroidMediaCodecAudioNode = AndroidMediaCodecAudioNode(),
     frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
+    private val preferredRemoteBufferTargetUs: Long? = null,
 ) {
     private val fallbackClock = YMediaClock()
     private val frameRateManager = AndroidFrameRateManager(context, frameRateSwitchMode)
@@ -90,6 +91,9 @@ internal class AndroidNativeTunnelSession(
     private var plannedDecoderName: String? = null
     private var plannedDolbyVisionConfig: YDolbyVisionConfig? = null
     private var sourceRemote = false
+    private var sourceBitRateBitsPerSecond = 0L
+    private var lastBufferReplanNs = 0L
+    private var lastBufferGatePositionUs = 0L
     private var outputActive = false
     private var audioSeekTargetUs = 0L
     private var audioSampleRate = 0
@@ -117,13 +121,12 @@ internal class AndroidNativeTunnelSession(
         runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null,
         dolbyVisionConfig: YDolbyVisionConfig? = null,
         audioPreference: com.yfuse.core2.api.YTrackPreference? = null,
+        sourceBitRateBitsPerSecond: Long = 0L,
     ) {
         close()
         sourceRemote = source.uri.isCore2RemoteMediaUri()
         plannedDecoderName = decoderName
         plannedDolbyVisionConfig = dolbyVisionConfig
-        bufferPlan = YBufferController.plan(YBufferConditions(remote = sourceRemote))
-        bufferGate = YPlaybackBufferGate(sourceRemote, bufferPlan.resumePlaybackUs, bufferPlan.startupPlaybackUs)
         this.runtimeCapabilityKey = runtimeCapabilityKey
         require(surface.isValid) { "Tunnel session requires a valid Surface" }
         val tunnelConfig =
@@ -138,7 +141,6 @@ internal class AndroidNativeTunnelSession(
         sourceStage(YPlaybackFailureStage.SourceOpen) {
             demuxer.open(source)
         }
-        demuxer.configureBufferPlan(bufferPlan.targetAheadUs, bufferPlan.maximumBytes)
         val videoIndex =
             demuxer.findFirstTrack("video/")
                 ?: throw YPlaybackException(
@@ -160,6 +162,20 @@ internal class AndroidNativeTunnelSession(
         }
         val videoFormat = tunnelConfig.configureVideoFormat(originalVideoFormat)
         val audioFormat = demuxer.trackFormat(audioIndex)
+        this.sourceBitRateBitsPerSecond =
+            maxOf(
+                sourceBitRateBitsPerSecond,
+                listOf(originalVideoFormat, audioFormat).sumOf { format ->
+                    runCatching {
+                        format.getInteger(MediaFormat.KEY_BIT_RATE).toLong()
+                    }.getOrDefault(0L).coerceAtLeast(0L)
+                },
+            )
+        demuxer.setMediaBitRateBitsPerSecond(this.sourceBitRateBitsPerSecond)
+        refreshAdaptiveBufferPlan(demuxer.snapshot(), force = true)
+        bufferGate =
+            YPlaybackBufferGate(sourceRemote, bufferPlan.resumePlaybackUs, bufferPlan.startupPlaybackUs)
+                .also { it.updateThresholds(bufferPlan) }
         if (audioFormat.aacLabelWithoutConfig()) {
             // The AAC decoder would swallow this track's frames without a sample of PCM, leaving the
             // tunnel no audio to keep time with. Failing here lets another route play the file.
@@ -478,8 +494,39 @@ internal class AndroidNativeTunnelSession(
         }
     }
 
+    private fun refreshAdaptiveBufferPlan(
+        readAhead: YExtractorReadAheadSnapshot,
+        force: Boolean = false,
+    ) {
+        val memoryBudget = playbackDemuxMemoryBudgetBytes(readAhead.memoryBudgetBytes)
+        val nowNs = System.nanoTime()
+        if (!force && memoryBudget >= bufferPlan.maximumBytes && nowNs - lastBufferReplanNs < 1_000_000_000L) return
+        lastBufferReplanNs = nowNs
+        val next =
+            YBufferController.plan(
+                YBufferConditions(
+                    remote = sourceRemote,
+                    mediaBitRateBitsPerSecond = sourceBitRateBitsPerSecond,
+                    measuredNetworkBitsPerSecond =
+                        readAhead.throughputBitsPerSecond.takeIf {
+                            readAhead.throughputMeasured
+                        },
+                    memoryBudgetBytes = memoryBudget,
+                    preferredTargetAheadUs = preferredRemoteBufferTargetUs,
+                ),
+            )
+        if (!force && next == bufferPlan) return
+        bufferPlan = next
+        bufferGate.updateThresholds(next)
+        demuxer.configureBufferPlan(next.targetAheadUs, next.maximumBytes)
+    }
+
     private fun refreshOutputGate(): Boolean {
         val readAhead = demuxer.snapshot()
+        refreshAdaptiveBufferPlan(readAhead)
+        val positionUs = currentPositionUs()
+        if (playing && outputActive) bufferGate.recordPlaybackProgress(positionUs - lastBufferGatePositionUs)
+        lastBufferGatePositionUs = positionUs
         demuxer.updatePlaybackWindow(
             YTransportPlaybackWindow(
                 targetAheadUs = bufferPlan.forwardCacheTargetUs,
@@ -500,6 +547,13 @@ internal class AndroidNativeTunnelSession(
                         readAhead.generation,
                     ),
             )
+        logBufferCapacityLimit(
+            "NativeTunnel",
+            decision,
+            readAhead.bufferedDurationUs,
+            readAhead.queuedBytes,
+            readAhead.queueBudgetBytes,
+        )
         if (decision.outputAllowed && !outputActive) {
             val position = currentPositionUs()
             outputActive = true
@@ -758,6 +812,7 @@ internal class AndroidNativeTunnelSession(
     }
 
     private fun resetEndState(positionUs: Long) {
+        lastBufferGatePositionUs = positionUs
         outputWatchdog.reset()
         videoInputQueued = false
         inputEnded = false

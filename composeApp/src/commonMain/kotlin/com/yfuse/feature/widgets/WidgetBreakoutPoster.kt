@@ -30,7 +30,6 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -120,13 +119,7 @@ internal fun WidgetBreakoutPoster(
                                 .graphicsLayer {
                                     translationX = relative * (stageWidth + cardWidth).toPx() * .4f *
                                         if (motion.rtl) -1f else 1f
-                                    translationY = distance * 20.dp.toPx()
-                                    scaleX = 1f - distance * .18f
-                                    scaleY = scaleX
-                                    rotationY = if (motion.reduceMotion) 0f else relative.coerceIn(-1f, 1f) * -12f
-                                    cameraDistance = 16 * density.density
                                     alpha = 1f - distance * .48f
-                                    transformOrigin = TransformOrigin(.5f, .8f)
                                 }.pressable(
                                     label = items[index].title,
                                     onClickLabel = if (selected) "查看详情" else "选中影片",
@@ -185,7 +178,7 @@ private fun BreakoutArtwork(
                     .fillMaxHeight(1f - BREAKOUT_FRAME_TOP)
                     .clip(RoundedCornerShape(18.dp))
             if (source?.startsWith("http") == true) {
-                FallbackImage(listOf(source), item.title, modifier, fitNarrow = true)
+                FallbackImage(listOf(source), item.title, modifier, contentScale = ContentScale.Crop)
             } else {
                 Artwork(item, modifier, poster = true)
             }

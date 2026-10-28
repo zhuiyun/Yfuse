@@ -7,7 +7,35 @@ import kotlin.test.assertTrue
 
 class YBufferControllerTest {
     @Test
-    fun `long rebuffer wait drops extra reserve but still requires base buffer`() {
+    fun `remote recovery uses four eight twelve seconds and stops growing`() {
+        val plan = YBufferController.plan(YBufferConditions(remote = true))
+        val gate = YPlaybackBufferGate(true, plan.resumePlaybackUs).also { it.updateThresholds(plan) }
+        assertTrue(gate.evaluate(500_000L, false).outputAllowed)
+        for (required in listOf(4_000_000L, 8_000_000L, 12_000_000L, 12_000_000L)) {
+            gate.markStarved()
+            val waiting = gate.evaluate(required - 1L, false, rebufferWaitUs = 60_000_000L)
+            assertFalse(waiting.outputAllowed)
+            assertEquals(required, waiting.requiredBufferedUs)
+            assertTrue(gate.evaluate(required, false).outputAllowed)
+        }
+    }
+
+    @Test
+    fun `shrinking memory grant lowers an outstanding recovery threshold to an attainable reserve`() {
+        val conditions = YBufferConditions(remote = true, mediaBitRateBitsPerSecond = 80_000_000L)
+        val initial = YBufferController.plan(conditions)
+        val gate = YPlaybackBufferGate(true, initial.resumePlaybackUs).also { it.updateThresholds(initial) }
+        gate.evaluate(500_000L, false)
+        gate.markStarved()
+        assertFalse(gate.evaluate(1_000_000L, false).outputAllowed)
+        val reduced = YBufferController.plan(conditions.copy(memoryBudgetBytes = 8L * 1024L * 1024L))
+        gate.updateThresholds(reduced)
+        assertTrue(reduced.maximumResumePlaybackUs <= reduced.targetAheadUs)
+        assertTrue(gate.evaluate(reduced.targetAheadUs, false).outputAllowed)
+    }
+
+    @Test
+    fun `long rebuffer wait preserves extra reserve until real capacity or EOF is reached`() {
         val gate =
             YPlaybackBufferGate(true, 2_500_000L).also {
                 it.updateThresholds(YBufferPlan(8_000_000, 2_500_000, 24 * 1024 * 1024))
@@ -19,8 +47,9 @@ class YBufferControllerTest {
         assertFalse(gate.evaluate(2_500_000L, false, rebufferWaitUs = 9_000_000L).outputAllowed)
         assertFalse(gate.evaluate(1_000_000L, false, rebufferWaitUs = 10_000_000L).outputAllowed)
         val resumed = gate.evaluate(2_500_000L, false, rebufferWaitUs = 10_000_000L)
-        assertTrue(resumed.outputAllowed)
-        assertEquals(2_500_000L, resumed.requiredBufferedUs)
+        assertFalse(resumed.outputAllowed)
+        assertEquals(5_000_000L, resumed.requiredBufferedUs)
+        assertTrue(gate.evaluate(5_000_000L, false, rebufferWaitUs = 30_000_000L).outputAllowed)
     }
 
     @Test
@@ -97,14 +126,16 @@ class YBufferControllerTest {
             )
         assertEquals(120_000_000L, plan.forwardCacheTargetUs)
         assertEquals(1_000_000L, plan.startupPlaybackUs)
-        assertEquals(10_000_000L, plan.resumePlaybackUs)
+        assertEquals(8_000_000L, plan.resumePlaybackUs)
     }
 
     @Test
     fun `a full variable bitrate queue cannot deadlock rebuffer recovery`() {
         val gate = YPlaybackBufferGate(remote = true, resumePlaybackUs = 5_000_000L)
         gate.markStarved()
-        assertTrue(gate.evaluate(800_000L, endOfInput = false, bufferFull = true).outputAllowed)
+        val resumed = gate.evaluate(800_000L, endOfInput = false, bufferFull = true)
+        assertTrue(resumed.outputAllowed)
+        assertTrue(resumed.capacityLimited)
         gate.reset()
         assertFalse(gate.evaluate(100_000L, endOfInput = false).outputAllowed)
         assertEquals(YPlaybackBufferPhase.Startup, gate.phase)
@@ -142,7 +173,7 @@ class YBufferControllerTest {
         assertTrue(pressured.targetAheadUs > healthy.targetAheadUs)
         assertEquals(30_000_000L, healthy.targetAheadUs)
         assertEquals(120_000_000L, pressured.targetAheadUs)
-        assertEquals(5_000_000L, pressured.resumePlaybackUs)
+        assertEquals(4_000_000L, pressured.resumePlaybackUs)
     }
 
     @Test
@@ -173,7 +204,7 @@ class YBufferControllerTest {
 
         assertEquals(30_000_000L, plan.targetAheadUs)
         assertEquals(30_000_000L, plan.forwardCacheTargetUs)
-        assertEquals(2_500_000L, plan.resumePlaybackUs)
+        assertEquals(4_000_000L, plan.resumePlaybackUs)
     }
 
     @Test
@@ -206,7 +237,7 @@ class YBufferControllerTest {
         assertEquals(budget * 8L * 1_000_000L / 78_938_975L, plan.targetAheadUs)
         assertTrue(plan.targetAheadUs > 100_000_000L)
         assertEquals(500_000L, plan.startupPlaybackUs)
-        assertEquals(2_500_000L, plan.resumePlaybackUs)
+        assertEquals(4_000_000L, plan.resumePlaybackUs)
         assertEquals(300_000_000L, plan.forwardCacheTargetUs)
     }
 

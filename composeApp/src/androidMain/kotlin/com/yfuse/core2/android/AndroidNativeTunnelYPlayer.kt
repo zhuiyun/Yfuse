@@ -49,6 +49,7 @@ internal class AndroidNativeTunnelYPlayer(
     private val initialDecision: YCore2RouteDecision? = null,
     private val allowAudioPassthrough: Boolean = true,
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
+    private val preferredRemoteBufferTargetUs: Long? = null,
 ) : YPlayer,
     AndroidSerializedPlayerRelease,
     AndroidVideoOutputDetach {
@@ -277,7 +278,12 @@ internal class AndroidNativeTunnelYPlayer(
     }
 
     private suspend fun runLoop() {
-        val session = AndroidNativeTunnelSession(appContext, frameRateSwitchMode = frameRateSwitchMode)
+        val session =
+            AndroidNativeTunnelSession(
+                appContext,
+                frameRateSwitchMode = frameRateSwitchMode,
+                preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
+            )
         activeSession = session
         var surfaceOutput: AndroidSurfaceVideoOutput? = null
         var currentIndex = request.startIndex
@@ -374,6 +380,7 @@ internal class AndroidNativeTunnelYPlayer(
                 runtimeCapabilityKey = decision.runtimeCapabilityKey(),
                 dolbyVisionConfig = decision.probe.dolbyVisionConfig,
                 audioPreference = item.initialTrackSelection?.audio,
+                sourceBitRateBitsPerSecond = item.sourceHints?.bitrateBitsPerSecond ?: 0L,
             )
             prepared = true
             val snapshot = session.snapshot()

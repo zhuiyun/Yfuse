@@ -25,6 +25,8 @@ data class YBufferPlan(
     val startupPlaybackUs: Long = 500_000L,
     /** Media time to retain on disk; independent of the compressed heap queue and output gate. */
     val forwardCacheTargetUs: Long = targetAheadUs,
+    /** Repeated stalls may build reserve, but never beyond the time or queue capacity ceiling. */
+    val maximumResumePlaybackUs: Long = maxOf(resumePlaybackUs, minOf(12_000_000L, targetAheadUs / 4L * 3L)),
 )
 
 enum class YPlaybackBufferPhase {
@@ -37,6 +39,7 @@ data class YPlaybackBufferDecision(
     val phase: YPlaybackBufferPhase,
     val outputAllowed: Boolean,
     val requiredBufferedUs: Long = 0L,
+    val capacityLimited: Boolean = false,
 ) {
     val buffering: Boolean get() = !outputAllowed
 }
@@ -100,9 +103,10 @@ class YPlaybackBufferGate(
     fun updateThresholds(plan: YBufferPlan) {
         resumePlaybackUs = plan.resumePlaybackUs
         startupPlaybackUs = plan.startupPlaybackUs
-        maximumResumePlaybackUs = maxOf(plan.resumePlaybackUs, plan.targetAheadUs / 4L * 3L)
+        maximumResumePlaybackUs = plan.maximumResumePlaybackUs
     }
 
+    @Suppress("UNUSED_PARAMETER") // Waiting alone is not evidence that a smaller reserve is safe.
     fun evaluate(
         bufferedDurationUs: Long,
         endOfInput: Boolean,
@@ -110,7 +114,7 @@ class YPlaybackBufferGate(
         rebufferWaitUs: Long = 0L,
     ): YPlaybackBufferDecision {
         if (!remote) phase = YPlaybackBufferPhase.Ready
-        var thresholdUs =
+        val thresholdUs =
             if (phase == YPlaybackBufferPhase.Startup) {
                 startupPlaybackUs
             } else {
@@ -119,11 +123,11 @@ class YPlaybackBufferGate(
                     maximumResumePlaybackUs,
                 )
             }
-        // Do not wait indefinitely for the extra reserve added after repeated stalls. The
-        // base reserve must still be present; this never opens an empty or undersupplied queue.
-        if (phase == YPlaybackBufferPhase.Rebuffering && rebufferWaitUs >= 10_000_000L) {
-            thresholdUs = minOf(thresholdUs, resumePlaybackUs)
-        }
+        val capacityLimited =
+            phase != YPlaybackBufferPhase.Ready &&
+                bufferFull &&
+                !endOfInput &&
+                bufferedDurationUs < thresholdUs
         if (
             phase != YPlaybackBufferPhase.Ready &&
             (bufferedDurationUs.coerceAtLeast(0L) >= thresholdUs || endOfInput || bufferFull)
@@ -134,6 +138,7 @@ class YPlaybackBufferGate(
             phase = phase,
             outputAllowed = phase == YPlaybackBufferPhase.Ready,
             requiredBufferedUs = thresholdUs,
+            capacityLimited = capacityLimited,
         )
     }
 
@@ -183,7 +188,7 @@ object YBufferController {
         val startupUs = minOf((500_000L * conditions.speed.toDouble()).toLong(), targetUs).coerceAtLeast(1L)
         val resumeUs =
             minOf(
-                ((if (underPressure) 5_000_000L else 2_500_000L) * conditions.speed.toDouble()).toLong(),
+                (4_000_000L * conditions.speed.toDouble()).toLong(),
                 targetUs / 2L,
             ).coerceAtLeast(startupUs)
         return YBufferPlan(
@@ -191,6 +196,9 @@ object YBufferController {
             resumePlaybackUs = resumeUs,
             maximumBytes = conditions.memoryBudgetBytes,
             startupPlaybackUs = startupUs,
+            maximumResumePlaybackUs =
+                minOf((12_000_000L * conditions.speed.toDouble()).toLong(), targetUs / 4L * 3L)
+                    .coerceAtLeast(resumeUs),
             forwardCacheTargetUs =
                 ((conditions.preferredTargetAheadUs ?: DEFAULT_FORWARD_CACHE_TARGET_US).toDouble() * conditions.speed)
                     .toLong(),
