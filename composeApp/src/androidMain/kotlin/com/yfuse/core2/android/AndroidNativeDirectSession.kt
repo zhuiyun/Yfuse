@@ -1927,9 +1927,9 @@ internal class AndroidNativeDirectSession(
                         videoDecoderName = videoDecoder.decoderName.orEmpty(),
                         audioDecoderName = audioDecoderDiagnosticName().orEmpty(),
                         droppedFramesMeasured = true,
-                        // Long forward-cache coverage includes disk bytes, not queued heap input.
+                        // Report retained input bytes and the remaining timestamp coverage.
                         sourceQueueBytes = readAhead.queuedBytes,
-                        sourceBufferedMs = sourceBufferedMs,
+                        sourceBufferedMs = (bufferedPositionMs - positionMs).coerceAtLeast(0L),
                         sourceStarvationCount = readAhead.starvationCount,
                         // The transport already measures the link; NativeDirect never passed it
                         // on, so the player could not tell a slow server from any other wait.
