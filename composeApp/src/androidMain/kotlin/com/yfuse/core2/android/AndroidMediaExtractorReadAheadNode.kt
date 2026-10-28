@@ -23,6 +23,9 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 internal class AndroidMediaExtractorReadAheadNode(
     @Volatile private var delegate: YPlatformExtractorSource,
+    private val acquireMemoryLease: () -> PlaybackMemoryLease = {
+        AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.Demux, MAXIMUM_PLAYBACK_DEMUX_BYTES)
+    },
 ) {
     constructor(
         context: Context,
@@ -46,10 +49,16 @@ internal class AndroidMediaExtractorReadAheadNode(
     private var fillScheduled = false
     private var sampleCapacity = DEFAULT_SAMPLE_CAPACITY_BYTES
     private var targetAheadUs = DEFAULT_HIGH_WATERMARK_US
-    private var maximumQueueBytes = DEFAULT_MAXIMUM_QUEUE_BYTES
+    private var maximumQueueBytes = DEFAULT_PLAYBACK_DEMUX_BYTES
     private var memoryLease: PlaybackMemoryLease? = null
 
-    private fun queueBudgetBytes() = minOf(maximumQueueBytes, memoryLease?.limitBytes ?: maximumQueueBytes)
+    private fun memoryBudgetBytes() =
+        minOf(
+            MAXIMUM_PLAYBACK_DEMUX_BYTES,
+            memoryLease?.limitBytes ?: DEFAULT_PLAYBACK_DEMUX_BYTES,
+        )
+
+    private fun queueBudgetBytes() = minOf(maximumQueueBytes, memoryBudgetBytes())
 
     private var queuedBytes = 0L
     private val queuedTimestamps = mutableMapOf<Int, TreeMap<Long, Int>>()
@@ -83,7 +92,7 @@ internal class AndroidMediaExtractorReadAheadNode(
     ) {
         synchronized(monitor) {
             if (memoryLease == null) {
-                memoryLease = AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.Demux, 24L * 1024L * 1024L)
+                memoryLease = acquireMemoryLease()
             }
             opened = false
             readAheadEnabled = false
@@ -330,6 +339,8 @@ internal class AndroidMediaExtractorReadAheadNode(
                 atCapacity = samples.isNotEmpty() && queuedBytes >= queueBudgetBytes(),
                 trackBufferedDurationUs = trackBufferedDurationsUsLocked(),
                 generation = generation,
+                memoryBudgetBytes = memoryBudgetBytes(),
+                queueBudgetBytes = queueBudgetBytes(),
             )
         }
 
@@ -619,13 +630,14 @@ internal data class YExtractorReadAheadSnapshot(
     val trackBufferedDurationUs: Map<Int, Long> = emptyMap(),
     /** Changes when the queue is invalidated so consumers discard stale buffering state. */
     val generation: Long = 0L,
+    val memoryBudgetBytes: Long = DEFAULT_PLAYBACK_DEMUX_BYTES,
+    val queueBudgetBytes: Long = memoryBudgetBytes,
 )
 
 private const val EXTRACTOR_THREAD_NAME = "YCore-PlatformDemux"
 private const val DEFAULT_SAMPLE_CAPACITY_BYTES = 8 * 1024 * 1024
 private const val MINIMUM_SAMPLES_BEFORE_TIME_LIMIT = 8
 private const val DEFAULT_HIGH_WATERMARK_US = 3_000_000L
-private const val DEFAULT_MAXIMUM_QUEUE_BYTES = 24L * 1024L * 1024L
 
 private fun String?.startsWithIgnoringCase(prefix: String): Boolean =
     this?.startsWith(prefix, ignoreCase = true) == true

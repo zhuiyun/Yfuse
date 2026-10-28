@@ -68,15 +68,16 @@ fun mdkBufferProfile(
     remote: Boolean,
 ): MdkBufferProfile {
     val base = playbackBufferProfile(mode)
+    val byteBudget = minOf(memoryBudgetBytes.coerceAtLeast(1L), base.targetBufferBytes.toLong())
+    // Until metadata arrives, estimate at 16 Mbps and keep at most one minute. This is a
+    // provisional time limit: MDK exposes no independent compressed-byte cap here.
+    val estimatedBitrate = bitrateBitsPerSecond.takeIf { it > 0L } ?: 16_000_000L
+    val timeCeilingMs = if (bitrateBitsPerSecond > 0L) base.maxBufferMs else minOf(base.maxBufferMs, 60_000)
     val durationLimitMs =
-        if (bitrateBitsPerSecond > 0L) {
-            (memoryBudgetBytes.coerceAtLeast(1L).toDouble() * 8_000.0 / bitrateBitsPerSecond)
-                .toLong()
-                .coerceIn(1L, base.maxBufferMs.toLong())
-                .toInt()
-        } else {
-            minOf(base.maxBufferMs, 12_000)
-        }
+        (byteBudget.toDouble() * 8_000.0 / estimatedBitrate)
+            .toLong()
+            .coerceIn(1L, timeCeilingMs.toLong())
+            .toInt()
     return MdkBufferProfile(
         startupMs = minOf(if (remote) minOf(base.playbackStartMs, 1_000) else 500, durationLimitMs),
         rebufferMs = minOf(base.rebufferStartMs, durationLimitMs),

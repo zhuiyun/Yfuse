@@ -21,8 +21,22 @@ import com.yfuse.core.playback.playbackStartupThresholdMs
 
 internal fun playbackMemoryBudgetBytes(context: Context): Long {
     val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-    val heapBytes = (manager?.memoryClass ?: 128).toLong() * 1024L * 1024L
-    return (heapBytes / 4L).coerceIn(16L * 1024L * 1024L, 192L * 1024L * 1024L)
+    return playbackMemoryBudgetBytes(Runtime.getRuntime().maxMemory(), manager?.isLowRamDevice == true)
+}
+
+internal fun playbackMemoryBudgetBytes(
+    heapBytes: Long,
+    lowRam: Boolean,
+): Long {
+    require(heapBytes > 0L)
+    val poolBudget =
+        com.yfuse.core2.android.playbackMemoryBudgetBytes(
+            heapBytes = heapBytes,
+            lowRam = lowRam,
+        )
+    // Normal devices retain at least half their heap for decoding and the rest of the app.
+    // Keep the existing small-device reserve while allowing large heaps to buffer high-bitrate media.
+    return if (lowRam) poolBudget / 2L else minOf(poolBudget, 1024L * 1024L * 1024L)
 }
 
 /** The default load control still owns rebuffering, loading limits and live playback. */

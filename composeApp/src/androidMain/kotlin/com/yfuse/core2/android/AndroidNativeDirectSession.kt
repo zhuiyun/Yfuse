@@ -94,6 +94,7 @@ internal class AndroidNativeDirectSession(
         com.yfuse.core2.network
             .YPlaybackBufferGate(remote = false, resumePlaybackUs = 0L)
     private var lastBufferReplanNs = 0L
+    private var lastBufferGatePositionUs = 0L
     private var surfaceOutput: AndroidSurfaceVideoOutput? = null
     private var videoTrackIndex: Int? = null
     private var audioTrackIndex: Int? = null
@@ -952,6 +953,7 @@ internal class AndroidNativeDirectSession(
         resetEndState()
         seekTargetVideoUs = targetUs
         bufferGate.reset()
+        lastBufferGatePositionUs = targetUs
         bufferWaitClock.reset()
         rebufferTracker.discontinuity(System.nanoTime() / 1_000_000L)
         hdrAccessUnits.clear()
@@ -1746,17 +1748,23 @@ internal class AndroidNativeDirectSession(
     }
 
     /**
-     * Re-plans the compressed read-ahead once the transport has measured the link.
+     * Re-plans compressed read-ahead from the current shared grant and available link measurements.
      *
      * Mirrors the Enhanced session: a healthy link keeps the queue shallow and latency low,
-     * and only measured pressure buys depth.
+     * while a shrinking grant lowers the time watermark immediately, even before throughput is known.
      */
     private fun refreshAdaptiveBufferPlan(readAhead: YExtractorReadAheadSnapshot) {
-        if (!sourceRemote || !readAhead.throughputMeasured) return
+        val memoryBudget = playbackDemuxMemoryBudgetBytes(readAhead.memoryBudgetBytes)
+        if (!sourceRemote && memoryBudget == bufferPlan.maximumBytes) return
         val nowNs = System.nanoTime()
-        if (nowNs - lastBufferReplanNs < BUFFER_REPLAN_INTERVAL_NS) return
+        if (memoryBudget >= bufferPlan.maximumBytes && nowNs - lastBufferReplanNs < BUFFER_REPLAN_INTERVAL_NS) return
         lastBufferReplanNs = nowNs
-        applyBufferPlan(measuredThroughputBitsPerSecond = readAhead.throughputBitsPerSecond)
+        applyBufferPlan(
+            measuredThroughputBitsPerSecond =
+                readAhead.throughputBitsPerSecond.takeIf {
+                    readAhead.throughputMeasured
+                },
+        )
     }
 
     private fun applyBufferPlan(
@@ -1769,7 +1777,7 @@ internal class AndroidNativeDirectSession(
                     remote = sourceRemote,
                     mediaBitRateBitsPerSecond = sourceBitRateBitsPerSecond,
                     measuredNetworkBitsPerSecond = measuredThroughputBitsPerSecond,
-                    memoryBudgetBytes = MAX_DEMUX_QUEUE_BYTES,
+                    memoryBudgetBytes = playbackDemuxMemoryBudgetBytes(demux.snapshot().memoryBudgetBytes),
                     preferredTargetAheadUs = preferredRemoteBufferTargetUs,
                     speed = speed,
                 ),
@@ -1779,7 +1787,7 @@ internal class AndroidNativeDirectSession(
         bufferGate.updateThresholds(next)
         demux.configureBufferPlan(
             targetAheadUs = next.targetAheadUs,
-            maximumBytes = next.maximumBytes.coerceAtMost(MAX_DEMUX_QUEUE_BYTES),
+            maximumBytes = next.maximumBytes,
         )
     }
 
@@ -1787,6 +1795,11 @@ internal class AndroidNativeDirectSession(
     private fun refreshOutputGate(): Boolean {
         val ahead = demux.snapshot()
         refreshAdaptiveBufferPlan(ahead)
+        val positionUs = currentPositionUs()
+        if (requestedPlay && !transportBufferingVisible) {
+            bufferGate.recordPlaybackProgress(positionUs - lastBufferGatePositionUs)
+        }
+        lastBufferGatePositionUs = positionUs
         if (bufferGate.phase == com.yfuse.core2.network.YPlaybackBufferPhase.Ready &&
             ahead.starved &&
             !ahead.endOfInput &&
@@ -1807,6 +1820,13 @@ internal class AndroidNativeDirectSession(
                         ahead.generation,
                     ),
             )
+        logBufferCapacityLimit(
+            "NativeDirect",
+            decision,
+            ahead.bufferedDurationUs,
+            ahead.queuedBytes,
+            ahead.queueBudgetBytes,
+        )
         if (!decision.outputAllowed && !transportBufferingVisible) {
             val position = currentPositionUs()
             monotonicPositionFloorUs = maxOf(monotonicPositionFloorUs, position)
@@ -2842,6 +2862,7 @@ internal class AndroidNativeDirectSession(
         sourceRemote = false
         sourceBitRateBitsPerSecond = 0L
         lastBufferReplanNs = 0L
+        lastBufferGatePositionUs = 0L
         outputLifecycle.resetMedia()
         videoFormat = null
         inspectHdr10PlusSamples = false
@@ -2906,7 +2927,6 @@ private const val MAX_VIDEO_SCHEDULE_AHEAD_US = 250_000L
 private const val STATE_PUBLISH_INTERVAL_NS = 200_000_000L
 private const val BUFFER_REPLAN_INTERVAL_NS = 2_000_000_000L
 private const val MAX_VIDEO_SYNC_SAMPLE_DROPS = 600
-private const val MAX_DEMUX_QUEUE_BYTES = 24L * 1024L * 1024L
 private const val LATE_FRAME_DROP_NS = 100_000_000L
 private const val LATE_FRAME_IMMEDIATE_NS = 50_000_000L
 private const val NANOS_PER_MILLISECOND = 1_000_000L

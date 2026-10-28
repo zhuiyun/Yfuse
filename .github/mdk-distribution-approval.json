@@ -1,10 +1,10 @@
 {
-  "versionName": "1.7.7",
-  "versionCode": 329,
+  "versionName": "1.7.8",
+  "versionCode": 330,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-27T08:59:27.352425+00:00",
+  "confirmedAt": "2026-10-28T09:18:27.9535157Z",
   "confirmedBy": "release owner",
-  "confirmationBasis": "Owner requested 签名打包 after the custom-home persistence, startup restoration, breakout spacing and search synopsis fixes in PR 254. Standing authorization covers the unchanged pinned MDK component and this production-signed full ARM64 package-only delivery. No update-server publishing is requested."
+  "confirmationBasis": "Owner requested signed packaging and source upload for the playback buffer/recovery fixes and uniform breakout poster sizing. Standing authorization covers the unchanged pinned MDK component and this production-signed full ARM64 package-only delivery. Source push is authorized; update-server and GitHub release publishing are not requested."
 }

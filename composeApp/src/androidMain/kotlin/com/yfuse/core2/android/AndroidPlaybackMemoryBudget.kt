@@ -136,6 +136,10 @@ internal fun playbackDemuxMemoryBudgetBytes(availableBytes: Long): Long {
     return if (positiveBytes < step) positiveBytes else positiveBytes / step * step
 }
 
+// Requested ceilings, not allocations: every demux route shares the same pressure-aware pool.
+internal const val DEFAULT_PLAYBACK_DEMUX_BYTES = 256L * 1024L * 1024L
+internal const val MAXIMUM_PLAYBACK_DEMUX_BYTES = 1024L * 1024L * 1024L
+
 /** OS pressure can concern the whole device while this process still has free Java heap. */
 internal class PlaybackMemoryPressurePolicy(
     private val nowNs: () -> Long = System::nanoTime,

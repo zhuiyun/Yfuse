@@ -23,6 +23,30 @@ import kotlin.test.assertTrue
  */
 class AndroidMediaExtractorReadAheadNodeTest {
     @Test
+    fun `platform queue uses shared grant beyond twenty four MiB and follows pressure`() {
+        val mib = 1024L * 1024L
+        val pool = PlaybackMemoryPool(128L * mib)
+        val node =
+            AndroidMediaExtractorReadAheadNode(FakeExtractorSource(8, 100_000L)) {
+                pool.acquire(PlaybackBufferKind.Demux, MAXIMUM_PLAYBACK_DEMUX_BYTES)
+            }
+        try {
+            node.open(SOURCE)
+            assertEquals(128L * mib, node.snapshot().memoryBudgetBytes)
+            node.configureBufferPlan(60_000_000L, 128L * mib)
+            assertEquals(128L * mib, node.snapshot().queueBudgetBytes)
+            pool.setPressure(true)
+            assertEquals(64L * mib, node.snapshot().memoryBudgetBytes)
+            assertEquals(64L * mib, node.snapshot().queueBudgetBytes)
+            node.selectTracks(setOf(VIDEO_TRACK))
+            node.awaitQueued(8)
+            assertEquals(700_000L, node.snapshot().bufferedDurationUs)
+        } finally {
+            node.close()
+        }
+    }
+
+    @Test
     fun `buffer bounds retain duplicate and reordered timestamps across poll return and seek`() {
         val delegate = FakeExtractorSource(4, 100_000L)
         val times = longArrayOf(300_000, 100_000, 100_000, 200_000)
