@@ -56,5 +56,3 @@
 -dontwarn com.google.zxing.**
 -dontwarn com.mediadevkit.sdk.**
 -dontwarn dev.jdtech.mpv.**
-# ONNX Runtime resolves its Java wrapper and native methods through JNI.
--keep class ai.onnxruntime.** { *; }

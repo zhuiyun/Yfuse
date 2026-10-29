@@ -297,7 +297,6 @@ com.google.testing.platform:core-proto:0.0.9-alpha04=_internal-unified-test-plat
 com.google.testing.platform:core:0.0.9-alpha04=_internal-unified-test-platform-core
 com.google.testing.platform:launcher:0.0.9-alpha04=_internal-unified-test-platform-gradle-work-action,_internal-unified-test-platform-launcher
 com.google.zxing:core:3.5.4=benchmarkTestedApks,debugTestedApks,profileTestedApks
-com.microsoft.onnxruntime:onnxruntime-android:1.31.0=benchmarkTestedApks,debugTestedApks,profileTestedApks
 com.pinterest.ktlint:ktlint-cli-reporter-baseline:1.3.1=ktlint,ktlintBaselineReporter
 com.pinterest.ktlint:ktlint-cli-reporter-checkstyle:1.3.1=ktlint
 com.pinterest.ktlint:ktlint-cli-reporter-core:1.3.1=ktlint,ktlintBaselineReporter
