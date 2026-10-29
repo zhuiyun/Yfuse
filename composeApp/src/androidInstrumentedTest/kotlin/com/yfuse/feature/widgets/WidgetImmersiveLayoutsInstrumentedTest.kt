@@ -298,7 +298,7 @@ class WidgetImmersiveLayoutsInstrumentedTest {
     }
 
     @Test(timeout = 90_000L)
-    fun tablet_home_uses_both_columns_fits_heroes_and_retains_selection_when_resized() {
+    fun tablet_home_stays_single_column_fits_heroes_and_retains_selection_when_resized() {
         val width = mutableStateOf(1200)
         val panels = ConcurrentHashMap<String, Rect>()
         val viewport = AtomicReference(Rect.Zero)
@@ -356,12 +356,15 @@ class WidgetImmersiveLayoutsInstrumentedTest {
             }
             val prism = media.getValue(sections[0].id)
             awaitDetail(prism[0])
-            await("Tablet sections were still stacked in a narrow centre column") {
-                val left = panels[sections[0].id] ?: return@await false
-                val right = panels[sections[1].id] ?: return@await false
-                abs(left.top - right.top) < density && left.right < right.left && left.width > 500 * density
+            await("Tablet sections must share one wide column") {
+                val first = panels[sections[0].id] ?: return@await false
+                val second = panels[sections[1].id] ?: return@await false
+                abs(first.left - second.left) < density &&
+                    abs(first.right - second.right) < density &&
+                    second.top >= first.bottom &&
+                    first.width > 1000 * density
             }
-            for (section in sections.take(2)) {
+            for (section in sections.take(1)) {
                 val bounds = panels.getValue(section.id)
                 assertTrue(
                     "${section.id} extended behind the dock in the first tablet row",
@@ -380,27 +383,46 @@ class WidgetImmersiveLayoutsInstrumentedTest {
             awaitDetail(prism[1])
             saveTabletScreenshot("tablet-home-split-700dp")
             scenario.onActivity { width.value = 1200 }
-            await("Returning to landscape lost the second column") {
-                val left = panels[sections[0].id] ?: return@await false
-                val right = panels[sections[1].id] ?: return@await false
-                left.right < right.left && abs(left.top - right.top) < density
+            await("Returning to landscape must retain one wide column") {
+                val first = panels[sections[0].id] ?: return@await false
+                val second = panels[sections[1].id] ?: return@await false
+                abs(first.left - second.left) < density && second.top >= first.bottom && first.width > 1000 * density
             }
             awaitDetail(prism[1])
-            // Scroll in the gap between columns, clear of the prism's two-axis rotation surface.
+            // Scroll in the page margin, clear of the prism's two-axis rotation surface.
             // Android does not consistently put collectionInfo and scroll actions on one node.
             val home = viewport.get()
-            drag(
-                scenario,
-                Offset(home.center.x, home.bottom - 110 * density),
-                Offset(home.center.x, home.top + 40 * density),
-            )
+            for (attempt in 0..5) {
+                drag(
+                    scenario,
+                    Offset(home.left + 12 * density, home.bottom - 110 * density),
+                    Offset(home.left + 12 * density, home.top + 40 * density),
+                )
+                val last = panels[sections.last().id]
+                if (last != null && last.top >= home.top && last.bottom <= home.bottom - 94 * density) break
+            }
             await("The last tablet row could not be scrolled clear of the dock") {
-                sections.takeLast(2).all { section ->
+                sections.takeLast(1).all { section ->
                     val bounds = panels[section.id] ?: return@all false
                     bounds.top >= viewport.get().top && bounds.bottom <= viewport.get().bottom - 94 * density
                 }
             }
             saveTabletScreenshot("tablet-home-last-row-clear-of-dock")
+        }
+    }
+
+    @Test(timeout = 60_000L)
+    fun wide_poster_and_carousel_rows_keep_card_heights_bounded() {
+        withWidgetScenario { scenario ->
+            val probe = mount(scenario)
+            for (style in listOf(WidgetStyle.Poster, WidgetStyle.CenterPoster, WidgetStyle.PeekCarousel)) {
+                show(scenario, probe, RenderCase(style, films, width = 1000, reduced = true))
+                val bounds = probe.bounds.get()
+                val density = probe.density.get()
+                assertTrue("$style did not use the wide row", bounds.width > 900 * density)
+                assertTrue("$style enlarged its cards with the full row width", bounds.height < 520 * density)
+                saveTabletScreenshot("tablet-${style.id}-wide-row")
+            }
         }
     }
 

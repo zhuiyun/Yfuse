@@ -71,7 +71,7 @@ internal fun WidgetGalleryLayouts(
                 WidgetStyle.StaggeredRail -> if (compact) 132.dp else 158.dp
                 else -> if (compact) 244.dp else 294.dp
             }
-        val width = minOf(preferred, maxWidth).coerceAtLeast(48.dp)
+        val width = widgetRailItemWidth(preferred, maxWidth)
         val copy = galleryCopyHeight(metadata)
         val image =
             when (style) {

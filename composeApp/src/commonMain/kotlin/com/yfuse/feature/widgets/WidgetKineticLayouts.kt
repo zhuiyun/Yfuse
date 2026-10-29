@@ -156,148 +156,156 @@ internal fun WidgetKineticLayouts(
         }
 
         Column(
-            Modifier.width(stageWidth),
+            Modifier.width(widgetGalleryViewportWidth(maxWidth, stageWidth)),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(stageHeight)
-                    .clipToBounds()
-                    .scrollable(
-                        state = scrollState,
-                        orientation = Orientation.Horizontal,
-                        enabled = items.size > 1,
-                        reverseDirection = rtl,
-                        flingBehavior = fling,
-                    ).onPreviewKeyEvent { event ->
-                        if (event.type != KeyEventType.KeyDown || items.size <= 1) {
-                            false
-                        } else {
-                            val direction =
-                                when (event.key) {
-                                    Key.DirectionRight -> if (rtl) -1 else 1
-                                    Key.DirectionLeft -> if (rtl) 1 else -1
-                                    else -> 0
-                                }
-                            if (direction != 0) select(currentIndex + direction)
-                            direction != 0
-                        }
-                    }.semantics {
-                        collectionInfo = CollectionInfo(1, items.size)
-                        stateDescription = "第 ${currentIndex + 1} 部，共 ${items.size} 部"
-                        if (items.size > 1) {
-                            horizontalScrollAxisRange =
-                                ScrollAxisRange(
-                                    value = { position },
-                                    maxValue = { lastIndex.toFloat() },
-                                    reverseScrolling = rtl,
-                                )
-                            scrollBy { x, _ ->
-                                if (x == 0f) {
-                                    false
-                                } else {
-                                    select(currentIndex + if (x > 0f) 1 else -1)
-                                    true
-                                }
+            WidgetGalleryStage(stageWidth, stageHeight, items, currentIndex, select) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(stageHeight)
+                        .clipToBounds()
+                        .scrollable(
+                            state = scrollState,
+                            orientation = Orientation.Horizontal,
+                            enabled = items.size > 1,
+                            reverseDirection = rtl,
+                            flingBehavior = fling,
+                        ).onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown || items.size <= 1) {
+                                false
+                            } else {
+                                val direction =
+                                    when (event.key) {
+                                        Key.DirectionRight -> if (rtl) -1 else 1
+                                        Key.DirectionLeft -> if (rtl) 1 else -1
+                                        else -> 0
+                                    }
+                                if (direction != 0) select(currentIndex + direction)
+                                direction != 0
                             }
-                            customActions =
-                                buildList {
-                                    if (currentIndex > 0) {
-                                        add(
-                                            CustomAccessibilityAction("上一部") {
-                                                select(currentIndex - 1)
-                                                true
-                                            },
-                                        )
-                                    }
-                                    if (currentIndex < lastIndex) {
-                                        add(
-                                            CustomAccessibilityAction("下一部") {
-                                                select(currentIndex + 1)
-                                                true
-                                            },
-                                        )
+                        }.semantics {
+                            collectionInfo = CollectionInfo(1, items.size)
+                            stateDescription = "第 ${currentIndex + 1} 部，共 ${items.size} 部"
+                            if (items.size > 1) {
+                                horizontalScrollAxisRange =
+                                    ScrollAxisRange(
+                                        value = { position },
+                                        maxValue = { lastIndex.toFloat() },
+                                        reverseScrolling = rtl,
+                                    )
+                                scrollBy { x, _ ->
+                                    if (x == 0f) {
+                                        false
+                                    } else {
+                                        select(currentIndex + if (x > 0f) 1 else -1)
+                                        true
                                     }
                                 }
-                        }
-                    },
-            ) {
-                val drawingPosition = if (reduceMotion) currentIndex.toFloat() else boundedPosition
-                // The farthest depth cover is four places away; at most 11 images are composed.
-                val visible = (currentIndex - 5..currentIndex + 5).filter { it in items.indices }
-                for (index in visible) {
-                    val distance = index - drawingPosition
-                    val frame = kineticPosterFrame(style, distance)
-                    if (frame.opacity <= .015f) continue
-                    val centeredX = if (items.size == 1) (1f - frame.width) / 2 else frame.x
-                    val active = index == currentIndex
-                    val shape = if (style == WidgetStyle.FoldingGallery) RoundedCornerShape(7.dp) else AppShapes.card
-                    key("$index:${items[index].id}") {
-                        Box(
-                            Modifier
-                                .offset(x = 24.dp + artworkWidth * centeredX, y = 24.dp + artworkWidth * frame.y)
-                                .width(artworkWidth * frame.width)
-                                .height(artworkWidth * frame.height)
-                                .zIndex(10f - abs(distance))
-                                .graphicsLayer {
-                                    rotationY = frame.turn * if (rtl) -1f else 1f
-                                    rotationZ = frame.tilt * if (rtl) -1f else 1f
-                                    cameraDistance = size.width * 12f
-                                    alpha = frame.opacity
-                                    this.shape = shape
-                                    clip = true
-                                    shadowElevation = (if (active) 6.dp else 2.dp).toPx()
-                                }.pressable(
-                                    label = items[index].title,
-                                    onClickLabel = if (active) "查看详情" else "展开影片",
-                                    focusShape = shape,
-                                    lightFeedback = false,
-                                    onClick = { if (active) onOpen(items[index]) else select(index) },
-                                ).semantics {
-                                    selected = active
-                                    stateDescription = if (active) "当前影片" else "第 ${index + 1} 部，共 ${items.size} 部"
-                                },
-                        ) {
-                            Artwork(
-                                items[index],
-                                Modifier.fillMaxSize().clearAndSetSemantics { },
-                                poster = true,
-                            )
+                                customActions =
+                                    buildList {
+                                        if (currentIndex > 0) {
+                                            add(
+                                                CustomAccessibilityAction("上一部") {
+                                                    select(currentIndex - 1)
+                                                    true
+                                                },
+                                            )
+                                        }
+                                        if (currentIndex < lastIndex) {
+                                            add(
+                                                CustomAccessibilityAction("下一部") {
+                                                    select(currentIndex + 1)
+                                                    true
+                                                },
+                                            )
+                                        }
+                                    }
+                            }
+                        },
+                ) {
+                    val drawingPosition = if (reduceMotion) currentIndex.toFloat() else boundedPosition
+                    // The farthest depth cover is four places away; at most 11 images are composed.
+                    val visible = (currentIndex - 5..currentIndex + 5).filter { it in items.indices }
+                    for (index in visible) {
+                        val distance = index - drawingPosition
+                        val frame = kineticPosterFrame(style, distance)
+                        if (frame.opacity <= .015f) continue
+                        val centeredX = if (items.size == 1) (1f - frame.width) / 2 else frame.x
+                        val active = index == currentIndex
+                        val shape =
+                            if (style ==
+                                WidgetStyle.FoldingGallery
+                            ) {
+                                RoundedCornerShape(7.dp)
+                            } else {
+                                AppShapes.card
+                            }
+                        key("$index:${items[index].id}") {
+                            Box(
+                                Modifier
+                                    .offset(x = 24.dp + artworkWidth * centeredX, y = 24.dp + artworkWidth * frame.y)
+                                    .width(artworkWidth * frame.width)
+                                    .height(artworkWidth * frame.height)
+                                    .zIndex(10f - abs(distance))
+                                    .graphicsLayer {
+                                        rotationY = frame.turn * if (rtl) -1f else 1f
+                                        rotationZ = frame.tilt * if (rtl) -1f else 1f
+                                        cameraDistance = size.width * 12f
+                                        alpha = frame.opacity
+                                        this.shape = shape
+                                        clip = true
+                                        shadowElevation = (if (active) 6.dp else 2.dp).toPx()
+                                    }.pressable(
+                                        label = items[index].title,
+                                        onClickLabel = if (active) "查看详情" else "展开影片",
+                                        focusShape = shape,
+                                        lightFeedback = false,
+                                        onClick = { if (active) onOpen(items[index]) else select(index) },
+                                    ).semantics {
+                                        selected = active
+                                        stateDescription = if (active) "当前影片" else "第 ${index + 1} 部，共 ${items.size} 部"
+                                    },
+                            ) {
+                                Artwork(
+                                    items[index],
+                                    Modifier.fillMaxSize().clearAndSetSemantics { },
+                                    poster = true,
+                                )
+                            }
                         }
                     }
-                }
-                if (style == WidgetStyle.ArcPoster && items.size > 1) {
-                    val accent = LocalAccentColors.current.accent
-                    Canvas(
-                        Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 4.dp)
-                            .width(artworkWidth * .88f)
-                            .height(16.dp)
-                            .clearAndSetSemantics { },
-                    ) {
-                        val track =
-                            Path().apply {
-                                moveTo(0f, size.height * .12f)
-                                quadraticTo(size.width * .5f, size.height * 1.1f, size.width, size.height * .12f)
+                    if (style == WidgetStyle.ArcPoster && items.size > 1) {
+                        val accent = LocalAccentColors.current.accent
+                        Canvas(
+                            Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 4.dp)
+                                .width(artworkWidth * .88f)
+                                .height(16.dp)
+                                .clearAndSetSemantics { },
+                        ) {
+                            val track =
+                                Path().apply {
+                                    moveTo(0f, size.height * .12f)
+                                    quadraticTo(size.width * .5f, size.height * 1.1f, size.width, size.height * .12f)
+                                }
+                            drawPath(track, accent.copy(alpha = .12f), style = Stroke(1.dp.toPx()))
+                            for (offset in -2..2) {
+                                if (currentIndex + offset !in items.indices) continue
+                                val fraction = (offset + 2) / 4f
+                                val visualFraction = if (rtl) 1f - fraction else fraction
+                                val curveY = size.height * (.12f + 1.96f * visualFraction * (1f - visualFraction))
+                                drawCircle(
+                                    color = accent.copy(alpha = if (offset == 0) 1f else .25f),
+                                    radius = if (offset == 0) 3.5.dp.toPx() else 2.dp.toPx(),
+                                    center = Offset(size.width * visualFraction, curveY),
+                                )
                             }
-                        drawPath(track, accent.copy(alpha = .12f), style = Stroke(1.dp.toPx()))
-                        for (offset in -2..2) {
-                            if (currentIndex + offset !in items.indices) continue
-                            val fraction = (offset + 2) / 4f
-                            val visualFraction = if (rtl) 1f - fraction else fraction
-                            val curveY = size.height * (.12f + 1.96f * visualFraction * (1f - visualFraction))
-                            drawCircle(
-                                color = accent.copy(alpha = if (offset == 0) 1f else .25f),
-                                radius = if (offset == 0) 3.5.dp.toPx() else 2.dp.toPx(),
-                                center = Offset(size.width * visualFraction, curveY),
-                            )
                         }
                     }
                 }
             }
-
             WidgetGalleryFooter(
                 items,
                 metadata,

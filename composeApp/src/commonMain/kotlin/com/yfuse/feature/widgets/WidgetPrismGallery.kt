@@ -67,103 +67,114 @@ internal fun WidgetPrismGallery(
         val currentMotion by rememberUpdatedState(motion)
         val currentItems by rememberUpdatedState(items)
         val open by rememberUpdatedState(onOpen)
-        Column(Modifier.width(stageWidth), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(stageWidth * .91f)
-                    .clipToBounds()
-                    .pointerInput(Unit) {
-                        detectTapGestures { point ->
-                            val normalized =
-                                GalleryPoint(
-                                    point.x / size.width.coerceAtLeast(1),
-                                    point.y / size.height.coerceAtLeast(1),
-                                )
-                            val face =
-                                currentFaces.asReversed().firstOrNull {
-                                    galleryQuadContains(
-                                        it.corners,
-                                        normalized,
+        Column(
+            Modifier.width(widgetGalleryViewportWidth(maxWidth, stageWidth)),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+        ) {
+            WidgetGalleryStage(stageWidth, stageWidth * .91f, items, motion.currentIndex, motion.select) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(stageWidth * .91f)
+                        .clipToBounds()
+                        .pointerInput(Unit) {
+                            detectTapGestures { point ->
+                                val normalized =
+                                    GalleryPoint(
+                                        point.x / size.width.coerceAtLeast(1),
+                                        point.y / size.height.coerceAtLeast(1),
                                     )
-                                }
-                            val item = face?.let { currentItems.getOrNull(it.index) }
-                            if (face != null && item != null) {
-                                if (face.index ==
-                                    currentMotion.currentIndex
-                                ) {
-                                    open(item)
-                                } else {
-                                    currentMotion.select(face.index)
-                                }
-                            }
-                        }
-                    }.onKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyUp &&
-                            (event.key == Key.Enter || event.key == Key.DirectionCenter)
-                        ) {
-                            currentItems.getOrNull(currentMotion.currentIndex)?.let(open)
-                            true
-                        } else {
-                            false
-                        }
-                    }.semantics {
-                        role = Role.Button
-                        contentDescription = items[motion.currentIndex].title
-                        onClick("查看详情") {
-                            onOpen(items[motion.currentIndex])
-                            true
-                        }
-                    }.then(motion.inputModifier),
-            ) {
-                Canvas(Modifier.fillMaxSize().clearAndSetSemantics { }) {
-                    // A bounded contact shadow makes the shared planes read as a single object.
-                    repeat(7) { layer ->
-                        val expansion = layer * .012f
-                        drawOval(
-                            shadow.copy(alpha = .018f),
-                            topLeft = Offset(size.width * (.18f - expansion), size.height * (.86f - expansion / 3)),
-                            size = Size(size.width * (.64f + expansion * 2), size.height * (.06f + expansion * 2 / 3)),
-                        )
-                    }
-                }
-                faces.forEach { face ->
-                    Artwork(
-                        items[face.index],
-                        Modifier.fillMaxSize().clearAndSetSemantics { }.drawWithContent {
-                            // Orthographic cube faces are parallelograms; this affine map
-                            // preserves their common edges throughout the rotation.
-                            val matrix = prismGalleryMatrix(face, size, motion.rtl)
-                            withTransform({ transform(matrix) }) {
-                                this@drawWithContent.drawContent()
-                                drawRect(Color.Black.copy(alpha = face.shade))
-                                drawRect(
-                                    Brush.verticalGradient(listOf(Color.White.copy(alpha = .12f), Color.Transparent)),
-                                )
-                            }
-                        },
-                        poster = true,
-                    )
-                }
-                Canvas(Modifier.fillMaxSize().clearAndSetSemantics { }) {
-                    faces.forEach { face ->
-                        val outline =
-                            Path().apply {
-                                face.corners.forEachIndexed { index, point ->
-                                    if (index ==
-                                        0
-                                    ) {
-                                        moveTo(point.x * size.width, point.y * size.height)
-                                    } else {
-                                        lineTo(
-                                            point.x * size.width,
-                                            point.y * size.height,
+                                val face =
+                                    currentFaces.asReversed().firstOrNull {
+                                        galleryQuadContains(
+                                            it.corners,
+                                            normalized,
                                         )
                                     }
+                                val item = face?.let { currentItems.getOrNull(it.index) }
+                                if (face != null && item != null) {
+                                    if (face.index ==
+                                        currentMotion.currentIndex
+                                    ) {
+                                        open(item)
+                                    } else {
+                                        currentMotion.select(face.index)
+                                    }
                                 }
-                                close()
                             }
-                        drawPath(outline, Color.White.copy(alpha = .22f), style = Stroke(.7.dp.toPx()))
+                        }.onKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyUp &&
+                                (event.key == Key.Enter || event.key == Key.DirectionCenter)
+                            ) {
+                                currentItems.getOrNull(currentMotion.currentIndex)?.let(open)
+                                true
+                            } else {
+                                false
+                            }
+                        }.semantics {
+                            role = Role.Button
+                            contentDescription = items[motion.currentIndex].title
+                            onClick("查看详情") {
+                                onOpen(items[motion.currentIndex])
+                                true
+                            }
+                        }.then(motion.inputModifier),
+                ) {
+                    Canvas(Modifier.fillMaxSize().clearAndSetSemantics { }) {
+                        // A bounded contact shadow makes the shared planes read as a single object.
+                        repeat(7) { layer ->
+                            val expansion = layer * .012f
+                            drawOval(
+                                shadow.copy(alpha = .018f),
+                                topLeft = Offset(size.width * (.18f - expansion), size.height * (.86f - expansion / 3)),
+                                size =
+                                    Size(
+                                        size.width * (.64f + expansion * 2),
+                                        size.height * (.06f + expansion * 2 / 3),
+                                    ),
+                            )
+                        }
+                    }
+                    faces.forEach { face ->
+                        Artwork(
+                            items[face.index],
+                            Modifier.fillMaxSize().clearAndSetSemantics { }.drawWithContent {
+                                // Orthographic cube faces are parallelograms; this affine map
+                                // preserves their common edges throughout the rotation.
+                                val matrix = prismGalleryMatrix(face, size, motion.rtl)
+                                withTransform({ transform(matrix) }) {
+                                    this@drawWithContent.drawContent()
+                                    drawRect(Color.Black.copy(alpha = face.shade))
+                                    drawRect(
+                                        Brush.verticalGradient(
+                                            listOf(Color.White.copy(alpha = .12f), Color.Transparent),
+                                        ),
+                                    )
+                                }
+                            },
+                            poster = true,
+                        )
+                    }
+                    Canvas(Modifier.fillMaxSize().clearAndSetSemantics { }) {
+                        faces.forEach { face ->
+                            val outline =
+                                Path().apply {
+                                    face.corners.forEachIndexed { index, point ->
+                                        if (index ==
+                                            0
+                                        ) {
+                                            moveTo(point.x * size.width, point.y * size.height)
+                                        } else {
+                                            lineTo(
+                                                point.x * size.width,
+                                                point.y * size.height,
+                                            )
+                                        }
+                                    }
+                                    close()
+                                }
+                            drawPath(outline, Color.White.copy(alpha = .22f), style = Stroke(.7.dp.toPx()))
+                        }
                     }
                 }
             }

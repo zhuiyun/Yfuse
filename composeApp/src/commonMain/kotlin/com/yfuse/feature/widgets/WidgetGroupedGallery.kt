@@ -55,7 +55,7 @@ internal fun WidgetGroupedGallery(
     val pages = remember(items, pageSize) { items.chunked(pageSize) }
     var collection by remember(style, items) { mutableStateOf<List<WidgetMedia>?>(null) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val width = minOf(if (compact) 270.dp else 320.dp, maxWidth).coerceAtLeast(48.dp)
+        val width = widgetRailItemWidth(if (compact) 270.dp else 320.dp, maxWidth)
         val copy = galleryCopyHeight(metadata)
         val columnWidth = (width - 12.dp) / 2
         val image = columnWidth / .667f
