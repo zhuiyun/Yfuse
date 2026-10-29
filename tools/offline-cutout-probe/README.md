@@ -13,3 +13,5 @@
 选择交付模型前，PP 与 BiRef FP32 基线必须各自具有与当前模型配置匹配的六张完整结果；缺图、重复样本、推理失败或权重不一致均拒绝选择。原图、蒙版、前景和报告保存在各模型自己的目录中，重新测试一个模型不会覆盖其他模型的原图证据。
 
 `offline-cutout-probe.yml`、`offline-cutout-native.yml` 和 `offline-cutout-selfie.yml` 用于重放历史六模型/Selfie 实验，固定检出各自匹配的历史提交。当前双模型流程使用 `offline-cutout-optimize.yml` 和 `offline-cutout-package.yml`。
+
+当前设备脚本使用 Python 3.12+（或包含 `tarfile` data filter 回移的维护版本）。导出归档只接受普通文件和目录，并使用 data filter 阻止通过已有符号链接越界写入。

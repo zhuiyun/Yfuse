@@ -1,6 +1,7 @@
 """Run each model in a fresh Android process, offline, retaining failures as evidence."""
 from pathlib import Path
 import io, json, os, subprocess, tarfile, time
+from report_archive import extract_reports
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / 'artifacts/device'
@@ -58,16 +59,11 @@ def main():
         snapshot = adb('exec-out', 'run-as', PACKAGE, 'tar', '-C', 'files', '-cf', '-', 'offline-probe', binary=True, timeout=120)
         if snapshot.returncode == 0:
             with tarfile.open(fileobj=io.BytesIO(snapshot.stdout)) as partial:
-                for member in partial.getmembers():
-                    if Path(member.name).is_absolute() or '..' in Path(member.name).parts or member.issym() or member.islnk(): raise RuntimeError('Unsafe archive')
-                partial.extractall(OUT)
+                extract_reports(partial, OUT)
     archive = adb('exec-out', 'run-as', PACKAGE, 'tar', '-C', 'files', '-cf', '-', 'offline-probe', binary=True, timeout=180)
     archive.check_returncode()
     with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
-        for member in tar.getmembers():
-            path = Path(member.name)
-            if path.is_absolute() or '..' in path.parts or member.issym() or member.islnk(): raise RuntimeError('Unsafe report archive')
-        tar.extractall(OUT)
+        extract_reports(tar, OUT)
     print('All attempted:', json.dumps(outcomes), flush=True)
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
