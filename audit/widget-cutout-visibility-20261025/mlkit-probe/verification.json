@@ -1,0 +1,82 @@
+{
+  "phase": "cloud_trial_finished_physical_device_required",
+  "branch": "probe/mlkit-cutout-20261025",
+  "source_sha": "0f67e8ba2cfe2a1f19f9dd4949b859f1f320e7a8",
+  "workflow_run": 40196336828,
+  "production_dependency_changed": false,
+  "production_apk_rebuilt": false,
+  "local_compile": "passed",
+  "local_android_lint": {
+    "errors": 0,
+    "warnings": 5
+  },
+  "diagnostic_package": "com.yfuse.cutoutprobe",
+  "diagnostic_version": "0.0.1 (1)",
+  "local_debug_apk_bytes": 4162911,
+  "local_debug_apk_sha256": "791dd84a9e7809597af766c6625fdca45a6976a8f105017e3135f7920ed9dfeb",
+  "segmentation_quality": "unverified_no_valid_emulator_masks",
+  "first_run": {
+    "run_id": 40196336828,
+    "job_conclusion": "failure",
+    "model_download": "completed",
+    "model_wait_ms": 100970,
+    "gl_version_from_native_log": "OpenGL ES 3.0 SwiftShader 4.0.0.1",
+    "status": "failed",
+    "error": "MediaPipeException:invalid argument: CalculatorGraph::Run() failed: \nCalculator::Process() for node \"mediapipe_tasks_vision_image_segmenter_imagesegmentergraph__mediapipe.tasks.TensorsToSegmentationCalculator\" failed: Tensor should have 2, 3, or 4 dims, received: 0",
+    "real_masks_produced": 0
+  },
+  "retry_source_sha": "c9662f9987f7fe32c3a62680778fc124a1afca03",
+  "second_run": {
+    "run_id": 40197004166,
+    "source_sha": "220b41adc8fef4cb534b59191cdbbcef8d89b113",
+    "gl": "OpenGL ES 3.1 ANGLE 2.1.17841 / SwiftShader Vulkan",
+    "status": "model_unavailable",
+    "module_install_error": 8,
+    "real_masks_produced": 0
+  },
+  "third_run": {
+    "run_id": 40197597834,
+    "source_sha": "c9662f9987f7fe32c3a62680778fc124a1afca03",
+    "model_download": "completed",
+    "wait_ms": 147045,
+    "sdk_returned_mask": true,
+    "status": "failed",
+    "reason": "strict confidence-range assertion rejected first image before raw values were retained",
+    "real_masks_retained": 0,
+    "second_poster_attempted": false
+  },
+  "raw_confidence_source_sha": "2716c0e3e7b9c8f79ecfaa95d932d98acf855ac0",
+  "local_revised_compile_and_lint": "passed",
+  "cloud_probe": "failed",
+  "physical_device_test": "not_available",
+  "final_run": {
+    "run_id": 40198448445,
+    "source_sha": "2716c0e3e7b9c8f79ecfaa95d932d98acf855ac0",
+    "status": "no_valid_outputs",
+    "model_download": "completed",
+    "model_wait_ms": 60782,
+    "posters_attempted": [
+      "whalefall",
+      "heart-of-the-beast"
+    ],
+    "valid_output_count": 0,
+    "failure": "MediaPipe TensorsToSegmentationCalculator tensor dimensions 0",
+    "quality_gate_executed": false,
+    "raw_mask_available": false,
+    "roundoff_saturation_applied": false
+  },
+  "delivered_probe": {
+    "filename": "Yfuse-MLKit-probe-0.0.1.apk",
+    "bytes": 4149584,
+    "sha256": "ba694f8a209e4467a7774ea04539269c7df2f3a2ae14a5b0c5d8fbe5a573bba0",
+    "source_run": 40198448445,
+    "package": "com.yfuse.cutoutprobe",
+    "version_name": "0.0.1",
+    "version_code": 1,
+    "signature": "Android Debug v2",
+    "certificate_sha256": "12b75b25fdbe909d6aa5e349f78853e0fcb656ff9266c2e4f54d156f60e9d28d",
+    "contains_exact_public_posters": true,
+    "bundled_models": false,
+    "replaces_yfuse": false
+  }
+}
