@@ -54,7 +54,9 @@ internal fun shouldValidatePlaybackHandoverPosition(
     snapshot: PlaybackHandoverSnapshot,
     currentItemIndex: Int,
     alreadyValidated: Boolean,
-): Boolean = !alreadyValidated && currentItemIndex == snapshot.itemIndex
+    capturedSeekRevision: Long = 0L,
+    currentSeekRevision: Long = 0L,
+): Boolean = !alreadyValidated && currentItemIndex == snapshot.itemIndex && capturedSeekRevision == currentSeekRevision
 
 /**
  * The replacement may legitimately advance while it starts playing. Its first position must stay

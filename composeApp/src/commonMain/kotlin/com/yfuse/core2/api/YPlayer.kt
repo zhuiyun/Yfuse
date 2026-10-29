@@ -32,6 +32,9 @@ interface YPlayer {
 
     fun pause()
 
+    /** Changes as soon as an explicit seek is requested, before asynchronous output. */
+    val seekRevision: Long get() = 0L
+
     fun seekTo(positionMs: Long)
 
     fun setSpeed(speed: Float)

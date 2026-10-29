@@ -7,6 +7,13 @@ import kotlin.test.assertTrue
 
 class PlaybackHandoverTest {
     @Test
+    fun a_seek_before_first_output_supersedes_the_attached_handover_position() {
+        val snapshot = PlaybackHandoverSnapshot(0, 10_000L, true, 1f)
+        assertFalse(shouldValidatePlaybackHandoverPosition(snapshot, 0, false, 1L, 2L))
+        assertTrue(shouldValidatePlaybackHandoverPosition(snapshot, 0, false, 1L, 1L))
+    }
+
+    @Test
     fun paused_handover_preserves_position_speed_and_pause_intent() {
         val snapshot =
             playbackHandoverSnapshot(

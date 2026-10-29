@@ -13,7 +13,6 @@ import com.yfuse.core.data.PlaybackNetworkClass
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.playback.PlaybackMediaProbe
 import com.yfuse.core.playback.PlaybackNetworkRecoveryController
-import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlayer
 import kotlinx.coroutines.flow.dropWhile
 import kotlinx.coroutines.flow.filterNotNull
@@ -93,7 +92,7 @@ internal fun BindPlaybackNetworkRecovery(
                 ended = live.ended,
                 remoteSource = !currentProbe.localSource,
                 needsRecovery = live.buffering || live.error != null,
-                recoveryInProgress = recovery.pending || player.state.value.phase == YPlaybackPhase.Preparing,
+                recoveryInProgress = recovery.pending,
             )
         }.collect { inputs ->
             val decision =

@@ -152,6 +152,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                     ),
             ),
         )
+    private val seekCounter = AtomicLong()
+    override val seekRevision: Long get() = seekCounter.get()
+
     override val state: StateFlow<YPlayerState> = mutableState.asStateFlow()
     val sourceFacts = routeEvaluator.sourceFacts.asStateFlow()
     override val playbackRequested: Boolean get() = mutableState.value.playbackRequested
@@ -289,6 +292,7 @@ internal class AndroidAdaptiveCore2YPlayer(
 
     override fun seekTo(positionMs: Long) {
         if (released) return
+        seekCounter.incrementAndGet()
         val target = positionMs.coerceAtLeast(0L)
         mutableState.updateState {
             it.copy(positionMs = target, subtitleCues = emptyList(), secondarySubtitleCues = emptyList())

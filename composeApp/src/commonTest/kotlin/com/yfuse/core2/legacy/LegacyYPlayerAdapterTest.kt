@@ -18,6 +18,26 @@ import kotlin.test.assertTrue
 
 class LegacyYPlayerAdapterTest {
     @Test
+    fun a_real_seek_changes_intent_before_the_backend_reports_new_output() {
+        val adapter = LegacyYPlayerAdapter(FakeVideoEngine())
+        val captured = adapter.seekRevision
+        adapter.seekTo(60_000L)
+        assertTrue(adapter.seekRevision > captured)
+        val snapshot =
+            com.yfuse.feature.player
+                .PlaybackHandoverSnapshot(0, 10_000L, true, 1f)
+        assertFalse(
+            com.yfuse.feature.player.shouldValidatePlaybackHandoverPosition(
+                snapshot,
+                0,
+                false,
+                captured,
+                adapter.seekRevision,
+            ),
+        )
+    }
+
+    @Test
     fun background_audio_capability_and_video_suspension_follow_the_active_backend() {
         assertFalse(LegacyYPlayerAdapter(FakeVideoEngine()).supportsBackgroundAudio)
         var supported = true

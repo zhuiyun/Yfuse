@@ -161,7 +161,6 @@ internal class AndroidDemuxReadAheadNode(
 
     fun pollSample(excludedTrackIds: Set<YTrackId> = emptySet()): YQueuedDemuxResult {
         synchronized(monitor) {
-            failure?.let { return YQueuedDemuxResult.Failed(it) }
             val iterator = samples.iterator()
             var sample: YQueuedDemuxResult.Sample? = null
             while (iterator.hasNext()) {
@@ -180,6 +179,7 @@ internal class AndroidDemuxReadAheadNode(
                 if (bufferedDurationUsLocked() <= lowWatermarkUs) requestFillLocked()
                 return sample
             }
+            if (samples.isEmpty()) failure?.let { return YQueuedDemuxResult.Failed(it) }
             if (endOfInput && samples.isEmpty()) return YQueuedDemuxResult.EndOfInput
             if (samples.isNotEmpty()) return YQueuedDemuxResult.Empty
             starvationCount++
@@ -229,9 +229,9 @@ internal class AndroidDemuxReadAheadNode(
         }
 
     /** A closed output gate must still observe source failures and keep its producer alive. */
-    fun ensureReadAhead() {
+    fun ensureReadAhead(hasPendingInput: Boolean = false) {
         synchronized(monitor) {
-            failure?.let { throw it }
+            if (samples.isEmpty() && !hasPendingInput) failure?.let { throw it }
             requestFillLocked()
         }
     }

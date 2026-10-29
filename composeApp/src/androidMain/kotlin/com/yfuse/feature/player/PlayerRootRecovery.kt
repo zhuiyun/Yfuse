@@ -654,6 +654,7 @@ internal fun PlayerHandoverValidation(
 ) {
     val state by stateSource
     var handoverPositionValidated by remember(engine) { mutableStateOf(false) }
+    val capturedSeekRevision = remember(engine) { player.seekRevision }
     // When the replacement engine first reported motion; null until it does. Opening a stream
     // takes wall-clock time in which the timeline does not move, so the handover budget only
     // starts here rather than at engine construction.
@@ -675,6 +676,8 @@ internal fun PlayerHandoverValidation(
                 snapshot = engineHandoverSnapshot,
                 currentItemIndex = state.currentIndex,
                 alreadyValidated = handoverPositionValidated,
+                capturedSeekRevision = capturedSeekRevision,
+                currentSeekRevision = player.seekRevision,
             )
         ) {
             if (!handoverPositionValidated) {
@@ -682,7 +685,7 @@ internal fun PlayerHandoverValidation(
                 AppLog.info(
                     category = "player.handover",
                     event = "position_validation_skipped",
-                    message = "Playback moved to another queue item before handover validation",
+                    message = "Playback intent changed before handover validation",
                     attributes =
                         mapOf(
                             "snapshotItemIndex" to engineHandoverSnapshot.itemIndex.toString(),

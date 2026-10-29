@@ -240,7 +240,7 @@ class MdkVideoEngine(
         get() = bufferContext?.let(::playbackMemoryBudgetBytes) ?: 32L * 1024L * 1024L
     private var appliedBufferRange: String? = null
     private val networkProxy =
-        if (context != null && (videoCacheBytes > 0L || items.any { it.customHeaders != null })) {
+        if (context != null) {
             runCatching {
                 AndroidPlaybackHttpProxy(
                     context = context.applicationContext,
@@ -754,7 +754,11 @@ class MdkVideoEngine(
                         cacheable = cacheable,
                         widgetRequest = item.widgetPlaybackRequest(),
                     )
-                        ?: upstreamUrl
+                        ?: if (item.customHeaders != null) {
+                            error("Authenticated MDK playback requires the shared HTTP proxy")
+                        } else {
+                            upstreamUrl
+                        }
                 } else {
                     upstreamUrl
                 }

@@ -32,6 +32,12 @@ internal class AndroidDemuxInputQueue {
     fun pump(
         poll: (Set<YTrackId>) -> YQueuedDemuxResult,
         queue: (YQueuedDemuxResult.Sample) -> Boolean,
+    ): DemuxInputPumpResult = pump(poll, queue, null)
+
+    fun pump(
+        poll: (Set<YTrackId>) -> YQueuedDemuxResult,
+        queue: (YQueuedDemuxResult.Sample) -> Boolean,
+        onSourceFailure: ((Throwable) -> Unit)?,
     ): DemuxInputPumpResult {
         val startedGeneration = generation
         var didWork = false
@@ -50,7 +56,12 @@ internal class AndroidDemuxInputQueue {
             val sample =
                 when (val next = poll(blocked)) {
                     is YQueuedDemuxResult.Sample -> next
-                    is YQueuedDemuxResult.Failed -> throw next.cause
+                    is YQueuedDemuxResult.Failed -> {
+                        if (pending.isNotEmpty()) return DemuxInputPumpResult(didWork)
+                        val defer = onSourceFailure ?: throw next.cause
+                        defer(next.cause)
+                        return DemuxInputPumpResult(didWork = true, ended = true)
+                    }
                     YQueuedDemuxResult.Empty -> return DemuxInputPumpResult(didWork, starved = pending.isEmpty())
                     YQueuedDemuxResult.EndOfInput ->
                         return DemuxInputPumpResult(didWork || pending.isEmpty(), ended = pending.isEmpty())

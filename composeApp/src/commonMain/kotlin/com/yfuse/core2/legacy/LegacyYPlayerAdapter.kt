@@ -20,6 +20,7 @@ import com.yfuse.feature.player.effectiveVideoReadiness
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.StateFlow
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Compatibility bridge that keeps the current Exo/mpv/MDK stack alive while the App moves to
@@ -47,7 +48,13 @@ internal class LegacyYPlayerAdapter(
 
     override fun pause() = engine.pause()
 
-    override fun seekTo(positionMs: Long) = engine.seekTo(positionMs)
+    private val seekCounter = AtomicLong()
+    override val seekRevision: Long get() = seekCounter.get()
+
+    override fun seekTo(positionMs: Long) {
+        seekCounter.incrementAndGet()
+        engine.seekTo(positionMs)
+    }
 
     override fun setSpeed(speed: Float) = engine.setSpeed(speed)
 

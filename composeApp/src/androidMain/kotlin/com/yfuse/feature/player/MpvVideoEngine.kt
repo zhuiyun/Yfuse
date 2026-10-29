@@ -817,20 +817,18 @@ class MpvVideoEngine(
                         !item.url.startsWith("file://", ignoreCase = true) &&
                         !item.url.startsWith("content://", ignoreCase = true)
                 }
-            if (items.any { it.url.isRemotePlaybackSource() }) {
-                // Every remote source needs a bounded window, including small files and unknown sizes.
-                val bufferProfile = mpvBufferProfile(optimizationMode, playbackMemoryBudgetBytes(context))
-                instance.optionalOption("demuxer-max-bytes", bufferProfile.forwardBytes.toString())
-                instance.optionalOption("demuxer-max-back-bytes", bufferProfile.backBytes.toString())
-                instance.optionalOption(
-                    "demuxer-readahead-secs",
-                    bufferProfile.readaheadSeconds.toString(),
-                )
-                instance.optionalOption("cache-secs", bufferProfile.readaheadSeconds.toString())
-                instance.optionalOption("cache-pause-initial", "yes")
-                // This applies to startup and underrun recovery; allow enough reserve for network jitter.
-                instance.optionalOption("cache-pause-wait", "2")
-            }
+            // Install bounded defaults before this queue can accept a remote source.
+            val bufferProfile = mpvBufferProfile(optimizationMode, playbackMemoryBudgetBytes(context))
+            instance.optionalOption("demuxer-max-bytes", bufferProfile.forwardBytes.toString())
+            instance.optionalOption("demuxer-max-back-bytes", bufferProfile.backBytes.toString())
+            instance.optionalOption(
+                "demuxer-readahead-secs",
+                bufferProfile.readaheadSeconds.toString(),
+            )
+            instance.optionalOption("cache-secs", bufferProfile.readaheadSeconds.toString())
+            instance.optionalOption("cache-pause-initial", "yes")
+            // This applies to startup and underrun recovery; allow enough reserve for network jitter.
+            instance.optionalOption("cache-pause-wait", "2")
             // Every source is already a resolved media URL. Running ytdl after an upstream error
             // only adds misleading failures and delays the real fallback path.
             instance.optionalOption("ytdl", "no")

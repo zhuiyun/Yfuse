@@ -182,6 +182,7 @@ internal class AndroidEnhancedPlaybackSession(
     private val rejectedPassthroughTracks = mutableSetOf<YTrackId>()
     private var isolateVideoTimestamps = true
     private var inputEnded = false
+    private var deferredSourceFailure: Throwable? = null
     private var videoInputEnded = false
     private var audioInputEnded = false
     private var videoOutputEnded = false
@@ -1469,18 +1470,9 @@ internal class AndroidEnhancedPlaybackSession(
         if (inputEnded) return queueEndOfStream()
         val result =
             inputQueue.pump(
-                poll = { blockedTracks ->
-                    when (val next = demuxReadAhead.pollSample(blockedTracks)) {
-                        is YQueuedDemuxResult.Failed ->
-                            yPlaybackStage(
-                                category = sourceFailureCategory(),
-                                stage = YPlaybackFailureStage.Demux,
-                                safeDetail = "Enhanced compressed sample read-ahead",
-                            ) { throw next.cause }
-                        else -> next
-                    }
-                },
+                poll = demuxReadAhead::pollSample,
                 queue = ::queueSample,
+                onSourceFailure = { deferredSourceFailure = it },
             )
         if (result.starved && outputActive && lastQueuedUs - currentPositionUs() <= REBUFFER_OUTPUT_MARGIN_US) {
             bufferGate.markStarved()
@@ -1582,6 +1574,7 @@ internal class AndroidEnhancedPlaybackSession(
                     requireNotNull(softwareDecoder).queueVideo(null)
                 } else if (
                     plan?.renderPath == YRenderPath.SurfaceDirect &&
+                    deferredSourceFailure == null &&
                     !videoEosGate.mayQueueEndOfStream(firstVideoFrameRendered)
                 ) {
                     false
@@ -2115,7 +2108,11 @@ internal class AndroidEnhancedPlaybackSession(
                 category = if (sourceRemote) YPlaybackFailureCategory.Network else YPlaybackFailureCategory.Container,
                 stage = YPlaybackFailureStage.Demux,
                 safeDetail = "Enhanced buffered source read",
-            ) { demuxReadAhead.ensureReadAhead() }
+            ) {
+                if (deferredSourceFailure == null) {
+                    demuxReadAhead.ensureReadAhead(hasPendingInput = inputQueue.pendingCount > 0)
+                }
+            }
         }
         val nowNs = System.nanoTime()
         val readAhead = demuxReadAhead.snapshot()
@@ -2276,7 +2273,18 @@ internal class AndroidEnhancedPlaybackSession(
     private var audioDrainStartedNs: Long? = null
 
     private fun ended(): Boolean {
-        if (!decoderEnded()) {
+        // A failed source may never produce a first frame. Drain actual queues without waiting
+        // for presentation/paused-preview evidence that cannot arrive from that failed input.
+        val drained =
+            if (deferredSourceFailure != null) {
+                videoOutputEnded &&
+                    (audioTrack == null || audioOutputEnded) &&
+                    pendingVideoOutput == null &&
+                    pendingSoftwareVideoOutput == null
+            } else {
+                decoderEnded()
+            }
+        if (!drained) {
             audioDrainStartedNs = null
             return false
         }
@@ -2284,6 +2292,14 @@ internal class AndroidEnhancedPlaybackSession(
             val now = System.nanoTime()
             val started = audioDrainStartedNs ?: now.also { audioDrainStartedNs = it }
             if (now - started < 2_000_000_000L) return false
+        }
+        deferredSourceFailure?.let { failure ->
+            deferredSourceFailure = null
+            yPlaybackStage(
+                category = sourceFailureCategory(),
+                stage = YPlaybackFailureStage.Demux,
+                safeDetail = "Enhanced compressed source failed after buffered output drained",
+            ) { throw failure }
         }
         return true
     }
@@ -2309,6 +2325,7 @@ internal class AndroidEnhancedPlaybackSession(
         surfaceCompletion.reset()
         inputQueue.advanceGeneration()
         inputEnded = false
+        deferredSourceFailure = null
         videoInputEnded = false
         audioInputEnded = audioTrack == null
         videoOutputEnded = false
