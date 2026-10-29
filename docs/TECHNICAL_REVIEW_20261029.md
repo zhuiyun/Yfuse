@@ -28,7 +28,9 @@
 14. **P3：详情页网络初值仍在每次重组读取**。`DetailScreen.kt:288` 使用 remember 保存初值。
 15. **验证环境：Git Bash 覆盖模拟命令 PATH**。`scripts/tests/test_publish_package_only.py:49` 在 shell 内将测试目录放到 PATH 首位，阻止模拟 curl 被系统 curl 抢先执行。
 
-验证：手机端 5,539 项、TV 129 项、后端客户端 45 项、协议 28 项、服务端 339 项全部通过；关闭后端另跑 45 项通过；Python 脚本 120 项通过。手机/TV 编译、测试包编译、全项目 ktlint、四项工程守门及模块/后端边界检查通过。phone/TV 的 release BuildConfig 均验证了后端开启时 token 为空、关闭时与本地配置一致，验证日志未输出 token。Android 设备回归另行记录。
+验证：手机端 5,539 项、TV 129 项、后端客户端 45 项、协议 28 项、服务端 339 项全部通过；关闭后端另跑 45 项通过；Python 脚本 120 项通过。手机/TV 编译、测试包编译、全项目 ktlint、四项工程守门及模块/后端边界检查通过。phone/TV 的 release BuildConfig 均验证了后端开启时 token 为空、关闭时与本地配置一致，验证日志未输出 token。
+
+Android 35 模拟器使用隔离包 com.yfuse.validation 验证：Exo 真实播放与学习存储 5/5 通过（12.637 秒）；1920×1200、density 240 下平板布局与抠图 12/12 通过（89.527 秒）。测试 APK 实际包含 MDK，不含 ONNX Runtime 或 U²-NetP；应用 APK SHA-256 为 ac26c26f9187235e74b807436eb0d43a02e3a4316238e48130166c3498cecd6a。验证后新出现的 AppIconVariant.kt 与 SplashSelectionTest.kt 图标选择修改未进入本轮提交和验证快照。
 
 部署前提：新 TMDB 代理白名单必须先部署到服务端，再发布不含 token 的 App；本次只合并代码，没有部署服务端或交付新正式安装包。版本仍为 1.7.9 / 331。
 
