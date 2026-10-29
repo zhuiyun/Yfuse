@@ -1,8 +1,7 @@
-package com.yfuse.feature.profile
+package com.yfuse.core.designsystem
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import com.yfuse.core.designsystem.SplashMark
 
 /** Launcher identities, including retired aliases retained for installed-app migration. */
 enum class AppIconVariant(

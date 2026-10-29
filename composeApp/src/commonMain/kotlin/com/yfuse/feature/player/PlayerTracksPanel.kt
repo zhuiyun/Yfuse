@@ -37,6 +37,7 @@ import com.yfuse.core.designsystem.motionAwareScrollTo
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.playback.AudioEnhancementMode
 import kotlin.math.roundToInt
 import com.yfuse.core.designsystem.ThemeText as Text
 

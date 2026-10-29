@@ -1,4 +1,4 @@
-package com.yfuse.feature.player
+package com.yfuse.core.playback
 
 import java.io.IOException
 import java.net.Socket

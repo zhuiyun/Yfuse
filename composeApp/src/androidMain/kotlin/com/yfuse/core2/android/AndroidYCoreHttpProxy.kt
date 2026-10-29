@@ -10,6 +10,7 @@ import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.playback.PLAYBACK_PROXY_HEADER_TIMEOUT_MS
 import com.yfuse.core.playback.PlaybackProxyAdmission
 import com.yfuse.core.playback.PlaybackProxyHeaderReader
+import com.yfuse.core.playback.writeResponseBodyWithWatchdog
 import com.yfuse.core2.adaptive.YAdaptiveBandwidthEstimator
 import com.yfuse.core2.adaptive.YAdaptiveEncryptionMethod
 import com.yfuse.core2.adaptive.YAdaptiveSelectionConditions
@@ -1992,19 +1993,19 @@ internal class AndroidYCoreHttpProxy(
         start: Long,
         contentLength: Long,
     ) {
-        val output = socket.getOutputStream()
-        val buffer = ByteArray(NETWORK_BUFFER_BYTES)
-        var position = start
-        var remaining = contentLength
-        while (remaining > 0L) {
-            val requested = minOf(buffer.size.toLong(), remaining).toInt()
-            val count = source.readAt(position, buffer, 0, requested)
-            require(count > 0) { "Cached source ended before the advertised response length" }
-            output.write(buffer, 0, count)
-            position += count
-            remaining -= count
+        socket.writeResponseBodyWithWatchdog { output ->
+            val buffer = ByteArray(NETWORK_BUFFER_BYTES)
+            var position = start
+            var remaining = contentLength
+            while (remaining > 0L) {
+                val requested = minOf(buffer.size.toLong(), remaining).toInt()
+                val count = source.readAt(position, buffer, 0, requested)
+                require(count > 0) { "Cached source ended before the advertised response length" }
+                output.write(buffer, 0, count)
+                position += count
+                remaining -= count
+            }
         }
-        output.flush()
     }
 
     private fun Route.credentialsFor(targetUri: String): YTransportCredentials? =

@@ -6,11 +6,12 @@ import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.feature.watch.WatchInviteResolver
 import org.koin.core.module.Module
 import org.koin.dsl.module
+import org.koin.dsl.onClose
 
 /** 一起看: the room connection and its preferences, and finding an invite's title on this device's servers. */
 internal fun watchTogetherModule(): Module =
     module {
         single { WatchTogetherPreferences(get()) }
-        single { WatchTogetherClient(get(), get(), WatchRoomResumeStore(get())) }
+        single { WatchTogetherClient(get(), get(), WatchRoomResumeStore(get())) } onClose { it?.close() }
         single { WatchInviteResolver(get(), get()) }
     }

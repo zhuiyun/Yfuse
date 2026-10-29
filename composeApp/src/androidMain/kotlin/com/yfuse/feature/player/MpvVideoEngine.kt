@@ -9,6 +9,7 @@ import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
+import com.yfuse.core.playback.AudioEnhancementMode
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackDiscKind
@@ -23,6 +24,7 @@ import com.yfuse.core.playback.detectPlaybackDiscKind
 import com.yfuse.core.playback.mpvBufferProfile
 import com.yfuse.core.playback.mpvRenderProfile
 import com.yfuse.core.playback.playbackDolbyVisionRoute
+import com.yfuse.core.playback.shouldProxyMpvNetworkUrl
 import com.yfuse.core2.android.AndroidSerializedPlayerRelease
 import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.CompletableDeferred

@@ -29,7 +29,7 @@ actual fun currentPlaybackNetworkClass(): PlaybackNetworkClass {
 }
 
 /** Emits default-network changes for the player recovery state machine. */
-fun playbackNetworkClasses(): Flow<PlaybackNetworkClass> =
+actual fun playbackNetworkClasses(): Flow<PlaybackNetworkClass> =
     callbackFlow {
         val context = androidAppContext
         val connectivity = context?.getSystemService(ConnectivityManager::class.java)

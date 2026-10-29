@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.playback.PlaybackForegroundTransitionGate
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue

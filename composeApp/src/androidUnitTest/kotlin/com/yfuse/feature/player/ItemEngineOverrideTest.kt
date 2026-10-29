@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.playback.AudioEnhancementMode
 import com.yfuse.core.playback.PlaybackEngineSelection
 import kotlin.test.Test
 import kotlin.test.assertEquals

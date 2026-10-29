@@ -67,10 +67,10 @@ import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.SplashMark
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.currentAppIconVariant
 import com.yfuse.core.designsystem.drawPhaseLight
 import com.yfuse.core.designsystem.rememberPhaseLightCount
 import com.yfuse.core.designsystem.resolveDark
-import com.yfuse.feature.profile.currentAppIconVariant
 import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.lerp as lerpColor
 

@@ -1,4 +1,4 @@
-package com.yfuse.feature.player
+package com.yfuse.core.playback
 
 import com.yfuse.core.logging.AppLog
 import kotlinx.coroutines.CompletableDeferred

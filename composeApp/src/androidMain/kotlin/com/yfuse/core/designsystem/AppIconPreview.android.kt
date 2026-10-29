@@ -1,4 +1,4 @@
-package com.yfuse.feature.profile
+package com.yfuse.core.designsystem
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -16,7 +16,6 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.shared.R
 import kotlin.math.roundToInt
 

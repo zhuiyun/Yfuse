@@ -2,8 +2,8 @@ package com.yfuse.core.util
 
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
+import com.yfuse.core.playback.VideoCachePool
 import com.yfuse.core2.android.AndroidYCoreBlockCache
-import com.yfuse.feature.player.VideoCachePool
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

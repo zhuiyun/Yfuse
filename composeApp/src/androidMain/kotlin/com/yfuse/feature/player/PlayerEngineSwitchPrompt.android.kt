@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import android.app.AlertDialog
 import android.content.Context
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.playback.AudioEnhancementMode
 import com.yfuse.core.playback.PlaybackEngineSelection
 
 /** A playback setting the engine on screen cannot honour, named the way the panel names it. */

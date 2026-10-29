@@ -104,7 +104,12 @@ data class HomeState(
     /** Today's first slide and the complete daily mix use the same selection rule. */
     val featuredToday: TmdbItem? get() = featuredSlides.firstOrNull()
 
-    val featuredSlides: List<TmdbItem> get() = content.featuredSlidesForDay(today)
+    /**
+     * Computed once per state instance: the slide mix runs a multi-step pipeline over the whole
+     * catalog, and a `get()` would repeat it on every read (the hero reads it on every
+     * recomposition). State copies are cheap and only happen on real changes.
+     */
+    val featuredSlides: List<TmdbItem> by lazy { content.featuredSlidesForDay(today) }
 
     val recentAdded: List<HomeResumeEntry>
         get() =

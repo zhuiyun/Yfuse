@@ -12,6 +12,16 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.playback.PLAYBACK_PROXY_HEADER_TIMEOUT_MS
 import com.yfuse.core.playback.PlaybackProxyAdmission
 import com.yfuse.core.playback.PlaybackProxyHeaderReader
+import com.yfuse.core.playback.PlaybackProxyRequest
+import com.yfuse.core.playback.PlaybackProxyRequests
+import com.yfuse.core.playback.PlaybackProxyRoute
+import com.yfuse.core.playback.PlaybackProxyRoutes
+import com.yfuse.core.playback.SecureMediaCacheKeyFactory
+import com.yfuse.core.playback.VideoCachePool
+import com.yfuse.core.playback.WidgetPlaybackRequest
+import com.yfuse.core.playback.secureMediaCacheKeyForUrl
+import com.yfuse.core.playback.shouldProxyMpvNetworkUrl
+import com.yfuse.core.playback.writeResponseBodyWithWatchdog
 import okhttp3.Request
 import okhttp3.Response
 import java.io.Closeable
@@ -386,14 +396,20 @@ internal class AndroidPlaybackHttpProxy(
                             ).toByteArray(StandardCharsets.UTF_8)
                     responseStarted = true
                     writeResponse(socket, connection, status, rewritten.size.toLong())
-                    socket.getOutputStream().write(rewritten)
+                    socket.writeResponseBodyWithWatchdog { output -> output.write(rewritten) }
                 } else {
                     responseStarted = true
                     val length =
                         connection.header("Content-Length")?.toLongOrNull()
                             ?: connection.body?.contentLength() ?: UNKNOWN_LENGTH
                     writeResponse(socket, connection, status, length)
-                    if (method == "GET") body?.copyTo(socket.getOutputStream(), NETWORK_BUFFER_BYTES)
+                    if (method == "GET") {
+                        body?.let { source ->
+                            socket.writeResponseBodyWithWatchdog { output ->
+                                source.copyTo(output, NETWORK_BUFFER_BYTES)
+                            }
+                        }
+                    }
                 }
                 socket.getOutputStream().flush()
             }
@@ -426,22 +442,23 @@ internal class AndroidPlaybackHttpProxy(
         request: PlaybackProxyRequest,
         contentLength: Long,
     ) {
-        val output = request.socket.getOutputStream()
-        val buffer = ByteArray(NETWORK_BUFFER_BYTES)
-        var remaining = contentLength
-        while (remaining != 0L) {
-            request.ensureOpen()
-            val requested =
-                if (remaining == UNKNOWN_LENGTH) {
-                    buffer.size
-                } else {
-                    min(buffer.size.toLong(), remaining).toInt()
-                }
-            val read = dataSource.read(buffer, 0, requested)
-            request.ensureOpen()
-            if (read == C.RESULT_END_OF_INPUT) break
-            output.write(buffer, 0, read)
-            if (remaining != UNKNOWN_LENGTH) remaining -= read.toLong()
+        request.socket.writeResponseBodyWithWatchdog { output ->
+            val buffer = ByteArray(NETWORK_BUFFER_BYTES)
+            var remaining = contentLength
+            while (remaining != 0L) {
+                request.ensureOpen()
+                val requested =
+                    if (remaining == UNKNOWN_LENGTH) {
+                        buffer.size
+                    } else {
+                        min(buffer.size.toLong(), remaining).toInt()
+                    }
+                val read = dataSource.read(buffer, 0, requested)
+                request.ensureOpen()
+                if (read == C.RESULT_END_OF_INPUT) break
+                output.write(buffer, 0, read)
+                if (remaining != UNKNOWN_LENGTH) remaining -= read.toLong()
+            }
         }
     }
 
@@ -543,33 +560,6 @@ internal fun parsePlaybackHttpByteRange(value: String?): PlaybackHttpByteRange? 
     return PlaybackHttpByteRange(start = start, endInclusive = endInclusive)
 }
 
-internal fun shouldProxyMpvNetworkUrl(url: String): Boolean =
-    runCatching { URI(url).scheme?.lowercase() in setOf("http", "https") }.getOrDefault(false)
-
-internal fun rewriteMpvHlsManifest(
-    manifest: String,
-    upstreamUrl: String,
-    localize: (String) -> String,
-): String {
-    val base = runCatching { URI(upstreamUrl) }.getOrNull() ?: return manifest
-    return manifest.lineSequence().joinToString("\n") { line ->
-        when {
-            line.isBlank() -> line
-            !line.startsWith('#') ->
-                runCatching { localize(base.resolve(line.trim()).toString()) }.getOrDefault(line)
-            "URI=" in line ->
-                HLS_URI_ATTRIBUTE.replace(line) { match ->
-                    val quote = match.groupValues[1]
-                    val value = match.groupValues[2]
-                    val localized =
-                        runCatching { localize(base.resolve(value).toString()) }.getOrDefault(value)
-                    "URI=$quote$localized$quote"
-                }
-            else -> line
-        }
-    }
-}
-
 private fun responseHeader(
     headers: Map<String, List<String>>,
     name: String,
@@ -618,7 +608,6 @@ private const val NETWORK_BUFFER_BYTES = 64 * 1024
 private const val MAX_HLS_MANIFEST_BYTES = 4 * 1024 * 1024
 private val HTTP_BYTE_RANGE = Regex("^bytes=(\\d+)-(\\d*)$", RegexOption.IGNORE_CASE)
 private val CONTENT_RANGE_TOTAL = Regex("^bytes \\d+-\\d+/(\\d+|\\*)$", RegexOption.IGNORE_CASE)
-private val HLS_URI_ATTRIBUTE = Regex("URI=([\\\"'])(.*?)(?:\\1)")
 private val FORWARDED_REQUEST_HEADERS =
     listOf("Range", "If-Range", "If-None-Match", "If-Modified-Since", "Accept")
 private val FORWARDED_RESPONSE_HEADERS =

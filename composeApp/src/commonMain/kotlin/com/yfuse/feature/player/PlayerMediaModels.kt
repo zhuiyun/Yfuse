@@ -6,6 +6,7 @@ import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.playback.PlaybackDrmConfiguration
+import com.yfuse.core.playback.PlayerCustomHeaders
 import com.yfuse.core2.network.YTransportCredentials
 import kotlinx.serialization.Serializable
 

@@ -1,10 +1,10 @@
 package com.yfuse.core2.legacy
 
+import com.yfuse.core.playback.AudioEnhancementMode
 import com.yfuse.core2.api.YAudioEffect
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrackType
-import com.yfuse.feature.player.AudioEnhancementMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.test.Test
 import kotlin.test.assertEquals

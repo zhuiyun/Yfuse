@@ -1,21 +1,10 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.playback.WidgetPlaybackRequest
 import com.yfuse.core2.android.mediaCredentialOriginsMatch
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
-import java.net.CookieManager
-import java.net.CookiePolicy
-
-/** A request owns its item snapshot, even while another queue item is playing or preloading. */
-internal class WidgetPlaybackRequest(
-    val origin: String,
-    val headers: PlayerCustomHeaders,
-) {
-    val cookies = CookieManager(null, CookiePolicy.ACCEPT_ALL)
-
-    override fun toString(): String = "WidgetPlaybackRequest([redacted])"
-}
 
 internal fun PlayerMediaItem.widgetPlaybackRequest(): WidgetPlaybackRequest? =
     customHeaders?.takeIf { it.values.isNotEmpty() }?.let { WidgetPlaybackRequest(url, it) }

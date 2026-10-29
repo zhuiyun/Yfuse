@@ -2,6 +2,7 @@ package com.yfuse.core.widget
 
 import com.yfuse.feature.player.PlaybackReportingTarget
 import com.yfuse.feature.player.playbackReportingTarget
+import com.yfuse.feature.player.widgetPlaybackItem
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put

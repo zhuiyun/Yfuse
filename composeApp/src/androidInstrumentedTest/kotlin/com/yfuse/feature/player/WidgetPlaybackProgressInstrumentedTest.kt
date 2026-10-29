@@ -7,7 +7,6 @@ import com.yfuse.core.widget.WidgetMedia
 import com.yfuse.core.widget.WidgetPlaybackRequest
 import com.yfuse.core.widget.WidgetSourceContext
 import com.yfuse.core.widget.playbackIdentity
-import com.yfuse.core.widget.widgetPlaybackItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.model.PlaybackChapter
+import com.yfuse.core.playback.AudioEnhancementMode
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.PlaybackFailureKind
@@ -259,16 +260,6 @@ enum class VideoScaleMode(
             this == Fit -> Fill
             else -> Fit
         }
-}
-
-/** Engine-neutral audio post-processing. Unsupported backends must report false, not imitate it. */
-enum class AudioEnhancementMode(
-    val label: String,
-) {
-    Off("关闭"),
-    VolumeBoost("音量增强"),
-    LoudnessNormalize("响度均衡"),
-    NightVoice("夜间人声"),
 }
 
 /**

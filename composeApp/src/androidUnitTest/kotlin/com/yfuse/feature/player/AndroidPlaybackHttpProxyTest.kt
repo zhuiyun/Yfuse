@@ -1,5 +1,7 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.playback.rewriteMpvHlsManifest
+import com.yfuse.core.playback.shouldProxyMpvNetworkUrl
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy

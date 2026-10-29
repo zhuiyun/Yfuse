@@ -17,6 +17,7 @@ import com.yfuse.feature.servers.QuickConnectGateway
 import kotlinx.coroutines.Dispatchers
 import org.koin.core.module.Module
 import org.koin.dsl.module
+import org.koin.dsl.onClose
 
 /**
  * The saved media servers and the repository that speaks to Emby, Jellyfin and Plex, with what the
@@ -39,7 +40,7 @@ internal fun mediaServerModule(feedCacheSettings: () -> Settings): Module =
                 // Keystore encryption of session tokens stays off the UI thread that commits them.
                 persistDispatcher = Dispatchers.Default,
             )
-        }
+        } onClose { it?.close() }
         single { ServerActivityStore(get()) }
         single { ServerStatsStore(get()) }
         single {

@@ -76,6 +76,7 @@ import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.capabilities
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.currentPlaybackNetworkClass
+import com.yfuse.core.network.playbackNetworkClasses
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.offline.OfflineBatchMode
 import com.yfuse.core.sync.WatchInvite
@@ -282,7 +283,12 @@ fun DetailScreen(component: DetailComponent) {
         .collectAsState()
     val smartSourceRanking by component.dependencies.playbackPreferences.smartCrossServerSource
         .collectAsState()
-    val sourceNetwork = currentPlaybackNetworkClass()
+    // ConnectivityManager costs two or three binder round-trips; read it once per screen and then
+    // only when the default network actually changes.
+    val initialSourceNetwork = remember { currentPlaybackNetworkClass() }
+    val sourceNetwork by
+        remember { playbackNetworkClasses() }
+            .collectAsState(initial = initialSourceNetwork)
     val comparableSources =
         remember(
             state.sources,

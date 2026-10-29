@@ -22,19 +22,19 @@ GENERATED = ("prism", "water_over_fire", "overprint", "danmaku", "liquid_glass")
 
 
 def variants():
-    common = (ROOT / "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppIconVariant.kt").read_text("utf-8")
+    common = (ROOT / "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/AppIconVariant.kt").read_text("utf-8")
     body = common.split("enum class AppIconVariant(", 1)[1]
     return re.findall(r"^\s{4}(\w+)\(\"", body, re.M)
 
 
 def components():
-    android = (ANDROID / "kotlin/com/yfuse/feature/profile/AppIconVariant.android.kt").read_text("utf-8")
+    android = (ANDROID / "kotlin/com/yfuse/core/designsystem/AppIconVariant.android.kt").read_text("utf-8")
     return dict(re.findall(r"AppIconVariant\.(\w+) -> \"([\w.]+)\"", android))
 
 
 def resources(function):
     """The branches of one `AppIconVariant.<function>(): Int` mapping, as variant -> @type/name."""
-    android = (ANDROID / "kotlin/com/yfuse/feature/profile/AppIconVariant.android.kt").read_text("utf-8")
+    android = (ANDROID / "kotlin/com/yfuse/core/designsystem/AppIconVariant.android.kt").read_text("utf-8")
     body = android.split(f"fun AppIconVariant.{function}(): Int =", 1)[1].split("\n    }\n", 1)[0]
     found = {}
     for names, kind, name in re.findall(r"^\s+([\w., ]+) -> R\.(\w+)\.(\w+)$", body, re.M):

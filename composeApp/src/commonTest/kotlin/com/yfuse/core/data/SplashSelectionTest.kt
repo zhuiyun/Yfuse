@@ -1,9 +1,9 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
+import com.yfuse.core.designsystem.AppIconVariant
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.SplashMark
-import com.yfuse.feature.profile.AppIconVariant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

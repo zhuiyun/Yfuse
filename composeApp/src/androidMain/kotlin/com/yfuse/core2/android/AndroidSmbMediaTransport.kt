@@ -124,6 +124,9 @@ internal fun smbProperties(): Properties =
         setProperty("jcifs.smb.client.maxVersion", "SMB311")
         setProperty("jcifs.smb.client.enableSMB2", "true")
         setProperty("jcifs.smb.client.disableSMB1", "true")
+        // Unsigned SMB2/3 sessions let a same-segment attacker relay or downgrade NTLMv2.
+        // Preferred (not required) keeps servers that do not negotiate signing working.
+        setProperty("jcifs.smb.client.signingPreferred", "true")
         setProperty("jcifs.smb.client.responseTimeout", "15000")
         setProperty("jcifs.smb.client.soTimeout", "15000")
     }

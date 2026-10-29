@@ -13,13 +13,14 @@ import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.personal.PersonalAccessPolicy
 import com.yfuse.core.personal.PersonalLibraryRepository
-import com.yfuse.feature.player.PlaybackLaunchTimings
+import com.yfuse.core.playback.PlaybackLaunchTimings
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -65,6 +66,11 @@ class PlaybackSyncManager(
     settings: Settings? = null,
 ) {
     internal val playbackScopeToken: String get() = store.scopeToken
+
+    /** Cancels queued syncs when the DI graph is torn down. */
+    fun close() {
+        scope.cancel()
+    }
 
     private val syncMutex = Mutex()
     private val serverApplier =

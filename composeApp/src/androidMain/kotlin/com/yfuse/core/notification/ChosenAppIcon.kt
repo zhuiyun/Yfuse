@@ -5,10 +5,10 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import com.yfuse.feature.profile.AppIconVariant
-import com.yfuse.feature.profile.currentAppIconVariant
-import com.yfuse.feature.profile.launcherIcon
-import com.yfuse.feature.profile.notificationIcon
+import com.yfuse.core.designsystem.AppIconVariant
+import com.yfuse.core.designsystem.currentAppIconVariant
+import com.yfuse.core.designsystem.launcherIcon
+import com.yfuse.core.designsystem.notificationIcon
 
 /**
  * Gives a notification that speaks for the app itself, 追剧更新 among them, the icon chosen in

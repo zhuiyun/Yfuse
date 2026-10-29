@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.data.SkipMode
 import com.yfuse.core.model.PlaybackSegment
+import com.yfuse.core.playback.AudioEnhancementMode
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchParticipant

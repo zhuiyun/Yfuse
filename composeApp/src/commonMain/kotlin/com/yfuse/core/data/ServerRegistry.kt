@@ -18,6 +18,7 @@ import com.yfuse.core.security.toBase64Url
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -172,6 +173,10 @@ class ServerRegistry(
 
     /** Conflated: a burst of commits is persisted once, as the newest registry. */
     private val persistSignal: Channel<Unit>? = persistDispatcher?.let { Channel<Unit>(Channel.CONFLATED) }
+
+    /** Owns the single persist consumer; cancelled by [close] when the DI graph is torn down. */
+    private val persistScope: CoroutineScope? =
+        persistDispatcher?.takeIf { persistSignal != null }?.let { CoroutineScope(SupervisorJob() + it) }
     private val _persistFailures =
         MutableSharedFlow<Throwable>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
@@ -184,9 +189,9 @@ class ServerRegistry(
 
     init {
         personal?.observeChanges { synchronized(lock) { visibleData.value = projectVisible(_data.value) } }
-        if (persistDispatcher != null && persistSignal != null) {
+        if (persistScope != null && persistSignal != null) {
             // One consumer, so persists never overlap and [durable] has a single writer.
-            CoroutineScope(SupervisorJob() + persistDispatcher).launch {
+            persistScope.launch {
                 while (true) {
                     persistSignal.receive()
                     var failure: PersistFailure? = null
@@ -199,6 +204,11 @@ class ServerRegistry(
                 }
             }
         }
+    }
+
+    /** Stops the single persist consumer when the DI graph is torn down. */
+    fun close() {
+        persistScope?.cancel()
     }
 
     /** Only the encrypted account snapshot may bypass the browsing projection. */

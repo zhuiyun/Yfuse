@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.playback.AudioEnhancementMode
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YTrackType
 

@@ -439,7 +439,7 @@ class DetailStoreTest {
                     )
                     assertTrue(!store.state.resolvingPlay)
                     assertTrue(!store.state.sourcesLoading)
-                    com.yfuse.feature.player.PlaybackLaunchTimings
+                    com.yfuse.core.playback.PlaybackLaunchTimings
                         .find("one", "e1")
                         ?.stage("first_video_output", output = true)
                     store.states.first { it.sources.isNotEmpty() }

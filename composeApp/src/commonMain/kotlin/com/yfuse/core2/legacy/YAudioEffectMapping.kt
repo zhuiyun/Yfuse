@@ -1,7 +1,7 @@
 package com.yfuse.core2.legacy
 
+import com.yfuse.core.playback.AudioEnhancementMode
 import com.yfuse.core2.api.YAudioEffect
-import com.yfuse.feature.player.AudioEnhancementMode
 
 /** The player's 音频增强 choice as YCore's effect. */
 internal fun AudioEnhancementMode.toYAudioEffect(): YAudioEffect =

@@ -33,6 +33,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.designsystem.resolveDark
+import com.yfuse.core.designsystem.watchForAppIconSwitch
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineMediaManager
@@ -45,7 +46,6 @@ import com.yfuse.core.sync.WatchInvite
 import com.yfuse.feature.calendar.scheduleCalendarReminderWork
 import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.feature.player.PlayerForegroundRegistry
-import com.yfuse.feature.profile.watchForAppIconSwitch
 import com.yfuse.update.AppUpdateManager
 import com.yfuse.update.AppUpdateOverlay
 import com.yfuse.update.LocalAppUpdateManager

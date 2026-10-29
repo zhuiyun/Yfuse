@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.playback.AudioEnhancementMode
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core2.api.YPlayer
 
