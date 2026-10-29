@@ -1,9 +1,9 @@
 package com.yfuse.feature.widgets
 
+import com.yfuse.core.playback.PlayerCustomHeaders
+import com.yfuse.core.playback.WidgetPlaybackRequest
 import com.yfuse.core2.android.toCore2MediaItems
-import com.yfuse.feature.player.PlayerCustomHeaders
 import com.yfuse.feature.player.WidgetPlaybackHeadersInterceptor
-import com.yfuse.feature.player.WidgetPlaybackRequest
 import com.yfuse.feature.player.externalPlaybackItem
 import com.yfuse.feature.player.persistentPlaybackCacheUrl
 import com.yfuse.feature.player.widgetPlaybackRequest

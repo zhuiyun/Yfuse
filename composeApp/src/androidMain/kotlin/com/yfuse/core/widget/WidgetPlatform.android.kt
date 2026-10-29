@@ -20,6 +20,7 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.util.androidAppContext
 import com.yfuse.feature.player.PlayerActivity
+import com.yfuse.feature.player.widgetPlaybackItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

@@ -2,6 +2,7 @@ package com.yfuse.core2.legacy
 
 import com.yfuse.core.model.PlaybackChapter
 import com.yfuse.core.model.namedPlaybackChapters
+import com.yfuse.core.playback.AudioEnhancementMode
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core2.api.YChapter
@@ -11,7 +12,6 @@ import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
-import com.yfuse.feature.player.AudioEnhancementMode
 import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.PlaybackAudioOutputMode
 import com.yfuse.feature.player.PlaybackDiagnostics

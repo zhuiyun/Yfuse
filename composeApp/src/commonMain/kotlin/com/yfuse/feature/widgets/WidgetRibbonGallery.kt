@@ -67,100 +67,111 @@ internal fun WidgetRibbonGallery(
         val currentPhase by rememberUpdatedState(phase)
         val currentItems by rememberUpdatedState(items)
         val open by rememberUpdatedState(onOpen)
-        Column(Modifier.width(stageWidth), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(stageHeight)
-                    .clipToBounds()
-                    .pointerInput(Unit) {
-                        detectTapGestures { point ->
-                            val x = point.x / size.width.coerceAtLeast(1)
-                            val y = point.y / size.height.coerceAtLeast(1)
-                            val range =
-                                ribbonGalleryExtent(currentMotion.position, currentItems.size, currentMotion.rtl)
-                            val wave = ribbonGalleryWave(x, currentPhase)
-                            if (x in range && y in (0.12f + wave)..(0.82f + wave)) {
-                                val index =
-                                    ribbonGalleryIndexAt(
-                                        x,
-                                        currentMotion.position,
-                                        currentItems.size,
-                                        currentMotion.rtl,
-                                    )
-                                val item = currentItems.getOrNull(index)
-                                if (item != null) {
-                                    if (index == currentMotion.currentIndex) open(item) else currentMotion.select(index)
+        Column(
+            Modifier.width(widgetGalleryViewportWidth(maxWidth, stageWidth)),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+        ) {
+            WidgetGalleryStage(stageWidth, stageHeight, items, motion.currentIndex, motion.select) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(stageHeight)
+                        .clipToBounds()
+                        .pointerInput(Unit) {
+                            detectTapGestures { point ->
+                                val x = point.x / size.width.coerceAtLeast(1)
+                                val y = point.y / size.height.coerceAtLeast(1)
+                                val range =
+                                    ribbonGalleryExtent(currentMotion.position, currentItems.size, currentMotion.rtl)
+                                val wave = ribbonGalleryWave(x, currentPhase)
+                                if (x in range && y in (0.12f + wave)..(0.82f + wave)) {
+                                    val index =
+                                        ribbonGalleryIndexAt(
+                                            x,
+                                            currentMotion.position,
+                                            currentItems.size,
+                                            currentMotion.rtl,
+                                        )
+                                    val item = currentItems.getOrNull(index)
+                                    if (item != null) {
+                                        if (index ==
+                                            currentMotion.currentIndex
+                                        ) {
+                                            open(item)
+                                        } else {
+                                            currentMotion.select(index)
+                                        }
+                                    }
                                 }
                             }
-                        }
-                    }.onKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyUp &&
-                            (event.key == Key.Enter || event.key == Key.DirectionCenter)
-                        ) {
-                            currentItems.getOrNull(currentMotion.currentIndex)?.let(open)
-                            true
-                        } else {
-                            false
-                        }
-                    }.semantics {
-                        role = Role.Button
-                        contentDescription = items[motion.currentIndex].title
-                        onClick("查看详情") {
-                            onOpen(items[motion.currentIndex])
-                            true
-                        }
-                    }.then(motion.inputModifier),
-            ) {
-                Box(
-                    Modifier.fillMaxSize().clip(strip).clearAndSetSemantics { },
-                    // Artwork positions below already mirror in physical coordinates.
-                    contentAlignment = AbsoluteAlignment.TopLeft,
+                        }.onKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyUp &&
+                                (event.key == Key.Enter || event.key == Key.DirectionCenter)
+                            ) {
+                                currentItems.getOrNull(currentMotion.currentIndex)?.let(open)
+                                true
+                            } else {
+                                false
+                            }
+                        }.semantics {
+                            role = Role.Button
+                            contentDescription = items[motion.currentIndex].title
+                            onClick("查看详情") {
+                                onOpen(items[motion.currentIndex])
+                                true
+                            }
+                        }.then(motion.inputModifier),
                 ) {
-                    val visible = (motion.currentIndex - 2..motion.currentIndex + 2).filter { it in items.indices }
-                    visible.forEach { index ->
-                        val center = .5f + (index - motion.position) * .44f * if (motion.rtl) -1 else 1
-                        val width = if (items.size == 1) .84f else .44f
-                        Artwork(
-                            items[index],
-                            Modifier
-                                .absoluteOffset(x = stageWidth * (center - width / 2), y = stageHeight * .055f)
-                                .width(stageWidth * width + .5.dp)
-                                .height(stageHeight * .83f),
-                            poster = true,
-                        )
-                    }
-                    Canvas(Modifier.fillMaxSize()) {
-                        // Thin joins belong to one strip, and move with its photographs.
-                        visible.dropLast(1).forEach { index ->
-                            val x = .5f + (index + .5f - motion.position) * .44f * if (motion.rtl) -1 else 1
-                            drawLine(
-                                Color.White.copy(alpha = .7f),
-                                Offset(x * size.width, 0f),
-                                Offset(x * size.width, size.height),
-                                1.dp.toPx(),
+                    Box(
+                        Modifier.fillMaxSize().clip(strip).clearAndSetSemantics { },
+                        // Artwork positions below already mirror in physical coordinates.
+                        contentAlignment = AbsoluteAlignment.TopLeft,
+                    ) {
+                        val visible = (motion.currentIndex - 2..motion.currentIndex + 2).filter { it in items.indices }
+                        visible.forEach { index ->
+                            val center = .5f + (index - motion.position) * .44f * if (motion.rtl) -1 else 1
+                            val width = if (items.size == 1) .84f else .44f
+                            Artwork(
+                                items[index],
+                                Modifier
+                                    .absoluteOffset(x = stageWidth * (center - width / 2), y = stageHeight * .055f)
+                                    .width(stageWidth * width + .5.dp)
+                                    .height(stageHeight * .83f),
+                                poster = true,
                             )
                         }
-                        drawPath(
-                            strip.path(size.width, size.height),
-                            Color.White.copy(alpha = .24f),
-                            style = Stroke(1.dp.toPx()),
-                        )
+                        Canvas(Modifier.fillMaxSize()) {
+                            // Thin joins belong to one strip, and move with its photographs.
+                            visible.dropLast(1).forEach { index ->
+                                val x = .5f + (index + .5f - motion.position) * .44f * if (motion.rtl) -1 else 1
+                                drawLine(
+                                    Color.White.copy(alpha = .7f),
+                                    Offset(x * size.width, 0f),
+                                    Offset(x * size.width, size.height),
+                                    1.dp.toPx(),
+                                )
+                            }
+                            drawPath(
+                                strip.path(size.width, size.height),
+                                Color.White.copy(alpha = .24f),
+                                style = Stroke(1.dp.toPx()),
+                            )
+                        }
                     }
-                }
-                Canvas(Modifier.fillMaxSize().clearAndSetSemantics { }) {
-                    val centerY = (.82f + ribbonGalleryWave(.5f, phase)) * size.height
-                    // A fixed centre marker identifies the film named in the footer.
-                    drawLine(
-                        accent.copy(alpha = .5f),
-                        Offset(size.width / 2, centerY + 5.dp.toPx()),
-                        Offset(
-                            size.width / 2,
-                            centerY + 13.dp.toPx(),
-                        ),
-                        1.5.dp.toPx(),
-                    )
-                    drawCircle(accent, 2.5.dp.toPx(), Offset(size.width / 2, centerY + 17.dp.toPx()))
+                    Canvas(Modifier.fillMaxSize().clearAndSetSemantics { }) {
+                        val centerY = (.82f + ribbonGalleryWave(.5f, phase)) * size.height
+                        // A fixed centre marker identifies the film named in the footer.
+                        drawLine(
+                            accent.copy(alpha = .5f),
+                            Offset(size.width / 2, centerY + 5.dp.toPx()),
+                            Offset(
+                                size.width / 2,
+                                centerY + 13.dp.toPx(),
+                            ),
+                            1.5.dp.toPx(),
+                        )
+                        drawCircle(accent, 2.5.dp.toPx(), Offset(size.width / 2, centerY + 17.dp.toPx()))
+                    }
                 }
             }
             WidgetGalleryFooter(items, metadata, motion, onOpen)

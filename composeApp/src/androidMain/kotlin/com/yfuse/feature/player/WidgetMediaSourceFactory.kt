@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.source.MediaSource
+import com.yfuse.core.playback.WidgetPlaybackRequest
 
 /** Each MediaSource retains its own HTTP factory across preloading, redirects and queue changes. */
 internal class WidgetMediaSourceFactory(

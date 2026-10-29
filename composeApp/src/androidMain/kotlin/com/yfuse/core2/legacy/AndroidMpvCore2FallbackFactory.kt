@@ -4,6 +4,7 @@ import android.content.Context
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.playback.PlaybackOptimizationMode
+import com.yfuse.core.playback.PlayerCustomHeaders
 import com.yfuse.core2.android.AndroidCore2DiscRouteFactory
 import com.yfuse.core2.android.AndroidCore2FallbackRouteFactory
 import com.yfuse.core2.android.AndroidExternalSubtitleLoader
@@ -29,7 +30,6 @@ import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
 import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.MpvVideoEngine
-import com.yfuse.feature.player.PlayerCustomHeaders
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.PlayerMediaVersion
 import com.yfuse.feature.player.SubtitleAppearance

@@ -51,7 +51,7 @@ internal fun accountModule(): Module =
                 personal = get(),
                 backendAccess = get(),
             )
-        }
+        } onClose { it?.close() }
         single { ProductSession(get(), get()) }
         single {
             val account = get<AccountRepository>()
@@ -99,5 +99,5 @@ internal fun accountModule(): Module =
                 serverHealth = get(),
                 settings = get(),
             )
-        }
+        } onClose { it?.close() }
     }

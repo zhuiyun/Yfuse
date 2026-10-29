@@ -43,6 +43,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -92,6 +93,11 @@ class AccountRepository(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
     private val protocolMemory = AccountProtocolMemory(secureStore, crypto)
+
+    /** Stops in-flight session work when the DI graph is torn down. */
+    fun close() {
+        scope.cancel()
+    }
 
     /**
      * The cloud version whose 个人内容 this device has merged, for the automatic check to ask

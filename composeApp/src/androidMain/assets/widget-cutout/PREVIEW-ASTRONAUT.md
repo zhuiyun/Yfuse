@@ -7,15 +7,18 @@ bounded to 512 × 768 for the app asset.
 
 `preview-astronaut.png` is its real U2NetP foreground output, not a generated transparent
 cutout. The mask was not manually painted, repaired, thresholded, or adjusted to pass
-the gate. It uses the bundled model, RGB/max-pixel normalization, ImageNet mean/std,
+the gate. It was created with U²-NetP, RGB/max-pixel normalization, ImageNet mean/std,
 320 × 320 bilinear input, and normalized output alpha resized to 512 × 768.
 The image pair shares exact dimensions and RGB coordinates.
 
-The output passed the actual common Kotlin `assessWidgetCutoutMask` implementation.
+At asset creation, the output passed the common Kotlin `assessWidgetCutoutMask` implementation.
 The gray-background visual review retained the helmet, both hands, both legs and both
 boots with no large background islands. This reviewed, fixed example is separate from
-the runtime processing of arbitrary user posters. Its bounds and metrics are recorded
+the Poof processing of arbitrary user posters. Its bounds and metrics are recorded
 in `preview-astronaut.json`; recorded timing is a desktop CPU sample, not a phone result.
+The app now displays this PNG directly and no longer includes that model, its inference
+engine, or the historical local-mask quality gate. Original model provenance:
+https://github.com/xuebinqin/U-2-Net (Apache License 2.0).
 
 ## Generation prompt
 

@@ -1,4 +1,4 @@
-package com.yfuse.feature.player
+package com.yfuse.core.playback
 
 /** Header values must never appear in queue diagnostics. */
 class PlayerCustomHeaders(

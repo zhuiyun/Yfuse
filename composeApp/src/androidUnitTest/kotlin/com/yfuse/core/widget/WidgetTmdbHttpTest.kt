@@ -1,5 +1,6 @@
 package com.yfuse.core.widget
 
+import com.yfuse.backend.BackendAccess
 import com.yfuse.core.network.TmdbAccountAccess
 import com.yfuse.core.network.createTmdbClient
 import io.ktor.client.HttpClient
@@ -76,7 +77,7 @@ class WidgetTmdbHttpTest {
             assertEquals(1, requests)
         }
 
-    @Test fun signed_out_widgets_use_only_yfuse_tmdb_authentication(): Unit =
+    @Test fun backend_free_widgets_use_the_configured_token_without_touching_the_account(): Unit =
         runBlocking {
             val engine =
                 MockEngine { request ->
@@ -85,8 +86,77 @@ class WidgetTmdbHttpTest {
                     assertEquals("Bearer own-tmdb-token", request.headers[HttpHeaders.Authorization])
                     respond("""{"results":[]}""", HttpStatusCode.OK)
                 }
-            createTmdbClient(engine = engine, builtInToken = { "own-tmdb-token" }).use { client ->
+            createTmdbClient(
+                engine = engine,
+                builtInToken = { "own-tmdb-token" },
+                backendAccess = BackendAccess(enabled = false),
+                account =
+                    TmdbAccountAccess("https://account.example/api/v1/tmdb", MutableStateFlow(true), {
+                        error("Backend-free widgets must not request an account token")
+                    }, { error("Backend-free widgets must not refresh an account token") }),
+            ).use { client ->
                 WidgetTmdbHttp(client).request(buildJsonObject { put("url", "/trending/tv/week") })
+            }
+        }
+
+    @Test fun widgets_without_a_builtin_token_forward_catalog_filters_through_the_proxy(): Unit =
+        runBlocking {
+            for (signedIn in listOf(false, true)) {
+                var clock = 1_000_000L
+                val sent = mutableListOf<String>()
+                val engine =
+                    MockEngine { request ->
+                        assertEquals("account.example", request.url.host)
+                        assertEquals(
+                            if (signedIn) "Bearer account-secret" else null,
+                            request.headers[HttpHeaders.Authorization],
+                        )
+                        assertEquals("zh-CN", request.url.parameters["language"])
+                        assertEquals("2", request.url.parameters["page"])
+                        if (request.url.encodedPath.endsWith("/discover/tv")) {
+                            assertEquals("10751", request.url.parameters["with_genres"])
+                            assertEquals("213|49", request.url.parameters["with_networks"])
+                        }
+                        sent += request.url.encodedPath
+                        respond("""{"results":[]}""", HttpStatusCode.OK, headersOf("X-Internal-Token", "secret"))
+                    }
+                createTmdbClient(
+                    engine = engine,
+                    builtInToken = { "" },
+                    backendAccess = BackendAccess(enabled = true),
+                    nowEpochMs = { clock },
+                    account =
+                        TmdbAccountAccess("https://account.example/api/v1/tmdb", MutableStateFlow(signedIn), {
+                            "account-secret".takeIf { signedIn }
+                        }, { error("A successful catalog read must not refresh the account token") }),
+                ).use { client ->
+                    // Exercise the established signed-out path after the account restore grace period.
+                    clock += 60_000L
+                    for (path in listOf("/trending/tv/week", "/discover/tv")) {
+                        val raw =
+                            WidgetTmdbHttp(client).request(
+                                buildJsonObject {
+                                    put("url", path)
+                                    put(
+                                        "params",
+                                        buildJsonObject {
+                                            put("language", "zh-CN")
+                                            put("page", 2)
+                                            if (path == "/discover/tv") {
+                                                put("with_genres", "10751")
+                                                put("with_networks", "213|49")
+                                            }
+                                        },
+                                    )
+                                },
+                            )
+                        val response = widgetJson.parseToJsonElement(raw).jsonObject
+                        assertEquals(JsonPrimitive(true), response["ok"])
+                        assertEquals(JsonObject(emptyMap()), response["headers"])
+                        assertFalse(raw.contains("secret"))
+                    }
+                }
+                assertEquals(listOf("/api/v1/tmdb/trending/tv/week", "/api/v1/tmdb/discover/tv"), sent)
             }
         }
 

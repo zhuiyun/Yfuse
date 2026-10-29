@@ -87,7 +87,7 @@ internal fun WidgetEpisodeLayouts(
             baseHeight
         }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val width = minOf(maxWidth, if (compact) 302.dp else 342.dp)
+        val width = widgetRailItemWidth(if (compact) 302.dp else 342.dp, maxWidth)
         LazyRow(
             Modifier.fillMaxWidth().height(height),
             horizontalArrangement = Arrangement.spacedBy(12.dp),

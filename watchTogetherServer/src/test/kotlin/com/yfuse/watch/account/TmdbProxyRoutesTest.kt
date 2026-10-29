@@ -77,6 +77,69 @@ class TmdbProxyRoutesTest {
         }
 
     @Test
+    fun bundled_widget_catalog_reads_work_anonymously_and_share_the_account_cache() =
+        proxyTest(proxy(anonymous = TmdbAnonymousPolicy(perClientPerMinute = 100, missesPerMinute = 100))) { account ->
+            val paths =
+                buildList {
+                    for (type in listOf("all", "movie", "tv")) {
+                        for (window in listOf("day", "week")) {
+                            add("/trending/$type/$window?language=zh-CN&page=2")
+                        }
+                    }
+                    for (type in listOf("movie", "tv")) {
+                        add("/$type/popular?language=zh-CN&page=2")
+                        add("/$type/top_rated?language=zh-CN&page=2")
+                        add("/discover/$type?language=zh-CN&page=2&with_genres=10751")
+                    }
+                    add("/movie/now_playing?language=zh-CN&page=2&region=CN")
+                    add("/tv/on_the_air?language=zh-CN&page=2&region=CN")
+                    add("/discover/tv?language=zh-CN&page=2&with_networks=213%7C49")
+                    add("/discover/movie?language=zh-CN&page=2&with_companies=2%2C3")
+                }
+            upstreamAnswer = { json(200, """{"results":[]}""") }
+            for (path in paths) {
+                val anonymous = client.tmdb(path, token = null)
+                assertEquals(HttpStatusCode.OK, anonymous.status, path)
+                assertEquals("""{"results":[]}""", anonymous.bodyAsText(), path)
+                assertEquals("miss", anonymous.headers[TMDB_PROXY_CACHE_HEADER], path)
+                val signedIn = client.tmdb(path, account)
+                assertEquals(HttpStatusCode.OK, signedIn.status, path)
+                assertEquals("hit", signedIn.headers[TMDB_PROXY_CACHE_HEADER], path)
+            }
+            assertEquals(paths.size, upstreamCalls.size)
+            assertTrue(upstreamCalls.all { (_, bearer) -> bearer == SERVER_TOKEN })
+            assertTrue(upstreamCalls.any { (path, _) -> path.endsWith("with_networks=213%7C49") })
+            assertTrue(upstreamCalls.any { (path, _) -> path.endsWith("with_companies=2%2C3") })
+        }
+
+    @Test
+    fun anonymous_widget_reads_reject_unbounded_or_non_catalog_filters() =
+        proxyTest(proxy(anonymous = TmdbAnonymousPolicy(perClientPerMinute = 100, missesPerMinute = 100))) { _ ->
+            val invalid =
+                listOf(
+                    "/trending/person/day",
+                    "/trending/movie/month",
+                    "/tv/on_the_air?region=CN%26api_key%3Dx",
+                    "/movie/now_playing?region=china",
+                    "/discover/tv?with_networks=0",
+                    "/discover/movie?with_networks=213",
+                    "/discover/movie?with_companies=-1",
+                    "/discover/movie?with_companies=1000000000",
+                    "/discover/tv?with_networks=" + List(21) { "213" }.joinToString("%7C"),
+                    "/discover/movie?with_genres=28%26api_key%3Dx",
+                    "/discover/movie?with_companies=2&with_companies=3",
+                    "/discover/movie?with_genres=28&include_adult=true",
+                    "/trending/all/day?api_key=other",
+                )
+            for (path in invalid) {
+                val response = client.tmdb(path, token = null)
+                assertEquals(HttpStatusCode.Forbidden, response.status, path)
+                assertEquals("tmdb_request_not_allowed", response.errorCode(), path)
+            }
+            assertTrue(upstreamCalls.isEmpty())
+        }
+
+    @Test
     fun paths_and_parameters_outside_the_allowlist_are_refused_without_reaching_tmdb() =
         proxyTest(proxy()) { accessToken ->
             listOf(

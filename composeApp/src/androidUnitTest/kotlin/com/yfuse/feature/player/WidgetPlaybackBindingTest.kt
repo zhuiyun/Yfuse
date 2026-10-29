@@ -2,6 +2,8 @@ package com.yfuse.feature.player
 
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.source.MediaSource
+import com.yfuse.core.playback.PlayerCustomHeaders
+import com.yfuse.core.playback.WidgetPlaybackRequest
 import okhttp3.Request
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse

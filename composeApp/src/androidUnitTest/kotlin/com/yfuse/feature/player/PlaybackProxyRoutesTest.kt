@@ -1,5 +1,7 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.playback.PlaybackProxyRoute
+import com.yfuse.core.playback.PlaybackProxyRoutes
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull

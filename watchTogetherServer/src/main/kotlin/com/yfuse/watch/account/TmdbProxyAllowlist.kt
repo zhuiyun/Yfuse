@@ -31,8 +31,9 @@ internal enum class TmdbFreshness(
 /**
  * The only reads the proxy forwards: the home shelves, calendar and detail reads `TmdbRepository`
  * makes, the person record and person search behind the actor page's 其他作品, the title search and
- * alternative titles 文件来源 matching uses, and the credits, find and external-id lookups beside
- * them. Anything else is refused rather than trimmed, so the account's session cannot be spent on
+ * alternative titles 文件来源 matching uses, the bundled widget's charts and discovery filters,
+ * and the credits, find and external-id lookups beside them. Anything else is refused rather than
+ * trimmed, so the account's session cannot be spent on
  * arbitrary TMDB calls and an unexpected parameter never changes what a cached answer means.
  */
 internal fun tmdbProxyRequest(
@@ -99,6 +100,7 @@ private val SORT = Regex("[a-z_]{1,32}\\.(?:asc|desc)")
 private val COUNTRIES = Regex("[A-Z]{2}(?:[|,][A-Z]{2}){0,9}")
 private val LANGUAGES = Regex("[a-z]{2}(?:[|,][a-z]{2}){0,9}")
 private val GENRES = Regex("[0-9]{1,6}(?:[|,][0-9]{1,6}){0,19}")
+private val IDS = Regex("[1-9][0-9]{0,8}(?:[|,][1-9][0-9]{0,8}){0,19}")
 private val QUERY = Regex("(?=.*\\S)[^\\p{Cntrl}]{1,100}")
 private val EXTERNAL_SOURCE = Regex("imdb_id|tvdb_id")
 
@@ -111,6 +113,8 @@ private val DISCOVER =
         "sort_by" to SORT,
         "with_origin_country" to COUNTRIES,
         "with_original_language" to LANGUAGES,
+        "with_genres" to GENRES,
+        "with_companies" to IDS,
         "without_genres" to GENRES,
         "vote_count.gte" to COUNT,
         "include_adult" to FALSE_ONLY,
@@ -124,10 +128,24 @@ private val TMDB_ENDPOINTS: List<TmdbEndpoint> =
             "movie/now_playing",
             listOf(literal("movie"), literal("now_playing")),
             TmdbFreshness.Listing,
-            CHART,
+            CHART + mapOf("region" to REGION),
         ),
+        TmdbEndpoint("movie/top_rated", listOf(literal("movie"), literal("top_rated")), TmdbFreshness.Listing, CHART),
         TmdbEndpoint("tv/popular", listOf(literal("tv"), literal("popular")), TmdbFreshness.Listing, CHART),
         TmdbEndpoint("tv/airing_today", listOf(literal("tv"), literal("airing_today")), TmdbFreshness.Listing, CHART),
+        TmdbEndpoint("tv/top_rated", listOf(literal("tv"), literal("top_rated")), TmdbFreshness.Listing, CHART),
+        TmdbEndpoint(
+            "tv/on_the_air",
+            listOf(literal("tv"), literal("on_the_air")),
+            TmdbFreshness.Listing,
+            CHART + mapOf("region" to REGION),
+        ),
+        TmdbEndpoint(
+            "trending/{type}/{window}",
+            listOf(literal("trending"), Regex("all|movie|tv"), Regex("day|week")),
+            TmdbFreshness.Listing,
+            CHART,
+        ),
         TmdbEndpoint(
             "discover/movie",
             listOf(literal("discover"), literal("movie")),
@@ -147,6 +165,7 @@ private val TMDB_ENDPOINTS: List<TmdbEndpoint> =
             TmdbFreshness.Listing,
             DISCOVER +
                 mapOf(
+                    "with_networks" to IDS,
                     "first_air_date.gte" to DATE,
                     "first_air_date.lte" to DATE,
                     "first_air_date_year" to YEAR,

@@ -14,6 +14,9 @@ import com.yfuse.core.data.SourcePreheatMode
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.currentPlaybackNetworkClass
+import com.yfuse.core.playback.SecureMediaCacheKeyFactory
+import com.yfuse.core.playback.VideoCachePool
+import com.yfuse.core.playback.secureMediaCacheKeyForUrl
 import com.yfuse.core2.android.AndroidPlaybackMemoryBudget
 import com.yfuse.core2.android.PlaybackBufferKind
 import com.yfuse.core2.android.currentItemNetworkClassAllowed

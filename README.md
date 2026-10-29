@@ -17,7 +17,7 @@ support 32-bit-only devices, x86/x86_64 Android emulators, or x86 Chromebooks.
 For reproducible script/CI checks and explicit partial/blocked Harmony results, see
 [the validation environment guide](docs/VALIDATION_ENVIRONMENT.md).
 
-The build uses AGP 9.1.1, Kotlin 2.4.21, and Android SDK Platform 37.0. Install
+The build uses AGP 9.4.1, Gradle 9.8.2, Kotlin 2.4.21, and Android SDK Platform 37.0. Install
 `platforms;android-37.0` before building. The phone, TV and performance-test source targets
 Android API 37, and packages built from it since the migration do too; physical-device checks
 are tracked in [the Android 17 migration and device validation checklist](docs/ANDROID17_MIGRATION_20260920.md).

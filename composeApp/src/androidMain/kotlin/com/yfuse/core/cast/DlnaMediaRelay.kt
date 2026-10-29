@@ -4,10 +4,10 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.playback.PLAYBACK_PROXY_HEADER_TIMEOUT_MS
 import com.yfuse.core.playback.PlaybackProxyAdmission
 import com.yfuse.core.playback.PlaybackProxyHeaderReader
-import com.yfuse.feature.player.PlaybackProxyRequest
-import com.yfuse.feature.player.PlaybackProxyRequests
-import com.yfuse.feature.player.PlaybackProxyRoute
-import com.yfuse.feature.player.PlaybackProxyRoutes
+import com.yfuse.core.playback.PlaybackProxyRequest
+import com.yfuse.core.playback.PlaybackProxyRequests
+import com.yfuse.core.playback.PlaybackProxyRoute
+import com.yfuse.core.playback.PlaybackProxyRoutes
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -42,8 +42,9 @@ import java.util.concurrent.atomic.AtomicLong
  * renderer reads plain HTTP on the local network, while this phone fetches the same bytes exactly
  * as its own player does. The access token stays in this process instead of the DIDL metadata.
  *
- * Only peers on the local network are answered, and only for routes published here: a 128-bit
- * random path that is retired when the cast ends.
+ * Only the renderer selected for the current load is answered, and only for routes published
+ * here: a 128-bit random path that is retired when the cast ends. Other devices on the same LAN
+ * cannot use this phone as an authenticated media proxy.
  */
 internal class DlnaMediaRelay(
     /** This phone's address on the network the renderer is on. */
@@ -156,7 +157,7 @@ internal class DlnaMediaRelay(
                     AppLog.warning(
                         category = "cast",
                         event = "dlna_relay_peer_rejected",
-                        message = "DLNA relay refused a connection from outside the local network",
+                        message = "DLNA relay refused a connection from a peer other than the selected renderer",
                     )
                 }
                 runCatching { socket.close() }
@@ -200,7 +201,7 @@ internal class DlnaMediaRelay(
         }
     }
 
-    private fun InetAddress.isAllowedPeer(): Boolean = isLocalNetworkAddress() || this == renderer
+    private fun InetAddress.isAllowedPeer(): Boolean = isAllowedDlnaRelayPeer(this, renderer)
 
     private fun serve(
         request: PlaybackProxyRequest,
@@ -407,6 +408,12 @@ internal fun localAddressFacing(peer: InetAddress): InetAddress? =
         !address.isAnyLocalAddress &&
             (address is Inet4Address || (address is Inet6Address && !address.isLinkLocalAddress))
     }
+
+/** A relay is a per-renderer capability, not an HTTP proxy for every device on the LAN. */
+internal fun isAllowedDlnaRelayPeer(
+    peer: InetAddress,
+    renderer: InetAddress?,
+): Boolean = renderer != null && peer == renderer
 
 /** Loopback, RFC 1918, link-local and IPv6 unique-local addresses. */
 internal fun InetAddress.isLocalNetworkAddress(): Boolean =

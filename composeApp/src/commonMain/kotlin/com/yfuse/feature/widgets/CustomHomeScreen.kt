@@ -2,6 +2,7 @@ package com.yfuse.feature.widgets
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -72,106 +73,109 @@ fun CustomHomeScreen(
     val palette = LocalPalette.current
     com.yfuse.core.designsystem
         .StatusBarIconStyle(darkIcons = !palette.isDark)
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Row(
-                    Modifier.defaultMinSize(minHeight = 48.dp).pressable(
-                        enabled =
-                            page != null && database.pages.count { !it.hidden } > 1,
-                        onClick = { choosing = true },
-                    ),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        page?.title ?: "我的首页",
-                        Modifier.weight(1f, fill = false),
-                        color = palette.text,
-                        style = AppTypography.section.strong.copy(fontSize = 22.sp),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (page != null &&
-                        database.pages.count { !it.hidden } > 1
-                    ) {
-                        ThemeIcon(
-                            AppIcons.ChevronDown,
-                            "切换页面",
-                            modifier = Modifier.padding(start = 8.dp).size(18.dp),
-                            tint = palette.sub2,
-                        )
-                    }
-                }
-            }
-            WidgetHomeAction(AppIcons.Edit, "编辑首页", { manager = true }, label = "编辑")
-        }
-        if (page == null) {
-            LazyColumn(
-                Modifier.weight(1f),
-                contentPadding = PaddingValues(start = 24.dp, top = 36.dp, end = 24.dp, bottom = 120.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+    BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding()) {
+        val horizontalPadding = widgetHomeHorizontalPadding(maxWidth)
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = horizontalPadding, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                item {
+                Column(Modifier.weight(1f)) {
                     Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        Modifier.defaultMinSize(minHeight = 48.dp).pressable(
+                            enabled =
+                                page != null && database.pages.count { !it.hidden } > 1,
+                            onClick = { choosing = true },
+                        ),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        repeat(3) { index ->
-                            Column(Modifier.weight(1f)) {
-                                WidgetPreviewArtwork(
-                                    "preview-$index",
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(
-                                            if (index ==
-                                                1
-                                            ) {
-                                                .58f
-                                            } else {
-                                                .68f
-                                            },
-                                        ).clip(AppShapes.card),
-                                )
-                            }
+                        Text(
+                            page?.title ?: "我的首页",
+                            Modifier.weight(1f, fill = false),
+                            color = palette.text,
+                            style = AppTypography.section.strong.copy(fontSize = 22.sp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (page != null &&
+                            database.pages.count { !it.hidden } > 1
+                        ) {
+                            ThemeIcon(
+                                AppIcons.ChevronDown,
+                                "切换页面",
+                                modifier = Modifier.padding(start = 8.dp).size(18.dp),
+                                tint = palette.sub2,
+                            )
                         }
                     }
                 }
-                item {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                WidgetHomeAction(AppIcons.Edit, "编辑首页", { manager = true }, label = "编辑")
+            }
+            if (page == null) {
+                LazyColumn(
+                    Modifier.weight(1f),
+                    contentPadding = PaddingValues(start = 24.dp, top = 36.dp, end = 24.dp, bottom = 120.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            repeat(3) { index ->
+                                Column(Modifier.weight(1f)) {
+                                    WidgetPreviewArtwork(
+                                        "preview-$index",
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(
+                                                if (index ==
+                                                    1
+                                                ) {
+                                                    .58f
+                                                } else {
+                                                    .68f
+                                                },
+                                            ).clip(AppShapes.card),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                "让首页，成为你的片单",
+                                style = AppTypography.section.strong.copy(fontSize = 22.sp),
+                                color = palette.text,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                "精选、榜单、追剧日历\n把喜欢的内容，按自己的方式排列。",
+                                Modifier.padding(top = 12.dp),
+                                color = palette.sub2,
+                                style = AppTypography.body.reading,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                    item { WidgetPrimaryButton({ manager = true }, Modifier.fillMaxWidth()) { Text("开始布置首页") } }
+                    item {
                         Text(
-                            "让首页，成为你的片单",
-                            style = AppTypography.section.strong.copy(fontSize = 22.sp),
-                            color = palette.text,
-                            textAlign = TextAlign.Center,
-                        )
-                        Text(
-                            "精选、榜单、追剧日历\n把喜欢的内容，按自己的方式排列。",
-                            Modifier.padding(top = 12.dp),
+                            "支持自选组件与 ${WidgetStyle.entries.size} 种卡片样式",
                             color = palette.sub2,
-                            style = AppTypography.body.reading,
+                            style = AppTypography.caption.regular,
                             textAlign = TextAlign.Center,
                         )
                     }
                 }
-                item { WidgetPrimaryButton({ manager = true }, Modifier.fillMaxWidth()) { Text("开始布置首页") } }
-                item {
-                    Text(
-                        "支持自选组件与 ${WidgetStyle.entries.size} 种卡片样式",
-                        color = palette.sub2,
-                        style = AppTypography.caption.regular,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-            }
-        } else {
-            Box(Modifier.weight(1f)) {
-                pageStates.SaveableStateProvider(page.id) {
-                    WidgetPageContent(page, repository, onEdit = { manager = true }, onOpenTmdb = onOpenTmdb)
+            } else {
+                Box(Modifier.weight(1f)) {
+                    pageStates.SaveableStateProvider(page.id) {
+                        WidgetPageContent(page, repository, onEdit = { manager = true }, onOpenTmdb = onOpenTmdb)
+                    }
                 }
             }
         }

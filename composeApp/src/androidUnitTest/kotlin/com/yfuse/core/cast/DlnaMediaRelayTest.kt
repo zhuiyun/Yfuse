@@ -226,6 +226,15 @@ class DlnaMediaRelayTest {
             .forEach { assertTrue(!InetAddress.getByName(it).isLocalNetworkAddress(), it) }
     }
 
+    @Test
+    fun only_the_selected_renderer_may_use_the_relay() {
+        val renderer = InetAddress.getByName("192.168.31.40")
+        val sameLanPeer = InetAddress.getByName("192.168.31.41")
+        assertTrue(isAllowedDlnaRelayPeer(renderer, renderer))
+        assertTrue(!isAllowedDlnaRelayPeer(sameLanPeer, renderer))
+        assertTrue(!isAllowedDlnaRelayPeer(renderer, null))
+    }
+
     /** Until the relay has written nothing more for a moment: its workers have finished. */
     private fun awaitQuiet(relay: DlnaMediaRelay) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)

@@ -161,6 +161,7 @@ internal fun PlayerRoot(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val engineScope = remember(scope) { scope.playbackEngineScope() }
     val personalLibrary =
         remember { GlobalContext.get().getOrNull<com.yfuse.core.personal.PersonalLibraryRepository>() }
     val personalPlaybackOwner = remember(personalLibrary) { personalLibrary?.scopeToken }
@@ -418,7 +419,7 @@ internal fun PlayerRoot(
                     customUserAgent = customUserAgent,
                     videoCacheBytes = videoCacheBytes,
                     yCoreBufferTargetUs = yCoreBufferTargetUs,
-                    scope = scope,
+                    scope = engineScope,
                     stopEncoding = { sessionId ->
                         playbackSinkForSession(sessionId)?.stopEncoding(sessionId) ?: true
                     },
@@ -444,7 +445,7 @@ internal fun PlayerRoot(
         remember {
             PlaybackEngineSlot(
                 initial = engineRequest.input,
-                scope = scope,
+                scope = engineScope,
                 retirements = AndroidPlaybackEngineRetirements.registry,
                 onAbandonedOwner = { AndroidNativeCrashMonitor.disarm(it, successful = false) },
                 onReleased = { binding, successful ->

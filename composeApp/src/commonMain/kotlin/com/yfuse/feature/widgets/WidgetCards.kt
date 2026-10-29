@@ -227,11 +227,18 @@ private fun widgetRailMetrics(
         // Leave room for font rounding and custom system-font descenders at the rail edge.
         return title + details + description + 4.dp
     }
-    val pageInset = if (style == WidgetStyle.CenterPoster) minOf(52.dp, available * .15f) else 16.dp
+    val pagerWidth =
+        widgetPagerCardWidth(available, compact, style == WidgetStyle.CenterPoster, LocalWidgetGalleryMaxHeight.current)
+    val pageInset = (available - pagerWidth) / 2
     val preferred =
         when (style) {
             WidgetStyle.Landscape, WidgetStyle.Cinema, WidgetStyle.ContinueLandscape -> if (compact) 200.dp else 244.dp
-            WidgetStyle.Poster, WidgetStyle.ContinuePoster -> if (compact) 108.dp else 136.dp
+            WidgetStyle.Poster, WidgetStyle.ContinuePoster ->
+                if (available >= 600.dp) {
+                    if (compact) 140.dp else 168.dp
+                } else {
+                    if (compact) 108.dp else 136.dp
+                }
             WidgetStyle.DoublePoster -> if (compact) 132.dp else 156.dp
             WidgetStyle.GridTwo -> if (compact) 140.dp else 160.dp
             WidgetStyle.GridThree, WidgetStyle.RankGrid -> if (compact) 96.dp else 116.dp
@@ -251,7 +258,14 @@ private fun widgetRailMetrics(
             WidgetStyle.CenterPoster, WidgetStyle.PeekCarousel -> available - pageInset * 2
             else -> if (compact) 270.dp else 310.dp
         }
-    val width = minOf(preferred, available).coerceAtLeast(48.dp)
+    val width =
+        if (style in
+            setOf(WidgetStyle.CenterPoster, WidgetStyle.PeekCarousel, WidgetStyle.Poster, WidgetStyle.ContinuePoster)
+        ) {
+            minOf(preferred, available).coerceAtLeast(1.dp)
+        } else {
+            widgetRailItemWidth(preferred, available)
+        }
     val image =
         when (style) {
             WidgetStyle.Cinema -> width / 2.33f

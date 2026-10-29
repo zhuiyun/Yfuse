@@ -161,170 +161,174 @@ internal fun WidgetOrbitResume(
                 }
             }
         }
-        Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(stageHeight)
-                    .clipToBounds()
-                    .scrollable(
-                        scroll,
-                        Orientation.Horizontal,
-                        enabled = items.size > 1,
-                        reverseDirection = rtl,
-                        flingBehavior = fling,
-                    ).onPreviewKeyEvent { event ->
-                        if (event.type != KeyEventType.KeyDown || items.size < 2) {
-                            false
-                        } else {
-                            val direction =
-                                when (event.key) {
-                                    Key.DirectionRight -> if (rtl) -1 else 1
-                                    Key.DirectionLeft -> if (rtl) 1 else -1
-                                    else -> 0
-                                }
-                            if (direction != 0) select(currentIndex + direction)
-                            direction != 0
-                        }
-                    }.semantics {
-                        collectionInfo = CollectionInfo(1, items.size)
-                        stateDescription = "第 ${currentIndex + 1} 部，共 ${items.size} 部"
-                        if (items.size > 1) {
-                            horizontalScrollAxisRange = ScrollAxisRange({ position }, { lastIndex.toFloat() }, rtl)
-                            scrollBy { x, _ ->
-                                if (x == 0f) {
-                                    false
-                                } else {
-                                    select(currentIndex + if (x > 0f) 1 else -1)
-                                    true
-                                }
-                            }
-                            customActions =
-                                buildList {
-                                    if (currentIndex >
-                                        0
-                                    ) {
-                                        add(
-                                            CustomAccessibilityAction("上一部") {
-                                                select(currentIndex - 1)
-                                                true
-                                            },
-                                        )
-                                    }
-                                    if (currentIndex <
-                                        lastIndex
-                                    ) {
-                                        add(
-                                            CustomAccessibilityAction("下一部") {
-                                                select(currentIndex + 1)
-                                                true
-                                            },
-                                        )
-                                    }
-                                }
-                        }
-                    },
-            ) {
-                val neighbours = orbitNeighbourIndices(currentIndex, items.size)
-                if (neighbours.isNotEmpty()) {
-                    Canvas(Modifier.offset(x = 16.dp, y = 12.dp).width(artWidth).height(artWidth * .80f)) {
-                        drawOval(
-                            color = accent.copy(alpha = .16f),
-                            topLeft = Offset(size.width * .04f, size.height * .055f),
-                            size = Size(size.width * .92f, size.height * .88f),
-                            style = Stroke(1.dp.toPx()),
-                        )
-                    }
-                }
-                val primaryFrame = orbitPrimaryFrame(neighbours.isEmpty())
-                val circleSize = artWidth * primaryFrame.width
+        Column(
+            Modifier.width(widgetGalleryViewportWidth(maxWidth, width)),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+        ) {
+            WidgetGalleryStage(width, stageHeight, items, currentIndex, select) {
                 Box(
                     Modifier
-                        .offset(x = 16.dp + artWidth * primaryFrame.x, y = 12.dp + artWidth * primaryFrame.y)
-                        .size(circleSize)
-                        .pressable(
-                            label = item.title,
-                            role = Role.Button,
-                            onClickLabel = "查看详情",
-                            focusShape = CircleShape,
-                            pressedScale = .98f,
-                            lightFeedback = false,
-                            onClick = { onOpen(item) },
-                        ),
-                    contentAlignment = Alignment.Center,
+                        .fillMaxWidth()
+                        .height(stageHeight)
+                        .clipToBounds()
+                        .scrollable(
+                            scroll,
+                            Orientation.Horizontal,
+                            enabled = items.size > 1,
+                            reverseDirection = rtl,
+                            flingBehavior = fling,
+                        ).onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown || items.size < 2) {
+                                false
+                            } else {
+                                val direction =
+                                    when (event.key) {
+                                        Key.DirectionRight -> if (rtl) -1 else 1
+                                        Key.DirectionLeft -> if (rtl) 1 else -1
+                                        else -> 0
+                                    }
+                                if (direction != 0) select(currentIndex + direction)
+                                direction != 0
+                            }
+                        }.semantics {
+                            collectionInfo = CollectionInfo(1, items.size)
+                            stateDescription = "第 ${currentIndex + 1} 部，共 ${items.size} 部"
+                            if (items.size > 1) {
+                                horizontalScrollAxisRange = ScrollAxisRange({ position }, { lastIndex.toFloat() }, rtl)
+                                scrollBy { x, _ ->
+                                    if (x == 0f) {
+                                        false
+                                    } else {
+                                        select(currentIndex + if (x > 0f) 1 else -1)
+                                        true
+                                    }
+                                }
+                                customActions =
+                                    buildList {
+                                        if (currentIndex >
+                                            0
+                                        ) {
+                                            add(
+                                                CustomAccessibilityAction("上一部") {
+                                                    select(currentIndex - 1)
+                                                    true
+                                                },
+                                            )
+                                        }
+                                        if (currentIndex <
+                                            lastIndex
+                                        ) {
+                                            add(
+                                                CustomAccessibilityAction("下一部") {
+                                                    select(currentIndex + 1)
+                                                    true
+                                                },
+                                            )
+                                        }
+                                    }
+                            }
+                        },
                 ) {
-                    Crossfade(
-                        item,
-                        animationSpec = Motion.tween(if (reduceMotion) 0 else Motion.DISCLOSURE),
-                        label = "orbitFilm",
-                    ) { film ->
-                        key(film.id) {
-                            OrbitPrimaryArtwork(
-                                film,
-                                metadata && density.fontScale <= 1.4f && circleSize >= 140.dp,
-                                Modifier.fillMaxSize(),
+                    val neighbours = orbitNeighbourIndices(currentIndex, items.size)
+                    if (neighbours.isNotEmpty()) {
+                        Canvas(Modifier.offset(x = 16.dp, y = 12.dp).width(artWidth).height(artWidth * .80f)) {
+                            drawOval(
+                                color = accent.copy(alpha = .16f),
+                                topLeft = Offset(size.width * .04f, size.height * .055f),
+                                size = Size(size.width * .92f, size.height * .88f),
+                                style = Stroke(1.dp.toPx()),
                             )
                         }
                     }
-                }
-                neighbours.forEachIndexed { slot, neighbourIndex ->
-                    val neighbour = items[neighbourIndex]
-                    val frame = orbitSatelliteFrame(slot)
-                    val tilt = if (reduceMotion) frame.tilt else frame.tilt + (boundedPosition - currentIndex) * 8f
+                    val primaryFrame = orbitPrimaryFrame(neighbours.isEmpty())
+                    val circleSize = artWidth * primaryFrame.width
                     Box(
                         Modifier
-                            .offset(x = 16.dp + artWidth * frame.x, y = 12.dp + artWidth * frame.y)
-                            .width(artWidth * frame.width)
-                            .height(artWidth * frame.height)
-                            .graphicsLayer {
-                                rotationZ = tilt * if (rtl) -1f else 1f
-                                shape = AppShapes.thumb
-                                clip = true
-                                shadowElevation = 3.dp.toPx()
-                            }.pressable(
-                                label = neighbour.title,
+                            .offset(x = 16.dp + artWidth * primaryFrame.x, y = 12.dp + artWidth * primaryFrame.y)
+                            .size(circleSize)
+                            .pressable(
+                                label = item.title,
                                 role = Role.Button,
-                                onClickLabel = "切换到此影片",
-                                focusShape = AppShapes.thumb,
+                                onClickLabel = "查看详情",
+                                focusShape = CircleShape,
+                                pressedScale = .98f,
                                 lightFeedback = false,
-                                onClick = { select(neighbourIndex) },
+                                onClick = { onOpen(item) },
                             ),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Artwork(neighbour, Modifier.fillMaxSize().clearAndSetSemantics { }, poster = true)
-                        val progress = orbitProgress(neighbour)
-                        if (progress != null) {
-                            Canvas(
-                                Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .fillMaxWidth()
-                                    .padding(6.dp)
-                                    .height(3.dp),
-                            ) {
-                                val y = size.height / 2
-                                drawLine(
-                                    palette.background.copy(alpha = .65f),
-                                    Offset(0f, y),
-                                    Offset(size.width, y),
-                                    size.height,
-                                    StrokeCap.Round,
+                        Crossfade(
+                            item,
+                            animationSpec = Motion.tween(if (reduceMotion) 0 else Motion.DISCLOSURE),
+                            label = "orbitFilm",
+                        ) { film ->
+                            key(film.id) {
+                                OrbitPrimaryArtwork(
+                                    film,
+                                    metadata && density.fontScale <= 1.4f && circleSize >= 140.dp,
+                                    Modifier.fillMaxSize(),
                                 )
-                                if (progress >
-                                    0f
+                            }
+                        }
+                    }
+                    neighbours.forEachIndexed { slot, neighbourIndex ->
+                        val neighbour = items[neighbourIndex]
+                        val frame = orbitSatelliteFrame(slot)
+                        val tilt = if (reduceMotion) frame.tilt else frame.tilt + (boundedPosition - currentIndex) * 8f
+                        Box(
+                            Modifier
+                                .offset(x = 16.dp + artWidth * frame.x, y = 12.dp + artWidth * frame.y)
+                                .width(artWidth * frame.width)
+                                .height(artWidth * frame.height)
+                                .graphicsLayer {
+                                    rotationZ = tilt * if (rtl) -1f else 1f
+                                    shape = AppShapes.thumb
+                                    clip = true
+                                    shadowElevation = 3.dp.toPx()
+                                }.pressable(
+                                    label = neighbour.title,
+                                    role = Role.Button,
+                                    onClickLabel = "切换到此影片",
+                                    focusShape = AppShapes.thumb,
+                                    lightFeedback = false,
+                                    onClick = { select(neighbourIndex) },
+                                ),
+                        ) {
+                            Artwork(neighbour, Modifier.fillMaxSize().clearAndSetSemantics { }, poster = true)
+                            val progress = orbitProgress(neighbour)
+                            if (progress != null) {
+                                Canvas(
+                                    Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .fillMaxWidth()
+                                        .padding(6.dp)
+                                        .height(3.dp),
                                 ) {
+                                    val y = size.height / 2
                                     drawLine(
-                                        accent,
+                                        palette.background.copy(alpha = .65f),
                                         Offset(0f, y),
-                                        Offset(size.width * progress, y),
+                                        Offset(size.width, y),
                                         size.height,
                                         StrokeCap.Round,
                                     )
+                                    if (progress >
+                                        0f
+                                    ) {
+                                        drawLine(
+                                            accent,
+                                            Offset(0f, y),
+                                            Offset(size.width * progress, y),
+                                            size.height,
+                                            StrokeCap.Round,
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-
             val progress = orbitProgress(item)
             val remaining = orbitRemainingMinutes(item)
             val details =

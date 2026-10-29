@@ -114,8 +114,9 @@ class TmdbUnavailableException : IOException("TMDB has no route: no Yfuse accoun
 /**
  * Sends each TMDB request the way [chooseTmdbRoute] picks, then repairs what can be repaired: one
  * token renewal when the account server refuses the session, and a direct retry when the proxy
- * cannot serve and this build still has a token. Requests for any other host are passed through
- * untouched, and no request ever carries both credentials or the wrong one to either server.
+ * cannot serve and this build still has a token. A signed-out build without a token uses the
+ * proxy's anonymous, allowlisted route. Requests for any other host are passed through untouched,
+ * and no request ever carries both credentials or the wrong one to either server.
  */
 class TmdbRequestRouter(
     private val builtInToken: () -> String,
@@ -166,6 +167,13 @@ class TmdbRequestRouter(
                 note(TmdbRoute.Proxy)
                 viaProxy(request, original, tmdbPath, accountToken, direct, execute)
             }
+            route == TmdbRoute.Proxy && direct.isEmpty() -> {
+                // Release builds carry no TMDB credential. The account server accepts the same
+                // allowlisted reads anonymously, so signed-out users keep working without shipping
+                // a reusable bearer in every APK.
+                note(TmdbRoute.Proxy)
+                viaProxy(request, original, tmdbPath, null, direct, execute)
+            }
             direct.isNotEmpty() -> {
                 note(TmdbRoute.Direct)
                 directly(request, original, direct, execute)
@@ -198,7 +206,7 @@ class TmdbRequestRouter(
         request: HttpRequestBuilder,
         original: Url,
         tmdbPath: String,
-        token: String,
+        token: String?,
         direct: String,
         execute: suspend (HttpRequestBuilder) -> HttpClientCall,
     ): HttpClientCall {
@@ -235,11 +243,11 @@ class TmdbRequestRouter(
         access: TmdbAccountAccess,
         request: HttpRequestBuilder,
         tmdbPath: String,
-        token: String,
+        token: String?,
         execute: suspend (HttpRequestBuilder) -> HttpClientCall,
     ): ProxyAttempt {
         val first = tryProxy(execute, request.towardsProxy(access.proxyBase, tmdbPath, token))
-        if (first.response.status != HttpStatusCode.Unauthorized) return first
+        if (token == null || first.response.status != HttpStatusCode.Unauthorized) return first
         val renewed = renewToken(access, rejected = token) ?: return first
         return tryProxy(execute, request.towardsProxy(access.proxyBase, tmdbPath, renewed))
     }
@@ -360,13 +368,13 @@ private suspend fun resolve(provider: suspend () -> String?): String? =
 private fun HttpRequestBuilder.towardsProxy(
     proxyBase: String,
     tmdbPath: String,
-    token: String,
+    token: String?,
 ): HttpRequestBuilder =
     apply {
         val proxy = Url(proxyBase)
         url.pointAt(proxy.protocol, proxy.host, proxy.specifiedPort, proxy.encodedPath.trimEnd('/') + tmdbPath)
         headers.remove(HttpHeaders.Authorization)
-        headers.append(HttpHeaders.Authorization, "Bearer $token")
+        if (token != null) headers.append(HttpHeaders.Authorization, "Bearer $token")
     }
 
 /** Moves a request between TMDB and the proxy; its query stays exactly as the caller built it. */

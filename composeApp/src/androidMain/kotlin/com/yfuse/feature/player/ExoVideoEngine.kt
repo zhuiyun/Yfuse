@@ -45,6 +45,9 @@ import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackHdrFormat
 import com.yfuse.core.playback.PlaybackOptimizationMode
+import com.yfuse.core.playback.SecureMediaCacheKeyFactory
+import com.yfuse.core.playback.SelectivePlaybackCacheDataSourceFactory
+import com.yfuse.core.playback.VideoCachePool
 import com.yfuse.core.playback.playbackBufferProfile
 import com.yfuse.core2.android.AndroidSerializedPlayerRelease
 import com.yfuse.core2.android.AndroidSpatialAudioProbe

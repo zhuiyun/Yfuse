@@ -1,4 +1,4 @@
-package com.yfuse.feature.profile
+package com.yfuse.core.designsystem
 
 import android.app.Activity
 import android.app.ActivityManager

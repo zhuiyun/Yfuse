@@ -72,15 +72,17 @@ internal fun WidgetBreakoutPoster(
 ) {
     if (items.isEmpty()) return
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-        val stageWidth = maxWidth.coerceAtMost(if (compact) 340.dp else 480.dp)
+        val referenceWidth = maxWidth.coerceAtMost(if (compact) 340.dp else 480.dp)
+        val stageWidth = widgetGalleryViewportWidth(maxWidth, referenceWidth)
         val artworkHeight =
             minOf(
-                stageWidth * BREAKOUT_CARD_WIDTH * BREAKOUT_WINDOW_HEIGHT,
+                referenceWidth * BREAKOUT_CARD_WIDTH * BREAKOUT_WINDOW_HEIGHT,
                 (LocalWidgetGalleryMaxHeight.current - 24.dp).coerceAtLeast(1.dp),
             )
         val cardWidth = artworkHeight / BREAKOUT_WINDOW_HEIGHT
+        val step = if (maxWidth >= 600.dp) cardWidth + 32.dp else (stageWidth + cardWidth) * .4f
         val density = LocalDensity.current
-        val motion = rememberWidgetGalleryMotion("breakout-poster", items, with(density) { (cardWidth * .82f).toPx() })
+        val motion = rememberWidgetGalleryMotion("breakout-poster", items, with(density) { step.toPx() })
         Column(Modifier.width(stageWidth), verticalArrangement = Arrangement.spacedBy(0.dp)) {
             Box(
                 Modifier
@@ -106,7 +108,11 @@ internal fun WidgetBreakoutPoster(
                     }.then(motion.inputModifier),
                 contentAlignment = Alignment.Center,
             ) {
-                val indices = (motion.currentIndex - 2..motion.currentIndex + 2).filter { it in items.indices }
+                val radius = (kotlin.math.ceil(stageWidth / step / 2).toInt() + 1).coerceIn(2, 4)
+                val indices =
+                    (motion.currentIndex - radius..motion.currentIndex + radius).filter {
+                        it in items.indices
+                    }
                 indices.sortedByDescending { abs(it - motion.position) }.forEach { index ->
                     key(items[index].id, index) {
                         val relative = index - motion.position
@@ -117,7 +123,7 @@ internal fun WidgetBreakoutPoster(
                                 .size(cardWidth, artworkHeight)
                                 .zIndex(2f - abs(relative))
                                 .graphicsLayer {
-                                    translationX = relative * (stageWidth + cardWidth).toPx() * .4f *
+                                    translationX = relative * step.toPx() *
                                         if (motion.rtl) -1f else 1f
                                     alpha = 1f - distance * .48f
                                 }.pressable(

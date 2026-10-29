@@ -14,12 +14,13 @@ import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.network.EmbyImages
+import com.yfuse.core.playback.PlaybackLaunchTimings
 import com.yfuse.core.util.currentEpochMillis
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.scheduledEpochMillis
 import com.yfuse.core.util.shiftIsoDate
-import com.yfuse.feature.player.PlaybackLaunchTimings
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
@@ -29,6 +30,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Local cache failures may degrade gracefully; a cancelled load must stop immediately. */
@@ -783,9 +785,15 @@ class AiringCalendarRepository(
         val librarySchedule = hint?.let { libraryAiringSchedule(it, fallbackTitle) }.orEmpty()
         var official = officialSchedules.series(showTmdbId, fallbackTitle).orEmpty()
 
-        fun mergedSchedule(): List<AiringEpisode> =
-            mergeAiringSchedules(librarySchedule, official)
-                .filter { it.airDate in localFrom..localTo || it.scheduleAuthority == AiringScheduleAuthority.Library }
+        // Merging a series' 21-day window is pure CPU work; keep it off whatever dispatcher the
+        // caller happened to be on (the detail page calls this from its own scope).
+        suspend fun mergedSchedule(): List<AiringEpisode> =
+            withContext(Dispatchers.Default) {
+                mergeAiringSchedules(librarySchedule, official).filter {
+                    it.airDate in localFrom..localTo ||
+                        it.scheduleAuthority == AiringScheduleAuthority.Library
+                }
+            }
         val initial = mergedSchedule()
         if (initial.isNotEmpty()) onPreview(calendarPreviewDays(initial, today, hint))
 

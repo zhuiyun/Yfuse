@@ -12,7 +12,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import com.yfuse.appEntryIntent
 import com.yfuse.core.logging.AppLog
-import com.yfuse.feature.player.PlaybackForegroundTransitionGate
+import com.yfuse.core.playback.PlaybackForegroundTransitionGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

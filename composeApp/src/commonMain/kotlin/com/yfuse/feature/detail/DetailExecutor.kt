@@ -473,7 +473,7 @@ internal class DetailExecutor(
     /** Loads the series picker after the play target has already made the button usable. */
     private fun loadInitialSeriesCatalogAfterPriority(
         selection: ResolvedPlaybackSelection,
-        launchTiming: com.yfuse.feature.player.PlaybackLaunchTiming?,
+        launchTiming: com.yfuse.core.playback.PlaybackLaunchTiming?,
     ) {
         if (launchTiming == null) {
             loadInitialSeriesCatalog(selection)
@@ -1024,10 +1024,10 @@ internal class DetailExecutor(
         val server = current.playServer ?: return
         if (current.resolvingPlay) return
         pendingLaunchTiming =
-            com.yfuse.feature.player.PlaybackLaunchTiming().also { timing ->
+            com.yfuse.core.playback.PlaybackLaunchTiming().also { timing ->
                 timing.stage("play_requested")
                 current.playTarget?.id?.let {
-                    com.yfuse.feature.player.PlaybackLaunchTimings.register(
+                    com.yfuse.core.playback.PlaybackLaunchTimings.register(
                         server.id,
                         it,
                         timing,
@@ -1159,7 +1159,7 @@ internal class DetailExecutor(
         publishPlay(state(), fromStart)
     }
 
-    private var pendingLaunchTiming: com.yfuse.feature.player.PlaybackLaunchTiming? = null
+    private var pendingLaunchTiming: com.yfuse.core.playback.PlaybackLaunchTiming? = null
 
     private fun publishPlay(
         current: DetailState,
@@ -1191,7 +1191,7 @@ internal class DetailExecutor(
             }
         }
         pendingLaunchTiming?.let {
-            com.yfuse.feature.player.PlaybackLaunchTimings
+            com.yfuse.core.playback.PlaybackLaunchTimings
                 .register(server.id, target.id, it)
             it.stage("detail_selection_ready")
         }

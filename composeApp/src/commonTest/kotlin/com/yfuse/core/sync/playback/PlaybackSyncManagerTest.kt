@@ -153,6 +153,45 @@ class PlaybackSyncManagerTest {
         }
 
     @Test
+    fun close_cancels_a_queued_retry_without_discarding_pending_progress() =
+        runTest {
+            var pushes = 0
+            val fixture =
+                fixture(cloudHandler = { request ->
+                    if (request.method == HttpMethod.Get) {
+                        successfulPlaybackResponse(request)
+                    } else {
+                        pushes++
+                        respondJson("""{"cursor":10,"accepted":[],"conflicts":[]}""")
+                    }
+                })
+            try {
+                fixture.manager.start()
+                runCurrent()
+                assertEquals(1, pushes)
+                assertNotNull(fixture.manager.state.value.error)
+                val pending = fixture.store.pending()
+                assertEquals(1, pending.size)
+
+                // The preceding backoff test proves this response retries at 30 seconds.
+                // Close just before that deadline while keeping the HTTP clients open.
+                advanceTimeBy(29_999L)
+                runCurrent()
+                assertEquals(1, pushes)
+                fixture.manager.close()
+                advanceTimeBy(60_000L)
+                runCurrent()
+
+                assertEquals(1, pushes, "Closing the manager must cancel its already queued cloud retry")
+                assertEquals(pending, fixture.store.pending())
+                assertEquals(12_000L, fixture.persistedPositionMs())
+                assertFalse(fixture.manager.state.value.syncing)
+            } finally {
+                fixture.close()
+            }
+        }
+
+    @Test
     fun token_timeout_preserves_playback_and_retries_only_after_backoff() =
         runTest {
             var tokenRequests = 0

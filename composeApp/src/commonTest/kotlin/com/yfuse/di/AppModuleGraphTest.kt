@@ -46,7 +46,7 @@ import kotlin.test.assertTrue
 /**
  * appModule is one Koin module per feature area. Koin reports a missing or doubly bound type only
  * when something asks for it at runtime, so this pins down, without a device, that the feature
- * modules bind exactly what the single module before them did, that none overrides another, and
+ * modules preserve the current binding and lifecycle contract, that none overrides another, and
  * that the graph resolves.
  */
 @OptIn(KoinInternalApi::class)
@@ -73,7 +73,7 @@ class AppModuleGraphTest {
     fun tearDown() = Dispatchers.resetMain()
 
     @Test
-    fun the_feature_modules_bind_exactly_what_the_single_module_did() {
+    fun the_feature_modules_match_the_binding_and_lifecycle_contract() {
         val root = graph()
         val features = flatten(listOf(root)) - root
         assertTrue(root.mappings.isEmpty(), "appModule binds nothing itself; it includes the feature modules")
@@ -180,7 +180,7 @@ class AppModuleGraphTest {
             single<SecureStore> { TestSecureStore() }
             single {
                 ServerRegistry(settings = get(), secureStore = TestSecureStore(), crypto = get(), personal = get())
-            }
+            } onClose { it?.close() }
             single<FileSourceClient> { UnreachableFileSourceClient }
             single<PlaybackDeviceCapabilitiesProvider> {
                 PlaybackDeviceCapabilitiesProvider { PlaybackDeviceCapabilities.conservative() }
@@ -222,7 +222,7 @@ class AppModuleGraphTest {
                 "Singleton com.yfuse.core.security.SecureStore named(stremio-secrets)",
                 "Singleton io.ktor.client.HttpClient named(stremio-http) onClose",
             )
-        val EXPECTED_BINDINGS get() = BINDINGS_BEFORE_THE_SPLIT + STREMIO_BINDINGS
+        val EXPECTED_BINDINGS get() = CORE_BINDINGS + STREMIO_BINDINGS
 
         val BeanDefinition<*>.id: String
             get() = primaryType.qualifiedName + (qualifier?.let { "@${it.value}" } ?: "")
@@ -265,11 +265,10 @@ class AppModuleGraphTest {
             )
 
         /**
-         * Every binding of the single appModule before it was split by feature, in its declaration
-         * order, recorded from that module: kind, type, qualifier, and whether it closes with the graph.
-         * A binding added since joins the list beside its neighbours.
+         * Current core bindings: kind, type, qualifier, and whether each closes with the graph.
+         * New bindings and lifecycle changes must update this explicit contract beside their neighbours.
          */
-        val BINDINGS_BEFORE_THE_SPLIT =
+        val CORE_BINDINGS =
             listOf(
                 "Singleton com.russhwolf.settings.Settings",
                 "Singleton com.yfuse.backend.BackendAccess",
@@ -284,7 +283,7 @@ class AppModuleGraphTest {
                 "Singleton com.yfuse.core.security.VaultCrypto",
                 "Singleton com.yfuse.core.personal.LocalViewingStore",
                 "Singleton com.yfuse.core.personal.PersonalLibraryRepository",
-                "Singleton com.yfuse.core.data.ServerRegistry",
+                "Singleton com.yfuse.core.data.ServerRegistry onClose",
                 "Singleton com.yfuse.core.filesource.FileSourceRegistry",
                 "Singleton com.yfuse.core.filesource.FileSourceProgressStore",
                 "Singleton com.yfuse.core.filesource.FileSourceClient",
@@ -333,14 +332,14 @@ class AppModuleGraphTest {
                 "Singleton com.yfuse.core.data.DanmakuRepository",
                 "Singleton com.yfuse.core.sync.ServerSyncManager",
                 "Singleton com.yfuse.core.account.AccountAccessTokenSource",
-                "Singleton com.yfuse.core.sync.WatchTogetherClient",
+                "Singleton com.yfuse.core.sync.WatchTogetherClient onClose",
                 "Singleton com.yfuse.feature.watch.WatchInviteResolver",
                 "Singleton com.yfuse.core.security.SecureStore",
                 "Singleton com.yfuse.core.account.AccountApi",
-                "Singleton com.yfuse.core.account.AccountRepository",
+                "Singleton com.yfuse.core.account.AccountRepository onClose",
                 "Singleton com.yfuse.core.account.PlaybackCloudApi",
                 "Singleton com.yfuse.core.account.PlaybackVaultCipher",
-                "Singleton com.yfuse.core.sync.playback.PlaybackSyncManager",
+                "Singleton com.yfuse.core.sync.playback.PlaybackSyncManager onClose",
                 "Singleton com.yfuse.app.ProductSession",
                 "Singleton com.yfuse.core.account.PersonalAutoSync",
                 "Singleton com.yfuse.core.trakt.TraktRepository onClose",

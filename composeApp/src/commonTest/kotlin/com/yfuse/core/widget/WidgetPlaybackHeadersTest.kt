@@ -1,6 +1,6 @@
 package com.yfuse.core.widget
 
-import com.yfuse.feature.player.PlayerCustomHeaders
+import com.yfuse.core.playback.PlayerCustomHeaders
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith

@@ -45,6 +45,12 @@ class WatchTogetherClient internal constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val sessionOwnership = WatchConnectionOwnership<WatchRelaySession>()
 
+    /** Stops the relay connection and its reconnect loop when the DI graph is torn down. */
+    fun close() {
+        connectionJob?.cancel()
+        scope.cancel()
+    }
+
     // Bumped by the UI (own reactions) and the connection coroutine (echoes); a plain `++`
     // handed the same id to two bursts, and the overlay keys its animations on it.
     private val reactionLock = Any()

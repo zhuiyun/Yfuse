@@ -75,6 +75,8 @@ import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.YCoreBufferDuration
 import com.yfuse.core.data.activeOr
 import com.yfuse.core.designsystem.ActionToast
+import com.yfuse.core.designsystem.AppIconPreview
+import com.yfuse.core.designsystem.AppIconVariant
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -114,6 +116,7 @@ import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.controlBorder
 import com.yfuse.core.designsystem.controlSurface
+import com.yfuse.core.designsystem.currentAppIconVariant
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glassControlHighlight
 import com.yfuse.core.designsystem.liquidGlass
@@ -122,6 +125,7 @@ import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.readableSurfaceInk
+import com.yfuse.core.designsystem.setAppIconVariant
 import com.yfuse.core.designsystem.settingsSearchAnchor
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier

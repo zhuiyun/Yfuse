@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackTrackRequest
+import com.yfuse.core.playback.AudioEnhancementMode
 import com.yfuse.core2.api.YInitialTrackSelection
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YTrackType
