@@ -10,7 +10,7 @@ enum class AppIconVariant(
 ) {
     Default("默认 Logo · 水火既济", "浪线分开上水下火的播放键，浅色底"),
     Classic("原版 Logo", "原版水火折带标志，浅色底"),
-    Graphite("原版 Logo · 石墨", "原版水火折带标志，深灰底，适合深色主屏"),
+    Graphite("当前 Logo · 石墨", "当前水火标志，深灰底，适合深色主屏"),
 
     /** The previous mark, paired with its own cloud splash. */
     CloudPlayer("云朵播放器 Logo", "云朵与播放键，浅色底"),
@@ -36,34 +36,8 @@ enum class AppIconVariant(
             }
 
     companion object {
-        /**
-         * What the settings page offers.
-         *
-         * This list used to hold only the three cloud-player-era marks, which left the user
-         * with no second language to switch to — and, because [normalized] sends anything
-         * outside this list back to [Default], it also quietly migrated everyone who had
-         * already picked one of the 2026-10 marks back to the default.
-         *
-         * Every variant listed here has its alias, its vector layers, its monochrome layer and
-         * its notification silhouette in place already; the list was the only thing hiding
-         * them. [WaterOverFire] stays out because [Default] shows the same artwork — listing
-         * both would put two identical icons in the picker.
-         */
-        val selectable: List<AppIconVariant> =
-            listOf(
-                // The 2026-10 marks, in the order that reads best against the current UI.
-                LiquidGlass,
-                Prism,
-                Overprint,
-                Danmaku,
-                AuroraDark,
-                AuroraLight,
-                // The cloud-player-era marks, kept for the users who know the app by them.
-                Default,
-                Classic,
-                Graphite,
-                CloudPlayer,
-            )
+        // Retired enum entries remain only to disable previously enabled Android aliases safely.
+        val selectable: List<AppIconVariant> = listOf(Default, Classic, CloudPlayer)
     }
 }
 
