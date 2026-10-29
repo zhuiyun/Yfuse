@@ -717,9 +717,177 @@ val verifyBehavioralTestBoundaries by tasks.registering {
     }
 }
 
+/**
+ * Keeps the dependency arrow pointing inward: `core` must not import `feature`.
+ *
+ * Two Android-only widget/cast entry points still reach into the player feature (launching the
+ * player activity and building its HTTP data source). They stay allowlisted so the ratchet only
+ * turns one way: new `core -> feature` imports fail the build.
+ */
+val verifyCoreLayering by tasks.registering {
+    group = "verification"
+    description = "Rejects new core -> feature imports."
+    val coreSources =
+        fileTree("src/commonMain/kotlin/com/yfuse/core") {
+            include("**/*.kt")
+        } +
+            fileTree("src/androidMain/kotlin/com/yfuse/core") {
+                include("**/*.kt")
+            }
+    inputs.files(coreSources)
+
+    doLast {
+        val allowed =
+            mapOf(
+                "src/androidMain/kotlin/com/yfuse/core/cast/CastManager.android.kt" to
+                    setOf("import com.yfuse.feature.player.PlaybackHttpDataSource"),
+                "src/androidMain/kotlin/com/yfuse/core/widget/WidgetPlatform.android.kt" to
+                    setOf(
+                        "import com.yfuse.feature.player.PlayerActivity",
+                        "import com.yfuse.feature.player.widgetPlaybackItem",
+                    ),
+            )
+        val violations =
+            coreSources.files
+                .sortedBy { it.path }
+                .flatMap { source ->
+                    val relative = source.relativeTo(projectDir).invariantSeparatorsPath
+                    val permitted = allowed[relative].orEmpty()
+                    source.readLines().mapIndexedNotNull { index, line ->
+                        val trimmed = line.trim()
+                        if (trimmed.startsWith("import com.yfuse.feature.") && trimmed !in permitted) {
+                            "$relative:${index + 1} $trimmed"
+                        } else {
+                            null
+                        }
+                    }
+                }
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "core must not depend on feature; move the shared type down or invert the call:\n" +
+                    violations.joinToString("\n"),
+            )
+        }
+    }
+}
+
+/**
+ * Keeps the god classes from growing and new ones from appearing.
+ *
+ * Splitting the 20 remaining 1,600+ line classes is scheduled work; until then the allowlist
+ * pins their current size so a new feature cannot quietly make them worse, and a new file over
+ * the limit fails outright.
+ */
+val verifySourceSize by tasks.registering {
+    group = "verification"
+    description = "Rejects new or enlarged files above 1600 lines."
+    val sources =
+        fileTree("src/commonMain") {
+            include("**/*.kt")
+        } + fileTree("src/androidMain") { include("**/*.kt") }
+    inputs.files(sources)
+
+    doLast {
+        val limit = 1_600
+        // Current size of every file that is already over the limit: it may shrink, not grow.
+        val allowed =
+            mapOf(
+                "src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt" to 3_413,
+                "src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectSession.kt" to 2_936,
+                "src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt" to 2_712,
+                "src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreHttpProxy.kt" to 2_403,
+                "src/androidMain/kotlin/com/yfuse/feature/player/MpvVideoEngine.kt" to 2_291,
+                "src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt" to 2_257,
+                "src/androidMain/kotlin/com/yfuse/update/AppUpdateManager.kt" to 2_160,
+                "src/androidMain/kotlin/com/yfuse/feature/player/ExoVideoEngine.kt" to 2_096,
+                "src/androidMain/kotlin/com/yfuse/core/cast/CastManager.android.kt" to 2_071,
+                "src/commonMain/kotlin/com/yfuse/feature/home/HomeScreen.kt" to 1_996,
+                "src/commonMain/kotlin/com/yfuse/core/account/AccountRepository.kt" to 1_938,
+                "src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt" to 1_924,
+                "src/commonMain/kotlin/com/yfuse/core/data/AiringCalendarRepository.kt" to 1_811,
+                "src/androidMain/kotlin/com/yfuse/core2/android/AndroidTransportMediaDataSource.kt" to 1_799,
+                "src/commonMain/kotlin/com/yfuse/core/data/PlexMediaServerAdapter.kt" to 1_798,
+                "src/commonMain/kotlin/com/yfuse/feature/search/SearchScreen.kt" to 1_785,
+                "src/commonMain/kotlin/com/yfuse/feature/player/PlayerChromeRefined.kt" to 1_748,
+                "src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt" to 1_655,
+                "src/commonMain/kotlin/com/yfuse/core/data/ServerRegistry.kt" to 1_634,
+                "src/commonMain/kotlin/com/yfuse/feature/detail/DetailExecutor.kt" to 1_624,
+                "src/commonMain/kotlin/com/yfuse/feature/servers/ServersStore.kt" to 1_621,
+            )
+        val violations =
+            sources.files
+                .sortedBy { it.path }
+                .mapNotNull { source ->
+                    val relative = source.relativeTo(projectDir).invariantSeparatorsPath
+                    val lines = source.readLines().size
+                    val permitted = allowed[relative] ?: limit
+                    if (lines > permitted) {
+                        "$relative: $lines lines (limit $permitted)"
+                    } else {
+                        null
+                    }
+                }
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "Split the class instead of growing it (or lower the limit when extracting):\n" +
+                    violations.joinToString("\n"),
+            )
+        }
+    }
+}
+
+/**
+ * Keeps the service locator out of `core`.
+ *
+ * `GlobalContext.get()` inside `core` hides a dependency that a constructor would have shown, and
+ * a missing binding surfaces as a silently absent feature. The allowlist is the current count per
+ * file; it only shrinks.
+ */
+val verifyServiceLocator by tasks.registering {
+    group = "verification"
+    description = "Rejects new GlobalContext.get() calls inside core."
+    val sources =
+        fileTree("src/commonMain/kotlin/com/yfuse/core") {
+            include("**/*.kt")
+        } + fileTree("src/androidMain/kotlin/com/yfuse/core") { include("**/*.kt") }
+    inputs.files(sources)
+
+    doLast {
+        val allowed =
+            mapOf(
+                "src/androidMain/kotlin/com/yfuse/core/widget/WidgetPlatform.android.kt" to 3,
+                "src/androidMain/kotlin/com/yfuse/core/offline/OfflineDownloadExecution.android.kt" to 3,
+                "src/commonMain/kotlin/com/yfuse/core/widget/WidgetCutoutPreferences.kt" to 1,
+                "src/androidMain/kotlin/com/yfuse/core/performance/PageFrameRateOverlay.android.kt" to 1,
+                "src/androidMain/kotlin/com/yfuse/core/offline/DownloadNotificationActions.android.kt" to 1,
+                "src/androidMain/kotlin/com/yfuse/core/network/HttpClientFactory.android.kt" to 1,
+                "src/androidMain/kotlin/com/yfuse/core/cast/CastRelayService.kt" to 1,
+                "src/androidMain/kotlin/com/yfuse/core/cast/CastManager.android.kt" to 1,
+            )
+        val violations =
+            sources.files
+                .sortedBy { it.path }
+                .mapNotNull { source ->
+                    val relative = source.relativeTo(projectDir).invariantSeparatorsPath
+                    val count = source.readLines().count { "GlobalContext.get()" in it }
+                    val permitted = allowed[relative] ?: 0
+                    if (count > permitted) "$relative: $count call(s), limit $permitted" else null
+                }
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "core must take its dependencies as constructor parameters, not from the locator:\n" +
+                    violations.joinToString("\n"),
+            )
+        }
+    }
+}
+
 tasks.matching { it.name == "check" }.configureEach {
     dependsOn(verifyDesignSystemUsage)
     dependsOn(verifyBehavioralTestBoundaries)
+    dependsOn(verifyCoreLayering)
+    dependsOn(verifySourceSize)
+    dependsOn(verifyServiceLocator)
 }
 
 tasks.matching { it.name.startsWith("test", ignoreCase = true) }.configureEach {
@@ -986,6 +1154,13 @@ android {
             }
         }
         release {
+            // Standard releases use the proxy. Backend-free custom builds may use their owner's token.
+            val backendEnabled =
+                providers
+                    .gradleProperty("yfuseBackendEnabled")
+                    .map { it.toBooleanStrictOrNull() ?: error("yfuseBackendEnabled must be true or false") }
+                    .getOrElse(true)
+            buildConfigField("String", "TMDB_TOKEN", "\"${if (backendEnabled) "" else tmdbToken}\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

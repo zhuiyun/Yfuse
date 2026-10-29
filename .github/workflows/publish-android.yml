@@ -60,7 +60,7 @@ env:
 # so each production secret is referenced only by the job that uses it, and the build tooling
 # never shares a runner with a signing or deployment key:
 #   request - UPDATE_MANIFEST_SIGNING_KEY, only to derive the public key the APK embeds
-#   build   - TMDB_TOKEN, which is compiled into the APK
+#   build   - no secret: release TMDB reads use the server's authenticated/anonymous proxy
 #   sign    - the release keystore and its passwords
 #   deploy  - UPDATE_MANIFEST_SIGNING_KEY to sign the manifests, and the deployment SSH key
 # The gates and smoke jobs hold no secret.
@@ -478,19 +478,6 @@ jobs:
 
       - name: Build and install current YCore runtime
         uses: ./.github/actions/build-current-ycore
-
-      - name: Configure app services
-        shell: bash
-        env:
-          TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${TMDB_TOKEN:-}" ]]; then
-            echo "::error::Missing production secret: TMDB_TOKEN"
-            exit 1
-          fi
-          printf 'tmdb.token=%s\n' "$TMDB_TOKEN" > local.properties
-          chmod 600 local.properties
 
       - name: Resolve with committed dependency locks
         shell: bash

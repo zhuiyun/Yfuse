@@ -22,19 +22,20 @@ import android_cloud_ui  # noqa: E402
 from release_metadata import read_release  # noqa: E402
 
 CERT ="373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84"
+SIGNATURE_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "published-signatures"
 # Real `apksigner verify --verbose --print-certs` output for production-signed APKs. Older build-tools
 # name the signer "Signer #1"; newer ones, which the runner had by 1.0.99, print it per scheme as
 # "V2 Signer:". Each is paired with how a second signer's certificate line would read in it.
 PUBLISHED_SIGNATURES = {
-    ROOT / "audit" / "releases" / "20260923-performance-1.0.81" / "signature-full.txt": "Signer #2",
-    ROOT / "audit" / "releases" / "20261003-merge-all-1.0.99" / "signature-full.txt": "V3 Signer:",
+    SIGNATURE_FIXTURES / "20260923-performance-1.0.81" / "signature-full.txt": "Signer #2",
+    SIGNATURE_FIXTURES / "20261003-merge-all-1.0.99" / "signature-full.txt": "V3 Signer:",
 }
 MDK_LIBRARIES = ("libmdk.so", "libyfuse-mdk-jni.so")
 KEYSTORE = {"ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD"}
 SECRETS_BY_JOB = {
     "request": {"UPDATE_MANIFEST_SIGNING_KEY"},
     "gates": set(),
-    "build": {"TMDB_TOKEN"},
+    "build": set(),
     "sign": KEYSTORE,
     "smoke": set(),
     "deploy": {"UPDATE_MANIFEST_SIGNING_KEY", "DEPLOY_SSH_PRIVATE_KEY", "DEPLOY_KNOWN_HOSTS"},

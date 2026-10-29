@@ -151,8 +151,11 @@ jobs:
         run: ./gradlew :composeApp:assembleDebugAndroidTest --no-daemon
       - name: Compile startup and frame-time Macrobenchmark APK
         run: ./gradlew :macrobenchmark:assembleBenchmark --no-daemon
-      - name: Verify design-system usage
-        run: ./gradlew :composeApp:verifyDesignSystemUsage --no-daemon
+      - name: Verify design-system usage and architecture boundaries
+        run: >-
+          ./gradlew :composeApp:verifyDesignSystemUsage
+          :composeApp:verifyCoreLayering :composeApp:verifySourceSize
+          :composeApp:verifyServiceLocator --no-daemon
       # Lint reads the product code, not only the two shells: -PyfuseLintSharedCode makes each
       # shell's lintDebug analyse :phoneShared / :tvShared as well, against the committed
       # config/lint/<shell>-baseline.xml, so only new findings fail. A missing baseline (the

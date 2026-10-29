@@ -1,10 +1,12 @@
 # TMDB proxy
 
-Every APK built with `tmdb.token` carries a TMDB read token in `BuildConfig.TMDB_TOKEN`, and
-anything in an APK can be extracted. The account server (`watchTogetherServer`) already holds a
-TMDB token for calendar ingestion, so apps read TMDB through it: signed-in accounts with their
-access token, and — since the anonymous mode below — signed-out apps without any token, so a
-release APK no longer needs one. Removing it is still the owner's decision, described at the end.
+Anything in an APK can be extracted, so standard release builds leave `BuildConfig.TMDB_TOKEN` empty.
+The account server (`watchTogetherServer`) holds the TMDB token for calendar ingestion and proxies
+the app's allowlisted reads: signed-in accounts use their access token, and signed-out apps use
+anonymous mode without any token. Local debug builds may still read `tmdb.token` from
+`local.properties` for direct development access.
+An explicit `-PyfuseBackendEnabled=false` build also retains that local token for direct access;
+without a configured token, TMDB is unavailable when the backend is disabled.
 
 ## Server
 
@@ -21,7 +23,7 @@ release APK no longer needs one. Removing it is still the owner's decision, desc
 
   | Kind | Reads | Cached for |
   | --- | --- | --- |
-  | Charts | `movie/popular`, `movie/now_playing`, `tv/popular`, `tv/airing_today`, `discover/movie`, `discover/tv` | 10 min |
+  | Charts | `movie/popular`, `movie/now_playing`, `movie/top_rated`, `tv/popular`, `tv/airing_today`, `tv/top_rated`, `tv/on_the_air`, `trending/{all,movie,tv}/{day,week}`, `discover/movie`, `discover/tv` | 10 min |
   | Search | `search/movie`, `search/tv`, `search/multi`, `search/person` | 30 min |
   | Records | `movie/{id}`, `tv/{id}`, their `credits`, `external_ids` and `alternative_titles`, `tv/{id}/aggregate_credits`, `tv/{id}/season/{n}`, `person/{id}`, `person/{id}/combined_credits`, `person/{id}/external_ids`, `find/{imdb or tvdb id}` | 2 h |
 
@@ -30,6 +32,8 @@ release APK no longer needs one. Removing it is still the owner's decision, desc
   `append_to_response` accepts `credits` and `external_ids` on a title (plus `aggregate_credits`
   on a show) and `combined_credits`, `translations` and `external_ids` on a person;
   `include_adult` accepts only `false`.
+  Widget discovery accepts genre/company filters and TV network filters, each bounded to 20 IDs;
+  supported movie discovery/chart/search and TV on-the-air reads also accept a two-letter region.
 - **Upstream**: `https://api.themoviedb.org/3` plus the canonical path and query, with the
   server's own bearer. No redirects, 5 s to connect and 12 s in all, at most 4 MiB of body, and
   at most 8 reads in flight; a request that waits 8 s for one gets `503 tmdb_busy`.
@@ -104,12 +108,13 @@ address to `TMDB_BASE`:
   once for all requests refused together, through the account's usual refresh. The built-in
   token never goes to the account server, the account token never goes to TMDB, and other hosts
   (images) get neither.
-- **Signed out, token built in**: straight to TMDB with it, as before.
-- **Neither**: the request fails with `TmdbUnavailableException`, an `IOException`, so TMDB
-  features show the same states as when TMDB is unreachable (home error card or cached shelves,
-  an empty calendar, a detail page without TMDB data). `tmdb/route_unavailable` is logged once
-  per change of route. For ten seconds after launch a build without a token first waits for the
-  account's background session restore instead of failing the first home refresh.
+- **Signed out, token built in** (local debug builds): straight to TMDB with it, as before.
+- **Signed out, no token** (release builds): the same proxy route without `Authorization`, using
+  anonymous mode. For ten seconds after launch the client first waits for the account's background
+  session restore, then falls back to the anonymous route if no session appears.
+- **Backend disabled and no token**: the request fails with `TmdbUnavailableException`, an
+  `IOException`, so TMDB features show the same states as when TMDB is unreachable (home error
+  card or cached shelves, an empty calendar, a detail page without TMDB data).
 - **Proxy cannot serve, token built in**: a `404` without `X-Yfuse-Tmdb-Cache` (a server without
   the route) or a `503` sends reads direct for 2 minutes; a `429` for its `Retry-After`; a `403`
   (allowlist), `502` or a session still refused after renewal retries only that request direct.
@@ -127,14 +132,12 @@ reads: a new TMDB call in the app needs its path and parameters in `TmdbProxyAll
 deployed first. Until then builds with a token fall back to it (`tmdb/proxy_fallback`,
 `status=403`); a build without one loses that feature.
 
-## Closing the extraction path (owner's decision)
+## Closing the extraction path
 
-Nothing here removes the token from release builds. That takes two steps, both the owner's call:
+Standard backend-enabled release builds override `TMDB_TOKEN` with an empty value in phone and TV, and the publish
+workflow no longer reads the `TMDB_TOKEN` secret. Signed-in and signed-out reads both use the
+proxy; debug builds retain direct access for local development.
 
-1. Build releases without `tmdb.token`: the release workflow currently requires the `TMDB_TOKEN`
-   secret and writes it to `local.properties` (`.github/workflows/publish-android.yml`). Signed-in
-   users are unaffected. Signed-out users keep TMDB features through the anonymous mode once the
-   app routes signed-out reads to the proxy without a bearer (an app change); until then they
-   lose them and see the existing empty and error states.
-2. Revoke the token that shipped in earlier APKs, since those stay extractable forever, and give
-   the server a new one. Older installed versions then lose direct TMDB access.
+One operational step remains: revoke the token that shipped in earlier APKs, since those stay
+extractable forever, and give the server a new one. Older installed versions then lose direct
+TMDB access.

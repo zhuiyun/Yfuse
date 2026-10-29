@@ -39,7 +39,9 @@ def run_with_fake(tool, body, step_script, env):
         fake.chmod(0o755)
         output = work / "github-output"
         environment = dict(os.environ, PATH=f"{work}{os.pathsep}{os.environ['PATH']}", GITHUB_OUTPUT=str(output), **env)
-        result = subprocess.run(["bash", "-c", step_script], cwd=work, env=environment,
+        # Git Bash's Windows launcher prepends its own tools to the inherited PATH. Put the
+        # fixture first inside the shell too, so a mocked curl can never contact a real server.
+        result = subprocess.run(["bash", "-c", 'export PATH="$PWD:$PATH"\n' + step_script], cwd=work, env=environment,
                                 capture_output=True, text=True)
         return result, output.read_text() if output.exists() else ""
 

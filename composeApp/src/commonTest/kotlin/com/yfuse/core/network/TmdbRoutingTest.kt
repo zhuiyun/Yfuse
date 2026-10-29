@@ -158,19 +158,24 @@ class TmdbRoutingTest {
         }
 
     @Test
-    fun with_neither_route_tmdb_fails_the_way_an_unreachable_tmdb_does() =
+    fun a_signed_out_build_without_a_token_uses_the_anonymous_proxy() =
         runTest {
             session.value = false
             accountToken = null
             val client = client(builtInToken = "")
             clock += 60_000L
+            client.get("$TMDB_BASE/movie/603") { parameter("language", "zh-CN") }.bodyAsText()
+            assertEquals(listOf("$PROXY/movie/603?language=zh-CN" to null), sent.value)
+            assertEquals(0, refreshes)
+        }
+
+    @Test
+    fun without_a_proxy_or_token_tmdb_fails_the_way_an_unreachable_tmdb_does() =
+        runTest {
+            session.value = false
+            accountToken = null
+            val client = client(builtInToken = "", account = null)
             assertFailsWith<TmdbUnavailableException> { client.get("$TMDB_BASE/movie/603") }
-            assertFailsWith<TmdbUnavailableException> {
-                client(
-                    builtInToken = "",
-                    account = null,
-                ).get("$TMDB_BASE/tv/1")
-            }
 
             // The repository's existing failure paths take it from there: a network error, no crash.
             val repository = TmdbRepository(client)

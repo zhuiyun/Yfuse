@@ -133,11 +133,14 @@ subprojects {
             // tasks; only TV-specific sources are checked here.
             if (project.name == "tvShared") {
                 exclude { element ->
-                    element.file
-                        .toPath()
-                        .toAbsolutePath()
-                        .normalize()
-                        .startsWith(sharedComposeSourceRoot)
+                    val path =
+                        element.file
+                            .toPath()
+                            .toAbsolutePath()
+                            .normalize()
+                    // tvShared owns tvApp/src/androidMain Kotlin; the TV shell only compiles
+                    // src/main, so TV production sources must remain in this module's checks.
+                    path.startsWith(sharedComposeSourceRoot)
                 }
             }
         }

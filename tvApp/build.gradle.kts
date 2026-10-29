@@ -204,6 +204,13 @@ android {
 
     buildTypes {
         release {
+            // Standard releases use the proxy. Backend-free custom builds may use their owner's token.
+            val backendEnabled =
+                providers
+                    .gradleProperty("yfuseBackendEnabled")
+                    .map { it.toBooleanStrictOrNull() ?: error("yfuseBackendEnabled must be true or false") }
+                    .getOrElse(true)
+            buildConfigField("String", "TMDB_TOKEN", "\"${if (backendEnabled) "" else tmdbToken}\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
