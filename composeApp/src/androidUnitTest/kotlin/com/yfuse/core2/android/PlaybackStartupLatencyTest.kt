@@ -73,7 +73,7 @@ class PlaybackStartupLatencyTest {
     }
 
     @Test
-    fun long_rebuffer_relaxes_only_extra_reserve_and_never_releases_an_empty_queue() {
+    fun long_rebuffer_preserves_extra_reserve_and_never_releases_an_empty_queue() {
         val gate = YPlaybackBufferGate(true, 2_500_000L)
         gate.updateThresholds(YBufferPlan(20_000_000L, 2_500_000L, 1024))
         assertTrue(gate.evaluate(500_000L, false).outputAllowed)
@@ -82,6 +82,9 @@ class PlaybackStartupLatencyTest {
         gate.markStarved()
         assertFalse(gate.evaluate(2_500_000L, false).outputAllowed)
         assertFalse(gate.evaluate(0L, false, rebufferWaitUs = 10_000_000L).outputAllowed)
-        assertTrue(gate.evaluate(2_500_000L, false, rebufferWaitUs = 10_000_000L).outputAllowed)
+        val waiting = gate.evaluate(2_500_000L, false, rebufferWaitUs = 10_000_000L)
+        assertFalse(waiting.outputAllowed)
+        assertEquals(5_000_000L, waiting.requiredBufferedUs)
+        assertTrue(gate.evaluate(5_000_000L, false, rebufferWaitUs = 10_000_000L).outputAllowed)
     }
 }

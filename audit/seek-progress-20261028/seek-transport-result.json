@@ -1,0 +1,10 @@
+{
+  "scope": "whole production JVM files with platform fixtures; not Android/device validation",
+  "tests": [
+    "AndroidTransportCancellationTest",
+    "AndroidTransportStartupAndResumeTest"
+  ],
+  "exit_code": 0,
+  "elapsed_seconds": 0.9253858369993395,
+  "java": "openjdk version \"17.0.20\" 2026-07-21\nOpenJDK Runtime Environment (build 17.0.20+8-1-24.04-Ubuntu)\nOpenJDK 64-Bit Server VM (build 17.0.20+8-1-24.04-Ubuntu, mixed mode, sharing)\n"
+}

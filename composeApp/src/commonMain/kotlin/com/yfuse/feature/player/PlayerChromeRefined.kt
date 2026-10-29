@@ -85,7 +85,6 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -104,6 +103,7 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.LocalTips
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
+import com.yfuse.core.designsystem.RollingNumber
 import com.yfuse.core.designsystem.Tips
 import com.yfuse.core.designsystem.ambientSeekAccent
 import com.yfuse.core.designsystem.cssLinearGradient
@@ -115,6 +115,7 @@ import com.yfuse.core.designsystem.liveStatus
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.rememberLightFeedback
+import com.yfuse.core.designsystem.rememberThrottledValue
 import com.yfuse.core.designsystem.touchTarget
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -1133,14 +1134,14 @@ private fun RefinedSpeedControl(
 private fun RefinedTimeText(seconds: () -> Long) {
     val latestSeconds by rememberUpdatedState(seconds)
     val label by remember { derivedStateOf { formatTime(latestSeconds() * 1_000L) } }
-    Text(
-        label,
-        style = AppTypography.caption.regular,
-        color = PlayerTokens.timeTextLandscape,
-        maxLines = 1,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.widthIn(min = 44.dp),
-    )
+    val shownLabel = rememberThrottledValue(label)
+    Box(Modifier.widthIn(min = 44.dp), contentAlignment = Alignment.Center) {
+        RollingNumber(
+            text = shownLabel,
+            style = AppTypography.caption.regular,
+            color = PlayerTokens.timeTextLandscape,
+        )
+    }
 }
 
 /** The scrim's dark end: black, warmed by 30% of the light's mean while the light is on. */

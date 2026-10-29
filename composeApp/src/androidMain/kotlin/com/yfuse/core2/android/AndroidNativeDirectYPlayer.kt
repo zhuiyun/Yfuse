@@ -187,7 +187,7 @@ internal class AndroidNativeDirectYPlayer(
                 positionMs = bounded,
                 subtitleCues = emptyList(),
                 secondarySubtitleCues = emptyList(),
-                bufferedPositionMs = bounded,
+                bufferedPositionMs = it.bufferedPositionMs.coerceAtLeast(bounded),
                 buffering = it.playbackRequested,
                 diagnostics = it.diagnostics.copy(renderedFrameRate = null),
                 phase = if (it.phase == YPlaybackPhase.Ended) YPlaybackPhase.Ready else it.phase,
@@ -300,6 +300,7 @@ internal class AndroidNativeDirectYPlayer(
 
     override fun retry() {
         if (sessionControl.released) return
+        activeSession?.abortPendingReads()
         mutableState.updateState {
             it.copy(
                 phase = YPlaybackPhase.Preparing,
@@ -334,7 +335,7 @@ internal class AndroidNativeDirectYPlayer(
         sessionControl.releasedAtMs = System.nanoTime() / 1_000_000L
         sessionControl.released = true
         try {
-            activeSession?.cancelPendingRead()
+            activeSession?.abortPendingReads()
         } finally {
             commands.close()
             wakeSignal.trySend(Unit)

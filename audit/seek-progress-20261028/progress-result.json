@@ -1,0 +1,66 @@
+{
+  "exit_code": 0,
+  "scope": "Whole production progress store, conflict resolver and projections; platform/storage fixtures only.",
+  "sources": [
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/LibraryResumeState.kt",
+      "sha256": "d3b0a003cd323a1199823c795d806ab50a0362eac4b9c516a395995d92648c58"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackStartPosition.kt",
+      "sha256": "60bb0d30be933806ab87ff9e6154a18b54c038df8246c0b24197b6e299a9d642"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/PlaybackProgressProjection.kt",
+      "sha256": "d420197f12c72a7d43f7202f5183fed7388319e53785f13fba4b4fa3811f4c79"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/sync/playback/LibraryResumeStateTest.kt",
+      "sha256": "d2311863899a5cb2db3b8e3bc3ce8c29c57bc54e4d435320847434fa589f5562"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/sync/playback/PlaybackStartPositionTest.kt",
+      "sha256": "e4cf9c23ed884e8862c0c57c3b6dd8214e1221e7122131f87ba0e8c44f745c81"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/PlaybackProgressProjectionTest.kt",
+      "sha256": "022447bdd2b83fcccd935b505d70824a9f0bf3319303499036f94602d49ac3c0"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackSyncModels.kt",
+      "sha256": "ffb1ba36cdd2af9cc9f5106c4490757140ad432f7e46312ee87b27f5bd5aa29d"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackConflictResolver.kt",
+      "sha256": "02d92536894a273e5da2140bfe922b8a2d0b6fcfedd57d3d5ba30ca69afcce25"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackSyncStore.kt",
+      "sha256": "57685261f36dee1967dac0ceedf85a2ffc7ed982084860923859b94fd5d46a65"
+    },
+    {
+      "path": "audit/seek-progress-20261028/fixtures-progress/Personal.kt",
+      "sha256": "8f4825ae62b8b0b03886bbe684c1b84bf9e41125e6869873dab3c13c2c188a62"
+    },
+    {
+      "path": "audit/seek-progress-20261028/fixtures-progress/Models.kt",
+      "sha256": "4d7d026d5d585c4263b327a1977e18c2abbc6a6f3c83b17a061778c8df80e607"
+    },
+    {
+      "path": "audit/seek-progress-20261028/fixtures-progress/Settings.kt",
+      "sha256": "88afc52686171f401a226f6f84d1ae90c8d4f5c5819ddbb4f5084a6ead082c93"
+    },
+    {
+      "path": "audit/seek-progress-20261028/fixtures-progress/Dtos.kt",
+      "sha256": "3dce972d78217ba1a117cb77d825b4ab6737eb93560ce94f5ad3489eaf9f8ef2"
+    },
+    {
+      "path": "audit/seek-progress-20261028/fixtures-progress/Watch.kt",
+      "sha256": "8fbedcc03dbd4ac4d0a8513ee020d6b025b9c4a4f61556866d2efcbe654dc24f"
+    },
+    {
+      "path": "audit/seek-progress-20261028/fixtures/Logging.kt",
+      "sha256": "6c1431318d4c5a4ca9a71f24485ea78e5c87758d5822c16af301a97b713db927"
+    }
+  ]
+}

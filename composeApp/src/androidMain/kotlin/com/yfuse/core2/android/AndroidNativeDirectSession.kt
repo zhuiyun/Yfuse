@@ -387,7 +387,7 @@ internal class AndroidNativeDirectSession(
     private fun prepareCurrent(positionUs: Long) {
         // Only the item whose decode-side failure kept the source may reuse it; anything else
         // (another item, a source failure, a later prepare) opens the source afresh.
-        val reuseSource = retainedSourceIndex == currentIndex
+        val reuseSource = retainedSourceIndex == currentIndex && !demux.readsAborted
         retainedSourceIndex = null
         releaseMedia(keepSource = reuseSource)
         monotonicPositionFloorUs = positionUs.coerceAtLeast(0L)
@@ -908,7 +908,14 @@ internal class AndroidNativeDirectSession(
             stage = YPlaybackFailureStage.Seek,
             safeDetail = "NativeDirect source seek",
         ) {
-            demux.seekTo(targetUs)
+            val buffered = demux.trySeekBuffered(targetUs, videoTrackIndex)
+            if (!buffered) demux.seekTo(targetUs)
+            AppLog.info(
+                category = "player.core2",
+                event = "native_direct_seek_resolved",
+                message = "NativeDirect positioned the source",
+                attributes = mapOf("targetUs" to targetUs.toString(), "buffered" to buffered.toString()),
+            )
         }
         sourcePositionedAtUs = targetUs
         inputConsumedSinceReposition = false
@@ -969,6 +976,7 @@ internal class AndroidNativeDirectSession(
                 playing = false,
                 buffering = requestedPlay,
                 positionMs = targetUs / MICROS_PER_MILLISECOND,
+                bufferedPositionMs = maxOf(targetUs, demux.snapshot().bufferedThroughUs) / MICROS_PER_MILLISECOND,
                 subtitleCues = activeSubtitleCues(),
                 secondarySubtitleCues = activeSecondarySubtitleCues(),
                 secondarySubtitleTrackId = secondarySubtitleId(),
@@ -1866,21 +1874,14 @@ internal class AndroidNativeDirectSession(
                 playing = requestedPlay && !transportBufferingVisible,
             ),
         )
-        val sourceBufferedMs =
-            (transportQoe?.bufferedAheadDurationMs(currentState.durationMs) ?: 0L) +
-                readAhead.bufferedDurationUs / MICROS_PER_MILLISECOND
+        // A byte/bitrate estimate is not a timestamp range that can be sought in the queue.
+        // Only advertise media timestamps present for every required track.
         val bufferedPositionMs =
-            when {
-                !sourceRemote && currentState.durationMs > 0L -> currentState.durationMs
-                transportQoe != null -> {
-                    val candidate = positionMs + sourceBufferedMs
-                    if (currentState.durationMs > 0L) {
-                        candidate.coerceAtMost(currentState.durationMs)
-                    } else {
-                        candidate
-                    }
-                }
-                else -> currentState.bufferedPositionMs.coerceAtLeast(positionMs)
+            if (!sourceRemote && currentState.durationMs > 0L) {
+                currentState.durationMs
+            } else {
+                val endMs = maxOf(positionMs, readAhead.bufferedThroughUs / MICROS_PER_MILLISECOND)
+                if (currentState.durationMs > 0L) endMs.coerceAtMost(currentState.durationMs) else endMs
             }
         val playing =
             requestedPlay && !videoOutputPending && !transportBufferingVisible && !isEnded()
@@ -1926,9 +1927,9 @@ internal class AndroidNativeDirectSession(
                         videoDecoderName = videoDecoder.decoderName.orEmpty(),
                         audioDecoderName = audioDecoderDiagnosticName().orEmpty(),
                         droppedFramesMeasured = true,
-                        // Long forward-cache coverage includes disk bytes, not queued heap input.
+                        // Report retained input bytes and the remaining timestamp coverage.
                         sourceQueueBytes = readAhead.queuedBytes,
-                        sourceBufferedMs = sourceBufferedMs,
+                        sourceBufferedMs = (bufferedPositionMs - positionMs).coerceAtLeast(0L),
                         sourceStarvationCount = readAhead.starvationCount,
                         // The transport already measures the link; NativeDirect never passed it
                         // on, so the player could not tell a slow server from any other wait.
@@ -2900,6 +2901,8 @@ internal class AndroidNativeDirectSession(
     }
 
     fun cancelPendingRead() = demux.cancelPendingRead()
+
+    fun abortPendingReads() = demux.abortPendingReads()
 
     private fun releasePendingAudioOutput() {
         pendingAudioOutput.discard()

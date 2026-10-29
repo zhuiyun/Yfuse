@@ -1,7 +1,12 @@
 package com.yfuse.core2.android
 
 import android.content.Context
+import android.media.MediaExtractor
 import android.media.MediaFormat
+import com.yfuse.core2.api.YPlaybackException
+import com.yfuse.core2.api.YPlaybackFailureCategory
+import com.yfuse.core2.api.YPlaybackFailureStage
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.util.ArrayDeque
 import java.util.TreeMap
@@ -10,6 +15,8 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -23,6 +30,8 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 internal class AndroidMediaExtractorReadAheadNode(
     @Volatile private var delegate: YPlatformExtractorSource,
+    private val seekTimeoutMs: Long = 10_000L,
+    private val ownerTimeoutMs: Long = 30_000L,
     private val acquireMemoryLease: () -> PlaybackMemoryLease = {
         AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.Demux, MAXIMUM_PLAYBACK_DEMUX_BYTES)
     },
@@ -66,6 +75,12 @@ internal class AndroidMediaExtractorReadAheadNode(
     private var starved = false
     private var hasDeliveredSample = false
     private var generation = 0L
+    private var sampleGeneration = 0L
+
+    @Volatile private var ownerFailure: Throwable? = null
+
+    @Volatile var readsAborted: Boolean = false
+        private set
 
     @Volatile
     private var latestTransportQoeSnapshot: YTransportPrefetchQoeSnapshot? = null
@@ -90,6 +105,7 @@ internal class AndroidMediaExtractorReadAheadNode(
         source: YAndroidMediaSource,
         preparedSource: YPlatformExtractorSource? = null,
     ) {
+        check(ownerFailure == null) { "Previous extractor operation has not retired" }
         synchronized(monitor) {
             if (memoryLease == null) {
                 memoryLease = acquireMemoryLease()
@@ -112,6 +128,7 @@ internal class AndroidMediaExtractorReadAheadNode(
             openedFormats = (0 until delegate.trackCount).map(delegate::trackFormat)
             synchronized(monitor) {
                 opened = true
+                readsAborted = false
                 ownerSelectedTracks = emptySet()
                 selectedTracks = emptySet()
                 resetQueueStateLocked()
@@ -174,6 +191,13 @@ internal class AndroidMediaExtractorReadAheadNode(
     fun blockedForegroundReadMs(): Long = delegate.blockedForegroundReadMs()
 
     fun cancelPendingRead() = delegate.cancelPendingRead()
+
+    /** Stops admission too: cancelling a single range cannot stop a seek scanning many ranges. */
+    fun abortPendingReads() {
+        readsAborted = true
+        delegate.cancelPendingRead()
+        delegate.abortPendingReads()
+    }
 
     fun updatePlaybackWindow(window: YTransportPlaybackWindow) = delegate.updatePlaybackWindow(window)
 
@@ -253,6 +277,70 @@ internal class AndroidMediaExtractorReadAheadNode(
         delegate.cancelPendingRead()
     }
 
+    /** Reposition the retained queue without touching the extractor or its in-flight read.
+     * All required tracks must cover the target; video must retain a preceding sync sample.
+     * Samples remain in decode order, including reordered PTS after the chosen keyframe.
+     */
+    fun trySeekBuffered(
+        positionUs: Long,
+        videoTrackIndex: Int?,
+    ): Boolean =
+        synchronized(monitor) {
+            if (!opened ||
+                readsAborted ||
+                failure != null ||
+                samples.isEmpty() ||
+                bufferingTracks.isEmpty()
+            ) {
+                return false
+            }
+            if (bufferingTracks.any { track ->
+                    val times = queuedTimestamps[track]
+                    times == null || positionUs !in times.firstKey()..times.lastKey()
+                }
+            ) {
+                return false
+            }
+            val retained = samples.toList()
+            val anchor =
+                if (videoTrackIndex != null) {
+                    retained
+                        .indexOfLast {
+                            it.trackIndex == videoTrackIndex &&
+                                it.presentationTimeUs <= positionUs &&
+                                it.flags and MediaExtractor.SAMPLE_FLAG_SYNC != 0
+                        }.takeIf { it >= 0 } ?: return false
+                } else {
+                    retained.indexOfFirst { it.presentationTimeUs >= positionUs }.takeIf { it >= 0 } ?: return false
+                }
+            val anchorUs = retained[anchor].presentationTimeUs
+            // Do not change the read generation: an in-flight tail sample still belongs here.
+            // A separate sample generation rejects packets held by the caller before this seek.
+            sampleGeneration++
+            samples.clear()
+            queuedTimestamps.clear()
+            queuedBytes = 0L
+            retained.forEachIndexed { index, sample ->
+                val keep =
+                    if (sample.trackIndex ==
+                        videoTrackIndex
+                    ) {
+                        index >= anchor
+                    } else {
+                        sample.presentationTimeUs >= anchorUs
+                    }
+                if (keep) {
+                    val fresh = sample.copy(queueGeneration = sampleGeneration)
+                    samples.addLast(fresh)
+                    addTimestampLocked(fresh)
+                    queuedBytes += fresh.data.remaining()
+                }
+            }
+            starved = false
+            requestFillLocked()
+            true
+        }
+
     fun seekTo(positionUs: Long) {
         val resume =
             synchronized(monitor) {
@@ -262,12 +350,24 @@ internal class AndroidMediaExtractorReadAheadNode(
                 current
             }
         delegate.cancelPendingRead()
-        runOnOwner {
-            delegate.seekTo(positionUs)
-            synchronized(monitor) {
-                selectedTracks = resume
-                resetQueueStateLocked()
+        try {
+            runOnOwner(timeoutMs = seekTimeoutMs) {
+                delegate.seekTo(positionUs)
+                synchronized(monitor) {
+                    selectedTracks = resume
+                    resetQueueStateLocked()
+                }
             }
+        } catch (failure: IOException) {
+            if (failure.cause !is TimeoutException) throw failure
+            // This is an aggregate platform operation timeout, not proof of a network failure.
+            // Let the router try enhanced demux rather than replaying the same platform seek.
+            throw YPlaybackException(
+                category = YPlaybackFailureCategory.Container,
+                stage = YPlaybackFailureStage.Seek,
+                safeDetail = "Platform seek timed out; enhanced demux required",
+                cause = failure,
+            )
         }
         requestFill()
     }
@@ -315,7 +415,7 @@ internal class AndroidMediaExtractorReadAheadNode(
 
     fun returnSample(sample: YExtractorSample) {
         synchronized(monitor) {
-            if (!opened || sample.queueGeneration != generation) return
+            if (!opened || sample.queueGeneration != sampleGeneration) return
             samples.addFirst(sample)
             addTimestampLocked(sample)
             queuedBytes += sample.data.remaining()
@@ -330,6 +430,13 @@ internal class AndroidMediaExtractorReadAheadNode(
                 queuedSamples = samples.size,
                 queuedBytes = queuedBytes,
                 bufferedDurationUs = bufferedDurationUsLocked(),
+                bufferedThroughUs =
+                    bufferingTracks
+                        .takeIf {
+                            it.isNotEmpty()
+                        }?.map { queuedTimestamps[it]?.lastKey() ?: 0L }
+                        ?.minOrNull()
+                        ?: 0L,
                 starvationCount = starvationCount,
                 starved = starved && samples.isEmpty() && !endOfInput,
                 targetAheadUs = targetAheadUs,
@@ -338,7 +445,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                 endOfInput = endOfInput || failure != null,
                 atCapacity = samples.isNotEmpty() && queuedBytes >= queueBudgetBytes(),
                 trackBufferedDurationUs = trackBufferedDurationsUsLocked(),
-                generation = generation,
+                generation = sampleGeneration,
                 memoryBudgetBytes = memoryBudgetBytes(),
                 queueBudgetBytes = queueBudgetBytes(),
             )
@@ -359,16 +466,15 @@ internal class AndroidMediaExtractorReadAheadNode(
             }
         openedFormats = null
         if (owner != null) {
-            delegate.cancelPendingRead()
-            runCatching {
-                runOnOwner {
-                    delegate.release()
-                    ownerStagingBuffer = null
-                    synchronized(monitor) {
-                        ownerSelectedTracks = emptySet()
-                        resetQueueStateLocked()
-                    }
+            abortPendingReads()
+            runOnOwner(timeoutMs = 2_000L, retiring = true) {
+                delegate.release()
+                ownerStagingBuffer = null
+                synchronized(monitor) {
+                    ownerSelectedTracks = emptySet()
+                    resetQueueStateLocked()
                 }
+                ownerFailure = null
             }
         }
     }
@@ -493,8 +599,9 @@ internal class AndroidMediaExtractorReadAheadNode(
                         endOfInput = true
                         return
                     }
-                    samples.addLast(copied)
-                    addTimestampLocked(copied)
+                    val fresh = copied.copy(queueGeneration = sampleGeneration)
+                    samples.addLast(fresh)
+                    addTimestampLocked(fresh)
                     queuedBytes += copied.data.remaining()
                     starved = false
                 }
@@ -554,6 +661,7 @@ internal class AndroidMediaExtractorReadAheadNode(
 
     private fun clearQueueLocked() {
         generation++
+        sampleGeneration++
         samples.clear()
         queuedTimestamps.clear()
         queuedBytes = 0L
@@ -571,7 +679,12 @@ internal class AndroidMediaExtractorReadAheadNode(
                 }.also { executor = it }
         }
 
-    private fun <T> runOnOwner(block: () -> T): T {
+    private fun <T> runOnOwner(
+        timeoutMs: Long = ownerTimeoutMs,
+        retiring: Boolean = false,
+        block: () -> T,
+    ): T {
+        if (!retiring) ownerFailure?.let { throw IOException("Extractor owner is awaiting retirement", it) }
         pendingOwnerControls.incrementAndGet()
         val future =
             try {
@@ -585,12 +698,22 @@ internal class AndroidMediaExtractorReadAheadNode(
                 pendingOwnerControls.decrementAndGet()
                 throw rejected
             }
-        return await(future)
+        return await(future, timeoutMs)
     }
 
-    private fun <T> await(future: Future<T>): T {
+    private fun <T> await(
+        future: Future<T>,
+        timeoutMs: Long,
+    ): T {
         try {
-            return future.get()
+            return future.get(timeoutMs, TimeUnit.MILLISECONDS)
+        } catch (timeout: TimeoutException) {
+            val failure = IOException("Platform extractor operation exceeded ${timeoutMs}ms", timeout)
+            ownerFailure = failure
+            // Leave the owner task queued/running. Release is a barrier behind it; a replacement
+            // must never race an extractor still inside a native call.
+            abortPendingReads()
+            throw failure
         } catch (failure: ExecutionException) {
             throw failure.cause ?: failure
         }
@@ -616,6 +739,7 @@ internal sealed interface YQueuedExtractorResult {
 }
 
 internal data class YExtractorReadAheadSnapshot(
+    val bufferedThroughUs: Long = 0L,
     val queuedSamples: Int,
     val queuedBytes: Long,
     val bufferedDurationUs: Long,

@@ -283,11 +283,13 @@ class PlaybackSyncManager(
         mediaKey: String,
         aliases: List<String> = emptyList(),
         serverId: String? = null,
+        serverItemId: String? = null,
     ): Long? =
         store.authoritativeStartPositionMs(
             mediaKey = mediaKey,
             aliases = aliases,
             serverId = serverId,
+            serverItemId = serverItemId,
             completedRatio = COMPLETED_RATIO,
         )
 

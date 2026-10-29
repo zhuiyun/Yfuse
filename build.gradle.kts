@@ -100,6 +100,17 @@ subprojects {
         }
     }
 
+    // Guava 33.7 uses JSpecify; retain the previous annotation dependencies while
+    // the existing locked consumers still expose JSR-305/Checker annotations.
+    dependencies.components.withModule("com.google.guava:guava") {
+        allVariants {
+            withDependencies {
+                add("com.google.code.findbugs:jsr305:3.0.2")
+                add("org.checkerframework:checker-qual:3.43.0")
+            }
+        }
+    }
+
     dependencyLocking {
         // Security-overridden modules are reproducibly pinned by security-overrides.properties,
         // so an older committed lock entry must not veto the centrally forced patched version.

@@ -563,7 +563,7 @@ internal fun PlayerRuntimeFaultRecovery(
                 AppLog.warning(
                     category = "player.core2",
                     event = "native_only_runtime_recovery",
-                    message = "YCore Native restarted its local pipeline after a silent output fault",
+                    message = "YCore Native requested a local pipeline restart after a silent output fault",
                     attributes =
                         mapOf(
                             "engine" to attachedEngineLabel,

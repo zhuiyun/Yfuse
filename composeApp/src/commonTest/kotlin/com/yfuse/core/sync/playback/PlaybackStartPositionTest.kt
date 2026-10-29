@@ -7,6 +7,33 @@ import kotlin.test.assertNull
 
 class PlaybackStartPositionTest {
     @Test
+    fun syncedExactItemWinsOverStalePortableAliasAtLaunch() {
+        val store = PlaybackSyncStore(MapSettings()) { 9_000_000L }
+        store.seedServerProgressIfAbsent("server", "item", 5 * 60_000L, false, 1_000L, 3_600_000L)
+        store.absorbServerProgress("server", "item", 22 * 60_000L, false, 2_000L)
+        store.updatePlayback(
+            "tmdb:1",
+            emptyList(),
+            5 * 60_000L,
+            3_600_000L,
+            false,
+            "component",
+            null,
+            null,
+            PlaybackMutationKind.AutoProgress,
+            PlaybackSyncTrigger.Stop,
+        )
+        assertEquals(
+            22 * 60_000L,
+            store.authoritativeStartPositionMs(
+                "tmdb:1",
+                serverId = "server",
+                serverItemId = "item",
+            ),
+        )
+    }
+
+    @Test
     fun missingCloudStateLeavesMediaServerPositionUntouched() {
         val store = PlaybackSyncStore(MapSettings()) { 1_000L }
 

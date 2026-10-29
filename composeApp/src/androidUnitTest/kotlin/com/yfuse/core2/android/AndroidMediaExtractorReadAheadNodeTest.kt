@@ -23,6 +23,144 @@ import kotlin.test.assertTrue
  */
 class AndroidMediaExtractorReadAheadNodeTest {
     @Test
+    fun `cached seek retains keyframe and reordered frames without waiting for blocked tail`() {
+        val blocked = CountDownLatch(1)
+        val unblock = CountDownLatch(1)
+        val base = FakeExtractorSource(14, 100_000L)
+        val reads = AtomicInteger()
+        val source =
+            object : YPlatformExtractorSource by base {
+                override fun readSample(target: ByteBuffer): YExtractorSample? {
+                    val index = reads.getAndIncrement()
+                    if (index == 12) {
+                        blocked.countDown()
+                        check(unblock.await(5, TimeUnit.SECONDS))
+                    }
+                    return base.readSample(target)?.let {
+                        it.copy(
+                            flags = if (index % 4 == 0) 1 else 0,
+                            presentationTimeUs = if (index == 5) 350_000L else it.presentationTimeUs,
+                        )
+                    }
+                }
+            }
+        val node = AndroidMediaExtractorReadAheadNode(source)
+        try {
+            node.open(SOURCE)
+            node.selectTracks(setOf(VIDEO_TRACK))
+            assertTrue(blocked.await(2, TimeUnit.SECONDS))
+            val stale = (node.pollSample() as YQueuedExtractorResult.Sample).value
+            assertTrue(node.trySeekBuffered(600_000L, VIDEO_TRACK))
+            node.returnSample(stale)
+            assertEquals(400_000L, (node.pollSample() as YQueuedExtractorResult.Sample).value.presentationTimeUs)
+            // A reordered frame following the keyframe must not be discarded by PTS trimming.
+            assertEquals(350_000L, (node.pollSample() as YQueuedExtractorResult.Sample).value.presentationTimeUs)
+            assertEquals(0L, base.lastSeekUs)
+            unblock.countDown()
+            node.awaitQueued(8)
+            val remaining = mutableListOf<Long>()
+            repeat(8) { remaining += (node.pollSample() as YQueuedExtractorResult.Sample).value.presentationTimeUs }
+            assertEquals((6L..13L).map { it * 100_000L }, remaining)
+        } finally {
+            unblock.countDown()
+            node.close()
+        }
+    }
+
+    @Test
+    fun `cached seek requires retained sync frame and coverage on every media track`() {
+        val base = FakeExtractorSource(10, 100_000L, true)
+        val source =
+            object : YPlatformExtractorSource by base {
+                override fun readSample(target: ByteBuffer) = base.readSample(target)?.copy(flags = 0)
+            }
+        val node = AndroidMediaExtractorReadAheadNode(source)
+        try {
+            node.open(SOURCE)
+            node.selectTracks(setOf(VIDEO_TRACK, AUDIO_TRACK))
+            node.awaitQueued(10)
+            assertFalse(node.trySeekBuffered(500_000L, VIDEO_TRACK))
+            assertFalse(node.trySeekBuffered(900_000L, null)) // video ends at 800 ms
+            assertEquals(10, node.snapshot().queuedSamples)
+        } finally {
+            node.close()
+        }
+    }
+
+    @Test
+    fun `seek budget aborts continuously active source and owner retires before reopen`() {
+        val aborted = CountDownLatch(1)
+        val base = FakeExtractorSource(10, 100_000L)
+        val source =
+            object : YPlatformExtractorSource by base {
+                override fun seekTo(positionUs: Long) {
+                    check(aborted.await(5, TimeUnit.SECONDS))
+                }
+
+                override fun abortPendingReads() {
+                    aborted.countDown()
+                }
+            }
+        val node = AndroidMediaExtractorReadAheadNode(source, seekTimeoutMs = 50L)
+        try {
+            node.open(SOURCE)
+            node.selectTracks(setOf(VIDEO_TRACK), startReadAhead = false)
+            val failure =
+                kotlin.test.assertFailsWith<com.yfuse.core2.api.YPlaybackException> {
+                    node.seekTo(60_000_000L)
+                }
+            assertEquals(com.yfuse.core2.api.YPlaybackFailureCategory.Container, failure.category)
+            assertEquals(com.yfuse.core2.api.YPlaybackFailureStage.Seek, failure.stage)
+            assertEquals(
+                com.yfuse.core2.recovery.YPlaybackRecoveryAction.FallbackToEnhanced,
+                com.yfuse.core2.recovery.YPlaybackRecoveryPolicy.decide(
+                    com.yfuse.core2.recovery.YPlaybackRecoveryContext(
+                        route = com.yfuse.core2.api.YPlaybackRoute.NativeDirect,
+                        category = failure.category,
+                        sameRouteAttempts = 0,
+                        protectedContent = false,
+                    ),
+                ),
+            )
+            assertEquals(0L, aborted.count)
+            kotlin.test.assertFailsWith<IllegalStateException> { node.open(SOURCE) }
+            node.release()
+            assertTrue(base.released)
+            node.open(SOURCE)
+        } finally {
+            node.close()
+        }
+    }
+
+    @Test
+    fun `unresponsive seek cannot admit replacement before owner release barrier`() {
+        val unblock = CountDownLatch(1)
+        val base = FakeExtractorSource(10, 100_000L)
+        val source =
+            object : YPlatformExtractorSource by base {
+                override fun seekTo(positionUs: Long) {
+                    check(unblock.await(5, TimeUnit.SECONDS))
+                }
+            }
+        val node = AndroidMediaExtractorReadAheadNode(source, seekTimeoutMs = 50L)
+        try {
+            node.open(SOURCE)
+            node.selectTracks(setOf(VIDEO_TRACK), startReadAhead = false)
+            kotlin.test.assertFailsWith<com.yfuse.core2.api.YPlaybackException> { node.seekTo(60_000_000L) }
+            kotlin.test.assertFailsWith<java.io.IOException> { node.release() }
+            assertFalse(base.released)
+            kotlin.test.assertFailsWith<IllegalStateException> { node.open(SOURCE) }
+            unblock.countDown()
+            node.release()
+            assertTrue(base.released)
+            node.open(SOURCE)
+        } finally {
+            unblock.countDown()
+            node.close()
+        }
+    }
+
+    @Test
     fun `platform queue uses shared grant beyond twenty four MiB and follows pressure`() {
         val mib = 1024L * 1024L
         val pool = PlaybackMemoryPool(128L * mib)

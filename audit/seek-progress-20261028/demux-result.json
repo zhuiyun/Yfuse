@@ -1,0 +1,14 @@
+{
+  "scope": "whole production read-ahead queues with explicit Android/JNI type fixtures; no device claim",
+  "baseline": false,
+  "baseline_ref": null,
+  "tests": [
+    "AndroidDemuxReadAheadNodeTest",
+    "AndroidDemuxReadAheadBufferTest",
+    "AndroidDemuxInputQueueTest",
+    "AndroidMediaExtractorReadAheadNodeTest"
+  ],
+  "exit_code": 0,
+  "baseline_api_adapter": null,
+  "elapsed_seconds": 2.802516538002237
+}

@@ -1,0 +1,12 @@
+{
+  "base": "60f7e0e08c5388d80ecf471e1e5faa4d6a20619f",
+  "host_tests": {
+    "queue": 44,
+    "transport": 12,
+    "progress": 12
+  },
+  "full_android_build": false,
+  "build_blocker": "Gradle distribution unavailable; download failed: Network is unreachable",
+  "device_test": false,
+  "apk_created": false
+}

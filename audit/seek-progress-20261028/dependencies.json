@@ -1,0 +1,232 @@
+[
+  {
+    "suite": "queue-transport",
+    "file": "annotations-26.0.2.jar",
+    "sha256": "2037be378980d3ba9333e97955f3b2cde392aa124d04ca73ce2eee6657199297"
+  },
+  {
+    "suite": "queue-transport",
+    "file": "hamcrest-core-1.3.jar",
+    "sha256": "66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9"
+  },
+  {
+    "suite": "queue-transport",
+    "file": "junit-4.13.2.jar",
+    "sha256": "8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3"
+  },
+  {
+    "suite": "queue-transport",
+    "file": "kotlin-build-tools-api-2.4.21.jar",
+    "sha256": "c5cd6a49bd072b529ae10809111c16a7aa0f92147e95d288354017fd65799461"
+  },
+  {
+    "suite": "queue-transport",
+    "file": "kotlin-compiler-embeddable-2.4.21.jar",
+    "sha256": "ef19419c765e7ac8404465fa026ca8fc4dbb8a822de0fc79aa53c8dce29f1d02"
+  },
+  {
+    "suite": "queue-transport",
+    "file": "kotlin-daemon-embeddable-2.4.21.jar",
+    "sha256": "7b3ef24674e5bcffcadfc4e43202ea314194939ecbcdd90a4770b2f1b04e0d07"
+  },
+  {
+    "suite": "queue-transport",
+    "file": "kotlin-reflect-1.6.10.jar",
+    "sha256": "3277ac102ae17aad10a55abec75ff5696c8d109790396434b496e75087854203"
+  },
+  {
+    "suite": "queue-transport",
+    "file": "kotlin-script-runtime-2.4.21.jar",
+    "sha256": "a658cf5902a1525a06c264a5e42b437e97a6679ddeef8ca641246f270cf6a013"
+  },
+  {
+    "suite": "queue-transport",
+    "file": "kotlin-stdlib-2.4.21.jar",
+    "sha256": "bd8250210584cb659847dce9cda660f8e9906e5def7fbebcea93dc6dcb6a88a3"
+  },
+  {
+    "suite": "queue-transport",
+    "file": "kotlin-test-2.4.21.jar",
+    "sha256": "4b43f419bf41a9ede07094652db97b5034984a8cdc642f3c5b2bfd4767f6e365"
+  },
+  {
+    "suite": "queue-transport",
+    "file": "kotlin-test-junit-2.4.21.jar",
+    "sha256": "ed178dcb76ea94acc8e9317178213a65092f4ecd0133ba748b23c40a11865ebd"
+  },
+  {
+    "suite": "queue-transport",
+    "file": "kotlinx-coroutines-core-jvm-1.11.0.jar",
+    "sha256": "d1d75aa01dffbb4d1c520e67e4c4e7f5f6174718e7cb4632412503f2f0e604fa"
+  },
+  {
+    "suite": "queue-transport",
+    "file": "kotlinx-coroutines-test-jvm-1.11.0.jar",
+    "sha256": "d4f7ee71da708af4719dceb6d3200c8f9dc5146ea1a812cb628ed53c64196f96"
+  },
+  {
+    "suite": "queue-transport",
+    "file": "kotlinx-serialization-core-jvm-1.11.0.jar",
+    "sha256": "f4a801c647d4351327cd9e1ac4113e2be9ea37a64ab0abae269c25a52e28f35d"
+  },
+  {
+    "suite": "progress",
+    "file": "annotations-26.0.2.jar",
+    "sha256": "2037be378980d3ba9333e97955f3b2cde392aa124d04ca73ce2eee6657199297"
+  },
+  {
+    "suite": "progress",
+    "file": "hamcrest-core-1.3.jar",
+    "sha256": "66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9"
+  },
+  {
+    "suite": "progress",
+    "file": "junit-4.13.2.jar",
+    "sha256": "8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlin-build-tools-api-2.4.21.jar",
+    "sha256": "c5cd6a49bd072b529ae10809111c16a7aa0f92147e95d288354017fd65799461"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlin-compiler-embeddable-2.4.21.jar",
+    "sha256": "ef19419c765e7ac8404465fa026ca8fc4dbb8a822de0fc79aa53c8dce29f1d02"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlin-daemon-embeddable-2.4.21.jar",
+    "sha256": "7b3ef24674e5bcffcadfc4e43202ea314194939ecbcdd90a4770b2f1b04e0d07"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlin-reflect-1.6.10.jar",
+    "sha256": "3277ac102ae17aad10a55abec75ff5696c8d109790396434b496e75087854203"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlin-script-runtime-2.4.21.jar",
+    "sha256": "a658cf5902a1525a06c264a5e42b437e97a6679ddeef8ca641246f270cf6a013"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlin-serialization-compiler-plugin-embeddable-2.4.21.jar",
+    "sha256": "63b381018a7d45221795d18301150fb80a1d00f30aae7be0550ab86f9ddd0ce8"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlin-stdlib-2.4.21.jar",
+    "sha256": "bd8250210584cb659847dce9cda660f8e9906e5def7fbebcea93dc6dcb6a88a3"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlin-test-2.4.21.jar",
+    "sha256": "4b43f419bf41a9ede07094652db97b5034984a8cdc642f3c5b2bfd4767f6e365"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlin-test-junit-2.4.21.jar",
+    "sha256": "ed178dcb76ea94acc8e9317178213a65092f4ecd0133ba748b23c40a11865ebd"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlinx-coroutines-core-jvm-1.11.0.jar",
+    "sha256": "d1d75aa01dffbb4d1c520e67e4c4e7f5f6174718e7cb4632412503f2f0e604fa"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlinx-coroutines-slf4j-1.11.0.jar",
+    "sha256": "1043471e7d5f99680df3a056cf766276e0fe339e48030dea503fc1c94c33743e"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlinx-coroutines-test-jvm-1.11.0.jar",
+    "sha256": "d4f7ee71da708af4719dceb6d3200c8f9dc5146ea1a812cb628ed53c64196f96"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlinx-io-bytestring-jvm-0.9.1.jar",
+    "sha256": "8589de0b7c476bfdd02a24641685f609ade72f5e595cf2909c168acdba7e6ba4"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlinx-io-core-jvm-0.9.1.jar",
+    "sha256": "765d8851d8ca694706931331b92386844800867e041b720f1f193dbda874d370"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlinx-serialization-core-jvm-1.11.0.jar",
+    "sha256": "f4a801c647d4351327cd9e1ac4113e2be9ea37a64ab0abae269c25a52e28f35d"
+  },
+  {
+    "suite": "progress",
+    "file": "kotlinx-serialization-json-jvm-1.11.0.jar",
+    "sha256": "563a25b4eb5c9128ae9c2479f3d1a5c44dcd176112b91cf03682e906eba5c935"
+  },
+  {
+    "suite": "progress",
+    "file": "ktor-client-core-jvm-3.6.0.jar",
+    "sha256": "7dc9a3c76bf43f672e8331aad1ecb06864f69f464ab1517c24ed8a38c86f812f"
+  },
+  {
+    "suite": "progress",
+    "file": "ktor-client-mock-jvm-3.6.0.jar",
+    "sha256": "9a65b4e2f799451b380e87729132768802389d2f1c4ac11d2f3fc6de9925cb41"
+  },
+  {
+    "suite": "progress",
+    "file": "ktor-events-jvm-3.6.0.jar",
+    "sha256": "d3962f4a4244102d1ef8b84b21429ffc26be3512b5f1f96c607265ca1cec5c0b"
+  },
+  {
+    "suite": "progress",
+    "file": "ktor-http-cio-jvm-3.6.0.jar",
+    "sha256": "4cabe83cb367e0a807f849f2d4313b9de563cffcec0d262844a783d51a47738d"
+  },
+  {
+    "suite": "progress",
+    "file": "ktor-http-jvm-3.6.0.jar",
+    "sha256": "2a14cb160436b134c10793727aeed3055ae7014ff170c79ffbcd90b26dd90de2"
+  },
+  {
+    "suite": "progress",
+    "file": "ktor-io-jvm-3.6.0.jar",
+    "sha256": "7426ad1759833460507ee7065f17085410dc7b32081a1daee8c91cf6f40e257c"
+  },
+  {
+    "suite": "progress",
+    "file": "ktor-network-jvm-3.6.0.jar",
+    "sha256": "746a751146d61865f51d6dd56b18e3e0fa68b36587561ee123ff7ce730d8c590"
+  },
+  {
+    "suite": "progress",
+    "file": "ktor-serialization-jvm-3.6.0.jar",
+    "sha256": "d67f46cf64f8c97a2e14d4d5c0c1a4be315c8bc128bcc58370c0716363c258db"
+  },
+  {
+    "suite": "progress",
+    "file": "ktor-sse-jvm-3.6.0.jar",
+    "sha256": "9fcb5074b74d14b9f18ace4ee9acd6263176ae01b4e8e5c8f72b6aa978c279ea"
+  },
+  {
+    "suite": "progress",
+    "file": "ktor-utils-jvm-3.6.0.jar",
+    "sha256": "05698e23c0539c7042676a98557e3358e77e19efa9fa4fc2145f20ad8721aefc"
+  },
+  {
+    "suite": "progress",
+    "file": "ktor-websocket-serialization-jvm-3.6.0.jar",
+    "sha256": "c87fe370c17868dc8c101947452bf8a8622363cf4d83a342334666bb46fe627b"
+  },
+  {
+    "suite": "progress",
+    "file": "ktor-websockets-jvm-3.6.0.jar",
+    "sha256": "3ef8b5d544dc7f9bd041a245bb8c2ff6647d0fd1e111a65b7be54977476a5464"
+  },
+  {
+    "suite": "progress",
+    "file": "slf4j-api-2.0.19.jar",
+    "sha256": "e91ff6d720609e7a194ffe758c3ed5c84e798617ae07b0a0f6a4fe229741b4bb"
+  }
+]

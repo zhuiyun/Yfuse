@@ -13,6 +13,19 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlaybackProgressProjectionTest {
+    @Test
+    fun cachedMetadataReprojectsSyncedProgressAndExplicitReset() {
+        val store = PlaybackSyncStore(MapSettings()) { 1_000L }
+        store.seedServerProgressIfAbsent("server-a", "item-1", 300_000L, false, 1_000L, 3_600_000L)
+        val projection = PlaybackProgressProjection(store)
+        val cached = item(UserDataDto(PlaybackPositionTicks = 3_000_000_000L))
+        assertEquals(3_000_000_000L, projection.project(server, cached).UserData?.PlaybackPositionTicks)
+        store.absorbServerProgress("server-a", "item-1", 1_320_000L, false, 2_000L)
+        assertEquals(13_200_000_000L, projection.project(server, cached).UserData?.PlaybackPositionTicks)
+        store.markManual("emby:item-1", watched = false, serverId = "server-a", serverItemId = "item-1")
+        assertNull(projection.project(server, cached).UserData?.PlaybackPositionTicks)
+    }
+
     private val server = SavedServer("server-a", "http://host", "A", "user", "User", "token")
 
     @Test
