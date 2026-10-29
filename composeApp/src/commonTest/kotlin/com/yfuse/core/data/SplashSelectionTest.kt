@@ -57,20 +57,9 @@ class SplashSelectionTest {
     }
 
     @Test
-    fun picker_offers_every_launched_identity_and_sixteen_water_fire_designs_including_mechanisms() {
+    fun picker_has_three_logos_and_sixteen_water_fire_designs_including_mechanisms() {
         assertEquals(
-            listOf(
-                AppIconVariant.LiquidGlass,
-                AppIconVariant.Prism,
-                AppIconVariant.Overprint,
-                AppIconVariant.Danmaku,
-                AppIconVariant.AuroraDark,
-                AppIconVariant.AuroraLight,
-                AppIconVariant.Default,
-                AppIconVariant.Classic,
-                AppIconVariant.Graphite,
-                AppIconVariant.CloudPlayer,
-            ),
+            listOf(AppIconVariant.Default, AppIconVariant.Classic, AppIconVariant.CloudPlayer),
             AppIconVariant.selectable,
         )
         assertEquals(16, SplashAnimation.selectable.count { it.mark == SplashMark.WaterOverFire })
@@ -86,11 +75,6 @@ class SplashSelectionTest {
         )) {
             assertEquals(craft, SplashAnimation.forMark(SplashMark.WaterOverFire, craft))
         }
-        // Only the one that shows the same artwork as the default stays out of the picker.
-        assertEquals(
-            setOf(AppIconVariant.WaterOverFire),
-            AppIconVariant.entries.toSet() - AppIconVariant.selectable.toSet(),
-        )
         for (retired in AppIconVariant.entries - AppIconVariant.selectable.toSet()) {
             assertEquals(AppIconVariant.Default, retired.normalized)
         }
