@@ -16,6 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          # Replay the six-model experiment with its matching runner and verifier.
+          ref: 536e042a783ad86e9294c9dd96763c9d5c5ad637
           persist-credentials: false
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
         with:

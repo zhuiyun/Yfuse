@@ -64,6 +64,8 @@ jobs:
         run: |
           python3 scripts/release_metadata.py
           python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+          python3 -m unittest discover -s tools/offline-cutout-probe/tests -p 'test_*.py'
+          python3 -m unittest discover -s tools/mlkit-cutout-probe/tests -p 'test_*.py'
           python3 scripts/verify-tv-source.py --manifest tvApp/src/androidMain/AndroidManifest.xml --banner tvApp/src/main/res/drawable-nodpi/tv_banner.png
           python3 scripts/verify-module-boundaries.py
           python3 scripts/check-backend-boundary.py

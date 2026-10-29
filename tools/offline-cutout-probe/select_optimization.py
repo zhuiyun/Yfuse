@@ -1,6 +1,7 @@
 """Compare Android outputs to this run's FP32 baseline, not to ground truth."""
 from pathlib import Path
 import hashlib,json,statistics,numpy as np
+from optimization_evidence import complete_report, require_delivery_evidence
 ROOT=Path(__file__).resolve().parent
 OUT=ROOT/'artifacts/device/offline-probe'
 ASSETS=ROOT/'app/src/main/assets'
@@ -10,9 +11,8 @@ for model in manifest['models']:
     p=OUT/model['id']/'report.json'
     try:reports[model['id']]=json.loads(p.read_text())
     except (OSError,ValueError):reports[model['id']]=dict(status='no_report',samples=[])
+require_delivery_evidence(manifest, reports)
 baseline=reports['biref-base']
-if baseline.get('status')!='outputs_created' or len(baseline['samples'])!=6:
-    raise RuntimeError('No complete baseline: cannot validate an optimization')
 def probability(mid,s):
     a=np.fromfile(OUT/mid/(s['id']+'-raw.f32'),dtype='<f4')
     assert a.size==s['mask_width']*s['mask_height']
@@ -26,7 +26,7 @@ base_peak=peak(baseline);analysis=[]
 for model in manifest['models']:
     mid=model['id'];r=reports[mid]
     entry=dict(id=mid,status=r.get('status'),model_bytes=model['bytes'],peak_rss_kb=peak(r),samples=[])
-    complete=r.get('status')=='outputs_created' and len(r['samples'])==6 and all(s.get('status')=='output_created' for s in r['samples'])
+    complete=complete_report(r, model, manifest['samples'])
     entry['complete']=complete
     if complete:
         entry['median_pipeline_ms']=statistics.median(s['median_pipeline_ms'] for s in r['samples'])

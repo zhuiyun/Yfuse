@@ -14,6 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          # This historical check consumes the original Selfie-enabled APK.
+          ref: a96a792ddcd7f76bec5e42d039ee704ec4c6db09
           persist-credentials: false
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
         with:

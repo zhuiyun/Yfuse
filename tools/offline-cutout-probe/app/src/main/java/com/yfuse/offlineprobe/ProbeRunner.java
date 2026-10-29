@@ -185,10 +185,10 @@ public final class ProbeRunner {
         for (int i = 0; i < pixels.length; i++) pixels[i] = (pixels[i] & 0x00ffffff) | ((alphas[i] & 255) << 24);
         Bitmap foreground = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888);
         png(new File(directory, sample.id() + "-foreground.png"), foreground);
-        File source = new File(outFileRoot(directory), sample.id() + "-source.png"); png(source, sample.bitmap());
+        File source = new File(directory, sample.id() + "-source.png"); png(source, sample.bitmap());
+        item.put("source_file", source.getName());
         foreground.recycle(); if (alpha != low) alpha.recycle(); low.recycle();
     }
-    private static File outFileRoot(File directory) { return directory.getParentFile(); }
     private static void copy(InputStream input, OutputStream output) throws IOException { byte[] bytes = new byte[65536]; for (int count; (count = input.read(bytes)) != -1;) output.write(bytes, 0, count); }
     private static void png(File file, Bitmap bitmap) throws Exception { try (OutputStream stream = new FileOutputStream(file)) { if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) throw new IOException("PNG failed"); } }
     private static void writeJson(File file, JSONObject value) throws Exception { try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), java.nio.charset.StandardCharsets.UTF_8)) { writer.write(value.toString(2)); } }
