@@ -20,5 +20,9 @@ adb shell settings put global hide_error_dialogs 1
 adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS
 # AGP otherwise uninstalls the isolated test apps and removes their external files
 # before the EXIT trap can pull the screenshots from this disposable emulator.
+# This CI lane supplies no external corpus. Run every generated-media test; the separately
+# selectable licensed-corpus lanes remain available to explicit instrumentation callers.
+# AGP's device adapter currently reports assumption-failure status -4 as a test failure.
 ./gradlew :composeApp:connectedDebugAndroidTest -PyfuseApplicationId=com.yfuse.validation "$@" \
+  -Pandroid.testInstrumentationRunnerArguments.notAnnotation=com.yfuse.core2.android.ExternalMediaFixture \
   -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true --no-daemon

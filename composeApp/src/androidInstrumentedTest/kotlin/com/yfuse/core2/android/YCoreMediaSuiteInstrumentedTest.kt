@@ -357,6 +357,7 @@ class YCoreMediaSuiteInstrumentedTest {
         }
 
     @Test
+    @ExternalMediaFixture
     fun baseline_media_survives_core_playback_lifecycle() =
         runBlocking {
             val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -412,6 +413,7 @@ class YCoreMediaSuiteInstrumentedTest {
         }
 
     @Test
+    @ExternalMediaFixture
     fun full_media_matrix_survives_core_playback_lifecycle() =
         runBlocking {
             val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -446,6 +448,7 @@ class YCoreMediaSuiteInstrumentedTest {
         }
 
     @Test
+    @ExternalMediaFixture
     fun configured_long_running_soak_keeps_output_and_health_stable() =
         runBlocking {
             val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -1362,3 +1365,8 @@ private fun Bundle.booleanArgument(
     }
 
 private const val MAX_SOAK_MINUTES = 48L * 60L
+
+/** Requires caller-supplied licensed files; generated-media smoke tests do not use this marker. */
+@Target(AnnotationTarget.FUNCTION)
+@Retention(AnnotationRetention.RUNTIME)
+annotation class ExternalMediaFixture

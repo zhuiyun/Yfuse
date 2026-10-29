@@ -91,7 +91,10 @@ class AndroidAdaptiveDashInstrumentedTest {
                                     assertTrue(origin.opens("/second/init.mp4") > 0)
                                     assertEquals(20_000L, player.state.value.durationMs)
 
-                                    freshVideo(player, "global-seek-first", 8_800L)
+                                    // Leave enough media time to observe the first Period's new decoder format
+                                    // before testing its automatic transition. A 1.2-second window races
+                                    // translated codecs on a loaded CI emulator.
+                                    freshVideo(player, "global-seek-first", 1_000L)
                                     assertDimensions(player, firstFixture)
                                     val secondBefore = origin.opens("/second/init.mp4")
                                     awaitVideo(player, "automatic-period-transition") { state ->
