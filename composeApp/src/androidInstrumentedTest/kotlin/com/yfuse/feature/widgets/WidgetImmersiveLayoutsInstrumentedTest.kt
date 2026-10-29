@@ -414,7 +414,7 @@ class WidgetImmersiveLayoutsInstrumentedTest {
     @Test(timeout = 60_000L)
     fun wide_poster_and_carousel_rows_keep_card_heights_bounded() {
         withWidgetScenario { scenario ->
-            val probe = mount(scenario)
+            val probe = mount(scenario, instrumentation.targetContext.resources.displayMetrics.widthPixels / 1200f)
             for (style in listOf(WidgetStyle.Poster, WidgetStyle.CenterPoster, WidgetStyle.PeekCarousel)) {
                 show(scenario, probe, RenderCase(style, films, width = 1000, reduced = true))
                 val bounds = probe.bounds.get()
@@ -568,13 +568,16 @@ class WidgetImmersiveLayoutsInstrumentedTest {
         val committedInput = AtomicReference<RenderCase>()
     }
 
-    private fun mount(scenario: ActivityScenario<MainActivity>): Probe {
+    private fun mount(
+        scenario: ActivityScenario<MainActivity>,
+        densityOverride: Float? = null,
+    ): Probe {
         val probe = Probe(RenderCase(styles.first(), films, session = -1))
         scenario.onActivity { activity ->
             activity.setContent {
                 val input = probe.input.value
                 YfuseTheme(dark = false, accessibility = AccessibilityOptions(reduceMotion = input.reduced)) {
-                    val density = LocalDensity.current
+                    val density = densityOverride?.let { Density(it, input.fontScale) } ?: LocalDensity.current
                     val inputMode = LocalInputModeManager.current
                     SideEffect {
                         probe.inputMode.set(inputMode)

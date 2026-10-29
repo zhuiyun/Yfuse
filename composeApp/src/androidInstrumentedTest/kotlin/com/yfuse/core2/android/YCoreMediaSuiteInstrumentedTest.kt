@@ -64,7 +64,10 @@ import kotlinx.serialization.json.Json
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
+import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TestName
 import org.junit.runner.RunWith
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
@@ -72,6 +75,29 @@ import java.util.concurrent.atomic.AtomicInteger
 /** Device lanes for generated smoke media and the external, licensed YCore media corpus. */
 @RunWith(AndroidJUnit4::class)
 class YCoreMediaSuiteInstrumentedTest {
+    @get:Rule
+    val testName = TestName()
+
+    // Check optional external fixtures in JUnit, before entering a coroutine test body.
+    @Before
+    fun requireExternalMediaFixtures() {
+        val args = InstrumentationRegistry.getArguments()
+        val required =
+            when (testName.methodName) {
+                "baseline_media_survives_core_playback_lifecycle" -> args.getString(SMOKE_MEDIA_ARGUMENT)
+                "full_media_matrix_survives_core_playback_lifecycle" -> args.getString(MANIFEST_ARGUMENT)
+                "configured_long_running_soak_keeps_output_and_health_stable" -> {
+                    assumeTrue(
+                        "Pass a positive soak duration",
+                        args.longArgument(SOAK_DURATION_MINUTES_ARGUMENT, 0L) > 0L,
+                    )
+                    args.getString(SOAK_MEDIA_ARGUMENT)
+                }
+                else -> return
+            }
+        assumeTrue("This optional media lane requires an explicitly supplied device fixture", !required.isNullOrBlank())
+    }
+
     @Test
     fun generated_avc_aac_paused_seek_shows_one_frame_and_keeps_audio_paused() =
         runBlocking {
