@@ -1,6 +1,6 @@
 [versions]
 kotlin = "2.4.21"
-agp = "9.1.1"
+agp = "9.4.1"
 compose = "1.12.2"
 androidx-activity = "1.13.0"
 androidx-lifecycle = "2.10.0"
@@ -12,11 +12,11 @@ mvikotlin = "4.4.0"
 # Effective version. Coil's ktor3 network module already pulled the Android classpaths to 3.1.0
 # while the declared 3.0.3 only survived on the metadata, mock-client and watch-server classpaths.
 ktor = "3.6.0"
-okhttp = "5.5.0"
+okhttp = "5.5.1"
 jcifs = "2.1.10"
-cronet = "18.0.1"
+cronet = "18.1.1"
 # Effective version: ktor 3.1.0 and the AndroidX stack resolve 1.8.0 on every compile/runtime classpath.
-serialization = "1.11.0"
+serialization = "1.12.0"
 coroutines = "1.11.0"
 koin = "4.2.2"
 settings = "1.2.0"

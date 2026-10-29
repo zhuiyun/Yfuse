@@ -1,0 +1,34 @@
+{
+  "sdk": "play-services-mlkit-subject-segmentation:16.0.0-beta1",
+  "api": 35,
+  "abis": [
+    "x86_64",
+    "arm64-v8a"
+  ],
+  "device": "Google sdk_gphone64_x86_64",
+  "status": "no_valid_outputs",
+  "cases": [],
+  "google_play_services_status": 0,
+  "google_play_services_version": "24.23.35 (190800-646585959)",
+  "model_available_initially": false,
+  "module_install_updates": [
+    {
+      "state": 4,
+      "error_code": 0
+    }
+  ],
+  "install_response_already_installed": false,
+  "model_wait_ms": 60782,
+  "model_ready": true,
+  "case_errors": [
+    {
+      "name": "whalefall",
+      "error": "MediaPipeException:invalid argument: CalculatorGraph::Run() failed: \nCalculator::Process() for node \"mediapipe_tasks_vision_image_segmenter_imagesegmentergraph__mediapipe.tasks.TensorsToSegmentationCalculator\" failed: Tensor should have 2, 3, or 4 dims, received: 0"
+    },
+    {
+      "name": "heart-of-the-beast",
+      "error": "MediaPipeException:invalid argument: CalculatorGraph::Run() failed: \nCalculator::Process() for node \"mediapipe_tasks_vision_image_segmenter_imagesegmentergraph__mediapipe.tasks.TensorsToSegmentationCalculator\" failed: Tensor should have 2, 3, or 4 dims, received: 0"
+    }
+  ],
+  "valid_output_count": 0
+}

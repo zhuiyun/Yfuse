@@ -1,0 +1,36 @@
+{
+  "sdk": "play-services-mlkit-subject-segmentation:16.0.0-beta1",
+  "api": 35,
+  "abis": [
+    "x86_64",
+    "arm64-v8a"
+  ],
+  "device": "Google sdk_gphone64_x86_64",
+  "status": "failed",
+  "cases": [],
+  "google_play_services_status": 0,
+  "google_play_services_version": "24.23.35 (190800-646585959)",
+  "model_available_initially": false,
+  "module_install_updates": [
+    {
+      "state": 4,
+      "error_code": 0
+    },
+    {
+      "state": 2,
+      "error_code": 0,
+      "bytes_downloaded": 19493908,
+      "total_bytes": 19493908
+    },
+    {
+      "state": 6,
+      "error_code": 0,
+      "bytes_downloaded": 19493908,
+      "total_bytes": 19493908
+    }
+  ],
+  "install_response_already_installed": false,
+  "model_wait_ms": 147045,
+  "model_ready": true,
+  "error": "IllegalStateException:invalid confidence whalefall"
+}

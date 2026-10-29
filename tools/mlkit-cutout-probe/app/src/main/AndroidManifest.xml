@@ -1,0 +1,20 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application
+        android:allowBackup="false"
+        android:label="ML Kit 抠图验证 2"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="subject_segment" />
+        <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <provider android:name=".ReportProvider" android:authorities="${applicationId}.report" android:exported="false" android:grantUriPermissions="true" />
+    </application>
+    <instrumentation
+        android:name=".ProbeInstrumentation"
+        android:targetPackage="${applicationId}"
+        android:label="ML Kit real model probe" />
+</manifest>
