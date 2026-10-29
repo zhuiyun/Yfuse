@@ -1,11 +1,7 @@
 package com.yfuse.core.sync.playback
 
-import kotlin.math.abs
-
 /** Deterministic conflict policy shared by every client platform. */
 object PlaybackConflictResolver {
-    private const val CONCURRENT_PROGRESS_WINDOW_MS = 10 * 60_000L
-
     fun merge(
         local: PlaybackSyncDocument,
         remote: PlaybackSyncDocument,
@@ -24,7 +20,11 @@ object PlaybackConflictResolver {
         val preference = choosePreference(local.preference, remote.preference)
         val history = mergeHistory(local.history, remote.history)
         return PlaybackSyncDocument(
-            state = winner.copy(aliases = aliases.filterNot { it == winner.mediaKey }),
+            state =
+                winner.copy(
+                    aliases = aliases.filterNot { it == winner.mediaKey },
+                    serverItems = mergePlaybackBindings(localState.sourceBindings(), remoteState.sourceBindings()),
+                ),
             preference = preference,
             history = history,
         )
@@ -47,28 +47,7 @@ object PlaybackConflictResolver {
             return newest(local, remote)
         }
 
-        val sameSession =
-            local.sessionId != null &&
-                remote.sessionId != null &&
-                local.sessionId == remote.sessionId
-        val nearInTime =
-            abs(local.lastPlayedAtEpochMs - remote.lastPlayedAtEpochMs) <=
-                CONCURRENT_PROGRESS_WINDOW_MS
-        if (sameSession || nearInTime) {
-            val newer = newest(local, remote)
-            val furthest = if (local.positionMs >= remote.positionMs) local else remote
-            return newer.copy(
-                positionMs = maxOf(local.positionMs, remote.positionMs),
-                durationMs = maxOf(local.durationMs, remote.durationMs),
-                played = local.played || remote.played,
-                mutationKind =
-                    if (local.played || remote.played) {
-                        PlaybackMutationKind.AutoFinished
-                    } else {
-                        furthest.mutationKind
-                    },
-            )
-        }
+        // A newer stop/seek is authoritative, including a deliberately smaller position.
         return newest(local, remote)
     }
 
@@ -104,8 +83,10 @@ object PlaybackConflictResolver {
             .values
             .map { entries ->
                 entries.maxWithOrNull(
-                    compareBy<PlaybackHistoryEntry> { it.endedAtEpochMs ?: Long.MIN_VALUE }
-                        .thenBy { it.endPositionMs },
+                    compareBy<PlaybackHistoryEntry> {
+                        it.updatedAtEpochMs.takeIf { updated -> updated > 0L }
+                            ?: it.endedAtEpochMs ?: it.startedAtEpochMs
+                    }.thenBy { it.endPositionMs },
                 ) ?: entries.first()
             }.sortedBy(PlaybackHistoryEntry::startedAtEpochMs)
             .takeLast(MAX_HISTORY_PER_MEDIA)

@@ -171,7 +171,7 @@ class DetailLocalProgressTest {
     }
 
     @Test
-    fun exact_library_progress_wins_and_component_progress_is_only_a_missing_record_fallback() {
+    fun latest_shared_component_progress_is_used_for_existing_and_missing_library_sources() {
         val local =
             com.yfuse.core.sync.playback
                 .PlaybackSyncStore(com.russhwolf.settings.MapSettings()) { 1000L }
@@ -207,7 +207,7 @@ class DetailLocalProgressTest {
                 playTarget = target.copy(seriesId = "series", seasonNumber = 2, episodeNumber = 3),
                 episodes = listOf(episode.copy(seasonNumber = 2, indexNumber = 3)),
             )
-        assertEquals(10_000L, state.localProgressForItem(local, server.id, "e1")?.positionMs)
+        assertEquals(123_000L, state.localProgressForItem(local, server.id, "e1")?.positionMs)
         val missing =
             state.copy(
                 playTarget = state.playTarget?.copy(id = "unrecorded"),

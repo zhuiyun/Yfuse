@@ -97,16 +97,21 @@ internal class EmbyDetailService(
         detail: MediaDetail,
     ): Result<PlayTargetResolution> =
         embyApiCall("resolve_play_target") {
+            val progressScope = progress.scopeToken
             if (detail.type != "Series") {
                 PlayTargetResolution(
                     target = PlayTarget(detail.id, detail.resumePositionTicks ?: 0L),
                 )
             } else {
                 val directory = fetchLocalEpisodeDirectory(server, detail.id)
-                val projected = directory.map { item -> item to progress.project(server, item) }
+                val projected =
+                    directory.map { item ->
+                        item to
+                            progress.project(server, item, detail.providerIds, progressScope)
+                    }
                 val episode = selectLocalNextUp(server, projected) ?: directory.firstOrNull()
                 requireNotNull(episode) { "no episodes" }
-                val projectedTarget = progress.project(server, episode)
+                val projectedTarget = progress.project(server, episode, detail.providerIds, progressScope)
                 PlayTargetResolution(
                     target =
                         PlayTarget(
@@ -124,6 +129,7 @@ internal class EmbyDetailService(
         detail: MediaDetail,
     ): Result<PlayTargetResolution> =
         embyApiCall("resolve_detail_play_target") {
+            val progressScope = progress.scopeToken
             if (detail.type != "Series") {
                 PlayTargetResolution(PlayTarget(detail.id, detail.resumePositionTicks ?: 0L))
             } else {
@@ -149,12 +155,16 @@ internal class EmbyDetailService(
                             )
                             decoded.Items
                         }
-                val projected = directory.map { item -> item to progress.project(server, item) }
+                val projected =
+                    directory.map { item ->
+                        item to
+                            progress.project(server, item, detail.providerIds, progressScope)
+                    }
                 val episode =
                     requireNotNull(selectLocalNextUp(server, projected) ?: directory.firstOrNull()) {
                         "no episodes"
                     }
-                val target = progress.project(server, episode)
+                val target = progress.project(server, episode, detail.providerIds, progressScope)
                 PlayTargetResolution(
                     PlayTarget(target.Id, target.UserData?.PlaybackPositionTicks ?: 0L),
                 )

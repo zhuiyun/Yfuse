@@ -28,7 +28,8 @@ class PlaybackSyncStore(
         }
     private val serializer = ListSerializer(StoredPlaybackDocument.serializer())
     private val serverApplySerializer = ListSerializer(PendingPlaybackServerApply.serializer())
-    private val lock = personal?.coordinationLock ?: Any()
+    internal val coordinationLock = personal?.coordinationLock ?: Any()
+    private val lock = coordinationLock
     private var documents = loadDocuments().toMutableList()
     private val mutableChanges = MutableStateFlow(0L)
 
@@ -144,8 +145,8 @@ class PlaybackSyncStore(
                 }.toMap()
         val keys = (document.state.aliases + document.state.mediaKey).filter(String::isNotBlank).toSet()
         val portableIdentity = keys.any { !it.startsWith("emby:", ignoreCase = true) }
-        val retained =
-            serverApplies.filterNot { queued ->
+        val replaced =
+            serverApplies.filter { queued ->
                 val queuedKeys =
                     (queued.document.state.aliases + queued.document.state.mediaKey)
                         .filter(String::isNotBlank)
@@ -156,16 +157,23 @@ class PlaybackSyncStore(
             }
         serverApplies =
             (
-                retained +
+                serverApplies.filterNot { it in replaced } +
                     PendingPlaybackServerApply(
                         id = newId("server-apply"),
                         document = document,
                         remainingServerIds = targets,
+                        forceApply = replaced.any { it.forceApply },
                         deferredUntilByServerId = deferredUntilByServerId,
                     )
             ).takeLast(MAX_SERVER_APPLIES).toMutableList()
         persistServerAppliesLocked()
     }
+
+    internal fun isCurrentServerApply(task: PendingPlaybackServerApply): Boolean =
+        synchronized(lock) {
+            serverApplies.any { it.id == task.id && it.document.state == task.document.state } &&
+                task.document.state.profileId == activeProfileId
+        }
 
     fun pendingServerApplies(
         nowEpochMs: Long,
@@ -287,11 +295,56 @@ class PlaybackSyncStore(
                 .asReversed()
                 .firstOrNull {
                     it.document.state.profileId == activeProfileId &&
-                        it.document.state.serverId == serverId &&
-                        it.document.state.serverItemId == itemId
+                        it.document.state.matchesSource(serverId, itemId)
                 }?.document
                 ?.state
+                ?.copy(serverId = serverId, serverItemId = itemId)
         }
+
+    /** All screens and playback launches resolve the same locally held progress. */
+    fun resolveState(
+        mediaKey: String,
+        aliases: List<String> = emptyList(),
+        serverId: String? = null,
+        serverItemId: String? = null,
+    ): PlaybackStateRecord? =
+        synchronized(lock) {
+            val direct =
+                if (serverId != null &&
+                    serverItemId != null
+                ) {
+                    stateForServerItem(serverId, serverItemId)
+                } else {
+                    null
+                }
+            val shared = find(mediaKey, aliases, serverId)?.document?.state
+            when {
+                direct == null -> shared
+                shared == null -> direct
+                else -> PlaybackConflictResolver.chooseState(direct, shared)
+            }
+        }
+
+    /** Learn a verified library source without creating playback or changing its timeline. */
+    fun bindKnownSource(
+        mediaKey: String,
+        aliases: List<String>,
+        serverId: String,
+        serverItemId: String,
+        expectedScopeToken: String = scopeToken,
+    ) = synchronized(lock) {
+        if (scopeToken != expectedScopeToken) return@synchronized
+        val index = findIndexLocked(mediaKey, aliases, serverId)
+        val existing = documents.getOrNull(index) ?: return@synchronized
+        val state = existing.document.state
+        val updated =
+            state.copy(
+                aliases = (state.aliases + aliases + mediaKey).normalizedAliases(state.mediaKey),
+                serverItems = mergePlaybackBindings(state.sourceBindings(), mapOf(serverId to listOf(serverItemId))),
+            )
+        if (updated == state) return@synchronized
+        replaceLocked(index, existing.copy(document = existing.document.copy(state = updated)))
+    }
 
     /** Latest per-episode records for a catalog series, scoped to the active profile. */
     fun statesForSeries(seriesKey: String): List<PlaybackStateRecord> =
@@ -315,7 +368,11 @@ class PlaybackSyncStore(
                 .asSequence()
                 .map { it.document.state }
                 .filter {
-                    it.profileId == activeProfileId && it.serverId == serverId && !it.serverItemId.isNullOrBlank()
+                    it.profileId == activeProfileId && it.sourceBindings()[serverId].orEmpty().isNotEmpty()
+                }.flatMap { state ->
+                    state.sourceBindings()[serverId].orEmpty().asSequence().map { item ->
+                        state.copy(serverId = serverId, serverItemId = item)
+                    }
                 }.sortedByDescending(PlaybackStateRecord::lastPlayedAtEpochMs)
                 .toList()
         }
@@ -363,8 +420,7 @@ class PlaybackSyncStore(
             } else {
                 documents.any {
                     it.document.state.profileId == activeProfileId &&
-                        it.document.state.serverId == serverId &&
-                        it.document.state.serverItemId == itemId
+                        it.document.state.matchesSource(serverId, itemId)
                 }
             }
         if (alreadyLocal) return false
@@ -450,8 +506,7 @@ class PlaybackSyncStore(
         val index =
             pull?.positionOf(itemId) ?: documents.indexOfLast {
                 it.document.state.profileId == activeProfileId &&
-                    it.document.state.serverId == serverId &&
-                    it.document.state.serverItemId == itemId
+                    it.document.state.matchesSource(serverId, itemId)
             }
         if (index < 0) return seedServerProgressLocked(serverId, input, pull)
         val stored = documents[index]
@@ -811,14 +866,27 @@ class PlaybackSyncStore(
             positionMs = previous?.positionMs ?: 0L,
             durationMs = previous?.durationMs ?: 0L,
             played = previous?.played ?: false,
-            lastPlayedAtEpochMs = now,
+            lastPlayedAtEpochMs =
+                maxOf(
+                    now,
+                    (documents.maxOfOrNull { it.document.state.lastPlayedAtEpochMs } ?: -1L).let {
+                        if (it ==
+                            Long.MAX_VALUE
+                        ) {
+                            it
+                        } else {
+                            it + 1L
+                        }
+                    },
+                ),
             progressEpoch = previous?.progressEpoch ?: 0L,
             deviceId = deviceId,
             sessionId = previous?.sessionId,
             serverId = previous?.serverId,
             serverItemId = previous?.serverItemId,
+            serverItems = previous?.sourceBindings().orEmpty(),
             revision = (previous?.revision ?: 0L) + 1L,
-        ).let(overrides)
+        ).let(overrides).let { it.copy(serverItems = it.sourceBindings()) }
     }
 
     /** Every other name a title is known by, without blanks, repeats or its canonical key. */
@@ -863,6 +931,7 @@ class PlaybackSyncStore(
                         sessionId = session,
                         startedAtEpochMs = now,
                         endedAtEpochMs = now.takeIf { trigger in TERMINAL_TRIGGERS },
+                        updatedAtEpochMs = now,
                         startPositionMs = state.positionMs,
                         endPositionMs = state.positionMs,
                         deviceId = state.deviceId,
@@ -871,7 +940,8 @@ class PlaybackSyncStore(
                 else ->
                     existing.copy(
                         endedAtEpochMs = now.takeIf { trigger in TERMINAL_TRIGGERS } ?: existing.endedAtEpochMs,
-                        endPositionMs = maxOf(existing.endPositionMs, state.positionMs),
+                        endPositionMs = state.positionMs,
+                        updatedAtEpochMs = maxOf(now, existing.updatedAtEpochMs + 1L),
                     )
             }
         return (current.filterNot { it.sessionId == session } + updated)
@@ -889,12 +959,25 @@ class PlaybackSyncStore(
         if (candidates.isEmpty()) return -1
         val portableIdentity = candidates.any { !it.startsWith("emby:", ignoreCase = true) }
         if (!portableIdentity && serverId.isNullOrBlank()) return -1
-        return documents.indexOfFirst { stored ->
-            val state = stored.document.state
-            val identityMatches =
-                state.mediaKey in candidates || state.aliases.any(candidates::contains)
-            state.profileId == profileId && identityMatches && (portableIdentity || state.serverId == serverId)
-        }
+        return documents.indices
+            .filter { index ->
+                val stored = documents[index]
+                val state = stored.document.state
+                val identityMatches =
+                    state.mediaKey in candidates || state.aliases.any(candidates::contains)
+                state.profileId == profileId && identityMatches && (portableIdentity || state.serverId == serverId)
+            }.reduceOrNull { selected, candidate ->
+                if (PlaybackConflictResolver.chooseState(
+                        documents[selected].document.state,
+                        documents[candidate].document.state,
+                    ) ==
+                    documents[candidate].document.state
+                ) {
+                    candidate
+                } else {
+                    selected
+                }
+            } ?: -1
     }
 
     /**
@@ -920,8 +1003,8 @@ class PlaybackSyncStore(
 
         fun appended(position: Int) {
             val state = documents[position].document.state
-            if (state.profileId == activeProfileId && state.serverId == serverId) {
-                state.serverItemId?.let { positions[it] = position }
+            if (state.profileId == activeProfileId) {
+                state.sourceBindings()[serverId].orEmpty().forEach { positions[it] = position }
             }
             playedAtCounts.merge(state.lastPlayedAtEpochMs, 1, Int::plus)
         }
@@ -950,6 +1033,30 @@ class PlaybackSyncStore(
         value: StoredPlaybackDocument,
         deferrable: Boolean = false,
     ) {
+        val previousState = documents.getOrNull(index)?.document?.state
+        if (previousState != null && previousState != value.document.state) {
+            var changed = false
+            serverApplies =
+                serverApplies
+                    .map { task ->
+                        if (task.document.state == previousState) {
+                            changed = true
+                            task.copy(
+                                id = newId("server-apply"),
+                                document = value.document,
+                                forceApply =
+                                    task.forceApply ||
+                                        previousState.positionMs != value.document.state.positionMs ||
+                                        previousState.played != value.document.state.played ||
+                                        previousState.progressEpoch != value.document.state.progressEpoch,
+                                attemptCount = 0,
+                            )
+                        } else {
+                            task
+                        }
+                    }.toMutableList()
+            if (changed) persistServerAppliesLocked()
+        }
         if (index >= 0) documents[index] = value else documents += value
         if (batchingServerProgress) {
             serverProgressBatchChanged = true

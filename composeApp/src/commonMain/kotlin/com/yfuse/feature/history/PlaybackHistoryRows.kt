@@ -99,7 +99,7 @@ internal fun playbackHistoryRows(
                 val server = playbackHistoryServer(entry.media, servers)
                 val key = server?.let { origin -> entry.media.serverItemId?.let { origin.id to it } }
                 // History owns identity, metadata and ordering; the same exact-item local state
-                // used by detail owns the visible progress. Never join via provider aliases.
+                // used by detail owns the visible progress, projected onto this source by the shared resolver.
                 val progress =
                     key?.takeIf { policy.allowsServer(it.first) }?.let { (serverId, itemId) ->
                         progressForItem(serverId, itemId)?.takeIf {

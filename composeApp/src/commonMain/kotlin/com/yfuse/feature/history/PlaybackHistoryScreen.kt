@@ -97,7 +97,7 @@ fun PlaybackHistoryScreen(
                 policy,
                 currentMetadata,
             ) { serverId, itemId ->
-                component.progress?.stateForServerItem(serverId, itemId)
+                component.progressForItem(serverId, itemId)
             }
         }
     val visible = LocalRouteVisible.current

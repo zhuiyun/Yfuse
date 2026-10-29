@@ -1,16 +1,12 @@
 package com.yfuse.core.sync.playback
 
-/** A concrete library record is authoritative across history, detail and playback launch.
- * Portable component records may seed a missing item, but never replace its synced progress.
+/** Resolve every known copy with the shared progress ordering, including component playback.
  */
 internal fun libraryResumeState(
     direct: PlaybackStateRecord?,
     portable: List<PlaybackStateRecord>,
-): PlaybackStateRecord? {
-    if (direct != null) return direct
-    return portable
-        .filter { it.serverId == null && it.serverItemId == null }
+): PlaybackStateRecord? =
+    (listOfNotNull(direct) + portable)
         .fold<PlaybackStateRecord, PlaybackStateRecord?>(null) { selected, record ->
             selected?.let { PlaybackConflictResolver.chooseState(it, record) } ?: record
         }
-}

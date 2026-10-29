@@ -58,6 +58,7 @@ internal class PlaybackProgressReporter(
     private sealed interface Command {
         data class Update(
             val state: PlaybackState,
+            val seeked: Boolean = false,
         ) : Command
 
         data class Background(
@@ -150,7 +151,7 @@ internal class PlaybackProgressReporter(
                     val closeAfterCommand = command is Command.Close
                     try {
                         when (command) {
-                            is Command.Update -> handleUpdate(command.state)
+                            is Command.Update -> handleUpdate(command.state, command.seeked)
                             is Command.Background -> handleBackground(command.state)
                             is Command.Rebind -> handleRebind(command.items, command.state)
                             is Command.Close ->
@@ -226,7 +227,7 @@ internal class PlaybackProgressReporter(
 
         if (itemChanged || playStateChanged || endedChanged || seeked || periodic) {
             enqueuedPositionMs = state.positionMs
-            enqueue(Command.Update(state))
+            enqueue(Command.Update(state, seeked = seeked && !itemChanged))
         }
     }
 
@@ -362,8 +363,8 @@ internal class PlaybackProgressReporter(
 
     private fun enqueueUpdate(command: Command.Update): Boolean {
         if (pendingCommands.lastOrNull() is Command.Update) {
-            pendingCommands.removeLast()
-            pendingCommands.addLast(command)
+            val previous = pendingCommands.removeLast() as Command.Update
+            pendingCommands.addLast(command.copy(seeked = command.seeked || previous.seeked))
             return true
         }
         if (pendingCommands.size < MAX_PENDING_REPORT_COMMANDS) {
@@ -377,7 +378,10 @@ internal class PlaybackProgressReporter(
         return true
     }
 
-    private suspend fun handleUpdate(state: PlaybackState) {
+    private suspend fun handleUpdate(
+        state: PlaybackState,
+        seeked: Boolean = false,
+    ) {
         val index = state.currentIndex.coerceIn(0, items.lastIndex)
         val terminal = state.ended
         if (terminal && index == terminalIndex && activeIndex < 0) return
@@ -415,7 +419,6 @@ internal class PlaybackProgressReporter(
             return
         }
 
-        val seeked = abs(state.positionMs - activePositionMs) >= SEEK_THRESHOLD_MS
         activePositionMs = state.positionMs
         activeDurationMs = state.durationMs
         val paused = !state.playing

@@ -1,10 +1,10 @@
 {
-  "versionName": "1.7.9",
-  "versionCode": 331,
+  "versionName": "1.8.0",
+  "versionCode": 332,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-28T15:03:26.098039+00:00",
+  "confirmedAt": "2026-10-29T10:51:19.760924+00:00",
   "confirmedBy": "release owner",
-  "confirmationBasis": "Owner requested signed packaging of seek, progress consistency and clock animation fixes. Standing authorization covers the unchanged pinned MDK component and the existing artifact-only production signing workflow; no online update publication."
+  "confirmationBasis": "Release owner requested uploading the completed progress synchronization fixes and building a production-signed APK. Standing authorization covers the unchanged pinned MDK component and package-only distribution; no online update publication."
 }

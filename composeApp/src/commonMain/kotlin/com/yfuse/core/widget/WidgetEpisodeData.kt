@@ -269,6 +269,7 @@ internal class NativeWidgetEpisodeLibrary(
 
     override suspend fun directory(item: WidgetMedia): WidgetEpisodeDirectory? {
         val identity = item.tmdbDetailItemOrNull()?.takeIf { it.mediaType == "tv" } ?: return null
+        val progressScope = playback.scopeToken
         val snapshot = registry.data.value
         val servers = snapshot.servers.sortedBy { it.id != snapshot.defaultServer?.id }
         var failed = false
@@ -282,6 +283,11 @@ internal class NativeWidgetEpisodeLibrary(
                 } ?: continue
             if (!found.type.equals("Series", ignoreCase = true)) continue
             val episodes = repository.episodes(server, found.id, seasonId = null).getOrThrow()
+            episodes.forEach { episode ->
+                val number = episode.indexNumber ?: return@forEach
+                val key = "tmdb:${identity.id}/s${episode.seasonNumber ?: 0}e$number"
+                playback.bindKnownSource(key, listOf(key, "emby:${episode.id}"), server.id, episode.id, progressScope)
+            }
             val series =
                 WidgetMedia(
                     id = "native:${server.id}:${found.id}",

@@ -5,6 +5,8 @@ import com.yfuse.core.data.dto.UserDataDto
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.sync.playback.PlaybackStateRecord
 import com.yfuse.core.sync.playback.PlaybackSyncStore
+import com.yfuse.core.sync.watchKey
+import com.yfuse.core.sync.watchMatchKeys
 
 /**
  * The single boundary between server metadata and progress shown by the app.
@@ -17,12 +19,27 @@ class PlaybackProgressProjection(
     private val localStore: PlaybackSyncStore? = null,
     private val progressSyncEnabled: () -> Boolean = { true },
 ) {
+    internal val scopeToken: String? get() = localStore?.scopeToken
+
     val localOnly: Boolean get() = !progressSyncEnabled()
 
     fun project(
         server: SavedServer,
         item: BaseItemDto,
+        seriesProviderIds: Map<String, String> = emptyMap(),
+        expectedScopeToken: String? = scopeToken,
     ): BaseItemDto {
+        if (seriesProviderIds.isNotEmpty() && item.IndexNumber != null && expectedScopeToken != null) {
+            val keys =
+                watchMatchKeys(
+                    ownProviderIds = item.ProviderIds.orEmpty(),
+                    seriesProviderIds = seriesProviderIds,
+                    seasonNumber = item.ParentIndexNumber,
+                    episodeNumber = item.IndexNumber,
+                    fallbackId = item.Id,
+                )
+            localStore?.bindKnownSource(keys.first(), keys, server.id, item.Id, expectedScopeToken)
+        }
         val state = stateFor(server, item)
         val favorite = item.UserData?.IsFavorite
         val positionMs = state?.positionMs?.coerceAtLeast(0L) ?: 0L
@@ -57,9 +74,12 @@ class PlaybackProgressProjection(
         item: BaseItemDto,
     ): PlaybackStateRecord? {
         val store = localStore ?: return null
-        // Progress is local to this exact server item: portable provider aliases must not
-        // silently copy server A's progress onto server B during normal browsing.
-        return store.stateForServerItem(server.id, item.Id)
+        return store.resolveState(
+            mediaKey = item.ProviderIds.orEmpty().watchKey(item.Id),
+            aliases = watchMatchKeys(ownProviderIds = item.ProviderIds.orEmpty(), fallbackId = item.Id),
+            serverId = server.id,
+            serverItemId = item.Id,
+        )
     }
 
     fun localStates(server: SavedServer): List<PlaybackStateRecord> = localStore?.statesForServer(server.id).orEmpty()
@@ -69,7 +89,13 @@ class PlaybackProgressProjection(
         server: SavedServer,
         detail: com.yfuse.core.model.MediaDetail,
     ): com.yfuse.core.model.MediaDetail {
-        val state = localStore?.stateForServerItem(server.id, detail.id)
+        val state =
+            localStore?.resolveState(
+                mediaKey = detail.providerIds.watchKey(detail.id),
+                aliases = watchMatchKeys(ownProviderIds = detail.providerIds, fallbackId = detail.id),
+                serverId = server.id,
+                serverItemId = detail.id,
+            )
         return detail.copy(
             played = state?.played == true,
             resumePositionTicks =

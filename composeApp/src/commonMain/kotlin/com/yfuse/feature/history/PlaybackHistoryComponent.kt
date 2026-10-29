@@ -198,13 +198,32 @@ class PlaybackHistoryComponent(
         }
     }
 
+    /** Resolve old history entries through their retained media identity as well as source binding. */
+    internal fun progressForItem(
+        serverId: String,
+        itemId: String,
+    ): com.yfuse.core.sync.playback.PlaybackStateRecord? {
+        val media =
+            personal.state.value.history
+                .firstOrNull { entry ->
+                    entry.media.serverItemId == itemId &&
+                        playbackHistoryServer(entry.media, registry.data.value.servers)?.id == serverId
+                }?.media
+        return progress
+            ?.resolveState(
+                mediaKey = media?.mediaKey ?: "emby:$itemId",
+                serverId = serverId,
+                serverItemId = itemId,
+            )?.copy(serverId = serverId, serverItemId = itemId)
+    }
+
     internal fun canContinue(row: PlaybackHistoryRow): Boolean = onContinue != null && metadataKey(row) != null
 
     /** Resolve again at the click, so a removed source or switched profile cannot launch old media. */
     internal fun continuePlayback(row: PlaybackHistoryRow): Boolean {
         val play = onContinue ?: return false
         val key = metadataKey(row) ?: return false
-        val synced = progress?.stateForServerItem(key.serverId, key.itemId)
+        val synced = progressForItem(key.serverId, key.itemId)
         val completed = synced?.played ?: row.entry.completed
         val position = synced?.positionMs ?: row.entry.positionMs
         play(key.serverId, key.itemId, historyResumeTicks(position, completed))

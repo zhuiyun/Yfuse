@@ -2,7 +2,6 @@ package com.yfuse.core.sync.playback
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 
 class LibraryResumeStateTest {
     private fun record(
@@ -17,10 +16,10 @@ class LibraryResumeStateTest {
     )
 
     @Test
-    fun `synced twenty two minutes cannot revert to five minutes from a detail alias`() {
+    fun `newer shared viewing generation overrides an older direct record`() {
         val direct = record(22 * 60_000L, "server")
         val alias = record(5 * 60_000L).copy(lastPlayedAtEpochMs = 9_000_000L, progressEpoch = 3L)
-        assertEquals(direct, libraryResumeState(direct, listOf(alias)))
+        assertEquals(alias, libraryResumeState(direct, listOf(alias)))
     }
 
     @Test
@@ -33,9 +32,9 @@ class LibraryResumeStateTest {
     }
 
     @Test
-    fun `missing library state can use component history but not another server item`() {
-        assertNull(libraryResumeState(null, listOf(record(500L, "other"))))
-        val portable = record(1_000L)
+    fun `missing library state uses the newest known shared source`() {
+        assertEquals(record(500L, "other"), libraryResumeState(null, listOf(record(500L, "other"))))
+        val portable = record(1_000L).copy(lastPlayedAtEpochMs = 1_000L)
         assertEquals(portable, libraryResumeState(null, listOf(record(2_000L, "other"), portable)))
     }
 }

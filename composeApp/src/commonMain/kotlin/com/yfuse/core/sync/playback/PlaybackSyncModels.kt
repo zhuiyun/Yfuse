@@ -47,6 +47,7 @@ data class PlaybackHistoryEntry(
     val sessionId: String,
     val startedAtEpochMs: Long,
     val endedAtEpochMs: Long? = null,
+    val updatedAtEpochMs: Long = 0L,
     val startPositionMs: Long = 0L,
     val endPositionMs: Long = 0L,
     val deviceId: String,
@@ -71,6 +72,8 @@ data class PlaybackStateRecord(
     val sessionId: String? = null,
     val serverId: String? = null,
     val serverItemId: String? = null,
+    /** Observed source bindings survive switching servers; progress remains shared. */
+    val serverItems: Map<String, List<String>> = emptyMap(),
     val revision: Long = 0L,
     val mutationKind: PlaybackMutationKind = PlaybackMutationKind.AutoProgress,
     val profileId: String = com.yfuse.core.personal.DEFAULT_PERSONAL_PROFILE,
@@ -100,6 +103,8 @@ data class PendingPlaybackServerApply(
     val id: String,
     val document: PlaybackSyncDocument,
     val remainingServerIds: List<String>,
+    /** Reconcile a superseded in-flight write even when the new origin is this target. */
+    val forceApply: Boolean = false,
     val attemptCount: Int = 0,
     val nextAttemptAtEpochMs: Long = 0L,
     val deferredUntilByServerId: Map<String, Long> = emptyMap(),

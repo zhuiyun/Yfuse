@@ -112,6 +112,7 @@ internal fun DetailState.localProgressForItem(
             episodeNumber = episode?.indexNumber ?: media?.episodeNumber,
             fallbackId = itemId,
         )
+    local.bindKnownSource(keys.first(), keys, serverId, itemId)
     return com.yfuse.core.sync.playback.libraryResumeState(
         direct = direct,
         portable =

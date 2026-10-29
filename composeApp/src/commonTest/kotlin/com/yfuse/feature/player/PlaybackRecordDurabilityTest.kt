@@ -301,6 +301,45 @@ class PlaybackRecordDurabilityTest {
             }
         }
 
+    @Test
+    fun sampled_periodic_progress_is_coalesced_but_a_merged_seek_is_durable() =
+        runTest {
+            for (seek in listOf(false, true)) {
+                val fixture = fixture()
+                val release = CompletableDeferred<Unit>()
+                val reporter =
+                    PlaybackProgressReporter(
+                        listOf(item),
+                        WaitingSink(release),
+                        scope = backgroundScope,
+                        playbackSync = fixture.manager,
+                    )
+                try {
+                    val initial = PlaybackState(playing = true, positionMs = 100_000L, durationMs = 3_600_000L)
+                    reporter.update(initial)
+                    runCurrent()
+                    if (seek) reporter.update(initial.copy(positionMs = 60_000L))
+                    val from = if (seek) 60_000L else 100_000L
+                    for (tick in 1..20) reporter.update(initial.copy(positionMs = from + tick * 500L))
+                    release.complete(Unit)
+                    runCurrent()
+                    assertEquals(from + 10_000L, fixture.store.stateForServerItem("server", "movie")?.positionMs)
+                    assertEquals(
+                        if (seek) 70_000L else 100_000L,
+                        PlaybackSyncStore(
+                            fixture.settings,
+                            personal = fixture.personal,
+                        ).stateForServerItem("server", "movie")?.positionMs,
+                    )
+                } finally {
+                    release.complete(Unit)
+                    reporter.close(PlaybackState(positionMs = 110_000L))
+                    runCurrent()
+                    fixture.client.close()
+                }
+            }
+        }
+
     private fun TestScope.fixture(): Fixture {
         val settings = MapSettings()
         val secure = TestSecureStore()

@@ -7,7 +7,7 @@ import kotlin.test.assertNull
 
 class PlaybackStartPositionTest {
     @Test
-    fun syncedExactItemWinsOverStalePortableAliasAtLaunch() {
+    fun newerComponentStopOverridesOlderServerSnapshotAtLaunch() {
         val store = PlaybackSyncStore(MapSettings()) { 9_000_000L }
         store.seedServerProgressIfAbsent("server", "item", 5 * 60_000L, false, 1_000L, 3_600_000L)
         store.absorbServerProgress("server", "item", 22 * 60_000L, false, 2_000L)
@@ -24,7 +24,7 @@ class PlaybackStartPositionTest {
             PlaybackSyncTrigger.Stop,
         )
         assertEquals(
-            22 * 60_000L,
+            5 * 60_000L,
             store.authoritativeStartPositionMs(
                 "tmdb:1",
                 serverId = "server",

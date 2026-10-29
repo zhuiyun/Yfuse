@@ -12,8 +12,7 @@ internal fun PlaybackSyncStore.authoritativeStartPositionMs(
     completedRatio: Double = 0.95,
     serverItemId: String? = null,
 ): Long? {
-    val direct = if (serverId != null && serverItemId != null) stateForServerItem(serverId, serverItemId) else null
-    val state = direct ?: find(mediaKey, aliases, serverId)?.document?.state ?: return null
+    val state = resolveState(mediaKey, aliases, serverId, serverItemId) ?: return null
     if (state.played) return 0L
     if (state.durationMs > 0L && state.positionMs >= (state.durationMs * completedRatio).toLong()) {
         return 0L

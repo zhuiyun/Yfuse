@@ -159,8 +159,8 @@ class PlaybackSyncManager(
                     _state.update { it.copy(syncing = false) }
                     return@collectLatest
                 }
-                val userId = cipher.currentUserId() ?: return@collectLatest
-                if (store.bindAccount(userId)) updatePendingState()
+                val owner = bindSyncOwner() ?: return@collectLatest
+                val userId = requireNotNull(owner.userId)
                 synchronized(scheduleLock) {
                     if (startupPullAttemptedUserIds.add(userId)) startupPullPendingUserIds.add(userId)
                 }
@@ -305,15 +305,48 @@ class PlaybackSyncManager(
         serverId: String? = null,
     ): Long? = startPositionMs(mediaKey, aliases, serverId)?.takeIf { it > 0L }
 
+    private data class SyncOwner(
+        val userId: String?,
+        val keyVersion: Int,
+        val scopeToken: String,
+    )
+
+    private fun syncOwner() = SyncOwner(cipher.currentUserId(), cipher.currentKeyVersion(), store.scopeToken)
+
+    private fun bindSyncOwner(): SyncOwner? =
+        synchronized(store.coordinationLock) {
+            val owner = syncOwner()
+            val userId = owner.userId ?: return@synchronized null
+            if (!progressSyncEnabled.value || !accessTokens.sessionAvailable.value) return@synchronized null
+            checkOwner(owner)
+            if (store.bindAccount(userId)) updatePendingState()
+            if (store.bindVaultKey(owner.keyVersion)) updatePendingState()
+            owner
+        }
+
+    private fun checkOwner(owner: SyncOwner) {
+        if (!progressSyncEnabled.value || !accessTokens.sessionAvailable.value || syncOwner() != owner) {
+            throw CancellationException("Playback synchronization owner changed")
+        }
+    }
+
+    private inline fun <T> withOwner(
+        owner: SyncOwner,
+        action: () -> T,
+    ): T =
+        synchronized(store.coordinationLock) {
+            checkOwner(owner)
+            action()
+        }
+
     private suspend fun syncNow(pullRemote: Boolean = false) {
         syncMutex.withLock {
             if (!progressSyncEnabled.value || !accessTokens.sessionAvailable.value) {
                 _state.update { it.copy(syncing = false) }
                 return
             }
-            val userId = cipher.currentUserId() ?: return
-            if (store.bindAccount(userId)) updatePendingState()
-            if (store.bindVaultKey(cipher.currentKeyVersion())) updatePendingState()
+            val owner = bindSyncOwner() ?: return
+            val userId = requireNotNull(owner.userId)
             val shouldPull =
                 pullRemote || synchronized(scheduleLock) { userId in startupPullPendingUserIds }
             drainServerApplyQueue()
@@ -329,16 +362,18 @@ class PlaybackSyncManager(
             lastCloudAttemptAtEpochMs = now
             _state.update { it.copy(syncing = true, error = null) }
             try {
-                val accessToken = accountTokenForSync(refresh = false) ?: return
+                val accessToken = accountTokenForSync(refresh = false, owner = owner) ?: return
                 try {
-                    syncWithToken(accessToken, shouldPull)
+                    syncWithToken(accessToken, shouldPull, owner)
                 } catch (error: AccountApiException) {
+                    checkOwner(owner)
                     if (error.status != HttpStatusCode.Unauthorized) throw error
-                    val refreshed = accountTokenForSync(refresh = true) ?: return
+                    val refreshed = accountTokenForSync(refresh = true, owner = owner) ?: return
                     // Retry exactly once. A second rejection reaches the outer failure
                     // boundary instead of refreshing forever or escaping a catch block.
-                    syncWithToken(refreshed, shouldPull)
+                    syncWithToken(refreshed, shouldPull, owner)
                 }
+                checkOwner(owner)
                 markCloudSyncSucceeded()
                 _state.value =
                     _state.value.copy(
@@ -352,14 +387,17 @@ class PlaybackSyncManager(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                handleCloudFailure(error)
+                withOwner(owner) { handleCloudFailure(error) }
             } finally {
                 _state.update { it.copy(syncing = false) }
             }
         }
     }
 
-    private suspend fun accountTokenForSync(refresh: Boolean): String? =
+    private suspend fun accountTokenForSync(
+        refresh: Boolean,
+        owner: SyncOwner,
+    ): String? =
         try {
             if (refresh) {
                 accessTokens.refreshAccessTokenFor(cloud.origin)
@@ -371,75 +409,87 @@ class PlaybackSyncManager(
         } catch (error: Throwable) {
             // /auth/refresh failures are retryable account failures, not proof that
             // /account/playback is absent. Keep the local outbox and session intact.
-            recordFailure(error)
+            withOwner(owner) { recordFailure(error) }
             null
         }
 
     private suspend fun syncWithToken(
         accessToken: String,
         pullRemote: Boolean,
+        owner: SyncOwner,
     ) {
+        checkOwner(owner)
         if (pullRemote) {
             if (!progressSyncEnabled.value) return
             val userId = cipher.currentUserId()
-            pullAll(accessToken)
+            pullAll(accessToken, owner)
             userId?.let { synchronized(scheduleLock) { startupPullPendingUserIds.remove(it) } }
         }
         if (!progressSyncEnabled.value) return
-        pushPending(accessToken)
+        pushPending(accessToken, owner)
         if (!progressSyncEnabled.value) return
         drainServerApplyQueue()
     }
 
-    private suspend fun pullAll(accessToken: String) {
+    private suspend fun pullAll(
+        accessToken: String,
+        owner: SyncOwner,
+    ) {
         // Without the vault key nothing below could be read, and moving the cursor past it would
         // lose those records for good.
         if (!cipher.hasKey()) throw PlaybackVaultKeyUnavailableException()
         var pages = 0
         do {
+            checkOwner(owner)
             val response = cloud.pull(accessToken, store.cursor(), PULL_PAGE_SIZE)
-            var unreadable = 0
-            response.changes.forEach { encrypted ->
-                // With the key in hand, a record that still does not open was written under a
-                // retired key or damaged in transit. One such record used to stop every later
-                // pull for good; it is skipped instead, and its owner uploads it again.
-                val document =
-                    cipher.decrypt(encrypted)
-                        ?: run {
-                            unreadable++
-                            return@forEach
-                        }
-                val applied =
-                    store.applyRemote(
-                        remote = document,
-                        entityKey = encrypted.entityKey,
-                        cursor = encrypted.cursor,
-                        deferPersist = true,
-                    )
-                if (applied.changedLocal && document.state.deviceId != store.deviceId) {
-                    store.enqueueServerApply(
-                        document = applied.document,
-                        serverIds = serverApplier.targetServerIds(applied.document),
+            withOwner(owner) {
+                var unreadable = 0
+                response.changes.forEach { encrypted ->
+                    // With the key in hand, a record that still does not open was written under a
+                    // retired key or damaged in transit. One such record used to stop every later
+                    // pull for good; it is skipped instead, and its owner uploads it again.
+                    val document =
+                        cipher.decrypt(encrypted)
+                            ?: run {
+                                unreadable++
+                                return@forEach
+                            }
+                    val applied =
+                        store.applyRemote(
+                            remote = document,
+                            entityKey = encrypted.entityKey,
+                            cursor = encrypted.cursor,
+                            deferPersist = true,
+                        )
+                    if (applied.changedLocal && document.state.deviceId != store.deviceId) {
+                        store.enqueueServerApply(
+                            document = applied.document,
+                            serverIds = serverApplier.targetServerIds(applied.document),
+                        )
+                    }
+                }
+                if (unreadable > 0) {
+                    AppLog.warning(
+                        category = "playback.sync",
+                        event = "pull_unreadable_skipped",
+                        message = "Skipped playback records that do not open with the current vault key",
+                        attributes = mapOf("count" to unreadable.toString()),
                     )
                 }
+                // The page is written once, and before the cursor moves past it.
+                store.flush()
+                store.updateCursor(response.cursor)
             }
-            if (unreadable > 0) {
-                AppLog.warning(
-                    category = "playback.sync",
-                    event = "pull_unreadable_skipped",
-                    message = "Skipped playback records that do not open with the current vault key",
-                    attributes = mapOf("count" to unreadable.toString()),
-                )
-            }
-            // The page is written once, and before the cursor moves past it.
-            store.flush()
-            store.updateCursor(response.cursor)
             pages++
         } while (response.hasMore && pages < MAX_PULL_PAGES_PER_SYNC)
     }
 
-    private suspend fun pushPending(accessToken: String) {
+    private suspend fun pushPending(
+        accessToken: String,
+        owner: SyncOwner,
+    ) {
         repeat(MAX_PUSH_ROUNDS) {
+            checkOwner(owner)
             val pending = store.pending(PUSH_BATCH_SIZE)
             if (pending.isEmpty()) return
             val prepared =
@@ -449,71 +499,75 @@ class PlaybackSyncManager(
                         stored to PlaybackPutItem(baseCursor, encrypted)
                     }
                 }
+            checkOwner(owner)
             if (prepared.isEmpty()) throw PlaybackPushNoProgressException()
             val response =
                 cloud.push(
                     accessToken,
                     PlaybackPushRequest(prepared.map { it.second }),
                 )
-            var madeProgress = false
-            response.accepted.forEach { accepted ->
-                val local =
-                    prepared
-                        .firstOrNull {
-                            it.second.entity.entityKey == accepted.entityKey &&
-                                it.second.entity.mutationId == accepted.mutationId &&
-                                accepted.cursor > 0L
-                        }?.first
-                        ?: return@forEach
-                store.markUploaded(
-                    mediaKey = local.document.state.mediaKey,
-                    aliases = local.document.state.aliases,
-                    serverId = local.document.state.serverId,
-                    entityKey = accepted.entityKey,
-                    mutationId = accepted.mutationId,
-                    cursor = accepted.cursor,
-                    profileId = local.document.state.profileId,
-                )
-                madeProgress = true
-            }
-            response.conflicts.forEach { conflict ->
-                val sent =
-                    prepared.firstOrNull { it.second.entity.entityKey == conflict.entityKey }?.second
-                        ?: return@forEach
-                if (conflict.cursor <= 0L || conflict.cursor == sent.baseCursor) return@forEach
-                val remote =
-                    cipher.decrypt(conflict)
-                        ?: throw PlaybackEntityDecryptException(conflict.entityKey)
-                val applied =
-                    store.applyRemote(
-                        remote = remote,
-                        entityKey = conflict.entityKey,
-                        cursor = conflict.cursor,
+            withOwner(owner) {
+                var madeProgress = false
+                response.accepted.forEach { accepted ->
+                    val local =
+                        prepared
+                            .firstOrNull {
+                                it.second.entity.entityKey == accepted.entityKey &&
+                                    it.second.entity.mutationId == accepted.mutationId &&
+                                    accepted.cursor > 0L
+                            }?.first
+                            ?: return@forEach
+                    store.markUploaded(
+                        mediaKey = local.document.state.mediaKey,
+                        aliases = local.document.state.aliases,
+                        serverId = local.document.state.serverId,
+                        entityKey = accepted.entityKey,
+                        mutationId = accepted.mutationId,
+                        cursor = accepted.cursor,
+                        profileId = local.document.state.profileId,
                     )
-                madeProgress = true
-                if (applied.changedLocal && remote.state.deviceId != store.deviceId) {
-                    store.enqueueServerApply(
-                        document = applied.document,
-                        serverIds = serverApplier.targetServerIds(applied.document),
-                    )
-                }
-            }
-            response.missing.forEach { missing ->
-                val sent =
-                    prepared.firstOrNull {
-                        it.second.entity.entityKey == missing.entityKey &&
-                            it.second.entity.mutationId == missing.mutationId &&
-                            it.second.baseCursor == missing.baseCursor
-                    } ?: return@forEach
-                if (store.resetMissingRemoteCursor(sent.first, missing.entityKey, missing.baseCursor)) {
                     madeProgress = true
                 }
+                response.conflicts.forEach { conflict ->
+                    val sent =
+                        prepared.firstOrNull { it.second.entity.entityKey == conflict.entityKey }?.second
+                            ?: return@forEach
+                    if (conflict.cursor <= 0L || conflict.cursor == sent.baseCursor) return@forEach
+                    val remote =
+                        cipher.decrypt(conflict)
+                            ?: throw PlaybackEntityDecryptException(conflict.entityKey)
+                    val applied =
+                        store.applyRemote(
+                            remote = remote,
+                            entityKey = conflict.entityKey,
+                            cursor = conflict.cursor,
+                        )
+                    madeProgress = true
+                    if (applied.changedLocal && remote.state.deviceId != store.deviceId) {
+                        store.enqueueServerApply(
+                            document = applied.document,
+                            serverIds = serverApplier.targetServerIds(applied.document),
+                        )
+                    }
+                }
+                response.missing.forEach { missing ->
+                    val sent =
+                        prepared.firstOrNull {
+                            it.second.entity.entityKey == missing.entityKey &&
+                                it.second.entity.mutationId == missing.mutationId &&
+                                it.second.baseCursor == missing.baseCursor
+                        } ?: return@forEach
+                    if (store.resetMissingRemoteCursor(sent.first, missing.entityKey, missing.baseCursor)) {
+                        madeProgress = true
+                    }
+                }
+                if (!madeProgress) throw PlaybackPushNoProgressException()
             }
-            if (!madeProgress) throw PlaybackPushNoProgressException()
         }
     }
 
     private suspend fun drainServerApplyQueue() {
+        val owner = syncOwner()
         synchronized(scheduleLock) {
             serverRetryJob?.cancel()
             serverRetryJob = null
@@ -543,7 +597,12 @@ class PlaybackSyncManager(
                     store.deferServerApplyTarget(task.id, serverId, nowEpochMs() + HEALTH_GATE_RECHECK_MS)
                     return@repeat
                 }
-                val result = serverApplier.apply(task.document, serverId)
+                val result =
+                    serverApplier.apply(task.document, serverId, task.forceApply) {
+                        checkOwner(owner)
+                        store.isCurrentServerApply(task)
+                    }
+                checkOwner(owner)
                 if (result.isSuccess) {
                     serverApplier.markReachable(serverId)
                     store.markServerApplySucceeded(task.id, serverId)
@@ -1043,8 +1102,11 @@ private class EmbyCompatiblePlaybackStateApplier(
     suspend fun apply(
         document: PlaybackSyncDocument,
         serverId: String,
+        forceApply: Boolean,
+        isCurrent: () -> Boolean,
     ): Result<Unit> =
         runCatching {
+            if (!isCurrent()) return@runCatching
             val state = document.state
             val owner = personal?.scopeToken
             check(personal == null || personal.activeProfileId == state.profileId) { "资料已切换，保留同步任务" }
@@ -1075,8 +1137,9 @@ private class EmbyCompatiblePlaybackStateApplier(
                     )
                 } ?: return@runCatching
             check(personal == null || personal.scopeToken == owner) { "资料已切换，保留同步任务" }
+            if (!isCurrent()) return@runCatching
             val isOrigin = server.id == state.serverId && item.id == state.serverItemId
-            if (isOrigin && state.mutationKind != PlaybackMutationKind.ManualUnwatched) {
+            if (!forceApply && isOrigin && state.mutationKind != PlaybackMutationKind.ManualUnwatched) {
                 return@runCatching
             }
             when (state.mutationKind) {
@@ -1084,7 +1147,7 @@ private class EmbyCompatiblePlaybackStateApplier(
                 PlaybackMutationKind.AutoFinished,
                 -> repo.setPlayed(server, item.id, true).getOrThrow()
                 PlaybackMutationKind.ManualUnwatched ->
-                    resetServerProgress(server, item.id, state.deviceId).getOrThrow()
+                    resetServerProgress(server, item.id, state.deviceId, isCurrent).getOrThrow()
                 PlaybackMutationKind.AutoProgress -> {
                     when {
                         state.positionMs > 0L -> {
@@ -1100,7 +1163,7 @@ private class EmbyCompatiblePlaybackStateApplier(
                                 ).getOrThrow()
                         }
                         state.progressEpoch > 0L ->
-                            resetServerProgress(server, item.id, state.deviceId).getOrThrow()
+                            resetServerProgress(server, item.id, state.deviceId, isCurrent).getOrThrow()
                         else -> Unit
                     }
                 }
@@ -1111,9 +1174,11 @@ private class EmbyCompatiblePlaybackStateApplier(
         server: com.yfuse.core.model.SavedServer,
         itemId: String,
         deviceId: String,
+        isCurrent: () -> Boolean,
     ): Result<Unit> =
         repo.setPlayed(server, itemId, false).fold(
             onSuccess = {
+                if (!isCurrent()) return@fold Result.success(Unit)
                 repo.reportPlaybackStopped(
                     server = server,
                     itemId = itemId,
