@@ -27,7 +27,7 @@ reaches only the step that needs it, and every job hands on the same APK, checke
 | --- | --- | --- |
 | `request` | Resolves the version, notes and publish mode; checks the MDK confirmation and, for a publishing run, that an update-manifest key is configured | `UPDATE_MANIFEST_SIGNING_KEY` (only to derive the public key the APK embeds) |
 | `gates` | Waits for the exact commit's quality gates (unit tests, lint, ktlint) | none |
-| `build` | Builds the R8 release APK, signed with a throwaway debug key | `TMDB_TOKEN` |
+| `build` | Builds the R8 release APK, signed with a throwaway debug key; TMDB reads use the server proxy and no TMDB credential is embedded | none |
 | `sign` | Re-signs that APK with the production key (zipalign, then apksigner: v2 only, as every Yfuse release has been) and checks a single signer with the pinned certificate | the four keystore secrets, in one step; the keystore lives in the runner's temp directory for that step only |
 | `smoke` | Installs and starts that signed APK on Android 35, 36 and 37 emulators through `android-cloud-ui.yml` (see `docs/CLOUD_TESTING.md`) | none |
 | `deploy` | Saves the artifact; for a publishing run, signs both manifests and uploads over SSH | `UPDATE_MANIFEST_SIGNING_KEY`, and `DEPLOY_SSH_PRIVATE_KEY` / `DEPLOY_KNOWN_HOSTS` in the upload step only |
@@ -129,7 +129,13 @@ package identity, and signing certificate before installation.
 When a public key is configured, the app requires a valid matching manifest signature.
 CI derives the embedded public key from `UPDATE_MANIFEST_SIGNING_KEY`; an optional
 `yfuse.updateManifestPublicKey` property or `YFUSE_UPDATE_MANIFEST_PUBLIC_KEY` repository variable
-must match it. Configured keys must be valid Ed25519. Artifact-only jobs (including branch,
+must match it.
+
+For a fresh pair, run `bash scripts/generate-update-manifest-key.sh /path/outside/git/update-keys`
+with an explicit directory outside a Git worktree. It prints the public key in the exact
+form `yfuse.updateManifestPublicKey` expects and keeps the private half in a 0600 PEM file.
+It refuses to overwrite either existing key file; keep the original pair for future releases.
+Configured keys must be valid Ed25519. Artifact-only jobs (including branch,
 repair, repackage, and TV builds) can use the public key without the private signing key.
 
 The publish workflow supports these configurations:
