@@ -20,10 +20,34 @@ internal class AndroidYPlaybackLearningStore(
         context.applicationContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
     private val systemImage = "${Build.VERSION.SDK_INT}:${Build.FINGERPRINT.hashCode()}"
 
-    @Synchronized
-    override fun load(): List<YPlaybackLearningRecord> {
+    private data class Snapshot(
+        val encoded: Set<String>,
+        val records: List<YPlaybackLearningRecord>,
+    )
+
+    // SharedPreferences already caches reads in memory. Cache decoding only, and compare its
+    // current contents so another player or the reset action can invalidate this instance.
+    private var snapshot: Snapshot? = null
+
+    override fun load(): List<YPlaybackLearningRecord> = synchronized(persistenceLock) { readRecords() }
+
+    override fun replace(records: List<YPlaybackLearningRecord>) {
+        synchronized(persistenceLock) { persist(records) }
+    }
+
+    override fun update(
+        transform: (List<YPlaybackLearningRecord>) -> List<YPlaybackLearningRecord>,
+    ): List<YPlaybackLearningRecord> =
+        synchronized(persistenceLock) {
+            persist(transform(readRecords()))
+        }
+
+    private fun readRecords(): List<YPlaybackLearningRecord> {
         val oldest = (nowEpochMs() - RECORD_TTL_MS).coerceAtLeast(0L)
         val stored = preferences.getStringSet(KEY_RECORDS, emptySet()).orEmpty()
+        snapshot?.let { cached ->
+            if (cached.encoded == stored && cached.records.all { it.updatedAtEpochMs >= oldest }) return cached.records
+        }
         val records =
             stored
                 .mapNotNull(::decode)
@@ -32,16 +56,16 @@ internal class AndroidYPlaybackLearningStore(
                 .take(MAX_RECORDS)
         val canonical = records.mapTo(linkedSetOf(), ::encode)
         if (canonical != stored) persist(records)
+        snapshot = Snapshot(canonical, records)
         return records
     }
 
-    @Synchronized
-    override fun replace(records: List<YPlaybackLearningRecord>) {
-        persist(records.sortedByDescending(YPlaybackLearningRecord::updatedAtEpochMs).take(MAX_RECORDS))
-    }
-
-    private fun persist(records: List<YPlaybackLearningRecord>) {
-        preferences.edit().putStringSet(KEY_RECORDS, records.mapTo(linkedSetOf(), ::encode)).apply()
+    private fun persist(records: List<YPlaybackLearningRecord>): List<YPlaybackLearningRecord> {
+        val canonical = records.sortedByDescending(YPlaybackLearningRecord::updatedAtEpochMs).take(MAX_RECORDS)
+        val encoded = canonical.mapTo(linkedSetOf(), ::encode)
+        preferences.edit().putStringSet(KEY_RECORDS, encoded).apply()
+        snapshot = Snapshot(encoded, canonical)
+        return canonical
     }
 
     private fun encode(record: YPlaybackLearningRecord): String =
@@ -94,6 +118,11 @@ internal class AndroidYPlaybackLearningStore(
                 updatedAtEpochMs = fields[17].toLong(),
             )
         }.getOrNull()
+
+    private companion object {
+        // Reset and read/merge/write transactions must serialize across every store instance.
+        val persistenceLock = Any()
+    }
 }
 
 private fun String.encodeOpaqueForLearning(): String =

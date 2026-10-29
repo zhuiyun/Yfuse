@@ -54,6 +54,11 @@ interface YPlaybackLearningStore {
     fun load(): List<YPlaybackLearningRecord>
 
     fun replace(records: List<YPlaybackLearningRecord>)
+
+    /** Persistent stores override this to serialize a read/merge/write with resets and other writers. */
+    fun update(
+        transform: (List<YPlaybackLearningRecord>) -> List<YPlaybackLearningRecord>,
+    ): List<YPlaybackLearningRecord> = transform(load()).also(::replace)
 }
 
 class InMemoryYPlaybackLearningStore : YPlaybackLearningStore {
@@ -86,41 +91,50 @@ class YPlaybackLearningEngine(
         key: YPlaybackLearningKey,
         observation: YPlaybackObservation,
     ): YPlaybackLearningRecord {
-        val records = store.load()
         val now = nowEpochMs().coerceAtLeast(0L)
-        // Evidence fades: a route that misbehaved weeks ago starts again from a clean record.
-        val old = records.firstOrNull { it.key == key }?.takeUnless { it.isStale(now) }
-        // A recovered decoder reset is a quality signal, weighed by rate below, not a failed session.
-        val successful = observation.rendered
-        val updated =
-            YPlaybackLearningRecord(
-                key = key,
-                attempts = (old?.attempts ?: 0).saturatedIncrement(),
-                successfulAttempts =
-                    if (successful) {
-                        (old?.successfulAttempts ?: 0).saturatedIncrement()
-                    } else {
-                        old?.successfulAttempts ?: 0
-                    },
-                consecutiveFailures = if (successful) 0 else (old?.consecutiveFailures ?: 0).saturatedIncrement(),
-                playedDurationMs = (old?.playedDurationMs ?: 0L).saturatedAdd(observation.playedDurationMs),
-                droppedFrames = (old?.droppedFrames ?: 0L).saturatedAdd(observation.droppedFrames.toLong()),
-                codecResets = (old?.codecResets ?: 0L).saturatedAdd(observation.codecResets.toLong()),
-                audioUnderruns = (old?.audioUnderruns ?: 0L).saturatedAdd(observation.audioUnderruns.toLong()),
-                maximumAbsoluteAvDriftMs =
-                    maxOf(old?.maximumAbsoluteAvDriftMs ?: 0L, observation.maximumAbsoluteAvDriftMs),
-                maximumThermalStatus = maxOf(old?.maximumThermalStatus ?: 0, observation.maximumThermalStatus),
-                batteryDeltaPermille =
-                    (old?.batteryDeltaPermille ?: 0L).saturatedAdd(abs(observation.batteryDeltaPermille.toLong())),
-                updatedAtEpochMs = now,
-            )
-        store.replace(
-            records
-                .filterNot { it.key == key }
-                .plus(updated)
-                .sortedByDescending(YPlaybackLearningRecord::updatedAtEpochMs)
-                .take(maxRecords),
-        )
+        lateinit var updated: YPlaybackLearningRecord
+        store
+            .update { records ->
+                // Evidence fades: a route that misbehaved weeks ago starts again from a clean record.
+                val old = records.firstOrNull { it.key == key }?.takeUnless { it.isStale(now) }
+                // A recovered decoder reset is a quality signal, weighed by rate below, not a failed session.
+                val successful = observation.rendered
+                updated =
+                    YPlaybackLearningRecord(
+                        key = key,
+                        attempts = (old?.attempts ?: 0).saturatedIncrement(),
+                        successfulAttempts =
+                            if (successful) {
+                                (old?.successfulAttempts ?: 0).saturatedIncrement()
+                            } else {
+                                old?.successfulAttempts ?: 0
+                            },
+                        consecutiveFailures =
+                            if (successful) {
+                                0
+                            } else {
+                                (old?.consecutiveFailures ?: 0)
+                                    .saturatedIncrement()
+                            },
+                        playedDurationMs = (old?.playedDurationMs ?: 0L).saturatedAdd(observation.playedDurationMs),
+                        droppedFrames = (old?.droppedFrames ?: 0L).saturatedAdd(observation.droppedFrames.toLong()),
+                        codecResets = (old?.codecResets ?: 0L).saturatedAdd(observation.codecResets.toLong()),
+                        audioUnderruns = (old?.audioUnderruns ?: 0L).saturatedAdd(observation.audioUnderruns.toLong()),
+                        maximumAbsoluteAvDriftMs =
+                            maxOf(old?.maximumAbsoluteAvDriftMs ?: 0L, observation.maximumAbsoluteAvDriftMs),
+                        maximumThermalStatus = maxOf(old?.maximumThermalStatus ?: 0, observation.maximumThermalStatus),
+                        batteryDeltaPermille =
+                            (old?.batteryDeltaPermille ?: 0L).saturatedAdd(
+                                abs(observation.batteryDeltaPermille.toLong()),
+                            ),
+                        updatedAtEpochMs = now,
+                    )
+                records
+                    .filterNot { it.key == key }
+                    .plus(updated)
+                    .sortedByDescending(YPlaybackLearningRecord::updatedAtEpochMs)
+                    .take(maxRecords)
+            }
         return updated
     }
 
