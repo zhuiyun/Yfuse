@@ -1,10 +1,10 @@
 {
-  "versionName": "1.8.0",
-  "versionCode": 332,
+  "versionName": "1.8.1",
+  "versionCode": 333,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-29T12:41:28.546409+00:00",
+  "confirmedAt": "2026-10-30T02:10:16.369465+00:00",
   "confirmedBy": "release owner",
-  "confirmationBasis": "Release owner requested repairing all confirmed issues other than the preserved P1 shared identity behavior, uploading code and continuing package-only production signing until complete. Same 1.8.0/332 delivery retry with the unchanged pinned MDK component and unchanged package-only distribution scope."
+  "confirmationBasis": "Release owner requested fixing all ten confirmed playback/synchronization issues, investigating four concerns, testing, uploading master and continuing production signing until the package is complete. Standing full-package MDK approval applies to the unchanged pinned SDK component and package-only distribution."
 }
