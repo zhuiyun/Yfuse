@@ -92,6 +92,18 @@ class ExoRecoveryIntentTest {
             assertTrue(fixture.playWhenReady)
         }
 
+    @Test
+    fun internal_audio_fallback_pause_preserves_intent_until_an_explicit_user_pause() =
+        runTest {
+            val fixture = fixture(this)
+            val method = ExoVideoEngine::class.java.getDeclaredMethod("pauseForRecovery").apply { isAccessible = true }
+            method.invoke(fixture.engine)
+            assertFalse(fixture.playWhenReady)
+            assertTrue(fixture.engine.playbackRequested)
+            fixture.engine.pause()
+            assertFalse(fixture.engine.playbackRequested)
+        }
+
     private fun fixture(scope: kotlinx.coroutines.CoroutineScope): Fixture {
         val unsafe =
             Unsafe::class.java
@@ -127,6 +139,7 @@ class ExoRecoveryIntentTest {
                 when (method.name) {
                     "getCurrentMediaItemIndex" -> 0
                     "getPlayWhenReady" -> fixture.playWhenReady
+                    "getPlaybackState" -> androidx.media3.common.Player.STATE_READY
                     "setPlayWhenReady" -> {
                         fixture.playWhenReady = args!![0] as Boolean
                         null

@@ -296,22 +296,13 @@ class ExoVideoEngine(
                 .setLoadControl(loadControl)
                 .setTrackSelector(trackSelector)
                 .setMediaSourceFactory(
-                    WidgetMediaSourceFactory(
+                    playbackMediaSourceFactory(
+                        context,
+                        customUserAgent,
                         DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory),
-                    ) { binding ->
-                        val client = widgetPlaybackHttpClient(binding)
-                        val upstream =
-                            DefaultDataSource.Factory(
-                                context,
-                                PlaybackHttpDataSource.factory(customUserAgent, client),
-                            )
-                        val guarded = HlsManifestGuardDataSourceFactory(upstream)
-                        val boundSource =
-                            DataSource.Factory {
-                                guarded.createDataSource().also { it.addTransferListener(startupTransferEvidence) }
-                            }
-                        DefaultMediaSourceFactory(boundSource, extractorsFactory)
-                    },
+                        extractorsFactory,
+                        startupTransferEvidence,
+                    ),
                 ).setVideoChangeFrameRateStrategy(exoVideoChangeFrameRateStrategy(frameRateMatchMode))
                 .setAudioAttributes(
                     AudioAttributes
@@ -327,8 +318,14 @@ class ExoVideoEngine(
         }
     private val playerApplicationHandler = Handler(player.applicationLooper)
 
+    private var recoveryPlaybackRequested: Boolean? = null
     override val playbackRequested: Boolean
-        get() = player.playWhenReady && player.playbackState != Player.STATE_ENDED
+        get() = recoveryPlaybackRequested ?: (player.playWhenReady && player.playbackState != Player.STATE_ENDED)
+
+    private fun pauseForRecovery() {
+        recoveryPlaybackRequested = playbackRequested
+        player.pause()
+    }
 
     private var wasBuffering = true
     private var droppedFrames = 0
@@ -1314,11 +1311,13 @@ class ExoVideoEngine(
     }
 
     override fun play() {
+        recoveryPlaybackRequested = null
         _state.update { it.copy(ended = false) }
         player.play()
     }
 
     override fun pause() {
+        recoveryPlaybackRequested = null
         player.pause()
     }
 
@@ -1410,6 +1409,7 @@ class ExoVideoEngine(
     }
 
     override fun selectItem(index: Int) {
+        recoveryPlaybackRequested = null
         if (index !in items.indices) return
         failureHistory.remove(index)
         // The entry starts over, so a failure from here on gets an answer from the ladder, not the
@@ -1434,6 +1434,7 @@ class ExoVideoEngine(
     override fun currentPositionMs(): Long = player.currentPosition
 
     override fun retry() {
+        recoveryPlaybackRequested = null
         // As in selectItem: a failure after the retry gets an answer from the ladder.
         cancelPendingRecovery()
         clearActiveOutputEvidence()
@@ -1544,7 +1545,7 @@ class ExoVideoEngine(
             ) {
                 return
             }
-            player.pause()
+            pauseForRecovery()
             failPlayback(
                 if (alreadyTranscoding) {
                     "服务器转码音轨仍不受支持，正在尝试其他播放器"
@@ -1643,7 +1644,7 @@ class ExoVideoEngine(
         )
         when (recovery) {
             UnsupportedTrackRecovery.SwitchEngine -> {
-                player.pause()
+                pauseForRecovery()
                 failPlayback(
                     if (alreadyTranscoding) {
                         "服务器转码流没有可播放的声音，正在尝试其他播放器"
@@ -2056,41 +2057,3 @@ class ExoVideoEngine(
 private const val AV_SYNC_SAMPLE_INTERVAL_NS = 1_000_000_000L
 private const val MAX_RELEASE_DELAY_MS = 250L
 private const val MAX_REPORTED_AV_SYNC_OFFSET_MS = 5_000L
-
-private fun String.isSoftwareVideoDecoder(): Boolean {
-    val normalized = lowercase()
-    return normalized.startsWith("omx.google.") ||
-        normalized.startsWith("c2.android.") ||
-        normalized.contains("ffmpeg") ||
-        normalized.contains("software")
-}
-
-/**
- * Keeps explicit decoder choices deterministic without making a device-specific codec list stale.
- * MediaCodecUtil has already applied Android's secure/tunnel and platform compatibility filters;
- * this final pass only honours the user's requested implementation class.
- */
-internal fun <T> preferExoDecoderMode(
-    decoders: List<T>,
-    decoderMode: DecoderMode,
-    isSoftwareOnly: (T) -> Boolean,
-): List<T> =
-    when (decoderMode) {
-        DecoderMode.Software -> decoders.filter(isSoftwareOnly).ifEmpty { decoders }
-        DecoderMode.Hardware -> decoders.filterNot(isSoftwareOnly).ifEmpty { decoders }
-        DecoderMode.Auto -> decoders
-    }
-
-@UnstableApi
-private fun Format.exoSecureDecoderActive(decoderName: String): Boolean {
-    val mimeType = sampleMimeType ?: return false
-    if (drmInitData == null) return false
-    val secureDecoderNames =
-        runCatching {
-            MediaCodecUtil
-                .getDecoderInfos(mimeType, true, false)
-                .mapTo(hashSetOf()) { it.name.lowercase() }
-        }.getOrDefault(emptySet())
-    return decoderName.lowercase() in secureDecoderNames ||
-        decoderName.contains("secure", ignoreCase = true)
-}

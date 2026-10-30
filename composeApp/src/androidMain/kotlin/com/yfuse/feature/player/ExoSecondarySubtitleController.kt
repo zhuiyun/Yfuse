@@ -11,7 +11,6 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.RenderersFactory
@@ -292,23 +291,18 @@ private fun createSecondarySubtitlePlayer(
     context: Context,
     customUserAgent: String,
     cueMerger: ExoDualSubtitleCueMerger,
-): ExoPlayer {
-    val httpFactory =
-        DefaultHttpDataSource
-            .Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(20_000)
-            .setReadTimeoutMs(20_000)
-            .apply {
-                customUserAgent.trim().takeIf(String::isNotEmpty)?.let { value ->
-                    setDefaultRequestProperties(mapOf("User-Agent" to value))
-                }
-            }
-    return ExoPlayer
+): ExoPlayer =
+    ExoPlayer
         .Builder(context, ExoSecondaryTextRenderersFactory(cueMerger.secondaryOutput()))
-        .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, httpFactory)))
-        .build()
-}
+        .setMediaSourceFactory(
+            playbackMediaSourceFactory(
+                context,
+                customUserAgent,
+                DefaultMediaSourceFactory(
+                    DefaultDataSource.Factory(context, PlaybackHttpDataSource.factory(customUserAgent)),
+                ),
+            ),
+        ).build()
 
 private const val SECONDARY_DRIFT_TOLERANCE_MS = 350L
 private const val PLAYBACK_SPEED_TOLERANCE = 0.001f
