@@ -529,15 +529,19 @@ internal fun preparePoofSource(bitmap: Bitmap): PoofSourceImage {
     }
 }
 
-private fun PoofCachedArtwork.artwork() =
-    WidgetCutoutArtwork(
+private fun PoofCachedArtwork.artwork(): WidgetCutoutArtwork {
+    // Re-evaluate existing paid results locally too; do not invalidate their cache or POST again.
+    val subject = readWidgetCutoutSubject(foreground)
+    return WidgetCutoutArtwork(
         Uri.fromFile(background).toString(),
         Uri.fromFile(foreground).toString(),
         width,
         height,
-        top,
-        bottom,
+        subject?.top ?: top,
+        subject?.bottom ?: bottom,
+        supportsBreakout = subject != null,
     )
+}
 
 /** Cloud masks may intentionally touch the poster edge; reject empty, near-solid or diffuse masks. */
 private fun assessPoofForeground(

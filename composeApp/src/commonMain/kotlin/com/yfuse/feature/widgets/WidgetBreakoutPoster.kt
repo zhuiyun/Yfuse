@@ -56,6 +56,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.widget.WidgetCutoutArtwork
 import com.yfuse.core.widget.WidgetCutoutPhase
 import com.yfuse.core.widget.WidgetCutoutStatus
+import com.yfuse.core.widget.WidgetCutoutViewState
 import com.yfuse.core.widget.WidgetMedia
 import com.yfuse.core.widget.logWidgetCutout
 import com.yfuse.core.widget.rememberWidgetCutoutState
@@ -80,7 +81,7 @@ internal fun WidgetBreakoutPoster(
                 (LocalWidgetGalleryMaxHeight.current - 24.dp).coerceAtLeast(1.dp),
             )
         val cardWidth = artworkHeight / BREAKOUT_WINDOW_HEIGHT
-        val step = if (maxWidth >= 600.dp) cardWidth + 32.dp else (stageWidth + cardWidth) * .4f
+        val step = if (maxWidth >= 600.dp) cardWidth + 32.dp else (stageWidth + cardWidth) * .47f
         val density = LocalDensity.current
         val motion = rememberWidgetGalleryMotion("breakout-poster", items, with(density) { step.toPx() })
         Column(Modifier.width(stageWidth), verticalArrangement = Arrangement.spacedBy(0.dp)) {
@@ -125,7 +126,11 @@ internal fun WidgetBreakoutPoster(
                                 .graphicsLayer {
                                     translationX = relative * step.toPx() *
                                         if (motion.rtl) -1f else 1f
-                                    alpha = 1f - distance * .48f
+                                    val scale = 1f - distance * .06f
+                                    scaleX = scale
+                                    scaleY = scale
+                                    translationY = artworkHeight.toPx() * distance * .03f
+                                    alpha = 1f - distance * .68f
                                 }.pressable(
                                     label = items[index].title,
                                     onClickLabel = if (selected) "查看详情" else "选中影片",
@@ -158,8 +163,14 @@ private fun BreakoutArtwork(
         } else {
             null
         }
-    val state = rememberWidgetCutoutState(source, enabled = processForeground)
+    val state =
+        if (processForeground) rememberWidgetCutoutState(source, enabled = true) else WidgetCutoutViewState()
     val cutout = state.artwork
+    val framing =
+        remember(cutout) {
+            cutout?.let { breakoutFraming(it.sourceWidth, it.sourceHeight, it.subjectTop, it.subjectBottom) }
+        }
+    val showBreakout = cutout?.supportsBreakout == true && framing?.usable == true
     var failed by remember(cutout) { mutableStateOf(false) }
     var loaded by remember(cutout) { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
@@ -167,7 +178,7 @@ private fun BreakoutArtwork(
     val status =
         when {
             failed -> WidgetCutoutStatus(WidgetCutoutPhase.Failed, "抠图图片显示失败，点按重试")
-            cutout != null && !loaded -> WidgetCutoutStatus(WidgetCutoutPhase.Downloading, "正在显示抠图")
+            showBreakout && !loaded -> WidgetCutoutStatus(WidgetCutoutPhase.Downloading, "正在显示抠图")
             else -> state.status
         }
     Box(
@@ -175,7 +186,7 @@ private fun BreakoutArtwork(
             if (processForeground) stateDescription = status.message
         },
     ) {
-        if (cutout == null || failed) {
+        if (!showBreakout || failed) {
             val modifier =
                 Modifier
                     .align(
@@ -189,7 +200,18 @@ private fun BreakoutArtwork(
                 Artwork(item, modifier, poster = true)
             }
         } else {
-            BreakoutLayers(cutout, source, onError = { failed = true }, onLoaded = { loaded = true })
+            BreakoutLayers(
+                checkNotNull(
+                    cutout,
+                ),
+                checkNotNull(framing),
+                source,
+                onError = { failed = true },
+                onLoaded = {
+                    loaded =
+                        true
+                },
+            )
         }
         LaunchedEffect(processForeground, cutout, failed, loaded, status.phase) {
             if (processForeground) {
@@ -200,7 +222,7 @@ private fun BreakoutArtwork(
                         "phase" to status.phase.name,
                         "hasArtwork" to (cutout != null).toString(),
                         "layersLoaded" to loaded.toString(),
-                        "fallback" to (cutout == null || failed).toString(),
+                        "fallback" to (!showBreakout || failed).toString(),
                         "imageError" to failed.toString(),
                     ),
                 )
@@ -245,6 +267,7 @@ private fun BreakoutArtwork(
 @Composable
 private fun BreakoutLayers(
     artwork: WidgetCutoutArtwork,
+    framing: BreakoutFraming,
     source: String?,
     onError: () -> Unit,
     onLoaded: () -> Unit,
@@ -257,10 +280,6 @@ private fun BreakoutLayers(
             onLoaded()
         }
     }
-    val framing =
-        remember(artwork) {
-            breakoutFraming(artwork.sourceWidth, artwork.sourceHeight, artwork.subjectTop, artwork.subjectBottom)
-        }
     val shape = remember { BreakoutFrameShape() }
     val contentScale = remember(framing.scale) { BreakoutContentScale(framing.scale) }
     LaunchedEffect(artwork) {

@@ -17,6 +17,7 @@ data class WidgetCutoutArtwork(
     val sourceHeight: Int,
     val subjectTop: Float,
     val subjectBottom: Float,
+    val supportsBreakout: Boolean = true,
 )
 
 /** Image-local progress and failure state; absence of artwork alone does not explain a fallback. */
