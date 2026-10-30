@@ -275,6 +275,8 @@ class MdkVideoEngine(
         MutableStateFlow(
             PlaybackState(
                 currentIndex = startIndex,
+                positionMs = startPositionMs.coerceAtLeast(0L),
+                bufferedPositionMs = startPositionMs.coerceAtLeast(0L),
                 itemCount = items.size.coerceAtLeast(1),
                 speed = startSpeed,
                 transcoding = startIndex in transcodedIndices,
@@ -616,7 +618,12 @@ class MdkVideoEngine(
         ensurePlayer()?.let(::loadCurrent)
     }
 
-    override fun currentPositionMs(): Long = runCatching { player?.position() }.getOrNull() ?: _state.value.positionMs
+    @Synchronized
+    override fun currentPositionMs(): Long =
+        pendingSeek.positionForHandover(
+            _state.value.positionMs,
+            loadPending = mediaLoadJob != null,
+        ) { player?.position() }
 
     @Synchronized
     override fun retry() {

@@ -8,6 +8,23 @@ import kotlin.test.assertTrue
 
 class MdkPendingSeekTest {
     @Test
+    fun a_new_item_at_zero_does_not_inherit_the_departing_native_clock() {
+        val pending = MdkPendingSeek(0L)
+        assertEquals(0L, pending.positionForHandover(0L, loadPending = true) { 45000L })
+    }
+
+    @Test
+    fun handover_preserves_pending_resume_until_native_seek_submission() {
+        val pending = MdkPendingSeek(12000L)
+        assertEquals(12000L, pending.positionForHandover(0L) { 0L })
+        pending.request(0L)
+        assertEquals(0L, pending.positionForHandover(12000L) { 45000L })
+        pending.applyIfLoaded(true) { }
+        assertEquals(600L, pending.positionForHandover(0L) { 600L })
+        assertEquals(900L, pending.positionForHandover(900L) { error("released native player") })
+    }
+
+    @Test
     fun the_latest_seek_waits_for_media_and_replaces_the_initial_resume_position() {
         val pending = MdkPendingSeek(12_000L)
         pending.request(45_000L)

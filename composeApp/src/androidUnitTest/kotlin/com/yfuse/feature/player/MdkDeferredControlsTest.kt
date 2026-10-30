@@ -35,6 +35,9 @@ class MdkDeferredControlsTest {
                         isAccessible = true
                     }.get(engine) as MdkPendingSeek
             assertEquals(12_000L, pending.positionMs)
+            assertEquals(12_000L, engine.state.value.positionMs)
+            assertEquals(12_000L, engine.state.value.bufferedPositionMs)
+            assertEquals(12_000L, engine.currentPositionMs())
             engine.seekTo(45_000L)
             engine.setSpeed(1.5f)
             engine.play()
@@ -43,9 +46,11 @@ class MdkDeferredControlsTest {
             assertFalse(engine.playbackRequested)
             assertEquals(45_000L, engine.state.value.positionMs)
             assertEquals(45_000L, pending.positionMs)
+            assertEquals(45_000L, engine.currentPositionMs())
             assertEquals(1.5f, engine.state.value.speed)
             engine.seekTo(0L)
             assertEquals(0L, pending.positionMs)
+            assertEquals(0L, engine.currentPositionMs())
         } finally {
             engine.release()
             scope.cancel()

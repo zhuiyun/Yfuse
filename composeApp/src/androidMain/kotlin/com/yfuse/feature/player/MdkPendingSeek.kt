@@ -13,6 +13,18 @@ internal class MdkPendingSeek(
     private val pending = AtomicReference(resumeRequest(startPositionMs))
     val positionMs: Long get() = pending.get()?.positionMs ?: -1L
 
+    /** A stopped or opening native player can report zero before this request has been submitted. */
+    fun positionForHandover(
+        lastKnownPositionMs: Long,
+        loadPending: Boolean = false,
+        nativePosition: () -> Long?,
+    ): Long =
+        pending.get()?.positionMs ?: if (loadPending) {
+            lastKnownPositionMs
+        } else {
+            runCatching(nativePosition).getOrNull() ?: lastKnownPositionMs
+        }
+
     /** A fresh load already starts at zero, so only a nonzero resume point needs seeking. */
     fun reset(positionMs: Long) {
         pending.set(resumeRequest(positionMs))
