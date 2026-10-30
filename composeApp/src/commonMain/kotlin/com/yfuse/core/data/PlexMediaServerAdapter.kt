@@ -50,6 +50,7 @@ import com.yfuse.core.network.suppressEmbyIdentity
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.toBase64Url
 import com.yfuse.core.sync.SyncedUserItem
+import com.yfuse.core.sync.parseEpisodeWatchKey
 import com.yfuse.core.util.currentEpochMillis
 import com.yfuse.core.util.platformName
 import com.yfuse.deviceId
@@ -964,31 +965,31 @@ internal class PlexMediaServerAdapter(
         embyApiCall("plex_find_media_key") {
             val provider = mediaKey.substringBefore(':').lowercase()
             val value = mediaKey.substringAfter(':', missingDelimiterValue = "")
+            parseEpisodeWatchKey(mediaKey)?.let { coordinate ->
+                val seriesId =
+                    if (coordinate.seriesKey.startsWith("plex:")) {
+                        itemDetail(server, coordinate.seriesKey.removePrefix("plex:"))
+                            .getOrThrow()
+                            .takeIf { it.type == "Series" }
+                            ?.id
+                    } else {
+                        allTopLevelMetadata(server, "show")
+                            .firstOrNull { series ->
+                                series.providerIds().any { (name, value) ->
+                                    "${name.lowercase()}:$value" == coordinate.seriesKey
+                                }
+                            }?.ratingKey
+                    } ?: return@embyApiCall null
+                return@embyApiCall episodes(server, seriesId, null, false, coordinate.seasonNumber)
+                    .getOrThrow()
+                    .firstOrNull { it.indexNumber == coordinate.episodeNumber }
+                    ?.toPlaybackLookupItem()
+            }
             if (provider == "plex" && value.isNotBlank()) {
-                // The key arrives from another participant's room; only a numeric rating key is
-                // ever a Plex item, and it is encoded again before it becomes a path segment.
-                val ratingKey = runCatchingCancellable { plexNumericId(value, "mediaKey") }.getOrNull()
-                return@embyApiCall ratingKey
-                    ?.let { runCatchingCancellable { itemDetail(server, it).getOrThrow() }.getOrNull() }
-                    ?.let { detail ->
-                        MediaItem(
-                            id = detail.id,
-                            title = detail.title,
-                            subtitle = detail.year?.toString(),
-                            type = detail.type,
-                            posterItemId = detail.posterItemId,
-                            posterTag = detail.posterTag,
-                            backdropItemId = detail.backdropItemId,
-                            backdropTag = detail.backdropTag,
-                            playedPercentage = null,
-                            resumePositionTicks = detail.resumePositionTicks,
-                            year = detail.year,
-                            overview = detail.overview,
-                            communityRating = detail.communityRating,
-                            providerIds = detail.providerIds,
-                            played = detail.played,
-                        )
-                    }
+                val ratingKey =
+                    runCatchingCancellable { plexNumericId(value, "mediaKey") }.getOrNull()
+                        ?: return@embyApiCall null
+                return@embyApiCall itemDetail(server, ratingKey).getOrThrow().toPlaybackLookupItem()
             }
             val providerName =
                 when (provider) {
@@ -1776,15 +1777,6 @@ private fun JsonPrimitive?.toPlexBoolean(): Boolean? =
         "false", "0" -> false
         else -> null
     }
-
-private fun plexNumericId(
-    value: String,
-    field: String,
-): String {
-    val normalized = value.trim()
-    require(normalized.toLongOrNull() != null) { "$field must be a numeric Plex id" }
-    return normalized.encodeURLPathPart()
-}
 
 /** One path segment of a Plex route; an id can never escape into another path or a query. */
 private fun plexPath(id: String): String = id.encodeURLPathPart()

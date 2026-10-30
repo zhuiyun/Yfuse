@@ -33,6 +33,35 @@ class PlexMediaServerAdapterTest {
         )
 
     @Test
+    fun episode_coordinate_lookup_finds_the_plex_rating_key_for_cloud_writeback() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    assertEquals("secret-token", request.headers["X-Plex-Token"])
+                    when (request.url.encodedPath) {
+                        "/library/sections" ->
+                            json(
+                                """{"MediaContainer":{"Directory":[{"key":"1","title":"Movies","type":"movie"},{"key":"2","title":"Shows","type":"show"}]}}""",
+                            )
+                        "/library/sections/1/all" ->
+                            json(
+                                """{"MediaContainer":{"size":1,"Metadata":[{"ratingKey":"142","type":"movie","title":"Unrelated movie","Guid":[{"id":"tmdb://1399"}]}]}}""",
+                            )
+                        "/library/sections/2/all" ->
+                            json(
+                                """{"MediaContainer":{"size":1,"Metadata":[{"ratingKey":"42","type":"show","title":"Show","Guid":[{"id":"tmdb://1399"}]}]}}""",
+                            )
+                        "/library/metadata/42/allLeaves" ->
+                            json(
+                                """{"MediaContainer":{"Metadata":[{"ratingKey":"4201","type":"episode","title":"One","parentIndex":1,"index":1},{"ratingKey":"4202","type":"episode","title":"Two","parentIndex":1,"index":2}]}}""",
+                            )
+                        else -> error("Unexpected Plex coordinate lookup: ${request.url}")
+                    }
+                }
+            assertEquals("4202", repo.findByMediaKey(server, "tmdb:1399/s1e2").getOrThrow()?.id)
+        }
+
+    @Test
     fun saved_rule_filters_type_and_played_and_keeps_server_sort_order() =
         runTest {
             val repo =
