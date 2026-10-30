@@ -782,14 +782,15 @@ class MdkVideoEngine(
             mediaLoadJob =
                 scope.launch(Dispatchers.IO) {
                     try {
-                        val stopped = awaitMdkStopped(instance::waitForStopped)
+                        val stopped = awaitMdkStopped({ instance.state() == MDKPlayer.STATE_STOPPED })
                         synchronized(this@MdkVideoEngine) {
                             if (!isCurrentLoad(instance, epoch)) return@launch
                             check(stopped) { "MDK did not stop before loading the replacement" }
                             instance.setMedia(transportUrl)
                             // Track choices reset with setMedia, even when retrying the same URL.
                             instance.setActiveTrack(MDKPlayer.MEDIA_TYPE_AUDIO, 0)
-                            if (playRequested) instance.setState(MDKPlayer.STATE_PLAYING) else instance.prepare()
+                            instance.prepare()
+                            if (playRequested) instance.setState(MDKPlayer.STATE_PLAYING)
                             loadStateGate.didSubmit(epoch)
                             mediaLoadJob = null
                         }
@@ -845,6 +846,7 @@ class MdkVideoEngine(
             }
             val loaded =
                 status and (MDKPlayer.STATUS_LOADED or MDKPlayer.STATUS_PREPARED) != 0
+            val prepared = status and MDKPlayer.STATUS_PREPARED != 0
             val ended = endStateGate.observe(status and MDKPlayer.STATUS_END != 0)
             val invalid = loadStatus == MdkLoadStatus.Invalid
             nativePlaybackLogFailure(instance.lastError())?.let { failure ->
@@ -856,11 +858,11 @@ class MdkVideoEngine(
                     MDKPlayer.STATUS_STALLED or
                     MDKPlayer.STATUS_BUFFERING or
                     MDKPlayer.STATUS_SEEKING
-            val buffering = !loaded || status and bufferingFlags != 0
+            val buffering = !prepared || status and bufferingFlags != 0
             val bufferEvent = buffering && !wasBuffering
             wasBuffering = buffering
 
-            if (pendingSeek.applyIfLoaded(loaded) { instance.seek(it) }) return
+            if (pendingSeek.applyIfLoaded(prepared) { instance.seek(it) }) return
 
             if (loaded && tracksLoadedForIndex != _state.value.currentIndex) {
                 refreshTracks(instance)
@@ -887,7 +889,15 @@ class MdkVideoEngine(
                 endHandled = false
             }
 
-            val positionMs = snapshot.positionMs
+            val positionMs =
+                pendingSeek.positionMs.takeIf { it >= 0L }
+                    ?: if (loaded &&
+                        status and MDKPlayer.STATUS_SEEKING == 0
+                    ) {
+                        snapshot.positionMs
+                    } else {
+                        _state.value.positionMs
+                    }
             val reportedDurationMs = snapshot.durationMs
             val bufferedDurationMs = snapshot.bufferedDurationMs
             val playbackEvidence = decodeMdkPlaybackEvidence(instance.playbackEvidence())

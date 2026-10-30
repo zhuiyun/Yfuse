@@ -30,11 +30,20 @@ class NativePlayerLoadIdentityInstrumentedTest {
                 listOf(0, 1, 1, 0, 0, 1, 1, 0).forEachIndexed { round, target ->
                     val expectedMs = if (round % 2 == 0) 1000L else 3000L
                     player.setState(MDKPlayer.STATE_STOPPED)
-                    runBlocking { assertTrue(awaitMdkStopped(player::waitForStopped)) }
+                    runBlocking { assertTrue(awaitMdkStopped({ player.state() == MDKPlayer.STATE_STOPPED })) }
                     // Rewriting the same path makes a stale same-URL snapshot distinguishable.
                     wave(files[target], expectedMs.toInt())
                     player.setMedia(files[target].absolutePath)
-                    if (round % 2 == 0) player.prepare() else player.setState(MDKPlayer.STATE_PLAYING)
+                    val opening = player.playbackSnapshot()
+                    assertEquals(0, opening[0].toInt() and (MDKPlayer.STATUS_LOADED or MDKPlayer.STATUS_PREPARED))
+                    assertEquals(listOf(0.0, 0.0, 0.0), opening.slice(1..3))
+                    assertEquals(0L, player.position())
+                    assertEquals(0L, player.duration())
+                    assertEquals(0L, player.bufferedDuration())
+                    assertEquals(0, player.videoHeight())
+                    assertTrue(player.playbackEvidence().isEmpty())
+                    player.prepare()
+                    if (round % 2 != 0) player.setState(MDKPlayer.STATE_PLAYING)
                     val deadline = System.nanoTime() + 15000000000L
                     var loaded = false
                     var lastSnapshot = doubleArrayOf()
@@ -58,13 +67,42 @@ class NativePlayerLoadIdentityInstrumentedTest {
                         loaded,
                     )
                     player.setState(MDKPlayer.STATE_PAUSED)
-                    waitUntil(5000L) { player.state() == MDKPlayer.STATE_PAUSED }
+                    waitUntil(5000L) {
+                        player.state() == MDKPlayer.STATE_PAUSED &&
+                            player.mediaStatus() and MDKPlayer.STATUS_PREPARED != 0
+                    }
                     player.seek(250L)
                     waitUntil(5000L) { kotlin.math.abs(player.position() - 250L) < 150L }
                 }
             }
         } finally {
             files.forEach(File::delete)
+        }
+    }
+
+    @Test(timeout = 30000L)
+    fun failed_prepare_does_not_poison_the_next_media_generation() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        check(context.packageName == "com.yfuse.validation")
+        val file = wave(File(context.cacheDir, "mdk-recover.wav"), 1000)
+        try {
+            MDKPlayer().use { player ->
+                player.setMedia(File(context.cacheDir, "mdk-missing-source.wav").absolutePath)
+                player.prepare()
+                waitUntil(5000L) { player.mediaStatus() and MDKPlayer.STATUS_INVALID != 0 }
+                player.setState(MDKPlayer.STATE_STOPPED)
+                runBlocking { assertTrue(awaitMdkStopped({ player.state() == MDKPlayer.STATE_STOPPED })) }
+                player.setMedia(file.absolutePath)
+                assertEquals(0, player.mediaStatus() and MDKPlayer.STATUS_INVALID)
+                assertEquals(0L, player.duration())
+                player.prepare()
+                waitUntil(5000L) {
+                    player.mediaStatus() and (MDKPlayer.STATUS_LOADED or MDKPlayer.STATUS_PREPARED) != 0
+                }
+                assertEquals(1000L, player.duration())
+            }
+        } finally {
+            file.delete()
         }
     }
 

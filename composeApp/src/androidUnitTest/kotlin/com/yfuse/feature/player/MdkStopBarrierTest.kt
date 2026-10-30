@@ -14,10 +14,7 @@ class MdkStopBarrierTest {
         runTest {
             var calls = 0
             assertTrue(
-                awaitMdkStopped({ slice ->
-                    assertEquals(20L, slice)
-                    ++calls >= 3
-                }),
+                awaitMdkStopped({ ++calls >= 3 }),
             )
             assertEquals(3, calls)
             assertEquals(20L, testScheduler.currentTime)

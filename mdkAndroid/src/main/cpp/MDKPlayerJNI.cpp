@@ -29,6 +29,10 @@ struct RuntimeState {
     jobject listener = nullptr;
     bool closed = false;
     int64_t eventRevision = 0;
+    uint64_t mediaGeneration = 0;
+    bool mediaReady = true;
+    bool mediaParsed = false;
+    bool prepareFailed = false;
 };
 
 struct PlayerRef {
@@ -46,6 +50,26 @@ PlayerRef* ref(jlong ptr) {
 Player* player(jlong ptr) {
     auto* value = ref(ptr);
     return value == nullptr ? nullptr : value->player.get();
+}
+
+bool mediaPending(const std::shared_ptr<RuntimeState>& runtime) {
+    std::lock_guard<std::mutex> lock(runtime->mutex);
+    return !runtime->closed && !runtime->mediaReady;
+}
+
+struct MediaReadState {
+    bool pending;
+    bool failed;
+};
+
+MediaReadState mediaReadState(const std::shared_ptr<RuntimeState>& runtime) {
+    std::lock_guard<std::mutex> lock(runtime->mutex);
+    return {!runtime->mediaReady, runtime->prepareFailed};
+}
+
+jint playbackStatus(Player* value, MediaReadState state) {
+    if (state.pending) return static_cast<jint>(state.failed ? MediaStatus::Invalid : MediaStatus::Loading);
+    return static_cast<jint>(value->mediaStatus());
 }
 
 MediaType mediaType(jint value) {
@@ -197,16 +221,30 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeCreate(JNIEnv*, jclass) {
     value->player->setTimeout(20'000);
     value->player->setProperty("subtitle", "1");
     const auto runtime = value->runtime;
+    value->player->onMediaStatus([runtime](MediaStatus, MediaStatus status) {
+        {
+            std::lock_guard<std::mutex> lock(runtime->mutex);
+            if (runtime->closed) return true;
+            const auto flags = static_cast<jint>(status);
+            if (runtime->mediaParsed &&
+                (flags & (static_cast<jint>(MediaStatus::Loaded) | static_cast<jint>(MediaStatus::Prepared))) != 0) {
+                runtime->mediaReady = true;
+                ++runtime->eventRevision;
+            }
+        }
+        notifyRuntimeEvent(runtime);
+        return true;
+    });
     value->player->onEvent([runtime](const MediaEvent& event) {
         {
             std::lock_guard<std::mutex> lock(runtime->mutex);
             if (runtime->closed) return false;
-            if (event.category == "render.video" && event.detail == "1st_frame") {
+            if (runtime->mediaReady && event.category == "render.video" && event.detail == "1st_frame") {
                 runtime->firstVideoFrameRendered = runtime->surfaceAttached;
-            } else if (event.category == "decoder.video" && event.error == 0 &&
+            } else if (runtime->mediaReady && event.category == "decoder.video" && event.error == 0 &&
                        event.detail != "open" && event.detail != "size") {
                 runtime->videoDecoder = event.detail;
-            } else if (event.category == "decoder.audio" && event.error == 0 &&
+            } else if (runtime->mediaReady && event.category == "decoder.audio" && event.error == 0 &&
                        event.detail != "open") {
                 runtime->audioDecoder = event.detail;
             }
@@ -265,6 +303,10 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeSetMedia(
         value->runtime->firstVideoFrameRendered = false;
         value->runtime->videoDecoder.clear();
         value->runtime->audioDecoder.clear();
+        ++value->runtime->mediaGeneration;
+        value->runtime->mediaReady = url == nullptr;
+        value->runtime->mediaParsed = false;
+        value->runtime->prepareFailed = false;
         ++value->runtime->eventRevision;
     }
     if (url == nullptr) {
@@ -295,15 +337,27 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeSetProperty(
     env->ReleaseStringUTFChars(name, nameChars);
 }
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_mediadevkit_sdk_MDKPlayer_nativeWaitForStopped(JNIEnv*, jclass, jlong ptr, jlong timeoutMs) {
-    auto* value = player(ptr);
-    return value != nullptr && value->waitFor(State::Stopped, timeoutMs) ? JNI_TRUE : JNI_FALSE;
-}
-
 extern "C" JNIEXPORT void JNICALL
 Java_com_mediadevkit_sdk_MDKPlayer_nativePrepare(JNIEnv*, jclass, jlong ptr) {
-    if (auto* value = player(ptr)) value->prepare();
+    auto* value = ref(ptr);
+    if (value == nullptr) return;
+    const auto runtime = value->runtime;
+    uint64_t generation;
+    {
+        std::lock_guard<std::mutex> lock(runtime->mutex);
+        generation = runtime->mediaGeneration;
+    }
+    value->player->prepare(0, [runtime, generation](int64_t position, bool*) {
+        {
+            std::lock_guard<std::mutex> lock(runtime->mutex);
+            if (runtime->closed || runtime->mediaGeneration != generation) return false;
+            runtime->mediaParsed = position >= 0;
+            runtime->prepareFailed = position < 0;
+            ++runtime->eventRevision;
+        }
+        notifyRuntimeEvent(runtime);
+        return true;
+    });
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -327,37 +381,39 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeState(JNIEnv*, jclass, jlong ptr) {
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_mediadevkit_sdk_MDKPlayer_nativePosition(JNIEnv*, jclass, jlong ptr) {
     auto* value = player(ptr);
-    return value == nullptr ? 0 : static_cast<jlong>(value->position());
+    return value == nullptr || mediaPending(ref(ptr)->runtime) ? 0 : static_cast<jlong>(value->position());
 }
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_mediadevkit_sdk_MDKPlayer_nativeDuration(JNIEnv*, jclass, jlong ptr) {
     auto* value = player(ptr);
-    return value == nullptr ? 0 : static_cast<jlong>(value->mediaInfo().duration);
+    return value == nullptr || mediaPending(ref(ptr)->runtime) ? 0 : static_cast<jlong>(value->mediaInfo().duration);
 }
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_mediadevkit_sdk_MDKPlayer_nativeBufferedDuration(JNIEnv*, jclass, jlong ptr) {
     auto* value = player(ptr);
-    return value == nullptr ? 0 : static_cast<jlong>(value->buffered());
+    return value == nullptr || mediaPending(ref(ptr)->runtime) ? 0 : static_cast<jlong>(value->buffered());
 }
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_mediadevkit_sdk_MDKPlayer_nativeMediaStatus(JNIEnv*, jclass, jlong ptr) {
     auto* value = player(ptr);
     return value == nullptr ? static_cast<jint>(MediaStatus::Invalid)
-                            : static_cast<jint>(value->mediaStatus());
+                            : playbackStatus(value, mediaReadState(ref(ptr)->runtime));
 }
 
 extern "C" JNIEXPORT jdoubleArray JNICALL
 Java_com_mediadevkit_sdk_MDKPlayer_nativePlaybackSnapshot(JNIEnv* env, jclass, jlong ptr) {
     auto* value = player(ptr);
     if (value == nullptr) return env->NewDoubleArray(0);
+    const auto state = mediaReadState(ref(ptr)->runtime);
+    const bool pending = state.pending;
     const jdouble fields[] = {
-        static_cast<jdouble>(static_cast<jint>(value->mediaStatus())),
-        static_cast<jdouble>(value->position()),
-        static_cast<jdouble>(value->mediaInfo().duration),
-        static_cast<jdouble>(value->buffered()),
+        static_cast<jdouble>(playbackStatus(value, state)),
+        pending ? 0.0 : static_cast<jdouble>(value->position()),
+        pending ? 0.0 : static_cast<jdouble>(value->mediaInfo().duration),
+        pending ? 0.0 : static_cast<jdouble>(value->buffered()),
         static_cast<jdouble>(value->state()),
         static_cast<jdouble>(value->playbackRate()),
     };
@@ -389,7 +445,7 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeLastError(JNIEnv* env, jclass, jlong pt
 extern "C" JNIEXPORT jint JNICALL
 Java_com_mediadevkit_sdk_MDKPlayer_nativeVideoHeight(JNIEnv*, jclass, jlong ptr) {
     auto* value = player(ptr);
-    if (value == nullptr) {
+    if (value == nullptr || mediaPending(ref(ptr)->runtime)) {
         return 0;
     }
     const auto& videos = value->mediaInfo().video;
@@ -399,7 +455,7 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeVideoHeight(JNIEnv*, jclass, jlong ptr)
 extern "C" JNIEXPORT jobjectArray JNICALL
 Java_com_mediadevkit_sdk_MDKPlayer_nativePlaybackEvidence(JNIEnv* env, jclass, jlong ptr) {
     auto* value = ref(ptr);
-    if (value == nullptr) {
+    if (value == nullptr || mediaPending(value->runtime)) {
         return stringArray(env, {});
     }
 

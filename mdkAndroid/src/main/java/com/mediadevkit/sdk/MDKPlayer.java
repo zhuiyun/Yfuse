@@ -50,11 +50,6 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
         if (nativePtr != 0) nativePrepare(nativePtr);
     }
 
-    /** Bounded native stop acknowledgement; callers must wait off the UI thread. */
-    public synchronized boolean waitForStopped(long timeoutMs) {
-        return nativePtr != 0 && nativeWaitForStopped(nativePtr, Math.max(0L, Math.min(timeoutMs, 50L)));
-    }
-
     public synchronized void setState(int state) {
         if (nativePtr != 0) nativeSetState(nativePtr, state);
     }
@@ -221,7 +216,6 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
     private static native void nativeDestroy(long ptr);
     private static native void nativeSetMedia(long ptr, String url);
     private static native void nativePrepare(long ptr);
-    private static native boolean nativeWaitForStopped(long ptr, long timeoutMs);
     private static native void nativeSetState(long ptr, int state);
     private static native int nativeState(long ptr);
     private static native long nativePosition(long ptr);
