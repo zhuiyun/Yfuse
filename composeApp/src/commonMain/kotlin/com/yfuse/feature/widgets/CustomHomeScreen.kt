@@ -174,7 +174,14 @@ fun CustomHomeScreen(
             } else {
                 Box(Modifier.weight(1f)) {
                     pageStates.SaveableStateProvider(page.id) {
-                        WidgetPageContent(page, repository, onEdit = { manager = true }, onOpenTmdb = onOpenTmdb)
+                        WidgetPageContent(
+                            page,
+                            repository,
+                            onEdit = { manager = true },
+                            onOpenTmdb = onOpenTmdb,
+                            active =
+                                !manager && !choosing,
+                        )
                     }
                 }
             }

@@ -4,7 +4,10 @@ import com.yfuse.core.util.isoDateDaysBefore
 import com.yfuse.core.util.isoEpochDay
 
 /** Shared by the carousel and runtime enrichment, including when restoring an older cache. */
-fun TmdbHome.featuredSlidesForDay(date: String): List<TmdbItem> {
+fun TmdbHome.featuredSlidesForDay(
+    date: String,
+    recentKeys: List<String> = emptyList(),
+): List<TmdbItem> {
     val recentStart = isoDateDaysBefore(date, 30)
     val recent =
         rows
@@ -17,15 +20,15 @@ fun TmdbHome.featuredSlidesForDay(date: String): List<TmdbItem> {
                     item.releaseDate?.let { it >= recentStart && it <= date } == true
             }.distinctBy { it.mediaType to it.id }
             .rotateForDay(date, 3)
-    val recentPicks = recent.take(3)
-    val recentKeys = recentPicks.mapTo(mutableSetOf()) { it.mediaType to it.id }
+    val recentPicks = recommendationBatch(recent, 3, recentKeys) { "${it.mediaType}:${it.id}" }
+    val recentPickKeys = recentPicks.mapTo(mutableSetOf()) { it.mediaType to it.id }
     val popular =
         featured
             .filter { !it.backdropPath.isNullOrBlank() }
             .distinctBy { it.mediaType to it.id }
             .rotateForDay(date, 8 - recentPicks.size)
-            .filterNot { (it.mediaType to it.id) in recentKeys }
-    val popularPicks = popular.take(8 - recentPicks.size)
+            .filterNot { (it.mediaType to it.id) in recentPickKeys }
+    val popularPicks = recommendationBatch(popular, 8 - recentPicks.size, recentKeys) { "${it.mediaType}:${it.id}" }
     // Spread new releases through the reel instead of putting all of them at the end.
     return buildList {
         repeat(maxOf(popularPicks.size, recentPicks.size)) { index ->

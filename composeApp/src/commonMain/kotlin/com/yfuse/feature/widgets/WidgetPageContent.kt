@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -24,6 +25,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.ThemeIcon
 import com.yfuse.core.model.TmdbItem
+import com.yfuse.core.widget.WidgetFeed
 import com.yfuse.core.widget.WidgetMedia
 import com.yfuse.core.widget.WidgetPage
 import com.yfuse.core.widget.WidgetRepository
@@ -41,6 +43,7 @@ internal fun WidgetPageContent(
     repository: WidgetRepository,
     onEdit: () -> Unit,
     onOpenTmdb: (TmdbItem, WidgetSourceContext?) -> Unit,
+    active: Boolean = true,
 ) {
     var browsePath by rememberSaveable(page.id) { mutableStateOf(emptyList<String>()) }
 
@@ -58,12 +61,19 @@ internal fun WidgetPageContent(
             )
         }
     }
-    WidgetHomeSections(
-        sections = page.sections.filterNot { it.hidden },
-        bottomInset = floatingNavigationContentInset(),
-        empty = { WidgetEmptyState(AppIcons.Home, "首页还没有内容", "添加栏目，或重新显示已隐藏的栏目。", "编辑页面", onEdit) },
-    ) { section ->
-        WidgetSectionContent(section, repository, onBrowse = { browse(section) }, onOpen = { open(section, it) })
+    val sections = page.sections.filterNot { it.hidden }
+    val feeds = rememberWidgetPageFeeds(sections, repository)
+    val homeActive = active && browsePath.isEmpty()
+    WidgetHomeRefresh(feeds.values.toList(), homeActive) {
+        WidgetHomeSections(
+            sections = sections,
+            bottomInset = floatingNavigationContentInset(),
+            empty = { WidgetEmptyState(AppIcons.Home, "首页还没有内容", "添加栏目，或重新显示已隐藏的栏目。", "编辑页面", onEdit) },
+        ) { section ->
+            WidgetSectionContent(section, feeds.getValue(section.id), homeActive, onBrowse = {
+                browse(section)
+            }, onOpen = { open(section, it) })
+        }
     }
     val browseStates =
         androidx.compose.runtime.saveable
@@ -102,6 +112,8 @@ internal fun rememberWidgetFeed(
         section.widgetId,
         section.moduleId,
         section.params,
+        section.style,
+        section.limit,
         widget?.digest,
         widget?.enabled,
         revision,
@@ -113,11 +125,11 @@ internal fun rememberWidgetFeed(
 @Composable
 private fun WidgetSectionContent(
     section: WidgetSection,
-    repository: WidgetRepository,
+    feed: WidgetFeed,
+    active: Boolean,
     onBrowse: () -> Unit,
     onOpen: (WidgetMedia) -> Unit,
 ) {
-    val feed = rememberWidgetFeed(section, repository)
     val state by feed.state.collectAsState()
     var lastError by remember(feed) { mutableStateOf<String?>(null) }
     LaunchedEffect(state.error, state.busy) {
@@ -127,7 +139,7 @@ private fun WidgetSectionContent(
             lastError = null
         }
     }
-    LaunchedEffect(feed) { feed.ensureLoaded() }
+    WidgetFeedRefreshEffect(feed, active)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -138,6 +150,9 @@ private fun WidgetSectionContent(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (state.homeItems != null && state.items.size > 1) {
+                WidgetHomeAction(AppIcons.Refresh, "${section.title}换一批", feed::nextRecommendations)
+            }
             WidgetHomeAction(AppIcons.ChevronRight, "查看${section.title}全部内容", onBrowse)
         }
         if (state.items.isEmpty() && state.error == null && (!state.loaded || state.busy) && lastError == null) {
@@ -146,13 +161,16 @@ private fun WidgetSectionContent(
         if (state.loaded && !state.busy && state.items.isEmpty() && state.error == null) {
             WidgetEmptyState(AppIcons.Movie, "暂无内容", "可以在编辑首页中调整栏目筛选条件。")
         }
-        WidgetCards(
-            WidgetStyle.fromId(section.style),
-            state.items.take(section.limit),
-            section.showMetadata,
-            section.compact,
-            onOpen,
-        )
+        // A requested new batch should show its lead, even when a small pool only changes order.
+        key(state.homeItems?.map(WidgetMedia::id)) {
+            WidgetCards(
+                WidgetStyle.fromId(section.style),
+                state.homeItems ?: state.items.take(section.limit),
+                section.showMetadata,
+                section.compact,
+                onOpen,
+            )
+        }
         (
             state.error ?: lastError.takeIf {
                 state.busy

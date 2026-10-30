@@ -75,6 +75,7 @@ class WidgetRepository(
         val params: JsonObject,
         val digest: String?,
         val enabled: Boolean?,
+        val recommendationLimit: Int?,
     )
 
     private val feeds = MutableStateFlow<Map<FeedKey, WidgetFeed>>(emptyMap())
@@ -86,7 +87,15 @@ class WidgetRepository(
         val widget = database.value.widgets.firstOrNull { it.metadata.id == section.widgetId }
         val module = widget?.metadata?.modules?.firstOrNull { it.id == section.moduleId }
         val key =
-            FeedKey(section.id, section.widgetId, section.moduleId, section.params, widget?.digest, widget?.enabled)
+            FeedKey(
+                section.id,
+                section.widgetId,
+                section.moduleId,
+                section.params,
+                widget?.digest,
+                widget?.enabled,
+                section.recommendationLimit(),
+            )
         while (true) {
             val previous = feeds.value
             val entry =
@@ -108,6 +117,7 @@ class WidgetRepository(
         section: WidgetSection,
         module: WidgetModule?,
         initial: WidgetFeedSnapshot = WidgetFeedSnapshot(),
+        recommendationLimit: Int? = section.recommendationLimit(),
     ) = WidgetFeed(
         scope,
         now,
@@ -124,6 +134,7 @@ class WidgetRepository(
                         emptyList()
                     },
             ),
+        recommendationLimit = recommendationLimit,
     ) { page, refresh -> load(section, page, refresh) }
 
     private fun feedCacheKey(section: WidgetSection): String {
@@ -135,7 +146,15 @@ class WidgetRepository(
         val widgets = db.widgets.associateBy { it.metadata.id }
         return db.pages.flatMap { it.sections }.mapTo(mutableSetOf()) { section ->
             val widget = widgets[section.widgetId]
-            FeedKey(section.id, section.widgetId, section.moduleId, section.params, widget?.digest, widget?.enabled)
+            FeedKey(
+                section.id,
+                section.widgetId,
+                section.moduleId,
+                section.params,
+                widget?.digest,
+                widget?.enabled,
+                section.recommendationLimit(),
+            )
         }
     }
 
@@ -185,7 +204,7 @@ class WidgetRepository(
                                     module.title,
                                     params = key.params,
                                 )
-                            put(nextKey, createFeed(section, module, feed.state.value))
+                            put(nextKey, createFeed(section, module, feed.state.value, key.recommendationLimit))
                             retained += feed
                         }
                     }

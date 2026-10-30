@@ -954,6 +954,42 @@ class HomeStoreTest {
             store.dispose()
         }
 
+    @Test
+    fun successful_manual_refresh_rotates_unchanged_feed_but_failure_keeps_the_batch() =
+        runTest(scheduler) {
+            var fail = false
+            val store =
+                HomeStoreFactory(
+                    storeFactory = DefaultStoreFactory(),
+                    tmdb =
+                        mockTmdb {
+                            if (fail) throw IOException("offline")
+                            popularRecommendations(*(1..30).toList().toIntArray())
+                        },
+                    emby = testRepo { error("Recommendations must not load servers") },
+                    registry = testRegistry(),
+                    cache = TmdbHomeCache(MapSettings()),
+                    cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
+                    libraryEnabled = false,
+                ).create()
+            try {
+                advanceUntilIdle()
+                val first = store.state.featuredSlides
+                assertEquals(8, first.size)
+                store.accept(HomeIntent.Refresh)
+                advanceUntilIdle()
+                val second = store.state.featuredSlides
+                assertTrue(first.toSet().intersect(second.toSet()).isEmpty())
+                fail = true
+                store.accept(HomeIntent.Refresh)
+                advanceUntilIdle()
+                assertEquals(second, store.state.featuredSlides)
+                assertFalse(store.state.refreshing)
+            } finally {
+                store.dispose()
+            }
+        }
+
     private fun homeStore(
         cache: TmdbHomeCache,
         cacheDispatcher: CoroutineDispatcher,

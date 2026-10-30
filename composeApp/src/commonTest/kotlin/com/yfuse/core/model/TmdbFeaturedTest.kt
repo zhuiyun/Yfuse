@@ -83,6 +83,18 @@ class TmdbFeaturedTest {
         assertEquals(home.featuredSlidesForDay(date), cache.read()!!.featuredSlidesForDay(date))
     }
 
+    @Test
+    fun manual_batches_change_within_a_day_and_keep_recent_release_mix() {
+        val content = home()
+        val first = content.featuredSlidesForDay(date)
+        val history = first.map { "${it.mediaType}:${it.id}" }
+        val second = content.featuredSlidesForDay(date, history)
+        assertEquals(8, second.size)
+        assertEquals(3, second.count { it.id >= 100 })
+        assertTrue(first.toSet().intersect(second.toSet()).isEmpty())
+        assertEquals(second, content.featuredSlidesForDay(date, history))
+    }
+
     private fun home() =
         TmdbHome(
             featured = (1..21).map(::item),

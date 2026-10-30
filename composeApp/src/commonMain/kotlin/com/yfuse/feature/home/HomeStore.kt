@@ -26,6 +26,7 @@ import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.model.TmdbRowTitles
 import com.yfuse.core.model.deduplicatePlaybackHistory
 import com.yfuse.core.model.featuredSlidesForDay
+import com.yfuse.core.model.recordRecommendationExposure
 import com.yfuse.core.network.knownUnavailableEndpointReason
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.ServerSyncManager
@@ -77,6 +78,7 @@ data class HomeState(
      * yesterday's after the date has turned is the bug this field exists to prevent.
      */
     val today: String = currentIsoDate(),
+    val featuredHistory: List<String> = emptyList(),
     /**
      * The server [resume] was loaded from, kept beside it rather than read from the
      * registry at draw time. The row is addressed by item id against one server's base
@@ -109,7 +111,7 @@ data class HomeState(
      * catalog, and a `get()` would repeat it on every read (the hero reads it on every
      * recomposition). State copies are cheap and only happen on real changes.
      */
-    val featuredSlides: List<TmdbItem> by lazy { content.featuredSlidesForDay(today) }
+    val featuredSlides: List<TmdbItem> by lazy { content.featuredSlidesForDay(today, featuredHistory) }
 
     val recentAdded: List<HomeResumeEntry>
         get() =
@@ -344,6 +346,7 @@ private sealed interface Msg {
     data class Loaded(
         val content: TmdbHome,
         val notice: String? = null,
+        val rotateFeatured: Boolean = false,
     ) : Msg
 
     data class ResumeLoaded(
@@ -898,6 +901,7 @@ class HomeStoreFactory(
                         dispatch(
                             Msg.Loaded(
                                 content = update.content,
+                                rotateFeatured = refresh && complete,
                                 notice =
                                     if (complete) {
                                         null
@@ -1133,7 +1137,7 @@ class HomeStoreFactory(
     private inner class ReducerImpl : Reducer<HomeState, Msg> {
         override fun HomeState.reduce(msg: Msg): HomeState =
             when (msg) {
-                is Msg.RecommendationDay -> copy(today = msg.date)
+                is Msg.RecommendationDay -> copy(today = msg.date, featuredHistory = emptyList())
                 is Msg.Loading ->
                     copy(
                         loading = true,
@@ -1154,6 +1158,16 @@ class HomeStoreFactory(
                         today = currentDate(),
                         error = null,
                         recommendationNotice = msg.notice,
+                        featuredHistory =
+                            when {
+                                today != currentDate() -> emptyList()
+                                msg.rotateFeatured ->
+                                    recordRecommendationExposure(
+                                        featuredHistory,
+                                        featuredSlides.map { "${it.mediaType}:${it.id}" },
+                                    )
+                                else -> featuredHistory
+                            },
                     )
                 is Msg.ResumeLoaded ->
                     copy(resume = deduplicatePlaybackHistory(msg.items, { it.item }, { it.server.id }))

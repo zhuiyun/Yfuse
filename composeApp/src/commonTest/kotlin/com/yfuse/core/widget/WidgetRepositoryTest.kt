@@ -67,6 +67,51 @@ class WidgetRepositoryTest {
         ]}
         """.trimIndent()
 
+    @Test fun restored_recommendation_feed_keeps_its_batch_and_can_still_rotate() =
+        runTest {
+            val disk = MemoryPersistence()
+            val runtime =
+                object : WidgetRuntime by Runtime() {
+                    override suspend fun invoke(
+                        widget: InstalledWidget,
+                        function: String,
+                        argument: JsonElement,
+                        timeoutSeconds: Int,
+                    ) = (1..20).joinToString(",", "[", "]") { "{\"id\":\"$it\",\"title\":\"Film $it\"}" }
+                }
+            val repo = WidgetRepository(disk, runtime, backgroundScope, { "id" }, { "hash:$it" }, { 0L })
+            repo.install(repo.inspect(metadata, "file:demo.js"))
+            val section = WidgetSection("section", "demo", "list", "Picks", style = "hero", limit = 4)
+            repo.savePage(WidgetPage("page", "Home", listOf(section)))
+            val original = repo.feed(section)
+            original.ensureLoaded()
+            runCurrent()
+            original.nextRecommendations()
+            val selected = original.state.value.homeItems
+            repo.restore(repo.backup())
+            val restored = repo.feed(section)
+            assertNotSame(original, restored)
+            assertEquals(selected, restored.state.value.homeItems)
+            restored.ensureLoaded()
+            runCurrent()
+            assertEquals(
+                4,
+                restored.state.value.homeItems
+                    ?.size,
+            )
+            assertTrue(
+                selected
+                    .orEmpty()
+                    .toSet()
+                    .intersect(
+                        restored.state.value.homeItems
+                            .orEmpty()
+                            .toSet(),
+                    ).isEmpty(),
+            )
+            assertEquals(20, restored.state.value.items.size)
+        }
+
     @Test fun process_restart_keeps_home_content_visible_until_fresh_content_arrives() =
         runTest {
             val disk = MemoryPersistence()

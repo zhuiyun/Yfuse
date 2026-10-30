@@ -131,7 +131,6 @@ import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
 import com.yfuse.core.designsystem.rememberCarouselPageColor
-import com.yfuse.core.designsystem.rememberLivingPosterHeroState
 import com.yfuse.core.designsystem.rememberRefreshReveal
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
@@ -960,7 +959,7 @@ private fun HomeHeroCarousel(
     onPageColor: (Color) -> Unit,
     onBack: (() -> Unit)? = null,
 ) {
-    val hero = rememberLivingPosterHeroState(items.map { "${it.mediaType}:${it.id}" })
+    val hero = rememberHomeRecommendationHeroState(items)
     val ambientItem = items.getOrNull(hero.settledIndex(items.size))
     val ambientUrls = remember(ambientItem) { tmdbHeroArtworkUrls(ambientItem) }
 

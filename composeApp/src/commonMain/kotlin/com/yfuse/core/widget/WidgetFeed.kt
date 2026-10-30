@@ -1,5 +1,7 @@
 package com.yfuse.core.widget
 
+import com.yfuse.core.model.recommendationBatch
+import com.yfuse.core.model.recordRecommendationExposure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -14,6 +16,8 @@ import kotlinx.coroutines.sync.Mutex
 data class WidgetFeedSnapshot(
     val items: List<WidgetMedia> = emptyList(),
     val busy: Boolean = false,
+    val refreshing: Boolean = false,
+    val homeItems: List<WidgetMedia>? = null,
     val loaded: Boolean = false,
     val error: String? = null,
     val page: Int = 0,
@@ -30,9 +34,10 @@ class WidgetFeed internal constructor(
     private val cacheSeconds: Int,
     private val pageable: Boolean,
     initial: WidgetFeedSnapshot = WidgetFeedSnapshot(),
+    private val recommendationLimit: Int? = null,
     private val load: suspend (Int, Boolean) -> List<WidgetMedia>,
 ) {
-    private enum class Request { INITIAL, REFRESH, MORE }
+    private enum class Request { INITIAL, REFRESH, STALE, MORE }
 
     private val closed = MutableStateFlow(false)
     private val requestJob = MutableStateFlow<Job?>(null)
@@ -41,6 +46,8 @@ class WidgetFeed internal constructor(
         MutableStateFlow(
             initial.copy(
                 busy = false,
+                refreshing = false,
+                homeItems = recommendationLimit?.let { initial.homeItems?.take(it) ?: initial.items.take(it) },
                 loaded = false,
                 error = null,
                 page = 0,
@@ -51,6 +58,32 @@ class WidgetFeed internal constructor(
         )
     val state = mutableState.asStateFlow()
     private var failedRequest = Request.INITIAL
+    private var recentHomeKeys = initial.homeItems.orEmpty().map(WidgetMedia::id)
+
+    /** Called only by an active home row; a browse page keeps its pagination until the user leaves. */
+    fun refreshIfStale() {
+        val current = state.value
+        if (current.loaded && current.error == null && now() >= current.freshUntil) request(Request.STALE)
+    }
+
+    fun nextRecommendations() {
+        if (recommendationLimit == null || !requestMutex.tryLock()) return
+        try {
+            if (!closed.value) {
+                val selected = selectHomeItems(state.value.items)
+                mutableState.update { it.copy(homeItems = selected) }
+            }
+        } finally {
+            requestMutex.unlock()
+        }
+    }
+
+    private fun selectHomeItems(items: List<WidgetMedia>): List<WidgetMedia>? {
+        val limit = recommendationLimit ?: return null
+        val selected = recommendationBatch(items, limit, recentHomeKeys, WidgetMedia::id)
+        recentHomeKeys = recordRecommendationExposure(recentHomeKeys, selected.map(WidgetMedia::id))
+        return selected
+    }
 
     fun ensureLoaded() {
         // Returning to a page (or recycling a lazy row) is not a refresh gesture.
@@ -74,7 +107,8 @@ class WidgetFeed internal constructor(
     internal fun close(preserveContent: Boolean = false) {
         closed.value = true
         requestJob.value?.cancel()
-        mutableState.value = if (preserveContent) state.value.copy(busy = false) else WidgetFeedSnapshot()
+        mutableState.value =
+            if (preserveContent) state.value.copy(busy = false, refreshing = false) else WidgetFeedSnapshot()
     }
 
     private fun request(
@@ -88,26 +122,35 @@ class WidgetFeed internal constructor(
             return
         }
         val page = if (kind == Request.MORE) before.page + 1 else 1
-        mutableState.update { it.copy(busy = true, error = null, addedCount = 0) }
+        mutableState.update { it.copy(busy = true, refreshing = kind == Request.REFRESH, error = null, addedCount = 0) }
         val pending =
             scope.launch(start = CoroutineStart.LAZY) {
                 try {
                     if (closed.value) return@launch
-                    val loaded = load(page, kind == Request.REFRESH || explicitRetry)
+                    val loaded = load(page, kind == Request.REFRESH || kind == Request.STALE || explicitRetry)
                     ensureActive()
                     val additions = loaded.filter { next -> before.items.none { it.id == next.id } }
                     val combined = if (kind == Request.MORE) before.items + loaded else loaded
                     val items = combined.distinctBy { it.id }.take(500)
+                    val selected = if (kind == Request.MORE) before.homeItems else selectHomeItems(items)
                     mutableState.update {
                         it.copy(
                             items = items,
+                            homeItems = selected,
                             loaded = true,
                             error = null,
                             page = page,
                             hasMore =
                                 pageable && if (kind == Request.MORE) additions.isNotEmpty() else loaded.isNotEmpty(),
                             expanded = it.expanded || kind == Request.MORE,
-                            freshUntil = now() + cacheSeconds * 1000L,
+                            freshUntil =
+                                if (kind ==
+                                    Request.MORE
+                                ) {
+                                    it.freshUntil
+                                } else {
+                                    now() + (cacheSeconds.takeIf { it > 0 } ?: 60) * 1000L
+                                },
                             addedCount = if (kind == Request.MORE) items.size - before.items.size else 0,
                         )
                     }
@@ -125,7 +168,7 @@ class WidgetFeed internal constructor(
         requestJob.value = pending
         pending.invokeOnCompletion {
             requestJob.compareAndSet(pending, null)
-            mutableState.update { it.copy(busy = false) }
+            mutableState.update { it.copy(busy = false, refreshing = false) }
             requestMutex.unlock()
         }
         if (closed.value) pending.cancel() else pending.start()
