@@ -54,7 +54,20 @@ internal class PlaybackProgressReporter(
         runCatching {
             GlobalContext.get().get<PlaybackSyncManager>()
         }.getOrNull(),
+    private val sinkForItem: ((PlayerMediaItem) -> PlaybackEventSink?)? = null,
 ) {
+    private val fixedTarget = items.firstOrNull()?.let(::playbackReportingTarget)
+    private var activeSink: PlaybackEventSink? = null
+
+    private fun reportingSink(item: PlayerMediaItem): PlaybackEventSink? =
+        if (sinkForItem !=
+            null
+        ) {
+            sinkForItem.invoke(item)
+        } else {
+            sink.takeIf { playbackReportingTarget(item) == fixedTarget }
+        }
+
     private sealed interface Command {
         data class Update(
             val state: PlaybackState,
@@ -264,7 +277,7 @@ internal class PlaybackProgressReporter(
         if (closed || items.isEmpty()) return
         latestState = state
         val binding = items.reportingBinding()
-        if (binding == observedBinding) return
+        if (binding == observedBinding && items == observedItems) return
         synchronized(commandLock) {
             if (closed) return
             observedItem?.let { previous ->
@@ -396,11 +409,12 @@ internal class PlaybackProgressReporter(
             activePaused = !state.playing
             reportedPositionMs = state.positionMs
             val item = items[index]
+            activeSink = reportingSink(item)
             activePlayMethod = state.playMethodFor(item)
             activeItemId = item.id
             activeBindingSessionId = item.playSessionId
             recordCrossPlatform(item, PlaybackSyncTrigger.Started)
-            sink.startedWithMethod(
+            activeSink?.startedWithMethod(
                 item.id,
                 activeSessionId,
                 state.positionMs.toTicks(),
@@ -438,7 +452,7 @@ internal class PlaybackProgressReporter(
                     else -> PlaybackSyncTrigger.Periodic
                 }
             recordCrossPlatform(item, trigger)
-            sink.progressWithMethod(
+            activeSink?.progressWithMethod(
                 item.id,
                 activeSessionId,
                 state.positionMs.toTicks(),
@@ -466,7 +480,7 @@ internal class PlaybackProgressReporter(
         activePlayMethod = state.playMethodFor(item)
         reportedPositionMs = state.positionMs
         recordCrossPlatform(item, PlaybackSyncTrigger.Background)
-        sink.progressWithMethod(
+        activeSink?.progressWithMethod(
             itemId = item.id,
             sessionId = activeSessionId,
             positionTicks = state.positionMs.toTicks(),
@@ -556,7 +570,7 @@ internal class PlaybackProgressReporter(
         try {
             if (activeIndex >= 0 && itemId.isNotBlank()) {
                 item?.let { recordCrossPlatform(it, trigger) }
-                sink.stoppedWithMethod(
+                activeSink?.stoppedWithMethod(
                     itemId = itemId,
                     sessionId = activeSessionId,
                     positionTicks = activePositionMs.toTicks(),
@@ -566,6 +580,7 @@ internal class PlaybackProgressReporter(
             }
         } finally {
             activeIndex = -1
+            activeSink = null
             activeItemId = ""
             activeBindingSessionId = ""
             activeSessionId = ""
@@ -580,6 +595,7 @@ internal class PlaybackProgressReporter(
         item: PlayerMediaItem,
         trigger: PlaybackSyncTrigger,
     ) {
+        if (activeSink == null) return
         publishSystemPlaybackProgress(
             SystemPlaybackProgressEvent(
                 serverId = item.serverId,
@@ -606,6 +622,7 @@ internal class PlaybackProgressReporter(
         sessionId: String,
         trigger: PlaybackSyncTrigger,
     ) {
+        if (reportingSink(item) == null) return
         runCatching {
             playbackSync?.recordPlayback(
                 mediaKey = item.watchKey,

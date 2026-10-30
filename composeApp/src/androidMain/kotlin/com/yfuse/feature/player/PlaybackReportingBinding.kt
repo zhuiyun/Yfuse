@@ -1,7 +1,6 @@
 package com.yfuse.feature.player
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -29,7 +28,7 @@ internal fun BindPlaybackReporting(
     engine: VideoEngine,
     castManager: CastManager,
     activeItems: List<PlayerMediaItem>,
-    playbackSink: PlaybackEventSink?,
+    sinkForItem: (PlayerMediaItem) -> PlaybackEventSink?,
     localState: State<PlaybackState>,
     castState: State<CastState>,
     completedHandoff: State<Long?>,
@@ -44,9 +43,10 @@ internal fun BindPlaybackReporting(
     // One actor owns the entire reporting lifetime. Rebinding it serializes a version switch as
     // stop-old → start-new, while a tail append only extends its queue and leaves the current
     // encoding alone. Recreating two independent reporters cannot guarantee either property.
+    val latestSinkForItem = rememberUpdatedState(sinkForItem)
     val reporter =
-        remember(playbackSink) {
-            playbackSink?.let { PlaybackProgressReporter(activeItems, it) }
+        remember {
+            PlaybackProgressReporter(activeItems, LocalPlaybackEventSink, sinkForItem = { latestSinkForItem.value(it) })
         }
     // Keep one reporting collector alive instead of cancelling and recreating a LaunchedEffect
     // for every 500 ms position tick. The snapshot still follows local/cast authority changes.
@@ -81,9 +81,5 @@ internal fun BindPlaybackReporting(
             playbackGate.onPlaybackIndexChanged(observedState.currentIndex)
         }
     }
-    DisposableEffect(reporter) {
-        onDispose {
-            reporter?.close(latestState.value)
-        }
-    }
+    BindPlaybackReporterLifetime(reporter, latestState)
 }

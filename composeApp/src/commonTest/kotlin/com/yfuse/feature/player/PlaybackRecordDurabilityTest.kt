@@ -85,6 +85,7 @@ class PlaybackRecordDurabilityTest {
         runTest {
             val fixture = fixture()
             val release = CompletableDeferred<Unit>()
+            val routedSink = WaitingSink(release)
             try {
                 val replacement =
                     item.copy(
@@ -95,9 +96,10 @@ class PlaybackRecordDurabilityTest {
                 val reporter =
                     PlaybackProgressReporter(
                         listOf(item),
-                        WaitingSink(release),
+                        routedSink,
                         scope = this,
                         playbackSync = fixture.manager,
+                        sinkForItem = { routedSink },
                     )
                 reporter.update(PlaybackState(playing = true, positionMs = 50_000, durationMs = 60_000))
                 runCurrent()
@@ -121,6 +123,7 @@ class PlaybackRecordDurabilityTest {
         runTest {
             val fixture = fixture()
             val release = CompletableDeferred<Unit>()
+            val routedSink = WaitingSink(release)
             try {
                 val next =
                     item.copy(
@@ -131,9 +134,10 @@ class PlaybackRecordDurabilityTest {
                 val reporter =
                     PlaybackProgressReporter(
                         listOf(item, next),
-                        WaitingSink(release),
+                        routedSink,
                         scope = this,
                         playbackSync = fixture.manager,
+                        sinkForItem = { routedSink },
                     )
                 reporter.update(PlaybackState(playing = true, positionMs = 50_000, durationMs = 60_000))
                 runCurrent()
@@ -337,6 +341,38 @@ class PlaybackRecordDurabilityTest {
                     runCurrent()
                     fixture.client.close()
                 }
+            }
+        }
+
+    @Test
+    fun metadata_enrichment_is_recorded_without_restarting_the_playback_session() =
+        runTest {
+            val fixture = fixture()
+            val reporter =
+                PlaybackProgressReporter(
+                    listOf(item),
+                    WaitingSink(CompletableDeferred(Unit)),
+                    this,
+                    playbackSync = fixture.manager,
+                )
+            try {
+                val state = PlaybackState(playing = true, positionMs = 10000L, durationMs = 600000L)
+                reporter.update(state)
+                runCurrent()
+                val enriched = item.copy(watchKey = "tmdb:42/s1e2", matchKeys = listOf("tmdb:42/s1e2", item.watchKey))
+                reporter.rebind(listOf(enriched), state)
+                reporter.close(state.copy(playing = false, positionMs = 12000L))
+                runCurrent()
+                assertEquals(
+                    12000L,
+                    fixture.store
+                        .find("tmdb:42/s1e2")
+                        ?.document
+                        ?.state
+                        ?.positionMs,
+                )
+            } finally {
+                fixture.client.close()
             }
         }
 

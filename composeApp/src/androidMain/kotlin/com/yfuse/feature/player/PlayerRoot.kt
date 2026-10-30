@@ -464,6 +464,7 @@ internal fun PlayerRoot(
     val engine = engineBinding.engine
     val latestEngine by rememberUpdatedState(engine)
     val player = remember(engine) { engine.asYPlayer() }
+    var reportingQueue by remember(engine) { mutableStateOf(engineBinding.input.items) }
     val engineCreatedElapsedMs = remember(engine) { SystemClock.elapsedRealtime() }
     val engineHandoverSnapshot = remember(engine) { engineBinding.input.handover }
     val backendExtensions = remember(engine) { PlayerBackendExtensions(engine) }
@@ -486,7 +487,9 @@ internal fun PlayerRoot(
                                 cacheMaximumBytes = videoCacheBytes,
                             ),
                         )
-                appendedToPlayer || backendExtensions.appendItems(prepared)
+                (appendedToPlayer || backendExtensions.appendItems(prepared)).also { accepted ->
+                    if (accepted) reportingQueue = reportingQueue + prepared
+                }
             }
         }
 
@@ -521,6 +524,7 @@ internal fun PlayerRoot(
                     ) ||
                     backendExtensions.updateQueue(prepared, currentIndex)
             if (accepted) {
+                reportingQueue = prepared
                 sources.serverChoices = remappedChoices
                 build.resume = build.resume.copy(itemIndex = currentIndex)
             }
@@ -994,11 +998,6 @@ internal fun PlayerRoot(
             }
         }
 
-        val reportingTarget = playbackReportingTarget(currentItem)
-        val playbackSink =
-            remember(reportingTarget) {
-                cachedPlaybackSink(currentItem)
-            }
         val remoteSubtitleRepository = remember { GlobalContext.get().get<EmbyRepository>() }
         val remoteSubtitleRegistry = remember { GlobalContext.get().get<ServerRegistry>() }
         val currentTrickplay =
@@ -1247,8 +1246,8 @@ internal fun PlayerRoot(
         BindPlaybackReporting(
             engine,
             castManager,
-            activeItems,
-            playbackSink,
+            playbackReportingQueue(reportingQueue, activeItems),
+            ::cachedPlaybackSink,
             liveLocalState,
             liveCastState,
             rememberUpdatedState(completedCastHandoffRevision),
@@ -1278,7 +1277,7 @@ internal fun PlayerRoot(
                 core2NativeOnlyActive = core2NativeOnlyActive,
                 player = player,
                 backendExtensions = backendExtensions,
-                playbackSink = playbackSink,
+                playbackSink = cachedPlaybackSink(currentItem),
                 sourceSwitchCoordinator = sourceSwitchCoordinator,
                 sourceSwitchContext = ::sourceSwitchContext,
                 capturePlaybackHandover = ::capturePlaybackHandover,

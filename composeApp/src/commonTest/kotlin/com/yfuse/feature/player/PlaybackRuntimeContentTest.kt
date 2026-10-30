@@ -111,6 +111,76 @@ class PlaybackRuntimeContentTest {
             }
         }
 
+    @Test
+    fun reporting_exit_uses_the_replacement_engine_state() =
+        runTest {
+            val clock = BroadcastFrameClock()
+            val recomposer = Recomposer(coroutineContext + clock)
+            val runner = launch(clock) { recomposer.runRecomposeAndApplyChanges() }
+            val composition = Composition(NoNodes(), recomposer)
+            val stops = mutableListOf<Pair<String, Long>>()
+            val sink =
+                object : PlaybackEventSink {
+                    override suspend fun started(
+                        itemId: String,
+                        sessionId: String,
+                        positionTicks: Long,
+                        isPaused: Boolean,
+                    ) = Unit
+
+                    override suspend fun progress(
+                        itemId: String,
+                        sessionId: String,
+                        positionTicks: Long,
+                        isPaused: Boolean,
+                    ) = Unit
+
+                    override suspend fun stopped(
+                        itemId: String,
+                        sessionId: String,
+                        positionTicks: Long,
+                        isPaused: Boolean,
+                    ) {
+                        stops += itemId to positionTicks
+                    }
+                }
+            val items =
+                listOf(
+                    PlayerMediaItem("first", "direct1", "", "First"),
+                    PlayerMediaItem("second", "direct2", "", "Second"),
+                )
+            val reporter = PlaybackProgressReporter(items, sink, backgroundScope)
+            var source by mutableStateOf<androidx.compose.runtime.State<PlaybackState>>(
+                mutableStateOf(PlaybackState(positionMs = 50000L)),
+            )
+            var nanos = 0L
+
+            fun settle() {
+                repeat(3) {
+                    Snapshot.sendApplyNotifications()
+                    runCurrent()
+                    nanos += 16000000L
+                    clock.sendFrame(nanos)
+                    runCurrent()
+                }
+            }
+            try {
+                composition.setContent { BindPlaybackReporterLifetime(reporter, source) }
+                reporter.update(source.value)
+                settle()
+                source = mutableStateOf(PlaybackState(currentIndex = 1, positionMs = 3000L))
+                reporter.update(source.value)
+                settle()
+                composition.dispose()
+                runCurrent()
+                assertEquals("second" to 30000000L, stops.last())
+            } finally {
+                composition.dispose()
+                recomposer.cancel()
+                runner.join()
+            }
+        }
+
     private class NoNodes : AbstractApplier<Unit>(Unit) {
         override fun insertTopDown(
             index: Int,
