@@ -20,7 +20,7 @@
     },
     {
       "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/CalendarLookupBudget.kt",
-      "sha256": "32b21129f22a8cc3ae3b6914387cd6736ddeed9532a60952f17d522d8e44069c"
+      "sha256": "8a8fdcc188becfeac3e8f6251628d43818e2acc606b6d87505b57e4cbb33abd0"
     },
     {
       "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackSyncModels.kt",

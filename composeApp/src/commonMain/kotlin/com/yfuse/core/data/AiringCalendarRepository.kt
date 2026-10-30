@@ -33,16 +33,6 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** Local cache failures may degrade gracefully; a cancelled load must stop immediately. */
-private inline fun <T> calendarAttempt(block: () -> T): Result<T> =
-    try {
-        Result.success(block())
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (error: Throwable) {
-        Result.failure(error)
-    }
-
 /**
  * 追剧日历 — what is broadcasting, and what this library can do about it.
  *
