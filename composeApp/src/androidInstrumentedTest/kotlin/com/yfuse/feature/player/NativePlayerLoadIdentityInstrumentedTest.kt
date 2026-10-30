@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.mediadevkit.sdk.MDKPlayer
 import dev.jdtech.mpv.MPVLib
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,16 +27,22 @@ class NativePlayerLoadIdentityInstrumentedTest {
             )
         try {
             MDKPlayer().use { player ->
-                repeat(8) { round ->
-                    val target = round % 2
-                    val expectedMs = if (target == 0) 1000L else 3000L
+                listOf(0, 1, 1, 0, 0, 1, 1, 0).forEachIndexed { round, target ->
+                    val expectedMs = if (round % 2 == 0) 1000L else 3000L
+                    player.setState(MDKPlayer.STATE_STOPPED)
+                    runBlocking { assertTrue(awaitMdkStopped(player::waitForStopped)) }
+                    // Rewriting the same path makes a stale same-URL snapshot distinguishable.
+                    wave(files[target], expectedMs.toInt())
                     player.setMedia(files[target].absolutePath)
-                    player.setState(MDKPlayer.STATE_PAUSED)
+                    if (round % 2 == 0) player.prepare() else player.setState(MDKPlayer.STATE_PLAYING)
                     val deadline = System.nanoTime() + 15000000000L
                     var loaded = false
+                    var lastSnapshot = doubleArrayOf()
                     while (System.nanoTime() < deadline) {
                         val snapshot = player.playbackSnapshot()
-                        if (snapshot[0].toInt() and MDKPlayer.STATUS_LOADED != 0) {
+                        lastSnapshot = snapshot
+                        val ready = MDKPlayer.STATUS_LOADED or MDKPlayer.STATUS_PREPARED
+                        if (snapshot[0].toInt() and ready != 0) {
                             assertEquals(
                                 "Prior LOADED metadata leaked into replacement round $round",
                                 expectedMs,
@@ -46,7 +53,14 @@ class NativePlayerLoadIdentityInstrumentedTest {
                         }
                         Thread.sleep(10L)
                     }
-                    assertTrue("MDK did not load the generated replacement wave", loaded)
+                    assertTrue(
+                        "MDK round $round did not preload: ${lastSnapshot.contentToString()}, error=${player.lastError()}",
+                        loaded,
+                    )
+                    player.setState(MDKPlayer.STATE_PAUSED)
+                    waitUntil(5000L) { player.state() == MDKPlayer.STATE_PAUSED }
+                    player.seek(250L)
+                    waitUntil(5000L) { kotlin.math.abs(player.position() - 250L) < 150L }
                 }
             }
         } finally {

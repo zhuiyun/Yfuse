@@ -10,6 +10,7 @@ import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.mdkBufferProfile
 import com.yfuse.core2.android.AndroidSerializedPlayerRelease
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -269,6 +270,7 @@ class MdkVideoEngine(
     private val progressiveIndices = mutableSetOf<Int>()
     private val pendingProgressiveSwitches = PendingProgressiveSwitches()
     private var fallbackJob: Job? = null
+    private var mediaLoadJob: Job? = null
     private val _state =
         MutableStateFlow(
             PlaybackState(
@@ -411,16 +413,18 @@ class MdkVideoEngine(
         runMdk { it.setFill(enabled) }
     }
 
+    @Synchronized
     override fun play() {
         playRequested = true
         _state.update { it.copy(playing = true, ended = false) }
-        runMdk { it.setState(MDKPlayer.STATE_PLAYING) }
+        if (mediaLoadJob == null) runMdk { it.setState(MDKPlayer.STATE_PLAYING) }
     }
 
+    @Synchronized
     override fun pause() {
         playRequested = false
         _state.update { it.copy(playing = false) }
-        runMdk { it.setState(MDKPlayer.STATE_PAUSED) }
+        if (mediaLoadJob == null) runMdk { it.setState(MDKPlayer.STATE_PAUSED) }
     }
 
     override fun prepareForHandover() {
@@ -637,8 +641,12 @@ class MdkVideoEngine(
     }
 
     override fun release() {
-        if (released) return
-        released = true
+        synchronized(this) {
+            if (released) return
+            released = true
+            mediaLoadJob?.cancel()
+            mediaLoadJob = null
+        }
         // setSurfaceView/close remove SurfaceHolder callbacks. Keep their existing caller/owner
         // thread until device timings and the native SDK contract justify a different teardown.
         try {
@@ -762,28 +770,54 @@ class MdkVideoEngine(
                 } else {
                     upstreamUrl
                 }
-            instance.setMedia(transportUrl)
-            loadStateGate.didSubmit(epoch)
-            // MDK otherwise selects its first audio track implicitly while our facade has no
-            // active-track getter. Submit the choice explicitly so UI state is never a guess.
-            instance.setActiveTrack(MDKPlayer.MEDIA_TYPE_AUDIO, 0)
-            instance.setState(
-                if (playRequested) MDKPlayer.STATE_PLAYING else MDKPlayer.STATE_PAUSED,
-            )
-        }.onFailure {
-            safeLogcat(Log.ERROR, MDK_TAG, "MDK load failed", it)
-            AppLog.error(
-                category = "player.mdk",
-                event = "load_failed",
-                message = "MDK failed to load media",
-                throwable = it,
-                attributes = mapOf("itemIndex" to _state.value.currentIndex.toString()),
-            )
-            markTerminalFailure(
-                fallbackMessage = "MDK 启动失败，正在尝试其他播放器",
-                details = it.message,
-            )
-        }
+            mediaLoadJob?.cancel()
+            instance.setState(MDKPlayer.STATE_STOPPED)
+            mediaLoadJob =
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val stopped = awaitMdkStopped(instance::waitForStopped)
+                        synchronized(this@MdkVideoEngine) {
+                            if (!isCurrentLoad(instance, epoch)) return@launch
+                            check(stopped) { "MDK did not stop before loading the replacement" }
+                            instance.setMedia(transportUrl)
+                            // Track choices reset with setMedia, even when retrying the same URL.
+                            instance.setActiveTrack(MDKPlayer.MEDIA_TYPE_AUDIO, 0)
+                            if (playRequested) instance.setState(MDKPlayer.STATE_PLAYING) else instance.prepare()
+                            loadStateGate.didSubmit(epoch)
+                            mediaLoadJob = null
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        synchronized(this@MdkVideoEngine) {
+                            if (isCurrentLoad(instance, epoch)) {
+                                mediaLoadJob = null
+                                failMediaLoad(error)
+                            }
+                        }
+                    }
+                }
+        }.onFailure(::failMediaLoad)
+    }
+
+    private fun isCurrentLoad(
+        instance: MDKPlayer,
+        epoch: Long,
+    ): Boolean = !released && player === instance && loadStateGate.isCurrent(epoch)
+
+    private fun failMediaLoad(error: Throwable) {
+        safeLogcat(Log.ERROR, MDK_TAG, "MDK load failed", error)
+        AppLog.error(
+            category = "player.mdk",
+            event = "load_failed",
+            message = "MDK failed to load media",
+            throwable = error,
+            attributes = mapOf("itemIndex" to _state.value.currentIndex.toString()),
+        )
+        markTerminalFailure(
+            fallbackMessage = "MDK 启动失败，正在尝试其他播放器",
+            details = error.message,
+        )
     }
 
     @Synchronized

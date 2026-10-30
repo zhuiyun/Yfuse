@@ -295,6 +295,17 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeSetProperty(
     env->ReleaseStringUTFChars(name, nameChars);
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_mediadevkit_sdk_MDKPlayer_nativeWaitForStopped(JNIEnv*, jclass, jlong ptr, jlong timeoutMs) {
+    auto* value = player(ptr);
+    return value != nullptr && value->waitFor(State::Stopped, timeoutMs) ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_mediadevkit_sdk_MDKPlayer_nativePrepare(JNIEnv*, jclass, jlong ptr) {
+    if (auto* value = player(ptr)) value->prepare();
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_mediadevkit_sdk_MDKPlayer_nativeSetState(
         JNIEnv*,
