@@ -164,3 +164,14 @@ private val TERMINAL_NETWORK_FAILURES =
     )
 
 private val HTTP_SERVER_FAILURE = Regex("(?:http(?: error| status)?|server response status:)\\s*5\\d\\d")
+
+internal fun PlaybackState.withTerminalNativeFailure(failure: NativePlaybackFailure): PlaybackState =
+    copy(
+        playing = false,
+        buffering = false,
+        ended = false,
+        error = failure.message,
+        errorKind = failure.kind,
+        fallbacksExhausted = true,
+        automaticFallbackBlocked = failure.blocksAutomaticFallback,
+    )

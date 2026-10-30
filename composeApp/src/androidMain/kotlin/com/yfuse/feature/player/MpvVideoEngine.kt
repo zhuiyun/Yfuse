@@ -226,11 +226,13 @@ class MpvVideoEngine(
         MutableStateFlow(
             PlaybackState(
                 currentIndex = startIndex,
+                positionMs = startPositionMs.coerceAtLeast(0L),
+                bufferedPositionMs = startPositionMs.coerceAtLeast(0L),
                 itemCount = items.size.coerceAtLeast(1),
                 speed = startSpeed,
                 transcoding = startIndex in transcodedIndices,
                 discNavigation =
-                    items.getOrNull(startIndex).initialDiscNavigation(startIndex in transcodedIndices),
+                    items.getOrNull(startIndex).mpvInitialDiscNavigation(startIndex in transcodedIndices),
                 videoHeight =
                     items
                         .getOrNull(startIndex)
@@ -272,8 +274,7 @@ class MpvVideoEngine(
     @Volatile
     private var attachedSurface: Surface? = null
 
-    @Volatile
-    private var pendingSeekMs = startPositionMs.coerceAtLeast(0L)
+    private val pendingSeek = MpvPendingSeek(startPositionMs)
 
     private var lastPositionMs = -PLAYBACK_PROGRESS_STEP_MS
     private var wasBuffering = true
@@ -339,6 +340,59 @@ class MpvVideoEngine(
     private val audioProgress = PlaybackAudioProgress()
     private var audioClockAdvancing = false
     private var audioOutputConfig: List<String?>? = null
+
+    private fun acceptCurrentNativeFileLoaded(): Boolean {
+        val nativeIdentity = mpv.currentMpvFileIdentity()
+        val demuxerReady = runCatching { mpv?.getPropertyDouble("time-pos")?.isFinite() == true }.getOrDefault(false)
+        if (!videoReadinessGate.onFileLoaded(nativeIdentity, demuxerReady)) return false
+        cancelFileLoadWatchdog()
+        val seekMs = pendingSeek.peek()
+        if (!pendingSeek.applyIfPending { target ->
+                withMpvResult {
+                    it.command(
+                        arrayOf(
+                            "seek",
+                            (target / 1000.0).toString(),
+                            "absolute",
+                        ),
+                    )
+                }
+            }
+        ) {
+            seekMs?.let { target -> _state.update { it.copy(positionMs = target, bufferedPositionMs = target) } }
+            markTerminalFailure("mpv 无法恢复播放位置，正在尝试其他播放器")
+            return false
+        }
+        _state.update {
+            it.copy(
+                positionMs = seekMs ?: it.positionMs,
+                bufferedPositionMs = seekMs ?: it.bufferedPositionMs,
+                buffering = false,
+                fallbacksExhausted = false,
+                automaticFallbackBlocked = false,
+            )
+        }
+        items
+            .getOrNull(_state.value.currentIndex)
+            ?.let(::externalSubtitleMpvCommands)
+            .orEmpty()
+            .forEach { command -> withMpv { it.command(command) } }
+        readTracks()
+        readDiscNavigation()
+        readVideoSize()
+        readVideoOutput()
+        logAudioOutput()
+        logMpvFileLoaded(
+            mpv,
+            items.getOrNull(_state.value.currentIndex),
+            _state.value,
+            seekMs,
+            surfaceGeneration.get(),
+            attachedSurface?.isValid == true,
+            networkProxy != null && shouldProxyMpvNetworkUrl(currentUrl()),
+        )
+        return true
+    }
 
     private val observer =
         object : MPVLib.EventObserver {
@@ -424,6 +478,7 @@ class MpvVideoEngine(
             ) {
                 when (property) {
                     "time-pos" -> {
+                        if (pendingSeek.peek() != null) return
                         val ms = (value * 1000).toLong().coerceAtLeast(0L)
                         if (kotlin.math.abs(ms - lastPositionMs) < PLAYBACK_PROGRESS_STEP_MS) return
                         lastPositionMs = ms
@@ -534,7 +589,7 @@ class MpvVideoEngine(
             override fun eventProperty(
                 property: String,
                 value: Boolean,
-            ) {
+            ) = synchronized(this@MpvVideoEngine) {
                 when (property) {
                     "pause" -> {
                         playRequested = !value
@@ -558,7 +613,15 @@ class MpvVideoEngine(
                     }
                     // keep-open=always parks mpv on the last frame instead of
                     // advancing, so the queue is stepped by hand.
-                    "eof-reached" ->
+                    "eof-reached" -> {
+                        if (value &&
+                            (
+                                !videoReadinessGate.acceptsEndOfFile(mpv.currentMpvFileIdentity()) ||
+                                    runCatching { mpv?.getPropertyBoolean("eof-reached") }.getOrNull() != true
+                            )
+                        ) {
+                            return@synchronized
+                        }
                         when {
                             !value -> _state.update { it.copy(ended = false) }
                             pauseAtEndOfCurrentItem -> {
@@ -568,6 +631,7 @@ class MpvVideoEngine(
                             autoNext && _state.value.hasNext -> playNextIfAny()
                             else -> _state.update { it.copy(playing = false, buffering = false, ended = true) }
                         }
+                    }
                     "vo-configured" -> readVideoOutput()
                 }
             }
@@ -632,110 +696,61 @@ class MpvVideoEngine(
                 }
             }
 
-            override fun event(eventId: Int) {
-                when (eventId) {
-                    MPVLib.MpvEvent.MPV_EVENT_START_FILE -> {
-                        resetAudioOutputProgress(clearConfiguration = true)
-                        mutableSubtitleText.update { it.copy(primary = "", secondary = "") }
-                        videoReadinessGate.onStartFile()
-                        surfaceRecoveryAttempts.set(0L)
-                        markFileLoadProgress()
-                        _state.update {
-                            it.copy(
-                                buffering = true,
-                                bufferedPositionMs = it.positionMs,
-                                error = null,
-                                ended = false,
-                                diagnostics = it.diagnostics.copy(bufferedDurationMs = 0L),
-                            )
-                        }
-                        readVideoOutput()
-                    }
-
-                    MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
-                        videoReadinessGate.onFileLoaded()
-                        cancelFileLoadWatchdog()
-                        val seekMs = pendingSeekMs
-                        pendingSeekMs = -1L
-                        if (seekMs > 0L) {
-                            withMpv {
-                                it.command(
-                                    arrayOf(
-                                        "seek",
-                                        (seekMs / 1000.0).toString(),
-                                        "absolute",
-                                    ),
+            override fun event(eventId: Int) =
+                synchronized(this@MpvVideoEngine) {
+                    when (eventId) {
+                        MPVLib.MpvEvent.MPV_EVENT_START_FILE -> {
+                            resetAudioOutputProgress(clearConfiguration = true)
+                            mutableSubtitleText.update { it.copy(primary = "", secondary = "") }
+                            if (!videoReadinessGate.onStartFile(mpv.currentMpvFileIdentity())) return@synchronized
+                            surfaceRecoveryAttempts.set(0L)
+                            markFileLoadProgress()
+                            _state.update {
+                                it.copy(
+                                    buffering = true,
+                                    bufferedPositionMs = it.positionMs,
+                                    error = null,
+                                    ended = false,
+                                    diagnostics = it.diagnostics.copy(bufferedDurationMs = 0L),
                                 )
                             }
+                            readVideoOutput()
                         }
-                        _state.update {
-                            it.copy(
-                                buffering = false,
-                                fallbacksExhausted = false,
-                                automaticFallbackBlocked = false,
+
+                        MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
+                            acceptCurrentNativeFileLoaded()
+                            Unit
+                        }
+
+                        MPVLib.MpvEvent.MPV_EVENT_VIDEO_RECONFIG -> {
+                            readVideoSize()
+                            readVideoOutput()
+                        }
+                        MPVLib.MpvEvent.MPV_EVENT_AUDIO_RECONFIG -> logAudioOutput()
+                        MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> {
+                            if (videoReadinessGate.awaitingInitialization() &&
+                                !acceptCurrentNativeFileLoaded()
+                            ) {
+                                return@synchronized
+                            }
+                            videoReadinessGate.onPlaybackRestart()
+                            readVideoOutput()
+                            AppLog.info(
+                                category = "player.mpv",
+                                event = "playback_started",
+                                message = "mpv restarted media playback",
+                                attributes =
+                                    mapOf(
+                                        "itemIndex" to _state.value.currentIndex.toString(),
+                                    ),
                             )
                         }
-                        items
-                            .getOrNull(_state.value.currentIndex)
-                            ?.let(::externalSubtitleMpvCommands)
-                            .orEmpty()
-                            .forEach { command -> withMpv { it.command(command) } }
-                        readTracks()
-                        readDiscNavigation()
-                        readVideoSize()
-                        readVideoOutput()
-                        logAudioOutput()
-                        val source = items.getOrNull(_state.value.currentIndex)?.activeVersion
-                        val detectedVideoCodec =
-                            runCatching { mpv?.getPropertyString("video-codec") }.getOrNull()
-                        val detectedDecoder =
-                            runCatching { mpv?.getPropertyString("hwdec-current") }.getOrNull()
-                        val detectedDynamicRange =
-                            runCatching { mpv?.getPropertyString("video-params/gamma") }.getOrNull()
-                        AppLog.info(
-                            category = "player.mpv",
-                            event = "file_loaded",
-                            message = "mpv loaded the selected media",
-                            attributes =
-                                mapOf(
-                                    "itemIndex" to _state.value.currentIndex.toString(),
-                                    "resumePositionMs" to seekMs.coerceAtLeast(0L).toString(),
-                                    "videoCodec" to (detectedVideoCodec ?: source?.sourceVideoCodec.orEmpty()),
-                                    "decoder" to (detectedDecoder ?: "software"),
-                                    "dynamicRange" to (detectedDynamicRange ?: source?.sourceDynamicRange.orEmpty()),
-                                    "dolbyProfile" to (source?.dolbyProfile?.toString() ?: "unknown"),
-                                    "sourceAtmos" to (source?.dolbyAtmos == true).toString(),
-                                    "surfaceGeneration" to surfaceGeneration.get().toString(),
-                                    "surfaceValid" to (attachedSurface?.isValid == true).toString(),
-                                    "platformProxy" to
-                                        (networkProxy != null && shouldProxyMpvNetworkUrl(currentUrl())).toString(),
-                                ),
-                        )
-                    }
-
-                    MPVLib.MpvEvent.MPV_EVENT_VIDEO_RECONFIG -> {
-                        readVideoSize()
-                        readVideoOutput()
-                    }
-                    MPVLib.MpvEvent.MPV_EVENT_AUDIO_RECONFIG -> logAudioOutput()
-                    MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> {
-                        videoReadinessGate.onPlaybackRestart()
-                        readVideoOutput()
-                        AppLog.info(
-                            category = "player.mpv",
-                            event = "playback_started",
-                            message = "mpv restarted media playback",
-                            attributes =
-                                mapOf(
-                                    "itemIndex" to _state.value.currentIndex.toString(),
-                                ),
-                        )
-                    }
-                    MPVLib.MpvEvent.MPV_EVENT_END_FILE -> {
-                        if (!endFileTracker.consumeExpectedEnd()) handleEndFile()
+                        MPVLib.MpvEvent.MPV_EVENT_END_FILE -> {
+                            val expanding = videoReadinessGate.defersPlaylistExpansionEnd(mpv.nextMpvFileIdentity())
+                            if (!endFileTracker.consumeExpectedEnd(expanding) && !expanding) handleEndFile()
+                        }
                     }
                 }
-            }
         }
 
     /**
@@ -1038,7 +1053,9 @@ class MpvVideoEngine(
         }
     }
 
+    @Synchronized
     override fun seekTo(positionMs: Long) {
+        pendingSeek.updateIfPending(positionMs)
         resetAudioOutputProgress()
         lastPositionMs = positionMs
         _state.update {
@@ -1255,6 +1272,7 @@ class MpvVideoEngine(
     @Synchronized
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
+        videoReadinessGate.onLoadRequested()
         resetFrameEvidence()
         // The entry starts over, so a failure from here on gets an answer from the ladder, not the
         // "switching" of an MP4 switch begun before (MDK clears it here too).
@@ -1262,7 +1280,7 @@ class MpvVideoEngine(
         fallbackJob = null
         pendingProgressiveSwitches.clear()
         playRequested = true
-        pendingSeekMs = 0L
+        pendingSeek.request(0L)
         lastPositionMs = -PLAYBACK_PROGRESS_STEP_MS
         val transcoding = index in transcodedIndices
         val nextItem = items.getOrNull(index)
@@ -1282,7 +1300,7 @@ class MpvVideoEngine(
                 automaticFallbackBlocked = false,
                 audioTracks = emptyList(),
                 subtitleTracks = emptyList(),
-                discNavigation = nextItem.initialDiscNavigation(transcoding),
+                discNavigation = nextItem.mpvInitialDiscNavigation(transcoding),
                 diagnostics =
                     initialPlaybackDiagnostics(
                         engine = "libmpv",
@@ -1297,46 +1315,54 @@ class MpvVideoEngine(
         loadFileOrFail(playbackUrl(items[index], index))
     }
 
-    override fun currentPositionMs(): Long = _state.value.positionMs
+    override fun currentPositionMs(): Long = pendingSeek.peek() ?: _state.value.positionMs
 
-    @Synchronized
     override fun retry() {
-        resetFrameEvidence()
-        // As in selectItem: a failure after the retry gets an answer from the ladder.
-        fallbackJob?.cancel()
-        fallbackJob = null
-        pendingProgressiveSwitches.clear()
-        val position = _state.value.positionMs
-        playRequested = true
-        pendingSeekMs = position.coerceAtLeast(0L)
-        _state.update {
-            it.copy(
-                error = null,
-                buffering = true,
-                bufferedPositionMs = position.coerceAtLeast(0L),
-                ended = false,
-                fallbacksExhausted = false,
-                automaticFallbackBlocked = false,
-                diagnostics =
-                    it.diagnostics.copy(
-                        videoOutput = "等待 mpv 视频输出",
-                        audioOutput = "等待音频输出",
-                        videoReadiness = PlaybackOutputReadiness.Waiting,
-                        audioReadiness = PlaybackOutputReadiness.Waiting,
-                        dolbyVisionOutput = false,
-                        immersiveAudioCarrierOutput = false,
-                        dolbyAtmosOutput = false,
-                        spatialAudioOutput = false,
-                        headTrackingAvailable = false,
-                        outputEvidence = it.diagnostics.outputEvidence.nextLoadAttempt(PlaybackVideoRenderApi.OpenGl),
-                    ),
-            )
-        }
-        if (mpv == null) {
-            attachedSurface?.let(::attach)
-            return
-        }
-        loadFileOrFail(currentUrl())
+        val surfaceToAttach =
+            synchronized(this) {
+                videoReadinessGate.onLoadRequested()
+                resetFrameEvidence()
+                // As in selectItem: a failure after the retry gets an answer from the ladder.
+                fallbackJob?.cancel()
+                fallbackJob = null
+                pendingProgressiveSwitches.clear()
+                val position = _state.value.positionMs
+                playRequested = true
+                pendingSeek.request(position)
+                _state.update {
+                    it.copy(
+                        error = null,
+                        buffering = true,
+                        bufferedPositionMs = position.coerceAtLeast(0L),
+                        ended = false,
+                        fallbacksExhausted = false,
+                        automaticFallbackBlocked = false,
+                        diagnostics =
+                            it.diagnostics.copy(
+                                videoOutput = "等待 mpv 视频输出",
+                                audioOutput = "等待音频输出",
+                                videoReadiness = PlaybackOutputReadiness.Waiting,
+                                audioReadiness = PlaybackOutputReadiness.Waiting,
+                                dolbyVisionOutput = false,
+                                immersiveAudioCarrierOutput = false,
+                                dolbyAtmosOutput = false,
+                                spatialAudioOutput = false,
+                                headTrackingAvailable = false,
+                                outputEvidence =
+                                    it.diagnostics.outputEvidence.nextLoadAttempt(
+                                        PlaybackVideoRenderApi.OpenGl,
+                                    ),
+                            ),
+                    )
+                }
+                if (mpv == null) {
+                    attachedSurface
+                } else {
+                    loadFileOrFail(currentUrl())
+                    null
+                }
+            }
+        surfaceToAttach?.let(::attach)
     }
 
     override val releaseCompleted: Boolean
@@ -1473,7 +1499,7 @@ class MpvVideoEngine(
         // Resume where the failure happened rather than from the top; a codec the device
         // can't handle usually fails on the first frame, but a mid-file failure shouldn't
         // cost the user their place.
-        pendingSeekMs = _state.value.positionMs.coerceAtLeast(0L)
+        pendingSeek.request(_state.value.positionMs)
         AppLog.info(
             category = "player.mpv",
             event = "transcode_fallback",
@@ -1966,6 +1992,7 @@ class MpvVideoEngine(
     }
 
     /** Issues `loadfile replace` and reserves the END_FILE that closes its predecessor. */
+    @Synchronized
     private fun replaceFile(url: String): Boolean {
         videoReadinessGate.onLoadRequested()
         readVideoOutput()
@@ -1989,6 +2016,10 @@ class MpvVideoEngine(
                     )
                         ?: preparedUrl
                 instance.command(arrayOf("loadfile", transportUrl))
+                videoReadinessGate.bindNativeIdentity(
+                    instance.getPropertyString("playlist/0/id")?.toLongOrNull(),
+                    transportUrl,
+                )
                 AppLog.info(
                     category = "player.mpv.network",
                     event = "transport_selected",
@@ -2224,17 +2255,7 @@ class MpvVideoEngine(
 
     private fun markTerminalFailure(failure: NativePlaybackFailure) {
         cancelFileLoadWatchdog()
-        _state.update {
-            it.copy(
-                playing = false,
-                buffering = false,
-                ended = false,
-                error = failure.message,
-                errorKind = failure.kind,
-                fallbacksExhausted = true,
-                automaticFallbackBlocked = failure.blocksAutomaticFallback,
-            )
-        }
+        _state.update { it.withTerminalNativeFailure(failure) }
     }
 
     /** Stops the current HLS reader without turning that intentional END_FILE into an error. */
@@ -2251,39 +2272,10 @@ class MpvVideoEngine(
     }
 
     /** Same tolerant call path, with success exposed for END_FILE tracker rollback. */
-    private inline fun withMpvResult(block: (MPVLib) -> Unit): Boolean {
-        val instance = mpv ?: return false
-        return runCatching { block(instance) }
-            .fold(
-                onSuccess = { true },
-                onFailure = {
-                    safeLogcat(Log.WARN, TAG, "mpv call failed", it)
-                    AppLog.warning(
-                        category = "player.mpv",
-                        event = "engine_call_failed",
-                        message = "mpv engine call failed",
-                        throwable = it,
-                    )
-                    false
-                },
-            )
-    }
+    private inline fun withMpvResult(block: (MPVLib) -> Unit): Boolean = mpvCallSafely(mpv, TAG, block)
 }
 
 private const val HUGE_REMOTE_MEDIA_BYTES = 64L * 1024L * 1024L * 1024L
 
 private const val MAX_MPV_REPORTED_AV_SYNC_OFFSET_MS = 5_000L
 private const val NATIVE_TEARDOWN_JOIN_TIMEOUT_MS = 5_000L
-
-private fun PlayerMediaItem?.initialDiscNavigation(transcoding: Boolean): PlaybackDiscNavigationState {
-    if (this == null || transcoding) return PlaybackDiscNavigationState()
-    val version = activeVersion
-    return PlaybackDiscNavigationState(
-        kind =
-            detectPlaybackDiscKind(
-                container = version?.container,
-                labelHint = version?.label,
-                declaredDiscSource = version?.discSource == true,
-            ),
-    )
-}

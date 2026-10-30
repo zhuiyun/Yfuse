@@ -53,9 +53,9 @@ internal class MpvEndFileTracker {
     }
 
     @Synchronized
-    fun consumeExpectedEnd(): Boolean {
+    fun consumeExpectedEnd(continuing: Boolean = false): Boolean {
         if (expectedEnds <= 0) {
-            hasFileOrPending = false
+            hasFileOrPending = continuing
             return false
         }
         expectedEnds--
