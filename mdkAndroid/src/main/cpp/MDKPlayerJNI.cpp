@@ -218,6 +218,8 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_mediadevkit_sdk_MDKPlayer_nativeCreate(JNIEnv*, jclass) {
     auto* value = new PlayerRef();
+    // Pinned 0.37 AAudio can flush a running stream during pause; 0.38 fixes that SDK race.
+    value->player->setAudioBackends({"AudioTrack", "OpenSL", "AAudio"});
     value->player->setTimeout(20'000);
     value->player->setProperty("subtitle", "1");
     const auto runtime = value->runtime;

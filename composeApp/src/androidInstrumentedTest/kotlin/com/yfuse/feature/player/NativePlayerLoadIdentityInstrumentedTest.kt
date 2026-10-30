@@ -66,10 +66,12 @@ class NativePlayerLoadIdentityInstrumentedTest {
                         "MDK round $round did not preload: ${lastSnapshot.contentToString()}, error=${player.lastError()}",
                         loaded,
                     )
+                    waitUntil(5000L, { "round=$round snapshot=${player.playbackSnapshot().contentToString()}" }) {
+                        player.mediaStatus() and MDKPlayer.STATUS_PREPARED != 0
+                    }
                     player.setState(MDKPlayer.STATE_PAUSED)
-                    waitUntil(5000L) {
-                        player.state() == MDKPlayer.STATE_PAUSED &&
-                            player.mediaStatus() and MDKPlayer.STATUS_PREPARED != 0
+                    waitUntil(5000L, { "round=$round state=${player.state()}" }) {
+                        player.state() == MDKPlayer.STATE_PAUSED
                     }
                     player.seek(250L)
                     waitUntil(5000L) { kotlin.math.abs(player.position() - 250L) < 150L }
@@ -175,11 +177,15 @@ class NativePlayerLoadIdentityInstrumentedTest {
 
     private fun waitUntil(
         timeoutMs: Long,
+        detail: () -> String = { "" },
         ready: () -> Boolean,
     ) {
         val deadline = System.nanoTime() + timeoutMs * 1000000L
         while (!ready()) {
-            assertTrue("Native playback state did not become ready within ${timeoutMs}ms", System.nanoTime() < deadline)
+            assertTrue(
+                "Native playback state did not become ready within ${timeoutMs}ms ${detail()}",
+                System.nanoTime() < deadline,
+            )
             Thread.sleep(10L)
         }
     }
