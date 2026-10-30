@@ -32,6 +32,9 @@ class PlaybackSyncStore(
     private val lock = coordinationLock
     private var documents = loadDocuments().toMutableList()
     private val mutableChanges = MutableStateFlow(0L)
+    private val mutableScopeChanges = MutableStateFlow(scopeToken)
+    internal val scopeChanges: StateFlow<String> = mutableScopeChanges.asStateFlow()
+    private val sessionEpochs = PlaybackSessionEpochs()
 
     /** Invalidates screen projections as soon as memory changes, independently of disk/network flush. */
     val changes: StateFlow<Long> = mutableChanges.asStateFlow()
@@ -53,8 +56,10 @@ class PlaybackSyncStore(
         var observedScope = scopeToken
         personal?.observeChanges {
             synchronized(lock) {
+                bindAccountOwner(personal.accountOwnerId.takeIf(String::isNotBlank))
                 if (observedScope != scopeToken) {
                     observedScope = scopeToken
+                    mutableScopeChanges.value = observedScope
                     publishChangeLocked()
                 }
             }
@@ -69,23 +74,35 @@ class PlaybackSyncStore(
      * The first account adopts anonymous local playback so a user can sign in after watching.
      * Returns true only when an existing account partition had to be reset.
      */
-    fun bindAccount(userId: String): Boolean =
+    fun bindAccount(userId: String): Boolean {
+        require(userId.isNotBlank())
+        return bindAccountOwner(userId)
+    }
+
+    private fun bindAccountOwner(userId: String?): Boolean =
         synchronized(lock) {
-            require(userId.isNotBlank())
             val previous = settings.getStringOrNull(KEY_ACCOUNT_USER_ID)?.takeIf(String::isNotBlank)
+            if (previous == userId) return@synchronized false
             if (previous == null) {
-                settings.putString(KEY_ACCOUNT_USER_ID, userId)
+                userId?.let { settings.putString(KEY_ACCOUNT_USER_ID, it) }
                 return@synchronized false
             }
-            if (previous == userId) return@synchronized false
 
             documents.clear()
             documentsUnsaved = false
             serverApplies.clear()
+            sessionEpochs.clear()
             settings.remove(KEY_DOCUMENTS)
             settings.remove(KEY_SERVER_APPLIES)
             settings.putLong(KEY_CURSOR, 0L)
-            settings.putString(KEY_ACCOUNT_USER_ID, userId)
+            settings.remove(KEY_VAULT_KEY_VERSION)
+            if (userId ==
+                null
+            ) {
+                settings.remove(KEY_ACCOUNT_USER_ID)
+            } else {
+                settings.putString(KEY_ACCOUNT_USER_ID, userId)
+            }
             publishChangeLocked()
             true
         }
@@ -608,6 +625,16 @@ class PlaybackSyncStore(
             val now = nowEpochMs()
             val index = findIndexLocked(mediaKey, aliases, serverId)
             val existing = documents.getOrNull(index)
+            if (existing != null &&
+                sessionEpochs.isStale(
+                    activeProfileId,
+                    existing.document.state.mediaKey,
+                    sessionId,
+                    existing.document.state.progressEpoch,
+                )
+            ) {
+                return@synchronized existing
+            }
             val startsNewGeneration =
                 trigger == PlaybackSyncTrigger.Started &&
                     positionMs.coerceAtLeast(0L) <= NEW_GENERATION_START_WINDOW_MS &&
@@ -638,6 +665,7 @@ class PlaybackSyncStore(
                         mutationKind = mutationKind,
                     )
                 }
+            sessionEpochs.remember(state)
             val history = updateHistory(existing?.document?.history.orEmpty(), state, trigger, now)
             val stored = locallyMutatedLocked(existing, state, history)
             // The ten-second tick of an existing record is the one write that may wait; a new

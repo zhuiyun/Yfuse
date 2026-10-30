@@ -1510,7 +1510,7 @@ class AccountRepository(
                 encryptionUpgradeAvailable =
                     previous?.encryptionUpgradeAvailable == true && previous.session.user.id == auth.user.id,
             )
-        accessTokenSource.markAvailable()
+        accessTokenSource.markAvailable(auth.user.id)
     }
 
     private fun removeInviteCapability() {

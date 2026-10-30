@@ -130,8 +130,8 @@ class PlaybackSyncManager(
     @Volatile private var retryNotBeforeEpochMs = Long.MIN_VALUE
 
     @Volatile private var cloudPlaybackEndpointUnavailable = false
-    private val startupPullAttemptedUserIds = mutableSetOf<String>()
-    private val startupPullPendingUserIds = mutableSetOf<String>()
+    private var startupPullOwner: SyncOwner? = null
+    private var startupPullPending = false
     private val _state =
         MutableStateFlow(
             PlaybackCloudSyncState(
@@ -150,19 +150,16 @@ class PlaybackSyncManager(
             combine(
                 accessTokens.sessionAvailable,
                 progressSyncEnabled,
+                store.scopeChanges,
+                accessTokens.sessionOwner,
                 personal?.policy ?: MutableStateFlow(PersonalAccessPolicy()),
-            ) { sessionAvailable, enabled, _ ->
+            ) { sessionAvailable, enabled, _, _, _ ->
                 sessionAvailable && enabled
             }.collectLatest { active ->
                 if (!active) {
                     cancelScheduledJobs()
                     _state.update { it.copy(syncing = false) }
                     return@collectLatest
-                }
-                val owner = bindSyncOwner() ?: return@collectLatest
-                val userId = requireNotNull(owner.userId)
-                synchronized(scheduleLock) {
-                    if (startupPullAttemptedUserIds.add(userId)) startupPullPendingUserIds.add(userId)
                 }
                 syncNow()
             }
@@ -317,10 +314,17 @@ class PlaybackSyncManager(
         synchronized(store.coordinationLock) {
             val owner = syncOwner()
             val userId = owner.userId ?: return@synchronized null
+            if (personal != null && personal.accountOwnerId != userId) return@synchronized null
             if (!progressSyncEnabled.value || !accessTokens.sessionAvailable.value) return@synchronized null
             checkOwner(owner)
             if (store.bindAccount(userId)) updatePendingState()
             if (store.bindVaultKey(owner.keyVersion)) updatePendingState()
+            synchronized(scheduleLock) {
+                if (startupPullOwner != owner) {
+                    startupPullOwner = owner
+                    startupPullPending = true
+                }
+            }
             owner
         }
 
@@ -346,9 +350,8 @@ class PlaybackSyncManager(
                 return
             }
             val owner = bindSyncOwner() ?: return
-            val userId = requireNotNull(owner.userId)
             val shouldPull =
-                pullRemote || synchronized(scheduleLock) { userId in startupPullPendingUserIds }
+                pullRemote || synchronized(scheduleLock) { startupPullOwner == owner && startupPullPending }
             drainServerApplyQueue()
             if (cloudPlaybackEndpointUnavailable) return
             // Token acquisition can itself refresh over the network. Respect the cloud
@@ -383,7 +386,9 @@ class PlaybackSyncManager(
                         lastSyncedAtEpochMs = nowEpochMs(),
                         error = null,
                     )
-                if (store.pending(1).isNotEmpty()) scheduleCloudRetry(CLOUD_DEBOUNCE_MS)
+                if (store.pending(1).isNotEmpty() || synchronized(scheduleLock) { startupPullPending }) {
+                    scheduleCloudRetry(CLOUD_DEBOUNCE_MS)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -421,9 +426,10 @@ class PlaybackSyncManager(
         checkOwner(owner)
         if (pullRemote) {
             if (!progressSyncEnabled.value) return
-            val userId = cipher.currentUserId()
-            pullAll(accessToken, owner)
-            userId?.let { synchronized(scheduleLock) { startupPullPendingUserIds.remove(it) } }
+            val complete = pullAll(accessToken, owner)
+            synchronized(scheduleLock) {
+                if (startupPullOwner == owner) startupPullPending = !complete
+            }
         }
         if (!progressSyncEnabled.value) return
         pushPending(accessToken, owner)
@@ -434,11 +440,12 @@ class PlaybackSyncManager(
     private suspend fun pullAll(
         accessToken: String,
         owner: SyncOwner,
-    ) {
+    ): Boolean {
         // Without the vault key nothing below could be read, and moving the cursor past it would
         // lose those records for good.
         if (!cipher.hasKey()) throw PlaybackVaultKeyUnavailableException()
         var pages = 0
+        var hasMore: Boolean
         do {
             checkOwner(owner)
             val response = cloud.pull(accessToken, store.cursor(), PULL_PAGE_SIZE)
@@ -481,7 +488,9 @@ class PlaybackSyncManager(
                 store.updateCursor(response.cursor)
             }
             pages++
-        } while (response.hasMore && pages < MAX_PULL_PAGES_PER_SYNC)
+            hasMore = response.hasMore
+        } while (hasMore && pages < MAX_PULL_PAGES_PER_SYNC)
+        return !hasMore
     }
 
     private suspend fun pushPending(
@@ -1082,7 +1091,7 @@ private class EmbyCompatiblePlaybackStateApplier(
                     .servers
                     .map { it.id }
             } else {
-                listOfNotNull(state.serverId?.takeUnless(::serverMissing))
+                state.sourceBindings().keys.filterNot(::serverMissing)
             }
         // Keep the target queued even during cooldown; otherwise new progress is lost.
         return candidates.filter {
@@ -1116,13 +1125,15 @@ private class EmbyCompatiblePlaybackStateApplier(
                 return@runCatching
             }
             val server = registry.serverById(serverId) ?: return@runCatching
+            val nativePrefix = if (server.kind == com.yfuse.core.model.MediaServerKind.Plex) "plex:" else "emby:"
             val lookupKeys =
-                playbackLookupKeys(
-                    mediaKey = state.mediaKey,
-                    aliases = state.aliases,
-                    originServerId = state.serverId,
-                    targetServerId = serverId,
-                )
+                state.sourceBindings()[serverId].orEmpty().map { nativePrefix + it } +
+                    playbackLookupKeys(
+                        mediaKey = state.mediaKey,
+                        aliases = state.aliases,
+                        originServerId = state.serverId,
+                        targetServerId = serverId,
+                    )
             val item =
                 lookupKeys.firstNotNullOfOrNull { key ->
                     repo.findByMediaKey(server, key).fold(

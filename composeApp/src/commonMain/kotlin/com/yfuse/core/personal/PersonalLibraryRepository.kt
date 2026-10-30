@@ -61,6 +61,7 @@ class PersonalLibraryRepository(
     }
 
     val scopeToken: String get() = synchronized(lock) { "$accountId:$activeId:$generation" }
+    internal val accountOwnerId: String get() = synchronized(lock) { accountId }
     val externalSyncOwner: String get() = synchronized(lock) { "$accountId:$activeId" }
     val activeProfileId: String get() = synchronized(lock) { activeId }
     val storageNamespace: String get() = synchronized(lock) { "${accountId.ifEmpty { "anonymous" }}.$activeId" }

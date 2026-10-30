@@ -42,6 +42,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -500,18 +501,190 @@ class PlaybackSyncManagerTest {
             }
         }
 
+    @Test
+    fun startup_pull_continues_after_its_eight_page_budget_until_the_final_page() =
+        runTest {
+            var pages = 0
+            lateinit var fixture: Fixture
+            fixture =
+                fixture(cloudHandler = { request ->
+                    if (request.method == HttpMethod.Get) {
+                        val cursor = (++pages).toLong()
+                        val doc =
+                            PlaybackSyncDocument(
+                                state =
+                                    PlaybackStateRecord(
+                                        mediaKey = "tmdb:$cursor",
+                                        positionMs = cursor * 1000L,
+                                        deviceId = fixture.store.deviceId,
+                                        lastPlayedAtEpochMs = 1000000L + cursor,
+                                    ),
+                            )
+                        val encrypted =
+                            assertNotNull(
+                                fixture.cipher.encrypt(doc, "remote-page-$cursor"),
+                            ).copy(cursor = cursor)
+                        respondJson(
+                            Json.encodeToString(
+                                PlaybackDeltaResponse(
+                                    cursor,
+                                    listOf(encrypted),
+                                    hasMore =
+                                        pages < 10,
+                                ),
+                            ),
+                        )
+                    } else {
+                        successfulPlaybackResponse(request)
+                    }
+                })
+            try {
+                fixture.manager.start()
+                runCurrent()
+                assertEquals(8, pages)
+                advanceTimeBy(20000L)
+                runCurrent()
+                assertEquals(10, pages)
+                assertEquals(
+                    10000L,
+                    fixture.store
+                        .find("tmdb:10")
+                        ?.document
+                        ?.state
+                        ?.positionMs,
+                )
+            } finally {
+                fixture.close()
+            }
+        }
+
+    @Test
+    fun switching_accounts_while_sync_is_disabled_isolates_progress_before_reenabling() =
+        runTest {
+            val enabled = MutableStateFlow(false)
+            val fixture = fixture(withPersonal = true, enabled = enabled)
+            try {
+                fixture.manager.start()
+                fixture.recordStop(12000L)
+                fixture.account.logout().getOrThrow()
+                fixture.account.login("viewer_bb", "correct horse battery".toCharArray()).getOrThrow()
+                runCurrent()
+                assertNull(fixture.manager.startPositionMs(MEDIA_KEY))
+                fixture.manager.recordPlayback(
+                    MEDIA_KEY,
+                    emptyList(),
+                    36000L,
+                    100000L,
+                    "b-new-session",
+                    null,
+                    null,
+                    PlaybackSyncTrigger.Stop,
+                )
+                enabled.value = true
+                runCurrent()
+                assertEquals(36000L, fixture.manager.startPositionMs(MEDIA_KEY))
+            } finally {
+                fixture.close()
+            }
+        }
+
+    @Test
+    fun returning_to_the_same_account_in_one_process_pulls_its_cleared_partition_again() =
+        runTest {
+            val pulls = mutableMapOf<String, Int>()
+            lateinit var fixture: Fixture
+            fixture =
+                fixture(withPersonal = true, cloudHandler = { request ->
+                    if (request.method == HttpMethod.Get) {
+                        val id = fixture.cipher.currentUserId()!!
+                        pulls[id] = pulls.getOrDefault(id, 0) + 1
+                        val doc =
+                            PlaybackSyncDocument(
+                                state =
+                                    PlaybackStateRecord(
+                                        mediaKey = MEDIA_KEY,
+                                        positionMs = 45000L,
+                                        deviceId = fixture.store.deviceId,
+                                        lastPlayedAtEpochMs = 100000L,
+                                    ),
+                            )
+                        val encrypted = assertNotNull(fixture.cipher.encrypt(doc, "remote-$id")).copy(cursor = 1L)
+                        respondJson(
+                            Json.encodeToString(PlaybackDeltaResponse(cursor = 1L, changes = listOf(encrypted))),
+                        )
+                    } else {
+                        successfulPlaybackResponse(request)
+                    }
+                })
+            try {
+                fixture.manager.start()
+                runCurrent()
+                fixture.account.logout().getOrThrow()
+                runCurrent()
+                fixture.account.login("viewer_bb", "correct horse battery".toCharArray()).getOrThrow()
+                runCurrent()
+                fixture.account.logout().getOrThrow()
+                runCurrent()
+                fixture.account.login("viewer_01", "correct horse battery".toCharArray()).getOrThrow()
+                runCurrent()
+                assertEquals(2, pulls["account"])
+                assertEquals(45000L, fixture.manager.startPositionMs(MEDIA_KEY))
+            } finally {
+                fixture.close()
+            }
+        }
+
+    @Test
+    fun personal_owner_published_before_account_identity_cannot_rebind_the_old_account() =
+        runTest {
+            var pulls = 0
+            val fixture =
+                fixture(withPersonal = true, cloudHandler = { request ->
+                    if (request.method == HttpMethod.Get) pulls++
+                    successfulPlaybackResponse(request)
+                })
+            try {
+                fixture.manager.start()
+                runCurrent()
+                assertEquals(1, pulls)
+                assertNotNull(fixture.personal).bindAccount("other")
+                runCurrent()
+                assertEquals("other", fixture.settings.getStringOrNull("playback.cross_platform.account_user.v1"))
+                assertEquals(1, pulls, "The account state still names A and cannot bind into B's scope")
+                fixture.account.login("viewer_bb", "correct horse battery".toCharArray()).getOrThrow()
+                // The owner signal can precede the vault write; the automatic key retry is 30 seconds.
+                advanceTimeBy(30000L)
+                runCurrent()
+                assertTrue(
+                    pulls > 1,
+                    "The stable B identity must trigger a new pull even when sessionAvailable stayed true",
+                )
+            } finally {
+                fixture.close()
+            }
+        }
+
     private suspend fun TestScope.fixture(
         tokenProvider: suspend () -> String? = { "access" },
         refreshProvider: suspend () -> String? = { "refreshed" },
         cloudHandler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData =
             { successfulPlaybackResponse(it) },
         servers: List<SavedServer> = emptyList(),
+        withPersonal: Boolean = false,
+        enabled: MutableStateFlow<Boolean> = MutableStateFlow(true),
         embyHandler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData =
             { error("Unexpected Emby request") },
     ): Fixture {
         val settings = MapSettings()
         val secureStore = TestSecureStore()
-        val registry = ServerRegistry(settings, TestSecureStore())
+        val personal =
+            if (withPersonal) {
+                com.yfuse.core.personal
+                    .PersonalLibraryRepository(settings)
+            } else {
+                null
+            }
+        val registry = ServerRegistry(settings, TestSecureStore(), personal = personal)
         val crypto = VaultCrypto()
         val embyClient =
             HttpClient(
@@ -530,12 +703,26 @@ class PlaybackSyncManagerTest {
                     if (request.url.encodedPath == "/api/v1/auth/prelogin") {
                         // A service from before account protocol 2.
                         respond("", HttpStatusCode.NotFound)
+                    } else if (request.url.encodedPath == "/api/v1/account/sync") {
+                        respondJson("""{"version":0}""")
+                    } else if (request.url.encodedPath == "/api/v1/auth/logout") {
+                        respond("", HttpStatusCode.NoContent)
                     } else {
-                        check(request.url.encodedPath == "/api/v1/auth/register")
+                        val id =
+                            if (request.url.encodedPath == "/api/v1/auth/login") {
+                                Json
+                                    .decodeFromString<com.yfuse.core.account.LoginRequest>(
+                                        request.body.toByteArray().decodeToString(),
+                                    ).username
+                                    .let { if (it == "viewer_01") "account" else "other" }
+                            } else {
+                                check(request.url.encodedPath == "/api/v1/auth/register")
+                                "account"
+                            }
                         respondJson(
                             Json.encodeToString(
                                 AuthResponse(
-                                    user = AccountUser("account", "viewer_01", "viewer", 1, 0L, 0L),
+                                    user = AccountUser(id, "viewer_01", "viewer", 1, 0L, 0L),
                                     accessToken = "access",
                                     accessExpiresAtEpochMs = Long.MAX_VALUE,
                                     refreshToken = "refresh",
@@ -559,6 +746,7 @@ class PlaybackSyncManagerTest {
                 skip = SkipSegmentPreferences(settings),
                 serverSync = ServerSyncManager(emby, registry, settings),
                 accessTokenSource = tokens,
+                personal = personal,
             )
         account.register("viewer_01", "correct horse battery".toCharArray()).getOrThrow()
         servers.forEach(registry::addOrUpdate)
@@ -575,7 +763,8 @@ class PlaybackSyncManagerTest {
                 install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
             }
         val syncScope = CoroutineScope(backgroundScope.coroutineContext + Job(backgroundScope.coroutineContext[Job]))
-        val store = PlaybackSyncStore(settings) { testScheduler.currentTime }
+        val store = PlaybackSyncStore(settings, { testScheduler.currentTime }, personal)
+        val cipher = PlaybackVaultCipher(account, secureStore, crypto)
         store.updatePlayback(
             mediaKey = MEDIA_KEY,
             aliases = emptyList(),
@@ -592,7 +781,9 @@ class PlaybackSyncManagerTest {
             PlaybackSyncManager(
                 store = store,
                 cloud = PlaybackCloudApi(cloudClient, ACCOUNT_ORIGIN),
-                cipher = PlaybackVaultCipher(account, secureStore, crypto),
+                cipher = cipher,
+                personal = personal,
+                progressSyncEnabled = enabled,
                 accessTokens = tokens,
                 repo = emby,
                 registry = registry,
@@ -607,6 +798,8 @@ class PlaybackSyncManagerTest {
             settings,
             syncScope,
             listOf(accountClient, cloudClient, embyClient),
+            cipher,
+            personal,
         )
     }
 
@@ -615,9 +808,11 @@ class PlaybackSyncManagerTest {
         val store: PlaybackSyncStore,
         val account: AccountRepository,
         val tokens: AccountAccessTokenSource,
-        private val settings: MapSettings,
+        val settings: MapSettings,
         private val scope: CoroutineScope,
         private val clients: List<HttpClient>,
+        val cipher: PlaybackVaultCipher,
+        val personal: com.yfuse.core.personal.PersonalLibraryRepository?,
     ) {
         /** What a process started now would resume from: storage, not this store's memory. */
         fun persistedPositionMs(): Long? =

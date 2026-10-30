@@ -28,6 +28,8 @@ class AccountAccessTokenSource(
     private var refreshProvider: suspend () -> String? = { null }
     private val _sessionAvailable = MutableStateFlow(false)
     val sessionAvailable: StateFlow<Boolean> = _sessionAvailable.asStateFlow()
+    private val _sessionOwner = MutableStateFlow<String?>(null)
+    val sessionOwner: StateFlow<String?> = _sessionOwner.asStateFlow()
 
     fun bind(
         provider: suspend () -> String?,
@@ -41,8 +43,14 @@ class AccountAccessTokenSource(
         _sessionAvailable.value = backendAccess.enabled
     }
 
+    fun markAvailable(userId: String) {
+        _sessionOwner.value = userId
+        markAvailable()
+    }
+
     fun markUnavailable() {
         _sessionAvailable.value = false
+        _sessionOwner.value = null
     }
 
     fun trusts(endpoint: String): Boolean = endpoint.sameServiceOriginAs(trustedOrigin)
