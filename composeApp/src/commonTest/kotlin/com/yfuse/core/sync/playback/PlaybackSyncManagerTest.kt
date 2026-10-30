@@ -622,12 +622,17 @@ class PlaybackSyncManagerTest {
                 fixture.account.logout().getOrThrow()
                 runCurrent()
                 fixture.account.login("viewer_bb", "correct horse battery".toCharArray()).getOrThrow()
-                runCurrent()
+                runDeferredAccountPull(fixture)
                 fixture.account.logout().getOrThrow()
                 runCurrent()
                 fixture.account.login("viewer_01", "correct horse battery".toCharArray()).getOrThrow()
-                runCurrent()
-                assertEquals(2, pulls["account"])
+                runDeferredAccountPull(fixture)
+                assertEquals(
+                    2,
+                    pulls["account"],
+                    fixture.manager.state.value
+                        .toString(),
+                )
                 assertEquals(45000L, fixture.manager.startPositionMs(MEDIA_KEY))
             } finally {
                 fixture.close()
@@ -652,9 +657,7 @@ class PlaybackSyncManagerTest {
                 assertEquals("other", fixture.settings.getStringOrNull("playback.cross_platform.account_user.v1"))
                 assertEquals(1, pulls, "The account state still names A and cannot bind into B's scope")
                 fixture.account.login("viewer_bb", "correct horse battery".toCharArray()).getOrThrow()
-                // The owner signal can precede the vault write; the automatic key retry is 30 seconds.
-                advanceTimeBy(30000L)
-                runCurrent()
+                runDeferredAccountPull(fixture)
                 assertTrue(
                     pulls > 1,
                     "The stable B identity must trigger a new pull even when sessionAvailable stayed true",
@@ -663,6 +666,15 @@ class PlaybackSyncManagerTest {
                 fixture.close()
             }
         }
+
+    private fun TestScope.runDeferredAccountPull(fixture: Fixture) {
+        assertTrue(fixture.cipher.hasKey())
+        // Account operations run on a real, detached dispatcher. While login is suspended,
+        // runTest can advance through several key-unavailable retries before the key lands.
+        // Once login returns, allow the maximum configured backoff, without manual refresh.
+        advanceTimeBy(playbackCloudRetryBackoffMs(6))
+        runCurrent()
+    }
 
     private suspend fun TestScope.fixture(
         tokenProvider: suspend () -> String? = { "access" },
@@ -837,6 +849,7 @@ class PlaybackSyncManagerTest {
 
         fun close() {
             scope.cancel()
+            account.close()
             clients.forEach(HttpClient::close)
         }
     }
