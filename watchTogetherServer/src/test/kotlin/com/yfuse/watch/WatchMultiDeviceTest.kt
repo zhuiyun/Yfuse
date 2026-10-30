@@ -40,6 +40,9 @@ class WatchMultiDeviceTest {
                 }
             phone.send("""{"type":"hello","protocolVersion":5,"clientId":"phone","mediaKey":"tmdb:351"}""")
             val phoneWelcome = phone.receiveType("welcome")
+            // A welcome may arrive before its sender publishes the participant for broadcasts.
+            phone.send("""{"type":"ping","clientSentAtMs":1}""")
+            phone.receiveType("pong")
             val room = phoneWelcome.string("roomCode")
             val tablet =
                 sockets.webSocketSession("/watch") {
