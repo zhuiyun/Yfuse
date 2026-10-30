@@ -31,7 +31,9 @@ private fun Activity.playerWindowMotion(): PlayerWindowMotion {
                 .reduceMotion.value
         }.getOrDefault(false)
     val scale = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
-    return if (reduced || scale <= 0f) PlayerWindowMotion.Fade else PlayerWindowMotion.Full
+    val transitionScale = Settings.Global.getFloat(contentResolver, Settings.Global.TRANSITION_ANIMATION_SCALE, 1f)
+    if (scale <= 0f || transitionScale <= 0f) return PlayerWindowMotion.None
+    return if (reduced) PlayerWindowMotion.Fade else PlayerWindowMotion.Full
 }
 
 /** Whether the window may move at all — and so whether a drawn transition can meet it. */

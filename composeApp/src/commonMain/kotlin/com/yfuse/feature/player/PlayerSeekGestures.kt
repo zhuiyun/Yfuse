@@ -125,3 +125,19 @@ private fun monotonicMillis(): () -> Long {
     val origin = TimeSource.Monotonic.markNow()
     return { origin.elapsedNow().inWholeMilliseconds }
 }
+
+/** Fixed distance mapping: reversing to the starting point restores the exact original target.
+ * Frame timing, finger speed and the advancing playback clock cannot move the preview.
+ */
+internal fun pictureSwipeTarget(
+    originMs: Long,
+    travelPx: Float,
+    widthPx: Int,
+    durationMs: Long,
+): Long {
+    if (durationMs <= 0L) return originMs.coerceAtLeast(0L)
+    val origin = originMs.coerceIn(0L, durationMs)
+    if (widthPx <= 0 || !travelPx.isFinite()) return origin
+    val delta = (travelPx.toDouble() / widthPx * minOf(durationMs, SWIPE_SEEK_SLOW_WINDOW_MS)).roundToLong()
+    return origin + delta.coerceIn(-origin, durationMs - origin)
+}

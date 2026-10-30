@@ -1,0 +1,94 @@
+{
+  "scope": "Whole production JVM logic, with explicit storage/Compose-state fixtures; not Android UI validation.",
+  "exit_code": 0,
+  "sources": [
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PictureHoldSeek.kt",
+      "sha256": "9a177f7a69773ecd119d21e736a63a1c09df5107e4abd2f435b5d884c83271de"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSeekGestures.kt",
+      "sha256": "a5cf98d96f15c1c5cc58e5cce05ce27a2f9eaa6ded77f191a5cc9945eab063f6"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerGestureCommands.kt",
+      "sha256": "38882752cdca06d260c0ae63813f301be4126f41e0c90b3db50f9c33e9e64295"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerInteractionPolicy.kt",
+      "sha256": "f13acaaf2073799c6ac2e77fcb847239e1f72dc30287801afe681c6ea741473e"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/data/CalendarLookupBudget.kt",
+      "sha256": "32b21129f22a8cc3ae3b6914387cd6736ddeed9532a60952f17d522d8e44069c"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackSyncModels.kt",
+      "sha256": "e32e5ae85f4a5dc4648038c501dfe9670fe38b68ed57d6081667a8952feaa629"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackConflictResolver.kt",
+      "sha256": "6b31ca3cabe8e420eda5131c4697e67db651f87e13708cc381fda68eb5390529"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackSyncStore.kt",
+      "sha256": "50f16988f64f3d19f062113430563f5b7ac337722bc4160820333e8346cf02b7"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackSessionEpochs.kt",
+      "sha256": "a7cbe6f63a284a3aeacebb0717cc508e9b8571f745dd01de0e19ba5380a91a0e"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/sync/playback/PlaybackIdentityBindings.kt",
+      "sha256": "33f2fc071fb694d17707094b7402c26e3dd8988b930c758139b58d68e04bec75"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PictureHoldSeekTest.kt",
+      "sha256": "bf41dfa4bbfc532592553191a60d940ded100ff908f990c321f69c2e350ba8e7"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerSeekGesturesTest.kt",
+      "sha256": "c6d33e98c6b4dd6521f4df25216bff3c6bbd97c786c0b5763114a2f9acb4dc3c"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/feature/player/PlayerGestureCommandsTest.kt",
+      "sha256": "a0cd7a08f823494b7412f1c13b04f8261026a60318ecc4396ec5b1a97c7cdc34"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/data/CalendarLookupBudgetTest.kt",
+      "sha256": "dedf37449897aaaf0586dbaccdffe37f16725fb43c0564544b9e5dc4f57341b9"
+    },
+    {
+      "path": "composeApp/src/commonTest/kotlin/com/yfuse/core/sync/playback/PlaybackSessionRetryTest.kt",
+      "sha256": "7e26e7fd133ea368fb00ce3126d7a2e43f97a616b7ae5b3e55b91ee46bcb0554"
+    },
+    {
+      "path": "composeApp/src/androidMain/kotlin/com/yfuse/core/logging/VerifiedDiagnosticExport.kt",
+      "sha256": "662d49b3ea890941760e8f83090e600e625381b12402e7a9aa2b27f769a91efe"
+    },
+    {
+      "path": "composeApp/src/androidUnitTest/kotlin/com/yfuse/core/logging/VerifiedDiagnosticExportTest.kt",
+      "sha256": "24fff1e251dc33030c1841a5487796e617d3ae984bc782b79e7c8701d9111422"
+    },
+    {
+      "path": "audit/gestures-motion-20261030/fixtures/Personal.kt",
+      "sha256": "dbe27b8e86f528831d66b30872aa105a9ed8cac318a12277f018769b73925056"
+    },
+    {
+      "path": "audit/gestures-motion-20261030/fixtures/ComposeState.kt",
+      "sha256": "9fda1c798d64ccb17d97c97076cf6bd5bdf9378d98318c0613f405cad51d3fce"
+    },
+    {
+      "path": "audit/gestures-motion-20261030/fixtures/Logging.kt",
+      "sha256": "6c1431318d4c5a4ca9a71f24485ea78e5c87758d5822c16af301a97b713db927"
+    },
+    {
+      "path": "audit/gestures-motion-20261030/fixtures/Settings.kt",
+      "sha256": "88afc52686171f401a226f6f84d1ae90c8d4f5c5819ddbb4f5084a6ead082c93"
+    },
+    {
+      "path": "audit/gestures-motion-20261030/fixtures/Watch.kt",
+      "sha256": "8fbedcc03dbd4ac4d0a8513ee020d6b025b9c4a4f61556866d2efcbe654dc24f"
+    }
+  ]
+}

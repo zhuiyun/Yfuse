@@ -40,14 +40,13 @@ internal fun pictureGestureHelpRows(gestures: PlayerGestureSettings): List<Pair<
             add("双击中间" to "播放或暂停；也可使用底部播放按钮")
         }
         if (gestures.centerHoldSpeedBoost) {
-            add("长按中间" to "中间 20% 区域临时 2 倍速，左右滑动切换 1.5× / 2× / 3×，松手恢复；也可使用播放速度按钮")
+            add("长按画面" to "画面任意位置临时 2 倍速，左右滑动切换 1.5× / 2× / 3×，松手恢复；也可使用播放速度按钮")
         }
-        add("长按左侧 / 右侧" to "左右各占画面 40%，按住每半秒快退 / 快进 ${gestures.doubleTapSeekMs / 1_000L} 秒，松手停止；也可拖动进度条")
         add(
             "左侧锁键" to
                 if (gestures.unlockByLongPress) "锁定屏幕；锁定后长按锁键解锁" else "锁定屏幕；锁定后点按画面再点锁键解锁",
         )
-        add("横向滑动" to "预览并定位，划过整屏约 1.5 到 3 分钟，划得越快越远；也可使用可调进度条")
+        add("横向滑动" to "拖动预览，松手跳转；整屏最多 90 秒，回到起点取消跳转；也可使用可调进度条")
         add("双指捏合" to "张开裁剪填满，捏合恢复适应；也可使用顶部画面按钮")
         add("左半屏上下滑" to if (gestures.swapBrightnessVolume) volume else brightness)
         add("右半屏上下滑" to if (gestures.swapBrightnessVolume) brightness else volume)

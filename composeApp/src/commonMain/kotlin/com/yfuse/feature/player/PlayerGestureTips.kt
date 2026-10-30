@@ -36,7 +36,7 @@ internal fun BoxScope.PlayerGestureTips(
     val place = Modifier.align(Alignment.TopCenter).padding(top = 88.dp)
     ContextualTip(
         id = Tips.PLAYER_CENTER_HOLD,
-        text = "长按画面中间可以临时加速，按住左右滑动换挡",
+        text = "长按画面可以临时加速，按住左右滑动换挡",
         active = chromeUp && seekable && speedBoostable && gestures.centerHoldSpeedBoost,
         modifier = place,
     )

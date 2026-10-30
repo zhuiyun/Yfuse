@@ -18,6 +18,9 @@ import androidx.compose.runtime.staticCompositionLocalOf
  */
 val LocalRouteVisible = compositionLocalOf { true }
 
+/** Pause secondary page effects while the navigation host owns the screen animation. */
+internal val LocalRouteTransitionRunning = compositionLocalOf { false }
+
 /**
  * [LocalRouteVisible] as a state holder whose identity never changes, for code that only needs
  * the answer in an effect or while drawing. Reading the Boolean in composition recomposes the

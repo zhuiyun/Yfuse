@@ -425,7 +425,7 @@ internal object DiagnosticLogStore {
                     zip.write(content.encodeToByteArray())
                     zip.closeEntry()
                 }
-                logFilesLocked().forEach { file ->
+                logFilesLocked().asReversed().forEach { file ->
                     zip.putNextEntry(ZipEntry("logs/${file.name}"))
                     // Re-sanitize at the export boundary as well as at write time. This protects
                     // packages that still contain lines written by an older app version whose

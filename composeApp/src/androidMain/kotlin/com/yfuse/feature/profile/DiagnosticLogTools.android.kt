@@ -37,6 +37,7 @@ import com.yfuse.core.designsystem.sc
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.DiagnosticLogStats
 import com.yfuse.core.logging.DiagnosticLogStore
+import com.yfuse.core.logging.exportVerifiedDiagnostics
 import com.yfuse.core.playback.OpticalPlaybackValidationInput
 import com.yfuse.core.playback.evaluateOpticalPlaybackRelease
 import com.yfuse.feature.player.installedMpvNativeBuildCapabilities
@@ -79,8 +80,9 @@ actual fun DiagnosticLogTools() {
             val result =
                 withContext(Dispatchers.IO) {
                     runCatching {
-                        context.contentResolver.openOutputStream(uri)?.use(DiagnosticLogStore::export)
-                            ?: error("无法写入诊断包")
+                        exportVerifiedDiagnostics(context.cacheDir, DiagnosticLogStore::export) {
+                            context.contentResolver.openOutputStream(uri, "wt") ?: error("无法写入诊断包")
+                        }
                     }
                 }
             result

@@ -1,10 +1,10 @@
 {
-  "versionName": "1.8.1",
-  "versionCode": 333,
+  "versionName": "1.8.3",
+  "versionCode": 335,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-30T02:10:16.369465+00:00",
+  "confirmedAt": "2026-10-30T15:42:52.438398+00:00",
   "confirmedBy": "release owner",
-  "confirmationBasis": "Release owner requested fixing all ten confirmed playback/synchronization issues, investigating four concerns, testing, uploading master and continuing production signing until the package is complete. Standing full-package MDK approval applies to the unchanged pinned SDK component and package-only distribution."
+  "confirmationBasis": "User requested production signing of the current playback gesture, diagnostics, calendar and navigation fixes. Existing standing approval covers the unchanged pinned MDK in the full ARM64 package-only delivery; no online update publication."
 }

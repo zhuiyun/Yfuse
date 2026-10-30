@@ -12,7 +12,7 @@ import com.yfuse.core.data.PlayerGestureSettings
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ThemeText as Text
 
-/** 中间长按's two answers, in the order the panel lists them. */
+/** 画面长按's two answers, in the order the panel lists them. */
 internal val CENTER_HOLD_CHOICES = listOf("临时倍速", "关闭")
 
 /** 双击's two readings of the picture: thirds, or one big play/pause key. */
@@ -32,7 +32,7 @@ internal fun PlayerGestureSettingsSection(preferences: PlaybackPreferences) {
     val gestures by preferences.gestureSettings.collectAsState()
     val steps = PlayerGestureSettings.DOUBLE_TAP_SEEK_CHOICES
     GroupLabel("手势")
-    GestureSettingCaption("快进快退步长 · 双击、长按左右两侧和键盘 J / L")
+    GestureSettingCaption("快进快退步长 · 双击和键盘 J / L")
     CompactChoiceGrid(
         options = steps.map { "$it 秒" },
         selectedIndex = steps.indexOf(gestures.doubleTapSeekSeconds),
@@ -50,7 +50,7 @@ internal fun PlayerGestureSettingsSection(preferences: PlaybackPreferences) {
             preferences.setGestureSettings(gestures.copy(doubleTapPausesAnywhere = index == 1))
         },
     )
-    GestureSettingCaption("中间长按")
+    GestureSettingCaption("画面长按")
     CompactChoiceGrid(
         options = CENTER_HOLD_CHOICES,
         selectedIndex = if (gestures.centerHoldSpeedBoost) 0 else 1,

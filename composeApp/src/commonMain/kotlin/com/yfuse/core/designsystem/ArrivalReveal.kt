@@ -74,11 +74,19 @@ class ArrivalMotion internal constructor(
  */
 @Composable
 fun rememberEntranceReveal(enabled: Boolean = true): ArrivalMotion {
-    val moving = enabled && LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
+    val moving =
+        enabled &&
+            LocalRouteVisible.current &&
+            !LocalRouteTransitionRunning.current &&
+            !LocalAccessibilityOptions.current.reduceMotion
     val calm = calmMotion()
     val progress = remember { Animatable(if (moving) 0f else 1f) }
-    LaunchedEffect(Unit) {
-        if (progress.value < 1f) progress.animateTo(1f, tween(arrivalMillis(calm), easing = LinearEasing))
+    LaunchedEffect(moving, calm) {
+        if (!moving) {
+            progress.snapTo(1f)
+        } else if (progress.value < 1f) {
+            progress.animateTo(1f, tween(arrivalMillis(calm), easing = LinearEasing))
+        }
     }
     return remember(progress, calm) { ArrivalMotion(progress, calm) }
 }
@@ -99,7 +107,10 @@ fun rememberRefreshReveal(
      */
     revision: Any? = null,
 ): ArrivalMotion {
-    val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
+    val moving =
+        LocalRouteVisible.current &&
+            !LocalRouteTransitionRunning.current &&
+            !LocalAccessibilityOptions.current.reduceMotion
     val calm = calmMotion()
     val progress = remember { Animatable(1f) }
     var wasRefreshing by remember { mutableStateOf(refreshing) }
@@ -157,7 +168,11 @@ private fun arrivalMillis(calm: Boolean): Int = if (calm) Motion.STANDARD else M
  */
 @Composable
 fun Modifier.attentionSweep(key: Any?): Modifier {
-    val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion && !calmMotion()
+    val moving =
+        LocalRouteVisible.current &&
+            !LocalRouteTransitionRunning.current &&
+            !LocalAccessibilityOptions.current.reduceMotion &&
+            !calmMotion()
     val accent = LocalAccentColors.current.accent
     val progress = remember { Animatable(1f) }
     LaunchedEffect(key, moving) {

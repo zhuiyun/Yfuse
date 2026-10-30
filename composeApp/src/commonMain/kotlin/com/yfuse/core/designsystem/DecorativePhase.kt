@@ -19,7 +19,11 @@ internal fun rememberDecorativePhase(
     repeatMode: RepeatMode = RepeatMode.Restart,
     label: String,
 ): State<Float> =
-    if (enabled && LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion) {
+    if (enabled &&
+        LocalRouteVisible.current &&
+        !LocalRouteTransitionRunning.current &&
+        !LocalAccessibilityOptions.current.reduceMotion
+    ) {
         rememberInfiniteTransition(label = label).animateFloat(
             initialValue = 0f,
             targetValue = 1f,
