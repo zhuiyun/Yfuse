@@ -160,8 +160,8 @@ class PlayerGestureStateTest {
         startDrag(x = 500f)
         assertNull(drag(dx = 40f, dy = 0f))
         assertEquals(DragAxis.Horizontal, gestures.dragAxis)
-        // As far as a fresh swipe at this pace goes; see SwipeSeekPace.
-        val landing = 60_000L + SwipeSeekPace().step(40f, 16L, 1_000, 1f, hour)
+        // A 4% picture-width drag moves 4% of the fixed 90-second window.
+        val landing = 63_600L
         assertTrue(landing > 60_000L)
         assertEquals(landing, gestures.pictureScrubMs)
         assertEquals(landing, gestures.previewMs)
@@ -171,6 +171,16 @@ class PlayerGestureStateTest {
         assertEquals(DragAxis.Horizontal, gestures.dragAxis)
         assertEquals(landing, gestures.endDrag(durationMs = hour, watchGuest = false))
         assertNull(gestures.pictureScrubMs)
+    }
+
+    @Test
+    fun returning_to_the_drag_origin_does_not_seek_after_hitting_a_boundary() {
+        startDrag(x = 500f)
+        drag(dx = -1_000f, dy = 0f)
+        assertEquals(0L, gestures.previewMs)
+        drag(dx = 1_000f, dy = 0f)
+        assertEquals(60_000L, gestures.previewMs)
+        assertNull(gestures.endDrag(durationMs = hour, watchGuest = false))
     }
 
     @Test

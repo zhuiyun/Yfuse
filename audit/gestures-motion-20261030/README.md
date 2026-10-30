@@ -28,4 +28,5 @@
 - 新增 YPlayerVideoEngineAdapter 缓冲映射回归和更新手势帮助测试，尚未在完整 Android 测试任务中执行。
 - 已对变更 Kotlin 文件执行 ktlint，并运行 `git diff --check`。
 - `:composeApp:compileDebugKotlinAndroid --offline --max-workers=1` 在获取 Gradle 9.8.2 时失败：`Network is unreachable`；本环境没有完整 Android 编译结果、APK 或真机帧率结果。
-- 未改打包版本，未签名打包、推送或发布。
+- 后续签名打包请求已更新为 1.8.3 (335)，并按既有授权提交云端仅打包流程；不发布线上更新。完整 Android 编译、质量门禁和签名产物校验以本提交对应的 Actions 结果为准。
+- PlayerGestureState 回归使用固定距离的实际落点，并覆盖越界后回拖到原点时松手不误 seek。
