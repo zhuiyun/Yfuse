@@ -35,6 +35,8 @@ internal fun TvPlaybackSettingsPage(
     val focusScope = "settings:playback"
     val syncManager = component.dependencies.serverSyncManager
     val progressSync by syncManager.syncProgress.collectAsState()
+    val autoNext by component.themePreferences.autoNext.collectAsState()
+    val detailThemeSong by component.playbackPreferences.detailThemeSong.collectAsState()
     val skipMode by component.skipSegmentPreferences.skipMode.collectAsState()
     val versionPreference by component.playbackPreferences.mediaVersionPreference.collectAsState()
     val smartSource by component.playbackPreferences.smartCrossServerSource.collectAsState()
@@ -63,6 +65,31 @@ internal fun TvPlaybackSettingsPage(
         }
 
         item(key = "playback-section-behavior") { TvSettingsSectionTitle("播放行为") }
+        item(key = "playback-auto-next") {
+            TvToggleRow(
+                title = "自动播放下一集",
+                checked = autoNext,
+                stableId = "playback:auto-next",
+                focusMemory = focusMemory,
+                onToggle = component.themePreferences::setAutoNext,
+                icon = AppIcons.Next,
+                focusScope = focusScope,
+                navigationRequester = navigationRequester,
+            )
+        }
+        item(key = "playback-detail-theme-song") {
+            TvToggleRow(
+                title = "详情页主题曲",
+                checked = detailThemeSong,
+                stableId = "playback:detail-theme-song",
+                focusMemory = focusMemory,
+                onToggle = component.playbackPreferences::setDetailThemeSong,
+                icon = AppIcons.Volume,
+                focusScope = focusScope,
+                subtitle = "服务器有主题曲时，在详情页轻声播放",
+                navigationRequester = navigationRequester,
+            )
+        }
         item(key = "playback-skip-mode") {
             TvChoiceRow(
                 title = "片头片尾",

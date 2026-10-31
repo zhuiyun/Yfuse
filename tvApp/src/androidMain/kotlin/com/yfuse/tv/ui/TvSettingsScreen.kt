@@ -60,7 +60,7 @@ internal fun TvSettingsScreen(
     val account by component.account.state.collectAsState()
 
     BackHandler(enabled = page != TvSettingsPage.Root) {
-        page = TvSettingsPage.Root
+        page = page.parentPage
     }
 
     AnimatedContent(
@@ -247,8 +247,6 @@ private fun TvSettingsRootPage(
     val largeText by component.themePreferences.largeText.collectAsState()
     val reduceMotion by component.themePreferences.reduceMotion.collectAsState()
     val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
-    val autoNext by component.themePreferences.autoNext.collectAsState()
-    val detailThemeSong by component.playbackPreferences.detailThemeSong.collectAsState()
     val account by component.account.state.collectAsState()
     val personal by component.personal.state.collectAsState()
     val danmakuEnabled by component.danmakuPreferences.enabled.collectAsState()
@@ -320,6 +318,8 @@ private fun TvSettingsRootPage(
                 }
             }
         }
+
+        if (query.isNotBlank()) return@TvSettingsPageScaffold
 
         item(key = "settings-section-personal") {
             TvSettingsSectionTitle("我的 · ${personal.activeProfile.name}")
@@ -416,31 +416,6 @@ private fun TvSettingsRootPage(
         }
 
         item(key = "settings-section-playback") { TvSettingsSectionTitle("播放") }
-        item(key = "settings-auto-next") {
-            TvToggleRow(
-                title = "自动播放下一集",
-                checked = autoNext,
-                stableId = "settings:auto-next",
-                focusMemory = focusMemory,
-                onToggle = component.themePreferences::setAutoNext,
-                icon = AppIcons.Next,
-                focusScope = scope,
-                navigationRequester = navigationRequester,
-            )
-        }
-        item(key = "settings-detail-theme-song") {
-            TvToggleRow(
-                title = "详情页主题曲",
-                checked = detailThemeSong,
-                stableId = "settings:detail-theme-song",
-                focusMemory = focusMemory,
-                onToggle = component.playbackPreferences::setDetailThemeSong,
-                icon = AppIcons.Volume,
-                focusScope = scope,
-                subtitle = "服务器有主题曲时，在详情页轻声播放",
-                navigationRequester = navigationRequester,
-            )
-        }
         item(key = "settings-playback") {
             TvSettingRow(
                 title = TvSettingsPage.Playback.title,
@@ -601,9 +576,9 @@ private val tvSettingsKeywords: Map<TvSettingsPage, String> =
         TvSettingsPage.Trakt to "trakt 历史 想看 待看 收藏 同步 授权 导入 上报",
         TvSettingsPage.Account to "登录 注册 同步 云端 密码 会话",
         TvSettingsPage.AccountSessions to "设备 退出 撤销 登录记录",
-        TvSettingsPage.Playback to "进度 续播 片头 片尾 跳过 选源 隐私",
+        TvSettingsPage.Playback to "自动 下一集 主题曲 进度 续播 片头 片尾 跳过 选源 隐私",
         TvSettingsPage.AdvancedPlayback to "内核 解码 缓冲 缓存 帧率 直通 音频 硬解 软解 ycore",
-        TvSettingsPage.Danmaku to "弹幕 字幕 屏蔽 过滤 字号 透明",
+        TvSettingsPage.Danmaku to "弹幕 屏蔽 过滤 字号 透明",
         TvSettingsPage.WatchTogether to "一起看 房间 聊天 昵称 头像",
         // 玻璃, 材质 and 布局 lead to the note on that page that says why they are not on a television.
         TvSettingsPage.Appearance to "外观 背景 玻璃 材质 布局 弹窗 字体 大字 动效主题 静息 经典 影院 动画 启动 无障碍 透明",

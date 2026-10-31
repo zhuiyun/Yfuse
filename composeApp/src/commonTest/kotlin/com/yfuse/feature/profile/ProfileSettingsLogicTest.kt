@@ -67,10 +67,11 @@ class ProfileSettingsLogicTest {
                 PlaybackOptimizationMode.Balanced,
                 PlaybackOptimizationMode.Compatibility,
                 PlaybackOptimizationMode.Quality,
+                PlaybackOptimizationMode.PowerSaver,
             ),
             simplePlaybackModes,
         )
-        assertEquals(listOf("自动", "兼容优先", "画质优先"), simplePlaybackModes.map { it.simplePlaybackLabel() })
+        assertEquals(listOf("自动", "兼容优先", "画质优先", "省电优先"), simplePlaybackModes.map { it.simplePlaybackLabel() })
         simplePlaybackModes.map { it.simplePlaybackLabel() }.forEach { label ->
             PlayerEngine.selectable.forEach { engine -> assertFalse(engine.label in label) }
         }

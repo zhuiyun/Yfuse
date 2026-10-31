@@ -62,6 +62,9 @@ internal enum class TvSettingsPage(
     DataAndDiagnostics("数据与诊断", "日志、缓存与导出"),
 }
 
+internal val TvSettingsPage.parentPage: TvSettingsPage
+    get() = if (this == TvSettingsPage.AccountSessions) TvSettingsPage.Account else TvSettingsPage.Root
+
 /**
  * Shared page chrome. The navigation rail stays visible on a sub-page, so the header carries the
  * page name rather than a back button; Back and D-pad left both return to the settings root.

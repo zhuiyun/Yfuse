@@ -39,6 +39,7 @@ import com.yfuse.core.designsystem.CinemaSelectionCheck
 import com.yfuse.core.designsystem.CinemaSelectionGroup
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.PlatformBackHandler
 import com.yfuse.core.designsystem.cinemaMotion
 import com.yfuse.core.designsystem.cinemaSelectionTarget
 import com.yfuse.core.designsystem.glass
@@ -157,6 +158,12 @@ internal fun SettingsPanel(
         modifier = modifier,
         paneTitle = settingsPanelTitle(kind, trackPanelMode),
     ) {
+        PlatformBackHandler(
+            enabled =
+                kind == SettingsPanelKind.More && advancedPage != AdvancedPage.Root && !problemOpen,
+        ) {
+            advancedPage = advancedPage.parentPage
+        }
         // Two transitions, because this shell has two axes of change: one popup kind hands
         // over to another here, and 更多 goes a level deeper and comes back inside [MorePanel].
         val reduceMotion = LocalAccessibilityOptions.current.reduceMotion

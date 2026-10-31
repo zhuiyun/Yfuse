@@ -54,6 +54,28 @@ class ProfilePagesTest {
     }
 
     @Test
+    fun appearance_subpages_restore_by_name_and_return_to_the_appearance_overview() {
+        for (page in listOf(
+            ProfilePage.AppearanceLayout,
+            ProfilePage.AppearanceMotion,
+            ProfilePage.AppearanceAccessibility,
+        )) {
+            val pages = pages()
+            pages.open(ProfilePage.Appearance)
+            pages.open(page)
+            assertEquals(listOf(ProfilePage.Root, ProfilePage.Appearance, page), pages.shown())
+            val restored =
+                Json.decodeFromString(
+                    ListSerializer(ProfilePage.serializer()),
+                    Json.encodeToString(ListSerializer(ProfilePage.serializer()), pages.shown()),
+                )
+            assertEquals(pages.shown(), restoredProfilePages(restored))
+            pages.close()
+            assertEquals(listOf(ProfilePage.Root, ProfilePage.Appearance), pages.shown())
+        }
+    }
+
+    @Test
     fun back_at_the_root_stays_at_the_root() {
         val pages = pages()
 

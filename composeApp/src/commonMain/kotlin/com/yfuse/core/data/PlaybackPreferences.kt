@@ -216,14 +216,17 @@ class PlaybackPreferences(
      * and a series' first episode. A 短剧 viewer who watches everything at 1.5× set it per series.
      */
     private val _defaultSpeed =
-        MutableStateFlow(settings.getFloat(KEY_DEFAULT_SPEED, 1f).coerceIn(MIN_DEFAULT_SPEED, MAX_DEFAULT_SPEED))
+        MutableStateFlow(normalizedDefaultSpeed(settings.getFloat(KEY_DEFAULT_SPEED, 1f)))
     val defaultSpeed: StateFlow<Float> = _defaultSpeed.asStateFlow()
 
     fun setDefaultSpeed(speed: Float) {
-        val bounded = speed.coerceIn(MIN_DEFAULT_SPEED, MAX_DEFAULT_SPEED)
+        val bounded = normalizedDefaultSpeed(speed)
         _defaultSpeed.value = bounded
         settings.putFloat(KEY_DEFAULT_SPEED, bounded)
     }
+
+    private fun normalizedDefaultSpeed(value: Float): Float =
+        if (value.isFinite()) value.coerceIn(MIN_DEFAULT_SPEED, MAX_DEFAULT_SPEED) else 1f
 
     private val _sourcePreheat =
         MutableStateFlow(enumSetting(KEY_SOURCE_PREHEAT, SourcePreheatMode.WifiAndMobile))

@@ -3,8 +3,6 @@ package com.yfuse.feature.profile
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.yfuse.backend.BackendAccess
 import com.yfuse.core.data.Anime4KMode
@@ -17,9 +15,6 @@ import com.yfuse.core.data.SourcePreheatMode
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.YCoreBufferDuration
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.CalmLoadingAnimation
-import com.yfuse.core.designsystem.DialogAnimation
-import com.yfuse.core.designsystem.MotionTheme
 import com.yfuse.core.designsystem.Section
 import com.yfuse.core.designsystem.SettingRow
 import com.yfuse.core.designsystem.SettingTint
@@ -32,7 +27,6 @@ import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.feature.player.speedLabel
-import org.koin.core.context.GlobalContext
 
 internal data class PlaybackOptionCopy(
     val label: String,
@@ -147,6 +141,7 @@ internal val simplePlaybackModes =
         PlaybackOptimizationMode.Balanced,
         PlaybackOptimizationMode.Compatibility,
         PlaybackOptimizationMode.Quality,
+        PlaybackOptimizationMode.PowerSaver,
     )
 
 internal fun PlaybackOptimizationMode.simplePlaybackLabel(): String =
@@ -217,40 +212,8 @@ internal fun PlaybackSettingsScreen(
         subtitle = "播放行为、性能与兼容性",
         onBack = onBack,
     ) {
-        motionItem(key = "playback-progress") {
-            Section(title = "播放进度") {
-                // No animateContentSize around the card: SwitchRow crossfades the helper copy
-                // itself, so a second size animation here only chased the first one.
-                SettingsCard {
-                    SwitchRow(
-                        title = "进度同步",
-                        checked = progressSyncEnabled,
-                        embedded = true,
-                        icon = AppIcons.Refresh,
-                        iconTint = SettingTint.sync,
-                        description =
-                            if (progressSyncEnabled) {
-                                // Jellyfin marks anything under its MinResumeDurationSeconds (300 s
-                                // by default) played a few seconds in; the store keeps the local one.
-                                if (BackendAccess.Default.enabled) {
-                                    "同步到 Emby/Jellyfin 与 Yfuse 云端，支持跨设备续播；5 分钟内的短集以本机续播点为准"
-                                } else {
-                                    "同步到 Emby/Jellyfin，支持媒体服务器续播；5 分钟内的短集以本机续播点为准"
-                                }
-                            } else {
-                                if (BackendAccess.Default.enabled) {
-                                    "仅保留本机进度，不向 Emby/Jellyfin 或 Yfuse 云端上报"
-                                } else {
-                                    "仅保留本机进度，不向 Emby/Jellyfin 上报"
-                                }
-                            },
-                        onChange = onProgressSync,
-                    )
-                }
-            }
-        }
         motionItem(key = "playback-behavior") {
-            Section(title = "播放行为") {
+            Section(title = "常用播放") {
                 SettingsCard {
                     SwitchRow(
                         "自动播放下一集",
@@ -259,6 +222,15 @@ internal fun PlaybackSettingsScreen(
                         icon = AppIcons.Next,
                         iconTint = SettingTint.playback,
                         onChange = onAutoNext,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "默认倍速",
+                        speedLabel(defaultSpeed),
+                        true,
+                        onDefaultSpeed,
+                        icon = AppIcons.Forward,
+                        iconTint = SettingTint.playback,
                     )
                     SettingsDivider()
                     SettingRow(
@@ -271,14 +243,51 @@ internal fun PlaybackSettingsScreen(
                     )
                     SettingsDivider()
                     SettingRow(
-                        "默认倍速",
-                        speedLabel(defaultSpeed),
+                        "片头片尾",
+                        skipSegments,
                         true,
-                        onDefaultSpeed,
-                        icon = AppIcons.Forward,
+                        onSkipSegments,
+                        icon = AppIcons.SkipMarkers,
+                        iconTint = SettingTint.playback,
+                    )
+                }
+            }
+        }
+        motionItem(key = "playback-source") {
+            Section(title = "片源与画质") {
+                SettingsCard {
+                    SettingRow(
+                        "播放模式",
+                        optimizationMode.simplePlaybackLabel(),
+                        true,
+                        onPlaybackMode,
+                        icon = AppIcons.Play,
                         iconTint = SettingTint.playback,
                     )
                     SettingsDivider()
+                    SettingRow(
+                        "视频版本偏好",
+                        mediaVersionPreference.playbackOptionCopy().label,
+                        true,
+                        onMediaVersionPreference,
+                        icon = AppIcons.Movie,
+                        iconTint = SettingTint.playback,
+                    )
+                    SettingsDivider()
+                    SwitchRow(
+                        "智能跨服选源",
+                        smartCrossServerSource,
+                        true,
+                        icon = AppIcons.PlaybackSource,
+                        iconTint = SettingTint.servers,
+                        onChange = onSmartCrossServerSource,
+                    )
+                }
+            }
+        }
+        motionItem(key = "playback-audio") {
+            Section(title = "音频") {
+                SettingsCard {
                     SwitchRow(
                         "详情页主题曲",
                         detailThemeSong,
@@ -298,16 +307,12 @@ internal fun PlaybackSettingsScreen(
                         description = "关闭屏幕或切到后台时只播放声音，回到播放器时恢复画面",
                         onChange = onBackgroundAudio,
                     )
-                    SettingsDivider()
-                    SwitchRow(
-                        "智能跨服选源",
-                        smartCrossServerSource,
-                        true,
-                        icon = AppIcons.PlaybackSource,
-                        iconTint = SettingTint.servers,
-                        onChange = onSmartCrossServerSource,
-                    )
-                    SettingsDivider()
+                }
+            }
+        }
+        motionItem(key = "playback-cache") {
+            Section(title = "缓冲与兼容") {
+                SettingsCard {
                     SettingRow(
                         "视频缓存大小",
                         videoCacheSize.label,
@@ -327,43 +332,6 @@ internal fun PlaybackSettingsScreen(
                     )
                     SettingsDivider()
                     SettingRow(
-                        "片头片尾",
-                        skipSegments,
-                        true,
-                        onSkipSegments,
-                        icon = AppIcons.SkipMarkers,
-                        iconTint = SettingTint.playback,
-                    )
-                }
-            }
-        }
-        motionItem(key = "playback-mode") {
-            Section(title = "播放模式") {
-                SettingsCard {
-                    SettingRow(
-                        "视频版本偏好",
-                        mediaVersionPreference.playbackOptionCopy().label,
-                        true,
-                        onMediaVersionPreference,
-                        icon = AppIcons.Movie,
-                        iconTint = SettingTint.playback,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "播放模式",
-                        optimizationMode.simplePlaybackLabel(),
-                        true,
-                        onPlaybackMode,
-                        icon = AppIcons.Play,
-                        iconTint = SettingTint.playback,
-                    )
-                }
-            }
-        }
-        motionItem(key = "playback-advanced") {
-            Section(title = "高级") {
-                SettingsCard {
-                    SettingRow(
                         "高级播放设置",
                         "内核、解码与音视频输出",
                         true,
@@ -374,10 +342,20 @@ internal fun PlaybackSettingsScreen(
                 }
             }
         }
-        if (BackendAccess.Default.enabled) {
-            motionItem(key = "playback-privacy") {
-                Section(title = "隐私") {
-                    SettingsCard {
+        motionItem(key = "playback-progress") {
+            Section(title = "同步与隐私") {
+                SettingsCard {
+                    SwitchRow(
+                        title = "进度同步",
+                        checked = progressSyncEnabled,
+                        embedded = true,
+                        icon = AppIcons.Refresh,
+                        iconTint = SettingTint.sync,
+                        description = if (progressSyncEnabled) "同步观看进度，支持跨设备续播" else "仅保留本机进度",
+                        onChange = onProgressSync,
+                    )
+                    if (BackendAccess.Default.enabled) {
+                        SettingsDivider()
                         SwitchRow(
                             "匿名播放质量分享",
                             anonymousQoeSharing,
@@ -395,17 +373,15 @@ internal fun PlaybackSettingsScreen(
 
 @Composable
 internal fun AdvancedPlaybackSettingsScreen(
+    outputPreferences: PlaybackPreferences,
     onBack: () -> Unit,
-    optimizationMode: PlaybackOptimizationMode,
     engineSelection: PlaybackEngineSelection,
     decoder: DecoderMode,
     yCoreBufferDuration: YCoreBufferDuration,
-    onOptimizationMode: () -> Unit,
     onEngine: () -> Unit,
     onDecoder: () -> Unit,
     onYCoreBufferDuration: () -> Unit,
 ) {
-    val outputPreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
     val anime4KMode by outputPreferences.anime4KMode.collectAsState()
     val frameRateMatch by outputPreferences.frameRateMatch.collectAsState()
     val showFrameRate by outputPreferences.showFrameRate.collectAsState()
@@ -419,17 +395,8 @@ internal fun AdvancedPlaybackSettingsScreen(
         onBack = onBack,
     ) {
         motionItem(key = "advanced-engine") {
-            Section(title = "策略与内核") {
+            Section(title = "内核与解码") {
                 SettingsCard {
-                    SettingRow(
-                        "YCore 播放策略",
-                        optimizationMode.playbackOptionCopy().label,
-                        true,
-                        onOptimizationMode,
-                        icon = AppIcons.Menu,
-                        iconTint = SettingTint.advanced,
-                    )
-                    SettingsDivider()
                     SettingRow(
                         "播放内核",
                         engineSelection.playbackOptionCopy().label,
@@ -440,16 +407,25 @@ internal fun AdvancedPlaybackSettingsScreen(
                     )
                     SettingsDivider()
                     SwitchRow(
-                        "YCore 2.0 播放内核（仅自动模式）",
+                        "YCore 2.0",
                         core2TrialEnabled,
                         true,
                         icon = AppIcons.Play,
                         iconTint = SettingTint.playback,
+                        enabled = engineSelection == PlaybackEngineSelection.Auto,
+                        description =
+                            if (engineSelection ==
+                                PlaybackEngineSelection.Auto
+                            ) {
+                                "下次播放生效"
+                            } else {
+                                "请先将播放内核设为自动选择"
+                            },
                         onChange = outputPreferences::setCore2TrialEnabled,
                     )
                     SettingsDivider()
                     SwitchRow(
-                        "YCore Native 纯内核（自动模式/开发中）",
+                        "纯原生模式（实验）",
                         core2NativeOnlyEnabled,
                         embedded = true,
                         icon = AppIcons.Play,
@@ -634,251 +610,5 @@ internal fun WatchTogetherSettingsScreen(
     }
 }
 
-@Composable
-internal fun AppearanceSettingsScreen(
-    libraryCarousel: Boolean,
-    onLibraryCarousel: (Boolean) -> Unit,
-    customHomeVisible: Boolean,
-    onCustomHomeVisible: (Boolean) -> Unit,
-    navCollapseOnScroll: Boolean,
-    onNavCollapseOnScroll: (Boolean) -> Unit,
-    onBack: () -> Unit,
-    brandSummary: String,
-    backgroundSummary: String,
-    startupSummary: String,
-    motionTheme: MotionTheme,
-    dialogAnimationSummary: String,
-    loadingAnimationSummary: String,
-    playerTransitionSummary: String,
-    particleLightSummary: String,
-    onParticleLight: () -> Unit,
-    reduceTransparency: Boolean,
-    largeText: Boolean,
-    reduceMotion: Boolean,
-    systemMotionOff: Boolean,
-    pulseSweep: Boolean,
-    onBackground: () -> Unit,
-    onBrand: () -> Unit,
-    onStartupTab: () -> Unit,
-    onMotionTheme: () -> Unit,
-    onDialogAnimation: () -> Unit,
-    onLoadingAnimation: () -> Unit,
-    onPlayerTransition: () -> Unit,
-    onGlassMaterial: () -> Unit,
-    onReduceTransparency: (Boolean) -> Unit,
-    onLargeText: (Boolean) -> Unit,
-    onReduceMotion: (Boolean) -> Unit,
-    onPulseSweep: (Boolean) -> Unit,
-) {
-    var manageWidgets by remember { mutableStateOf(false) }
-    if (manageWidgets) {
-        com.yfuse.feature.widgets.WidgetWorkspaceScreen(
-            remember {
-                com.yfuse.core.widget
-                    .widgetRepository()
-            },
-            onClose = { manageWidgets = false },
-        )
-    }
-    // Under 静息 the theme decides these; the stored choices wait for 经典.
-    val calm = motionTheme == MotionTheme.Calm
-    SettingsPage(
-        title = "外观与辅助",
-        subtitle = "背景、启动、动效与辅助显示",
-        onBack = onBack,
-    ) {
-        motionItem(key = "appearance-look") {
-            Section(title = "外观") {
-                SettingsCard {
-                    SwitchRow(
-                        "库页轮播图",
-                        libraryCarousel,
-                        true,
-                        icon = AppIcons.Grid,
-                        iconTint = SettingTint.library,
-                        onChange = onLibraryCarousel,
-                    )
-                    SettingsDivider()
-                    SwitchRow(
-                        "自定义首页 Tab",
-                        customHomeVisible,
-                        true,
-                        icon = AppIcons.Home,
-                        iconTint = SettingTint.components,
-                        description = "在底部导航显示自定义首页，关闭后保留页面和组件",
-                        onChange = onCustomHomeVisible,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "首页与组件管理",
-                        "页面布局、组件与备份",
-                        true,
-                        { manageWidgets = true },
-                        icon = AppIcons.Grid,
-                        iconTint = SettingTint.components,
-                    )
-                    SettingsDivider()
-                    WidgetCutoutSettingsRow()
-                    SettingsDivider()
-                    // Two ways to live with the bar: give the screen to reading, or keep navigation up.
-                    SwitchRow(
-                        "滚动时收起导航栏",
-                        navCollapseOnScroll,
-                        true,
-                        icon = AppIcons.Collapse,
-                        iconTint = SettingTint.general,
-                        description = "往下浏览时收成一个键，往回滑或点它就展开",
-                        onChange = onNavCollapseOnScroll,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "玻璃材质",
-                        "底色、透明度与背景遮罩",
-                        true,
-                        onGlassMaterial,
-                        icon = AppIcons.AspectFill,
-                        iconTint = SettingTint.components,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "Logo 与开屏动画",
-                        brandSummary,
-                        true,
-                        onBrand,
-                        icon = AppIcons.StarFilled,
-                        iconTint = SettingTint.appearance,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "背景图",
-                        backgroundSummary,
-                        true,
-                        onBackground,
-                        icon = AppIcons.AspectFit,
-                        iconTint = SettingTint.library,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "启动进入",
-                        startupSummary,
-                        true,
-                        onStartupTab,
-                        icon = AppIcons.Home,
-                        iconTint = SettingTint.general,
-                    )
-                }
-            }
-        }
-        // One place for the motion language; the six separate pickers it replaces as the way in
-        // live on below as overrides.
-        motionItem(key = "appearance-motion") {
-            Section(title = "动效") {
-                SettingsCard {
-                    SettingRow(
-                        "动效主题",
-                        motionTheme.label,
-                        true,
-                        onMotionTheme,
-                        icon = AppIcons.Movie,
-                        iconTint = SettingTint.components,
-                        supporting = motionTheme.description,
-                    )
-                }
-            }
-        }
-        motionItem(key = "appearance-motion-overrides") {
-            Section(title = "高级 · 单独覆盖") {
-                SettingsCard {
-                    SwitchRow(
-                        "搜索与导航动效",
-                        pulseSweep,
-                        true,
-                        icon = AppIcons.SearchTab,
-                        iconTint = SettingTint.components,
-                        description = if (calm) "静息主题下导航只做淡入淡出" else null,
-                        onChange = onPulseSweep,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "粒子光效",
-                        if (calm) "静息主题下关闭" else particleLightSummary,
-                        true,
-                        onParticleLight,
-                        icon = AppIcons.StarFilled,
-                        iconTint = SettingTint.components,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "弹窗动画",
-                        if (calm) "静息主题下为${DialogAnimation.Lift.label}" else dialogAnimationSummary,
-                        true,
-                        onDialogAnimation,
-                        icon = AppIcons.Expand,
-                        iconTint = SettingTint.components,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "加载动画",
-                        if (calm) "静息主题下为${CalmLoadingAnimation.label}" else loadingAnimationSummary,
-                        true,
-                        onLoadingAnimation,
-                        icon = AppIcons.Refresh,
-                        iconTint = SettingTint.components,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "播放器进出场",
-                        when (motionTheme) {
-                            MotionTheme.Calm -> "静息主题下为标准淡入"
-                            MotionTheme.Cinema -> "影院主题下随首帧揭幕"
-                            MotionTheme.Classic -> playerTransitionSummary
-                        },
-                        true,
-                        onPlayerTransition,
-                        icon = AppIcons.Play,
-                        iconTint = SettingTint.components,
-                    )
-                }
-            }
-        }
-        motionItem(key = "appearance-accessibility") {
-            Section(title = "辅助功能") {
-                SettingsCard {
-                    SwitchRow(
-                        "减少透明效果",
-                        reduceTransparency,
-                        true,
-                        icon = AppIcons.AspectFill,
-                        iconTint = SettingTint.components,
-                        onChange = onReduceTransparency,
-                    )
-                    SettingsDivider()
-                    SwitchRow(
-                        "大号文字",
-                        largeText,
-                        true,
-                        icon = AppIcons.Subtitle,
-                        iconTint = SettingTint.language,
-                        onChange = onLargeText,
-                    )
-                    SettingsDivider()
-                    // The switch shows the person's own choice; when the device has animations
-                    // off the app has already reduced them, and an unexplained 「关」 read as if
-                    // nothing were being honoured.
-                    SwitchRow(
-                        "减少动画",
-                        reduceMotion,
-                        true,
-                        icon = AppIcons.Pause,
-                        iconTint = SettingTint.advanced,
-                        description = if (systemMotionOff && !reduceMotion) "系统已关闭动画，应用已自动减少" else null,
-                        onChange = onReduceMotion,
-                    )
-                }
-            }
-        }
-    }
-}
-
 /** What 默认倍速 offers. */
-internal val DEFAULT_SPEED_CHOICES = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)
+internal val DEFAULT_SPEED_CHOICES = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)

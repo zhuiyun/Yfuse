@@ -1,0 +1,526 @@
+{
+  "files": 13,
+  "callsites": 104,
+  "controls": [
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SettingsControls.kt",
+      "line": 128,
+      "control": "fun SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerGestureSettingsSection.kt",
+      "line": 71,
+      "control": "PopupToggleHeader("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerMorePanel.kt",
+      "line": 297,
+      "control": "PopupToggleHeader("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerMorePanel.kt",
+      "line": 304,
+      "control": "PopupToggleHeader("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerMorePanel.kt",
+      "line": 392,
+      "control": "PopupToggleHeader("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerMorePanel.kt",
+      "line": 403,
+      "control": "PopupToggleHeader("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "line": 67,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "line": 81,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "line": 102,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "line": 112,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "line": 156,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "line": 168,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "line": 176,
+      "control": "SettingRow(\"取消授权\", \"结束本次授权\", embedded = true, onClick = {"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "line": 187,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "line": 200,
+      "control": "SettingRow(\"停止同步\", \"已完成内容会保留\", embedded = true, onClick = {"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "line": 206,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "line": 215,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "line": 223,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "line": 231,
+      "control": "SwitchRow(\"播放上报\", state.scrobbling, true, onChange = {"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/trakt/TraktSettingsScreen.kt",
+      "line": 236,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/WidgetCutoutSettings.kt",
+      "line": 21,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt",
+      "line": 529,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt",
+      "line": 551,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt",
+      "line": 599,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt",
+      "line": 613,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt",
+      "line": 630,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt",
+      "line": 697,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 71,
+      "control": "SettingSegmentRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 80,
+      "control": "SettingSegmentRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 94,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 103,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 112,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 126,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 135,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 144,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 174,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 183,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 193,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 209,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 218,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 246,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 285,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 296,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 306,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 316,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 326,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 351,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 360,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/AppearanceSettingsScreen.kt",
+      "line": 374,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "line": 692,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "line": 708,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "line": 741,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "line": 756,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "line": 766,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "line": 789,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "line": 799,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "line": 828,
+      "control": "SettingRow(\"同步状态与恢复\", embedded = true, onClick = {"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "line": 832,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "line": 1456,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "line": 1483,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "line": 1527,
+      "control": "SettingsCard { SwitchRow(\"启动时播放\", enabled, true) { prefs.setSplashAnimation(it) } }"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
+      "line": 1738,
+      "control": "internal fun SettingSegmentRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 218,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 227,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 236,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 245,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 259,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 268,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 277,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 291,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 301,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 316,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 325,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 334,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 348,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 359,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 400,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 409,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 427,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 443,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 452,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 466,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 476,
+      "control": "SettingSegmentRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 485,
+      "control": "SettingSegmentRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 495,
+      "control": "SettingRow(\"音频直通\", \"MDK 暂不支持\", true, null, icon = AppIcons.Volume, iconTint = SettingTint.audio)"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 497,
+      "control": "SettingSegmentRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 530,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 539,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 574,
+      "control": "SettingRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 583,
+      "control": "SettingRow(\"一起看资料\", nickname, true, onProfile, icon = AppIcons.User, iconTint = SettingTint.account)"
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 590,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/profile/ProfileSettingsScreens.kt",
+      "line": 599,
+      "control": "SwitchRow("
+    },
+    {
+      "path": "composeApp/src/commonMain/kotlin/com/yfuse/feature/widgets/WidgetCutoutSettingsDialog.kt",
+      "line": 46,
+      "control": "SwitchRow(\"启用 Poof\", enabled, !saving, onChange = { enabled = it })"
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 48,
+      "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 69,
+      "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 81,
+      "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 126,
+      "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 142,
+      "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 263,
+      "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 291,
+      "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAppearanceScreens.kt",
+      "line": 147,
+      "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAppearanceScreens.kt",
+      "line": 163,
+      "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAppearanceScreens.kt",
+      "line": 181,
+      "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScaffold.kt",
+      "line": 221,
+      "control": "internal fun TvToggleRow("
+    }
+  ]
+}
