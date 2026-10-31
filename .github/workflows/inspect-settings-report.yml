@@ -1,4 +1,4 @@
-name: Inspect settings device report
+name: Verify final Yfuse 1.8.4 package
 on:
   push:
     branches: [diagnostics/settings-184-report]
@@ -7,32 +7,145 @@ permissions:
   contents: read
   actions: read
 jobs:
-  inspect:
+  verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Download the failed API 35 report
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          run-id: 41235332889
-          name: instrumented-tests-api35-1f5555e08d3d65eb9536018358a3fc5a932f5223-1
-          github-token: ${{ github.token }}
-          path: report
-      - name: Print exact failure evidence
+      - name: Require successful exact-source package-only gates
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           python3 - <<'PY'
-          import pathlib, json, xml.etree.ElementTree as ET
-          files = list(pathlib.Path("report").rglob("TEST-*.xml"))
-          assert files, "Missing JUnit evidence"
-          totals = {k: 0 for k in ("tests", "failures", "errors", "skipped")}
-          for path in files:
-              root = ET.parse(path).getroot()
-              for key in totals:
-                  totals[key] += int(root.get(key) or 0)
-              for case in root.iter("testcase"):
-                  errors = [item for item in case if item.tag in ("failure", "error")]
-                  if errors:
-                      print("FAILED_CASE_JSON=" + json.dumps({"class": case.get("classname"), "name": case.get("name"), "errors": [item.text for item in errors]}, ensure_ascii=False))
-          print("TOTALS_JSON=" + json.dumps(totals))
+          import json, os, urllib.request
+          repo = "zhuiyun/Yfuse"
+          expected = "1f5555e08d3d65eb9536018358a3fc5a932f5223"
+          def api(path):
+              req = urllib.request.Request("https://api.github.com/repos/" + repo + path,
+                  headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"], "Accept": "application/vnd.github+json"})
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  return json.load(response)
+          for run_id in (41235332889, 41235332897, 41235333066):
+              run = api(f"/actions/runs/{run_id}")
+              assert run["head_sha"] == expected and run["status"] == "completed" and run["conclusion"] == "success", f"Unverified run {run_id}"
+          jobs = api("/actions/runs/41235333066/jobs?per_page=100")["jobs"]
+          deploy = next(job for job in jobs if job["name"] == "Sign update manifests and publish")
+          steps = {step["name"]: step for step in deploy["steps"]}
+          for name in ("Publish update atomically", "Verify server and public download"):
+              assert steps[name]["conclusion"] == "skipped", f"Unexpected online publication step: {name}"
+          print("Exact source quality, TV, signed APK smoke and package-only gates passed.")
           PY
+      - name: Download final signed package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          run-id: 41235333066
+          name: Yfuse-1.8.4
+          github-token: ${{ github.token }}
+          path: package
+      - name: Download verified source build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          run-id: 41235333066
+          name: android-release-build-1
+          github-token: ${{ github.token }}
+          path: unsigned
+      - name: Download passed full device regression evidence
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          run-id: 41235332889
+          name: instrumented-tests-api35-1f5555e08d3d65eb9536018358a3fc5a932f5223-2
+          github-token: ${{ github.token }}
+          path: device-tests
+      - name: Verify the actual APK and retain proof
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, struct, subprocess, zipfile
+          import xml.etree.ElementTree as ET
+          root = pathlib.Path(".")
+          def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
+          apks = list(pathlib.Path("package").rglob("*.apk"))
+          assert len(apks) == 1, f"Expected one final APK, found {len(apks)}"
+          apk = apks[0]
+          unsigned = pathlib.Path("unsigned/composeApp-release.apk")
+          assert unsigned.is_file(), "Missing unsigned build evidence"
+          assert sha(unsigned) == "ea79f99e769c40870f681736bca3a787dd4f9dc15d8045b3226929e0ad887bae", "Wrong source build"
+          sdk = pathlib.Path(os.environ["ANDROID_HOME"]) / "build-tools"
+          def tool(name):
+              candidates = [p / name for p in sdk.iterdir() if (p / name).is_file()]
+              assert candidates, f"Missing {name}"
+              return max(candidates, key=lambda p: tuple(int(n) for n in re.findall(r"\d+", p.parent.name)))
+          def run(name, *args):
+              return subprocess.check_output([str(tool(name)), *map(str, args)], text=True, stderr=subprocess.STDOUT)
+          badging = run("aapt", "dump", "badging", apk)
+          for value in ("package: name='com.yfuse'", "versionCode='336'", "versionName='1.8.4'"):
+              assert value in badging, f"Wrong APK metadata: {value}"
+          assert "application-debuggable" not in badging, "Release APK is debuggable"
+          signature = run("apksigner", "verify", "--verbose", "--print-certs", apk)
+          cert = "373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84"
+          digests = set(re.findall(r"certificate SHA-256 digest:\s*([0-9a-fA-F]+)", signature))
+          assert digests == {cert}, f"Wrong signing certificate: {digests}"
+          assert "Number of signers: 1" in signature
+          assert "Verified using v2 scheme (APK Signature Scheme v2): true" in signature
+          run("zipalign", "-c", "-v", "4", apk)
+          source = "1f5555e08d3d65eb9536018358a3fc5a932f5223"
+          with zipfile.ZipFile(apk) as final, zipfile.ZipFile(unsigned) as built:
+              assert final.testzip() is None and built.testzip() is None, "Corrupt ZIP"
+              def payload(z):
+                  return {n: hashlib.sha256(z.read(n)).hexdigest() for n in z.namelist()
+                          if not n.startswith("META-INF/") and not n.endswith("/")}
+              assert payload(final) == payload(built), "Signing changed the APK payload"
+              dex = {n: h for n, h in payload(final).items() if re.fullmatch(r"classes\d*\.dex", n)}
+              assert dex and any(source.encode() in final.read(n) for n in dex), "Wrong source SHA in DEX"
+              native = [n for n in final.namelist() if n.startswith("lib/") and n.endswith(".so")]
+              assert native and {n.split("/")[1] for n in native} == {"arm64-v8a"}, "Unexpected ABI"
+              native_sizes = {}
+              for name in ("libmdk.so", "libyfuse-mdk-jni.so", "libycore_demux.so"):
+                  path = "lib/arm64-v8a/" + name
+                  data = final.read(path)
+                  assert data[:6] == b"\x7fELF\x02\x01" and struct.unpack_from("<H", data, 18)[0] == 183, f"Invalid ARM64 runtime {name}"
+                  native_sizes[name] = len(data)
+          digest, size = sha(apk), apk.stat().st_size
+          assert digest == "b5e6614058133eba2f92fd57bc469c592cb1f9a4f69771b042d36e4e0db55682", "APK differs from the signed smoke input"
+          manifests = list(pathlib.Path("package").rglob("update*.json"))
+          assert len(manifests) == 2, "Missing update metadata"
+          for path in manifests:
+              manifest = json.loads(path.read_text())
+              assert manifest["versionCode"] == 336 and manifest["versionName"] == "1.8.4"
+              assert manifest["sha256"] == digest and manifest["size"] == size
+          out = pathlib.Path("verified")
+          out.mkdir()
+          target = out / "Yfuse-1.8.4-336-arm64-full.apk"
+          target.write_bytes(apk.read_bytes())
+          totals = {key: 0 for key in ("tests", "failures", "errors", "skipped")}
+          xml_files = list(pathlib.Path("device-tests").rglob("TEST-*.xml"))
+          assert xml_files, "Missing full regression evidence"
+          settings_cases = []
+          for path in xml_files:
+              suite = ET.parse(path).getroot()
+              for key in totals:
+                  totals[key] += int(suite.get(key) or 0)
+              for case in suite.iter("testcase"):
+                  if "settings" in (case.get("classname") or "").lower():
+                      settings_cases.append(case.get("classname") + "." + case.get("name"))
+          assert totals == {"tests": 102, "failures": 0, "errors": 0, "skipped": 0}, totals
+          assert settings_cases, "Missing settings UI checks"
+          proof = {"package": "com.yfuse", "version_name": "1.8.4", "version_code": 336,
+                   "source_sha": source, "apk_sha256": digest, "apk_size_bytes": size,
+                   "certificate_sha256": cert, "signature_v2_valid": True, "debuggable": False,
+                   "abi": "arm64-v8a", "native_runtime_sizes": native_sizes,
+                   "dex_sha256": dex, "signed_payload_matches_build": True,
+                   "update_metadata_matches_apk": True,
+                   "package_only": True, "published_online": False,
+                   "source_run": 41235333066, "api35_regression": totals, "settings_ui_cases": settings_cases}
+          (out / "verification.json").write_text(json.dumps(proof, indent=2) + "\n")
+          print("VERIFIED_DELIVERY_JSON=" + json.dumps(proof))
+          PY
+      - name: Keep verified APK and proof for download
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: Yfuse-1.8.4-336-arm64-full-verified
+          path: verified/
+          retention-days: 30
+          compression-level: 0
+          if-no-files-found: error
