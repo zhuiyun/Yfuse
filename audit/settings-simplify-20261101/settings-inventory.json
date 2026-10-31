@@ -1,6 +1,6 @@
 {
-  "files": 13,
-  "callsites": 104,
+  "files": 18,
+  "callsites": 158,
   "controls": [
     {
       "path": "composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/SettingsControls.kt",
@@ -468,6 +468,11 @@
       "control": "SwitchRow(\"启用 Poof\", enabled, !saving, onChange = { enabled = it })"
     },
     {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvProductSettingsPages.kt",
+      "line": 32,
+      "control": "TvSettingRow("
+    },
+    {
       "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
       "line": 48,
       "control": "TvToggleRow("
@@ -484,6 +489,16 @@
     },
     {
       "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 94,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 111,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
       "line": 126,
       "control": "TvToggleRow("
     },
@@ -494,13 +509,128 @@
     },
     {
       "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 179,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 200,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 216,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 231,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 246,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
       "line": 263,
       "control": "TvToggleRow("
     },
     {
       "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
+      "line": 276,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvPlaybackSettingsScreens.kt",
       "line": 291,
       "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDanmakuWatchScreens.kt",
+      "line": 41,
+      "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDanmakuWatchScreens.kt",
+      "line": 56,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDanmakuWatchScreens.kt",
+      "line": 72,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDanmakuWatchScreens.kt",
+      "line": 88,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDanmakuWatchScreens.kt",
+      "line": 103,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDanmakuWatchScreens.kt",
+      "line": 118,
+      "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDanmakuWatchScreens.kt",
+      "line": 145,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDanmakuWatchScreens.kt",
+      "line": 167,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDanmakuWatchScreens.kt",
+      "line": 226,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDanmakuWatchScreens.kt",
+      "line": 240,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDanmakuWatchScreens.kt",
+      "line": 255,
+      "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvDanmakuWatchScreens.kt",
+      "line": 268,
+      "control": "TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAppearanceScreens.kt",
+      "line": 52,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAppearanceScreens.kt",
+      "line": 71,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAppearanceScreens.kt",
+      "line": 88,
+      "control": "TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAppearanceScreens.kt",
+      "line": 108,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAppearanceScreens.kt",
+      "line": 130,
+      "control": "TvChoiceRow("
     },
     {
       "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAppearanceScreens.kt",
@@ -518,9 +648,149 @@
       "control": "TvToggleRow("
     },
     {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountSessionsPage.kt",
+      "line": 65,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountSessionsPage.kt",
+      "line": 118,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountSessionsPage.kt",
+      "line": 135,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScaffold.kt",
+      "line": 144,
+      "control": "internal fun TvSettingRow("
+    },
+    {
       "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScaffold.kt",
       "line": 221,
       "control": "internal fun TvToggleRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScaffold.kt",
+      "line": 235,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScaffold.kt",
+      "line": 259,
+      "control": "internal fun <T> TvChoiceRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScaffold.kt",
+      "line": 275,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountScreens.kt",
+      "line": 94,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountScreens.kt",
+      "line": 139,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountScreens.kt",
+      "line": 180,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountScreens.kt",
+      "line": 207,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountScreens.kt",
+      "line": 233,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountScreens.kt",
+      "line": 261,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvAccountScreens.kt",
+      "line": 274,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "line": 304,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "line": 338,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "line": 368,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "line": 382,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "line": 399,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "line": 420,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "line": 433,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "line": 446,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "line": 460,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "line": 476,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "line": 489,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "line": 502,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "line": 515,
+      "control": "TvSettingRow("
+    },
+    {
+      "path": "tvApp/src/androidMain/kotlin/com/yfuse/tv/ui/TvSettingsScreen.kt",
+      "line": 532,
+      "control": "TvSettingRow("
     }
   ]
 }

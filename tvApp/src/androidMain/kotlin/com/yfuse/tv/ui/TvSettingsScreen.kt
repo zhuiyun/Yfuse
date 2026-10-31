@@ -563,7 +563,7 @@ private fun TvSettingsRootPage(
  * Matches a typed query against the settings pages.
  *
  * Keywords carry the words a viewer is likely to type but which do not appear in a page title:
- * someone looking for subtitles types 字幕, and the page that owns it is called 弹幕.
+ * someone looking for blocked words types 屏蔽, and the page that owns it is called 弹幕.
  */
 private val tvSettingsKeywords: Map<TvSettingsPage, String> =
     mapOf(
