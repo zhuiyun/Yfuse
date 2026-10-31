@@ -1,0 +1,38 @@
+name: Inspect settings device report
+on:
+  push:
+    branches: [diagnostics/settings-184-report]
+    paths: [.github/workflows/inspect-settings-report.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Download the failed API 35 report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          run-id: 41235332889
+          name: instrumented-tests-api35-1f5555e08d3d65eb9536018358a3fc5a932f5223-1
+          github-token: ${{ github.token }}
+          path: report
+      - name: Print exact failure evidence
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib, json, xml.etree.ElementTree as ET
+          files = list(pathlib.Path("report").rglob("TEST-*.xml"))
+          assert files, "Missing JUnit evidence"
+          totals = {k: 0 for k in ("tests", "failures", "errors", "skipped")}
+          for path in files:
+              root = ET.parse(path).getroot()
+              for key in totals:
+                  totals[key] += int(root.get(key) or 0)
+              for case in root.iter("testcase"):
+                  errors = [item for item in case if item.tag in ("failure", "error")]
+                  if errors:
+                      print("FAILED_CASE_JSON=" + json.dumps({"class": case.get("classname"), "name": case.get("name"), "errors": [item.text for item in errors]}, ensure_ascii=False))
+          print("TOTALS_JSON=" + json.dumps(totals))
+          PY
