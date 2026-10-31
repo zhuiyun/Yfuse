@@ -81,32 +81,28 @@ class AndroidAdaptiveDashInstrumentedTest {
                                     assertTrue(player.setVideoOutput(output))
                                     player.prepare()
                                     player.play()
-                                    awaitVideo(player, "first-period") { it.positionMs < 10_000L }
-                                    assertDimensions(player, firstFixture)
+                                    awaitVideo(player, "first-period", firstFixture) { it.positionMs < 10_000L }
                                     assertEquals(20_000L, player.state.value.durationMs)
                                     assertTrue(origin.opens("/first/init.mp4") > 0)
 
-                                    freshVideo(player, "global-seek-second", 12_300L)
-                                    assertDimensions(player, secondFixture)
+                                    freshVideo(player, "global-seek-second", 12_300L, secondFixture)
                                     assertTrue(origin.opens("/second/init.mp4") > 0)
                                     assertEquals(20_000L, player.state.value.durationMs)
 
                                     // Leave enough media time to observe the first Period's new decoder format
                                     // before testing its automatic transition. A 1.2-second window races
                                     // translated codecs on a loaded CI emulator.
-                                    freshVideo(player, "global-seek-first", 1_000L)
-                                    assertDimensions(player, firstFixture)
                                     val secondBefore = origin.opens("/second/init.mp4")
-                                    awaitVideo(player, "automatic-period-transition") { state ->
+                                    freshVideo(player, "global-seek-first", 1_000L, firstFixture)
+                                    awaitVideo(player, "automatic-period-transition", secondFixture) { state ->
                                         state.positionMs in 10_000L..15_000L &&
                                             origin.opens("/second/init.mp4") > secondBefore
                                     }
                                     assertEquals(0, player.state.value.currentIndex)
-                                    assertDimensions(player, secondFixture)
                                     assertEquals(1, player.state.value.itemCount)
                                     assertEquals(20_000L, player.state.value.durationMs)
 
-                                    freshVideo(player, "global-seek-final", 19_000L)
+                                    freshVideo(player, "global-seek-final", 19_000L, secondFixture)
                                     val ended = awaitState(player, "final-ended") { it.phase == YPlaybackPhase.Ended }
                                     assertTrue(
                                         "Presentation ended before the second Period: $ended",
@@ -129,18 +125,10 @@ class AndroidAdaptiveDashInstrumentedTest {
             }
         }
 
-    private suspend fun assertDimensions(
-        player: YPlayer,
+    private fun assertDimensions(
+        state: YPlayerState,
         fixture: GeneratedDashTestMedia,
     ) {
-        // A seek can publish its new position before the replacement decoder's format arrives.
-        // Require the target format and verified picture together, within the existing step timeout.
-        val state =
-            awaitState(player, "decoded-frame-${fixture.width}x${fixture.height}") {
-                it.diagnostics.videoOutputVerified &&
-                    it.diagnostics.videoWidth == fixture.width &&
-                    it.diagnostics.videoHeight == fixture.height
-            }
         assertTrue(
             "Target dimensions did not use native decoding: $state",
             state.diagnostics.route != YPlaybackRoute.Legacy,
@@ -194,12 +182,13 @@ class AndroidAdaptiveDashInstrumentedTest {
         player: YPlayer,
         label: String,
         positionMs: Long,
+        fixture: GeneratedDashTestMedia,
     ) {
         val generation = player.state.value.diagnostics.outputEvidenceGeneration
         player.seekTo(positionMs)
         player.play()
         awaitState(player, "$label-landing") { it.positionMs in (positionMs - 100L)..(positionMs + 1_200L) }
-        awaitVideo(player, label) { state ->
+        awaitVideo(player, label, fixture) { state ->
             state.diagnostics.outputEvidenceGeneration > generation && state.positionMs >= positionMs - 100L
         }
     }
@@ -207,10 +196,20 @@ class AndroidAdaptiveDashInstrumentedTest {
     private suspend fun awaitVideo(
         player: YPlayer,
         label: String,
+        fixture: GeneratedDashTestMedia,
         predicate: (YPlayerState) -> Boolean,
     ) {
-        val state = awaitState(player, label) { it.diagnostics.videoOutputVerified && predicate(it) }
+        // A later read can already belong to the next Period. Bind dimensions, native output
+        // evidence and the requested timeline to one observed state, with the same timeout.
+        val state =
+            awaitState(player, "$label-${fixture.width}x${fixture.height}") {
+                it.diagnostics.videoOutputVerified &&
+                    it.diagnostics.videoWidth == fixture.width &&
+                    it.diagnostics.videoHeight == fixture.height &&
+                    predicate(it)
+            }
         assertTrue("$label did not use native decoding: $state", state.diagnostics.route != YPlaybackRoute.Legacy)
+        assertDimensions(state, fixture)
         progress("$label: position=${state.positionMs}, duration=${state.durationMs}, route=${state.diagnostics.route}")
     }
 

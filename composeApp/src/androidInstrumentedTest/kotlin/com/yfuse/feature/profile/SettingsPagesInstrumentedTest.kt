@@ -155,8 +155,12 @@ class SettingsPagesInstrumentedTest {
     }
 
     private fun click(label: String) {
-        await("Clickable $label") { clickableNode(label)?.isEnabled == true }
-        assertTrue(requireNotNull(clickableNode(label)).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        // Scrolling can replace an accessibility node between two lookups. Act on the same
+        // enabled snapshot; a stale node rejects the action and is looked up on the next poll.
+        await("Click $label") {
+            val node = clickableNode(label)
+            node?.isEnabled == true && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        }
         instrumentation.waitForIdleSync()
     }
 
