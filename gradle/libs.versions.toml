@@ -22,7 +22,7 @@ koin = "4.2.2"
 settings = "1.2.0"
 coil = "3.6.3"
 media3 = "1.9.0"
-palette = "1.0.0"
+palette = "1.1.0"
 turbine = "1.2.0"
 # Effective version: scripts/security-overrides.properties forces every BC artifact to this release.
 bouncycastle = "1.86"
