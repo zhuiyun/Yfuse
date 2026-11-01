@@ -106,7 +106,7 @@ subprojects {
         allVariants {
             withDependencies {
                 add("com.google.code.findbugs:jsr305:3.0.2")
-                add("org.checkerframework:checker-qual:3.43.0")
+                add("org.checkerframework:checker-qual:4.3.1")
             }
         }
     }
