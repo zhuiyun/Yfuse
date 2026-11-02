@@ -9,6 +9,7 @@ import com.yfuse.core.network.TmdbAccountAccess
 import com.yfuse.core.network.createDanmakuClient
 import com.yfuse.core.network.createEmbyClient
 import com.yfuse.core.network.createLanDiscovery
+import com.yfuse.core.network.createTheOtherDbClient
 import com.yfuse.core.network.createTmdbClient
 import com.yfuse.core.trakt.createTraktHttpClient
 import org.koin.core.module.Module
@@ -36,6 +37,7 @@ internal fun networkModule(appVersion: String): Module =
             )
         } onClose { it?.close() }
         single(named("danmaku-http")) { createDanmakuClient() } onClose { it?.close() }
+        single(named("theotherdb-http")) { createTheOtherDbClient() } onClose { it?.close() }
         // Own client (different host + bearer auth); qualified so the unqualified HttpClient
         // binding stays the Emby one. A signed-in account reads TMDB through the account server's
         // proxy with its own session, the same token source 一起看 and Trakt use.

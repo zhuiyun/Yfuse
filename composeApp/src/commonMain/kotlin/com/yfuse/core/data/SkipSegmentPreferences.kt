@@ -45,6 +45,9 @@ data class SkipTimes(
      * default in 设置. A 短剧 skipped automatically need not move the playhead in a film series.
      */
     val mode: SkipMode? = null,
+    /** Explicit zero disables this segment; false lets server/online markers fill the gap. */
+    val introOverridden: Boolean = false,
+    val creditsOverridden: Boolean = false,
 ) {
     /**
      * False once every boundary has been cleared, which is how an entry gets dropped.
@@ -59,7 +62,13 @@ data class SkipTimes(
                 introEndSeconds > 0L ||
                 creditsLeadSeconds > 0L ||
                 legacyCreditsStartSeconds > 0L ||
-                mode != null
+                mode != null ||
+                introOverridden ||
+                creditsOverridden
+
+    // Old snapshots have no override flags. Their positive boundaries remain authoritative.
+    val overridesIntro: Boolean get() = introOverridden || introStartSeconds > 0L || introEndSeconds > 0L
+    val overridesCredits: Boolean get() = creditsOverridden || hasCredits
 
     /** True once the intro describes a real interval, rather than half of one. */
     val hasIntro: Boolean
@@ -121,6 +130,7 @@ class SkipSegmentPreferences(
         /** The old two-state switch. Read once, to seed [KEY_MODE]. */
         const val KEY_AUTO_SKIP = "player.skip.auto"
         const val KEY_MODE = "player.skip.mode"
+        const val KEY_ONLINE = "player.skip.online"
 
         /** Longer than any plausible runtime, and a guard against a mistyped extra digit. */
         const val MAX_SECONDS = 10 * 60 * 60L
@@ -138,6 +148,70 @@ class SkipSegmentPreferences(
 
     private val _skipMode = MutableStateFlow(loadMode())
     val skipMode: StateFlow<SkipMode> = _skipMode.asStateFlow()
+
+    private val _onlineEnabled = MutableStateFlow(settings.getBoolean(KEY_ONLINE, true))
+    val onlineEnabled: StateFlow<Boolean> = _onlineEnabled.asStateFlow()
+
+    fun setOnlineEnabled(enabled: Boolean) {
+        _onlineEnabled.value = enabled
+        settings.putBoolean(KEY_ONLINE, enabled)
+    }
+
+    fun setIntro(
+        seriesId: String,
+        startSeconds: Long,
+        endSeconds: Long,
+        seriesName: String = "",
+    ) {
+        set(
+            seriesId,
+            (timesFor(seriesId) ?: SkipTimes(seriesName = seriesName)).copy(
+                introStartSeconds = startSeconds,
+                introEndSeconds = endSeconds,
+                introOverridden = true,
+            ),
+        )
+    }
+
+    fun setCredits(
+        seriesId: String,
+        leadSeconds: Long,
+        seriesName: String = "",
+    ) {
+        set(
+            seriesId,
+            (timesFor(seriesId) ?: SkipTimes(seriesName = seriesName)).copy(
+                creditsLeadSeconds = leadSeconds,
+                legacyCreditsStartSeconds = 0L,
+                creditsOverridden = true,
+            ),
+        )
+    }
+
+    /** Reset is distinct from saving zero: only reset allows automatic markers again. */
+    fun resetSegment(
+        seriesId: String,
+        type: PlaybackSegmentType,
+    ) {
+        val current = timesFor(seriesId) ?: return
+        set(
+            seriesId,
+            when (type) {
+                PlaybackSegmentType.Intro ->
+                    current.copy(
+                        introStartSeconds = 0L,
+                        introEndSeconds = 0L,
+                        introOverridden = false,
+                    )
+                PlaybackSegmentType.Credits ->
+                    current.copy(
+                        creditsLeadSeconds = 0L,
+                        legacyCreditsStartSeconds = 0L,
+                        creditsOverridden = false,
+                    )
+            },
+        )
+    }
 
     fun setSkipMode(mode: SkipMode) {
         _skipMode.value = mode
@@ -235,12 +309,16 @@ class SkipSegmentPreferences(
         /** Needed to place 片尾, which is stored as a distance back from this. */
         durationMs: Long,
     ): List<PlaybackSegment> {
-        val custom = customSegments(timesFor(seriesId), durationMs)
-        if (custom.isEmpty()) return serverSegments
+        val times = timesFor(seriesId)
+        val custom = customSegments(times, durationMs)
         // Replace rather than add: two competing 跳过片头 pills for one opening would be
         // worse than either alone. Each type is independent, so configuring only the intro
         // leaves the server's credits in place.
-        val overridden = custom.map { it.type }.toSet()
+        val overridden =
+            buildSet {
+                if (times?.overridesIntro == true) add(PlaybackSegmentType.Intro)
+                if (times?.overridesCredits == true) add(PlaybackSegmentType.Credits)
+            }
         return serverSegments.filterNot { it.type in overridden } + custom
     }
 

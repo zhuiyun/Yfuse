@@ -34,6 +34,7 @@ import com.yfuse.core.data.SeriesPlaybackPreference
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.SourcePreheatMode
+import com.yfuse.core.data.TheOtherDbRepository
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.logging.AppLog
@@ -43,6 +44,7 @@ import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.ShortDramaMode
+import com.yfuse.core.model.mergeOnlineSkipSegments
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.network.playbackNetworkClasses
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
@@ -134,6 +136,7 @@ internal fun PlayerRoot(
     danmakuPreferences: DanmakuPreferences,
     danmakuRepository: DanmakuRepository,
     skipSegmentPreferences: SkipSegmentPreferences,
+    theOtherDbRepository: TheOtherDbRepository,
     /** Ticks on every volume key press; drives the player's own volume slider. */
     volumeKeyPresses: StateFlow<Long>,
     customUserAgent: String,
@@ -1058,6 +1061,9 @@ internal fun PlayerRoot(
                 mediaSegmentCache = mediaSegmentCache + (key to segments)
             }
         }
+        val onlineEnabled by skipSegmentPreferences.onlineEnabled.collectAsState()
+        val onlineMarkers =
+            rememberOnlineSkipMarkers(currentItem, state.durationMs, onlineEnabled, theOtherDbRepository)
         val skip =
             rememberPlayerSkipController(
                 currentItem = currentItem?.withMediaSegments(mediaSegmentCache),
@@ -1065,12 +1071,19 @@ internal fun PlayerRoot(
                 preferences = skipSegmentPreferences,
                 playbackGate = playbackGate,
                 watchGuest = watchState.connected && !watchState.canControl,
+                online = onlineMarkers,
             )
         // 起播预热 governs the next episode too; a skipped intro moves where it will start.
         val sourcePreheat by playbackPreferences.sourcePreheat.collectAsState()
         val skipTimesBySeries by skipSegmentPreferences.bySeries.collectAsState()
         val skipMode by skipSegmentPreferences.skipMode.collectAsState()
-        val nextItem = items.getOrNull(state.currentIndex + 1)?.withMediaSegments(mediaSegmentCache)
+        val nextSource = items.getOrNull(state.currentIndex + 1)?.withMediaSegments(mediaSegmentCache)
+        val nextOnline =
+            rememberOnlineSkipMarkers(nextSource, nextSource?.durationMsHint ?: 0L, onlineEnabled, theOtherDbRepository)
+        val nextItem =
+            nextSource?.copy(
+                playbackSegments = mergeOnlineSkipSegments(nextSource.playbackSegments, nextOnline.segments),
+            )
         val nextIntroEndMs =
             remember(nextItem, skipMode, skipTimesBySeries) {
                 nextItemIntroEndMs(nextItem, skipMode, skipTimesBySeries, skipSegmentPreferences)

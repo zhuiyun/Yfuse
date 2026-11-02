@@ -110,6 +110,13 @@ data class SkipSegmentState(
      * 片尾, whichever applies — whatever [mode] is. 片尾接管下一集 starts here.
      */
     val credits: PlaybackSegment? = null,
+    val editorKey: String = "",
+    val onlineEnabled: Boolean = true,
+    val onlineStatus: String = "",
+    val introSource: String = "未设置",
+    val creditsSource: String = "未设置",
+    val introOverridden: Boolean = false,
+    val creditsOverridden: Boolean = false,
 ) {
     /** True once any boundary is set, including a half-entered intro. */
     val anySet: Boolean
@@ -121,6 +128,11 @@ data class SkipSegmentActions(
     /** Drops back to the manual pill rather than clearing the offer outright. */
     val onCancelAuto: () -> Unit = {},
     val onSetTimes: (Long, Long, Long) -> Unit = { _, _, _ -> },
+    val onSetIntro: (Long, Long) -> Unit = { _, _ -> },
+    val onSetCredits: (Long) -> Unit = {},
+    val onResetIntro: () -> Unit = {},
+    val onResetCredits: () -> Unit = {},
+    val onSetOnlineEnabled: (Boolean) -> Unit = {},
     val onSelectMode: (SkipMode) -> Unit = {},
     /** Back to where an automatic skip that did not count down left from. */
     val onUndoSkip: () -> Unit = {},
