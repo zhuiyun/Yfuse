@@ -59,7 +59,7 @@ internal fun BoxScope.PlayerSettingsLayers(
     reduceMotion: Boolean,
     /** 没听清 steps aside for a pick of the viewer's own, putting nothing back. */
     onEndSubtitlePeek: () -> Unit,
-) {
+) = PlayerOverlayTypography {
     val state by controlState
     LaunchedEffect(transport.speedUnavailableReason) {
         if (transport.speedUnavailableReason != null && chrome.quickPopup == QuickPopup.Speed) {
@@ -279,7 +279,7 @@ internal fun BoxScope.PlayerWatchLayers(
     /** Closes the chat with what has been read; stable for the life of the panel. */
     closeWatchChat: () -> Unit,
     hintProgress: State<Float>,
-) {
+) = PlayerOverlayTypography {
     if (chrome.watchDialogOpen) {
         WatchTogetherDialog(
             endpoint = watch.endpoint,
@@ -376,7 +376,7 @@ internal fun BoxScope.PlayerSheetLayers(
     danmakuActions: DanmakuPanelActions,
     /** A remote drives the player: the strip takes focus on the episode playing as it opens. */
     takeFocus: Boolean = false,
-) {
+) = PlayerOverlayTypography {
     val state by controlState
     ChromeVisibility(
         visible = chrome.drawerOpen,

@@ -865,7 +865,7 @@ private fun RefinedBottomBarContent(
                 ) {
                     transport()
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(if (spec.labels) 8.dp else 5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(if (spec.labels) 6.dp else 3.dp),
                         verticalAlignment = if (spec.labels) Alignment.Top else Alignment.CenterVertically,
                     ) { keys(spec) }
                 }
@@ -888,11 +888,9 @@ private const val BAR_KEY_COUNT = 7
 private val BarTransportWidth = 250.dp
 
 /**
- * The bar keys' size for a bar [width] wide. A 12 dp glyph in a 26 dp ring was legible to nobody
- * at arm's length: keys now take an 18 dp glyph in a 32 dp ring, and 20 in 36 under 大号文字. A
- * window too narrow for that - a small phone held sideways, an upright one under 大号文字 - steps
- * down a size at a time rather than pushing a key off the row. A landscape bar with room to spare
- * names each key underneath.
+ * Compact secondary actions: 16 dp glyphs in 28 dp rings, with a larger option under 大号文字.
+ * CircleControl keeps its separate 48 dp touch target. A landscape bar with room to spare names
+ * each key underneath; television chrome still applies its own minimum ring size.
  */
 internal fun barKeySpec(
     width: Dp,
@@ -901,16 +899,15 @@ internal fun barKeySpec(
 ): BarKeySpec {
     fun needed(ring: Dp): Dp {
         val keys = (ring + ControlTouchPadding * 2) * BAR_KEY_COUNT
-        return if (compact) keys else BarTransportWidth + keys + 5.dp * (BAR_KEY_COUNT - 1)
+        return if (compact) keys else BarTransportWidth + keys + 3.dp * (BAR_KEY_COUNT - 1)
     }
     val sizes =
         listOfNotNull(
-            BarKeySpec(36.dp, 20.dp).takeIf { largeText },
-            BarKeySpec(32.dp, 18.dp),
-            BarKeySpec(30.dp, 16.dp),
-            BarKeySpec(28.dp, 14.dp),
+            BarKeySpec(30.dp, 18.dp).takeIf { largeText },
+            BarKeySpec(28.dp, 16.dp),
+            BarKeySpec(26.dp, 14.dp),
         )
-    val fitting = sizes.firstOrNull { needed(it.ring) <= width } ?: BarKeySpec(26.dp, 12.dp)
+    val fitting = sizes.firstOrNull { needed(it.ring) <= width } ?: BarKeySpec(24.dp, 12.dp)
     // Labels are wider than their keys (片头片尾 is four characters): only a wide sideways bar.
     val labels = !compact && width >= needed(fitting.ring) + BarLabelAllowance
     return fitting.copy(labels = labels)
