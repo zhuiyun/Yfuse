@@ -7,6 +7,17 @@ import kotlin.test.assertNull
 /** Regression coverage for the editable intro/credits clock fields. */
 class SkipTimeInputTest {
     @Test
+    fun credits_input_is_seconds_remaining_not_an_absolute_timestamp() {
+        assertEquals(90L, parseCreditsLeadInput("90", 2_700L))
+        assertEquals(90L, parseCreditsLeadInput("90", 0L))
+        assertEquals(0L, parseCreditsLeadInput("0", 2_700L))
+        assertNull(parseCreditsLeadInput("43:30", 2_700L))
+        assertNull(parseCreditsLeadInput("2700", 2_700L))
+        assertNull(parseCreditsLeadInput("-1", 2_700L))
+        assertNull(parseCreditsLeadInput("36001", 0L))
+    }
+
+    @Test
     fun parser_acceptsSecondsMinuteAndHourClocks() {
         assertEquals(75L, parseSkipTimestamp("75"))
         assertEquals(75L, parseSkipTimestamp("1:15"))

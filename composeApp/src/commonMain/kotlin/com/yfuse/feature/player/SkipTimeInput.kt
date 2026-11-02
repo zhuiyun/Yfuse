@@ -38,7 +38,7 @@ internal fun formatSkipTimestamp(seconds: Long): String {
     }
 }
 
-/** Stored credits are a distance from the end even though the editor shows a normal timestamp. */
+/** Converts a captured playback position to the end-relative credits setting. */
 internal fun creditsLeadSecondsFromStart(
     creditsStartSeconds: Long,
     durationSeconds: Long,
@@ -57,4 +57,13 @@ internal fun creditsStartSecondsFromLead(
         return null
     }
     return durationSeconds - creditsLeadSeconds
+}
+
+/** The credits field is a duration in seconds, never an absolute timestamp. */
+internal fun parseCreditsLeadInput(
+    input: String,
+    durationSeconds: Long,
+): Long? {
+    val lead = input.trim().ifEmpty { "0" }.toLongOrNull() ?: return null
+    return lead.takeIf { it in 0L..36_000L && (it == 0L || durationSeconds <= 0L || it < durationSeconds) }
 }

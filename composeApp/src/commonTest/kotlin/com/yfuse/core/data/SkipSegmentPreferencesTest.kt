@@ -9,6 +9,35 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SkipSegmentPreferencesTest {
+    @Test
+    fun explicit_zero_survives_restart_blocks_automatic_data_and_can_be_reset_independently() {
+        val settings = MapSettings()
+        val prefs = SkipSegmentPreferences(settings)
+        val intro = PlaybackSegment(PlaybackSegmentType.Intro, 0, 90_000)
+        val credits = PlaybackSegment(PlaybackSegmentType.Credits, 2_580_000, null)
+        prefs.setIntro("series", 0, 0)
+        assertEquals(
+            listOf(credits),
+            SkipSegmentPreferences(settings).applyTo("series", listOf(intro, credits), 2_700_000),
+        )
+        prefs.setCredits("series", 0)
+        assertTrue(prefs.applyTo("series", listOf(intro, credits), 2_700_000).isEmpty())
+        prefs.resetSegment("series", PlaybackSegmentType.Intro)
+        assertEquals(listOf(intro), prefs.applyTo("series", listOf(intro, credits), 2_700_000))
+    }
+
+    @Test
+    fun editing_intro_does_not_capture_automatic_credits_as_manual_values() {
+        val prefs = SkipSegmentPreferences(MapSettings())
+        prefs.setIntro("series", 12, 102)
+        assertEquals(false, prefs.timesFor("series")?.overridesCredits)
+        prefs.setCredits("series", 120)
+        assertEquals(12L, prefs.timesFor("series")?.introStartSeconds)
+        assertEquals(102L, prefs.timesFor("series")?.introEndSeconds)
+        prefs.setOnlineEnabled(false)
+        assertEquals(120L, prefs.timesFor("series")?.creditsLeadSeconds)
+    }
+
     private val fortyFiveMinutes = 45 * 60 * 1000L
 
     private fun credits(segments: List<PlaybackSegment>) =

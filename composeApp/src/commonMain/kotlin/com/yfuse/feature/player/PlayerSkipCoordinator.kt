@@ -17,6 +17,7 @@ import com.yfuse.core.data.SkipTimes
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlaybackSegmentType
 import com.yfuse.core.model.isShortRuntime
+import com.yfuse.core.model.mergeOnlineSkipSegments
 import kotlinx.coroutines.delay
 
 /** Long enough to cancel an automatic skip without making an accepted skip feel sluggish. */
@@ -127,10 +128,12 @@ internal fun rememberPlayerSkipController(
     preferences: SkipSegmentPreferences,
     playbackGate: WatchGatedPlayback,
     watchGuest: Boolean,
+    online: OnlineSkipMarkers = OnlineSkipMarkers(),
 ): PlayerSkipController {
     val playbackState by remember(playback) { derivedStateOf { playback.value.runtimeProjection() } }
     val timesBySeries by preferences.bySeries.collectAsState()
     val defaultMode by preferences.skipMode.collectAsState()
+    val onlineEnabled by preferences.onlineEnabled.collectAsState()
     val legacySeriesId = currentItem?.seriesId?.takeIf(::skipSegmentsAvailableFor)
     // A film has no series, so it keeps its own key: the server's credits marker and a
     // remembered 片尾 still apply, they just never spill over to another title.
@@ -170,13 +173,13 @@ internal fun rememberPlayerSkipController(
     }
     // Credits are stored as a distance back from the end, so duration participates in the key.
     val segments =
-        remember(currentItem, skipSeriesKey, timesBySeries, playbackState.durationMs) {
+        remember(currentItem, skipSeriesKey, timesBySeries, playbackState.durationMs, online.segments) {
             if (skipSeriesKey == null) {
                 emptyList()
             } else {
                 preferences.applyTo(
-                    seriesId = skipSeriesKey,
-                    serverSegments = currentItem?.playbackSegments.orEmpty(),
+                    seriesId = if (storedTimes == null) legacyEntry?.first ?: skipSeriesKey else skipSeriesKey,
+                    serverSegments = mergeOnlineSkipSegments(currentItem?.playbackSegments.orEmpty(), online.segments),
                     durationMs = playbackState.durationMs,
                 )
             }
@@ -202,23 +205,32 @@ internal fun rememberPlayerSkipController(
     }
 
     // An occurrence stays settled after a cancel or skip, even if the viewer rewinds into it.
-    val settled = remember { mutableStateOf<Pair<String, PlaybackSegmentType>?>(null) }
-    var creditsEnteredFromPlayback by remember(currentItem?.id) { mutableStateOf(false) }
-    var creditsPreloadCancelled by remember(currentItem?.id) { mutableStateOf(false) }
-    var lastOutsideCreditsPositionMs by remember(currentItem?.id) { mutableStateOf<Long?>(null) }
+    val sessionKey = currentItem?.let { listOf(it.serverId, it.id, it.versionId, it.url).joinToString("\u0000") }
+    val settled = remember(sessionKey) { mutableStateOf(emptySet<Pair<String, PlaybackSegmentType>>()) }
+    var creditsEnteredFromPlayback by remember(sessionKey) { mutableStateOf(false) }
+    var creditsPreloadCancelled by remember(sessionKey) { mutableStateOf(false) }
+    var lastOutsideCreditsPositionMs by remember(sessionKey) { mutableStateOf<Long?>(null) }
+    var previousPositionMs by remember(sessionKey) { mutableStateOf<Long?>(null) }
     var countdownSeconds by remember { mutableStateOf<Int?>(null) }
-    var skipUndo by remember(currentItem?.id) { mutableStateOf<SkipUndo?>(null) }
+    var skipUndo by remember(sessionKey) { mutableStateOf<SkipUndo?>(null) }
     LaunchedEffect(skipUndo) {
         if (skipUndo == null) return@LaunchedEffect
         delay(SKIP_UNDO_WINDOW_MS)
         skipUndo = null
     }
-    val occurrence = activeSegment?.let { segment -> currentItem?.id?.let { it to segment.type } }
-    LaunchedEffect(currentItem?.id, segments, playback) {
+    val occurrence = activeSegment?.let { segment -> sessionKey?.let { it to segment.type } }
+    LaunchedEffect(sessionKey, segments, playback) {
         snapshotFlow { playback.value }.collect { current ->
             if (currentItem != null) {
                 val active = segments.firstOrNull { it.contains(current.positionMs, current.durationMs) }
                 val ready = current.playing && !current.buffering
+                if (active != null &&
+                    sessionKey != null &&
+                    previousPositionMs?.let { current.positionMs < it - 1_000L } == true
+                ) {
+                    settled.value = settled.value + (sessionKey to active.type)
+                }
+                previousPositionMs = current.positionMs
                 if (observedForwardPlaybackOutsideCredits(
                         previousPositionMs = lastOutsideCreditsPositionMs,
                         positionMs = current.positionMs,
@@ -238,7 +250,7 @@ internal fun rememberPlayerSkipController(
     }
 
     val playbackReady = playbackState.playing && !playbackState.buffering
-    var armedOccurrence by remember(currentItem?.id) {
+    var armedOccurrence by remember(sessionKey) {
         mutableStateOf<Pair<String, PlaybackSegmentType>?>(null)
     }
     val latestOccurrence by rememberUpdatedState(occurrence)
@@ -263,7 +275,7 @@ internal fun rememberPlayerSkipController(
             occurrence == null ||
             mode != SkipMode.Auto ||
             watchGuest ||
-            occurrence == settled.value
+            occurrence in settled.value
         ) {
             armedOccurrence = null
             countdownSeconds = null
@@ -294,7 +306,7 @@ internal fun rememberPlayerSkipController(
         val now = playback.value
         if (skipsWithoutCountdown(reached, now.positionMs, now.durationMs)) {
             countdownSeconds = null
-            settled.value = armed
+            settled.value = settled.value + armed
             if (armedOccurrence == armed) armedOccurrence = null
             skipUndo =
                 SkipUndo(
@@ -311,7 +323,7 @@ internal fun rememberPlayerSkipController(
                 latestOccurrence != armed ||
                 latestMode != SkipMode.Auto ||
                 latestWatchGuest ||
-                settled.value == armed
+                armed in settled.value
             ) {
                 countdownSeconds = null
                 if (armedOccurrence == armed) armedOccurrence = null
@@ -332,7 +344,7 @@ internal fun rememberPlayerSkipController(
             }
         }
         countdownSeconds = null
-        settled.value = armed
+        settled.value = settled.value + armed
         if (armedOccurrence == armed) armedOccurrence = null
         latestSkipSegment()
     }
@@ -359,17 +371,58 @@ internal fun rememberPlayerSkipController(
                     skipSeriesKey?.let {
                         currentItem?.seriesName?.ifBlank { null } ?: "本剧"
                     },
-                introStartSeconds = times?.introStartSeconds ?: 0L,
-                introEndSeconds = times?.introEndSeconds ?: 0L,
-                creditsLeadSeconds = times?.effectiveCreditsLeadSeconds(playbackState.durationMs) ?: 0L,
+                introStartSeconds =
+                    if (times?.overridesIntro == true) {
+                        times.introStartSeconds
+                    } else {
+                        (segments.firstOrNull { it.type == PlaybackSegmentType.Intro }?.startMs ?: 0L) / 1_000L
+                    },
+                introEndSeconds =
+                    if (times?.overridesIntro == true) {
+                        times.introEndSeconds
+                    } else {
+                        (segments.firstOrNull { it.type == PlaybackSegmentType.Intro }?.endMs ?: 0L) / 1_000L
+                    },
+                creditsLeadSeconds =
+                    if (times?.overridesCredits ==
+                        true
+                    ) {
+                        times.effectiveCreditsLeadSeconds(playbackState.durationMs)
+                    } else {
+                        segments
+                            .firstOrNull { it.type == PlaybackSegmentType.Credits }
+                            ?.let { ((playbackState.durationMs - it.startMs) / 1_000L).coerceAtLeast(0L) } ?: 0L
+                    },
                 mode = mode,
                 credits = creditsSegment(segments, playbackState.durationMs),
+                editorKey = sessionKey.orEmpty(),
+                onlineEnabled = onlineEnabled,
+                onlineStatus = online.status,
+                introOverridden = times?.overridesIntro == true,
+                creditsOverridden = times?.overridesCredits == true,
+                introSource =
+                    skipMarkerSource(
+                        times?.overridesIntro == true,
+                        currentItem?.playbackSegments.orEmpty(),
+                        online.segments,
+                        PlaybackSegmentType.Intro,
+                    ),
+                creditsSource =
+                    skipMarkerSource(
+                        times?.overridesCredits == true,
+                        currentItem?.playbackSegments.orEmpty(),
+                        online.segments,
+                        PlaybackSegmentType.Credits,
+                    ),
             ),
         actions =
             SkipSegmentActions(
-                onSkip = skipSegment,
+                onSkip = {
+                    occurrence?.let { settled.value = settled.value + it }
+                    skipSegment()
+                },
                 onCancelAuto = {
-                    settled.value = occurrence
+                    occurrence?.let { settled.value = settled.value + it }
                     if (occurrence?.second == PlaybackSegmentType.Credits) creditsPreloadCancelled = true
                 },
                 onSetTimes = { introStart, introEnd, creditsLead ->
@@ -385,11 +438,25 @@ internal fun rememberPlayerSkipController(
                                     seriesName = currentItem?.seriesName.orEmpty(),
                                     // New times keep the series' own 跳过方式.
                                     mode = times?.mode,
+                                    introOverridden = true,
+                                    creditsOverridden = true,
                                 ),
                         )
                         legacyEntry?.first?.let(preferences::clear)
                     }
                 },
+                onSetIntro = {
+                        start,
+                        end,
+                    ->
+                    skipSeriesKey?.let { preferences.setIntro(it, start, end, currentItem?.seriesName.orEmpty()) }
+                },
+                onSetCredits = { lead ->
+                    skipSeriesKey?.let { preferences.setCredits(it, lead, currentItem?.seriesName.orEmpty()) }
+                },
+                onResetIntro = { skipSeriesKey?.let { preferences.resetSegment(it, PlaybackSegmentType.Intro) } },
+                onResetCredits = { skipSeriesKey?.let { preferences.resetSegment(it, PlaybackSegmentType.Credits) } },
+                onSetOnlineEnabled = preferences::setOnlineEnabled,
                 // The panel holds this series' times, and its 跳过方式 is kept with them; a film
                 // or an entry without a series changes the default.
                 onSelectMode = { selected ->
@@ -410,6 +477,19 @@ internal fun rememberPlayerSkipController(
     )
 }
 
+private fun skipMarkerSource(
+    overridden: Boolean,
+    server: List<PlaybackSegment>,
+    online: List<PlaybackSegment>,
+    type: PlaybackSegmentType,
+): String =
+    when {
+        overridden -> "自定义"
+        server.any { it.type == type } -> "媒体服务器"
+        online.any { it.type == type } -> "TheOtherDB"
+        else -> "未设置"
+    }
+
 /**
  * Where [next]'s picture will be once its intro is skipped, or null when nothing will be skipped.
  * Uses the same series keys and server/custom precedence as the on-screen controls, so the warmed
@@ -422,7 +502,7 @@ internal fun nextItemIntroEndMs(
     preferences: SkipSegmentPreferences,
 ): Long? {
     if (next == null) return null
-    val seriesId = next.seriesId?.takeIf(::skipSegmentsAvailableFor) ?: return null
+    val seriesId = (next.seriesId ?: next.seriesKey)?.takeIf(::skipSegmentsAvailableFor) ?: return null
     val candidates =
         listOfNotNull(
             next.seriesKey,

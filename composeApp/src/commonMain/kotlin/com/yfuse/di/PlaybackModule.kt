@@ -7,7 +7,9 @@ import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SkipSegmentPreferences
+import com.yfuse.core.data.TheOtherDbRepository
 import com.yfuse.core.data.UserAgentPreferences
+import com.yfuse.core.network.TheOtherDbApi
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.offline.createOfflineMediaManager
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
@@ -34,6 +36,8 @@ internal fun playbackModule(appVersion: String): Module =
     module {
         single { PlaybackPreferences(get()) }
         single { SkipSegmentPreferences(get()) }
+        single { TheOtherDbApi(get(named("theotherdb-http"))) }
+        single { TheOtherDbRepository(get(), get<TheOtherDbApi>()::versions) }
         single { DanmakuPreferences(get()) }
         single { PlaybackFailoverRequest() }
         single { PlaybackTrackRequest() }

@@ -174,6 +174,7 @@ class AppModuleGraphTest {
             single(named("trakt-http")) { unreachableClient() } onClose { it?.close() }
             single { unreachableClient() } onClose { it?.close() }
             single(named("danmaku-http")) { unreachableClient() } onClose { it?.close() }
+            single(named("theotherdb-http")) { unreachableClient() } onClose { it?.close() }
             single(named("tmdb-http")) { unreachableClient() } onClose { it?.close() }
             single(named("stremio-http")) { unreachableClient() } onClose { it?.close() }
             single<SecureStore>(named("stremio-secrets")) { TestSecureStore() }
@@ -310,6 +311,9 @@ class AppModuleGraphTest {
                 "Singleton com.yfuse.core.data.WatchTogetherPreferences",
                 "Singleton com.yfuse.core.data.DanmakuPreferences",
                 "Singleton com.yfuse.core.data.SkipSegmentPreferences",
+                "Singleton io.ktor.client.HttpClient named(theotherdb-http) onClose",
+                "Singleton com.yfuse.core.network.TheOtherDbApi",
+                "Singleton com.yfuse.core.data.TheOtherDbRepository",
                 "Singleton com.yfuse.core.data.PlaybackTrackRequest",
                 "Singleton com.yfuse.core.data.LibraryCache",
                 "Singleton com.yfuse.core.data.TmdbHomeCache",

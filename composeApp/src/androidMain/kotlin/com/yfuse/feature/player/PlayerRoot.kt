@@ -32,15 +32,12 @@ import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SeriesPlaybackPreference
 import com.yfuse.core.data.ServerRegistry
-import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.SourcePreheatMode
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.PlaybackMethod
-import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.ShortDramaMode
 import com.yfuse.core.network.currentPlaybackNetworkClass
@@ -133,7 +130,7 @@ internal fun PlayerRoot(
     playbackSinkFor: (PlaybackReportingTarget) -> PlaybackEventSink?,
     danmakuPreferences: DanmakuPreferences,
     danmakuRepository: DanmakuRepository,
-    skipSegmentPreferences: SkipSegmentPreferences,
+    skipDependencies: PlayerSkipDependencies,
     /** Ticks on every volume key press; drives the player's own volume slider. */
     volumeKeyPresses: StateFlow<Long>,
     customUserAgent: String,
@@ -1038,39 +1035,30 @@ internal fun PlayerRoot(
                         id to (serverNames[id] ?: "服务器")
                     }
             }
-        // Jellyfin 10.10+ keeps intros, recaps and outros as media segments rather than chapter
-        // markers. They are read for what is playing and what plays next, so 跳过片头 and the warmed
-        // intro end of the next episode can use them; an item with segments of its own keeps those.
-        var mediaSegmentCache by remember { mutableStateOf(emptyMap<String, List<PlaybackSegment>>()) }
-        val segmentTargets =
-            listOfNotNull(currentItem, items.getOrNull(state.currentIndex + 1))
-                .filter { it.playbackSegments.isEmpty() && it.serverId != null }
-                .map { mediaSegmentKey(it.serverId, it.id) to it }
-        LaunchedEffect(segmentTargets.map { it.first }) {
-            segmentTargets.forEach { (key, item) ->
-                if (mediaSegmentCache.containsKey(key)) return@forEach
-                val server =
-                    item.serverId
-                        ?.let(remoteSubtitleRegistry::serverById)
-                        ?.takeIf { it.kind == MediaServerKind.Jellyfin }
-                        ?: return@forEach
-                val segments = remoteSubtitleRepository.mediaSegments(server, item.id).getOrDefault(emptyList())
-                mediaSegmentCache = mediaSegmentCache + (key to segments)
-            }
-        }
+        val skipSegmentPreferences = skipDependencies.preferences
+        val skipSources =
+            rememberPlayerSkipSources(
+                currentItem,
+                items.getOrNull(state.currentIndex + 1),
+                state.durationMs,
+                skipDependencies,
+                remoteSubtitleRegistry,
+                remoteSubtitleRepository,
+            )
         val skip =
             rememberPlayerSkipController(
-                currentItem = currentItem?.withMediaSegments(mediaSegmentCache),
+                currentItem = skipSources.current,
                 playback = livePlayback,
                 preferences = skipSegmentPreferences,
                 playbackGate = playbackGate,
                 watchGuest = watchState.connected && !watchState.canControl,
+                online = skipSources.online,
             )
         // 起播预热 governs the next episode too; a skipped intro moves where it will start.
         val sourcePreheat by playbackPreferences.sourcePreheat.collectAsState()
         val skipTimesBySeries by skipSegmentPreferences.bySeries.collectAsState()
         val skipMode by skipSegmentPreferences.skipMode.collectAsState()
-        val nextItem = items.getOrNull(state.currentIndex + 1)?.withMediaSegments(mediaSegmentCache)
+        val nextItem = skipSources.next
         val nextIntroEndMs =
             remember(nextItem, skipMode, skipTimesBySeries) {
                 nextItemIntroEndMs(nextItem, skipMode, skipTimesBySeries, skipSegmentPreferences)
