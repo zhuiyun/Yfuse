@@ -50,7 +50,7 @@ data class SkipTimes(
     val creditsOverridden: Boolean = false,
 ) {
     /**
-     * False once every boundary has been cleared, which is how an entry gets dropped.
+     * Explicit disabled overrides and a series mode remain configured even with zero times.
      *
      * Deliberately looser than [hasIntro]: the boundaries are set one at a time from the
      * player, so a 片头开始 with no 片头结束 yet is a half-finished entry, not an empty one.
@@ -116,7 +116,7 @@ enum class SkipMode(
  *
  * **Scoped per series, not globally.** An opening is a property of a show: every episode of
  * it shares one, and it stays put across seasons even when runtimes drift by a minute.
- * Films therefore have no entry and are never affected.
+ * The player gives films their own item key so their settings cannot affect another title.
  *
  * The intro is stored as absolute positions and the credits as a distance from the end,
  * because that is what stays constant for each — see [SkipTimes.creditsLeadSeconds].

@@ -51,8 +51,6 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PortraitVideoOrientation
 import com.yfuse.core.data.ServerRegistry
-import com.yfuse.core.data.SkipSegmentPreferences
-import com.yfuse.core.data.TheOtherDbRepository
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
@@ -797,8 +795,7 @@ class PlayerActivity :
                     )
                 }.getOrNull()
         val danmakuPreferences = koin.get<DanmakuPreferences>()
-        val skipSegmentPreferences = koin.get<SkipSegmentPreferences>()
-        val theOtherDbRepository = koin.get<TheOtherDbRepository>()
+        val skipDependencies = koin.playerSkipDependencies()
         val danmakuRepository = koin.get<DanmakuRepository>()
         val offlineMediaManager = koin.get<OfflineMediaManager>()
         fileSourceProgress =
@@ -925,8 +922,7 @@ class PlayerActivity :
                             inPictureInPicture = inPictureInPicture,
                             playbackSinkFor = playbackSinkFor,
                             danmakuPreferences = danmakuPreferences,
-                            skipSegmentPreferences = skipSegmentPreferences,
-                            theOtherDbRepository = theOtherDbRepository,
+                            skipDependencies = skipDependencies,
                             volumeKeyPresses = volumeKeyPresses,
                             danmakuRepository = danmakuRepository,
                             customUserAgent = customUserAgent,
