@@ -1,10 +1,10 @@
 {
-  "versionName": "1.8.2",
-  "versionCode": 334,
+  "versionName": "1.8.5",
+  "versionCode": 337,
   "scope": "package-only",
   "mdkArtifactSha256": "87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba",
   "confirmed": true,
-  "confirmedAt": "2026-10-30T10:21:58.037720+00:00",
+  "confirmedAt": "2026-11-02",
   "confirmedBy": "release owner",
-  "confirmationBasis": "Release owner requested a production-signed package after the breakout and home recommendation changes were merged and uploaded. Standing full-package MDK approval applies to the unchanged pinned SDK and package-only distribution scope."
+  "confirmationBasis": "User requested merging PR #265 to master and signed packaging. Standing approval covers unchanged pinned MDK for full ARM64 package-only delivery."
 }

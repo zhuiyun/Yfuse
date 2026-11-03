@@ -34,7 +34,7 @@ internal fun DataAndDiagnosticsScreen(
     onClearVideoCache: () -> Unit,
 ) {
     SettingsPage(
-        title = "高级设置",
+        title = "数据与诊断",
         subtitle = "网络兼容、迁移与问题排查",
         onBack = onBack,
     ) {

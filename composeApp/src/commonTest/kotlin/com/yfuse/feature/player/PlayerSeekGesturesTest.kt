@@ -10,6 +10,23 @@ class PlayerSeekGesturesTest {
     private val burst = DoubleTapSeekBurst(nowMs = { now })
 
     @Test
+    fun swipe_is_reversible_even_after_hitting_the_timeline_boundary() {
+        assertEquals(120_000L, pictureSwipeTarget(100_000L, 900f, 900, 120_000L))
+        assertEquals(100_000L, pictureSwipeTarget(100_000L, 0f, 900, 120_000L))
+        assertEquals(55_000L, pictureSwipeTarget(100_000L, -450f, 900, 120_000L))
+        assertEquals(0L, pictureSwipeTarget(10_000L, -900f, 900, 120_000L))
+        assertEquals(10_000L, pictureSwipeTarget(10_000L, 0f, 900, 120_000L))
+    }
+
+    @Test
+    fun swipe_handles_unknown_duration_and_invalid_geometry_without_jumping() {
+        assertEquals(5_000L, pictureSwipeTarget(5_000L, Float.NaN, 900, 20_000L))
+        assertEquals(5_000L, pictureSwipeTarget(5_000L, 900f, 0, 20_000L))
+        assertEquals(5_000L, pictureSwipeTarget(5_000L, 900f, 900, 0L))
+        assertEquals(Long.MAX_VALUE, pictureSwipeTarget(Long.MAX_VALUE - 1L, 900f, 900, Long.MAX_VALUE))
+    }
+
+    @Test
     fun aDoubleTapStartsABurstOfOneStep() {
         assertEquals(10_000L, burst.add(direction = 1, stepMs = 10_000L, taps = 2))
         assertEquals(10_000L, burst.totalMs)

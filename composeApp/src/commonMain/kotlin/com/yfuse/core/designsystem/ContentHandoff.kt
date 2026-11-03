@@ -27,7 +27,10 @@ internal fun contentPhase(
 /** A phase handoff keeps one content tree and fixed host bounds; refreshes retain visible data. */
 @Composable
 internal fun Modifier.contentHandoff(phase: Any): Modifier {
-    val moving = LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
+    val moving =
+        LocalRouteVisible.current &&
+            !LocalRouteTransitionRunning.current &&
+            !LocalAccessibilityOptions.current.reduceMotion
     val calm = calmMotion()
     val committed = remember { arrayOf<Any>(phase) }
     val progress = remember(phase, moving) { Animatable(if (moving && committed[0] != phase) 0f else 1f) }

@@ -270,6 +270,20 @@ class PlaybackSyncStore(
         persistServerAppliesLocked()
     }
 
+    /** Release only the re-authenticated server; other servers keep their own retry deadlines. */
+    fun resumeServerAppliesForServer(serverId: String) =
+        synchronized(lock) {
+            var changed = false
+            serverApplies.indices.forEach { index ->
+                val task = serverApplies[index]
+                if (serverId in task.remainingServerIds && serverId in task.deferredUntilByServerId) {
+                    serverApplies[index] = task.copy(deferredUntilByServerId = task.deferredUntilByServerId - serverId)
+                    changed = true
+                }
+            }
+            if (changed) persistServerAppliesLocked()
+        }
+
     /** Persist a server-wide denial in one write, including tasks beyond the current drain batch. */
     fun deferServerAppliesForServer(
         serverId: String,

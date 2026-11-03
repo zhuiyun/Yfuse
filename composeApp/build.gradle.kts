@@ -804,7 +804,7 @@ val verifySourceSize by tasks.registering {
                 "src/commonMain/kotlin/com/yfuse/feature/home/HomeScreen.kt" to 1_996,
                 "src/commonMain/kotlin/com/yfuse/core/account/AccountRepository.kt" to 1_938,
                 "src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt" to 1_924,
-                "src/commonMain/kotlin/com/yfuse/core/data/AiringCalendarRepository.kt" to 1_811,
+                "src/commonMain/kotlin/com/yfuse/core/data/AiringCalendarRepository.kt" to 1_803,
                 "src/androidMain/kotlin/com/yfuse/core2/android/AndroidTransportMediaDataSource.kt" to 1_799,
                 "src/commonMain/kotlin/com/yfuse/core/data/PlexMediaServerAdapter.kt" to 1_798,
                 "src/commonMain/kotlin/com/yfuse/feature/search/SearchScreen.kt" to 1_785,

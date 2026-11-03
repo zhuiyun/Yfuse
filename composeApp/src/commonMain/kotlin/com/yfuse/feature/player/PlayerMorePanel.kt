@@ -48,11 +48,21 @@ import com.yfuse.core.designsystem.ThemeText as Text
 internal enum class AdvancedPage {
     Root,
     Playback,
+    Picture,
+    Gestures,
+    SleepTimer,
     Engine,
     Media,
     Bookmarks,
     Handoff,
 }
+
+internal val AdvancedPage.parentPage: AdvancedPage
+    get() =
+        when (this) {
+            AdvancedPage.Picture, AdvancedPage.Gestures, AdvancedPage.SleepTimer -> AdvancedPage.Playback
+            else -> AdvancedPage.Root
+        }
 
 /**
  * 更多 — the [AdvancedPage.Root] list and the page behind whichever row was opened.
@@ -282,39 +292,7 @@ internal fun MorePanel(
                         )
                     }
                 }
-                GroupLabel("Anime4K · YCore SDR 动漫")
                 val animePreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
-                val animeMode by animePreferences.anime4KMode.collectAsState()
-                val showFrameRate by animePreferences.showFrameRate.collectAsState()
-                Anime4KMode.entries.forEach { mode ->
-                    OptionRow(
-                        mode.label,
-                        animeMode == mode,
-                        onClick = { animePreferences.setAnime4KMode(mode) },
-                    )
-                }
-                Text(
-                    "下次播放生效；HDR 与杜比视界保留原始输出",
-                    style = AppTypography.caption.regular,
-                    color = Color.White.copy(alpha = 0.6f),
-                )
-                GroupLabel("画面")
-                PopupToggleHeader(
-                    label = "显示帧率",
-                    checked = showFrameRate,
-                    onToggle = { animePreferences.setShowFrameRate(!showFrameRate) },
-                )
-                Text(
-                    "显示页面绘制帧率及视频帧率",
-                    style = AppTypography.caption.regular,
-                    color = Color.White.copy(alpha = 0.6f),
-                )
-                // Stays open: the light is judged against the picture behind the panel.
-                PopupToggleHeader(
-                    label = "氛围光",
-                    checked = ambientLightEnabled,
-                    onToggle = onToggleAmbientLight,
-                )
                 // The same switch as 设置 → 播放; the episode playing follows it at once.
                 PopupToggleHeader(
                     label = "自动播放下一集",
@@ -370,6 +348,71 @@ internal fun MorePanel(
                         )
                     }
                 }
+                PopupDivider()
+                PopupMenuRow(
+                    icon = AppIcons.Movie,
+                    title = "画面设置",
+                    subtitle = "Anime4K、帧率与氛围光",
+                    onClick = { onAdvancedPage(AdvancedPage.Picture) },
+                )
+                PopupMenuRow(
+                    icon = AppIcons.Pause,
+                    title = "睡眠定时",
+                    subtitle = sleepTimer.selected.label,
+                    onClick = { onAdvancedPage(AdvancedPage.SleepTimer) },
+                )
+                if (!LocalTelevisionChrome.current) {
+                    PopupMenuRow(
+                        icon = AppIcons.Gesture,
+                        title = "手势设置",
+                        onClick = { onAdvancedPage(AdvancedPage.Gestures) },
+                    )
+                }
+            }
+
+            AdvancedPage.Picture -> {
+                PopupBackLabel("画面设置") { onAdvancedPage(AdvancedPage.Playback) }
+                GroupLabel("Anime4K · YCore SDR 动漫")
+                val animePreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
+                val animeMode by animePreferences.anime4KMode.collectAsState()
+                val showFrameRate by animePreferences.showFrameRate.collectAsState()
+                Anime4KMode.entries.forEach { mode ->
+                    OptionRow(
+                        mode.label,
+                        animeMode == mode,
+                        onClick = { animePreferences.setAnime4KMode(mode) },
+                    )
+                }
+                Text(
+                    "下次播放生效；HDR 与杜比视界保留原始输出",
+                    style = AppTypography.caption.regular,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
+                GroupLabel("画面")
+                PopupToggleHeader(
+                    label = "显示帧率",
+                    checked = showFrameRate,
+                    onToggle = { animePreferences.setShowFrameRate(!showFrameRate) },
+                )
+                Text(
+                    "显示页面绘制帧率及视频帧率",
+                    style = AppTypography.caption.regular,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
+                // Stays open: the light is judged against the picture behind the panel.
+                PopupToggleHeader(
+                    label = "氛围光",
+                    checked = ambientLightEnabled,
+                    onToggle = onToggleAmbientLight,
+                )
+            }
+            AdvancedPage.Gestures -> {
+                PopupBackLabel("手势设置") { onAdvancedPage(AdvancedPage.Playback) }
+                val preferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
+                PlayerGestureSettingsSection(preferences)
+            }
+            AdvancedPage.SleepTimer -> {
+                PopupBackLabel("睡眠定时") { onAdvancedPage(AdvancedPage.Playback) }
                 GroupLabel("睡眠定时")
                 SleepTimerOption.entries.forEach { option ->
                     OptionRow(
@@ -378,7 +421,6 @@ internal fun MorePanel(
                         onClick = { sleepTimerActions.onSelect(option) },
                     )
                 }
-                PlayerGestureSettingsSection(animePreferences)
             }
 
             AdvancedPage.Engine -> {
@@ -555,7 +597,7 @@ private fun AdvancedPageHost(
         contentKey = { it },
         transitionSpec = {
             advancedPageTransform(
-                popping = targetState == AdvancedPage.Root,
+                popping = targetState == initialState.parentPage,
                 reduceMotion = reduceMotion,
                 pushTravelPx = pushTravelPx,
                 popTravelPx = popTravelPx,

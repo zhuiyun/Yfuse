@@ -7,12 +7,12 @@ package com.yfuse.core.data
  * them: ten-second double taps, 临时倍速 on a held middle, brightness on the left, a double tap in
  * the middle to pause. One default changed deliberately, for the habit most viewers bring from every
  * other Chinese player: the lock opens with a tap rather than a long press ([unlockByLongPress]).
- * The two sides of the picture hold nothing; only the middle does.
+ * Holding anywhere on the picture temporarily boosts speed; the stored key is retained for compatibility.
  */
 data class PlayerGestureSettings(
     /** 双击步长: how far a double tap on either side moves, and J / L on a keyboard with it. */
     val doubleTapSeekSeconds: Int = DEFAULT_DOUBLE_TAP_SEEK_SECONDS,
-    /** 中间长按: whether holding the middle third plays faster for as long as it is held. */
+    /** 画面长按: whether holding any picture region plays faster for as long as it is held. */
     val centerHoldSpeedBoost: Boolean = true,
     /** 亮度与音量左右互换: volume down the left side of the picture and brightness down the right. */
     val swapBrightnessVolume: Boolean = false,

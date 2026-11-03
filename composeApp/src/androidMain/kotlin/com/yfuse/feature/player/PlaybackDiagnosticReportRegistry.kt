@@ -181,6 +181,9 @@ internal object PlaybackDiagnosticReportRegistry {
                     appendLine("rebuffer.total.ms=${diagnostics.rebufferDurationMs}")
                     appendLine("rebuffer.longest.ms=${diagnostics.longestRebufferMs}")
                     appendLine("buffered.ms=${diagnostics.bufferedDurationMs}")
+                    appendLine(
+                        "buffered.scope=playable-ahead; source.buffered.ms=source-queue-coverage; seek waits excluded from rebuffers",
+                    )
                     appendLine("audio.underruns=${evidence.audioUnderrunCount}")
                     appendLine("source.queue.bytes=${diagnostics.sourceQueueBytes}")
                     appendLine("source.buffered.ms=${diagnostics.sourceBufferedMs}")
@@ -226,10 +229,8 @@ internal object PlaybackDiagnosticReportRegistry {
                 state.playing,
                 state.buffering,
                 state.ended,
-                state.error
-                    ?.javaClass
-                    ?.simpleName
-                    .orEmpty(),
+                state.error.orEmpty(),
+                state.errorKind,
                 diagnostics.engine,
                 diagnostics.fallbackReason.orEmpty(),
                 diagnostics.effectiveVideoReadiness,
@@ -266,6 +267,16 @@ internal object PlaybackDiagnosticReportRegistry {
                                 else -> "paused"
                             },
                         )
+                        state.error?.let { failure ->
+                            append(" errorKind=")
+                            append(state.errorKind?.name ?: "Unknown")
+                            append(" errorDetail=")
+                            append(failure.replace('\n', ' ').take(240))
+                        }
+                        append(" bufferedMs=")
+                        append(diagnostics.bufferedDurationMs)
+                        append(" sourceBufferedMs=")
+                        append(diagnostics.sourceBufferedMs)
                         append(" engine=")
                         append(engineBindingLabel(diagnostics, selectedEngine, nativeOnly))
                         append(" video=")

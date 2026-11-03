@@ -33,16 +33,6 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** Local cache failures may degrade gracefully; a cancelled load must stop immediately. */
-private inline fun <T> calendarAttempt(block: () -> T): Result<T> =
-    try {
-        Result.success(block())
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (error: Throwable) {
-        Result.failure(error)
-    }
-
 /**
  * 追剧日历 — what is broadcasting, and what this library can do about it.
  *
@@ -966,12 +956,14 @@ class AiringCalendarRepository(
                                 }
                             }
                         }
-                        // Include queue time in the deadline. A known detail-page identity does
-                        // not have to wait for the background calendar's full-library scans.
+                        // Each server gets its full network budget after admission. Results are
+                        // streamed below, so slow/queued servers do not hide already resolved rows.
                         val result =
-                            withTimeoutOrNull(SERIES_LOOKUP_TIMEOUT_MS) {
-                                if (hint != null) lookup() else libraryStatusRequests.withPermit { lookup() }
-                            } ?: run {
+                            calendarLibraryLookup(
+                                permits = libraryStatusRequests.takeIf { hint == null },
+                                timeoutMs = SERIES_LOOKUP_TIMEOUT_MS,
+                                lookup = ::lookup,
+                            ) ?: run {
                                 // A queued request never contacted the server; it must not put a
                                 // healthy server into backoff or be reported as a network timeout.
                                 if (lookupStarted) libraryStatusCooldown.record(server, reachable = false)

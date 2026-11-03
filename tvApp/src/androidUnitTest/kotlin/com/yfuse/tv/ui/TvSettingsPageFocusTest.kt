@@ -16,6 +16,13 @@ import kotlin.test.assertEquals
 
 class TvSettingsPageFocusTest {
     @Test
+    fun back_from_sessions_returns_to_account_before_the_settings_root() {
+        assertEquals(TvSettingsPage.Account, TvSettingsPage.AccountSessions.parentPage)
+        assertEquals(TvSettingsPage.Root, TvSettingsPage.Account.parentPage)
+        assertEquals(TvSettingsPage.Root, TvSettingsPage.Playback.parentPage)
+    }
+
+    @Test
     fun delayedContentGetsFocusButMessagesAndLeavingPagesDoNotStealIt() =
         runTest {
             val clock = BroadcastFrameClock()

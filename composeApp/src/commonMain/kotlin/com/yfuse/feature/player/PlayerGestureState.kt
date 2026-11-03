@@ -200,7 +200,7 @@ internal class PlayerGestureState(
     private var dragTotalX = 0f
     private var dragTotalY = 0f
     private var dragSeekMs = 0L
-    private val swipePace = SwipeSeekPace()
+    private var dragOriginMs = 0L
     private var volumeAtDragStart = 0f
     private var brightnessAtDragStart = 0f
 
@@ -230,7 +230,7 @@ internal class PlayerGestureState(
         axis.reset()
         pictureScrubMs = null
         dragSeekMs = positionMs
-        swipePace.reset()
+        dragOriginMs = positionMs
         volumeAtDragStart = volume
         brightnessAtDragStart = brightness
         this.changesEpisode = changesEpisode
@@ -275,9 +275,8 @@ internal class PlayerGestureState(
                 // would not seek: no target to show either.
                 if (durationMs <= 0L) return null
                 val span = durationMs.coerceAtLeast(1L)
-                val step = swipePace.step(dx, dtMs, width, density, span)
-                dragSeekMs = (dragSeekMs + step).coerceIn(0L, span)
-                val delta = dragSeekMs - positionMs
+                dragSeekMs = pictureSwipeTarget(dragOriginMs, dragTotalX, width, span)
+                val delta = dragSeekMs - dragOriginMs
                 val sign = if (delta < 0L) "-" else "+"
                 follow(
                     "$sign${abs(delta).asClock()} · ${dragSeekMs.asClock()} / ${span.asClock()}",
@@ -357,7 +356,10 @@ internal class PlayerGestureState(
         pictureScrubMs = null
         // The reading the finger let go on is the one worth announcing.
         settleHud()
-        return dragSeekMs.takeIf { dragAxis == DragAxis.Horizontal && durationMs > 0 && !watchGuest }
+        return dragSeekMs
+            .takeIf {
+                dragAxis == DragAxis.Horizontal && durationMs > 0 && !watchGuest && it != dragOriginMs
+            }?.coerceIn(0L, durationMs.coerceAtLeast(0L))
     }
 
     /** The drag was taken away rather than let go: nothing lands, and the HUD clears. */

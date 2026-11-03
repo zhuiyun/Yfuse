@@ -31,8 +31,9 @@ class TvSettingsSearchTest {
 
     @Test
     fun `keywords find pages whose title does not contain the word`() {
-        // Subtitles are configured on the danmaku page, which does not say 字幕 in its title.
-        assertTrue(TvSettingsPage.Danmaku in searchTvSettings("字幕"))
+        // Filtering belongs to danmaku; subtitle tracks are selected inside the player.
+        assertTrue(TvSettingsPage.Danmaku in searchTvSettings("屏蔽"))
+        assertFalse(TvSettingsPage.Danmaku in searchTvSettings("字幕"))
         // Someone hunting for hardware decoding types 硬解, not 高级播放.
         assertTrue(
             TvSettingsPage.AdvancedPlayback in searchTvSettings("硬解"),

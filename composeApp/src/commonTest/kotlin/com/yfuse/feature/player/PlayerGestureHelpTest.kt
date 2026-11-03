@@ -12,7 +12,7 @@ class PlayerGestureHelpTest {
     fun defaults_describe_the_current_player_gestures() {
         val rows = pictureGestureHelpRows(PlayerGestureSettings())
         assertEquals("快退 / 快进 10 秒，随后同侧每点一下再加一步；也可拖动进度条", rows.row("双击左侧 / 右侧"))
-        assertTrue(rows.row("长按中间")!!.contains("临时 2 倍速"))
+        assertTrue(rows.row("长按画面")!!.contains("临时 2 倍速"))
         assertTrue(rows.row("左半屏上下滑")!!.startsWith("调节亮度"))
         assertTrue(rows.row("右半屏上下滑")!!.startsWith("调节音量"))
     }
@@ -28,7 +28,7 @@ class PlayerGestureHelpTest {
                 ),
             )
         assertEquals("快退 / 快进 30 秒，随后同侧每点一下再加一步；也可拖动进度条", rows.row("双击左侧 / 右侧"))
-        assertEquals(null, rows.row("长按中间"))
+        assertEquals(null, rows.row("长按画面"))
         assertTrue(rows.row("左半屏上下滑")!!.startsWith("调节音量"))
         assertTrue(rows.row("右半屏上下滑")!!.startsWith("调节亮度"))
     }
@@ -56,17 +56,11 @@ class PlayerGestureHelpTest {
     }
 
     @Test
-    fun side_holds_remain_available_when_the_middle_speed_boost_is_disabled() {
+    fun all_picture_holds_use_the_same_speed_setting() {
         val holds = pictureGestureHelpRows(PlayerGestureSettings()).map { it.first }.filter { it.startsWith("长按") }
-        assertEquals(listOf("长按中间", "长按左侧 / 右侧"), holds)
-        val boostOff = pictureGestureHelpRows(PlayerGestureSettings(centerHoldSpeedBoost = false))
-        assertEquals(listOf("长按左侧 / 右侧"), boostOff.map { it.first }.filter { it.startsWith("长按") })
-        assertTrue(boostOff.row("长按左侧 / 右侧")!!.contains("40%"))
-        assertTrue(
-            pictureGestureHelpRows(
-                PlayerGestureSettings(doubleTapSeekSeconds = 30),
-            ).row("长按左侧 / 右侧")!!.contains("30 秒"),
-        )
+        assertEquals(listOf("长按画面"), holds)
+        val disabled = pictureGestureHelpRows(PlayerGestureSettings(centerHoldSpeedBoost = false))
+        assertEquals(emptyList(), disabled.map { it.first }.filter { it.startsWith("长按") })
     }
 
     @Test

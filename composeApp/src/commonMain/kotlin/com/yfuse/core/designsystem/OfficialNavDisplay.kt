@@ -198,7 +198,15 @@ fun <T : Any> OfficialNavDisplay(
                                     }
                                 },
                         ) {
-                            currentContent(entryKey)
+                            CompositionLocalProvider(
+                                LocalRouteTransitionRunning provides (
+                                    LocalRouteTransitionRunning.current ||
+                                        entryTransition.currentState != entryTransition.targetState ||
+                                        zoom?.controller?.active == true
+                                ),
+                            ) {
+                                currentContent(entryKey)
+                            }
                         }
                     }
                 }
@@ -218,7 +226,9 @@ fun <T : Any> OfficialNavDisplay(
                             }
                         },
                     transitionSpec = {
-                        if (cinemaPoster && motion == OfficialNavMotion.Stack) {
+                        if (reduceMotion) {
+                            noBackTransition()
+                        } else if (cinemaPoster && motion == OfficialNavMotion.Stack) {
                             cinemaPosterPageTransform(popping = false)
                         } else if (calm && !reduceMotion) {
                             calmContentTransform(motion, calmTravelPx, popping = false)
@@ -233,7 +243,9 @@ fun <T : Any> OfficialNavDisplay(
                         }
                     },
                     popTransitionSpec = {
-                        if (zoom?.suppressPopTransition == true) {
+                        if (reduceMotion) {
+                            noBackTransition()
+                        } else if (zoom?.suppressPopTransition == true) {
                             zoomBackRouteTransform()
                         } else if (detailReturn) {
                             if (reduceMotion) noBackTransition() else detailBackTransform(embellished = !calm)
@@ -252,7 +264,9 @@ fun <T : Any> OfficialNavDisplay(
                         }
                     },
                     predictivePopTransitionSpec = {
-                        if (zoom?.suppressPopTransition == true) {
+                        if (reduceMotion) {
+                            noBackTransition()
+                        } else if (zoom?.suppressPopTransition == true) {
                             zoomBackRouteTransform()
                         } else if (topIsDetail) {
                             if (reduceMotion) {
@@ -302,17 +316,17 @@ private fun calmContentTransform(
     val swap = tween<Float>(CALM_SWAP_MS, easing = easing)
     val transform =
         when {
-            motion != OfficialNavMotion.Stack -> fadeIn(swap) togetherWith fadeOut(swap)
+            motion != OfficialNavMotion.Stack -> fadeIn(swap) togetherWith fadeOut(swap, targetAlpha = 1f)
             else ->
                 (
                     fadeIn(tween(CALM_PUSH_MS, easing = easing)) +
                         slideInHorizontally(tween(CALM_PUSH_MS, easing = easing)) { travelPx }
-                ) togetherWith fadeOut(tween(CALM_PUSH_MS, easing = easing))
+                ) togetherWith fadeOut(tween(CALM_PUSH_MS, easing = easing), targetAlpha = 1f)
         }
     return ContentTransform(
         targetContentEnter = transform.targetContentEnter,
         initialContentExit = transform.initialContentExit,
-        targetContentZIndex = 0f,
+        targetContentZIndex = 1f,
         sizeTransform = null,
     )
 }
@@ -345,15 +359,9 @@ private fun rootContentTransform(
                 animationSpec = tween(Motion.TAB, easing = easing),
                 initialScale = Motion.TAB_SCALE_FROM,
             )
-    // The outgoing tab fades over the same span the incoming one takes to arrive. Pages are
-    // translucent over one backdrop, and a 120ms exit left both at under half strength for
-    // the first frames — the backdrop flashed through between them.
-    val tabExit =
-        fadeOut(tween(Motion.TAB, easing = easing)) +
-            scaleOut(
-                animationSpec = tween(Motion.TAB, easing = easing),
-                targetScale = ROOT_TAB_EXIT_SCALE,
-            )
+    // Keep the covered surface opaque until the incoming page covers it. Two simultaneous
+    // alpha fades expose the backdrop (their source-over alpha is not their sum).
+    val tabExit = fadeOut(tween<Float>(Motion.TAB, easing = easing), targetAlpha = 1f)
 
     val transform =
         when (motion) {
@@ -372,7 +380,7 @@ private fun rootContentTransform(
                         )
                 ) togetherWith tabExit
             OfficialNavMotion.SearchExit ->
-                tabEnter togetherWith
+                EnterTransition.None togetherWith
                     (
                         // It shrinks away over QUICK but fades over the returning tab's span, by the
                         // rule above: a QUICK fade left both pages under half strength for a moment.
@@ -392,7 +400,7 @@ private fun rootContentTransform(
     return ContentTransform(
         targetContentEnter = transform.targetContentEnter,
         initialContentExit = transform.initialContentExit,
-        targetContentZIndex = transform.targetContentZIndex,
+        targetContentZIndex = if (motion == OfficialNavMotion.SearchExit) -1f else 1f,
         sizeTransform = null,
     )
 }
@@ -415,15 +423,8 @@ private fun stackPushTransform(pushTravelPx: Int): ContentTransform =
             slideInHorizontally(tween(Motion.PUSH, easing = Motion.Curve)) {
                 pushTravelPx
             }
-    ) togetherWith (
-        // Over the same span as the new page's fade-in, on the same curve, so the two always add
-        // up to one. Shorter, the page being covered went under half strength before the new
-        // one had reached it — at 120ms about 40ms in, and still for 29–45ms at 180ms.
-        fadeOut(tween(Motion.PUSH, easing = Motion.Curve)) +
-            slideOutHorizontally(tween(Motion.PUSH, easing = Motion.Curve)) { -pushTravelPx / 2 }
-    )
+    ) togetherWith fadeOut(tween<Float>(Motion.PUSH, easing = Motion.Curve), targetAlpha = 1f)
 
-private const val ROOT_TAB_EXIT_SCALE = 0.994f
 private const val SEARCH_SCALE_FROM = 0.97f
 
 /** 静息's travel: a few dp, enough to say which way the page went. */

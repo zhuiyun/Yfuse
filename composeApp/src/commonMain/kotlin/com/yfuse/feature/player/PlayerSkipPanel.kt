@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,12 +47,10 @@ internal fun SkipPanel(
     // open over the film.
     val here = { (playback.value.positionMs / 1000).coerceAtLeast(0L) }
     val durationSeconds = (state.durationMs / 1000).coerceAtLeast(0L)
-    val savedCreditsStart =
-        creditsStartSecondsFromLead(skip.creditsLeadSeconds, durationSeconds)
-    var introStartInput by remember(skip.introStartSeconds) {
+    var introStartInput by remember(skip.editorKey) {
         mutableStateOf(formatSkipTimestamp(skip.introStartSeconds))
     }
-    var introEndInput by remember(skip.introEndSeconds) {
+    var introEndInput by remember(skip.editorKey) {
         mutableStateOf(
             skip.introEndSeconds
                 .takeIf { it > 0L }
@@ -59,8 +58,34 @@ internal fun SkipPanel(
                 .orEmpty(),
         )
     }
-    var creditsInput by remember(skip.creditsLeadSeconds, durationSeconds) {
-        mutableStateOf(savedCreditsStart?.let(::formatSkipTimestamp).orEmpty())
+    var creditsInput by remember(skip.editorKey) {
+        mutableStateOf(
+            skip.creditsLeadSeconds
+                .takeIf { it > 0L }
+                ?.toString()
+                .orEmpty(),
+        )
+    }
+    var introDirty by remember(skip.editorKey) { mutableStateOf(false) }
+    var creditsDirty by remember(skip.editorKey) { mutableStateOf(false) }
+    LaunchedEffect(skip.introStartSeconds, skip.introEndSeconds, introDirty) {
+        if (!introDirty) {
+            introStartInput = formatSkipTimestamp(skip.introStartSeconds)
+            introEndInput =
+                skip.introEndSeconds
+                    .takeIf { it > 0L }
+                    ?.let(::formatSkipTimestamp)
+                    .orEmpty()
+        }
+    }
+    LaunchedEffect(skip.creditsLeadSeconds, creditsDirty) {
+        if (!creditsDirty) {
+            creditsInput =
+                skip.creditsLeadSeconds
+                    .takeIf { it > 0L }
+                    ?.toString()
+                    .orEmpty()
+        }
     }
     var introError by remember(skip.introStartSeconds, skip.introEndSeconds) {
         mutableStateOf<String?>(null)
@@ -94,15 +119,28 @@ internal fun SkipPanel(
         color = Color.White.copy(alpha = 0.6f),
     )
     PopupDivider()
-    GroupLabel("片头")
+    PopupToggleHeader(
+        label = "在线获取片头片尾（全局）",
+        checked = skip.onlineEnabled,
+        onToggle = { skipActions.onSetOnlineEnabled(!skip.onlineEnabled) },
+    )
+    Text(
+        skip.onlineStatus + "。自定义优先，保存 0 表示禁用对应片段。",
+        style = AppTypography.caption.regular,
+        color = Color.White.copy(alpha = 0.6f),
+    )
+    PopupDivider()
+    GroupLabel("片头 · ${skip.introSource}")
     SkipTimeField(
         label = "开始时间",
         value = introStartInput,
         onValueChange = {
+            introDirty = true
             introStartInput = it
             introError = null
         },
         onUseCurrent = {
+            introDirty = true
             introStartInput = formatSkipTimestamp(here())
             introError = null
         },
@@ -111,10 +149,12 @@ internal fun SkipPanel(
         label = "结束时间",
         value = introEndInput,
         onValueChange = {
+            introDirty = true
             introEndInput = it
             introError = null
         },
         onUseCurrent = {
+            introDirty = true
             introEndInput = formatSkipTimestamp(here())
             introError = null
         },
@@ -138,42 +178,54 @@ internal fun SkipPanel(
                     introStart == null || introEnd == null ->
                         "请输入秒数、mm:ss 或 hh:mm:ss"
                     introStart == 0L && introEnd == 0L -> {
-                        skipActions.onSetTimes(0L, 0L, skip.creditsLeadSeconds)
+                        introDirty = false
+                        skipActions.onSetIntro(0L, 0L)
                         null
                     }
                     introEnd <= introStart -> "片头结束时间必须晚于开始时间"
                     durationSeconds > 0L && introEnd >= durationSeconds ->
                         "片头结束时间必须早于视频结束"
                     else -> {
-                        skipActions.onSetTimes(
-                            introStart,
-                            introEnd,
-                            skip.creditsLeadSeconds,
-                        )
+                        introDirty = false
+                        skipActions.onSetIntro(introStart, introEnd)
                         null
                     }
                 }
         },
     )
 
+    if (skip.introOverridden) {
+        OptionRow("片头恢复自动获取", false, onClick = {
+            introDirty = false
+            skipActions.onResetIntro()
+        })
+    }
     PopupDivider()
-    GroupLabel("片尾")
+    GroupLabel("片尾 · ${skip.creditsSource}")
     Text(
-        "只设置片尾开始的时间点；无需结束时间。",
+        "填写距离视频结束的秒数，例如 90 表示剩余 90 秒时进入片尾。",
         style = AppTypography.caption.medium,
         color = Color.White.copy(alpha = 0.54f),
         modifier = Modifier.padding(horizontal = 5.dp),
     )
     SkipTimeField(
-        label = "片尾时间",
+        label = "距离结束（秒）",
+        secondsOnly = true,
         value = creditsInput,
         onValueChange = {
+            creditsDirty = true
             creditsInput = it
             creditsError = null
         },
         onUseCurrent = {
-            creditsInput = formatSkipTimestamp(here())
-            creditsError = null
+            val current = playback.value
+            if (current.durationMs > 0L) {
+                creditsDirty = true
+                creditsInput = ((current.durationMs - current.positionMs).coerceAtLeast(0L) / 1_000L).toString()
+                creditsError = null
+            } else {
+                creditsError = "视频时长尚未就绪"
+            }
         },
     )
     creditsError?.let { error ->
@@ -188,46 +240,33 @@ internal fun SkipPanel(
         label = "保存片尾时间",
         selected = false,
         onClick = {
-            val creditsStart = parseSkipTimestamp(creditsInput)
+            val lead = parseCreditsLeadInput(creditsInput, durationSeconds)
             creditsError =
-                when {
-                    creditsStart == null -> "请输入秒数、mm:ss 或 hh:mm:ss"
-                    creditsStart == 0L -> {
-                        skipActions.onSetTimes(
-                            skip.introStartSeconds,
-                            skip.introEndSeconds,
-                            0L,
-                        )
-                        null
-                    }
-                    durationSeconds <= 0L ->
-                        "视频时长尚未就绪，暂时无法保存片尾时间"
-                    else -> {
-                        val lead =
-                            creditsLeadSecondsFromStart(
-                                creditsStart,
-                                durationSeconds,
-                            )
-                        if (lead == null) {
-                            "片尾时间必须位于视频时长范围内"
-                        } else {
-                            skipActions.onSetTimes(
-                                skip.introStartSeconds,
-                                skip.introEndSeconds,
-                                lead,
-                            )
-                            null
-                        }
-                    }
+                if (lead == null) {
+                    "请输入小于视频时长的非负秒数（最多 36000 秒）"
+                } else {
+                    creditsDirty = false
+                    skipActions.onSetCredits(lead)
+                    null
                 }
         },
     )
+    if (skip.creditsOverridden) {
+        OptionRow("片尾恢复自动获取", false, onClick = {
+            creditsDirty = false
+            skipActions.onResetCredits()
+        })
+    }
     if (skip.anySet) {
         PopupDivider()
         OptionRow(
-            label = "清除片头片尾标记",
+            label = "禁用本剧片头片尾标记",
             selected = false,
-            onClick = { skipActions.onSetTimes(0L, 0L, 0L) },
+            onClick = {
+                introDirty = false
+                creditsDirty = false
+                skipActions.onSetTimes(0L, 0L, 0L)
+            },
         )
     }
 }
@@ -238,6 +277,7 @@ private fun SkipTimeField(
     value: String,
     onValueChange: (String) -> Unit,
     onUseCurrent: () -> Unit,
+    secondsOnly: Boolean = false,
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
     Column(
@@ -269,7 +309,7 @@ private fun SkipTimeField(
                         val normalized = candidate.replace('：', ':')
                         if (
                             normalized.length <= 10 &&
-                            normalized.all { it.isDigit() || it == ':' }
+                            normalized.all { it.isDigit() || (!secondsOnly && it == ':') }
                         ) {
                             onValueChange(normalized)
                         }
@@ -279,12 +319,15 @@ private fun SkipTimeField(
                         AppTypography.body.strong.copy(
                             color = Color.White.copy(alpha = 0.94f),
                         ),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                    keyboardOptions =
+                        KeyboardOptions(
+                            keyboardType = if (secondsOnly) KeyboardType.Number else KeyboardType.Ascii,
+                        ),
                     cursorBrush = SolidColor(accent.accent),
                     decorationBox = { field ->
                         if (value.isBlank()) {
                             Text(
-                                "mm:ss / hh:mm:ss",
+                                if (secondsOnly) "秒，例如 90" else "mm:ss / hh:mm:ss",
                                 style = AppTypography.body.medium,
                                 color = Color.White.copy(alpha = 0.66f),
                             )

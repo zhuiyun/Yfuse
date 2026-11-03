@@ -255,7 +255,7 @@ class ThemePreferences(
 
     private val _backgroundDim =
         MutableStateFlow(
-            settings.getFloat(KEY_BACKGROUND_DIM, DEFAULT_BACKGROUND_DIM).coerceIn(MIN_BACKGROUND_DIM, 1f),
+            normalizedBackgroundDim(settings.getFloat(KEY_BACKGROUND_DIM, DEFAULT_BACKGROUND_DIM)),
         )
     val backgroundDim: StateFlow<Float> = _backgroundDim.asStateFlow()
 
@@ -311,7 +311,7 @@ class ThemePreferences(
     }
 
     fun setBackgroundDim(value: Float) {
-        val clamped = value.coerceIn(MIN_BACKGROUND_DIM, 1f)
+        val clamped = normalizedBackgroundDim(value)
         _backgroundDim.value = clamped
         settings.putFloat(KEY_BACKGROUND_DIM, clamped)
     }
@@ -337,8 +337,9 @@ class ThemePreferences(
     }
 
     fun setStartupTab(tab: StartupTab) {
-        _startupTab.value = tab
-        settings.putString(KEY_STARTUP_TAB, tab.name)
+        val selected = if (tab == StartupTab.Home) StartupTab.Library else tab
+        _startupTab.value = selected
+        settings.putString(KEY_STARTUP_TAB, selected.name)
         rememberHome(false)
     }
 
@@ -351,3 +352,6 @@ class ThemePreferences(
         return values.firstOrNull { it.name == stored } ?: fallback
     }
 }
+
+private fun normalizedBackgroundDim(value: Float): Float =
+    if (value.isFinite()) value.coerceIn(MIN_BACKGROUND_DIM, 1f) else DEFAULT_BACKGROUND_DIM

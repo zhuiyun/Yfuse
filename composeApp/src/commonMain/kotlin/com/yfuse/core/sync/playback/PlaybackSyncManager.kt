@@ -55,7 +55,7 @@ class PlaybackSyncManager(
     private val cipher: PlaybackVaultCipher,
     private val accessTokens: AccountAccessTokenSource,
     repo: EmbyRepository,
-    registry: ServerRegistry,
+    private val registry: ServerRegistry,
     private val progressSyncEnabled: StateFlow<Boolean> = MutableStateFlow(true),
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
@@ -145,6 +145,17 @@ class PlaybackSyncManager(
         synchronized(scheduleLock) {
             if (started) return
             started = true
+        }
+        scope.launch {
+            registry.data.collectLatest {
+                val changed =
+                    syncMutex.withLock {
+                        serverApplier.refreshServerSessions().also { ids ->
+                            ids.forEach(store::resumeServerAppliesForServer)
+                        }
+                    }
+                if (changed.isNotEmpty()) syncNow()
+            }
         }
         scope.launch {
             combine(
@@ -1047,6 +1058,38 @@ private class EmbyCompatiblePlaybackStateApplier(
     private val unavailableUntilByServerId =
         mutableMapOf<String, Long>().apply { backoffStore?.load()?.let(::putAll) }
     private val failureStreakByServerId = mutableMapOf<String, Int>()
+
+    // Compare salted identities only; never retain or log another copy of the access token.
+    private fun sessionIdentities() =
+        registry.allDataForSync().servers.associate { server ->
+            server.id to
+                com.yfuse.core.logging.playbackDiagnosticTrace(
+                    listOf(
+                        server.kind.name,
+                        server.activeRoute.url,
+                        server.userId,
+                        server.accessToken,
+                    ).joinToString("\u0000"),
+                )
+        }
+
+    private var serverSessions = sessionIdentities()
+
+    /** A new login/route must not inherit the previous session's access-denied timer. */
+    fun refreshServerSessions(): Set<String> {
+        val current = sessionIdentities()
+        val changed =
+            current.keys.filterTo(mutableSetOf()) { id ->
+                serverSessions[id]?.let { it != current[id] } == true
+            }
+        serverSessions = current
+        changed.forEach { id ->
+            unavailableUntilByServerId.remove(id)
+            failureStreakByServerId.remove(id)
+        }
+        if (changed.isNotEmpty()) backoffStore?.save(unavailableUntilByServerId)
+        return changed
+    }
 
     fun serverMissing(serverId: String): Boolean = registry.allDataForSync().servers.none { it.id == serverId }
 

@@ -32,7 +32,7 @@ internal fun settingsControlDestinations(): List<SettingsSearchDestination> =
                         "视频版本偏好", "显示帧率" -> AppIcons.Movie to SettingTint.playback
                         "Anime4K · YCore SDR 动漫（下次播放生效）" -> AppIcons.Star to SettingTint.playback
                         "刷新率匹配" -> AppIcons.Refresh to SettingTint.advanced
-                        "YCore 2.0 播放内核（仅自动模式）", "YCore Native 纯内核（自动模式/开发中）" -> AppIcons.Play to SettingTint.playback
+                        "YCore 2.0", "纯原生模式（实验）" -> AppIcons.Play to SettingTint.playback
                         "库页轮播图" -> AppIcons.Grid to SettingTint.library
                         "自定义首页 Tab" -> AppIcons.Home to SettingTint.components
                         "首页与组件管理" -> AppIcons.Grid to SettingTint.components
@@ -66,9 +66,10 @@ internal fun settingsControlDestinations(): List<SettingsSearchDestination> =
                             when (label) {
                                 "音频直通" -> "音频输出 透传 passthrough"
                                 "熄屏继续播放声音" -> "后台播放 锁屏 熄屏 音频 background audio"
+                                "播放模式" -> "YCore 播放策略 自动 省电 兼容 画质"
                                 "播放内核" -> "播放器 引擎 MDK MPV YCore2 YCore 2.0 Native 原生 纯内核 自动模式"
-                                "YCore 2.0 播放内核（仅自动模式）" -> "YCore2 YCore 2.0 自动模式"
-                                "YCore Native 纯内核（自动模式/开发中）" -> "YCore2 Native 原生 纯内核 自动模式"
+                                "YCore 2.0" -> "YCore2 YCore 2.0 自动模式"
+                                "纯原生模式（实验）" -> "YCore2 Native 原生 纯内核 自动模式"
                                 "Anime4K · YCore SDR 动漫（下次播放生效）" -> "anime4k 动漫 SDR 超分 画质"
                                 "刷新率匹配" -> "帧率 屏幕刷新率 无缝"
                                 "自定义首页 Tab" -> "首页 导航 Tab 组件 widget"
@@ -85,30 +86,21 @@ internal fun settingsControlDestinations(): List<SettingsSearchDestination> =
                 )
             }
         }
-        controls(ProfilePage.Playback, "播放", 1, "进度同步")
-        controls(
-            ProfilePage.Playback,
-            "播放",
-            2,
-            "自动播放下一集",
-            "竖屏视频",
-            "默认倍速",
-            "详情页主题曲",
-            "熄屏继续播放声音",
-            "智能跨服选源",
-            "视频缓存大小",
-            "起播预热",
-            "片头片尾",
-        )
-        controls(ProfilePage.Playback, "播放", 3, "视频版本偏好", "播放模式")
+        controls(ProfilePage.Playback, "播放", 1, "自动播放下一集", "默认倍速", "竖屏视频", "片头片尾")
+        controls(ProfilePage.Playback, "播放", 2, "播放模式", "视频版本偏好", "智能跨服选源")
+        controls(ProfilePage.Playback, "播放", 3, "详情页主题曲", "熄屏继续播放声音")
+        controls(ProfilePage.Playback, "播放", 4, "视频缓存大小", "起播预热", "高级播放设置")
+        controls(ProfilePage.Playback, "播放", 5, "进度同步")
+        if (com.yfuse.backend.BackendAccess.Default.enabled) {
+            controls(ProfilePage.Playback, "播放", 5, "匿名播放质量分享")
+        }
         controls(
             ProfilePage.AdvancedPlayback,
             "高级播放设置",
             1,
-            "YCore 播放策略",
             "播放内核",
-            "YCore 2.0 播放内核（仅自动模式）",
-            "YCore Native 纯内核（自动模式/开发中）",
+            "YCore 2.0",
+            "纯原生模式（实验）",
             "解码方式",
             "YCore 前向缓存时长",
         )
@@ -122,20 +114,24 @@ internal fun settingsControlDestinations(): List<SettingsSearchDestination> =
             "音频直通",
         )
         controls(ProfilePage.Danmaku, "弹幕", 1, "弹幕来源", "屏蔽词")
+        controls(ProfilePage.Appearance, "外观与交互", 1, "主题", "视觉效果")
+        controls(ProfilePage.Appearance, "外观与交互", 2, "背景图", "玻璃材质", "Logo 与开屏动画")
+        controls(ProfilePage.Appearance, "外观与交互", 3, "首页与导航", "动画与动效", "辅助功能")
+        controls(ProfilePage.AppearanceLayout, "首页与导航", 1, "启动进入", "自定义首页 Tab", "首页与组件管理")
+        controls(ProfilePage.AppearanceLayout, "首页与导航", 2, "库页轮播图", "滚动时收起导航栏")
+        controls(ProfilePage.AppearanceMotion, "动画与动效", 1, "动效主题")
         controls(
-            ProfilePage.Appearance,
-            "外观与辅助",
-            1,
-            "库页轮播图",
-            "自定义首页 Tab",
-            "首页与组件管理",
-            "滚动时收起导航栏",
-            "玻璃材质",
-            "Logo 与开屏动画",
-            "背景图",
-            "启动进入",
+            ProfilePage.AppearanceMotion,
+            "动画与动效",
+            2,
+            "搜索与导航动效",
+            "粒子光效",
+            "弹窗动画",
+            "加载动画",
+            "播放器进出场",
         )
-        controls(ProfilePage.Appearance, "外观与辅助", 2, "动效主题")
-        controls(ProfilePage.Appearance, "外观与辅助", 3, "搜索与导航动效", "粒子光效", "弹窗动画", "加载动画", "播放器进出场")
-        controls(ProfilePage.Appearance, "外观与辅助", 4, "减少透明效果", "大号文字", "减少动画")
+        controls(ProfilePage.AppearanceAccessibility, "辅助功能", 1, "大号文字", "减少透明效果")
+        controls(ProfilePage.AppearanceAccessibility, "辅助功能", 2, "减少动画")
+        controls(ProfilePage.DataAndDiagnostics, "数据与诊断", 1, "自定义 User-Agent")
+        controls(ProfilePage.DataAndDiagnostics, "数据与诊断", 3, "清除图片缓存", "清除视频缓存")
     }

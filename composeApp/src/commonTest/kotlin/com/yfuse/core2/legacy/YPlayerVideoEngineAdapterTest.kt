@@ -24,6 +24,16 @@ import kotlin.test.assertTrue
 
 class YPlayerVideoEngineAdapterTest {
     @Test
+    fun buffered_duration_is_mapped_from_the_current_playable_range() {
+        val player = FakeYPlayer()
+        player.mutableState.value = YPlayerState(positionMs = 10_000L, bufferedPositionMs = 97_000L)
+        val flow = player.asPlaybackStateFlow()
+        assertEquals(87_000L, flow.value.diagnostics.bufferedDurationMs)
+        player.mutableState.value = player.mutableState.value.copy(positionMs = 100_000L)
+        assertEquals(0L, flow.value.diagnostics.bufferedDurationMs)
+    }
+
+    @Test
     fun background_audio_capability_and_video_suspension_follow_the_active_backend() {
         assertFalse(YPlayerVideoEngineAdapter(FakeYPlayer()).supportsBackgroundAudio)
         var supported = true

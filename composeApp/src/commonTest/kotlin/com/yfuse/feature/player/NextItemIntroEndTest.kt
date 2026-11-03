@@ -13,6 +13,19 @@ import kotlin.test.assertNull
 class NextItemIntroEndTest {
     private val preferences = SkipSegmentPreferences(MapSettings())
 
+    @Test
+    fun widget_series_uses_online_intro_but_explicit_zero_blocks_prewarming() {
+        val next =
+            episode(
+                segments = listOf(PlaybackSegment(PlaybackSegmentType.Intro, 0L, 90_000L)),
+                seriesKey = "tmdb:226045",
+                seriesId = null,
+            )
+        assertEquals(90_000L, nextItemIntroEndMs(next, SkipMode.Auto, preferences.bySeries.value, preferences))
+        preferences.setIntro("tmdb:226045", 0L, 0L)
+        assertNull(nextItemIntroEndMs(next, SkipMode.Auto, preferences.bySeries.value, preferences))
+    }
+
     private fun episode(
         segments: List<PlaybackSegment> = emptyList(),
         seriesKey: String? = "provider:tvdb-1",

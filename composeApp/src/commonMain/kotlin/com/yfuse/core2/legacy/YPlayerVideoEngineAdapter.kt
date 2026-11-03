@@ -289,6 +289,7 @@ private fun YPlayerState.toLegacyPlaybackState(
                 frameRate = diagnostics.frameRate,
                 renderedFrameRate = diagnostics.renderedFrameRate,
                 droppedFrames = diagnostics.droppedFrames,
+                bufferedDurationMs = (bufferedPositionMs - positionMs).coerceAtLeast(0L),
                 bufferEvents = diagnostics.bufferEvents,
                 rebufferDurationMs = diagnostics.rebufferDurationMs,
                 longestRebufferMs = diagnostics.longestRebufferMs,
