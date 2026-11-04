@@ -108,7 +108,10 @@ class WidgetRepository(
                     .dropLast(48)
                     .toSet()
             val bounded = next - expired
-            if (feeds.compareAndSet(previous, bounded)) return entry
+            if (feeds.compareAndSet(previous, bounded)) {
+                expired.mapNotNull(previous::get).forEach { it.close(preserveContent = true) }
+                return entry
+            }
             if (previous[key] == null) entry.close()
         }
     }

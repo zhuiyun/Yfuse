@@ -58,12 +58,14 @@ class WidgetFeed internal constructor(
         )
     val state = mutableState.asStateFlow()
     private var failedRequest = Request.INITIAL
+    private var backgroundFailures = 0
     private var recentHomeKeys = initial.homeItems.orEmpty().map(WidgetMedia::id)
 
     /** Called only by an active home row; a browse page keeps its pagination until the user leaves. */
     fun refreshIfStale() {
         val current = state.value
-        if (current.loaded && current.error == null && now() >= current.freshUntil) request(Request.STALE)
+        val canRetry = failedRequest == Request.STALE && backgroundFailures in 1..3
+        if (current.loaded && (current.error == null || canRetry) && now() >= current.freshUntil) request(Request.STALE)
     }
 
     fun nextRecommendations() {
@@ -129,6 +131,7 @@ class WidgetFeed internal constructor(
                     if (closed.value) return@launch
                     val loaded = load(page, kind == Request.REFRESH || kind == Request.STALE || explicitRetry)
                     ensureActive()
+                    backgroundFailures = 0
                     val additions = loaded.filter { next -> before.items.none { it.id == next.id } }
                     val combined = if (kind == Request.MORE) before.items + loaded else loaded
                     val items = combined.distinctBy { it.id }.take(500)
@@ -158,9 +161,11 @@ class WidgetFeed internal constructor(
                     throw e
                 } catch (e: Exception) {
                     failedRequest = kind
+                    backgroundFailures = if (kind == Request.STALE) backgroundFailures + 1 else 0
                     if (!closed.value) {
                         mutableState.update {
-                            it.copy(error = e.message ?: "栏目加载失败", freshUntil = now() + 30_000L)
+                            val retryDelay = 30_000L * (1L shl (backgroundFailures - 1).coerceIn(0, 2))
+                            it.copy(error = e.message ?: "栏目加载失败", freshUntil = now() + retryDelay)
                         }
                     }
                 }

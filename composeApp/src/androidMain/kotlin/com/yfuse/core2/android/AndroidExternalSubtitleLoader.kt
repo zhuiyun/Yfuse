@@ -45,6 +45,7 @@ internal class AndroidExternalSubtitleLoader(
         source: YExternalSubtitleSource,
         headers: Map<String, String>,
         trackId: String = EXTERNAL_SUBTITLE_TRACK_ID,
+        onValidated: ((String, YSubtitleFormat) -> Unit)? = null,
     ): AndroidLoadedExternalSubtitle {
         val loaded = read(source.uri, headers)
         val loadingContext = currentCoroutineContext()
@@ -84,6 +85,8 @@ internal class AndroidExternalSubtitleLoader(
             } else {
                 parsed
             }
+        loadingContext.ensureActive()
+        onValidated?.invoke(text, format)
         return AndroidLoadedExternalSubtitle(
             track =
                 YTrack(

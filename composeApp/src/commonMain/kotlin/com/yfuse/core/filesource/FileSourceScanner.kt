@@ -78,7 +78,7 @@ class FileSourceScanner(
             files = files,
             unmatchedCount = named.size - files.size,
             partial = walk.partial || matched.size < groups.size,
-        )
+        ).preservingUnreadFiles(previous)
     }
 
     private data class Video(

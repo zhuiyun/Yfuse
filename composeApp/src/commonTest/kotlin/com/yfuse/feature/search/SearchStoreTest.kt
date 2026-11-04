@@ -4,6 +4,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.SmartPlaylist
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
@@ -19,6 +20,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlin.test.AfterTest
@@ -49,6 +51,91 @@ class SearchStoreTest {
             Dispatchers.resetMain()
         }
     }
+
+    @Test
+    fun typing_a_new_query_immediately_invalidates_the_old_request_before_debounce() =
+        runTest {
+            val registry = testRegistry().apply { addOrUpdate(SavedServer("a", "http://one", "甲", "u", "u", "tok")) }
+            val oldResponse = CompletableDeferred<Unit>()
+            val history = SearchHistory(MapSettings())
+            val repo =
+                testRepo(dispatcher) { request ->
+                    if (request.url.encodedPath.endsWith("/Items")) {
+                        val query = request.url.parameters["SearchTerm"].orEmpty()
+                        if (query == "old") oldResponse.await()
+                        json("""{"Items":[{"Id":"$query","Name":"$query","Type":"Movie"}]}""")
+                    } else {
+                        json("""{"Items":[]}""")
+                    }
+                }
+            val store = SearchStoreFactory(DefaultStoreFactory(), repo, registry, history).create()
+            try {
+                store.accept(SearchIntent.QueryChanged("old"))
+                store.accept(SearchIntent.Submit)
+                runCurrent()
+                store.accept(SearchIntent.QueryChanged("new"))
+                oldResponse.complete(Unit)
+                runCurrent()
+                assertTrue(history.load().isEmpty(), "An invalidated query must not record a success during debounce")
+                advanceUntilIdle()
+                assertEquals(listOf("new"), store.state.items.map { it.id })
+                assertEquals(listOf("new"), history.load())
+            } finally {
+                oldResponse.complete(Unit)
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun changing_a_filter_for_the_same_words_does_not_append_the_previous_page() =
+        runTest {
+            val registry = testRegistry().apply { addOrUpdate(SavedServer("a", "http://one", "甲", "u", "u", "tok")) }
+            val pageResponse = CompletableDeferred<Unit>()
+            val repo =
+                testRepo(dispatcher) { request ->
+                    if (!request.url.encodedPath.endsWith("/Items")) return@testRepo json("""{"Items":[]}""")
+                    val paged = request.url.parameters["StartIndex"] == "1"
+                    if (paged) pageResponse.await()
+                    val series = request.url.parameters["IncludeItemTypes"] == "Series"
+                    val id =
+                        if (series) {
+                            "series"
+                        } else if (paged) {
+                            "stale"
+                        } else {
+                            "movie"
+                        }
+                    val type = if (series) "Series" else "Movie"
+                    json("""{"Items":[{"Id":"$id","Name":"Title","Type":"$type"}],"TotalRecordCount":2}""")
+                }
+            val store = SearchStoreFactory(DefaultStoreFactory(), repo, registry).create()
+            try {
+                store.accept(SearchIntent.QueryChanged("Title"))
+                store.accept(SearchIntent.Submit)
+                advanceUntilIdle()
+                store.accept(SearchIntent.LoadMore("a"))
+                runCurrent()
+                store.accept(SearchIntent.SetType(SearchType.Series))
+                advanceUntilIdle()
+                pageResponse.complete(Unit)
+                runCurrent()
+                assertEquals(
+                    listOf("series"),
+                    store.state.groups
+                        .single()
+                        .items
+                        .map { it.id },
+                )
+                assertNull(
+                    store.state.groups
+                        .single()
+                        .loadMoreError,
+                )
+            } finally {
+                pageResponse.complete(Unit)
+                store.dispose()
+            }
+        }
 
     @Test
     fun saved_rule_searches_without_keywords_and_paginates_on_the_selected_server() =

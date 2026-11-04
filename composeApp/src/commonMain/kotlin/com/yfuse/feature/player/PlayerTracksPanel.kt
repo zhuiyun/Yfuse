@@ -354,8 +354,16 @@ internal fun TracksPanel(
                 "导入本地字幕",
                 false,
                 onClick = remoteSubtitleActions.onImport,
-                detailLabel = "SRT / ASS / SSA / VTT · 仅本次播放，不上传",
+                detailLabel = "SRT / ASS / SSA / VTT · 保存到本机并关联当前版本",
             )
+            if (remoteSubtitles.importedCount > 0) {
+                OptionRow(
+                    "清除本片已导入字幕（${remoteSubtitles.importedCount} 条）",
+                    false,
+                    onClick = remoteSubtitleActions.onClearImports,
+                    detailLabel = "移除本机副本，保留原文件和服务器字幕",
+                )
+            }
         } else {
             UnsupportedSubtitleControl(remoteSubtitles.importUnavailableReason)
         }
