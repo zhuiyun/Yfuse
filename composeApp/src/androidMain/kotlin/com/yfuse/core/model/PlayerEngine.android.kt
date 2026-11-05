@@ -9,6 +9,8 @@ actual fun bundledPlayerEngines(): Set<PlayerEngine> =
         if (
             com.yfuse.senplayer.SenPlayerSession
                 .supportsProcess()
-        ) add(PlayerEngine.SenPlayer)
+        ) {
+            add(PlayerEngine.SenPlayer)
+        }
         if (BuildConfig.YFUSE_MDK_INCLUDED) add(PlayerEngine.Mdk)
     }
